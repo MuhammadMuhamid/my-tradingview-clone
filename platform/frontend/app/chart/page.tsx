@@ -14,6 +14,7 @@ import { AlertModal } from "@/components/tv/AlertModal";
 import { MaPanel } from "@/components/tv/MaPanel";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
 import { PushSetup } from "@/components/tv/PushSetup";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import * as drawStore from "@/lib/drawings";
@@ -41,6 +42,15 @@ type Panel = "watchlist" | "alerts" | "indicators" | "ma" | null;
 /** Standard auto-backtest window: 2025-11-01 → today (handoff §7). */
 const BACKTEST_START = "2025-11-01";
 const todayISO = (): string => new Date().toISOString().slice(0, 10);
+
+/**
+ * Bottom-panel preference key. Phones and desktops store it separately so one
+ * form factor's choice never dictates the other's opening layout.
+ */
+const bottomKey = (): string =>
+  typeof window !== "undefined" && window.innerWidth < 768
+    ? "tv.bottomCollapsed.mobile"
+    : "tv.bottomCollapsed";
 
 /** JSON.stringify with recursively sorted keys — server JSONB reorders keys. */
 function stableStringify(v: unknown): string {
@@ -85,6 +95,14 @@ export default function TvWorkspace() {
   }, [openTrade]);
 
   const [panel, setPanel] = useState<Panel>("watchlist");
+  // ── phone chrome: everything optional starts closed so the chart gets the screen ──
+  const isMobile = useIsMobile();
+  /** Drawing rail — a floating drawer on phones, always-on column on desktop. */
+  const [toolsOpen, setToolsOpen] = useState(false);
+  /** Second row of the toolbar (history depth, split, strategy, layouts…). */
+  const [moreOpen, setMoreOpen] = useState(false);
+  /** Site navigation, which is hidden on the phone chart to reclaim a whole row. */
+  const [navOpen, setNavOpen] = useState(false);
 
   // On phones the side panel is an overlay drawer, so start it closed —
   // otherwise it covers the chart on first load.
@@ -107,6 +125,20 @@ export default function TvWorkspace() {
   /** collapsed to just its tab strip, so the chart gets the full height */
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
 
+  /**
+   * Persist on the user's action rather than in an effect on the value.
+   * An effect keyed to `bottomCollapsed` runs in the same commit as the
+   * restore effect, before the restored state has been applied, so it writes
+   * the initial `false` straight back over the stored preference.
+   */
+  const toggleBottom = useCallback(() => {
+    setBottomCollapsed((v) => {
+      const next = !v;
+      window.localStorage.setItem(bottomKey(), next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
   // ── split view: a second pane on the same symbol, its own timeframe ──
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitInterval, setSplitInterval] = useState<Interval>("1h");
@@ -115,7 +147,11 @@ export default function TvWorkspace() {
   // they live in localStorage instead of the saved layout.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setBottomCollapsed(window.localStorage.getItem("tv.bottomCollapsed") === "1");
+    // The Strategy Tester is a desktop working surface. Phone and desktop keep
+    // SEPARATE preferences: a tester left open on a large screen must not open
+    // itself on a phone, where it would take over half the chart.
+    const storedBottom = window.localStorage.getItem(bottomKey());
+    setBottomCollapsed(storedBottom === null ? window.innerWidth < 768 : storedBottom === "1");
     const split = window.localStorage.getItem("tv.split");
     if (split) {
       try {
@@ -125,9 +161,7 @@ export default function TvWorkspace() {
       } catch { /* ignore malformed */ }
     }
   }, []);
-  useEffect(() => {
-    window.localStorage.setItem("tv.bottomCollapsed", bottomCollapsed ? "1" : "0");
-  }, [bottomCollapsed]);
+
   useEffect(() => {
     window.localStorage.setItem("tv.split", JSON.stringify({ open: splitOpen, interval: splitInterval }));
   }, [splitOpen, splitInterval]);
@@ -470,53 +504,88 @@ export default function TvWorkspace() {
     [maOverlays, indicators.overlays]
   );
 
+  /** One definition, rendered twice: as the desktop column and the phone drawer. */
+  const drawingToolbarProps = {
+    tool, onTool: setTool,
+    magnet, onMagnet: setMagnet,
+    locked: drawLocked, onLocked: setDrawLocked,
+    hidden: drawHidden, onHidden: setDrawHidden,
+    onDeleteAll: () => {
+      if (window.confirm("Remove all drawings on this symbol?")) updateDrawings([]);
+    },
+    count: drawings.length,
+  };
+
+  /** Phone drawers are mutually exclusive — two overlays at once hides the chart. */
+  const togglePanel = (p: Panel) => {
+    setToolsOpen(false);
+    setPanel((cur) => (cur === p ? null : p));
+  };
+
   const railBtn = (active: boolean): string =>
     `flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
       active ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
     }`;
 
   return (
-    <div className="flex h-full">
-      {/* ── left drawing rail ── */}
-      <DrawingToolbar
-        tool={tool}
-        onTool={setTool}
-        magnet={magnet}
-        onMagnet={setMagnet}
-        locked={drawLocked}
-        onLocked={setDrawLocked}
-        hidden={drawHidden}
-        onHidden={setDrawHidden}
-        onDeleteAll={() => { if (window.confirm("Remove all drawings on this symbol?")) updateDrawings([]); }}
-        count={drawings.length}
-      />
+    <div className="flex h-full pb-[52px] md:pb-0">
+      {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
+      <div className="hidden md:flex">
+        <DrawingToolbar {...drawingToolbarProps} />
+      </div>
+      {toolsOpen && (
+        <>
+          <button
+            aria-label="Close drawing tools"
+            onClick={() => setToolsOpen(false)}
+            className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          />
+          <div className="fixed left-0 top-0 z-40 h-full md:hidden">
+            <DrawingToolbar {...drawingToolbarProps} floating onClose={() => setToolsOpen(false)} />
+          </div>
+        </>
+      )}
 
       {/* ── main column ── */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* top toolbar */}
-        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-b border-border bg-surface px-3 py-1.5 sm:flex-wrap sm:overflow-x-visible">
+        <div className="flex flex-nowrap items-center gap-2 border-b border-border bg-surface px-2 py-1.5 sm:flex-wrap sm:overflow-x-visible sm:px-3">
+          {/* Phone-only: site nav lives here, so the global bar can be hidden. */}
+          <button
+            onClick={() => setNavOpen(true)}
+            aria-label="Menu"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-2 hover:text-ink md:hidden"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
           <button
             onClick={() => setSearchOpen(true)}
             title="Change symbol (/)"
-            className="flex items-center gap-1.5 rounded-md bg-surface-2 px-2.5 py-1 text-sm font-semibold text-ink transition-colors hover:bg-border"
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-surface-2 px-2.5 py-1 text-sm font-semibold text-ink transition-colors hover:bg-border"
           >
             {symbol}
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="text-ink-faint">
               <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
             </svg>
           </button>
-          <span className="text-ink-faint">·</span>
-          <div className="flex items-center gap-0.5">
+          <span className="shrink-0 text-ink-faint">·</span>
+          {/* The interval strip is the only thing allowed to overflow, so the
+              ☰ and ⋯ buttons stay pinned at the edges of a narrow screen. */}
+          <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto sm:flex-none sm:overflow-visible">
             {INTERVALS.map((i) => (
               <button key={i} onClick={() => changeInterval(i)}
-                className={`rounded px-2 py-1 text-[13px] transition-colors ${
+                className={`shrink-0 rounded px-2 py-1 text-[13px] transition-colors ${
                   interval === i ? "bg-surface-2 font-semibold text-ink" : "text-ink-muted hover:text-ink"
                 }`}>
                 {i}
               </button>
             ))}
           </div>
-          <span className="text-ink-faint">·</span>
+          {/* Secondary controls: always inline on desktop, behind ⋯ on phones. */}
+          <div className={`${moreOpen ? "flex" : "hidden"} order-last w-full flex-wrap items-center gap-2 border-t border-border pt-1.5 md:order-none md:flex md:w-auto md:border-0 md:pt-0`}>
+          <span className="hidden text-ink-faint md:inline">·</span>
           <div className="flex items-center gap-0.5">
             {HISTORY_OPTIONS.map((h) => (
               <button key={h.label} onClick={() => setBars(h.bars)}
@@ -573,7 +642,7 @@ export default function TvWorkspace() {
             <span aria-hidden>★</span>
             {loadingBest ? "Loading…" : "Best"}
           </button>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-3 md:ml-auto">
             <span className="tabular text-xs text-ink-muted">
               {last && <>Last <span className="text-ink">{fmtPrice(last.close)}</span></>}
               <span className="ml-3 text-ink-faint">
@@ -588,6 +657,20 @@ export default function TvWorkspace() {
               {...layoutHandlers}
             />
           </div>
+          </div>
+
+          {/* Phone-only overflow toggle for everything above. */}
+          <button
+            onClick={() => setMoreOpen((v) => !v)}
+            aria-label={moreOpen ? "Fewer controls" : "More controls"}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md md:hidden ${
+              moreOpen ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+            }`}
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+              <circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" />
+            </svg>
+          </button>
         </div>
 
         {err && <div className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">{err}</div>}
@@ -605,7 +688,7 @@ export default function TvWorkspace() {
               overlays={chartOverlays}
               markers={indicators.markers}
               pineDrawings={indicators.drawings}
-              priceLines={priceLines} live fill
+              priceLines={priceLines} live fill compact={isMobile}
               drawingTool={tool}
               onDrawingToolDone={() => setTool("cursor")}
               drawings={drawings}
@@ -639,8 +722,12 @@ export default function TvWorkspace() {
                 onClick={() => {
                   // Clicking the active tab while collapsed reopens it, which
                   // is what a collapsed tab strip invites you to do.
-                  if (bottomTab === id) setBottomCollapsed((v) => !v);
-                  else { setBottomTab(id); setBottomCollapsed(false); }
+                  if (bottomTab === id) toggleBottom();
+                  else {
+                    setBottomTab(id);
+                    setBottomCollapsed(false);
+                    window.localStorage.setItem(bottomKey(), "0");
+                  }
                 }}
                 className={`border-b-2 pb-1 text-xs font-medium ${
                   bottomTab === id && !bottomCollapsed
@@ -662,7 +749,7 @@ export default function TvWorkspace() {
                 </button>
               )}
               <button
-                onClick={() => setBottomCollapsed((v) => !v)}
+                onClick={toggleBottom}
                 title={bottomCollapsed ? "Expand panel" : "Minimize panel"}
                 aria-label={bottomCollapsed ? "Expand panel" : "Minimize panel"}
                 className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
@@ -716,7 +803,7 @@ export default function TvWorkspace() {
             onClick={() => setPanel(null)}
             className="fixed inset-0 z-30 bg-black/50 md:hidden"
           />
-          <div className="fixed right-12 top-0 z-40 h-full md:static md:right-auto md:z-auto md:h-auto">
+          <div className="fixed bottom-[52px] right-0 top-0 z-40 md:static md:bottom-auto md:right-auto md:z-auto md:h-auto">
             {panel === "watchlist" && (
               <Watchlist symbols={symbols} selected={symbol} onSelect={changeSymbol} onSymbolsChanged={refreshSymbols} />
             )}
@@ -744,7 +831,7 @@ export default function TvWorkspace() {
       )}
 
       {/* ── far-right icon rail (TV-style) ── */}
-      <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-l border-border bg-surface py-2">
+      <div className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-border bg-surface py-2 md:flex">
         <button
           onClick={() => setPanel((p) => (p === "watchlist" ? null : "watchlist"))}
           className={railBtn(panel === "watchlist")}
@@ -792,6 +879,78 @@ export default function TvWorkspace() {
           </svg>
         </button>
       </div>
+
+      {/* ── phone action bar (TradingView keeps its controls at the thumb) ── */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
+        {([
+          ["tools", "Draw", toolsOpen, () => { setToolsOpen((v) => !v); setPanel(null); },
+            <path d="M4 20l4-1 9-9-3-3-9 9zM15 5l3 3 2-2-3-3z" />],
+          ["watchlist", "Watchlist", panel === "watchlist", () => togglePanel("watchlist"),
+            <path d="M4 7h16M4 12h16M4 17h10" />],
+          ["ma", "MAs", panel === "ma", () => togglePanel("ma"),
+            <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />],
+          ["indicators", "Studies", panel === "indicators", () => togglePanel("indicators"),
+            <><path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" /></>],
+          ["alerts", "Alerts", panel === "alerts", () => togglePanel("alerts"),
+            <><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" /></>],
+        ] as const).map(([id, label, active, onClick, icon]) => (
+          <button
+            key={id}
+            onClick={onClick}
+            className={`relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] ${
+              active ? "text-accent" : "text-ink-muted"
+            }`}
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              {icon}
+            </svg>
+            {label}
+            {id === "ma" && maAlerts.length > 0 && (
+              <span className="absolute right-1/4 top-0.5 rounded-full bg-accent px-1 text-[8px] font-semibold text-white">
+                {maAlerts.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </nav>
+
+      {/* Site navigation, reachable from the phone toolbar's ☰ */}
+      {navOpen && (
+        <>
+          <button aria-label="Close menu" onClick={() => setNavOpen(false)}
+            className="fixed inset-0 z-40 bg-black/60 md:hidden" />
+          <div className="fixed left-0 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-surface p-3 md:hidden">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <span className="inline-block h-2 w-2 rounded-full bg-accent" />SR+Trend
+              </span>
+              <button onClick={() => setNavOpen(false)} aria-label="Close"
+                className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 4l16 16M20 4L4 20" />
+                </svg>
+              </button>
+            </div>
+            {[["/chart", "Chart"], ["/optimizers", "Optimizers"],
+              ["/backtests", "Backtests"], ["/deployments", "Live & Alerts"]].map(([href, label]) => (
+              <a key={href} href={href}
+                className="rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">
+                {label}
+              </a>
+            ))}
+            <button
+              onClick={async () => {
+                await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+                window.location.href = "/login";
+              }}
+              className="mt-auto rounded-md px-3 py-2 text-left text-sm text-ink-muted hover:bg-surface-2 hover:text-ink"
+            >
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
 
       {/* dialogs */}
       <StrategySettingsModal

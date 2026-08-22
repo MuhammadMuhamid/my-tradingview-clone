@@ -67,6 +67,7 @@ export function CandleChart({
   live = true, fill = false,
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
   magnet = false, drawingsLocked = false, drawingsHidden = false,
+  compact = false,
 }: {
   symbol: string;
   interval: Interval;
@@ -91,6 +92,12 @@ export function CandleChart({
   magnet?: boolean;
   drawingsLocked?: boolean;
   drawingsHidden?: boolean;
+  /**
+   * Phone layout: drop the per-series price-axis badges and shorten the
+   * legend. Ten moving averages each stamp a label on the scale, which on a
+   * 390px screen covers most of the price column.
+   */
+  compact?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -290,7 +297,8 @@ export function CandleChart({
         color: o.color,
         lineWidth: (o.width ?? 2) as 1 | 2 | 3 | 4,
         lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
-        title: o.title,
+        // The title is what lightweight-charts stamps onto the price scale.
+        title: compact ? "" : o.title,
       });
       s.setData(
         o.data
@@ -299,7 +307,7 @@ export function CandleChart({
           .map((d) => ({ time: d.time as UTCTimestamp, value: d.value as number }))
       );
     }
-  }, [overlays, chartReady, candles]);
+  }, [overlays, chartReady, candles, compact]);
 
   // Live: update the forming candle from Binance kline WS.
   useEffect(() => {
@@ -379,18 +387,20 @@ export function CandleChart({
         />
       )}
       {legend && (
-        <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap items-baseline gap-x-2 rounded bg-[#121722]/75 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-[#9aa4b6]">
+        <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap items-baseline gap-x-2 rounded bg-[#121722]/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-[#9aa4b6] sm:text-[11px]">
           <span className="font-semibold text-[#e5e9f0]">{symbol}</span>
           <span>· {interval} ·</span>
-          <span>O <span className={px}>{fmtPrice(legend.open)}</span></span>
-          <span>H <span className={px}>{fmtPrice(legend.high)}</span></span>
-          <span>L <span className={px}>{fmtPrice(legend.low)}</span></span>
+          {/* O/H/L and volume are the first things to go on a phone: the close
+              and the change are what the eye actually reads at a glance. */}
+          <span className="hidden sm:inline">O <span className={px}>{fmtPrice(legend.open)}</span></span>
+          <span className="hidden sm:inline">H <span className={px}>{fmtPrice(legend.high)}</span></span>
+          <span className="hidden sm:inline">L <span className={px}>{fmtPrice(legend.low)}</span></span>
           <span>C <span className={px}>{fmtPrice(legend.close)}</span></span>
           <span className={chgUp ? "text-[#2ebd85]" : "text-[#f6465d]"}>
             {chgUp ? "+" : ""}{fmtPrice(legend.chg)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
           </span>
           {legend.volume !== null && (
-            <span>Vol <span className="text-[#e5e9f0]">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
+            <span className="hidden sm:inline">Vol <span className="text-[#e5e9f0]">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
           )}
         </div>
       )}

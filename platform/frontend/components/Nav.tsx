@@ -32,8 +32,14 @@ export function Nav() {
 
   if (path === "/login") return null;
 
+  // The chart carries its own compact header and ☰ drawer on phones; showing
+  // this bar too would spend a whole row of a 390px screen on navigation.
+  const hideOnMobile = path === "/chart";
+
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur">
+    <header className={`sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur ${
+      hideOnMobile ? "hidden md:block" : ""
+    }`}>
       <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-3 py-2.5 sm:gap-6 sm:px-4 sm:py-3">
         <Link href="/chart" className="flex shrink-0 items-center gap-2 font-semibold">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-accent" />

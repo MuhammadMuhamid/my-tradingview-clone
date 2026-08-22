@@ -126,6 +126,7 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
  */
 export function DrawingToolbar({
   tool, onTool, magnet, onMagnet, locked, onLocked, hidden, onHidden, onDeleteAll, count,
+  floating = false, onClose,
 }: {
   tool: DrawingTool;
   onTool: (t: DrawingTool) => void;
@@ -137,6 +138,9 @@ export function DrawingToolbar({
   onHidden: (v: boolean) => void;
   onDeleteAll: () => void;
   count: number;
+  /** Phone drawer: the rail floats over the chart instead of taking a column. */
+  floating?: boolean;
+  onClose?: () => void;
 }) {
   const [active, setActive] = useState<Record<string, DrawingTool>>(() =>
     Object.fromEntries(GROUPS.map((g) => [g.id, g.tools[0]!.tool]))
@@ -165,7 +169,25 @@ export function DrawingToolbar({
     }`;
 
   return (
-    <div ref={railRef} className="relative flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-border bg-surface py-2">
+    <div
+      ref={railRef}
+      className={`relative flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-border bg-surface py-2 ${
+        // Floating: scrolls independently and casts a shadow so it reads as a
+        // layer above the chart rather than part of it.
+        floating ? "h-full overflow-y-auto shadow-2xl" : ""
+      }`}
+    >
+      {floating && onClose && (
+        <button
+          onClick={onClose}
+          aria-label="Close drawing tools"
+          className="mb-1 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint hover:bg-surface-2 hover:text-ink"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 4l16 16M20 4L4 20" />
+          </svg>
+        </button>
+      )}
       {GROUPS.map((group) => {
         const current = group.tools.find((t) => t.tool === active[group.id]) ?? group.tools[0]!;
         const groupOn = group.tools.some((t) => t.tool === tool);
