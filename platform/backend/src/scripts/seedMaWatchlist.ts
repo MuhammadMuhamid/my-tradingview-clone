@@ -4,8 +4,8 @@
  * For every coin in COINS this:
  *   1. registers the Binance symbol (so candles can be fetched),
  *   2. puts it in a single server-side watchlist,
- *   3. saves a 1h chart layout named after the coin, carrying all ten MA
- *      lines (SMA + EMA of 200/100/50/21/15),
+ *   3. saves a 1h chart layout named "<SYMBOL> 1h" carrying all ten MA lines
+ *      (SMA + EMA of 200/100/50/21/15),
  *   4. arms the two approach alerts on 1h: price 0.2–0.5% ABOVE the 15 SMA,
  *      and 0.2–0.5% ABOVE the 21 SMA.
  *
@@ -25,6 +25,17 @@ import { closePool } from "../db/pool";
 import type { LayoutMaLine } from "../repositories/layouts";
 
 const WATCHLIST_NAME = "Main Watchlist";
+
+/**
+ * MA layouts are named "<SYMBOL> 1h", NOT bare "<SYMBOL>".
+ *
+ * A layout named after the coin alone already exists for every live
+ * deployment, carrying its tuned strategy parameters (mtf_lean, ~100 of them).
+ * upsertLayoutByName matches on name, so reusing the bare symbol would
+ * overwrite that tuning with an empty parameter set. A distinct name gives the
+ * moving-average workspace its own layout and leaves the tuned ones alone.
+ */
+const layoutName = (symbol: string): string => `${symbol} 1h`;
 const TIMEFRAME = "1h" as const;
 const MA_LENGTHS = [200, 100, 50, 21, 15];
 
@@ -64,7 +75,7 @@ async function main(): Promise<void> {
     const base = symbol.replace(/USDT$/, "");
     if (!dry) {
       await symbolRepo.addSymbol(symbol, base, "USDT");
-      await layoutRepo.upsertLayoutByName(symbol, {
+      await layoutRepo.upsertLayoutByName(layoutName(symbol), {
         symbol,
         timeframe: TIMEFRAME,
         bars: 10000,
@@ -89,7 +100,7 @@ async function main(): Promise<void> {
       }
     }
     console.log(
-      `  ${symbol.padEnd(12)} layout ${TIMEFRAME} · ${ALL_MA_LINES.length} MA lines · ` +
+      `  ${layoutName(symbol).padEnd(16)} · ${ALL_MA_LINES.length} MA lines · ` +
       `${APPROACH_ALERTS.length} approach alerts`
     );
   }
