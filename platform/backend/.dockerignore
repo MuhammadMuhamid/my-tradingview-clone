@@ -1,0 +1,31 @@
+node_modules
+dist
+.env
+*.log
+**/*.log
+__pycache__
+**/__pycache__
+**/.optimizer.pid
+
+# Optimizer trees: ship the CODE only (~74 KB each). Result histories are
+# multi-GB and live on the host, bind-mounted over /app/<tree> by
+# compose.compute.yml. Keep this list in step with the Dockerfile's optimizer
+# target — an unlisted tree drags its whole history into the build context.
+#
+# The three surviving systems as of 2026-07-30; the former optimizer,
+# optimizer1h, optimizer5m, sr_optimizer15m and sr_optimizer5m trees were removed.
+optimizer1y1h/results
+optimizer1y1h/best
+optimizer1y1h/index
+optimizer1y1h/archive
+optimizer1y1h/SUMMARY.json
+optimizer1y15m/results
+optimizer1y15m/best
+optimizer1y15m/index
+optimizer1y15m/archive
+optimizer1y15m/SUMMARY.json
+sr_optimizer1h/results
+sr_optimizer1h/best
+sr_optimizer1h/index
+sr_optimizer1h/archive
+sr_optimizer1h/SUMMARY.json

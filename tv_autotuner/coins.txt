@@ -1,0 +1,20 @@
+# Coins the autotuner works on — one per line.
+# Just the pair name is enough (BINANCE: is added automatically).
+# Lines starting with # are ignored.
+# After editing: tuner-stop, then tuner-start (changes apply on restart).
+
+DEXEUSDT
+MORPHOUSDT
+INJUSDT
+NEARUSDT
+JTOUSDT
+ZECUSDT
+PUMPUSDT
+APTUSDT
+ARBUSDT
+PYTHUSDT
+ALGOUSDT
+TAOUSDT
+ENAUSDT
+JUPUSDT
+TIAUSDT

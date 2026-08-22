@@ -1,0 +1,358 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// AlphaTrend Scalping — trend-following scalper built around the AlphaTrend buy signal.
+//
+// IDEA (run this on the 15m chart):
+//   • Entry trigger = AlphaTrend BUY signal (KivancOzbilgic). Exactly ONE trade per buy
+//     signal (armed on buy, consumed on entry, cancelled on the next sell).
+//   • UPTREND mode (always on): take the buy only when price is ABOVE the 15m-100 MA
+//     (orange) AND the 1h-100 MA (white). Trail the stop up the AlphaTrend line to ride
+//     the move for maximum profit.
+//   • DOWNTREND mode (optional toggle): when price is BELOW the 1h-100 MA AND 1h-200 MA,
+//     take the buy only when price is ABOVE the 15m-100 HMA (blue), with a tighter stop
+//     and a small fixed take-profit (scalp the bounce).
+//   • Chop guard (avoid sideways): MAs must be stacked + rising and ADX above a floor.
+//   • Top guard (avoid buying the top): block entries that are over-extended above the
+//     MA or where RSI is too hot.
+//   • Risk: ATR stop sized per regime + AlphaTrend-flip exit + break-even — designed to
+//     keep adverse excursion small.
+//@version=6
+strategy("AlphaTrend Scalping", shorttitle = "AT Scalp", overlay = true,
+     max_labels_count = 500, max_lines_count = 300,
+     initial_capital = 1000, default_qty_type = strategy.percent_of_equity, default_qty_value = 95,
+     commission_type = strategy.commission.percent, commission_value = 0.05,
+     slippage = 2, pyramiding = 0, calc_on_every_tick = false, calc_on_order_fills = false)
+
+// ── Groups ────────────────────────────────────────────────────────────────────
+string G_GEN  = "1 General"
+string G_AT   = "2 AlphaTrend (entry trigger)"
+string G_MA   = "3 Regime — MAs (15m / 1h)"
+string G_CHOP = "4 Chop filter (avoid sideways)"
+string G_TOP  = "5 Top guard (avoid buying the top)"
+string G_SL   = "6 Stop loss"
+string G_TP   = "7 Take profit / trailing"
+string G_DN   = "8 Downtrend mode"
+string G_VIS  = "9 Visualization"
+
+// ── General ───────────────────────────────────────────────────────────────────
+useBarConfirm = input.bool(true, "Signals on confirmed bar only", group = G_GEN,
+     tooltip = "Keep ON for live trading so entries fire only on closed bars.")
+signalValidBars = input.int(5, "Signal valid for N bars after buy", minval = 1, maxval = 50, group = G_GEN,
+     tooltip = "After an AlphaTrend buy, the strategy will enter on the first bar within this window where the regime + filters are satisfied. The signal is consumed on entry and cancelled by the next AlphaTrend sell — so you get at most ONE trade per buy signal.")
+
+// ── AlphaTrend (entry trigger) ────────────────────────────────────────────────
+atCoeff    = input.float(1.0, "AlphaTrend Multiplier", step = 0.1, group = G_AT)
+atPeriod   = input.int(14, "AlphaTrend Common Period", minval = 1, group = G_AT)
+atSrc      = input.source(close, "AlphaTrend Source", group = G_AT)
+atNoVol    = input.bool(false, "No volume data (use RSI instead of MFI)", group = G_AT)
+useAtFlipExit = input.bool(true, "Exit on AlphaTrend sell flip", group = G_AT,
+     tooltip = "Close the trade when AlphaTrend prints a sell signal — the trigger indicator's own invalidation. Strongly recommended to cap adverse excursion.")
+
+// ── Regime — MAs ──────────────────────────────────────────────────────────────
+ma15Tf   = input.timeframe("15", "15m MA timeframe", group = G_MA, inline = "m15")
+ma15Len  = input.int(100, "len", minval = 1, group = G_MA, inline = "m15")
+ma15Type = input.string("SMA", "", options = ["SMA", "EMA", "WMA", "RMA", "VWMA", "HMA"], group = G_MA, inline = "m15")
+ma1hTf   = input.timeframe("60", "1h MA timeframe", group = G_MA, inline = "m1h")
+ma1hLen  = input.int(100, "len", minval = 1, group = G_MA, inline = "m1h")
+ma1hType = input.string("SMA", "", options = ["SMA", "EMA", "WMA", "RMA", "VWMA", "HMA"], group = G_MA, inline = "m1h")
+hmaTf    = input.timeframe("15", "15m HMA timeframe (downtrend)", group = G_MA, inline = "hma")
+hmaLen   = input.int(100, "len", minval = 1, group = G_MA, inline = "hma")
+ma1h2Tf  = input.timeframe("60", "1h slow MA timeframe (downtrend regime)", group = G_MA, inline = "m1h2")
+ma1h2Len = input.int(200, "len", minval = 1, group = G_MA, inline = "m1h2")
+ma1h2Type = input.string("SMA", "", options = ["SMA", "EMA", "WMA", "RMA", "VWMA", "HMA"], group = G_MA, inline = "m1h2")
+
+// ── Chop filter ───────────────────────────────────────────────────────────────
+useChop     = input.bool(true, "Enable chop filter (avoid sideways)", group = G_CHOP)
+reqStacked  = input.bool(true, "Require 15m MA above 1h MA (stacked)", group = G_CHOP)
+reqRising   = input.bool(true, "Require 15m MA rising (slope)", group = G_CHOP)
+slopeLb     = input.int(5, "MA slope lookback (bars)", minval = 1, maxval = 50, group = G_CHOP)
+useAdx      = input.bool(true, "Require ADX above floor", group = G_CHOP)
+adxLen      = input.int(14, "ADX length", minval = 1, group = G_CHOP)
+adxMin      = input.float(20.0, "ADX minimum", step = 1, minval = 0, group = G_CHOP,
+     tooltip = "ADX below this = ranging/sideways → entries blocked. 20–25 is typical.")
+useSep      = input.bool(false, "Require MA separation (× ATR)", group = G_CHOP, inline = "sep")
+sepAtr      = input.float(0.5, "", step = 0.1, minval = 0, group = G_CHOP, inline = "sep",
+     tooltip = "When ON, the 15m and 1h MAs must be at least this many ATRs apart — filters out tangled, flat MAs.")
+useBreakout = input.bool(true, "Only enter on breakout (new N-bar high)", group = G_CHOP, inline = "bo",
+     tooltip = "Take the buy only when price closes above the highest high of the last N bars. In a range price never makes new highs → no entry; at a trend burst it does. This targets the strong directional moves and skips range chop.")
+breakoutLb  = input.int(20, "lookback", minval = 2, maxval = 200, group = G_CHOP, inline = "bo")
+reqMa1hRising = input.bool(true, "Require 1h MA rising (macro uptrend)", group = G_CHOP,
+     tooltip = "Uptrend entries only when the 1h MA is sloping up. A flat 1h MA = ranging market → blocked.")
+
+// ── Top guard ─────────────────────────────────────────────────────────────────
+useTopExt   = input.bool(true, "Block over-extended entries (× ATR above 15m MA)", group = G_TOP, inline = "ext")
+maxExtAtr   = input.float(4.0, "", step = 0.5, minval = 0.5, group = G_TOP, inline = "ext",
+     tooltip = "If price is more than this many ATRs above the 15m MA, skip — you're buying the top.")
+useRsiTop   = input.bool(true, "Block when RSI above ceiling", group = G_TOP, inline = "rsi")
+rsiTopLen   = input.int(14, "len", minval = 1, group = G_TOP, inline = "rsi")
+rsiTopMax   = input.float(75.0, "max RSI", step = 1, minval = 1, maxval = 100, group = G_TOP, inline = "rsi")
+
+// ── Stop loss ─────────────────────────────────────────────────────────────────
+atrLen      = input.int(14, "ATR length (risk)", minval = 1, group = G_SL)
+slMode      = input.string("ATR", "Stop-loss mode", options = ["ATR", "AlphaTrend line", "Swing low", "Percent"], group = G_SL,
+     tooltip = "ATR = entry − mult×ATR (recommended). AlphaTrend line = the indicator line minus a buffer. Swing low = lowest low of N bars. Percent = fixed %.")
+slAtrMultUp = input.float(2.0, "SL × ATR — uptrend", step = 0.1, minval = 0.1, group = G_SL)
+slAtrMultDn = input.float(0.8, "SL × ATR — downtrend (tighter)", step = 0.1, minval = 0.1, group = G_SL)
+slSwingLb   = input.int(10, "Swing-low lookback (bars)", minval = 2, group = G_SL)
+slPct       = input.float(1.5, "SL percent (Percent mode)", step = 0.1, minval = 0.1, group = G_SL)
+slBufAtr    = input.float(0.3, "AlphaTrend-line SL buffer (× ATR)", step = 0.05, minval = 0, group = G_SL)
+minSlAtr    = input.float(0.4, "Floor: min SL distance (× ATR)", step = 0.1, minval = 0.1, group = G_SL)
+useBE       = input.bool(true, "Break-even after +% profit", group = G_SL)
+beTriggerPct = input.float(0.8, "Break-even: arm at +% profit", step = 0.05, minval = 0.05, group = G_SL)
+beOffsetPct  = input.float(0.1, "Break-even: SL % above entry (covers fees)", step = 0.05, minval = 0, group = G_SL)
+
+// ── Take profit / trailing ────────────────────────────────────────────────────
+trailMode    = input.string("ATR chandelier", "Trailing source (uptrend)", options = ["AlphaTrend line", "ATR chandelier", "Percent"], group = G_TP,
+     tooltip = "ATR chandelier = highest high − mult×ATR (gives the runner room; default). AlphaTrend line = ride the trigger's own line up (tighter, more whipsaw). Percent = close × (1 − %).")
+trailArmPct  = input.float(0.5, "Arm trailing after +% profit", step = 0.05, minval = 0, group = G_TP)
+trailAtrMult = input.float(4.0, "Trail distance × ATR (chandelier)", step = 0.1, minval = 0.1, group = G_TP)
+trailPct     = input.float(1.5, "Trail distance % (Percent)", step = 0.1, minval = 0.1, group = G_TP)
+useUpFixedTp = input.bool(false, "Uptrend: also use a fixed TP cap", group = G_TP, inline = "uptp")
+upTpPct      = input.float(5.0, "%", step = 0.5, minval = 0.1, group = G_TP, inline = "uptp")
+usePartialTp = input.bool(true, "Take a partial profit early, trail the rest", group = G_TP, inline = "ptp")
+tp1Pct       = input.float(2.0, "at +%", step = 0.1, minval = 0.1, group = G_TP, inline = "ptp")
+tp1Size      = input.float(33.0, "close % of pos", step = 5, minval = 1, maxval = 99, group = G_TP, inline = "ptp")
+
+// ── Downtrend mode ────────────────────────────────────────────────────────────
+useDowntrend = input.bool(true, "Enable downtrend trades (below 1h MAs, above 15m HMA)", group = G_DN,
+     tooltip = "Uptrend trades are always on. Turn this ON to also scalp AlphaTrend buys in a downtrend (price below both 1h MAs but above the 15m HMA) with a tighter stop and a small fixed TP.")
+dnUseFixedTp = input.bool(true, "Downtrend: use fixed take-profit", group = G_DN, inline = "dntp")
+dnTpPct      = input.float(1.2, "%", step = 0.1, minval = 0.1, group = G_DN, inline = "dntp")
+dnReqHmaRising = input.bool(true, "Downtrend: require 15m HMA rising", group = G_DN)
+
+// ── Visualization ─────────────────────────────────────────────────────────────
+plotMAs     = input.bool(true, "Plot MAs (orange 15m / white 1h / blue HMA / gray 1h-200)", group = G_VIS)
+plotAt      = input.bool(true, "Plot AlphaTrend line", group = G_VIS)
+showMarkers = input.bool(true, "Plot Buy / Sell / exit markers", group = G_VIS)
+showSl      = input.bool(true, "Plot active stop-loss line", group = G_VIS)
+showPnL     = input.bool(true, "Label P/L % on close", group = G_VIS)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
+// All MA variants computed each bar (no ta.* in a ternary → no consistency warning),
+// then the chosen type is selected. Runs inside request.security via f_ma_calc.
+f_ma_calc(simple string t, simple int L) =>
+    float e = ta.ema(close, L)
+    float w = ta.wma(close, L)
+    float r = ta.rma(close, L)
+    float v = ta.sma(close * volume, L) / ta.sma(volume, L)
+    float h = ta.wma(2 * ta.wma(close, int(math.max(1, L / 2))) - ta.wma(close, L), int(math.max(1, math.floor(math.sqrt(L)))))
+    float s = ta.sma(close, L)
+    t == "EMA" ? e : t == "WMA" ? w : t == "RMA" ? r : t == "VWMA" ? v : t == "HMA" ? h : s
+
+f_ma_mtf(string tf, simple int L, simple string t) =>
+    request.security(syminfo.tickerid, tf, f_ma_calc(t, L), barmerge.gaps_off, barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CORE SERIES
+// ══════════════════════════════════════════════════════════════════════════════
+float atr = ta.atr(atrLen)
+
+// ── AlphaTrend (computed on the chart timeframe) ──────────────────────────────
+float atATR = ta.sma(ta.tr, atPeriod)
+float atUpT = low  - atATR * atCoeff
+float atDnT = high + atATR * atCoeff
+float atRsi = ta.rsi(atSrc, atPeriod)
+float atMfi = ta.mfi(hlc3, atPeriod)
+bool  atMomUp = atNoVol ? (atRsi >= 50) : (atMfi >= 50)
+var float alphaTrend = 0.0
+alphaTrend := atMomUp ? (atUpT < nz(alphaTrend[1]) ? nz(alphaTrend[1]) : atUpT) : (atDnT > nz(alphaTrend[1]) ? nz(alphaTrend[1]) : atDnT)
+bool atBuyRaw  = ta.crossover(alphaTrend, alphaTrend[2])
+bool atSellRaw = ta.crossunder(alphaTrend, alphaTrend[2])
+// Alternation guard (same as the indicator's plotted labels): a buy only counts if the
+// previous signal was a sell, and vice-versa → clean one-per-leg signals.
+int atK1 = ta.barssince(atBuyRaw)
+int atK2 = ta.barssince(atSellRaw)
+int atO1 = ta.barssince(atBuyRaw[1])
+int atO2 = ta.barssince(atSellRaw[1])
+bool atBuySignal  = atBuyRaw  and nz(atO1, 1000000) > nz(atK2, 0)
+bool atSellSignal = atSellRaw and nz(atO2, 1000000) > nz(atK1, 0)
+bool atBull = close > alphaTrend
+
+// ── Regime MAs ────────────────────────────────────────────────────────────────
+float ma15  = f_ma_mtf(ma15Tf, ma15Len, ma15Type)   // orange (15m 100)
+float ma1h  = f_ma_mtf(ma1hTf, ma1hLen, ma1hType)   // white  (1h 100)
+float hma15 = f_ma_mtf(hmaTf,  hmaLen,  "HMA")      // blue   (15m 100 HMA)
+float ma1h2 = f_ma_mtf(ma1h2Tf, ma1h2Len, ma1h2Type) // gray  (1h 200)
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+float rsiTop = ta.rsi(close, rsiTopLen)
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+
+bool ma15Rising  = na(ma15) or na(ma15[slopeLb]) or ma15 > ma15[slopeLb]
+bool stacked     = not na(ma15) and not na(ma1h) and ma15 > ma1h
+bool sepOk       = not useSep or (not na(ma15) and not na(ma1h) and math.abs(ma15 - ma1h) >= sepAtr * atr)
+bool adxOk       = not useAdx or (not na(adxVal) and adxVal >= adxMin)
+bool chopOk      = not useChop or ((not reqStacked or stacked) and (not reqRising or ma15Rising) and adxOk and sepOk)
+
+bool extOk       = not useTopExt or na(ma15) or (close - ma15) <= maxExtAtr * atr
+bool rsiTopOk    = not useRsiTop or na(rsiTop) or rsiTop <= rsiTopMax
+bool topOk       = extOk and rsiTopOk
+
+// Breakout / macro-trend filters — target the strong directional moves, skip range chop.
+float priorHigh  = ta.highest(high, breakoutLb)[1]
+bool  breakoutOk = not useBreakout or (not na(priorHigh) and close > priorHigh)
+bool  ma1hRising = na(ma1h) or na(ma1h[slopeLb]) or ma1h > ma1h[slopeLb]
+bool  macroOk    = not reqMa1hRising or ma1hRising
+
+// ── Regime classification ─────────────────────────────────────────────────────
+bool upRegime = not na(ma15) and not na(ma1h) and close > ma15 and close > ma1h
+bool dnRegime = not na(ma1h) and not na(ma1h2) and close < ma1h and close < ma1h2
+bool hmaRising = na(hma15) or na(hma15[slopeLb]) or hma15 > hma15[slopeLb]
+bool aboveHma  = not na(hma15) and close > hma15
+
+// ── Entry conditions per regime ───────────────────────────────────────────────
+bool upEntryOk = upRegime and chopOk and topOk and breakoutOk and macroOk
+bool dnEntryOk = useDowntrend and dnRegime and aboveHma and (not dnReqHmaRising or hmaRising) and adxOk and topOk
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ONE-TRADE-PER-SIGNAL GATE
+// ══════════════════════════════════════════════════════════════════════════════
+// Arm on an AlphaTrend buy, stay armed for signalValidBars, cancel on a sell, and
+// consume on entry — so each buy signal yields at most one trade.
+var bool armed    = false
+var int  armedBar = na
+if atBuySignal
+    armed    := true
+    armedBar := bar_index
+if atSellSignal
+    armed := false
+bool windowOk = not na(armedBar) and (bar_index - armedBar) <= signalValidBars
+bool gateOk   = armed and windowOk
+
+bool confirmed = not useBarConfirm or barstate.isconfirmed
+bool flat      = strategy.position_size == 0
+
+bool wantUp   = gateOk and upEntryOk
+bool wantDn   = gateOk and dnEntryOk and not upEntryOk
+bool longSignal = (wantUp or wantDn) and flat and confirmed
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STOP / TARGET STATE
+// ══════════════════════════════════════════════════════════════════════════════
+float swingLow = ta.lowest(low, slSwingLb)
+
+var float entryPx       = na
+var float slLong        = na
+var bool  isDnTrade     = false
+var bool  pendingDn     = false
+var float hiSinceEntry  = na
+var bool  beDone        = false
+var bool  trailArmed    = false
+var bool  ptpDone       = false
+
+if longSignal
+    pendingDn := wantDn
+    strategy.entry("Long", strategy.long)
+
+bool justEntered = strategy.position_size > 0 and nz(strategy.position_size[1]) <= 0
+if justEntered
+    entryPx    := strategy.position_avg_price
+    isDnTrade  := pendingDn
+    float slMult = isDnTrade ? slAtrMultDn : slAtrMultUp
+    float slAtrLvl  = entryPx - slMult * atr
+    float slLineLvl = alphaTrend - slBufAtr * atr
+    float slSwingLvl = swingLow
+    float slPctLvl  = entryPx * (1 - slPct / 100)
+    float sl =
+         slMode == "AlphaTrend line" ? slLineLvl :
+         slMode == "Swing low"       ? slSwingLvl :
+         slMode == "Percent"         ? slPctLvl :
+                                       slAtrLvl
+    // never closer than the ATR floor
+    float floor = entryPx - minSlAtr * atr
+    slLong       := math.min(sl, floor)
+    hiSinceEntry := high
+    beDone       := false
+    trailArmed   := false
+    ptpDone      := false
+    armed        := false   // consume the signal — one trade per buy
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POSITION MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+bool inLong = strategy.position_size > 0
+
+if inLong and not na(entryPx)
+    // track the high since entry (for the chandelier trail)
+    hiSinceEntry := na(hiSinceEntry) ? high : math.max(hiSinceEntry, high)
+
+    // break-even: once up beTriggerPct%, lift the stop to entry + offset%
+    if useBE and not beDone and high >= entryPx * (1 + beTriggerPct / 100)
+        slLong := math.max(slLong, entryPx * (1 + beOffsetPct / 100))
+        beDone := true
+
+    // arm the trail once up trailArmPct%
+    if not trailArmed and high >= entryPx * (1 + trailArmPct / 100)
+        trailArmed := true
+
+    // trailing stop (uptrend trades ride the trend; downtrend trades also trail)
+    if trailArmed
+        float byPct  = close * (1 - trailPct / 100)
+        float byChan = hiSinceEntry - trailAtrMult * atr
+        float cand =
+             trailMode == "ATR chandelier" ? byChan :
+             trailMode == "Percent"        ? byPct :
+                                             alphaTrend   // ride the AlphaTrend line up
+        if not na(cand)
+            slLong := math.max(slLong, cand)
+
+// take-profit target
+float tpLong = na
+if inLong and isDnTrade and dnUseFixedTp
+    tpLong := entryPx * (1 + dnTpPct / 100)
+if inLong and not isDnTrade and useUpFixedTp
+    tpLong := entryPx * (1 + upTpPct / 100)
+
+// partial take-profit (uptrend) — take some off early, trail the rest
+if inLong and usePartialTp and not isDnTrade and not ptpDone and not na(entryPx)
+    float tp1 = entryPx * (1 + tp1Pct / 100)
+    if high >= tp1
+        ptpDone := true
+    if not ptpDone
+        strategy.exit("TP1", from_entry = "Long", qty_percent = tp1Size, limit = tp1, stop = slLong)
+
+// AlphaTrend flip exit (the trigger's own invalidation) — fires first if it happens
+bool flipExit = inLong and confirmed and useAtFlipExit and atSellSignal
+if flipExit
+    strategy.close("Long", comment = "AT flip")
+
+// main protective bracket (stop + optional TP), refreshed every bar
+if inLong and not flipExit and not na(slLong)
+    strategy.exit("Long X", from_entry = "Long", stop = slLong, limit = tpLong, comment_loss = "SL", comment_profit = "TP")
+
+// reset state when flat
+if flat
+    entryPx      := na
+    slLong       := na
+    hiSinceEntry := na
+    beDone       := false
+    trailArmed   := false
+    ptpDone      := false
+    isDnTrade    := false
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ══════════════════════════════════════════════════════════════════════════════
+plot(plotMAs ? ma15  : na, "15m MA (orange)", color = color.new(color.orange, 0), linewidth = 2)
+plot(plotMAs ? ma1h  : na, "1h MA (white)",   color = color.new(color.white,  0), linewidth = 2)
+plot(plotMAs ? hma15 : na, "15m HMA (blue)",  color = color.new(color.aqua,   0), linewidth = 2)
+plot(plotMAs ? ma1h2 : na, "1h 200 (gray)",   color = color.new(color.gray,  30), linewidth = 1)
+plot(plotAt ? alphaTrend : na, "AlphaTrend", color = atBull ? color.new(color.lime, 0) : color.new(color.red, 0), linewidth = 2)
+plot(showSl and inLong ? slLong : na, "Stop", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 1)
+
+plotshape(showMarkers and atBuySignal  ? low  : na, "AT Buy",  shape.triangleup,   location.belowbar, color.new(color.lime, 0),  size = size.tiny)
+plotshape(showMarkers and atSellSignal ? high : na, "AT Sell", shape.triangledown, location.abovebar, color.new(color.red, 0),   size = size.tiny)
+plotshape(showMarkers and longSignal and wantDn  ? low : na, "Buy (down)", shape.labelup, location.absolute, color.new(color.teal, 0),  textcolor = color.white, text = "Buy", size = size.small)
+plotshape(showMarkers and longSignal and not wantDn ? low : na, "Buy (up)", shape.labelup, location.absolute, color.new(color.green, 0), textcolor = color.white, text = "Buy", size = size.small)
+
+// closed-trade P/L label
+int ctClosed = strategy.closedtrades
+if showPnL and ctClosed > nz(ctClosed[1])
+    int ti = ctClosed - 1
+    float ep = strategy.closedtrades.entry_price(ti)
+    float xp = strategy.closedtrades.exit_price(ti)
+    float pctx = ep != 0 ? (xp - ep) / ep * 100.0 : na
+    string txt = na(pctx) ? "—" : (pctx >= 0 ? "+" : "") + str.tostring(pctx, "#.##") + "%"
+    label.new(bar_index, high, txt, style = label.style_label_down,
+         color = pctx >= 0 ? color.new(color.green, 0) : color.new(color.red, 0), textcolor = color.white, size = size.small)

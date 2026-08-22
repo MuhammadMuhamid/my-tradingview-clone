@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "platform/frontend"],
+      "port": 3000
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["LIVE_RUNNER_ENABLED=false", "npm", "run", "dev", "--prefix", "platform/backend"],
+      "port": 4000
+    }
+  ]
+}

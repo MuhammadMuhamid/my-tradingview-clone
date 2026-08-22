@@ -1,0 +1,380 @@
+import type {
+  Alert, Backtest, BacktestStatus, Candle, Deployment, DeliveryMode,
+  Interval, Strategy, StrategyConfig, StrategyParams, SymbolInfo, Trade,
+} from "./types";
+
+export interface OptimizerBest {
+  symbol: string;
+  rank: number;
+  score: number | null;
+  foundAt: string | null;
+  metrics: {
+    net_pct?: number | null;
+    dd_pct?: number | null;
+    win_rate?: number | null;
+    trades?: number | null;
+    profit_factor?: number | null;
+  };
+  params: StrategyParams;
+  tunedParams: StrategyParams;
+  properties: {
+    initialCapital: number;
+    commissionPct: number;
+    slippageTicks: number;
+    qtyCash: number;
+    qtyType: "percent_of_equity" | "cash";
+    qtyValue: number;
+    rangeStart: string;
+    rangeEnd: string;
+  };
+  timeframe: Interval;
+  strategyKey: string;
+}
+
+export interface SymbolSearchResult {
+  symbol: string;
+  baseAsset: string;
+  quoteAsset: string;
+  /** already in the local symbols table (has candles / can be charted at once) */
+  tracked: boolean;
+}
+
+export interface SymbolSearchResponse {
+  total: number;
+  quotes: string[];
+  results: SymbolSearchResult[];
+}
+
+// ── Pine editor ──
+export interface PineScript {
+  id: string;
+  name: string;
+  source: string;
+  kind: "indicator" | "strategy";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PineInputDef {
+  key: string;
+  title: string;
+  type: "int" | "float" | "bool" | "string" | "source" | "color" | "timeframe";
+  defval: number | string | boolean;
+  minval?: number;
+  maxval?: number;
+  step?: number;
+  options?: (string | number)[];
+  group?: string;
+  tooltip?: string;
+}
+
+export interface PineMeta {
+  kind: "indicator" | "strategy";
+  title: string;
+  shortTitle: string;
+  overlay: boolean;
+  inputs: PineInputDef[];
+}
+
+export interface PineCompileError { line: number; col: number; message: string }
+
+export interface PinePlotSeries {
+  id: string;
+  title: string;
+  color: string;
+  width: number;
+  style: string;
+  data: (number | null)[];
+}
+
+export interface PineShapeMark {
+  time: number;
+  position: "above" | "below";
+  color: string;
+  text: string;
+  shape: string;
+}
+
+/** Drawing objects a script left on the chart at the end of a run. */
+export interface PineDrawings {
+  lines: { x1: number; y1: number; x2: number; y2: number;
+    color: string; width: number; style: string; extend: string }[];
+  boxes: { left: number; top: number; right: number; bottom: number;
+    borderColor: string; borderWidth: number; borderStyle: string;
+    bgColor: string; text: string; textColor: string }[];
+  labels: { x: number; y: number; text: string;
+    color: string; textColor: string; style: string; size: string }[];
+  tables: { position: string;
+    cells: { col: number; row: number; text: string; textColor: string; bgColor: string }[] }[];
+}
+
+export interface PineRunResult {
+  ok: boolean;
+  errors: PineCompileError[];
+  meta: PineMeta;
+  times?: number[];
+  plots?: PinePlotSeries[];
+  hlines?: { price: number; color: string; title: string }[];
+  shapes?: PineShapeMark[];
+  drawings?: PineDrawings;
+  trades?: Trade[];
+  metrics?: Backtest["metrics"];
+  equityCurve?: { t: number; equity: number; drawdownPct: number }[];
+}
+
+export type OptimizerSystem = "current" | "one-year";
+
+export interface OptimizerLeaderboard {
+  system: OptimizerSystem;
+  timeframe: Interval;
+  range: { start: string; end: string };
+  totalBacktests: number;
+  leaderboard: Array<{
+    symbol: string;
+    score: number | null;
+    tests: number;
+    metrics: {
+      net_pct?: number | null;
+      dd_pct?: number | null;
+      win_rate?: number | null;
+      trades?: number | null;
+      profit_factor?: number | null;
+      /** Out-of-sample: the window the optimiser never saw. Present on the
+       *  MTF Lean trees; absent on older trees that predate the IS/OOS split. */
+      oos_net_pct?: number | null;
+      oos_dd_pct?: number | null;
+      oos_win_rate?: number | null;
+      oos_trades?: number | null;
+      oos_profit_factor?: number | null;
+      /** Share of entries STOPPED OUT AT A LOSS. Not "the stop filled": a
+       *  trailing or break-even stop books a profitable exit as SL, which for a
+       *  trailing config reads ~100% and says nothing. */
+      sl_loss_rate?: number | null;
+      oos_sl_loss_rate?: number | null;
+    };
+  }>;
+}
+
+export interface ServerLayout {
+  id: string;
+  name: string;
+  symbol: string;
+  timeframe: Interval;
+  bars: number;
+  strategyKey: string;
+  params: StrategyParams;
+  properties: {
+    initialCapital: number;
+    qtyCash: number;
+    qtyType?: "cash" | "percent_of_equity";
+    qtyValue?: number;
+    commissionPct: number;
+    slippageTicks: number;
+  };
+  /** MA lines the layout draws; see lib/movingAverages.ts. */
+  movingAverages: { type: MaType; length: number; visible: boolean }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const hasBody = init?.body !== undefined && init.body !== null;
+  const res = await fetch(path, {
+    ...init,
+    headers: { ...(hasBody ? { "content-type": "application/json" } : {}), ...(init?.headers ?? {}) },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) msg = body.error;
+    } catch { /* keep status text */ }
+    throw new Error(msg);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+/** Alert modes the MA watcher understands; mirrors backend types/maAlerts.ts. */
+export type MaAlertMode = "touch" | "cross_up" | "cross_down" | "near_above" | "near_below";
+export type MaType = "sma" | "ema";
+
+export interface MaAlert {
+  id: string;
+  symbol: string;
+  timeframe: Interval;
+  maType: MaType;
+  maLength: number;
+  mode: MaAlertMode;
+  /** Band edges in percent; only meaningful for the near_* modes. */
+  nearMinPct: number;
+  nearMaxPct: number;
+  enabled: boolean;
+  cooldownMin: number;
+  note: string | null;
+  lastSide: "above" | "below" | null;
+  lastFiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MaAlertEvent {
+  id: number;
+  alertId: string;
+  firedAt: string;
+  barTime: string;
+  price: number;
+  maValue: number;
+  distancePct: number;
+  title: string;
+  body: string;
+  pushedTo: number;
+}
+
+export interface ServerWatchlist {
+  id: string;
+  name: string;
+  symbols: string[];
+  position: number;
+  updatedAt: string;
+}
+
+export const api = {
+  // symbols + market data
+  listSymbols: (activeOnly = false) =>
+    req<SymbolInfo[]>(`/api/symbols${activeOnly ? "?active=true" : ""}`),
+  addSymbol: (symbol: string, baseAsset: string, quoteAsset: string) =>
+    req<SymbolInfo>("/api/symbols", { method: "POST", body: JSON.stringify({ symbol, baseAsset, quoteAsset }) }),
+  searchSymbols: (q: string, quote = "", limit = 50) =>
+    req<SymbolSearchResponse>(
+      `/api/symbols/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}&limit=${limit}`
+    ),
+  candles: (symbol: string, interval: Interval, limit = 1000) =>
+    req<Candle[]>(`/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}`),
+  /** Candles covering an explicit window — used to frame a backtest's own range. */
+  candlesRange: (symbol: string, interval: Interval, fromMs: number, toMs: number, limit = 200000) =>
+    req<Candle[]>(`/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}`),
+  backfill: (symbol: string, interval: Interval, start: string, end: string) =>
+    req<{ fetched: number }>("/api/data/backfill", { method: "POST", body: JSON.stringify({ symbol, interval, start, end }) }),
+
+  // strategies + configs
+  listStrategies: () => req<Strategy[]>("/api/strategies"),
+  listConfigs: (key: string) => req<StrategyConfig[]>(`/api/strategies/${key}/configs`),
+  createConfig: (key: string, body: Partial<StrategyConfig>) =>
+    req<StrategyConfig>(`/api/strategies/${key}/configs`, { method: "POST", body: JSON.stringify(body) }),
+  updateConfig: (id: string, body: Partial<StrategyConfig>) =>
+    req<StrategyConfig>(`/api/configs/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteConfig: (id: string) => req<void>(`/api/configs/${id}`, { method: "DELETE" }),
+
+  // local optimizer winners
+  optimizerBest: (symbol: string, rank = 1, strategy = "ma_rr_v9", timeframe: Interval = "15m") =>
+    req<OptimizerBest>(`/api/optimizer/best/${symbol.toUpperCase()}?rank=${rank}&strategy=${strategy}&timeframe=${timeframe}`),
+  optimizerLeaderboard: (system: OptimizerSystem, timeframe: "15m" | "1h" | "5m", strategy = "ma_rr_v9") =>
+    req<OptimizerLeaderboard>(`/api/optimizer/leaderboard?strategy=${strategy}&system=${system}&timeframe=${timeframe}`),
+
+  // backtests
+  listBacktests: (symbol?: string) =>
+    req<Backtest[]>(`/api/backtests${symbol ? `?symbol=${symbol}` : ""}`),
+  getBacktest: (id: string) => req<Backtest>(`/api/backtests/${id}`),
+  getBacktestTrades: (id: string) => req<Trade[]>(`/api/backtests/${id}/trades`),
+  createBacktest: (body: {
+    strategyKey: string; configId?: string; symbol: string; timeframe: Interval;
+    startTime: string; endTime: string; params?: StrategyParams;
+    initialCapital?: number; commissionPct?: number; slippageTicks?: number;
+  }) => req<Backtest>("/api/backtests", { method: "POST", body: JSON.stringify(body) }),
+
+  // chart layouts (server-persisted workspaces)
+  listLayouts: () => req<ServerLayout[]>("/api/layouts"),
+  getLayout: (id: string) => req<ServerLayout>(`/api/layouts/${id}`),
+  upsertLayout: (body: {
+    name: string; symbol: string; timeframe: Interval; bars: number;
+    strategyKey: string; params: StrategyParams; properties: unknown;
+    movingAverages?: { type: MaType; length: number; visible: boolean }[];
+  }) => req<ServerLayout>("/api/layouts", { method: "POST", body: JSON.stringify(body) }),
+  updateLayout: (id: string, body: Partial<{
+    name: string; symbol: string; timeframe: Interval; bars: number;
+    strategyKey: string; params: StrategyParams; properties: unknown;
+    movingAverages: { type: MaType; length: number; visible: boolean }[];
+  }>) => req<ServerLayout>(`/api/layouts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteLayout: (id: string) => req<void>(`/api/layouts/${id}`, { method: "DELETE" }),
+  syncDeploymentLayouts: () =>
+    req<{ synced: string[]; count: number }>("/api/layouts/sync-deployments", { method: "POST" }),
+
+  // pine editor
+  listPineScripts: () => req<PineScript[]>("/api/pine"),
+  getPineScript: (id: string) => req<PineScript>(`/api/pine/${id}`),
+  savePineScript: (name: string, source: string) =>
+    req<PineScript>("/api/pine", { method: "POST", body: JSON.stringify({ name, source }) }),
+  updatePineScript: (id: string, body: { name?: string; source?: string }) =>
+    req<PineScript>(`/api/pine/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deletePineScript: (id: string) => req<void>(`/api/pine/${id}`, { method: "DELETE" }),
+  compilePine: (source: string) =>
+    req<{ ok: boolean; meta: PineMeta; errors: PineCompileError[] }>(
+      "/api/pine/compile", { method: "POST", body: JSON.stringify({ source }) }
+    ),
+  runPine: (body: {
+    source: string; symbol: string; timeframe: Interval;
+    startTime?: string; endTime?: string;
+    params?: Record<string, number | string | boolean>;
+    initialCapital?: number; commissionPct?: number; slippageTicks?: number;
+    qtyCash?: number; qtyPctEquity?: number;
+  }) => req<PineRunResult>("/api/pine/run", { method: "POST", body: JSON.stringify(body) }),
+
+  // deployments + alerts
+  listDeployments: () => req<Deployment[]>("/api/deployments"),
+  getDeployment: (id: string) => req<Deployment>(`/api/deployments/${id}`),
+  createDeployment: (body: {
+    strategyKey: string; configId?: string; symbol: string; timeframe: Interval;
+    params?: StrategyParams; delivery: DeliveryMode; webhookUrl?: string;
+    secret?: string; botUuid?: string; buyQuoteQty?: number;
+  }) => req<Deployment>("/api/deployments", { method: "POST", body: JSON.stringify(body) }),
+  updateDeployment: (id: string, body: Partial<{
+    delivery: DeliveryMode; webhookUrl: string; secret: string;
+    botUuid: string; buyQuoteQty: number;
+  }>) => req<Deployment>(`/api/deployments/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  activateDeployment: (id: string) => req<Deployment>(`/api/deployments/${id}/activate`, { method: "POST" }),
+  pauseDeployment: (id: string) => req<Deployment>(`/api/deployments/${id}/pause`, { method: "POST" }),
+  deleteDeployment: (id: string) => req<void>(`/api/deployments/${id}`, { method: "DELETE" }),
+  deploymentAlerts: (id: string, limit = 50) => req<Alert[]>(`/api/deployments/${id}/alerts?limit=${limit}`),
+  listAlerts: (limit = 100) => req<Alert[]>(`/api/alerts?limit=${limit}`),
+
+  // moving-average alerts (server-side watcher + Web Push to the phone)
+  listMaAlerts: (opts: { symbol?: string; timeframe?: Interval } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.symbol) q.set("symbol", opts.symbol);
+    if (opts.timeframe) q.set("timeframe", opts.timeframe);
+    const qs = q.toString();
+    return req<MaAlert[]>(`/api/ma-alerts${qs ? `?${qs}` : ""}`);
+  },
+  createMaAlert: (body: {
+    symbol: string; timeframe: Interval; maType: MaType; maLength: number;
+    mode: MaAlertMode; nearMinPct?: number; nearMaxPct?: number;
+    cooldownMin?: number; note?: string | null;
+  }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
+  updateMaAlert: (id: string, body: Partial<{
+    enabled: boolean; cooldownMin: number; nearMinPct: number;
+    nearMaxPct: number; mode: MaAlertMode; timeframe: Interval; note: string | null;
+  }>) => req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
+  maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),
+
+  // watchlists (server-side, so the same lists appear on the phone)
+  listWatchlists: () => req<ServerWatchlist[]>("/api/watchlists"),
+  upsertWatchlist: (body: { name: string; symbols: string[]; position?: number }) =>
+    req<ServerWatchlist>("/api/watchlists", { method: "POST", body: JSON.stringify(body) }),
+  updateWatchlist: (id: string, body: Partial<{ name: string; symbols: string[]; position: number }>) =>
+    req<ServerWatchlist>(`/api/watchlists/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteWatchlist: (id: string) => req<void>(`/api/watchlists/${id}`, { method: "DELETE" }),
+
+  // Web Push registration
+  vapidKey: () => req<{ publicKey: string; devices: number }>("/api/push/vapid"),
+  subscribePush: (sub: PushSubscriptionJSON) =>
+    req<{ id: string; devices: number }>("/api/push/subscribe", { method: "POST", body: JSON.stringify(sub) }),
+  unsubscribePush: (endpoint: string) =>
+    req<{ ok: boolean; devices: number }>("/api/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint }) }),
+  testPush: () =>
+    req<{ sent: number; pruned: number; failed: number }>("/api/push/test", { method: "POST" }),
+};
+
+export type { BacktestStatus };

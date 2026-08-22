@@ -1,0 +1,18 @@
+#!/bin/zsh
+set -eu
+
+BACKEND="/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend"
+OPTIMIZER_DIR="$1"
+PG_ISREADY="/opt/homebrew/opt/postgresql@16/bin/pg_isready"
+
+# launchd starts services concurrently after login. Do not create optimizer
+# workers until the local database is accepting connections; otherwise workers
+# can retain failed startup connections and appear alive while making no progress.
+until "$PG_ISREADY" -h 127.0.0.1 -p 5433 -d platform -U platform >/dev/null 2>&1; do
+  sleep 2
+done
+
+cd "$BACKEND"
+exec /usr/local/bin/node \
+  "$BACKEND/node_modules/tsx/dist/cli.mjs" \
+  "$OPTIMIZER_DIR/optimizer.ts" --daemon --round 50

@@ -1,0 +1,3900 @@
+{
+  "generated_utc": "2026-08-19T17:12:50.483043+00:00",
+  "method": "highest IS score that clears fixed OOS veto gates; OOS not maximised",
+  "systems": {
+    "5m": {
+      "config": {
+        "_comment": "Independent one-year 5-minute optimizer for MTF Confluence Lean. REBUILT 2026-08-11 against the new default settings (current5msetting screenshots). All prior results were archived to archive/rebuild_20260811/ and the live tree was wiped — this system starts from zero data.  REALISM PASS 2026-08-12: fixed $1000 cash per trade (qty_pct_equity removed from the search space and pinned to 0), initialCapital raised 1000 -> 10000 so $1000/trade is a genuine 10% slice that is always affordable (at 1000 capital a $1000 order was still 100% of the account, which is what we were moving away from), commission 0.1% PER SIDE (= 0.2% round trip, matching Binance spot taker fees), slippage 0 -> 2 ticks. These match the Pine script's own strategy() declaration: initial_capital=10000, default_qty_value=1000, strategy.cash. NOTE: slippage is per-TICK so its % cost varies by symbol (RIFUSDT ~0.217% vs ZECUSDT ~0.004% for the same 2 ticks).  IS/OOS 2026-08-12: range.split is the in-sample/out-of-sample boundary. The GA only ever scores the IS window; OOS metrics are computed from the same run and carried on every record so curve-fitted configs are visible as an IS->OOS collapse.",
+        "range": {
+          "start": "2025-08-11T00:00:00Z",
+          "split": "2026-03-11T00:00:00Z",
+          "end": "now"
+        },
+        "initialCapital": 10000,
+        "commissionPct": 0.1,
+        "slippageTicks": 2,
+        "timeframe": "5m",
+        "workers": 1
+      },
+      "coins": {
+        "DEXEUSDT": {
+          "verdict": "STRONG PAPER CANDIDATE",
+          "why": [
+            "broad IS+OOS survival and adequate sample"
+          ],
+          "is_rank": 3,
+          "tested_unique": 65218,
+          "survivors": 22880,
+          "held_share": 0.35082,
+          "metrics": {
+            "net_pct": 6.83,
+            "net_usdt": 683.5,
+            "dd_pct": 1.36,
+            "win_rate": 52.21,
+            "trades": 136,
+            "legs": 370,
+            "leg_win_rate": 50.27,
+            "profit_factor": 1.629,
+            "sharpe": null,
+            "sl_hit": 92,
+            "sl_rate": 67.65,
+            "sl_loss": 65,
+            "sl_loss_rate": 47.79,
+            "sl_profit": 27,
+            "sl_profit_rate": 19.85,
+            "tp_hit": 83,
+            "oos_net_pct": 8.53,
+            "oos_dd_pct": 1.78,
+            "oos_win_rate": 54.93,
+            "oos_trades": 142,
+            "oos_profit_factor": 1.607,
+            "oos_sl_hit": 107,
+            "oos_sl_rate": 75.35,
+            "oos_sl_loss": 64,
+            "oos_sl_loss_rate": 45.07,
+            "oos_sl_profit": 43,
+            "oos_sl_profit_rate": 30.28,
+            "oos_tp_hit": 96,
+            "full_net_pct": 15.36,
+            "full_dd_pct": 1.66
+          },
+          "params": {
+            "atrLenRisk": 16,
+            "s1_len": 3,
+            "s1_maxAge": 40,
+            "volMultMin": 1.4,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 3,
+            "rrSwingLb": 20,
+            "rrBufAtr": 0.5,
+            "rrRatio": 2,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 4,
+            "useG1": false,
+            "g1_mult": 3,
+            "useS4": false,
+            "s4_mult": 4,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 2,
+              "share": 0.325,
+              "z": 3.29
+            },
+            "s1_len": {
+              "value": 3,
+              "share": 0.8,
+              "z": 11.88
+            },
+            "s1_maxAge": {
+              "value": 34,
+              "share": 0.575,
+              "z": 5.93
+            },
+            "volMultMin": {
+              "value": 1.1,
+              "share": 0.85,
+              "z": 11.6
+            },
+            "useG3": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s6_len": {
+              "value": 3,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "rrSwingLb": {
+              "value": 20,
+              "share": 0.575,
+              "z": 6.93
+            },
+            "rrBufAtr": {
+              "value": 0.5,
+              "share": 0.5,
+              "z": 5.66
+            },
+            "rrRatio": {
+              "value": 3,
+              "share": 0.4,
+              "z": 5.26
+            },
+            "rrUsePartialTp": {
+              "value": true,
+              "share": 0.85,
+              "z": 4.43
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 1.5,
+              "share": 0.45,
+              "z": 2.92
+            },
+            "useG1": {
+              "value": false,
+              "share": 0.7,
+              "z": 2.53
+            },
+            "g1_mult": {
+              "value": 3,
+              "share": 0.4,
+              "z": 3.16
+            },
+            "useS4": {
+              "value": true,
+              "share": 0.7,
+              "z": 2.53
+            },
+            "s4_mult": {
+              "value": 3,
+              "share": 0.75,
+              "z": 8.7
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.8,
+              "z": 3.79
+            }
+          },
+          "timestamp": "2026-08-17T16:20:05+00:00"
+        },
+        "SYNUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 1,
+          "tested_unique": 39038,
+          "survivors": 963,
+          "held_share": 0.02467,
+          "metrics": {
+            "net_pct": 4.16,
+            "net_usdt": 415.77,
+            "dd_pct": 2.14,
+            "win_rate": 66.96,
+            "trades": 112,
+            "legs": 112,
+            "leg_win_rate": 66.96,
+            "profit_factor": 1.51,
+            "sharpe": null,
+            "sl_hit": 109,
+            "sl_rate": 97.32,
+            "sl_loss": 37,
+            "sl_loss_rate": 33.04,
+            "sl_profit": 72,
+            "sl_profit_rate": 64.29,
+            "tp_hit": 3,
+            "oos_net_pct": 7.88,
+            "oos_dd_pct": 3.48,
+            "oos_win_rate": 62.96,
+            "oos_trades": 162,
+            "oos_profit_factor": 1.478,
+            "oos_sl_hit": 161,
+            "oos_sl_rate": 99.38,
+            "oos_sl_loss": 60,
+            "oos_sl_loss_rate": 37.04,
+            "oos_sl_profit": 101,
+            "oos_sl_profit_rate": 62.35,
+            "oos_tp_hit": 1,
+            "full_net_pct": 12.04,
+            "full_dd_pct": 3.35
+          },
+          "params": {
+            "atrLenRisk": 20,
+            "s1_len": 1,
+            "s1_maxAge": 10,
+            "volMultMin": 1.1,
+            "useG3": false,
+            "s6_prox": 20,
+            "s6_len": 8,
+            "rrSwingLb": 18,
+            "rrBufAtr": 4,
+            "rrRatio": 2,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 0.8,
+            "useG1": true,
+            "g1_mult": 3,
+            "useS4": false,
+            "s4_mult": 1.5,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 16,
+              "share": 0.575,
+              "z": 7.81
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s1_maxAge": {
+              "value": 10,
+              "share": 0.975,
+              "z": 12.25
+            },
+            "volMultMin": {
+              "value": 0.7,
+              "share": 0.725,
+              "z": 9.48
+            },
+            "useG3": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.75,
+              "z": 10.97
+            },
+            "s6_len": {
+              "value": 4,
+              "share": 0.525,
+              "z": 6.91
+            },
+            "rrSwingLb": {
+              "value": 10,
+              "share": 0.475,
+              "z": 5.23
+            },
+            "rrBufAtr": {
+              "value": 1.8,
+              "share": 0.45,
+              "z": 4.81
+            },
+            "rrRatio": {
+              "value": 1.5,
+              "share": 0.525,
+              "z": 7.65
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.85,
+              "z": 4.43
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.5,
+              "z": 3.65
+            },
+            "useG1": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "g1_mult": {
+              "value": 1.5,
+              "share": 0.425,
+              "z": 3.56
+            },
+            "useS4": {
+              "value": false,
+              "share": 0.875,
+              "z": 4.74
+            },
+            "s4_mult": {
+              "value": 3,
+              "share": 0.35,
+              "z": 2.37
+            },
+            "useS5": {
+              "value": false,
+              "share": 0.975,
+              "z": 6.01
+            }
+          },
+          "timestamp": "2026-08-17T12:05:50+00:00"
+        },
+        "币安人生USDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 39642,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "ZECUSDT": {
+          "verdict": "STRONG PAPER CANDIDATE",
+          "why": [
+            "broad IS+OOS survival and adequate sample"
+          ],
+          "is_rank": 1,
+          "tested_unique": 74409,
+          "survivors": 64488,
+          "held_share": 0.86667,
+          "metrics": {
+            "net_pct": 25.92,
+            "net_usdt": 2591.56,
+            "dd_pct": 3.06,
+            "win_rate": 53.78,
+            "trades": 119,
+            "legs": 119,
+            "leg_win_rate": 53.78,
+            "profit_factor": 1.924,
+            "sharpe": null,
+            "sl_hit": 55,
+            "sl_rate": 46.22,
+            "sl_loss": 55,
+            "sl_loss_rate": 46.22,
+            "sl_profit": 0,
+            "sl_profit_rate": 0,
+            "tp_hit": 64,
+            "oos_net_pct": 4.75,
+            "oos_dd_pct": 5.81,
+            "oos_win_rate": 59.26,
+            "oos_trades": 54,
+            "oos_profit_factor": 1.478,
+            "oos_sl_hit": 22,
+            "oos_sl_rate": 40.74,
+            "oos_sl_loss": 22,
+            "oos_sl_loss_rate": 40.74,
+            "oos_sl_profit": 0,
+            "oos_sl_profit_rate": 0,
+            "oos_tp_hit": 32,
+            "full_net_pct": 30.67,
+            "full_dd_pct": 4.71
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 3,
+            "s1_maxAge": 40,
+            "volMultMin": 0.7,
+            "useG3": false,
+            "s6_prox": 20,
+            "s6_len": 13,
+            "rrSwingLb": 10,
+            "rrBufAtr": 0.1,
+            "rrRatio": 1.5,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": false,
+            "rrTrailPct": 4,
+            "useG1": false,
+            "g1_mult": 2,
+            "useS4": true,
+            "s4_mult": 2,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 2,
+              "share": 0.425,
+              "z": 5.1
+            },
+            "s1_len": {
+              "value": 3,
+              "share": 0.6,
+              "z": 8.26
+            },
+            "s1_maxAge": {
+              "value": 40,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "volMultMin": {
+              "value": 1.1,
+              "share": 0.725,
+              "z": 9.48
+            },
+            "useG3": {
+              "value": false,
+              "share": 0.9,
+              "z": 5.06
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s6_len": {
+              "value": 13,
+              "share": 0.4,
+              "z": 4.65
+            },
+            "rrSwingLb": {
+              "value": 14,
+              "share": 0.375,
+              "z": 3.54
+            },
+            "rrBufAtr": {
+              "value": 0.5,
+              "share": 0.375,
+              "z": 3.54
+            },
+            "rrRatio": {
+              "value": 1.5,
+              "share": 0.325,
+              "z": 3.82
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrUseTrailSl": {
+              "value": false,
+              "share": 0.775,
+              "z": 3.48
+            },
+            "rrTrailPct": {
+              "value": 4,
+              "share": 0.975,
+              "z": 10.59
+            },
+            "useG1": {
+              "value": false,
+              "share": 0.725,
+              "z": 2.85
+            },
+            "g1_mult": {
+              "value": 2,
+              "share": 0.45,
+              "z": 3.95
+            },
+            "useS4": {
+              "value": false,
+              "share": 0.825,
+              "z": 4.11
+            },
+            "s4_mult": {
+              "value": 2,
+              "share": 0.375,
+              "z": 2.77
+            },
+            "useS5": {
+              "value": false,
+              "share": 0.75,
+              "z": 3.16
+            }
+          },
+          "timestamp": "2026-08-16T18:40:57+00:00"
+        },
+        "RIFUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 23475,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "ALLOUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 3851,
+          "tested_unique": 49896,
+          "survivors": 46,
+          "held_share": 0.00092,
+          "metrics": {
+            "net_pct": 3.52,
+            "net_usdt": 351.86,
+            "dd_pct": 7.69,
+            "win_rate": 46.3,
+            "trades": 108,
+            "legs": 108,
+            "leg_win_rate": 46.3,
+            "profit_factor": 1.134,
+            "sharpe": null,
+            "sl_hit": 58,
+            "sl_rate": 53.7,
+            "sl_loss": 58,
+            "sl_loss_rate": 53.7,
+            "sl_profit": 0,
+            "sl_profit_rate": 0,
+            "tp_hit": 50,
+            "oos_net_pct": 14.96,
+            "oos_dd_pct": 6.75,
+            "oos_win_rate": 41.18,
+            "oos_trades": 136,
+            "oos_profit_factor": 1.432,
+            "oos_sl_hit": 80,
+            "oos_sl_rate": 58.82,
+            "oos_sl_loss": 80,
+            "oos_sl_loss_rate": 58.82,
+            "oos_sl_profit": 0,
+            "oos_sl_profit_rate": 0,
+            "oos_tp_hit": 56,
+            "full_net_pct": 18.48,
+            "full_dd_pct": 7.69
+          },
+          "params": {
+            "atrLenRisk": 4,
+            "s1_len": 2,
+            "s1_maxAge": 40,
+            "volMultMin": 0.3,
+            "useG3": false,
+            "s6_prox": 20,
+            "s6_len": 4,
+            "rrSwingLb": 8,
+            "rrBufAtr": 0.5,
+            "rrRatio": 1.5,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": false,
+            "rrTrailPct": 0.8,
+            "useG1": true,
+            "g1_mult": 1.5,
+            "useS4": true,
+            "s4_mult": 4,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 6,
+              "share": 0.375,
+              "z": 4.2
+            },
+            "s1_len": {
+              "value": 2,
+              "share": 0.95,
+              "z": 14.59
+            },
+            "s1_maxAge": {
+              "value": 34,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 0.825,
+              "z": 11.17
+            },
+            "useG3": {
+              "value": false,
+              "share": 0.85,
+              "z": 4.43
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s6_len": {
+              "value": 5,
+              "share": 0.7,
+              "z": 10.07
+            },
+            "rrRatio": {
+              "value": 1,
+              "share": 0.65,
+              "z": 10.04
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.775,
+              "z": 3.48
+            },
+            "rrUseTrailSl": {
+              "value": false,
+              "share": 0.725,
+              "z": 2.85
+            },
+            "rrTrailPct": {
+              "value": 4,
+              "share": 0.525,
+              "z": 4.02
+            },
+            "useG1": {
+              "value": false,
+              "share": 0.875,
+              "z": 4.74
+            },
+            "g1_mult": {
+              "value": 1.5,
+              "share": 0.525,
+              "z": 5.14
+            },
+            "useS4": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s4_mult": {
+              "value": 1.5,
+              "share": 0.45,
+              "z": 3.95
+            },
+            "useS5": {
+              "value": false,
+              "share": 0.9,
+              "z": 5.06
+            }
+          },
+          "timestamp": "2026-08-17T10:08:30+00:00"
+        },
+        "NEARUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 42618,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "KAITOUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 11,
+          "tested_unique": 59908,
+          "survivors": 1911,
+          "held_share": 0.0319,
+          "metrics": {
+            "net_pct": 3.51,
+            "net_usdt": 350.7,
+            "dd_pct": 2.55,
+            "win_rate": 41.35,
+            "trades": 104,
+            "legs": 104,
+            "leg_win_rate": 41.35,
+            "profit_factor": 1.285,
+            "sharpe": null,
+            "sl_hit": 69,
+            "sl_rate": 66.35,
+            "sl_loss": 61,
+            "sl_loss_rate": 58.65,
+            "sl_profit": 8,
+            "sl_profit_rate": 7.69,
+            "tp_hit": 35,
+            "oos_net_pct": 3.4,
+            "oos_dd_pct": 2.43,
+            "oos_win_rate": 43.69,
+            "oos_trades": 103,
+            "oos_profit_factor": 1.265,
+            "oos_sl_hit": 60,
+            "oos_sl_rate": 58.25,
+            "oos_sl_loss": 58,
+            "oos_sl_loss_rate": 56.31,
+            "oos_sl_profit": 2,
+            "oos_sl_profit_rate": 1.94,
+            "oos_tp_hit": 43,
+            "full_net_pct": 6.9,
+            "full_dd_pct": 2.55
+          },
+          "params": {
+            "atrLenRisk": 8,
+            "s1_len": 2,
+            "s1_maxAge": 18,
+            "volMultMin": 1.1,
+            "useG3": false,
+            "s6_prox": 8,
+            "s6_len": 4,
+            "rrSwingLb": 4,
+            "rrBufAtr": 0.5,
+            "rrRatio": 2,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 4,
+            "useG1": true,
+            "g1_mult": 4,
+            "useS4": true,
+            "s4_mult": 2.5,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 8,
+              "share": 0.675,
+              "z": 9.62
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 0.55,
+              "z": 7.36
+            },
+            "s1_maxAge": {
+              "value": 18,
+              "share": 0.975,
+              "z": 12.25
+            },
+            "volMultMin": {
+              "value": 2.5,
+              "share": 0.65,
+              "z": 8.2
+            },
+            "useG3": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 12,
+              "share": 0.85,
+              "z": 12.78
+            },
+            "s6_len": {
+              "value": 4,
+              "share": 0.525,
+              "z": 6.91
+            },
+            "rrSwingLb": {
+              "value": 4,
+              "share": 0.5,
+              "z": 5.66
+            },
+            "rrBufAtr": {
+              "value": 0.5,
+              "share": 0.85,
+              "z": 11.6
+            },
+            "rrRatio": {
+              "value": 1,
+              "share": 0.375,
+              "z": 4.78
+            },
+            "rrUsePartialTp": {
+              "value": true,
+              "share": 0.85,
+              "z": 4.43
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 0.925,
+              "z": 5.38
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.65,
+              "z": 5.84
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.7,
+              "z": 2.53
+            },
+            "g1_mult": {
+              "value": 1.5,
+              "share": 0.625,
+              "z": 6.72
+            },
+            "useS4": {
+              "value": true,
+              "share": 0.875,
+              "z": 4.74
+            },
+            "s4_mult": {
+              "value": 1.5,
+              "share": 0.7,
+              "z": 7.91
+            }
+          },
+          "timestamp": "2026-08-18T07:18:05+00:00"
+        },
+        "JTOUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 6,
+          "tested_unique": 54372,
+          "survivors": 255,
+          "held_share": 0.00469,
+          "metrics": {
+            "net_pct": 2.09,
+            "net_usdt": 208.78,
+            "dd_pct": 2.33,
+            "win_rate": 35.4,
+            "trades": 113,
+            "legs": 113,
+            "leg_win_rate": 35.4,
+            "profit_factor": 1.167,
+            "sharpe": null,
+            "sl_hit": 87,
+            "sl_rate": 76.99,
+            "sl_loss": 73,
+            "sl_loss_rate": 64.6,
+            "sl_profit": 14,
+            "sl_profit_rate": 12.39,
+            "tp_hit": 26,
+            "oos_net_pct": 3.6,
+            "oos_dd_pct": 3.98,
+            "oos_win_rate": 43.64,
+            "oos_trades": 165,
+            "oos_profit_factor": 1.215,
+            "oos_sl_hit": 123,
+            "oos_sl_rate": 74.55,
+            "oos_sl_loss": 93,
+            "oos_sl_loss_rate": 56.36,
+            "oos_sl_profit": 30,
+            "oos_sl_profit_rate": 18.18,
+            "oos_tp_hit": 42,
+            "full_net_pct": 5.69,
+            "full_dd_pct": 3.9
+          },
+          "params": {
+            "atrLenRisk": 16,
+            "s1_len": 3,
+            "s1_maxAge": 40,
+            "volMultMin": 1.4,
+            "useG3": false,
+            "s6_prox": 20,
+            "s6_len": 5,
+            "rrSwingLb": 8,
+            "rrBufAtr": 1,
+            "rrRatio": 2,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 2.5,
+            "useG1": false,
+            "g1_mult": 2.5,
+            "useS4": true,
+            "s4_mult": 4,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 20,
+              "share": 0.575,
+              "z": 7.81
+            },
+            "s1_len": {
+              "value": 3,
+              "share": 0.825,
+              "z": 12.33
+            },
+            "s1_maxAge": {
+              "value": 40,
+              "share": 0.725,
+              "z": 8.3
+            },
+            "volMultMin": {
+              "value": 0.7,
+              "share": 0.65,
+              "z": 8.2
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.925,
+              "z": 14.14
+            },
+            "s6_len": {
+              "value": 5,
+              "share": 0.95,
+              "z": 14.59
+            },
+            "rrSwingLb": {
+              "value": 8,
+              "share": 0.525,
+              "z": 6.08
+            },
+            "rrBufAtr": {
+              "value": 1,
+              "share": 0.675,
+              "z": 8.63
+            },
+            "rrRatio": {
+              "value": 1,
+              "share": 0.5,
+              "z": 7.17
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 4,
+              "share": 0.55,
+              "z": 4.38
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            },
+            "g1_mult": {
+              "value": 3,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "useS4": {
+              "value": true,
+              "share": 0.725,
+              "z": 2.85
+            },
+            "s4_mult": {
+              "value": 4,
+              "share": 0.55,
+              "z": 5.53
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.75,
+              "z": 3.16
+            }
+          },
+          "timestamp": "2026-08-18T21:46:09+00:00"
+        },
+        "TAOUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 58976,
+          "survivors": 1,
+          "held_share": 2e-05,
+          "params": null,
+          "consensus": {
+            "atrLenRisk": {
+              "value": 6,
+              "share": 1.0,
+              "z": 2.45
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 1.0,
+              "z": 2.45
+            },
+            "s1_maxAge": {
+              "value": 34,
+              "share": 1.0,
+              "z": 2.0
+            },
+            "volMultMin": {
+              "value": 1.1,
+              "share": 1.0,
+              "z": 2.24
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 2.45
+            },
+            "s6_len": {
+              "value": 3,
+              "share": 1.0,
+              "z": 2.45
+            },
+            "rrSwingLb": {
+              "value": 18,
+              "share": 1.0,
+              "z": 2.24
+            },
+            "rrBufAtr": {
+              "value": 0.5,
+              "share": 1.0,
+              "z": 2.24
+            },
+            "rrRatio": {
+              "value": 3,
+              "share": 1.0,
+              "z": 2.65
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 1.0,
+              "z": 2.0
+            },
+            "s4_mult": {
+              "value": 2,
+              "share": 1.0,
+              "z": 2.0
+            }
+          }
+        },
+        "PUMPUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 35,
+          "tested_unique": 58125,
+          "survivors": 784,
+          "held_share": 0.01349,
+          "metrics": {
+            "net_pct": 5.47,
+            "net_usdt": 546.73,
+            "dd_pct": 1.92,
+            "win_rate": 62.14,
+            "trades": 103,
+            "legs": 258,
+            "leg_win_rate": 62.79,
+            "profit_factor": 1.464,
+            "sharpe": null,
+            "sl_hit": 41,
+            "sl_rate": 39.81,
+            "sl_loss": 39,
+            "sl_loss_rate": 37.86,
+            "sl_profit": 2,
+            "sl_profit_rate": 1.94,
+            "tp_hit": 79,
+            "oos_net_pct": 1.07,
+            "oos_dd_pct": 3.78,
+            "oos_win_rate": 56.18,
+            "oos_trades": 89,
+            "oos_profit_factor": 1.1,
+            "oos_sl_hit": 42,
+            "oos_sl_rate": 47.19,
+            "oos_sl_loss": 39,
+            "oos_sl_loss_rate": 43.82,
+            "oos_sl_profit": 3,
+            "oos_sl_profit_rate": 3.37,
+            "oos_tp_hit": 61,
+            "full_net_pct": 6.54,
+            "full_dd_pct": 3.58
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 2,
+            "s1_maxAge": 40,
+            "volMultMin": 0.7,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 6,
+            "rrSwingLb": 18,
+            "rrBufAtr": 1.8,
+            "rrRatio": 1,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": false,
+            "rrTrailPct": 1.5,
+            "useG1": true,
+            "g1_mult": 4,
+            "useS4": false,
+            "s4_mult": 2.5,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 12,
+              "share": 0.3,
+              "z": 2.84
+            },
+            "s1_len": {
+              "value": 2,
+              "share": 0.375,
+              "z": 4.2
+            },
+            "s1_maxAge": {
+              "value": 26,
+              "share": 0.5,
+              "z": 4.74
+            },
+            "volMultMin": {
+              "value": 0.7,
+              "share": 0.45,
+              "z": 4.81
+            },
+            "useG3": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s6_len": {
+              "value": 6,
+              "share": 0.8,
+              "z": 11.88
+            },
+            "rrSwingLb": {
+              "value": 18,
+              "share": 0.475,
+              "z": 5.23
+            },
+            "rrBufAtr": {
+              "value": 2.8,
+              "share": 0.35,
+              "z": 3.11
+            },
+            "rrRatio": {
+              "value": 1,
+              "share": 0.375,
+              "z": 4.78
+            },
+            "rrUsePartialTp": {
+              "value": true,
+              "share": 0.95,
+              "z": 5.69
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 0.9,
+              "z": 5.06
+            },
+            "rrTrailPct": {
+              "value": 2.5,
+              "share": 0.7,
+              "z": 6.57
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.825,
+              "z": 4.11
+            },
+            "g1_mult": {
+              "value": 1.5,
+              "share": 0.4,
+              "z": 3.16
+            },
+            "s4_mult": {
+              "value": 4,
+              "share": 0.675,
+              "z": 7.51
+            }
+          },
+          "timestamp": "2026-08-19T02:59:28+00:00"
+        },
+        "EIGENUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 43007,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "MORPHOUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 36672,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "JSTUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 60,
+          "tested_unique": 53443,
+          "survivors": 1548,
+          "held_share": 0.02897,
+          "metrics": {
+            "net_pct": 2.18,
+            "net_usdt": 218.03,
+            "dd_pct": 0.77,
+            "win_rate": 47.52,
+            "trades": 101,
+            "legs": 101,
+            "leg_win_rate": 47.52,
+            "profit_factor": 1.436,
+            "sharpe": null,
+            "sl_hit": 79,
+            "sl_rate": 78.22,
+            "sl_loss": 53,
+            "sl_loss_rate": 52.48,
+            "sl_profit": 26,
+            "sl_profit_rate": 25.74,
+            "tp_hit": 22,
+            "oos_net_pct": 0.57,
+            "oos_dd_pct": 1.19,
+            "oos_win_rate": 41.67,
+            "oos_trades": 48,
+            "oos_profit_factor": 1.193,
+            "oos_sl_hit": 42,
+            "oos_sl_rate": 87.5,
+            "oos_sl_loss": 28,
+            "oos_sl_loss_rate": 58.33,
+            "oos_sl_profit": 14,
+            "oos_sl_profit_rate": 29.17,
+            "oos_tp_hit": 6,
+            "full_net_pct": 2.75,
+            "full_dd_pct": 1.16
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 2,
+            "s1_maxAge": 34,
+            "volMultMin": 1.9,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 10,
+            "rrSwingLb": 8,
+            "rrBufAtr": 0.1,
+            "rrRatio": 3,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 1.5,
+            "useG1": false,
+            "g1_mult": 3,
+            "useS4": false,
+            "s4_mult": 4,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 2,
+              "share": 0.6,
+              "z": 8.26
+            },
+            "s1_len": {
+              "value": 2,
+              "share": 0.7,
+              "z": 10.07
+            },
+            "s1_maxAge": {
+              "value": 34,
+              "share": 0.4,
+              "z": 3.16
+            },
+            "volMultMin": {
+              "value": 1.9,
+              "share": 0.475,
+              "z": 5.23
+            },
+            "useG3": {
+              "value": false,
+              "share": 0.75,
+              "z": 3.16
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s6_len": {
+              "value": 13,
+              "share": 0.5,
+              "z": 6.45
+            },
+            "rrBufAtr": {
+              "value": 1,
+              "share": 0.45,
+              "z": 4.81
+            },
+            "rrRatio": {
+              "value": 4,
+              "share": 0.5,
+              "z": 7.17
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.9,
+              "z": 5.06
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 1.5,
+              "share": 1.0,
+              "z": 10.95
+            },
+            "useG1": {
+              "value": false,
+              "share": 0.95,
+              "z": 5.69
+            },
+            "g1_mult": {
+              "value": 3,
+              "share": 0.425,
+              "z": 3.56
+            },
+            "useS4": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s4_mult": {
+              "value": 2,
+              "share": 0.425,
+              "z": 3.56
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.925,
+              "z": 5.38
+            }
+          },
+          "timestamp": "2026-08-17T07:36:56+00:00"
+        },
+        "ENAUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 52247,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "JUPUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 55874,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "INJUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 50611,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "PYTHUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 43152,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "TIAUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 55353,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        }
+      }
+    },
+    "15m": {
+      "config": {
+        "_comment": "Independent one-year 15-minute optimizer for MTF Confluence Lean. Chart TF 15m; each filter still reads its own timeframe. Same 19-coin universe as the 5m tree.  REALISM PASS 2026-08-12: fixed $1000 cash per trade (qty_pct_equity removed from the search space and pinned to 0), initialCapital raised 1000 -> 10000 so $1000/trade is a genuine 10% slice that is always affordable (at 1000 capital a $1000 order was still 100% of the account, which is what we were moving away from), commission 0.1% PER SIDE (= 0.2% round trip, matching Binance spot taker fees), slippage 0 -> 2 ticks. These match the Pine script's own strategy() declaration: initial_capital=10000, default_qty_value=1000, strategy.cash. NOTE: slippage is per-TICK so its % cost varies by symbol (RIFUSDT ~0.217% vs ZECUSDT ~0.004% for the same 2 ticks).  IS/OOS 2026-08-12: range.split is the in-sample/out-of-sample boundary. The GA only ever scores the IS window; OOS metrics are computed from the same run and carried on every record so curve-fitted configs are visible as an IS->OOS collapse.",
+        "range": {
+          "start": "2025-08-11T00:00:00Z",
+          "split": "2026-03-11T00:00:00Z",
+          "end": "now"
+        },
+        "initialCapital": 10000,
+        "commissionPct": 0.1,
+        "slippageTicks": 2,
+        "timeframe": "15m",
+        "workers": 1
+      },
+      "coins": {
+        "DEXEUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 1,
+          "tested_unique": 97306,
+          "survivors": 74759,
+          "held_share": 0.76829,
+          "metrics": {
+            "net_pct": 10.94,
+            "net_usdt": 1093.54,
+            "dd_pct": 1.34,
+            "win_rate": 54.24,
+            "trades": 59,
+            "legs": 59,
+            "leg_win_rate": 54.24,
+            "profit_factor": 3.172,
+            "sharpe": null,
+            "sl_hit": 46,
+            "sl_rate": 77.97,
+            "sl_loss": 27,
+            "sl_loss_rate": 45.76,
+            "sl_profit": 19,
+            "sl_profit_rate": 32.2,
+            "tp_hit": 13,
+            "oos_net_pct": 1.93,
+            "oos_dd_pct": 3.7,
+            "oos_win_rate": 40.37,
+            "oos_trades": 109,
+            "oos_profit_factor": 1.154,
+            "oos_sl_hit": 98,
+            "oos_sl_rate": 89.91,
+            "oos_sl_loss": 65,
+            "oos_sl_loss_rate": 59.63,
+            "oos_sl_profit": 33,
+            "oos_sl_profit_rate": 30.28,
+            "oos_tp_hit": 11,
+            "full_net_pct": 12.87,
+            "full_dd_pct": 3.34
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 2,
+            "s1_maxAge": 18,
+            "volMultMin": 0.7,
+            "useG3": true,
+            "s6_prox": 8,
+            "s6_len": 3,
+            "rrSwingLb": 8,
+            "rrBufAtr": 0.5,
+            "rrRatio": 2,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 2.5,
+            "useG1": false,
+            "g1_mult": 2.5,
+            "useS4": true,
+            "s4_mult": 2,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 4,
+              "share": 0.6,
+              "z": 8.26
+            },
+            "s1_len": {
+              "value": 2,
+              "share": 0.975,
+              "z": 15.04
+            },
+            "s1_maxAge": {
+              "value": 18,
+              "share": 0.95,
+              "z": 11.86
+            },
+            "volMultMin": {
+              "value": 1.1,
+              "share": 0.825,
+              "z": 11.17
+            },
+            "useG3": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.7,
+              "z": 10.07
+            },
+            "s6_len": {
+              "value": 3,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "rrBufAtr": {
+              "value": 0.5,
+              "share": 0.625,
+              "z": 7.78
+            },
+            "rrRatio": {
+              "value": 1.5,
+              "share": 0.65,
+              "z": 10.04
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            },
+            "rrTrailPct": {
+              "value": 2.5,
+              "share": 0.925,
+              "z": 9.86
+            },
+            "useG1": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "useS4": {
+              "value": false,
+              "share": 0.775,
+              "z": 3.48
+            },
+            "useS5": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            }
+          },
+          "timestamp": "2026-08-18T04:02:02+00:00"
+        },
+        "SYNUSDT": {
+          "verdict": "STRONG PAPER CANDIDATE",
+          "why": [
+            "broad IS+OOS survival and adequate sample"
+          ],
+          "is_rank": 2,
+          "tested_unique": 62781,
+          "survivors": 10605,
+          "held_share": 0.16892,
+          "metrics": {
+            "net_pct": 7.87,
+            "net_usdt": 787.47,
+            "dd_pct": 2.37,
+            "win_rate": 46.34,
+            "trades": 82,
+            "legs": 82,
+            "leg_win_rate": 46.34,
+            "profit_factor": 1.821,
+            "sharpe": null,
+            "sl_hit": 69,
+            "sl_rate": 84.15,
+            "sl_loss": 44,
+            "sl_loss_rate": 53.66,
+            "sl_profit": 25,
+            "sl_profit_rate": 30.49,
+            "tp_hit": 13,
+            "oos_net_pct": 7.42,
+            "oos_dd_pct": 4.49,
+            "oos_win_rate": 45.54,
+            "oos_trades": 112,
+            "oos_profit_factor": 1.336,
+            "oos_sl_hit": 104,
+            "oos_sl_rate": 92.86,
+            "oos_sl_loss": 61,
+            "oos_sl_loss_rate": 54.46,
+            "oos_sl_profit": 43,
+            "oos_sl_profit_rate": 38.39,
+            "oos_tp_hit": 8,
+            "full_net_pct": 15.29,
+            "full_dd_pct": 4.78
+          },
+          "params": {
+            "atrLenRisk": 16,
+            "s1_len": 1,
+            "s1_maxAge": 26,
+            "volMultMin": 0.7,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 5,
+            "rrSwingLb": 14,
+            "rrBufAtr": 1,
+            "rrRatio": 1.5,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 2.5,
+            "useG1": true,
+            "g1_mult": 2,
+            "useS4": false,
+            "s4_mult": 1.5,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 16,
+              "share": 0.875,
+              "z": 13.23
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s1_maxAge": {
+              "value": 26,
+              "share": 0.725,
+              "z": 8.3
+            },
+            "volMultMin": {
+              "value": 0.7,
+              "share": 0.925,
+              "z": 12.87
+            },
+            "useG3": {
+              "value": true,
+              "share": 0.85,
+              "z": 4.43
+            },
+            "s6_prox": {
+              "value": 12,
+              "share": 0.6,
+              "z": 8.26
+            },
+            "s6_len": {
+              "value": 5,
+              "share": 0.475,
+              "z": 6.0
+            },
+            "rrSwingLb": {
+              "value": 14,
+              "share": 0.325,
+              "z": 2.69
+            },
+            "rrBufAtr": {
+              "value": 1,
+              "share": 0.375,
+              "z": 3.54
+            },
+            "rrRatio": {
+              "value": 1.5,
+              "share": 0.525,
+              "z": 7.65
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.75,
+              "z": 3.16
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 0.95,
+              "z": 5.69
+            },
+            "rrTrailPct": {
+              "value": 2.5,
+              "share": 0.75,
+              "z": 7.3
+            },
+            "useG1": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "g1_mult": {
+              "value": 2,
+              "share": 0.6,
+              "z": 6.32
+            },
+            "useS4": {
+              "value": false,
+              "share": 0.8,
+              "z": 3.79
+            },
+            "s4_mult": {
+              "value": 1.5,
+              "share": 0.375,
+              "z": 2.77
+            },
+            "useS5": {
+              "value": false,
+              "share": 0.8,
+              "z": 3.79
+            }
+          },
+          "timestamp": "2026-08-16T19:07:58+00:00"
+        },
+        "币安人生USDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 1,
+          "tested_unique": 67675,
+          "survivors": 876,
+          "held_share": 0.01294,
+          "metrics": {
+            "net_pct": 4.45,
+            "net_usdt": 444.73,
+            "dd_pct": 1.48,
+            "win_rate": 68.63,
+            "trades": 51,
+            "legs": 132,
+            "leg_win_rate": 60.61,
+            "profit_factor": 4.499,
+            "sharpe": null,
+            "sl_hit": 51,
+            "sl_rate": 100,
+            "sl_loss": 16,
+            "sl_loss_rate": 31.37,
+            "sl_profit": 35,
+            "sl_profit_rate": 68.63,
+            "tp_hit": 26,
+            "oos_net_pct": 4.4,
+            "oos_dd_pct": 2.63,
+            "oos_win_rate": 56.72,
+            "oos_trades": 134,
+            "oos_profit_factor": 1.447,
+            "oos_sl_hit": 134,
+            "oos_sl_rate": 100,
+            "oos_sl_loss": 58,
+            "oos_sl_loss_rate": 43.28,
+            "oos_sl_profit": 76,
+            "oos_sl_profit_rate": 56.72,
+            "oos_tp_hit": 47,
+            "full_net_pct": 8.85,
+            "full_dd_pct": 2.53
+          },
+          "params": {
+            "atrLenRisk": 12,
+            "s1_len": 6,
+            "s1_maxAge": 40,
+            "volMultMin": 0.7,
+            "useG3": false,
+            "s6_prox": 20,
+            "s6_len": 3,
+            "rrSwingLb": 10,
+            "rrBufAtr": 4,
+            "rrRatio": 6,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 0.8,
+            "useG1": false,
+            "g1_mult": 4,
+            "useS4": true,
+            "s4_mult": 1.5,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 12,
+              "share": 0.475,
+              "z": 6.0
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 0.5,
+              "z": 6.45
+            },
+            "s1_maxAge": {
+              "value": 26,
+              "share": 0.6,
+              "z": 6.32
+            },
+            "volMultMin": {
+              "value": 0.7,
+              "share": 0.975,
+              "z": 13.72
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.9,
+              "z": 13.68
+            },
+            "s6_len": {
+              "value": 4,
+              "share": 0.425,
+              "z": 5.1
+            },
+            "rrSwingLb": {
+              "value": 10,
+              "share": 0.425,
+              "z": 4.38
+            },
+            "rrBufAtr": {
+              "value": 1,
+              "share": 0.4,
+              "z": 3.96
+            },
+            "rrRatio": {
+              "value": 6,
+              "share": 0.3,
+              "z": 3.35
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.925,
+              "z": 9.86
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.7,
+              "z": 2.53
+            },
+            "g1_mult": {
+              "value": 4,
+              "share": 0.375,
+              "z": 2.77
+            },
+            "useS4": {
+              "value": true,
+              "share": 0.9,
+              "z": 5.06
+            },
+            "s4_mult": {
+              "value": 1.5,
+              "share": 0.875,
+              "z": 10.67
+            },
+            "useS5": {
+              "value": false,
+              "share": 0.875,
+              "z": 4.74
+            }
+          },
+          "timestamp": "2026-08-18T17:24:11+00:00"
+        },
+        "ZECUSDT": {
+          "verdict": "STRONG PAPER CANDIDATE",
+          "why": [
+            "broad IS+OOS survival and adequate sample"
+          ],
+          "is_rank": 1,
+          "tested_unique": 99795,
+          "survivors": 85324,
+          "held_share": 0.85499,
+          "metrics": {
+            "net_pct": 38.34,
+            "net_usdt": 3833.56,
+            "dd_pct": 4.91,
+            "win_rate": 24,
+            "trades": 50,
+            "legs": 50,
+            "leg_win_rate": 24,
+            "profit_factor": 3.137,
+            "sharpe": null,
+            "sl_hit": 38,
+            "sl_rate": 76,
+            "sl_loss": 38,
+            "sl_loss_rate": 76,
+            "sl_profit": 0,
+            "sl_profit_rate": 0,
+            "tp_hit": 12,
+            "oos_net_pct": 8.59,
+            "oos_dd_pct": 6.31,
+            "oos_win_rate": 23.81,
+            "oos_trades": 21,
+            "oos_profit_factor": 2.299,
+            "oos_sl_hit": 16,
+            "oos_sl_rate": 76.19,
+            "oos_sl_loss": 16,
+            "oos_sl_loss_rate": 76.19,
+            "oos_sl_profit": 0,
+            "oos_sl_profit_rate": 0,
+            "oos_tp_hit": 5,
+            "full_net_pct": 46.93,
+            "full_dd_pct": 4.91
+          },
+          "params": {
+            "atrLenRisk": 8,
+            "s1_len": 3,
+            "s1_maxAge": 40,
+            "volMultMin": 0.3,
+            "useG3": false,
+            "s6_prox": 12,
+            "s6_len": 6,
+            "rrSwingLb": 4,
+            "rrBufAtr": 0.1,
+            "rrRatio": 6,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": false,
+            "rrTrailPct": 1.5,
+            "useG1": false,
+            "g1_mult": 2,
+            "useS4": false,
+            "s4_mult": 1.5,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 20,
+              "share": 0.425,
+              "z": 5.1
+            },
+            "s1_len": {
+              "value": 3,
+              "share": 0.7,
+              "z": 10.07
+            },
+            "s1_maxAge": {
+              "value": 40,
+              "share": 0.975,
+              "z": 12.25
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 0.6,
+              "z": 7.35
+            },
+            "useG3": {
+              "value": false,
+              "share": 0.925,
+              "z": 5.38
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.625,
+              "z": 8.71
+            },
+            "s6_len": {
+              "value": 3,
+              "share": 0.825,
+              "z": 12.33
+            },
+            "rrSwingLb": {
+              "value": 10,
+              "share": 0.375,
+              "z": 3.54
+            },
+            "rrBufAtr": {
+              "value": 0.1,
+              "share": 0.55,
+              "z": 6.51
+            },
+            "rrRatio": {
+              "value": 5,
+              "share": 0.675,
+              "z": 10.52
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.675,
+              "z": 2.21
+            },
+            "rrUseTrailSl": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 4,
+              "share": 0.525,
+              "z": 4.02
+            },
+            "g1_mult": {
+              "value": 2,
+              "share": 0.775,
+              "z": 9.09
+            },
+            "s4_mult": {
+              "value": 2,
+              "share": 0.35,
+              "z": 2.37
+            },
+            "useS5": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            }
+          },
+          "timestamp": "2026-08-17T02:47:10+00:00"
+        },
+        "RIFUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 47097,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "ALLOUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 728,
+          "tested_unique": 83562,
+          "survivors": 751,
+          "held_share": 0.00899,
+          "metrics": {
+            "net_pct": 3.26,
+            "net_usdt": 326.47,
+            "dd_pct": 1.67,
+            "win_rate": 50.94,
+            "trades": 53,
+            "legs": 150,
+            "leg_win_rate": 40.67,
+            "profit_factor": 1.614,
+            "sharpe": null,
+            "sl_hit": 52,
+            "sl_rate": 98.11,
+            "sl_loss": 26,
+            "sl_loss_rate": 49.06,
+            "sl_profit": 26,
+            "sl_profit_rate": 49.06,
+            "tp_hit": 26,
+            "oos_net_pct": 1.51,
+            "oos_dd_pct": 1.74,
+            "oos_win_rate": 57.75,
+            "oos_trades": 71,
+            "oos_profit_factor": 1.234,
+            "oos_sl_hit": 70,
+            "oos_sl_rate": 98.59,
+            "oos_sl_loss": 30,
+            "oos_sl_loss_rate": 42.25,
+            "oos_sl_profit": 40,
+            "oos_sl_profit_rate": 56.34,
+            "oos_tp_hit": 35,
+            "full_net_pct": 4.77,
+            "full_dd_pct": 2.34
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 12,
+            "s1_maxAge": 40,
+            "volMultMin": 0.3,
+            "useG3": false,
+            "s6_prox": 20,
+            "s6_len": 5,
+            "rrSwingLb": 4,
+            "rrBufAtr": 2.8,
+            "rrRatio": 5,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 1.5,
+            "useG1": false,
+            "g1_mult": 2.5,
+            "useS4": true,
+            "s4_mult": 2,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 2,
+              "share": 0.675,
+              "z": 9.62
+            },
+            "s1_len": {
+              "value": 2,
+              "share": 0.625,
+              "z": 8.71
+            },
+            "s1_maxAge": {
+              "value": 10,
+              "share": 0.6,
+              "z": 6.32
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 0.975,
+              "z": 13.72
+            },
+            "useG3": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.9,
+              "z": 13.68
+            },
+            "s6_len": {
+              "value": 5,
+              "share": 0.85,
+              "z": 12.78
+            },
+            "rrSwingLb": {
+              "value": 4,
+              "share": 0.425,
+              "z": 4.38
+            },
+            "rrRatio": {
+              "value": 3,
+              "share": 0.5,
+              "z": 7.17
+            },
+            "rrUsePartialTp": {
+              "value": true,
+              "share": 0.95,
+              "z": 5.69
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 1.5,
+              "share": 0.65,
+              "z": 5.84
+            },
+            "useG1": {
+              "value": false,
+              "share": 0.875,
+              "z": 4.74
+            },
+            "useS4": {
+              "value": true,
+              "share": 0.95,
+              "z": 5.69
+            },
+            "s4_mult": {
+              "value": 2.5,
+              "share": 0.45,
+              "z": 3.95
+            },
+            "useS5": {
+              "value": false,
+              "share": 0.975,
+              "z": 6.01
+            }
+          },
+          "timestamp": "2026-08-18T20:08:41+00:00"
+        },
+        "NEARUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 679,
+          "tested_unique": 75123,
+          "survivors": 71,
+          "held_share": 0.00095,
+          "metrics": {
+            "net_pct": 2.09,
+            "net_usdt": 208.64,
+            "dd_pct": 2.87,
+            "win_rate": 51.92,
+            "trades": 52,
+            "legs": 52,
+            "leg_win_rate": 51.92,
+            "profit_factor": 1.279,
+            "sharpe": null,
+            "sl_hit": 25,
+            "sl_rate": 48.08,
+            "sl_loss": 25,
+            "sl_loss_rate": 48.08,
+            "sl_profit": 0,
+            "sl_profit_rate": 0,
+            "tp_hit": 27,
+            "oos_net_pct": 0.44,
+            "oos_dd_pct": 3.41,
+            "oos_win_rate": 44.64,
+            "oos_trades": 56,
+            "oos_profit_factor": 1.05,
+            "oos_sl_hit": 31,
+            "oos_sl_rate": 55.36,
+            "oos_sl_loss": 31,
+            "oos_sl_loss_rate": 55.36,
+            "oos_sl_profit": 0,
+            "oos_sl_profit_rate": 0,
+            "oos_tp_hit": 25,
+            "full_net_pct": 2.52,
+            "full_dd_pct": 3.34
+          },
+          "params": {
+            "atrLenRisk": 6,
+            "s1_len": 2,
+            "s1_maxAge": 40,
+            "volMultMin": 1.4,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 8,
+            "rrSwingLb": 4,
+            "rrBufAtr": 0.1,
+            "rrRatio": 1,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 4,
+            "useG1": true,
+            "g1_mult": 1.5,
+            "useS4": true,
+            "s4_mult": 1.5,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 6,
+              "share": 0.325,
+              "z": 3.29
+            },
+            "s1_len": {
+              "value": 2,
+              "share": 0.75,
+              "z": 10.97
+            },
+            "s1_maxAge": {
+              "value": 34,
+              "share": 0.625,
+              "z": 6.72
+            },
+            "volMultMin": {
+              "value": 1.4,
+              "share": 0.525,
+              "z": 6.08
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.975,
+              "z": 15.04
+            },
+            "s6_len": {
+              "value": 5,
+              "share": 0.325,
+              "z": 3.29
+            },
+            "rrSwingLb": {
+              "value": 14,
+              "share": 0.35,
+              "z": 3.11
+            },
+            "rrBufAtr": {
+              "value": 4,
+              "share": 0.45,
+              "z": 4.81
+            },
+            "rrRatio": {
+              "value": 2,
+              "share": 0.375,
+              "z": 4.78
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.675,
+              "z": 2.21
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 0.8,
+              "z": 3.79
+            },
+            "rrTrailPct": {
+              "value": 4,
+              "share": 0.675,
+              "z": 6.21
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.7,
+              "z": 2.53
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 0.425,
+              "z": 3.56
+            },
+            "useS4": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s4_mult": {
+              "value": 4,
+              "share": 0.4,
+              "z": 3.16
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.675,
+              "z": 2.21
+            }
+          },
+          "timestamp": "2026-08-17T10:17:17+00:00"
+        },
+        "KAITOUSDT": {
+          "verdict": "STRONG PAPER CANDIDATE",
+          "why": [
+            "broad IS+OOS survival and adequate sample"
+          ],
+          "is_rank": 1,
+          "tested_unique": 94142,
+          "survivors": 22539,
+          "held_share": 0.23941,
+          "metrics": {
+            "net_pct": 6.94,
+            "net_usdt": 694.34,
+            "dd_pct": 2,
+            "win_rate": 47.5,
+            "trades": 80,
+            "legs": 80,
+            "leg_win_rate": 47.5,
+            "profit_factor": 1.593,
+            "sharpe": null,
+            "sl_hit": 50,
+            "sl_rate": 62.5,
+            "sl_loss": 42,
+            "sl_loss_rate": 52.5,
+            "sl_profit": 8,
+            "sl_profit_rate": 10,
+            "tp_hit": 30,
+            "oos_net_pct": 4.6,
+            "oos_dd_pct": 2.38,
+            "oos_win_rate": 44.12,
+            "oos_trades": 68,
+            "oos_profit_factor": 1.484,
+            "oos_sl_hit": 42,
+            "oos_sl_rate": 61.76,
+            "oos_sl_loss": 38,
+            "oos_sl_loss_rate": 55.88,
+            "oos_sl_profit": 4,
+            "oos_sl_profit_rate": 5.88,
+            "oos_tp_hit": 26,
+            "full_net_pct": 11.54,
+            "full_dd_pct": 2.23
+          },
+          "params": {
+            "atrLenRisk": 6,
+            "s1_len": 3,
+            "s1_maxAge": 18,
+            "volMultMin": 0.3,
+            "useG3": false,
+            "s6_prox": 12,
+            "s6_len": 4,
+            "rrSwingLb": 4,
+            "rrBufAtr": 0.5,
+            "rrRatio": 1.5,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 4,
+            "useG1": false,
+            "g1_mult": 2,
+            "useS4": true,
+            "s4_mult": 2.5,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 8,
+              "share": 0.65,
+              "z": 9.17
+            },
+            "s1_len": {
+              "value": 3,
+              "share": 0.85,
+              "z": 12.78
+            },
+            "s1_maxAge": {
+              "value": 18,
+              "share": 1.0,
+              "z": 12.65
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 0.675,
+              "z": 8.63
+            },
+            "useG3": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 12,
+              "share": 0.75,
+              "z": 10.97
+            },
+            "s6_len": {
+              "value": 4,
+              "share": 0.95,
+              "z": 14.59
+            },
+            "rrSwingLb": {
+              "value": 4,
+              "share": 0.925,
+              "z": 12.87
+            },
+            "rrBufAtr": {
+              "value": 0.5,
+              "share": 1.0,
+              "z": 14.14
+            },
+            "rrRatio": {
+              "value": 1.5,
+              "share": 0.9,
+              "z": 14.82
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 4,
+              "share": 0.625,
+              "z": 5.48
+            },
+            "useG1": {
+              "value": false,
+              "share": 0.9,
+              "z": 5.06
+            },
+            "g1_mult": {
+              "value": 2,
+              "share": 0.35,
+              "z": 2.37
+            },
+            "useS4": {
+              "value": false,
+              "share": 0.75,
+              "z": 3.16
+            },
+            "s4_mult": {
+              "value": 1.5,
+              "share": 0.35,
+              "z": 2.37
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            }
+          },
+          "timestamp": "2026-08-18T21:11:06+00:00"
+        },
+        "JTOUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 10,
+          "tested_unique": 84805,
+          "survivors": 7139,
+          "held_share": 0.08418,
+          "metrics": {
+            "net_pct": 4.99,
+            "net_usdt": 498.65,
+            "dd_pct": 1.3,
+            "win_rate": 59.26,
+            "trades": 54,
+            "legs": 155,
+            "leg_win_rate": 50.97,
+            "profit_factor": 2.121,
+            "sharpe": null,
+            "sl_hit": 53,
+            "sl_rate": 98.15,
+            "sl_loss": 22,
+            "sl_loss_rate": 40.74,
+            "sl_profit": 31,
+            "sl_profit_rate": 57.41,
+            "tp_hit": 33,
+            "oos_net_pct": 2.04,
+            "oos_dd_pct": 1.47,
+            "oos_win_rate": 61.97,
+            "oos_trades": 71,
+            "oos_profit_factor": 1.318,
+            "oos_sl_hit": 67,
+            "oos_sl_rate": 94.37,
+            "oos_sl_loss": 27,
+            "oos_sl_loss_rate": 38.03,
+            "oos_sl_profit": 40,
+            "oos_sl_profit_rate": 56.34,
+            "oos_tp_hit": 46,
+            "full_net_pct": 7.03,
+            "full_dd_pct": 1.41
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 1,
+            "s1_maxAge": 10,
+            "volMultMin": 0.3,
+            "useG3": false,
+            "s6_prox": 12,
+            "s6_len": 5,
+            "rrSwingLb": 10,
+            "rrBufAtr": 0.1,
+            "rrRatio": 4,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 2.5,
+            "useG1": true,
+            "g1_mult": 1.5,
+            "useS4": true,
+            "s4_mult": 1.5,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 2,
+              "share": 0.75,
+              "z": 10.97
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 0.45,
+              "z": 5.55
+            },
+            "s1_maxAge": {
+              "value": 40,
+              "share": 0.45,
+              "z": 3.95
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 0.625,
+              "z": 7.78
+            },
+            "useG3": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 12,
+              "share": 0.95,
+              "z": 14.59
+            },
+            "s6_len": {
+              "value": 5,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "rrSwingLb": {
+              "value": 8,
+              "share": 0.375,
+              "z": 3.54
+            },
+            "rrBufAtr": {
+              "value": 1,
+              "share": 0.4,
+              "z": 3.96
+            },
+            "rrRatio": {
+              "value": 4,
+              "share": 0.575,
+              "z": 8.61
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.825,
+              "z": 4.11
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 1.5,
+              "share": 0.8,
+              "z": 8.03
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.75,
+              "z": 3.16
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 0.5,
+              "z": 4.74
+            },
+            "useS4": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s4_mult": {
+              "value": 1.5,
+              "share": 0.9,
+              "z": 11.07
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.675,
+              "z": 2.21
+            }
+          },
+          "timestamp": "2026-08-18T08:00:37+00:00"
+        },
+        "TAOUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 15,
+          "tested_unique": 91086,
+          "survivors": 640,
+          "held_share": 0.00703,
+          "metrics": {
+            "net_pct": 4.9,
+            "net_usdt": 490.15,
+            "dd_pct": 0.76,
+            "win_rate": 71.19,
+            "trades": 59,
+            "legs": 166,
+            "leg_win_rate": 70.48,
+            "profit_factor": 4.63,
+            "sharpe": null,
+            "sl_hit": 56,
+            "sl_rate": 94.92,
+            "sl_loss": 17,
+            "sl_loss_rate": 28.81,
+            "sl_profit": 39,
+            "sl_profit_rate": 66.1,
+            "tp_hit": 30,
+            "oos_net_pct": 0.26,
+            "oos_dd_pct": 2.23,
+            "oos_win_rate": 59.65,
+            "oos_trades": 57,
+            "oos_profit_factor": 1.055,
+            "oos_sl_hit": 51,
+            "oos_sl_rate": 89.47,
+            "oos_sl_loss": 23,
+            "oos_sl_loss_rate": 40.35,
+            "oos_sl_profit": 28,
+            "oos_sl_profit_rate": 49.12,
+            "oos_tp_hit": 24,
+            "full_net_pct": 5.16,
+            "full_dd_pct": 2.13
+          },
+          "params": {
+            "atrLenRisk": 6,
+            "s1_len": 1,
+            "s1_maxAge": 34,
+            "volMultMin": 2.5,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 4,
+            "rrSwingLb": 8,
+            "rrBufAtr": 4,
+            "rrRatio": 1,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 0.8,
+            "useG1": false,
+            "g1_mult": 1.5,
+            "useS4": true,
+            "s4_mult": 4,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 6,
+              "share": 0.35,
+              "z": 3.74
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s1_maxAge": {
+              "value": 34,
+              "share": 0.525,
+              "z": 5.14
+            },
+            "volMultMin": {
+              "value": 2.5,
+              "share": 0.925,
+              "z": 12.87
+            },
+            "useG3": {
+              "value": true,
+              "share": 0.725,
+              "z": 2.85
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "s6_len": {
+              "value": 4,
+              "share": 0.6,
+              "z": 8.26
+            },
+            "rrSwingLb": {
+              "value": 8,
+              "share": 0.3,
+              "z": 2.26
+            },
+            "rrBufAtr": {
+              "value": 1.8,
+              "share": 0.525,
+              "z": 6.08
+            },
+            "rrRatio": {
+              "value": 1.5,
+              "share": 0.425,
+              "z": 5.74
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.925,
+              "z": 9.86
+            },
+            "g1_mult": {
+              "value": 4,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "s4_mult": {
+              "value": 4,
+              "share": 0.35,
+              "z": 2.37
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            }
+          },
+          "timestamp": "2026-08-17T09:15:53+00:00"
+        },
+        "PUMPUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 6,
+          "tested_unique": 84550,
+          "survivors": 5310,
+          "held_share": 0.0628,
+          "metrics": {
+            "net_pct": 7.66,
+            "net_usdt": 765.86,
+            "dd_pct": 1.45,
+            "win_rate": 60.34,
+            "trades": 58,
+            "legs": 160,
+            "leg_win_rate": 77.5,
+            "profit_factor": 2.393,
+            "sharpe": null,
+            "sl_hit": 23,
+            "sl_rate": 39.66,
+            "sl_loss": 23,
+            "sl_loss_rate": 39.66,
+            "sl_profit": 0,
+            "sl_profit_rate": 0,
+            "tp_hit": 54,
+            "oos_net_pct": 1.23,
+            "oos_dd_pct": 2.65,
+            "oos_win_rate": 59.18,
+            "oos_trades": 49,
+            "oos_profit_factor": 1.16,
+            "oos_sl_hit": 21,
+            "oos_sl_rate": 42.86,
+            "oos_sl_loss": 20,
+            "oos_sl_loss_rate": 40.82,
+            "oos_sl_profit": 1,
+            "oos_sl_profit_rate": 2.04,
+            "oos_tp_hit": 36,
+            "full_net_pct": 8.89,
+            "full_dd_pct": 2.46
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 2,
+            "s1_maxAge": 34,
+            "volMultMin": 0.3,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 6,
+            "rrSwingLb": 18,
+            "rrBufAtr": 1.8,
+            "rrRatio": 1,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": false,
+            "rrTrailPct": 4,
+            "useG1": false,
+            "g1_mult": 2,
+            "useS4": false,
+            "s4_mult": 2.5,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 12,
+              "share": 0.35,
+              "z": 3.74
+            },
+            "s1_len": {
+              "value": 2,
+              "share": 0.775,
+              "z": 11.43
+            },
+            "s1_maxAge": {
+              "value": 26,
+              "share": 0.8,
+              "z": 9.49
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 0.95,
+              "z": 13.29
+            },
+            "useG3": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.975,
+              "z": 15.04
+            },
+            "s6_len": {
+              "value": 6,
+              "share": 0.975,
+              "z": 15.04
+            },
+            "rrSwingLb": {
+              "value": 10,
+              "share": 0.325,
+              "z": 2.69
+            },
+            "rrBufAtr": {
+              "value": 2.8,
+              "share": 0.6,
+              "z": 7.35
+            },
+            "rrRatio": {
+              "value": 1,
+              "share": 0.775,
+              "z": 12.43
+            },
+            "rrUsePartialTp": {
+              "value": true,
+              "share": 0.925,
+              "z": 5.38
+            },
+            "rrTrailPct": {
+              "value": 4,
+              "share": 0.9,
+              "z": 9.49
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "s4_mult": {
+              "value": 2.5,
+              "share": 0.625,
+              "z": 6.72
+            }
+          },
+          "timestamp": "2026-08-16T22:57:08+00:00"
+        },
+        "EIGENUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 178,
+          "tested_unique": 71929,
+          "survivors": 52,
+          "held_share": 0.00072,
+          "metrics": {
+            "net_pct": 1.96,
+            "net_usdt": 196.22,
+            "dd_pct": 1.22,
+            "win_rate": 67.69,
+            "trades": 65,
+            "legs": 189,
+            "leg_win_rate": 63.49,
+            "profit_factor": 1.5,
+            "sharpe": null,
+            "sl_hit": 65,
+            "sl_rate": 100,
+            "sl_loss": 21,
+            "sl_loss_rate": 32.31,
+            "sl_profit": 44,
+            "sl_profit_rate": 67.69,
+            "tp_hit": 27,
+            "oos_net_pct": 0.39,
+            "oos_dd_pct": 2.06,
+            "oos_win_rate": 62.2,
+            "oos_trades": 82,
+            "oos_profit_factor": 1.061,
+            "oos_sl_hit": 82,
+            "oos_sl_rate": 100,
+            "oos_sl_loss": 31,
+            "oos_sl_loss_rate": 37.8,
+            "oos_sl_profit": 51,
+            "oos_sl_profit_rate": 62.2,
+            "oos_tp_hit": 33,
+            "full_net_pct": 2.35,
+            "full_dd_pct": 2.02
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 2,
+            "s1_maxAge": 34,
+            "volMultMin": 0.3,
+            "useG3": true,
+            "s6_prox": 4,
+            "s6_len": 3,
+            "rrSwingLb": 10,
+            "rrBufAtr": 4,
+            "rrRatio": 2.5,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 0.8,
+            "useG1": false,
+            "g1_mult": 3,
+            "useS4": false,
+            "s4_mult": 2,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 2,
+              "share": 0.575,
+              "z": 7.81
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 0.975,
+              "z": 15.04
+            },
+            "s1_maxAge": {
+              "value": 26,
+              "share": 0.4,
+              "z": 3.16
+            },
+            "volMultMin": {
+              "value": 0.7,
+              "share": 0.575,
+              "z": 6.93
+            },
+            "useG3": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            },
+            "s6_prox": {
+              "value": 8,
+              "share": 0.6,
+              "z": 8.26
+            },
+            "s6_len": {
+              "value": 3,
+              "share": 0.825,
+              "z": 12.33
+            },
+            "rrSwingLb": {
+              "value": 20,
+              "share": 0.525,
+              "z": 6.08
+            },
+            "rrBufAtr": {
+              "value": 4,
+              "share": 0.925,
+              "z": 12.87
+            },
+            "rrRatio": {
+              "value": 3,
+              "share": 0.3,
+              "z": 3.35
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.5,
+              "z": 3.65
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.75,
+              "z": 3.16
+            },
+            "g1_mult": {
+              "value": 2,
+              "share": 0.55,
+              "z": 5.53
+            },
+            "useS4": {
+              "value": false,
+              "share": 0.775,
+              "z": 3.48
+            },
+            "s4_mult": {
+              "value": 2,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.9,
+              "z": 5.06
+            }
+          },
+          "timestamp": "2026-08-19T01:31:53+00:00"
+        },
+        "MORPHOUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "no IS-ranked row cleared all fixed OOS/risk gates"
+          ],
+          "tested_unique": 61075,
+          "survivors": 0,
+          "held_share": 0.0,
+          "params": null,
+          "consensus": {}
+        },
+        "JSTUSDT": {
+          "verdict": "PAPER CANDIDATE",
+          "why": [
+            "passed fixed gates, but forward validation is still required"
+          ],
+          "is_rank": 201,
+          "tested_unique": 82956,
+          "survivors": 4060,
+          "held_share": 0.04894,
+          "metrics": {
+            "net_pct": 3.48,
+            "net_usdt": 348.42,
+            "dd_pct": 0.7,
+            "win_rate": 52,
+            "trades": 50,
+            "legs": 50,
+            "leg_win_rate": 52,
+            "profit_factor": 2.182,
+            "sharpe": null,
+            "sl_hit": 43,
+            "sl_rate": 86,
+            "sl_loss": 24,
+            "sl_loss_rate": 48,
+            "sl_profit": 19,
+            "sl_profit_rate": 38,
+            "tp_hit": 7,
+            "oos_net_pct": 0.17,
+            "oos_dd_pct": 0.89,
+            "oos_win_rate": 40,
+            "oos_trades": 20,
+            "oos_profit_factor": 1.123,
+            "oos_sl_hit": 19,
+            "oos_sl_rate": 95,
+            "oos_sl_loss": 12,
+            "oos_sl_loss_rate": 60,
+            "oos_sl_profit": 7,
+            "oos_sl_profit_rate": 35,
+            "oos_tp_hit": 1,
+            "full_net_pct": 3.65,
+            "full_dd_pct": 0.86
+          },
+          "params": {
+            "atrLenRisk": 4,
+            "s1_len": 3,
+            "s1_maxAge": 40,
+            "volMultMin": 1.9,
+            "useG3": false,
+            "s6_prox": 20,
+            "s6_len": 13,
+            "rrSwingLb": 10,
+            "rrBufAtr": 0.1,
+            "rrRatio": 4,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 1.5,
+            "useG1": true,
+            "g1_mult": 4,
+            "useS4": true,
+            "s4_mult": 4,
+            "useS5": false
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 4,
+              "share": 0.75,
+              "z": 10.97
+            },
+            "s1_len": {
+              "value": 3,
+              "share": 0.525,
+              "z": 6.91
+            },
+            "s1_maxAge": {
+              "value": 40,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "volMultMin": {
+              "value": 1.9,
+              "share": 0.825,
+              "z": 11.17
+            },
+            "useG3": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.975,
+              "z": 15.04
+            },
+            "s6_len": {
+              "value": 13,
+              "share": 0.575,
+              "z": 7.81
+            },
+            "rrSwingLb": {
+              "value": 14,
+              "share": 0.4,
+              "z": 3.96
+            },
+            "rrBufAtr": {
+              "value": 1,
+              "share": 0.375,
+              "z": 3.54
+            },
+            "rrRatio": {
+              "value": 5,
+              "share": 0.8,
+              "z": 12.91
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 1.5,
+              "share": 1.0,
+              "z": 10.95
+            },
+            "g1_mult": {
+              "value": 3,
+              "share": 0.425,
+              "z": 3.56
+            },
+            "useS4": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s4_mult": {
+              "value": 4,
+              "share": 0.575,
+              "z": 5.93
+            }
+          },
+          "timestamp": "2026-08-16T22:12:01+00:00"
+        },
+        "ENAUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "fewer than 8 distinct IS+OOS survivors",
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 370,
+          "tested_unique": 79789,
+          "survivors": 2,
+          "held_share": 3e-05,
+          "metrics": {
+            "net_pct": 0.42,
+            "net_usdt": 41.82,
+            "dd_pct": 1.37,
+            "win_rate": 50.98,
+            "trades": 51,
+            "legs": 151,
+            "leg_win_rate": 45.7,
+            "profit_factor": 1.115,
+            "sharpe": null,
+            "sl_hit": 47,
+            "sl_rate": 92.16,
+            "sl_loss": 25,
+            "sl_loss_rate": 49.02,
+            "sl_profit": 22,
+            "sl_profit_rate": 43.14,
+            "tp_hit": 26,
+            "oos_net_pct": 0.18,
+            "oos_dd_pct": 0.85,
+            "oos_win_rate": 48.65,
+            "oos_trades": 37,
+            "oos_profit_factor": 1.063,
+            "oos_sl_hit": 33,
+            "oos_sl_rate": 89.19,
+            "oos_sl_loss": 19,
+            "oos_sl_loss_rate": 51.35,
+            "oos_sl_profit": 14,
+            "oos_sl_profit_rate": 37.84,
+            "oos_tp_hit": 19,
+            "full_net_pct": 0.59,
+            "full_dd_pct": 1.72
+          },
+          "params": {
+            "atrLenRisk": 8,
+            "s1_len": 4,
+            "s1_maxAge": 18,
+            "volMultMin": 0.3,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 4,
+            "rrSwingLb": 18,
+            "rrBufAtr": 0.5,
+            "rrRatio": 2,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 1.5,
+            "useG1": true,
+            "g1_mult": 2.5,
+            "useS4": false,
+            "s4_mult": 2,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 8,
+              "share": 1.0,
+              "z": 3.46
+            },
+            "s1_len": {
+              "value": 4,
+              "share": 1.0,
+              "z": 3.46
+            },
+            "s1_maxAge": {
+              "value": 18,
+              "share": 1.0,
+              "z": 2.83
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 1.0,
+              "z": 3.16
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 1.0,
+              "z": 3.46
+            },
+            "s6_len": {
+              "value": 4,
+              "share": 1.0,
+              "z": 3.46
+            },
+            "rrSwingLb": {
+              "value": 18,
+              "share": 1.0,
+              "z": 3.16
+            },
+            "rrRatio": {
+              "value": 2,
+              "share": 1.0,
+              "z": 3.74
+            },
+            "rrTrailPct": {
+              "value": 1.5,
+              "share": 1.0,
+              "z": 2.45
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 1.0,
+              "z": 2.83
+            }
+          },
+          "timestamp": "2026-08-18T09:14:24+00:00"
+        },
+        "JUPUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 12,
+          "tested_unique": 87104,
+          "survivors": 209,
+          "held_share": 0.0024,
+          "metrics": {
+            "net_pct": 1.5,
+            "net_usdt": 149.83,
+            "dd_pct": 1.1,
+            "win_rate": 50,
+            "trades": 50,
+            "legs": 148,
+            "leg_win_rate": 50,
+            "profit_factor": 1.72,
+            "sharpe": null,
+            "sl_hit": 49,
+            "sl_rate": 98,
+            "sl_loss": 25,
+            "sl_loss_rate": 50,
+            "sl_profit": 24,
+            "sl_profit_rate": 48,
+            "tp_hit": 19,
+            "oos_net_pct": 0.78,
+            "oos_dd_pct": 0.62,
+            "oos_win_rate": 63.16,
+            "oos_trades": 19,
+            "oos_profit_factor": 1.944,
+            "oos_sl_hit": 19,
+            "oos_sl_rate": 100,
+            "oos_sl_loss": 7,
+            "oos_sl_loss_rate": 36.84,
+            "oos_sl_profit": 12,
+            "oos_sl_profit_rate": 63.16,
+            "oos_tp_hit": 10,
+            "full_net_pct": 2.27,
+            "full_dd_pct": 1.1
+          },
+          "params": {
+            "atrLenRisk": 6,
+            "s1_len": 6,
+            "s1_maxAge": 34,
+            "volMultMin": 0.3,
+            "useG3": false,
+            "s6_prox": 12,
+            "s6_len": 13,
+            "rrSwingLb": 10,
+            "rrBufAtr": 2.8,
+            "rrRatio": 2.5,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 0.8,
+            "useG1": true,
+            "g1_mult": 2.5,
+            "useS4": true,
+            "s4_mult": 3,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 2,
+              "share": 0.35,
+              "z": 3.74
+            },
+            "s1_len": {
+              "value": 6,
+              "share": 0.625,
+              "z": 8.71
+            },
+            "s1_maxAge": {
+              "value": 34,
+              "share": 0.65,
+              "z": 7.12
+            },
+            "volMultMin": {
+              "value": 0.3,
+              "share": 0.5,
+              "z": 5.66
+            },
+            "useG3": {
+              "value": false,
+              "share": 0.725,
+              "z": 2.85
+            },
+            "s6_prox": {
+              "value": 12,
+              "share": 0.7,
+              "z": 10.07
+            },
+            "s6_len": {
+              "value": 10,
+              "share": 0.475,
+              "z": 6.0
+            },
+            "rrSwingLb": {
+              "value": 10,
+              "share": 0.8,
+              "z": 10.75
+            },
+            "rrBufAtr": {
+              "value": 2.8,
+              "share": 0.525,
+              "z": 6.08
+            },
+            "rrRatio": {
+              "value": 5,
+              "share": 0.4,
+              "z": 5.26
+            },
+            "rrUsePartialTp": {
+              "value": true,
+              "share": 0.9,
+              "z": 5.06
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.725,
+              "z": 6.94
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 0.45,
+              "z": 3.95
+            },
+            "useS4": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            },
+            "s4_mult": {
+              "value": 4,
+              "share": 0.65,
+              "z": 7.12
+            }
+          },
+          "timestamp": "2026-08-17T18:27:01+00:00"
+        },
+        "INJUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 1,
+          "tested_unique": 82505,
+          "survivors": 64,
+          "held_share": 0.00078,
+          "metrics": {
+            "net_pct": 3.43,
+            "net_usdt": 343.06,
+            "dd_pct": 1.74,
+            "win_rate": 60.71,
+            "trades": 56,
+            "legs": 56,
+            "leg_win_rate": 60.71,
+            "profit_factor": 2.227,
+            "sharpe": null,
+            "sl_hit": 55,
+            "sl_rate": 98.21,
+            "sl_loss": 22,
+            "sl_loss_rate": 39.29,
+            "sl_profit": 33,
+            "sl_profit_rate": 58.93,
+            "tp_hit": 1,
+            "oos_net_pct": 0.28,
+            "oos_dd_pct": 2.29,
+            "oos_win_rate": 55,
+            "oos_trades": 60,
+            "oos_profit_factor": 1.072,
+            "oos_sl_hit": 60,
+            "oos_sl_rate": 100,
+            "oos_sl_loss": 27,
+            "oos_sl_loss_rate": 45,
+            "oos_sl_profit": 33,
+            "oos_sl_profit_rate": 55,
+            "oos_tp_hit": 0,
+            "full_net_pct": 3.71,
+            "full_dd_pct": 2.22
+          },
+          "params": {
+            "atrLenRisk": 8,
+            "s1_len": 1,
+            "s1_maxAge": 40,
+            "volMultMin": 1.1,
+            "useG3": false,
+            "s6_prox": 4,
+            "s6_len": 3,
+            "rrSwingLb": 20,
+            "rrBufAtr": 4,
+            "rrRatio": 3,
+            "rrUsePartialTp": false,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 0.8,
+            "useG1": true,
+            "g1_mult": 1.5,
+            "useS4": false,
+            "s4_mult": 2.5,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 8,
+              "share": 0.425,
+              "z": 5.1
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 0.775,
+              "z": 11.43
+            },
+            "s1_maxAge": {
+              "value": 40,
+              "share": 0.65,
+              "z": 7.12
+            },
+            "volMultMin": {
+              "value": 1.1,
+              "share": 0.7,
+              "z": 9.05
+            },
+            "useG3": {
+              "value": false,
+              "share": 0.875,
+              "z": 4.74
+            },
+            "s6_prox": {
+              "value": 4,
+              "share": 0.925,
+              "z": 14.14
+            },
+            "s6_len": {
+              "value": 3,
+              "share": 1.0,
+              "z": 15.49
+            },
+            "rrSwingLb": {
+              "value": 10,
+              "share": 0.325,
+              "z": 2.69
+            },
+            "rrBufAtr": {
+              "value": 4,
+              "share": 0.475,
+              "z": 5.23
+            },
+            "rrRatio": {
+              "value": 2.5,
+              "share": 0.325,
+              "z": 3.82
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 1.5,
+              "share": 0.65,
+              "z": 5.84
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.925,
+              "z": 5.38
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 0.625,
+              "z": 6.72
+            },
+            "useS4": {
+              "value": false,
+              "share": 0.975,
+              "z": 6.01
+            },
+            "s4_mult": {
+              "value": 2,
+              "share": 0.375,
+              "z": 2.77
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            }
+          },
+          "timestamp": "2026-08-17T21:56:17+00:00"
+        },
+        "PYTHUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 1,
+          "tested_unique": 71035,
+          "survivors": 19,
+          "held_share": 0.00027,
+          "metrics": {
+            "net_pct": 2.01,
+            "net_usdt": 201.44,
+            "dd_pct": 1.52,
+            "win_rate": 59.26,
+            "trades": 54,
+            "legs": 156,
+            "leg_win_rate": 58.33,
+            "profit_factor": 1.591,
+            "sharpe": null,
+            "sl_hit": 53,
+            "sl_rate": 98.15,
+            "sl_loss": 22,
+            "sl_loss_rate": 40.74,
+            "sl_profit": 31,
+            "sl_profit_rate": 57.41,
+            "tp_hit": 17,
+            "oos_net_pct": 0.54,
+            "oos_dd_pct": 1.05,
+            "oos_win_rate": 54.29,
+            "oos_trades": 35,
+            "oos_profit_factor": 1.259,
+            "oos_sl_hit": 35,
+            "oos_sl_rate": 100,
+            "oos_sl_loss": 16,
+            "oos_sl_loss_rate": 45.71,
+            "oos_sl_profit": 19,
+            "oos_sl_profit_rate": 54.29,
+            "oos_tp_hit": 16,
+            "full_net_pct": 2.55,
+            "full_dd_pct": 1.71
+          },
+          "params": {
+            "atrLenRisk": 12,
+            "s1_len": 1,
+            "s1_maxAge": 18,
+            "volMultMin": 0.3,
+            "useG3": false,
+            "s6_prox": 12,
+            "s6_len": 10,
+            "rrSwingLb": 14,
+            "rrBufAtr": 1.8,
+            "rrRatio": 6,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 0.8,
+            "useG1": true,
+            "g1_mult": 2,
+            "useS4": true,
+            "s4_mult": 2,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 12,
+              "share": 0.895,
+              "z": 9.37
+            },
+            "s1_len": {
+              "value": 1,
+              "share": 0.895,
+              "z": 9.37
+            },
+            "s1_maxAge": {
+              "value": 18,
+              "share": 0.526,
+              "z": 3.56
+            },
+            "volMultMin": {
+              "value": 1.4,
+              "share": 0.368,
+              "z": 2.36
+            },
+            "useG3": {
+              "value": false,
+              "share": 1.0,
+              "z": 4.36
+            },
+            "s6_prox": {
+              "value": 12,
+              "share": 1.0,
+              "z": 10.68
+            },
+            "s6_len": {
+              "value": 10,
+              "share": 0.474,
+              "z": 4.12
+            },
+            "rrBufAtr": {
+              "value": 0.1,
+              "share": 0.421,
+              "z": 2.98
+            },
+            "rrRatio": {
+              "value": 5,
+              "share": 0.316,
+              "z": 2.51
+            },
+            "rrUsePartialTp": {
+              "value": false,
+              "share": 0.789,
+              "z": 2.52
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 4.36
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.526,
+              "z": 2.78
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.895,
+              "z": 3.44
+            },
+            "g1_mult": {
+              "value": 2,
+              "share": 0.421,
+              "z": 2.41
+            },
+            "s4_mult": {
+              "value": 2,
+              "share": 0.684,
+              "z": 5.28
+            },
+            "useS5": {
+              "value": true,
+              "share": 1.0,
+              "z": 4.36
+            }
+          },
+          "timestamp": "2026-08-19T16:55:50+00:00"
+        },
+        "TIAUSDT": {
+          "verdict": "NO LIVE CONFIG",
+          "why": [
+            "<1% of tested configs held both windows"
+          ],
+          "is_rank": 75,
+          "tested_unique": 82410,
+          "survivors": 66,
+          "held_share": 0.0008,
+          "metrics": {
+            "net_pct": 1.85,
+            "net_usdt": 184.76,
+            "dd_pct": 1.05,
+            "win_rate": 51.92,
+            "trades": 52,
+            "legs": 154,
+            "leg_win_rate": 49.35,
+            "profit_factor": 1.587,
+            "sharpe": null,
+            "sl_hit": 52,
+            "sl_rate": 100,
+            "sl_loss": 25,
+            "sl_loss_rate": 48.08,
+            "sl_profit": 27,
+            "sl_profit_rate": 51.92,
+            "tp_hit": 27,
+            "oos_net_pct": 0.5,
+            "oos_dd_pct": 2.07,
+            "oos_win_rate": 54.72,
+            "oos_trades": 53,
+            "oos_profit_factor": 1.114,
+            "oos_sl_hit": 52,
+            "oos_sl_rate": 98.11,
+            "oos_sl_loss": 24,
+            "oos_sl_loss_rate": 45.28,
+            "oos_sl_profit": 28,
+            "oos_sl_profit_rate": 52.83,
+            "oos_tp_hit": 29,
+            "full_net_pct": 2.35,
+            "full_dd_pct": 2.03
+          },
+          "params": {
+            "atrLenRisk": 2,
+            "s1_len": 3,
+            "s1_maxAge": 26,
+            "volMultMin": 1.4,
+            "useG3": true,
+            "s6_prox": 20,
+            "s6_len": 3,
+            "rrSwingLb": 14,
+            "rrBufAtr": 1,
+            "rrRatio": 6,
+            "rrUsePartialTp": true,
+            "rrUseTrailSl": true,
+            "rrTrailPct": 1.5,
+            "useG1": true,
+            "g1_mult": 3,
+            "useS4": false,
+            "s4_mult": 4,
+            "useS5": true
+          },
+          "consensus": {
+            "atrLenRisk": {
+              "value": 8,
+              "share": 0.35,
+              "z": 3.74
+            },
+            "s1_len": {
+              "value": 3,
+              "share": 0.7,
+              "z": 10.07
+            },
+            "s1_maxAge": {
+              "value": 26,
+              "share": 0.425,
+              "z": 3.56
+            },
+            "volMultMin": {
+              "value": 1.1,
+              "share": 0.475,
+              "z": 5.23
+            },
+            "useG3": {
+              "value": true,
+              "share": 0.975,
+              "z": 6.01
+            },
+            "s6_prox": {
+              "value": 20,
+              "share": 0.55,
+              "z": 7.36
+            },
+            "s6_len": {
+              "value": 3,
+              "share": 0.6,
+              "z": 8.26
+            },
+            "rrSwingLb": {
+              "value": 14,
+              "share": 0.575,
+              "z": 6.93
+            },
+            "rrBufAtr": {
+              "value": 0.5,
+              "share": 0.4,
+              "z": 3.96
+            },
+            "rrRatio": {
+              "value": 3,
+              "share": 0.425,
+              "z": 5.74
+            },
+            "rrUsePartialTp": {
+              "value": true,
+              "share": 0.725,
+              "z": 2.85
+            },
+            "rrUseTrailSl": {
+              "value": true,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "rrTrailPct": {
+              "value": 0.8,
+              "share": 0.7,
+              "z": 6.57
+            },
+            "useG1": {
+              "value": true,
+              "share": 0.875,
+              "z": 4.74
+            },
+            "g1_mult": {
+              "value": 2.5,
+              "share": 0.375,
+              "z": 2.77
+            },
+            "useS4": {
+              "value": false,
+              "share": 1.0,
+              "z": 6.32
+            },
+            "s4_mult": {
+              "value": 1.5,
+              "share": 0.475,
+              "z": 4.35
+            },
+            "useS5": {
+              "value": true,
+              "share": 0.8,
+              "z": 3.79
+            }
+          },
+          "timestamp": "2026-08-19T01:22:50+00:00"
+        }
+      }
+    }
+  }
+}

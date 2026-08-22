@@ -1,0 +1,547 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DAILY LIQUIDITY SWEEP — LONG-ONLY SPOT STRATEGY                          v1.0
+//  Execution timeframe : 1 minute        Reference timeframe : 1 Day (PDH / PDL)
+// ───────────────────────────────────────────────────────────────────────────────
+//  CONCEPT
+//    1. Track an "active liquidity low" — starts as the Previous Day Low (PDL),
+//       and is dynamically re-anchored to the newest swept swing low.
+//    2. Price sweeps (trades below) that level  → sweep armed.
+//    3. A 1m GREEN candle closes back at/above the level → signal candle.
+//    4. A stop-buy is placed 1 tick above the signal candle high.
+//    5. SL sits below the signal candle low; TP is a fixed R multiple.
+//
+//  NON-REPAINTING NOTES
+//    • HTF data uses request.security(..., lookahead=barmerge.lookahead_off,
+//      gaps=barmerge.gaps_off) on high[1]/low[1] — i.e. only fully CLOSED daily
+//      bars are referenced. This is the canonical non-repainting PDH/PDL pattern.
+//    • calc_on_every_tick = false → the strategy is evaluated only on bar close,
+//      so signal candles are confirmed candles. Nothing is decided intrabar.
+//    • Entry is a STOP order placed on a closed bar; the broker emulator fills it
+//      on a later bar. No same-bar lookahead.
+//    • Exit orders are submitted together with the entry, so the stop-loss is
+//      live on the very bar the entry fills (no unprotected bar).
+//
+//  KNOWN BACKTEST LIMITATION (read this)
+//    On a 1m chart TradingView cannot know the intrabar path. If a single bar
+//    contains both the entry trigger and the stop, the emulator assumes a
+//    worst-case sequence but cannot model real fills, spread or partial fills.
+//    Treat results as directional, not as expected live PnL. Use "Bar Magnifier"
+//    (Premium) or 1s data for a more honest picture.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+strategy(
+     title                   = "Daily Liquidity Sweep Spot Strategy",
+     shorttitle              = "DLS Spot",
+     overlay                 = true,
+     initial_capital         = 1000,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     pyramiding              = 1,
+     currency                = currency.NONE,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.075,   // taker fee both sides — CHANGE to your venue
+     slippage                = 2,       // in ticks — CHANGE to your venue
+     margin_long             = 100,     // 100 % margin = spot, no leverage
+     calc_on_every_tick      = false,
+     process_orders_on_close = false,
+     max_lines_count         = 500,
+     max_boxes_count         = 500,
+     max_labels_count        = 500)
+
+// Hard engine-level guarantee: this script can never open a short.
+strategy.risk.allow_entry_in(strategy.direction.long)
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+G_HTF  = "① HTF Liquidity"
+G_ENT  = "② Entry Logic"
+G_SL   = "③ Stop Loss & Filters"
+G_TP   = "④ Take Profit / Trailing"
+G_SIZE = "⑤ Position Sizing"
+G_DAY  = "⑥ Daily Constraints"
+G_VIS  = "⑦ Visuals"
+
+// ── ① HTF liquidity ───────────────────────────────────────────────────────────
+htfRes        = input.timeframe("D",  "Reference higher timeframe", group = G_HTF,
+     tooltip = "PDH/PDL are taken from the last CLOSED bar of this timeframe.")
+useDynamicLiq = input.bool(true,  "Track dynamic liquidity lows", group = G_HTF,
+     tooltip = "After a sweep resolves (trade closed, or setup invalidated by a new low), the newest swept low becomes the active liquidity level.")
+resetOnNewDay = input.bool(true,  "Reset active level to PDL on each new day", group = G_HTF)
+minSweepPct   = input.float(0.0,  "Minimum sweep depth below level (%)", minval = 0.0, step = 0.01, group = G_HTF,
+     tooltip = "0 = any wick below the level counts. Raise it to demand a real flush.")
+
+// ── ② Entry logic ─────────────────────────────────────────────────────────────
+requireReclaim  = input.bool(true,  "Signal candle must close back above the level", group = G_ENT)
+reclaimTolPct   = input.float(0.05, "  Reclaim tolerance (%)", minval = 0.0, step = 0.01, group = G_ENT,
+     tooltip = "Allows the green candle to close slightly BELOW the level ('at the line').")
+useProximity    = input.bool(false, "Reject setups formed far above the level", group = G_ENT)
+maxDistPct      = input.float(0.50, "  Max signal-low distance above level (%)", minval = 0.01, step = 0.01, group = G_ENT)
+reArmOnNewGreen = input.bool(true,  "Re-anchor to a newer green candle while pending", group = G_ENT)
+setupExpiry     = input.int(10,     "Cancel un-triggered stop-buy after N bars", minval = 1, group = G_ENT)
+entryOffTicks   = input.int(1,      "Entry offset above signal high (ticks)", minval = 0, group = G_ENT)
+
+// ── ③ Stop loss & the SL-distance filter ──────────────────────────────────────
+atrLen     = input.int(14, "ATR length", minval = 1, group = G_SL)
+slBufMode  = input.string("Ticks", "SL buffer below signal low", options = ["Percent", "Ticks", "ATR"], group = G_SL)
+slBufPct   = input.float(0.03, "  buffer — Percent", minval = 0.0, step = 0.01, group = G_SL)
+slBufTicks = input.int(2,      "  buffer — Ticks",   minval = 0, group = G_SL)
+slBufAtr   = input.float(0.10, "  buffer — ATR ×",   minval = 0.0, step = 0.05, group = G_SL)
+
+maxSlMode  = input.string("Percent", "MAX SL distance measured in", options = ["Percent", "Ticks", "ATR"], group = G_SL,
+     tooltip = "Setups whose signal candle is too wide are SKIPPED entirely.")
+maxSlPct   = input.float(0.60, "  Max SL distance — Percent", minval = 0.01, step = 0.01, group = G_SL)
+maxSlTicks = input.int(150,    "  Max SL distance — Ticks",   minval = 1, group = G_SL)
+maxSlAtr   = input.float(2.0,  "  Max SL distance — ATR ×",   minval = 0.1, step = 0.1, group = G_SL)
+minSlPct   = input.float(0.02, "MIN SL distance (%)", minval = 0.0, step = 0.01, group = G_SL,
+     tooltip = "Blocks micro-candles whose stop is inside the spread/fee cost.")
+
+// ── ④ Take profit / trailing ──────────────────────────────────────────────────
+rr           = input.float(2.0, "Fixed R:R take profit", minval = 0.5, maxval = 10.0, step = 0.5, group = G_TP)
+useBE        = input.bool(true, "Move SL to breakeven", group = G_TP)
+beTrigR      = input.float(1.0,  "  BE trigger (R multiple)", minval = 0.1, step = 0.1, group = G_TP)
+beOffR       = input.float(0.05, "  BE offset (R, covers fees)", minval = 0.0, step = 0.01, group = G_TP)
+useTrailSL   = input.bool(false, "Enable trailing stop loss", group = G_TP)
+trailStartR  = input.float(1.0,  "  Trail activates at (R multiple)", minval = 0.0, step = 0.1, group = G_TP)
+trailMode    = input.string("ATR", "  Trail method", options = ["ATR", "Percent"], group = G_TP)
+trailAtrMult = input.float(1.5,  "  Trail — ATR ×",   minval = 0.1, step = 0.1, group = G_TP)
+trailPct     = input.float(0.30, "  Trail — Percent", minval = 0.01, step = 0.01, group = G_TP)
+useTrailTP   = input.bool(false, "Enable trailing take profit (run past target)", group = G_TP,
+     tooltip = "At the R target the limit order is removed and a tighter trail takes over.")
+tpTrailMode  = input.string("ATR", "  TP-trail method", options = ["ATR", "Percent"], group = G_TP)
+tpTrailAtr   = input.float(1.0,  "  TP-trail — ATR ×",   minval = 0.1, step = 0.1, group = G_TP)
+tpTrailPct   = input.float(0.20, "  TP-trail — Percent", minval = 0.01, step = 0.01, group = G_TP)
+
+// ── ⑤ Sizing ──────────────────────────────────────────────────────────────────
+useRiskSizing = input.bool(false, "Size by risk % (off = 100 % of equity)", group = G_SIZE)
+riskPct       = input.float(1.0,  "  Risk % of equity per trade", minval = 0.1, maxval = 5.0, step = 0.1, group = G_SIZE)
+
+// ── ⑥ Daily constraints ───────────────────────────────────────────────────────
+maxTradesDay = input.int(3, "Max trades per day", minval = 1, group = G_DAY)
+maxLossDay   = input.int(2, "Max stop-loss hits per day", minval = 1, group = G_DAY)
+lossMode     = input.string("Consecutive", "Loss counter mode", options = ["Consecutive", "Total"], group = G_DAY)
+useSession   = input.bool(false, "Restrict entries to a session", group = G_DAY)
+sessStr      = input.session("0000-2359", "  Entry session", group = G_DAY)
+flatOnNewDay = input.bool(false, "Force-flat at the start of a new day", group = G_DAY)
+
+// ── ⑦ Visuals ─────────────────────────────────────────────────────────────────
+showLevels  = input.bool(true, "Show PDH / PDL", group = G_VIS)
+pdhCol      = input.color(color.new(#ef5350, 0), "PDH", group = G_VIS, inline = "v1")
+pdlCol      = input.color(color.new(#26a69a, 0), "PDL", group = G_VIS, inline = "v1")
+showLiq     = input.bool(true, "Show liquidity levels", group = G_VIS)
+liqActCol   = input.color(color.new(#ffb300, 0),  "Active",  group = G_VIS, inline = "v2")
+liqSwpCol   = input.color(color.new(#787b86, 40), "Swept",   group = G_VIS, inline = "v2")
+showZones   = input.bool(true, "Draw R:R zones for trades", group = G_VIS)
+riskCol     = input.color(color.new(color.red,   85), "Risk",   group = G_VIS, inline = "v3")
+rewCol      = input.color(color.new(color.green, 85), "Reward", group = G_VIS, inline = "v3")
+showMarkers = input.bool(true,  "Sweep / signal markers", group = G_VIS)
+showSkips   = input.bool(false, "Label setups rejected by the SL filter", group = G_VIS)
+showTable   = input.bool(true,  "Show dashboard", group = G_VIS)
+useAlerts   = input.bool(true,  "Fire alert() events", group = G_VIS)
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  HTF DATA — non-repainting PDH / PDL
+// ═══════════════════════════════════════════════════════════════════════════════
+// high[1] / low[1] on the daily series = the last FULLY CLOSED daily bar.
+// With lookahead_off this value is identical on historical and realtime bars.
+[pdh, pdl] = request.security(syminfo.tickerid, htfRes, [high[1], low[1]],
+     gaps      = barmerge.gaps_off,
+     lookahead = barmerge.lookahead_off)
+
+isNewDay = timeframe.change(htfRes)
+atr      = ta.atr(atrLen)
+inSess   = not useSession or not na(time(timeframe.period, sessStr))
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+var float activeLiq  = na      // the liquidity low currently being hunted
+var float sweepLow   = na      // lowest low printed during the current sweep
+var bool  sweepArmed = false   // a valid sweep happened — hunting a green signal candle
+
+var float sigHigh    = na      // signal candle high  (entry trigger)
+var float sigLow     = na      // signal candle low   (stop anchor)
+var int   sigBar     = na
+var bool  pending    = false   // a stop-buy order is working
+var float pEntry     = na
+var float pStop      = na
+var float pTarget    = na
+
+var float tEntry     = na      // live trade
+var float tInitStop  = na
+var float tStop      = na
+var float tTarget    = na
+var float tRisk      = na
+var bool  beOn       = false
+var bool  trailOn    = false
+var bool  tpTrailOn  = false
+var float trailStop  = na
+var float carryLiq   = na      // sweep low belonging to the trade in progress
+
+var int   tradesToday = 0
+var int   lossToday   = 0
+var int   consecLoss  = 0
+var int   lastClosed  = 0
+
+// Per-bar flags (reset every bar)
+bool newLevel     = false
+bool sweepNow     = false
+bool setupPlaced  = false
+bool setupSkipped = false
+bool setupKilled  = false
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  1. DAILY RESET
+// ═══════════════════════════════════════════════════════════════════════════════
+if isNewDay
+    tradesToday := 0
+    lossToday   := 0
+    consecLoss  := 0
+    if flatOnNewDay and strategy.position_size > 0
+        strategy.close_all(comment = "EOD flat")
+    if resetOnNewDay and not na(pdl)
+        activeLiq    := pdl
+        sweepLow     := na
+        sweepArmed   := false
+        newLevel     := true
+
+// First-run initialisation
+if na(activeLiq) and not na(pdl)
+    activeLiq := pdl
+    newLevel  := true
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  2. POSITION TRANSITIONS  (fills are reflected on the bar AFTER submission)
+// ═══════════════════════════════════════════════════════════════════════════════
+justOpened = strategy.position_size > 0 and nz(strategy.position_size[1]) == 0
+justClosed = strategy.position_size == 0 and nz(strategy.position_size[1]) > 0
+
+if justOpened
+    pending     := false
+    sweepArmed  := false
+    tradesToday += 1
+    tEntry      := strategy.position_avg_price          // real fill, not the planned price
+    tInitStop   := pStop
+    tStop       := pStop
+    tRisk       := math.max(tEntry - pStop, syminfo.mintick)
+    tTarget     := tEntry + tRisk * rr
+    beOn        := false
+    trailOn     := false
+    tpTrailOn   := false
+    trailStop   := na
+    carryLiq    := sweepLow
+
+if justClosed
+    // Result is read from the closed-trade record. Exit price < entry price is an
+    // unambiguous "stop-loss hit" — no commission accounting ambiguity.
+    if strategy.closedtrades > lastClosed
+        idx   = strategy.closedtrades - 1
+        exitP = strategy.closedtrades.exit_price(idx)
+        entP  = strategy.closedtrades.entry_price(idx)
+        if exitP < entP
+            lossToday  += 1
+            consecLoss += 1
+        else
+            consecLoss := 0
+        lastClosed := strategy.closedtrades
+    // Dynamic liquidity: the low that was swept for this trade becomes the new
+    // active level for subsequent setups.
+    if useDynamicLiq and not na(carryLiq)
+        activeLiq := carryLiq
+        newLevel  := true
+    sweepLow  := na
+    carryLiq  := na
+    tEntry    := na
+    tStop     := na
+    tTarget   := na
+    tRisk     := na
+    trailStop := na
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  3. TRADE PERMISSION
+// ═══════════════════════════════════════════════════════════════════════════════
+lossBlock   = lossMode == "Consecutive" ? consecLoss >= maxLossDay : lossToday >= maxLossDay
+tradeBlock  = tradesToday >= maxTradesDay
+canTradeNow = strategy.position_size == 0 and not tradeBlock and not lossBlock and inSess and not na(activeLiq)
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  4. LIQUIDITY SWEEP DETECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+if not na(activeLiq) and low < activeLiq
+    sweepLow := na(sweepLow) ? low : math.min(sweepLow, low)
+    depthOK  = (activeLiq - sweepLow) >= activeLiq * minSweepPct / 100.0
+    if depthOK and not sweepArmed and strategy.position_size == 0
+        sweepArmed := true
+        sweepNow   := true
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  5. PENDING SETUP MANAGEMENT (expiry / invalidation)
+// ═══════════════════════════════════════════════════════════════════════════════
+if pending and strategy.position_size == 0
+    expired  = bar_index - sigBar >= setupExpiry
+    brokeLow = low < sigLow
+    if expired or brokeLow or not canTradeNow
+        strategy.cancel_all()
+        pending     := false
+        setupKilled := true
+        // A new swing low before the trade triggered → re-anchor the active level.
+        if brokeLow and useDynamicLiq
+            activeLiq  := math.min(nz(sweepLow, low), low)
+            sweepLow   := na
+            sweepArmed := false
+            newLevel   := true
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  6. SIGNAL CANDLE → STOP-BUY ORDER
+// ═══════════════════════════════════════════════════════════════════════════════
+isGreen     = close > open
+reclaimLine = na(activeLiq) ? na : activeLiq * (1.0 - reclaimTolPct / 100.0)
+reclaimOK   = not requireReclaim or (not na(reclaimLine) and close >= reclaimLine)
+proxOK      = not useProximity  or (not na(activeLiq) and (low - activeLiq) <= activeLiq * maxDistPct / 100.0)
+validSignal = sweepArmed and isGreen and reclaimOK and proxOK and canTradeNow and (not pending or reArmOnNewGreen)
+
+float skipDist = na
+
+if validSignal
+    sh  = high
+    sl_ = low
+    // stop buffer below the signal candle low
+    buf = slBufMode == "Percent" ? sl_ * slBufPct / 100.0 : slBufMode == "Ticks" ? slBufTicks * syminfo.mintick : atr * slBufAtr
+    ePx   = sh + entryOffTicks * syminfo.mintick
+    sPx   = sl_ - buf
+    rDist = ePx - sPx
+    // ── SL DISTANCE FILTER ──────────────────────────────────────────────────
+    maxAllowed = maxSlMode == "Percent" ? ePx * maxSlPct / 100.0 : maxSlMode == "Ticks" ? maxSlTicks * syminfo.mintick : atr * maxSlAtr
+    distPct = rDist / ePx * 100.0
+    okSize  = rDist > 0 and rDist <= maxAllowed and distPct >= minSlPct
+
+    if okSize
+        sigHigh := sh
+        sigLow  := sl_
+        sigBar  := bar_index
+        pEntry  := ePx
+        pStop   := sPx
+        pTarget := ePx + rDist * rr
+        pending := true
+        setupPlaced := true
+
+        // Position size: risk-based, hard-capped at available cash (spot).
+        qty = useRiskSizing ? math.min(strategy.equity * riskPct / 100.0 / rDist, strategy.equity / ePx) : na
+
+        entryMsg = "LONG TRIGGERED @ " + str.tostring(ePx, format.mintick) + " | SL " + str.tostring(sPx, format.mintick) + " | TP " + str.tostring(pTarget, format.mintick)
+
+        strategy.entry("Long", strategy.long, stop = ePx, qty = qty,
+             comment       = "Sweep Long",
+             alert_message = entryMsg)
+
+        // Submitted immediately so the SL is live on the very bar the entry fills.
+        strategy.exit("Exit", from_entry = "Long", stop = sPx, limit = pTarget,
+             comment_loss   = "SL",
+             comment_profit = "TP",
+             alert_loss     = "STOP LOSS HIT @ "   + str.tostring(sPx, format.mintick),
+             alert_profit   = "TAKE PROFIT HIT @ " + str.tostring(pTarget, format.mintick))
+    else
+        setupSkipped := true
+        skipDist     := distPct
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  7. OPEN-TRADE MANAGEMENT — breakeven, trailing SL, trailing TP
+//     All levels are computed from the CLOSED bar and take effect on the next
+//     bar, so nothing here can look ahead.
+// ═══════════════════════════════════════════════════════════════════════════════
+if strategy.position_size > 0 and not na(tEntry) and not na(tRisk) and tRisk > 0
+    // breakeven arming
+    if useBE and not beOn and high >= tEntry + tRisk * beTrigR
+        beOn := true
+    // trailing stop arming
+    if useTrailSL and not trailOn and high >= tEntry + tRisk * trailStartR
+        trailOn := true
+    // trailing take profit arming (target reached → let it run)
+    if useTrailTP and not tpTrailOn and not na(tTarget) and high >= tTarget
+        tpTrailOn := true
+
+    // ratchet the trail — it can only move up
+    if trailOn or tpTrailOn
+        useTpVals = tpTrailOn
+        mode      = useTpVals ? tpTrailMode : trailMode
+        cand      = mode == "ATR" ? high - atr * (useTpVals ? tpTrailAtr : trailAtrMult) : high * (1.0 - (useTpVals ? tpTrailPct : trailPct) / 100.0)
+        trailStop := na(trailStop) ? cand : math.max(trailStop, cand)
+
+    curStop = tInitStop
+    if beOn
+        curStop := math.max(curStop, tEntry + tRisk * beOffR)
+    if not na(trailStop)
+        curStop := math.max(curStop, trailStop)
+    tStop := curStop
+
+    // When the TP-trail is active the limit order is removed entirely.
+    curLimit = tpTrailOn ? na : tTarget
+
+    strategy.exit("Exit", from_entry = "Long", stop = curStop, limit = curLimit,
+         comment_loss   = "SL",
+         comment_profit = "TP",
+         alert_loss     = "STOP LOSS HIT @ "   + str.tostring(curStop, format.mintick),
+         alert_profit   = "TAKE PROFIT HIT @ " + str.tostring(nz(curLimit, curStop), format.mintick))
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  8. VISUALS
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── PDH / PDL ────────────────────────────────────────────────────────────────
+plot(showLevels ? pdh : na, "PDH", color = pdhCol, style = plot.style_steplinebr, linewidth = 1)
+plot(showLevels ? pdl : na, "PDL", color = pdlCol, style = plot.style_steplinebr, linewidth = 1)
+
+// ── Active / swept liquidity lines ───────────────────────────────────────────
+var line liqLn = na
+if showLiq and newLevel and not na(activeLiq)
+    if not na(liqLn)
+        line.set_color(liqLn, liqSwpCol)          // previous level → "swept" styling
+        line.set_style(liqLn, line.style_dotted)
+    liqLn := line.new(bar_index, activeLiq, bar_index + 1, activeLiq,
+                      color = liqActCol, width = 2, style = line.style_solid)
+if showLiq and not na(liqLn)
+    line.set_x2(liqLn, bar_index + 1)             // only the ACTIVE line keeps extending
+
+// ── Pending-setup projection (entry / SL / TP before the trigger) ────────────
+var line pE = na
+var line pS = na
+var line pT = na
+if setupPlaced and showZones
+    line.delete(pE)
+    line.delete(pS)
+    line.delete(pT)
+    pE := line.new(bar_index, pEntry,  bar_index + 1, pEntry,  color = color.new(color.blue,  0), style = line.style_dotted)
+    pS := line.new(bar_index, pStop,   bar_index + 1, pStop,   color = color.new(color.red,   0), style = line.style_dotted)
+    pT := line.new(bar_index, pTarget, bar_index + 1, pTarget, color = color.new(color.green, 0), style = line.style_dotted)
+if pending and showZones
+    if not na(pE)
+        line.set_x2(pE, bar_index + 1)
+    if not na(pS)
+        line.set_x2(pS, bar_index + 1)
+    if not na(pT)
+        line.set_x2(pT, bar_index + 1)
+if setupKilled
+    line.delete(pE)
+    line.delete(pS)
+    line.delete(pT)
+    pE := na
+    pS := na
+    pT := na
+
+// ── Live trade: risk / reward boxes + level lines ───────────────────────────
+var box  bxRisk = na
+var box  bxRew  = na
+var line lnEnt  = na
+var line lnSl   = na
+var line lnTp   = na
+
+if showZones and justOpened and not na(tEntry)
+    line.delete(pE)
+    line.delete(pS)
+    line.delete(pT)
+    pE := na
+    pS := na
+    pT := na
+    bxRisk := box.new(bar_index, tEntry,  bar_index + 1, tStop,  border_color = color.new(color.red,   60), bgcolor = riskCol)
+    bxRew  := box.new(bar_index, tTarget, bar_index + 1, tEntry, border_color = color.new(color.green, 60), bgcolor = rewCol)
+    lnEnt  := line.new(bar_index, tEntry,  bar_index + 1, tEntry,  color = color.new(color.blue,  0), width = 1)
+    lnSl   := line.new(bar_index, tStop,   bar_index + 1, tStop,   color = color.new(color.red,   0), width = 1)
+    lnTp   := line.new(bar_index, tTarget, bar_index + 1, tTarget, color = color.new(color.green, 0), width = 1)
+
+if showZones and strategy.position_size > 0
+    topRew = tpTrailOn ? math.max(nz(tTarget, high), high) : tTarget
+    if not na(bxRisk)
+        box.set_right(bxRisk, bar_index + 1)
+        box.set_bottom(bxRisk, tStop)             // risk zone shrinks as the stop trails up
+    if not na(bxRew)
+        box.set_right(bxRew, bar_index + 1)
+        box.set_top(bxRew, topRew)
+    if not na(lnEnt)
+        line.set_x2(lnEnt, bar_index + 1)
+    if not na(lnSl)
+        line.set_x2(lnSl, bar_index + 1)
+        line.set_y1(lnSl, tStop)
+        line.set_y2(lnSl, tStop)
+    if not na(lnTp)
+        line.set_x2(lnTp, bar_index + 1)
+        line.set_y1(lnTp, topRew)
+        line.set_y2(lnTp, topRew)
+
+if justClosed
+    // Stop updating — the drawings freeze on the chart as a trade record.
+    bxRisk := na
+    bxRew  := na
+    lnEnt  := na
+    lnSl   := na
+    lnTp   := na
+
+// ── Markers ─────────────────────────────────────────────────────────────────
+plotshape(showMarkers and sweepNow,    "Liquidity sweep", shape.triangleup, location.belowbar, color.new(color.orange, 0), size = size.tiny)
+plotshape(showMarkers and setupPlaced, "Signal candle",   shape.diamond,    location.belowbar, color.new(color.aqua,   0), size = size.tiny)
+
+if showSkips and setupSkipped
+    label.new(bar_index, low, "SL too wide\n" + str.tostring(skipDist, "#.###") + "%",
+         style = label.style_label_up, color = color.new(color.gray, 30),
+         textcolor = color.white, size = size.tiny)
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+var table dash = table.new(position.top_right, 2, 7, border_width = 1, frame_width = 1,
+     frame_color = color.new(color.gray, 50))
+
+if showTable and barstate.islast
+    state = strategy.position_size > 0 ? "IN TRADE" : pending ? "ORDER WORKING" : sweepArmed ? "SWEPT — awaiting green" : (tradeBlock or lossBlock) ? "BLOCKED (daily limit)" : "IDLE"
+    stCol = strategy.position_size > 0 ? color.new(color.blue, 70) : pending ? color.new(color.aqua, 70) : sweepArmed ? color.new(color.orange, 70) : (tradeBlock or lossBlock) ? color.new(color.red, 70) : color.new(color.gray, 70)
+
+    table.cell(dash, 0, 0, "DLS SPOT",  bgcolor = color.new(color.black, 20), text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 0, state,       bgcolor = stCol, text_color = color.white, text_size = size.small)
+    table.cell(dash, 0, 1, "PDH",       text_size = size.small)
+    table.cell(dash, 1, 1, na(pdh) ? "—" : str.tostring(pdh, format.mintick), text_color = pdhCol, text_size = size.small)
+    table.cell(dash, 0, 2, "PDL",       text_size = size.small)
+    table.cell(dash, 1, 2, na(pdl) ? "—" : str.tostring(pdl, format.mintick), text_color = pdlCol, text_size = size.small)
+    table.cell(dash, 0, 3, "Active liq", text_size = size.small)
+    table.cell(dash, 1, 3, na(activeLiq) ? "—" : str.tostring(activeLiq, format.mintick), text_color = liqActCol, text_size = size.small)
+    table.cell(dash, 0, 4, "Trades today", text_size = size.small)
+    table.cell(dash, 1, 4, str.tostring(tradesToday) + " / " + str.tostring(maxTradesDay), text_size = size.small)
+    table.cell(dash, 0, 5, lossMode == "Consecutive" ? "Consec. losses" : "Losses today", text_size = size.small)
+    table.cell(dash, 1, 5, str.tostring(lossMode == "Consecutive" ? consecLoss : lossToday) + " / " + str.tostring(maxLossDay), text_size = size.small)
+    table.cell(dash, 0, 6, "Open SL / TP", text_size = size.small)
+    openTxt = strategy.position_size > 0 ? str.tostring(tStop, format.mintick) + " / " + (tpTrailOn ? "trail" : str.tostring(tTarget, format.mintick)) : "—"
+    table.cell(dash, 1, 6, openTxt, text_size = size.small)
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  9. ALERTS
+//  NOTE: alertcondition() is NOT permitted inside strategy scripts, so the
+//  equivalent is delivered two ways:
+//    A) alert() calls below           → alert dialog ▸ "Any alert() function call"
+//    B) alert_message / alert_profit / alert_loss on the orders above
+//                                     → alert dialog ▸ "Order fills only"
+// ═══════════════════════════════════════════════════════════════════════════════
+if useAlerts and sweepNow
+    sweepMsg = "DAILY LIQUIDITY SWEEP — " + syminfo.ticker + " traded below " + str.tostring(activeLiq, format.mintick)
+    alert(sweepMsg, alert.freq_once_per_bar_close)
+
+if useAlerts and setupPlaced
+    armedMsg = "SETUP ARMED — " + syminfo.ticker + " | stop-buy " + str.tostring(pEntry, format.mintick) + " | SL " + str.tostring(pStop, format.mintick) + " | TP " + str.tostring(pTarget, format.mintick)
+    alert(armedMsg, alert.freq_once_per_bar_close)
+
+if useAlerts and justOpened
+    fillMsg = "LONG TRIGGERED — " + syminfo.ticker + " @ " + str.tostring(tEntry, format.mintick)
+    alert(fillMsg, alert.freq_once_per_bar_close)
+
+if useAlerts and justClosed and strategy.closedtrades > 0
+    lastIdx = strategy.closedtrades - 1
+    wasLoss = strategy.closedtrades.exit_price(lastIdx) < strategy.closedtrades.entry_price(lastIdx)
+    exitMsg = (wasLoss ? "STOP LOSS HIT — " : "TAKE PROFIT / TRAIL EXIT — ") + syminfo.ticker + " @ " + str.tostring(strategy.closedtrades.exit_price(lastIdx), format.mintick)
+    alert(exitMsg, alert.freq_once_per_bar_close)

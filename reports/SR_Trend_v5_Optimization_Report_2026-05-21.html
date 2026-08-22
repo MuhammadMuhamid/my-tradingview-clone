@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>SR+Trend v5 Optimization Report</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 820px; margin: 40px auto; padding: 0 24px; color: #1a1a1a; line-height: 1.5; }
+  h1 { font-size: 1.75rem; border-bottom: 2px solid #2563eb; padding-bottom: 8px; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; color: #1e40af; }
+  h3 { font-size: 1.05rem; margin-top: 1.25rem; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9rem; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+  th { background: #f1f5f9; }
+  li { margin: 4px 0; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 24px 0; }
+  @media print { body { margin: 20px; } h2 { page-break-after: avoid; } }
+</style>
+</head><body>
+<h1>SR+Trend v5 — Strategy Optimization Report</h1>
+<br>
+<p><strong>Document date:</strong> May 21, 2026  </p>
+<p><strong>Strategy:</strong> SR+Trend v5 (Pine Script v6)  </p>
+<p><strong>Execution timeframe:</strong> 5 minutes  </p>
+<p><strong>Analysis basis:</strong> TradingView charts + strategy CSV exports (LDO, ENA, NEAR, APT)</p>
+<br>
+<hr>
+<br>
+<h2>1. Executive Summary</h2>
+<br>
+<p>Your current uptrend stack — <strong>1m×200 MA, 1h×400 MA, 4h×200 VWMA, 5m SuperTrend, 1m LinReg</strong> — correctly filters <strong>macro uptrends</strong> and produces strong results on trending altcoins (e.g. LDO ~47% net, APT ~41%, ENA ~32% on chart overlays).</p>
+<br>
+<p>The main performance drag is <strong>not</strong> “wrong macro trend” but:</p>
+<br>
+<p>1. <strong>5-minute chop inside an HTF uptrend</strong> — entries on S/R retests while local structure is flat or down.</p>
+<p>2. <strong>Multiple competing soft exits</strong> — 4h MA, SuperTrend, 1m MA, and LinReg can close trades before trailing profit or HTF runners help.</p>
+<p>3. <strong>Stop/target asymmetry</strong> — wide structure stops on volatile coins vs. sensitive micro exits on 5m noise.</p>
+<br>
+<p><strong>Primary goal (your request):</strong> Find more accurate per-coin uptrend defaults, avoid false trades in uptrends, tighten stop logic, and maximize gain capture — <strong>without changing Pine code until you approve.</strong></p>
+<br>
+<hr>
+<br>
+<h2>2. Your Current Setup</h2>
+<br>
+<table>
+<tr><th>Layer</th><th>Setting</th><th>Role</th></tr>
+</table>
+<p>|-------|---------|------|</p>
+<table>
+<tr><th>TF1 MA</th><th>1m × 200 SMA</th><th>Short-term trend filter</th></tr>
+<tr><td>TF3 MA</td><td>1h × 400 SMA</td><td>Medium HTF trend</td></tr>
+<tr><td>VWMA</td><td>4h × 200</td><td>Volume-weighted HTF trend</td></tr>
+<tr><td>SuperTrend</td><td>5m, ATR 15, mult 2.5</td><td>Chart-TF direction</td></tr>
+<tr><td>LinReg</td><td>1m, length 6 (typical)</td><td>Entry candle filter (green / signal)</td></tr>
+<tr><td>Entries</td><td>MTF S/R retest + strength</td><td>5m buy timing</td></tr>
+<tr><td>Exits</td><td>Structure SL, TP ~1.75R, trail, HTF break runner, 4h MA exit, ST/1m MA/LinReg exits</td><td>Risk + regime + micro</td></tr>
+</table>
+<br>
+<p><strong>Trading remains on 5m</strong> — all recommendations below only gate *when* 5m entries fire or *how* 5m exits behave.</p>
+<br>
+<hr>
+<br>
+<h2>3. Trade Data Summary (CSV Analysis)</h2>
+<br>
+<p>Paired entry/exit rows from exported reports:</p>
+<br>
+<table>
+<tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit Factor</th><th>Avg Win</th><th>Avg Loss</th><th>Net P/L % (CSV)</th></tr>
+</table>
+<p>|------|--------|----------|---------------|---------|----------|-----------------|</p>
+<table>
+<tr><th>LDO</th><th>54</th><th>55.6%</th><th>2.90</th><th>+3.14%</th><th>−1.35%</th><th>57.3%</th></tr>
+<tr><td>ENA</td><td>26</td><td>61.5%</td><td>2.99</td><td>+4.68%</td><td>−2.50%</td><td>46.4%</td></tr>
+<tr><td>NEAR</td><td>27</td><td>63.0%</td><td>2.30</td><td>+2.94%</td><td>−2.17%</td><td>26.3%</td></tr>
+<tr><td>APT</td><td>23</td><td>78.3%</td><td>7.46</td><td>+2.58%</td><td>−1.24%</td><td>38.3%</td></tr>
+</table>
+<br>
+<p>*Note: Chart overlays may show different trade counts or net % if report date range or position size differs from CSV export.*</p>
+<br>
+<h3>Key patterns</h3>
+<br>
+<table>
+<tr><th>Pattern</th><th>LDO</th><th>ENA</th><th>NEAR</th><th>APT</th></tr>
+</table>
+<p>|---------|-----|-----|------|-----|</p>
+<table>
+<tr><th>Quick false losses (&amp;lt;6h, never green)</th><th>31% of all trades</th><th>8%</th><th>22%</th><th>22%</th></tr>
+<tr><td>Losses &amp;gt;2% (of all losses)</td><td>21%</td><td>**80%**</td><td>50%</td><td>0%</td></tr>
+<tr><td>Chop cluster (3+ losses in 48h)</td><td>Yes (−10.8%, −8.0%)</td><td>Yes (−9.8%)</td><td>Yes (**−17%**)</td><td>Minimal</td></tr>
+<tr><td>Gave back ≥1.5% peak profit</td><td>6 trades</td><td>6 trades</td><td>2 trades</td><td>Rare</td></tr>
+</table>
+<br>
+<p><strong>Exit signals (CSV):</strong> Almost all exits are `Long X` (bracket/trail/soft); `MTF MA exit` appears occasionally on ENA/APT/LDO.</p>
+<br>
+<hr>
+<br>
+<h2>4. How the Strategy Decides (Logic Map)</h2>
+<br>
+<h3>Entry (5m)</h3>
+<br>
+<p>1. Valid <strong>support retest</strong> (touch window + pullback from above + optional reclaim block).</p>
+<p>2. <strong>`filtLong` all true:</strong> MA uptrend (1m/1h/4h), 5m ST bull, LinReg long rule, VWMA, optional ADX/RSI/MACD.</p>
+<p>3. Optional <strong>pivot strength</strong> near level.</p>
+<p>4. <strong>Confirmed bar</strong> + cooldown + bar-close entry gate.</p>
+<br>
+<h3>Exit (multiple paths — often overlap)</h3>
+<br>
+<table>
+<tr><th>#</th><th>Mechanism</th><th>Typical effect</th></tr>
+</table>
+<p>|---|-----------|----------------|</p>
+<table>
+<tr><th>1</th><th>Bracket SL (structure + ATR + swing)</th><th>Hard stop</th></tr>
+<tr><td>2</td><td>TP at ~1.75R</td><td>Caps winners early</td></tr>
+<tr><td>3</td><td>Trail after +1.75R unrealized</td><td>Late profit protection</td></tr>
+<tr><td>4</td><td>4h×100 MA cross down</td><td>Regime exit</td></tr>
+<tr><td>5</td><td>Close below 5m SuperTrend</td><td>Micro exit</td></tr>
+<tr><td>6</td><td>Close below 1m×200 MA</td><td>Very sensitive on 5m</td></tr>
+<tr><td>7</td><td>Close below 1m LinReg close</td><td>Micro exit</td></tr>
+<tr><td>8</td><td>HTF resistance break</td><td>Drop TP, trail runner</td></tr>
+</table>
+<br>
+<p><strong>Problem:</strong> Paths 5–7 fire frequently in chop before trail or HTF runner helps (visible on NEAR/LDO charts).</p>
+<br>
+<hr>
+<br>
+<h2>5. Root Causes of False Trades</h2>
+<br>
+<h3>5.1 Macro uptrend ≠ 5m tradable uptrend (NEAR, parts of LDO)</h3>
+<br>
+<p>HTF MAs can slope up while 5m makes lower highs. Entries pass because `close &gt; MA` on 1m/1h/4h. NEAR May 12–19 loss cluster is the clearest example.</p>
+<br>
+<h3>5.2 Too many sensitive soft exits</h3>
+<br>
+<p>`useExitBelowMa1` (1m×200) and `useExitBelowLinReg` on a <strong>5m chart</strong> react to noise. Many losses had <strong>favorable excursion ≥1.5%</strong> then closed red — profit given back.</p>
+<br>
+<h3>5.3 Stop placement vs. volatility</h3>
+<br>
+<p>`structBuff = 3.25 × ATR` under support can place SL far away; when hit on ENA/NEAR, losses are <strong>−2.5% to −5%</strong>.</p>
+<br>
+<h3>5.4 Trail arms late vs. TP</h3>
+<br>
+<p>`trailTriggerR = 1.75` with `tpR = 1.75` — trail often starts only at TP zone; soft exits cut trades before runner develops.</p>
+<br>
+<h3>5.5 Stale retest window (LDO churn)</h3>
+<br>
+<p>`retestConfirmBars = 12` (~1 hour on 5m) + `priorAboveLb = 2` allows entries on old touches in ranges.</p>
+<br>
+<hr>
+<br>
+<h2>6. Recommendations: Stronger Uptrend Detection</h2>
+<br>
+<p>Keep core stack. Add <strong>one or two</strong> layers per coin (test in TradingView first).</p>
+<br>
+<h3>6.1 HTF slope + separation (high value)</h3>
+<br>
+<table>
+<tr><th>Rule</th><th>Timeframe</th><th>Suggested logic</th></tr>
+</table>
+<p>|------|-----------|-----------------|</p>
+<table>
+<tr><th>MA slope up</th><th>1h &amp; 4h</th><th>MA &amp;gt; MA[3] or MA[5] on HTF</th></tr>
+<tr><td>Price separation</td><td>1h</td><td>close &amp;gt; 1h MA + 0.3–0.5 × ATR(5m)</td></tr>
+<tr><td>VWMA vs SMA</td><td>4h (optional)</td><td>4h VWMA &amp;gt; 4h SMA</td></tr>
+</table>
+<br>
+<p><strong>Why:</strong> Blocks flat/grinding “uptrends” and MA-hugging chop.</p>
+<br>
+<h3>6.2 5m / 15m micro-trend (best for NEAR/LDO)</h3>
+<br>
+<table>
+<tr><th>Tool</th><th>Settings</th><th>Role</th></tr>
+</table>
+<p>|------|----------|------|</p>
+<table>
+<tr><th>EMA stack</th><th>5m EMA 21 &amp;gt; EMA 55, close &amp;gt; EMA 21</th><th>Local direction</th></tr>
+<tr><td>15m SuperTrend</td><td>ATR 10, mult 2–3</td><td>Fewer whips than 5m alone</td></tr>
+<tr><td>LinReg rule</td><td>**Close &amp;gt; signal** or **Both**</td><td>Stricter than green candle only</td></tr>
+<tr><td>15m structure</td><td>Last pivot high &amp;gt; prior pivot high</td><td>Simple higher-high filter</td></tr>
+</table>
+<br>
+<h3>6.3 Regime strength (optional inputs already in script)</h3>
+<br>
+<table>
+<tr><th>Filter</th><th>Use on</th></tr>
+</table>
+<p>|--------|--------|</p>
+<table>
+<tr><th>HTF ADX (1h/4h, min 20–25, +DI &amp;gt; −DI)</th><th>ENA, NEAR</th></tr>
+<tr><td>RSI MTF (1h RSI 45–65 for longs)</td><td>Block weak/overbought</td></tr>
+<tr><td>MACD MTF (1h line &amp;gt; signal)</td><td>NEAR optional</td></tr>
+</table>
+<br>
+<p><strong>APT:</strong> Base stack often sufficient (78% WR in CSV).</p>
+<br>
+<h3>6.4 Volume &amp; relative strength (optional)</h3>
+<br>
+<table>
+<tr><th>Tool</th><th>Rule</th></tr>
+</table>
+<p>|------|------|</p>
+<table>
+<tr><th>5m volume</th><th>Entry bar volume &amp;gt; SMA(20) of volume</th></tr>
+<tr><td>vs BTC</td><td>Coin 4h outperform BTC 4h — long leaders only</td></tr>
+</table>
+<br>
+<h3>6.5 Additional indicators to test</h3>
+<br>
+<ul><li>**Aroon (1h):** Up &amp;gt; 70 and Up &amp;gt; Down  </li>
+<ul><li>**Hull MA (15m, 55):** Smoother slope filter  </li>
+<ul><li>**Chandelier exit (15m):** Visual trend persistence  </li></ul>
+<br>
+<p><strong>Rule:</strong> Add at most <strong>2 layers</strong> — HTF slope + one micro filter.</p>
+<br>
+<hr>
+<br>
+<h2>7. Per-Coin Default Profiles (TradingView Saved Layouts)</h2>
+<br>
+<p>Use separate <strong>Save as default</strong> presets per symbol.</p>
+<br>
+<h3>APT (low volatility, clean retests)</h3>
+<br>
+<table>
+<tr><th>Category</th><th>Suggested values</th></tr>
+</table>
+<p>|----------|------------------|</p>
+<table>
+<tr><th>Trend</th><th>Current stack; ADX off</th></tr>
+<tr><td>Entry</td><td>Touch 0.7–0.8 ATR; retest window 8–10</td></tr>
+<tr><td>Exits</td><td>4h MA ON; **OFF** exit below 1m MA</td></tr>
+<tr><td>SL/TP</td><td>structBuff 2.0; tpR 2.25; trailTriggerR 1.0</td></tr>
+</table>
+<br>
+<h3>LDO (medium vol, higher trade count)</h3>
+<br>
+<table>
+<tr><th>Category</th><th>Suggested values</th></tr>
+</table>
+<p>|----------|------------------|</p>
+<table>
+<tr><th>Trend</th><th>+ 1h MA slope; + 15m ST bull</th></tr>
+<tr><td>Entry</td><td>priorAboveLb 4–6; retestConfirmBars 6–8; srStrengthMin 2</td></tr>
+<tr><td>Exits</td><td>4h MA ON; **OFF** 1m MA exit; limit LinReg exit in chop</td></tr>
+<tr><td>SL/TP</td><td>structBuff 2.0–2.5; cooldownBarsAfterExit 2</td></tr>
+</table>
+<br>
+<h3>ENA (high volatility, large losers)</h3>
+<br>
+<table>
+<tr><th>Category</th><th>Suggested values</th></tr>
+</table>
+<p>|----------|------------------|</p>
+<table>
+<tr><th>Trend</th><th>Base + 1h ADX ≥ 22 + 5m EMA 21&amp;gt;55</th></tr>
+<tr><td>Entry</td><td>LinReg **Both**; touch 0.75 ATR; strength min 2</td></tr>
+<tr><td>Exits</td><td>Chandelier trail; HTF break ON; soft: ST + 4h MA only</td></tr>
+<tr><td>SL/TP</td><td>minSlDistAtr 0.25; test Percent SL 1.8% cap; trailTriggerR 1.0</td></tr>
+</table>
+<br>
+<h3>NEAR (choppy inside HTF up)</h3>
+<br>
+<table>
+<tr><th>Category</th><th>Suggested values</th></tr>
+</table>
+<p>|----------|------------------|</p>
+<table>
+<tr><th>Trend</th><th>Base + 15m HH structure + 5m EMA 21&amp;gt;55 **required**</th></tr>
+<tr><td>Entry</td><td>retestConfirmBars 5–6; priorAboveLb 5; cooldown 3</td></tr>
+<tr><td>Exits</td><td>**OFF** 1m MA &amp; LinReg exits; 4h MA + bracket + trail</td></tr>
+<tr><td>SL/TP</td><td>slSwingLb 12–15; structBuff 1.75–2.0</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>8. Stop Loss, Take Profit &amp; Trailing</h2>
+<br>
+<h3>8.1 Stop loss</h3>
+<br>
+<table>
+<tr><th>Parameter</th><th>Issue</th><th>Test range</th><th>Explanation</th></tr>
+</table>
+<p>|-----------|-------|------------|-------------|</p>
+<table>
+<tr><th>structBuff</th><th>3.25× ATR often wide</th><th>1.75–2.5 by coin</th><th>Smaller losses when wrong</th></tr>
+<tr><td>slSwingLb</td><td>25 bars = 2h on 5m</td><td>12–18</td><td>Tighter swing anchor</td></tr>
+<tr><td>minSlDistAtr</td><td>Too tight on ENA</td><td>0.15 APT/LDO; 0.25 ENA/NEAR</td><td>Balance noise vs. risk</td></tr>
+<tr><td>Max loss cap</td><td>Not in script</td><td>1.2–1.8% entry (Percent SL test)</td><td>Ceiling on worst trades</td></tr>
+</table>
+<br>
+<p><strong>Principle:</strong> Tighter stop under retest low; failed retest should fail fast (~0.8–1.2% on 5m alts).</p>
+<br>
+<h3>8.2 Take profit</h3>
+<br>
+<table>
+<tr><th>Parameter</th><th>Suggested</th><th>Explanation</th></tr>
+</table>
+<p>|-----------|-----------|-------------|</p>
+<table>
+<tr><th>tpR</th><th>2.25–3.0</th><th>APT/LDO 2.5; ENA 3.0</th></tr>
+<tr><td>HTF break runner</td><td>ON for LDO/APT/ENA</td><td>Captures extension moves</td></tr>
+</table>
+<br>
+<h3>8.3 Trailing</h3>
+<br>
+<table>
+<tr><th>Parameter</th><th>Suggested</th><th>Explanation</th></tr>
+</table>
+<p>|-----------|-----------|-------------|</p>
+<table>
+<tr><th>trailTriggerR</th><th>**1.0–1.25** (not 1.75)</th><th>Protect profit before full TP</th></tr>
+<tr><td>trailAtrMult</td><td>1.4–1.6 trend; 1.0–1.2 after HTF break</td><td>Volatility-adjusted</td></tr>
+<tr><td>trailStyle</td><td>**Chandelier** on ENA/NEAR/LDO</td><td>Reduces 5m wick stop-outs</td></tr>
+<tr><td>Soft exits</td><td>Delay until +0.5R or +1R (concept)</td><td>Stops green-then-red</td></tr>
+</table>
+<br>
+<p><strong>Alignment:</strong> If tpR stays 1.75, set trailTriggerR to <strong>1.0</strong> so trail can arm before TP fills.</p>
+<br>
+<hr>
+<br>
+<h2>9. Recommended Exit Hierarchy</h2>
+<br>
+<p>Test manually in TradingView before any code change:</p>
+<br>
+<p>```</p>
+<p>In long on 5m</p>
+<p>  → If unrealized &lt; +1R: rely mainly on bracket SL (+ optional tight emergency)</p>
+<p>  → If unrealized ≥ +1R: enable Chandelier / HTF trail</p>
+<p>  → Regime exit: 4h MA bearish cross → close</p>
+<p>  → Micro exit (per coin): 5m ST flip — optional on ENA only</p>
+<p>  → Hold for HTF break runner when trend strong</p>
+<p>```</p>
+<br>
+<h3>Concrete toggle tests (no code)</h3>
+<br>
+<p>1. <strong>OFF:</strong> Exit long below TF1 1m MA *(largest churn reducer)*  </p>
+<p>2. <strong>OFF or last:</strong> Exit below LinReg on NEAR/LDO  </p>
+<p>3. <strong>ON:</strong> 4h MA exit (regime)  </p>
+<p>4. <strong>ON:</strong> 5m ST exit for ENA only  </p>
+<p>5. <strong>ON:</strong> HTF break trail on LDO/APT/ENA  </p>
+<br>
+<hr>
+<br>
+<h2>10. Entry Quality Parameters</h2>
+<br>
+<table>
+<tr><th>Input</th><th>Direction</th><th>Why</th></tr>
+</table>
+<p>|-------|-----------|-----|</p>
+<table>
+<tr><th>retestConfirmBars</th><th>6–8 LDO/NEAR; 10–12 APT</th><th>Fresher retests</th></tr>
+<tr><td>priorAboveLb</td><td>4–6</td><td>Real pullback from above</td></tr>
+<tr><td>srStrengthMin</td><td>2 on NEAR/ENA</td><td>Pivot confluence</td></tr>
+<tr><td>lrLongRule</td><td>**Both** on NEAR/ENA</td><td>Momentum, not color only</td></tr>
+<tr><td>cooldownBarsAfterExit</td><td>2–3 NEAR/LDO</td><td>Stops re-entry loops</td></tr>
+<tr><td>useContLong</td><td>OFF until base tuned</td><td>Breakouts add chop risk</td></tr>
+<tr><td>touchAtrMult</td><td>0.65–0.80 by coin</td><td>APT tighter; ENA slightly wider</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>11. Chart Observations by Coin</h2>
+<br>
+<table>
+<tr><th>Coin</th><th>What works</th><th>What hurts</th></tr>
+</table>
+<p>|------|------------|------------|</p>
+<table>
+<tr><th>**LDO**</th><th>Sustained trends, large +% runners</th><th>Sideways clusters; many small Long X; soft exits cut winners</th></tr>
+<tr><td>**ENA**</td><td>Fewer trades, big +6–9% wins</td><td>Large −2.5%+ losses when wrong; needs ADX + trail</td></tr>
+<tr><td>**NEAR**</td><td>Good WR% but low net vs. trades</td><td>Local downtrend still buys; 8 losses in 48h ≈ −17%</td></tr>
+<tr><td>**APT**</td><td>Highest WR &amp; PF; small losses</td><td>Light tuning only; don’t over-filter</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>12. Suggested Testing Order (TradingView)</h2>
+<br>
+<p>1. <strong>One change per coin:</strong> Disable “exit below TF1 MA” → Update report.  </p>
+<p>2. Overlay <strong>1h MA slope</strong> — skip entries when 1h MA flat/down.  </p>
+<p>3. Overlay <strong>5m EMA 21 &amp;gt; 55</strong> — skip when false.  </p>
+<p>4. Tune <strong>structBuff</strong> + <strong>trailTriggerR</strong> together.  </p>
+<p>5. Save <strong>per-coin input presets</strong> (APT / LDO / ENA / NEAR).  </p>
+<br>
+<h3>Future Pine inputs (when you approve code changes)</h3>
+<br>
+<ul><li>`requireHtfMaSlope`  </li>
+<ul><li>`require5mEmaStack`  </li>
+<ul><li>`minUnrealizedRForSoftExit`  </li>
+<ul><li>`maxRiskPctCap`  </li></ul>
+<br>
+<p>All should default <strong>OFF</strong> so live behavior unchanged until enabled.</p>
+<br>
+<hr>
+<br>
+<h2>13. Bottom Line</h2>
+<br>
+<table>
+<tr><th>Finding</th><th>Action</th></tr>
+</table>
+<p>|---------|--------|</p>
+<table>
+<tr><th>HTF uptrend stack works</th><th>Keep 1m/1h/4h/VWMA/ST/LinReg core</th></tr>
+<tr><td>Losses are 5m timing + exit stacking</td><td>Add micro-trend gate; reduce soft exits</td></tr>
+<tr><td>Biggest wins need runners</td><td>Earlier trail + HTF break; higher tpR</td></tr>
+<tr><td>Per-coin volatility differs</td><td>Separate TV defaults — do not use one global preset</td></tr>
+<tr><td>NEAR needs strictest filters</td><td>5m EMA + structure HH; disable 1m/LinReg exits</td></tr>
+<tr><td>APT needs lightest touch</td><td>Modest SL/TP tune only</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>14. Disclaimer</h2>
+<br>
+<p>This report is based on strategy CSV exports and chart review as of May 21, 2026. Backtest results vary with date range, commission, slippage, and TradingView “Recalculate after order is filled” setting. All parameter changes should be validated on your exact report range before live trading.</p>
+<br>
+<hr>
+<br>
+<p>*Generated for SR+Trend v5 optimization workflow. Pine Script file: `SR_Uptrend_Strategy.pine`*</p>
+<p style="margin-top:48px;font-size:0.85rem;color:#64748b;">SR+Trend v5 — May 21, 2026</p>
+</body></html>

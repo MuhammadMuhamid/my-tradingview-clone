@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.alphaweb.lean-1y15m</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend/scripts/run-optimizer-service.sh</string>
+    <string>lean_optimizer15m</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend</string>
+  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend/lean_optimizer15m/service.log</string>
+  <key>StandardErrorPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend/lean_optimizer15m/service-error.log</string>
+</dict></plist>

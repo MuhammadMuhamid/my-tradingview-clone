@@ -1,0 +1,33 @@
+{$DOMAIN_NAME} {
+    encode zstd gzip
+
+    # Authentication lives in the app, not here.
+    #
+    # This used to be `basic_auth`, which was the cause of the constant
+    # sign-outs: browsers keep basic-auth credentials only for the browsing
+    # session, discard them when the tab or installed app closes, and iOS
+    # re-prompts unpredictably. It also blocks the service worker that Web Push
+    # needs. The backend now issues a 90-day signed session cookie instead.
+    route {
+        @health path /healthz
+        respond @health 200
+
+        @backendHealth path /health
+        reverse_proxy @backendHealth backend:4000
+        reverse_proxy frontend:3000
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}

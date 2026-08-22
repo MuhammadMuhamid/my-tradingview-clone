@@ -1,0 +1,576 @@
+//@version=6
+// =============================================================================
+//  1m SPOT FIB SCALPER  -  Break of Structure + Fibonacci "Gold Zone"
+// -----------------------------------------------------------------------------
+//  Direction   : LONG ONLY (spot). Shorts are hard-disabled at the engine level
+//                via strategy.risk.allow_entry_in(strategy.direction.long).
+//  Regime      : Impulsive / trending intraday conditions. This design is a
+//                continuation model - it is structurally hostile to chop.
+//  Candles     : Standard candles only. Never run this on Heikin-Ashi.
+//
+//  STATE ENGINE  (at most one transition per closed bar)
+//  ------------------------------------------------------
+//    0 IDLE    -> 1 IMPULSE : price breaks the last unbroken swing high
+//                             (Bullish BOS). Anchor swing low latched = fib 0.0.
+//    1 IMPULSE -> 2 ARMED   : the impulse high stops extending and price trades
+//                             back down into the 0.50 fib. Geometry is frozen
+//                             and the entry order is parked at the 0.618 fib.
+//    2 ARMED   -> TRADE     : limit fills (or a close inside the zone in
+//                             Market mode). SL / TP registered on the same bar.
+//    2 ARMED   -> 0 IDLE    : timeout, or close below the protective stop.
+//    1 IMPULSE -> 0 IDLE    : timeout, or close below the anchor swing low.
+//    TRADE     -> 0 IDLE    : position closed by SL or TP.
+//
+//  WHY THIS DOES NOT REPAINT
+//  -------------------------
+//  * No request.security() anywhere - nothing is borrowed from a higher TF.
+//  * ta.pivothigh()/ta.pivotlow() only return a value `rightBars` bars AFTER
+//    the pivot printed. Every level consumed here is therefore already settled
+//    history and can never be revised. The price paid is a fixed detection lag
+//    of `rightBars` bars, which is honest lag - not repainting.
+//  * calc_on_every_tick = false  -> the state machine only advances on closed
+//    bars, so a setup shown on a historical bar was genuinely armed there.
+//  * process_orders_on_close = true -> a signal at the close of bar N is filled
+//    at that same close, and strategy.exit() is registered on the same bar.
+//
+//  KNOWN LIMITATIONS OF THE BACKTEST (read before trusting any equity curve)
+//  ------------------------------------------------------------------------
+//  * TradingView cannot model the bid/ask spread. On a 1m chart with an average
+//    winner of ~0.3%, spread + slippage is a first-order cost, not a rounding
+//    error. Commission is set to 0.1% per side by default - raise it, do not
+//    lower it.
+//  * Limit-order fills are assumed whenever low <= limit. In reality a limit
+//    that is merely touched frequently does not fill (queue position). Expect
+//    live fill rates materially below the backtest.
+//  * Intrabar sequencing is unknown. If a bar contains both the stop and the
+//    target, TradingView assumes the LOSS. That is conservative, and correct.
+// =============================================================================
+
+strategy(
+     title                   = "1m Spot Fib Scalper",
+     shorttitle              = "Fib BOS Scalper",
+     overlay                 = true,
+     initial_capital         = 1000,
+     currency                = currency.USDT,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     pyramiding              = 0,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 1,
+     max_lines_count         = 500,
+     max_boxes_count         = 500,
+     max_labels_count        = 500)
+
+// Spot account: borrowing is impossible, so short entries are blocked outright.
+strategy.risk.allow_entry_in(strategy.direction.long)
+
+const string ID_LONG = "Long"
+const string ID_EXIT = "Exit Long"
+
+
+// =============================================================================
+//  1. INPUTS
+// =============================================================================
+string GRP_STRUCT = "1) Market Structure (Pivots / BOS)"
+string GRP_FIB    = "2) Fibonacci Gold Zone"
+string GRP_RISK   = "3) Risk & Trade Management"
+string GRP_BIAS   = "4) Trend / Regime Filter"
+string GRP_TIME   = "5) Backtest Window & Session"
+string GRP_VIZ    = "6) Visuals"
+
+// --- 1.1 Market structure ----------------------------------------------------
+int leftBars = input.int(5, "Pivot Left Bars", minval = 1, maxval = 100,
+     group   = GRP_STRUCT,
+     tooltip = "Bars to the LEFT that must be lower (for a swing high) for the " +
+               "pivot to qualify. Larger = fewer, more significant swings.")
+
+int rightBars = input.int(5, "Pivot Right Bars", minval = 1, maxval = 100,
+     group   = GRP_STRUCT,
+     tooltip = "Bars to the RIGHT that must be lower before the pivot is " +
+               "CONFIRMED. This is the non-repainting confirmation delay: a " +
+               "swing high is only known to the script this many bars later.")
+
+string bosSrcMode = input.string("Close", "BOS Trigger Source",
+     options = ["Close", "High"],
+     group   = GRP_STRUCT,
+     tooltip = "Close = stricter, requires a body close above the swing high. " +
+               "High = looser, a wick through the level counts as a break.")
+
+bool requireHigherLow = input.bool(true, "Require a Higher Low before BOS",
+     group   = GRP_STRUCT,
+     tooltip = "Enforces bullish structure: the anchor swing low must be above " +
+               "the previous swing low. Filters out breaks inside a downtrend.")
+
+int maxImpulseBars = input.int(60, "Abandon Setup if No Retrace Within (bars)",
+     minval = 2, maxval = 500, group = GRP_STRUCT,
+     tooltip = "If price runs away after the BOS and never returns to the 0.50 " +
+               "fib within this many bars, the setup is discarded.")
+
+// --- 1.2 Fibonacci gold zone -------------------------------------------------
+float fibZoneA = input.float(0.500, "Gold Zone Start (shallow retracement)",
+     minval = 0.05, maxval = 0.99, step = 0.001, group = GRP_FIB,
+     tooltip = "Upper price boundary of the zone. 0.50 of the impulse leg.")
+
+float fibZoneB = input.float(0.618, "Gold Zone End (deep retracement)",
+     minval = 0.05, maxval = 0.99, step = 0.001, group = GRP_FIB,
+     tooltip = "Lower price boundary of the zone. 0.618 of the impulse leg.")
+
+float fibEntry = input.float(0.618, "Entry Retracement Level",
+     minval = 0.05, maxval = 0.99, step = 0.001, group = GRP_FIB,
+     tooltip = "Where the limit order is parked. 0.618 = the classic golden " +
+               "pocket entry, i.e. Low + (1 - 0.618) * (ImpulseHigh - Low).")
+
+string entryMode = input.string("Limit at Entry Fib", "Entry Execution",
+     options = ["Limit at Entry Fib", "Market on Zone Close"],
+     group   = GRP_FIB,
+     tooltip = "Limit  : passive resting order at the 0.618 - better price, " +
+               "lower fill rate, and the backtest OVERSTATES how often it fills.\n" +
+               "Market : aggressive fill on the first bar that CLOSES inside " +
+               "the zone - realistic fills, worse average price.")
+
+float minImpulsePct = input.float(0.15, "Min Impulse Leg Size (%)",
+     minval = 0.0, step = 0.01, group = GRP_FIB,
+     tooltip = "Rejects micro-legs whose reward cannot survive fees. On a 1m " +
+               "chart with 0.1% per side, anything under ~0.15% is noise.")
+
+int maxWaitBars = input.int(45, "Cancel Unfilled Order After (bars)",
+     minval = 1, maxval = 500, group = GRP_FIB,
+     tooltip = "A resting limit order that has not filled within this many " +
+               "bars is cancelled - the structure it was based on is stale.")
+
+// --- 1.3 Risk & trade management ---------------------------------------------
+string slMode = input.string("Percent", "Stop Buffer Mode",
+     options = ["Percent", "Ticks"], group = GRP_RISK,
+     tooltip = "How far BELOW the anchor swing low the stop is parked.")
+
+float slBufPct = input.float(0.05, "Stop Buffer (%)",
+     minval = 0.0, step = 0.01, group = GRP_RISK)
+
+int slBufTicks = input.int(10, "Stop Buffer (ticks)",
+     minval = 0, group = GRP_RISK)
+
+string tpMode = input.string("Risk:Reward", "Take Profit Mode",
+     options = ["Risk:Reward", "Impulse Swing High"], group = GRP_RISK,
+     tooltip = "Risk:Reward        = entry + RRR * risk (fixed R multiple).\n" +
+               "Impulse Swing High = the peak of the impulse leg (1.0 fib).")
+
+float rrTarget = input.float(1.5, "Risk : Reward Ratio",
+     minval = 0.1, maxval = 20.0, step = 0.1, group = GRP_RISK,
+     tooltip = "Used by Risk:Reward mode. 1.5 needs a 40% win rate to break " +
+               "even BEFORE fees - closer to 45% after them.")
+
+float minRR = input.float(1.0, "Reject Setup Below This R:R",
+     minval = 0.0, step = 0.1, group = GRP_RISK,
+     tooltip = "Structural veto. If the frozen geometry cannot offer at least " +
+               "this reward-to-risk, the setup is discarded instead of traded.")
+
+// --- 1.4 Trend / regime filter -----------------------------------------------
+bool useEma = input.bool(true, "Require Close Above EMA",
+     group = GRP_BIAS, tooltip = "Directional bias filter.")
+
+int emaLen = input.int(200, "EMA Length", minval = 1, maxval = 1000, group = GRP_BIAS)
+
+bool useAdx = input.bool(true, "Require ADX Above Threshold",
+     group   = GRP_BIAS,
+     tooltip = "REGIME FILTER. Without it this strategy takes continuation " +
+               "setups inside ranges, where every 0.618 tap is a false one. " +
+               "This is the single highest-leverage input in the script.")
+
+int adxLen = input.int(14, "ADX / DI Length", minval = 1, maxval = 100, group = GRP_BIAS)
+
+float adxMin = input.float(20.0, "Min ADX", minval = 0.0, maxval = 100.0,
+     step = 0.5, group = GRP_BIAS)
+
+// --- 1.5 Backtest window & session -------------------------------------------
+bool useWindow = input.bool(false, "Limit Backtest to Date Range", group = GRP_TIME)
+
+int startTime = input.time(timestamp("01 Jan 2024 00:00 +0000"), "Start", group = GRP_TIME)
+int endTime   = input.time(timestamp("01 Jan 2030 00:00 +0000"), "End",   group = GRP_TIME)
+
+bool useSession = input.bool(false, "Enable Session Filter", group = GRP_TIME)
+
+string sessSpec = input.session("0000-2400", "Session (exchange time)", group = GRP_TIME)
+
+// --- 1.6 Visuals --------------------------------------------------------------
+bool showZone    = input.bool(true,  "Show Gold Zone Box",        group = GRP_VIZ)
+bool showLevels  = input.bool(true,  "Show Entry / SL / TP Lines", group = GRP_VIZ)
+bool showBosViz  = input.bool(true,  "Show BOS Level + Label",     group = GRP_VIZ)
+bool showPivots  = input.bool(true,  "Show Confirmed Pivots",      group = GRP_VIZ)
+bool showEma     = input.bool(true,  "Show Bias EMA",              group = GRP_VIZ)
+bool showTable   = input.bool(true,  "Show Status Panel",          group = GRP_VIZ)
+bool keepHistory = input.bool(true,  "Keep Historical Drawings",   group = GRP_VIZ,
+     tooltip = "Off = only the live setup is drawn (much lighter chart).")
+
+color colZoneFill = input.color(color.new(color.orange, 82), "Gold Zone Fill",   group = GRP_VIZ)
+color colZoneEdge = input.color(color.new(color.orange, 35), "Gold Zone Border", group = GRP_VIZ)
+color colBos      = input.color(color.new(#2962ff, 0),       "BOS Level",        group = GRP_VIZ)
+color colEntry    = input.color(color.new(#ff9800, 0),       "Entry Level",      group = GRP_VIZ)
+color colSl       = input.color(color.new(#ef5350, 0),       "Stop Loss",        group = GRP_VIZ)
+color colTp       = input.color(color.new(#26a69a, 0),       "Take Profit",      group = GRP_VIZ)
+
+
+// =============================================================================
+//  2. CONTEXT, FILTERS AND DERIVED INPUTS
+// =============================================================================
+// Normalise the zone boundaries so the script cannot be broken by a user who
+// types the deep level into the shallow field.
+float fibShallow = math.min(fibZoneA, fibZoneB)   // nearer the impulse high
+float fibDeep    = math.max(fibZoneA, fibZoneB)   // nearer the anchor low
+
+float emaVal = ta.ema(close, emaLen)
+[_diPlus, _diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+
+bool inWindow = not useWindow  or (time >= startTime and time <= endTime)
+bool inSess   = not useSession or not na(time(timeframe.period, sessSpec))
+bool tradeOk  = inWindow and inSess
+bool biasOk   = (not useEma or close > emaVal) and (not useAdx or adxVal >= adxMin)
+
+
+// =============================================================================
+//  3. SWING STRUCTURE  (confirmed pivots only - see repainting notes in header)
+// =============================================================================
+// ta.pivothigh(l, r) returns the pivot PRICE r bars after the pivot bar, and na
+// on every other bar. bar_index - rightBars therefore rewinds to the pivot bar.
+float ph = ta.pivothigh(leftBars, rightBars)
+float pl = ta.pivotlow(leftBars, rightBars)
+
+var float swingHigh     = na    // most recent confirmed swing high (resistance)
+var int   swingHighBar  = na
+var float swingLow      = na    // most recent confirmed swing low (fib 0.0 candidate)
+var int   swingLowBar   = na
+var float prevSwingLow  = na    // the one before it - used for the higher-low test
+var bool  swingHighUsed = true  // true once this level has produced a BOS
+
+if not na(ph)
+    swingHigh     := ph
+    swingHighBar  := bar_index - rightBars
+    swingHighUsed := false      // a fresh, unbroken resistance level
+
+if not na(pl)
+    prevSwingLow := swingLow    // demote the old low before overwriting
+    swingLow     := pl
+    swingLowBar  := bar_index - rightBars
+
+
+// =============================================================================
+//  4. THE ENGINE
+//  Executed strictly in this order every bar so that no two blocks can write
+//  the same variable on the same bar:
+//     4a housekeeping -> 4b invalidation -> 4c BOS -> 4d zone -> 4e entry -> 4f exit
+// =============================================================================
+var int   setupState  = 0     // 0 = idle, 1 = tracking impulse, 2 = armed
+var float bosLevel    = na    // the swing high that was broken
+var int   bosPivotBar = na    // bar where that swing high printed
+var int   bosBar      = na    // bar where the break was detected
+var float anchorLow   = na    // fib 0.0
+var int   anchorLowBar = na
+var float impulseHigh = na    // fib 1.0 - extends while price makes new highs
+var int   lockBar     = na    // bar where the geometry was frozen
+var float zoneHi      = na    // 0.50 retracement price  (top of the gold zone)
+var float zoneLo      = na    // 0.618 retracement price (bottom of the gold zone)
+var float entryPx     = na    // planned entry (0.618 by default)
+var float slPx        = na    // protective stop
+var float tpPx        = na    // target
+var bool  orderLive   = false // an entry order has been submitted
+var int   orderBar    = na    // bar on which it was submitted
+
+// Per-bar event flags, consumed by the drawing layer at the bottom.
+bool evBos  = false
+bool evLock = false
+bool evEnd  = false
+
+bool flat = strategy.position_size == 0
+
+// --- 4a. Housekeeping: a finished trade releases the engine -------------------
+bool tradeJustClosed = flat and strategy.position_size[1] > 0
+if tradeJustClosed
+    setupState := 0
+    orderLive  := false
+    evEnd      := true
+
+// --- 4b. Invalidation of a setup that has not been filled --------------------
+// IMPORTANT: with process_orders_on_close = true, a fill on bar N is only
+// visible to the script on bar N+1. `fillPossible` suppresses invalidation on
+// any bar where the resting order could legitimately have been filled, which is
+// what stops this block from wiping the geometry of a trade that just opened.
+// For the same reason the reset below deliberately does NOT null slPx / tpPx /
+// impulseHigh: 4f still needs them if a fill turns out to be in flight.
+bool limitMode    = entryMode == "Limit at Entry Fib"
+bool fillPossible = setupState == 2 and orderLive and (limitMode ? low <= entryPx : bar_index == orderBar)
+
+if flat and setupState > 0 and not fillPossible
+    int  ageBars  = setupState == 1 ? bar_index - bosBar : bar_index - lockBar
+    int  ageLimit = setupState == 1 ? maxImpulseBars : maxWaitBars
+    bool timedOut = ageBars >= ageLimit
+    // Structure is dead once price closes back under the leg it was built on.
+    bool structureGone = setupState == 1 ? close < anchorLow : close < slPx
+    if timedOut or structureGone or not tradeOk
+        strategy.cancel(ID_LONG)
+        setupState := 0
+        orderLive  := false
+        evEnd      := true
+
+// --- 4c. Bullish Break of Structure ------------------------------------------
+float bosSrc = bosSrcMode == "Close" ? close : high
+
+// A level is broken on the first bar where the break is DETECTABLE. That is
+// either the bar price crossed it, or - when the break happened inside the
+// pivot's confirmation window - the bar the pivot was confirmed on.
+bool structureReady = not na(swingHigh) and not na(swingLow) and swingLow < swingHigh
+bool freshBreak     = bosSrc > swingHigh and (not na(ph) or nz(bosSrc[1], bosSrc) <= swingHigh)
+bool higherLowOk    = not requireHigherLow or na(prevSwingLow) or swingLow > prevSwingLow
+bool breakDetected  = structureReady and not swingHighUsed and freshBreak
+
+bool bosSignal = breakDetected and flat and setupState == 0 and higherLowOk and biasOk and tradeOk
+
+// The level is consumed whether or not the filters let us trade it, so a stale
+// break can never be re-fired later from a different engine state.
+if breakDetected
+    swingHighUsed := true
+
+if bosSignal
+    setupState   := 1
+    bosLevel     := swingHigh
+    bosPivotBar  := swingHighBar
+    bosBar       := bar_index
+    anchorLow    := swingLow          // fib 0.0 = the higher low before the break
+    anchorLowBar := swingLowBar
+    impulseHigh  := high              // fib 1.0 starts at the breaking bar
+    evBos        := true
+
+// --- 4d. Impulse tracking and gold zone lock ---------------------------------
+// While the leg extends, the fib grid is provisional and is recomputed every
+// bar. The bar price first trades back into the 0.50 level is the bar the
+// retracement begins, and the geometry is frozen there for good.
+if setupState == 1
+    impulseHigh := math.max(nz(impulseHigh, high), high)
+
+    float legRange = impulseHigh - anchorLow
+    zoneHi  := anchorLow + (1.0 - fibShallow) * legRange   // 0.50  retracement
+    zoneLo  := anchorLow + (1.0 - fibDeep)    * legRange   // 0.618 retracement
+    entryPx := anchorLow + (1.0 - fibEntry)   * legRange   // entry fib
+
+    bool legBigEnough = legRange > 0 and anchorLow > 0 and (legRange / anchorLow) * 100.0 >= minImpulsePct
+    bool retracing    = bar_index > bosBar and low <= zoneHi
+
+    if legBigEnough and retracing
+        // Stop sits BELOW the anchor swing low - the level that must hold for
+        // the bullish structure to still be valid.
+        float rawSl = slMode == "Percent" ? anchorLow * (1.0 - slBufPct / 100.0)
+                                          : anchorLow - slBufTicks * syminfo.mintick
+        float risk  = entryPx - rawSl
+        float rawTp = tpMode == "Risk:Reward" ? entryPx + rrTarget * risk : impulseHigh
+        float rr    = risk > 0 ? (rawTp - entryPx) / risk : 0.0
+
+        if risk > 0 and rr >= minRR
+            slPx       := rawSl
+            tpPx       := rawTp
+            lockBar    := bar_index
+            setupState := 2
+            evLock     := true
+        else
+            // Geometry is unusable (stop too wide, or target too near). Reject
+            // it here rather than letting a negative-expectancy trade through.
+            setupState := 0
+            evEnd      := true
+
+// --- 4e. Entry execution ------------------------------------------------------
+// strategy.exit() is registered on the SAME bar as the entry so the protective
+// stop is live from the fill bar onward rather than one bar later.
+if setupState == 2 and flat and not orderLive and tradeOk
+    if limitMode
+        strategy.entry(ID_LONG, strategy.long,
+             limit         = entryPx,
+             comment       = "Fib " + str.tostring(fibEntry, "#.###"),
+             alert_message = "LONG limit @ " + str.tostring(entryPx, format.mintick))
+        strategy.exit(ID_EXIT, from_entry = ID_LONG, stop = slPx, limit = tpPx,
+             comment_loss = "SL", comment_profit = "TP")
+        orderLive := true
+        orderBar  := bar_index
+    else if close <= zoneHi and close >= zoneLo
+        // Market mode fills at this close, so risk is measured from the close.
+        float mRisk = close - slPx
+        if mRisk > 0
+            tpPx := tpMode == "Risk:Reward" ? close + rrTarget * mRisk : impulseHigh
+            strategy.entry(ID_LONG, strategy.long,
+                 comment       = "Fib zone close",
+                 alert_message = "LONG market @ " + str.tostring(close, format.mintick))
+            strategy.exit(ID_EXIT, from_entry = ID_LONG, stop = slPx, limit = tpPx,
+                 comment_loss = "SL", comment_profit = "TP")
+            orderLive := true
+            orderBar  := bar_index
+
+// --- 4f. Live position management --------------------------------------------
+// Re-issuing strategy.exit() with the same exit ID UPDATES the bracket rather
+// than stacking a second one. The target is recomputed from the real average
+// fill so the R multiple is exact even when the limit filled below its price.
+if strategy.position_size > 0
+    float fill = strategy.position_avg_price
+    if not na(fill) and not na(slPx) and fill > slPx
+        float fillRisk = fill - slPx
+        tpPx := tpMode == "Risk:Reward" ? fill + rrTarget * fillRisk : math.max(nz(impulseHigh, fill), fill + syminfo.mintick)
+    strategy.exit(ID_EXIT, from_entry = ID_LONG, stop = slPx, limit = tpPx,
+         comment_loss = "SL", comment_profit = "TP")
+
+
+// =============================================================================
+//  5. CHART OVERLAY
+//  Drawing handles live in `var` slots. A setup that ends either deletes its
+//  objects (keepHistory = false) or simply drops the handle, which freezes the
+//  drawing on the chart and lets the next setup allocate fresh ones.
+// =============================================================================
+var box   zoneBox = na
+var line  slLine  = na
+var line  tpLine  = na
+var line  entLine = na
+var line  bosLine = na
+var label bosLab  = na
+
+bool setupAlive = setupState > 0 or strategy.position_size > 0
+
+// --- 5a. Retire the previous setup's drawings (runs before any new ones) ------
+if evEnd
+    if not keepHistory
+        if not na(zoneBox)
+            box.delete(zoneBox)
+        if not na(slLine)
+            line.delete(slLine)
+        if not na(tpLine)
+            line.delete(tpLine)
+        if not na(entLine)
+            line.delete(entLine)
+        if not na(bosLine)
+            line.delete(bosLine)
+        if not na(bosLab)
+            label.delete(bosLab)
+    zoneBox := na
+    slLine  := na
+    tpLine  := na
+    entLine := na
+    bosLine := na
+    bosLab  := na
+
+// --- 5b. BOS level + label, created on the break bar --------------------------
+if evBos and showBosViz
+    bosLine := line.new(x1 = bosPivotBar, y1 = bosLevel, x2 = bar_index, y2 = bosLevel,
+         xloc = xloc.bar_index, color = colBos, style = line.style_dashed, width = 1)
+    bosLab := label.new(x = bar_index, y = bosLevel,
+         text      = "BOS " + str.tostring(bosLevel, format.mintick),
+         xloc      = xloc.bar_index, yloc = yloc.price,
+         style     = label.style_label_down,
+         color     = color.new(colBos, 15), textcolor = color.white, size = size.tiny)
+
+// --- 5c. Gold zone box: tracks the leg while provisional, frozen once armed ---
+if evBos and showZone
+    zoneBox := box.new(left = anchorLowBar, top = zoneHi, right = bar_index + 1, bottom = zoneLo,
+         xloc = xloc.bar_index, border_color = colZoneEdge, border_width = 1,
+         bgcolor = colZoneFill)
+
+if setupAlive and not na(zoneBox)
+    box.set_top(zoneBox, zoneHi)          // no-op once the geometry is frozen
+    box.set_bottom(zoneBox, zoneLo)
+    box.set_right(zoneBox, bar_index + 1)
+
+// --- 5d. Entry / SL / TP rails, created when the geometry is frozen -----------
+if evLock and showLevels
+    entLine := line.new(x1 = lockBar, y1 = entryPx, x2 = bar_index, y2 = entryPx,
+         xloc = xloc.bar_index, color = colEntry, style = line.style_dotted, width = 1)
+    slLine := line.new(x1 = lockBar, y1 = slPx, x2 = bar_index, y2 = slPx,
+         xloc = xloc.bar_index, color = colSl, style = line.style_solid, width = 2)
+    tpLine := line.new(x1 = lockBar, y1 = tpPx, x2 = bar_index, y2 = tpPx,
+         xloc = xloc.bar_index, color = colTp, style = line.style_solid, width = 2)
+
+if setupAlive
+    if not na(entLine)
+        line.set_x2(entLine, bar_index)
+    if not na(slLine)
+        line.set_x2(slLine, bar_index)
+        line.set_y1(slLine, slPx)
+        line.set_y2(slLine, slPx)
+    if not na(tpLine)
+        // tpPx is re-derived from the real fill price, so both ends must follow.
+        line.set_x2(tpLine, bar_index)
+        line.set_y1(tpLine, tpPx)
+        line.set_y2(tpLine, tpPx)
+    if not na(bosLine)
+        line.set_x2(bosLine, bar_index)
+
+// --- 5e. Bias EMA, pivot markers and signal shapes ----------------------------
+plot(showEma and useEma ? emaVal : na, title = "Bias EMA",
+     color = color.new(color.gray, 30), linewidth = 1)
+
+plotshape(showPivots and not na(ph), title = "Swing High", style = shape.triangledown,
+     location = location.abovebar, color = color.new(color.red, 40),
+     size = size.tiny, offset = -rightBars)
+
+plotshape(showPivots and not na(pl), title = "Swing Low", style = shape.triangleup,
+     location = location.belowbar, color = color.new(color.green, 40),
+     size = size.tiny, offset = -rightBars)
+
+plotshape(showBosViz and evBos, title = "BOS", style = shape.labelup,
+     location = location.belowbar, color = colBos, textcolor = color.white,
+     text = "BOS", size = size.tiny)
+
+plotshape(showZone and evLock, title = "Zone Armed", style = shape.diamond,
+     location = location.belowbar, color = colEntry, size = size.tiny)
+
+// --- 5f. Status panel ---------------------------------------------------------
+var table hud = na
+if showTable and barstate.islast
+    if na(hud)
+        hud := table.new(position.top_right, 2, 10,
+             border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 60))
+
+    string stateTxt = strategy.position_size > 0 ? "IN TRADE"
+                     : setupState == 2 ? (orderLive ? "ARMED - order live" : "ARMED")
+                     : setupState == 1 ? "IMPULSE - tracking high"
+                     : "IDLE - waiting for BOS"
+    color stateCol = strategy.position_size > 0 ? color.new(color.teal, 70)
+                     : setupState == 2 ? color.new(color.orange, 70)
+                     : setupState == 1 ? color.new(color.blue, 70)
+                     : color.new(color.gray, 80)
+
+    float shownRr = not na(entryPx) and not na(slPx) and not na(tpPx) and entryPx > slPx
+                     ? (tpPx - entryPx) / (entryPx - slPx) : na
+
+    table.cell(hud, 0, 0, "1m Fib BOS Scalper", text_color = color.white,
+         text_size = size.small, bgcolor = color.new(color.gray, 40))
+    table.cell(hud, 1, 0, stateTxt, text_color = color.white,
+         text_size = size.small, bgcolor = stateCol)
+
+    table.cell(hud, 0, 1, "Swing High",  text_size = size.tiny, text_color = color.gray)
+    table.cell(hud, 1, 1, na(swingHigh) ? "-" : str.tostring(swingHigh, format.mintick), text_size = size.tiny)
+    table.cell(hud, 0, 2, "Anchor Low (0.0)", text_size = size.tiny, text_color = color.gray)
+    table.cell(hud, 1, 2, na(anchorLow) ? "-" : str.tostring(anchorLow, format.mintick), text_size = size.tiny)
+    table.cell(hud, 0, 3, "Impulse High (1.0)", text_size = size.tiny, text_color = color.gray)
+    table.cell(hud, 1, 3, na(impulseHigh) ? "-" : str.tostring(impulseHigh, format.mintick), text_size = size.tiny)
+    table.cell(hud, 0, 4, "Zone Top (0.50)", text_size = size.tiny, text_color = color.gray)
+    table.cell(hud, 1, 4, na(zoneHi) ? "-" : str.tostring(zoneHi, format.mintick), text_size = size.tiny)
+    table.cell(hud, 0, 5, "Entry (0.618)", text_size = size.tiny, text_color = colEntry)
+    table.cell(hud, 1, 5, na(entryPx) ? "-" : str.tostring(entryPx, format.mintick), text_size = size.tiny)
+    table.cell(hud, 0, 6, "Stop Loss", text_size = size.tiny, text_color = colSl)
+    table.cell(hud, 1, 6, na(slPx) ? "-" : str.tostring(slPx, format.mintick), text_size = size.tiny)
+    table.cell(hud, 0, 7, "Take Profit", text_size = size.tiny, text_color = colTp)
+    table.cell(hud, 1, 7, na(tpPx) ? "-" : str.tostring(tpPx, format.mintick), text_size = size.tiny)
+    table.cell(hud, 0, 8, "R : R", text_size = size.tiny, text_color = color.gray)
+    table.cell(hud, 1, 8, na(shownRr) ? "-" : str.tostring(shownRr, "#.##"), text_size = size.tiny)
+    table.cell(hud, 0, 9, "ADX", text_size = size.tiny, text_color = color.gray)
+    table.cell(hud, 1, 9, str.tostring(adxVal, "#.#") + (adxVal >= adxMin ? " OK" : " low"),
+         text_size = size.tiny, text_color = adxVal >= adxMin ? color.teal : color.red)
+
+
+// =============================================================================
+//  6. ALERTS
+// =============================================================================
+if evBos
+    alert("Bullish BOS on " + syminfo.ticker + " above " +
+          str.tostring(bosLevel, format.mintick), alert.freq_once_per_bar_close)
+
+if evLock
+    alert("Gold zone armed on " + syminfo.ticker +
+          " | entry " + str.tostring(entryPx, format.mintick) +
+          " | SL " + str.tostring(slPx, format.mintick) +
+          " | TP " + str.tostring(tpPx, format.mintick), alert.freq_once_per_bar_close)

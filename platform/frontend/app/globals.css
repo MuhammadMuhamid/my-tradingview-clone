@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-bg text-ink;
+  font-feature-settings: "tnum" 1;
+  /* Wide tables/toolbars scroll in their own containers, never the page. */
+  overflow-x: hidden;
+}
+
+/* Touch: iOS zooms any focused input whose text is under 16px. */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+}
+
+/* Recessive scrollbars for the dark surfaces */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #232b3a; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #2c3548; }
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Scrollable rows (nav, chart toolbar) without a visible scrollbar. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

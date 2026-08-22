@@ -1,0 +1,368 @@
+//@version=6
+// =============================================================================
+//  GREEN RIBBON PULLBACK BREAKOUT - SPOT LONG ONLY
+// -----------------------------------------------------------------------------
+//  Regime          : Established uptrend + shallow pullback continuation.
+//  Direction       : LONG ONLY (spot). Shorts are hard-disabled at the engine
+//                    level via strategy.risk.allow_entry_in().
+//  Signal source   : Standard chart candles (never run this on Heikin-Ashi).
+//
+//  STATE ENGINE (strictly sequential - one transition per bar)
+//  ----------------------------------------------------------
+//    0 IDLE    -> 1 TREND : close > EMA144(high)  AND  RedEMA >= EMA144(low)
+//                           AND  ribbon slope >= threshold
+//    1 TREND   -> 2 ARMED : low <= EMA144(high)   AND  low >= EMA144(low)*tol
+//                           AND  alignment + slope still hold
+//                           (swing high captured and drawn on this bar)
+//    2 ARMED   -> ENTRY   : close > stored swing high
+//    ANY       -> 0 IDLE  : close < EMA144(low)   (trend invalidated)
+//
+//  The slope filter is the regime gate: price sitting above the ribbon says
+//  nothing about whether the ribbon is going anywhere. Without it the engine
+//  fires on every marginal breakout out of a flat, coiling EMA144.
+//
+//  NON-REPAINTING NOTES
+//  --------------------
+//  * No request.security() calls - nothing is borrowed from a higher timeframe.
+//  * calc_on_every_tick = false -> the state engine only advances on closed
+//    bars, so an armed setup that appears on a historical bar was genuinely
+//    armed at that bar's close.
+//  * ta.pivothigh(left, right) confirms `right` bars AFTER the pivot printed.
+//    The level it returns is therefore already history and cannot repaint, but
+//    the setup is armed `right` bars later than a human eye would mark it.
+//
+//  EXECUTION CAVEAT
+//  ----------------
+//  process_orders_on_close = false, so an entry signalled at the close of bar N
+//  is filled at the OPEN of bar N+1, and strategy.exit() is registered on that
+//  same fill bar. TradingView's broker emulator can therefore only act on the
+//  stop/limit from bar N+2 onward: the fill bar itself carries unhedged risk.
+//  This is a Pine limitation, not a bug in the logic below.
+// =============================================================================
+
+strategy(
+     title                   = "Green Ribbon Pullback Breakout (Spot Long)",
+     shorttitle              = "GR Pullback Long",
+     overlay                 = true,
+     initial_capital         = 1000,
+     currency                = currency.USDT,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     process_orders_on_close = false,
+     max_lines_count         = 500,
+     max_labels_count        = 500)
+
+// Spot account: borrowing is impossible, so shorts are blocked outright.
+strategy.risk.allow_entry_in(strategy.direction.long)
+
+
+// =============================================================================
+//  1. INPUTS
+// =============================================================================
+string GRP_GREEN = "Green Ribbon (Trend)"
+string GRP_FIB   = "Orange Ribbon (Fibonacci EMAs)"
+string GRP_SETUP = "Entry State Engine"
+string GRP_RISK  = "Risk Management"
+string GRP_VIZ   = "Visuals"
+string GRP_TIME  = "Backtest Window"
+
+// --- Green ribbon -----------------------------------------------------------
+int greenLen = input.int(144, "Green Ribbon EMA Length", minval = 1, maxval = 1000,
+     group = GRP_GREEN,
+     tooltip = "One length, three sources (high / close / low). The band between " +
+               "the high-EMA and the low-EMA is the 'ribbon'.")
+
+bool useSlopeFilter = input.bool(true, "Require Rising Ribbon (slope filter)", group = GRP_GREEN,
+     tooltip = "Position above the ribbon says nothing about whether the ribbon is " +
+               "actually trending. Without this, the engine arms and fires on every " +
+               "marginal breakout while EMA144 is flat and price coils around it - " +
+               "the single largest source of chop losses in this setup.")
+
+int slopeLookback = input.int(10, "Slope Lookback (bars)", minval = 1, maxval = 200,
+     group = GRP_GREEN,
+     tooltip = "How far back the ribbon centreline is compared. Longer = smoother " +
+               "and slower to re-enable after a flat patch.")
+
+float minSlopePct = input.float(0.0, "Min Ribbon Slope Over Lookback (%)",
+     minval = -5.0, maxval = 5.0, step = 0.01, group = GRP_GREEN,
+     tooltip = "Rise of EMA144(close) over the lookback, as a percentage of its own " +
+               "value, so the threshold means the same thing on any asset or " +
+               "timeframe. 0.0 = simply rising. Raise it to demand a steeper trend; " +
+               "negative values tolerate a mildly drifting-down ribbon.")
+
+// --- Orange ribbon ----------------------------------------------------------
+int fibLen1 = input.int(21, "Fib EMA 1 (fastest)", minval = 1, maxval = 1000, group = GRP_FIB)
+int fibLen2 = input.int(34, "Fib EMA 2",           minval = 1, maxval = 1000, group = GRP_FIB)
+int fibLen3 = input.int(55, "Fib EMA 3",           minval = 1, maxval = 1000, group = GRP_FIB)
+int fibLen4 = input.int(89, "Fib EMA 4 (RED - alignment filter)", minval = 1, maxval = 1000,
+     group = GRP_FIB,
+     tooltip = "This is the EMA drawn in bold red and the one used by the Step B " +
+               "alignment filter. Keep it the longest of the four.")
+
+// --- State engine -----------------------------------------------------------
+string SWING_PIVOT = "Pivot High"
+string SWING_RANGE = "Highest High Lookback"
+
+string swingMode = input.string(SWING_PIVOT, "Swing High Detection",
+     options = [SWING_PIVOT, SWING_RANGE], group = GRP_SETUP,
+     tooltip = "Pivot High uses ta.pivothigh() and falls back to the lookback " +
+               "high when no confirmed pivot sits above price.")
+
+int pivotLeft  = input.int(5, "Pivot Left Bars",  minval = 1, maxval = 50, group = GRP_SETUP)
+int pivotRight = input.int(2, "Pivot Right Bars", minval = 1, maxval = 50, group = GRP_SETUP,
+     tooltip = "Higher = stricter pivots but a later arming bar (confirmation lag).")
+
+int swingLookback = input.int(20, "Highest-High Lookback (bars)", minval = 2, maxval = 200,
+     group = GRP_SETUP)
+
+float pullbackDepthPct = input.float(0.5, "Max Pullback Depth Below Ribbon Low (%)",
+     minval = 0.0, maxval = 10.0, step = 0.1, group = GRP_SETUP,
+     tooltip = "0.5 reproduces the EMA144(low) * 0.995 tolerance. A wick deeper " +
+               "than this is treated as a ribbon rejection, not a pullback.")
+
+bool trackNewPivots = input.bool(true, "Re-target On Newer Swing Highs", group = GRP_SETUP,
+     tooltip = "While armed, adopt any newly confirmed pivot high that still sits " +
+               "above price, so the target tracks the MOST RECENT swing high.")
+
+// --- Risk -------------------------------------------------------------------
+string SL_RIBBON = "Orange Ribbon Minimum"
+string SL_GREEN  = "Green Ribbon Low (Safer)"
+
+string slMode = input.string(SL_RIBBON, "Stop Loss Anchor",
+     options = [SL_RIBBON, SL_GREEN], group = GRP_RISK,
+     tooltip = "Ribbon Minimum = lowest of the 4 Fib EMAs on the signal bar. " +
+               "Green Ribbon Low = EMA144(low) on the signal bar (wider, safer).")
+
+float rrr = input.float(2.0, "Risk : Reward Ratio", minval = 0.1, maxval = 20.0, step = 0.1,
+     group = GRP_RISK)
+
+float slBufferPct = input.float(0.0, "Extra SL Buffer Below Anchor (%)",
+     minval = 0.0, maxval = 5.0, step = 0.05, group = GRP_RISK,
+     tooltip = "Pushes the stop further away from the anchor to survive wick hunts.")
+
+float minStopPct = input.float(0.5, "Minimum Stop Distance (%)",
+     minval = 0.05, maxval = 10.0, step = 0.05, group = GRP_RISK,
+     tooltip = "Safety floor. If the chosen anchor sits at or above the fill price " +
+               "(possible right after a fast cross), the stop is forced to at " +
+               "least this distance below the fill.")
+
+// --- Visuals ----------------------------------------------------------------
+bool showGreen       = input.bool(true, "Show Green Ribbon",           group = GRP_VIZ)
+bool showFib         = input.bool(true, "Show Orange Ribbon",          group = GRP_VIZ)
+bool showSwingLines  = input.bool(true, "Show Armed Swing-High Lines", group = GRP_VIZ)
+bool showTradeLevels = input.bool(true, "Show Active SL / TP",         group = GRP_VIZ)
+
+// --- Backtest window (walk-forward splitting) -------------------------------
+bool useDateFilter = input.bool(false, "Limit Backtest Window", group = GRP_TIME)
+int  startTime     = input.time(timestamp("2020-01-01T00:00:00+0000"), "Start", group = GRP_TIME)
+int  endTime       = input.time(timestamp("2030-01-01T00:00:00+0000"), "End",   group = GRP_TIME)
+
+bool inWindow = not useDateFilter or (time >= startTime and time <= endTime)
+
+
+// =============================================================================
+//  2. INDICATORS
+// =============================================================================
+
+// --- Green ribbon: one length, three sources --------------------------------
+float emaHigh  = ta.ema(high,  greenLen)
+float emaClose = ta.ema(close, greenLen)
+float emaLow   = ta.ema(low,   greenLen)
+
+// --- Ribbon slope filter ----------------------------------------------------
+// Rise of the ribbon centreline over `slopeLookback`, expressed as a percentage
+// of its own value. Normalising by price keeps the threshold meaningful across
+// assets and timeframes, unlike a raw price delta.
+// During the warm-up bars emaClose[slopeLookback] is na, so ribbonSlopePct is na
+// and the filter blocks - which is what we want before the EMA has stabilised.
+float ribbonSlopePct = (emaClose - emaClose[slopeLookback]) / emaClose[slopeLookback] * 100.0
+bool  slopeOk        = not useSlopeFilter or (not na(ribbonSlopePct) and ribbonSlopePct >= minSlopePct)
+
+// --- Orange ribbon: four Fibonacci EMAs on close ----------------------------
+float fib1 = ta.ema(close, fibLen1)
+float fib2 = ta.ema(close, fibLen2)
+float fib3 = ta.ema(close, fibLen3)
+float fib4 = ta.ema(close, fibLen4)          // the RED EMA (alignment + SL input)
+
+// Lowest of the whole orange group - the default stop anchor.
+float ribbonMin = math.min(math.min(fib1, fib2), math.min(fib3, fib4))
+
+
+// =============================================================================
+//  3. RIBBON PLOTS
+// =============================================================================
+color colGreenLine = color.new(color.green, 0)
+
+pGreenHigh = plot(showGreen ? emaHigh  : na, "EMA Green (High)",  color = colGreenLine, linewidth = 1)
+plot(         showGreen ? emaClose : na, "EMA Green (Close)", color = colGreenLine, linewidth = 1)
+pGreenLow  = plot(showGreen ? emaLow   : na, "EMA Green (Low)",   color = colGreenLine, linewidth = 1)
+
+// Semi-transparent body of the ribbon, bounded by the high-EMA and the low-EMA.
+// The fill fades out while the slope filter is blocking, so a stretch with no
+// entries is visibly a filtered stretch rather than an absent setup.
+color ribbonFill = slopeOk ? color.new(color.green, 85) : color.new(color.green, 95)
+fill(pGreenHigh, pGreenLow, color = ribbonFill, title = "Green Ribbon Fill")
+
+// Orange group: three shades of orange, then the bold red anchor EMA.
+plot(showFib ? fib1 : na, "Fib EMA 1", color = color.new(#FFD180, 0), linewidth = 1)
+plot(showFib ? fib2 : na, "Fib EMA 2", color = color.new(#FFAB40, 0), linewidth = 1)
+plot(showFib ? fib3 : na, "Fib EMA 3", color = color.new(#FF6D00, 0), linewidth = 1)
+plot(showFib ? fib4 : na, "Fib EMA 4 (Red)", color = color.red, linewidth = 2)
+
+
+// =============================================================================
+//  4. RAW SETUP CONDITIONS
+// =============================================================================
+
+// Step A - trend shift: price is holding above the entire green ribbon.
+bool trendShift = close > emaHigh
+
+// Step B - alignment: the red EMA is inside or above the green ribbon.
+bool alignmentOk = fib4 >= emaLow
+
+// Invalidation: a close under the ribbon kills any state the engine is holding.
+bool ribbonBreak = close < emaLow
+
+// Step C - pullback: the bar's low taps into the ribbon without slicing through
+// it. `pullbackFloor` is EMA144(low) * (1 - depth%), i.e. 0.995 at the default.
+float pullbackFloor = emaLow * (1.0 - pullbackDepthPct / 100.0)
+bool  pullbackHit   = low <= emaHigh and low >= pullbackFloor
+
+// --- Swing high candidates ---------------------------------------------------
+// ta.pivothigh() returns the pivot value `pivotRight` bars after it printed, so
+// the value is confirmed history by the time it is used.
+float ph = ta.pivothigh(high, pivotLeft, pivotRight)
+
+var float lastPivotHigh = na
+if not na(ph)
+    lastPivotHigh := ph
+
+// Fallback / alternative mode: plain highest high of the recent sequence.
+float rangeHigh = ta.highest(high, swingLookback)
+
+
+// =============================================================================
+//  5. STATE ENGINE
+// =============================================================================
+// setupState: 0 = idle, 1 = trend confirmed (waiting for pullback),
+//             2 = armed (swing high stored, waiting for the breakout close).
+var int   setupState = 0
+var float targetHigh = na
+var line  swingLine  = na
+
+// Snapshot of the state carried in from the previous bar. Branching on this
+// (rather than on the live variable) guarantees at most ONE transition per bar,
+// which is what enforces the A -> B -> C -> D sequencing.
+int  stateIn    = setupState
+bool justArmed  = false
+bool longSignal = false
+
+if ribbonBreak
+    // Trend invalidated - drop everything, armed setups included.
+    setupState := 0
+    targetHigh := na
+else if stateIn == 0
+    // Step A + Step B + rising ribbon must all hold to leave idle.
+    if trendShift and alignmentOk and slopeOk
+        setupState := 1
+else if stateIn == 1
+    // Step C - the pullback must still respect alignment AND ribbon slope, so a
+    // trend that flattened while we waited cannot arm a setup.
+    if pullbackHit and alignmentOk and slopeOk
+        // Prefer the most recent confirmed pivot that is still above price;
+        // otherwise fall back to the highest high of the pullback sequence.
+        bool  pivotUsable = swingMode == SWING_PIVOT and not na(lastPivotHigh) and lastPivotHigh > close
+        float candidate   = pivotUsable ? lastPivotHigh : rangeHigh
+        targetHigh := candidate
+        setupState := 2
+        justArmed  := true
+else if stateIn == 2
+    // Step D - breakout close above the stored swing high.
+    if not na(targetHigh) and close > targetHigh
+        longSignal := true
+        setupState := 0          // armed state consumed by the entry
+        targetHigh := na
+    else if trackNewPivots and not na(ph) and ph > close
+        // A fresher swing high printed while waiting - re-target onto it.
+        targetHigh := ph
+
+bool isArmed = setupState == 2
+
+// --- Armed swing-high line ---------------------------------------------------
+if showSwingLines
+    if justArmed
+        swingLine := line.new(bar_index, targetHigh, bar_index, targetHigh,
+             xloc = xloc.bar_index, color = color.new(color.aqua, 0),
+             style = line.style_dashed, width = 1)
+    else if (isArmed or longSignal) and not na(swingLine)
+        line.set_x2(swingLine, bar_index)
+        if not na(targetHigh)
+            line.set_y1(swingLine, targetHigh)
+            line.set_y2(swingLine, targetHigh)
+
+
+// =============================================================================
+//  6. ENTRY
+// =============================================================================
+bool canEnter = longSignal and inWindow and strategy.position_size == 0
+
+// Stop anchor is frozen on the SIGNAL bar (fully closed, non-repainting values)
+// and only committed to `open_sl` once the order actually fills.
+var float pendingSl = na
+
+if canEnter
+    float anchor = slMode == SL_RIBBON ? ribbonMin : emaLow
+    pendingSl := anchor * (1.0 - slBufferPct / 100.0)
+    strategy.entry("Long", strategy.long)
+
+
+// =============================================================================
+//  7. STOP LOSS / TAKE PROFIT
+// =============================================================================
+// Persistent trade levels. They are written ONLY on the bar where the position
+// size actually increases, so strategy.exit() below is always fed stable,
+// already-resolved numbers instead of live series that would drift each bar.
+var float open_sl = na
+var float open_tp = na
+
+bool justOpened = ta.change(strategy.position_size) > 0
+bool justClosed = ta.change(strategy.position_size) < 0 and strategy.position_size == 0
+
+if justOpened
+    float fillPrice = strategy.position_avg_price
+    float floorSl   = fillPrice * (1.0 - minStopPct / 100.0)
+    // Guard: if the anchor sits at or above the fill (fast cross, ribbon still
+    // overhead), clamp to the minimum stop distance so risk stays positive.
+    float rawSl     = na(pendingSl) ? floorSl : pendingSl
+    open_sl := math.min(rawSl, floorSl)
+    open_tp := fillPrice + (fillPrice - open_sl) * rrr
+    pendingSl := na
+
+if justClosed
+    open_sl := na
+    open_tp := na
+
+// Re-issued every bar the position is open: Pine treats repeated calls with the
+// same id as an amendment of the existing bracket, not as a second order.
+if strategy.position_size > 0 and not na(open_sl) and not na(open_tp)
+    strategy.exit("Long Exit", "Long", stop = open_sl, limit = open_tp)
+
+
+// =============================================================================
+//  8. TRADE VISUALS
+// =============================================================================
+plot(showTradeLevels and strategy.position_size > 0 ? open_sl : na, "Active Stop Loss",
+     color = color.red,   style = plot.style_linebr, linewidth = 2)
+
+plot(showTradeLevels and strategy.position_size > 0 ? open_tp : na, "Active Take Profit",
+     color = color.green, style = plot.style_linebr, linewidth = 2)
+
+plotshape(justOpened, title = "BUY", style = shape.triangleup, location = location.belowbar,
+     color = color.new(color.green, 0), text = "BUY", textcolor = color.white, size = size.small)
+
+// Background tint while a setup is armed and waiting for its breakout close.
+bgcolor(isArmed ? color.new(color.aqua, 92) : na, title = "Armed Setup Background")

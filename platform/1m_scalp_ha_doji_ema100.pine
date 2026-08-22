@@ -1,0 +1,267 @@
+//@version=6
+// =============================================================================
+//  1M Scalp Spot Strategy (100 EMA + HA Doji)
+// -----------------------------------------------------------------------------
+//  Regime          : Intraday pullback-continuation inside an established uptrend
+//  Direction       : LONG ONLY (spot). Shorts are hard-disabled.
+//  Signal source   : Heikin-Ashi candles (smoothed, used ONLY for pattern logic)
+//  Execution source: Standard chart candles (used for entry/SL/TP prices)
+//
+//  NON-REPAINTING NOTES
+//  --------------------
+//  * request.security() is called on timeframe.period (the chart's own
+//    resolution) with lookahead_off, so no higher-timeframe data is borrowed
+//    and no future information can leak into historical bars.
+//  * calc_on_every_tick = false  -> the strategy is evaluated only on bar close,
+//    so a signal that appears is a signal that was actually closed.
+//  * Heikin-Ashi values are derived, not future-looking; the only caveat is the
+//    live (unclosed) bar, which mutates until it closes - identical behaviour to
+//    any standard-candle strategy.
+//
+//  IMPORTANT EXECUTION CAVEAT
+//  --------------------------
+//  Signals are read from Heikin-Ashi, but ALL orders, stops and targets are
+//  priced off the real chart candles. Never set the chart itself to Heikin-Ashi
+//  while backtesting this script - doing so would make TradingView fill orders
+//  at synthetic HA prices and inflate the results dramatically.
+// =============================================================================
+
+strategy(
+     title                   = "1M Scalp Spot Strategy (100 EMA + HA Doji)",
+     shorttitle              = "1M HA Doji Scalp",
+     overlay                 = true,
+     initial_capital         = 1000,
+     currency                = currency.USDT,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     process_orders_on_close = false,
+     max_lines_count         = 500,
+     max_labels_count        = 500)
+
+// Hard block on short entries - this is a spot strategy, borrowing is impossible.
+strategy.risk.allow_entry_in(strategy.direction.long)
+
+
+// =============================================================================
+//  1. INPUTS
+// =============================================================================
+string GRP_TREND = "Trend Filter"
+string GRP_SETUP = "Entry Setup"
+string GRP_RISK  = "Risk Management"
+string GRP_TIME  = "Session Filter"
+string GRP_VIZ   = "Visuals"
+
+int   emaLen       = input.int(100, "EMA Length (on HA close)", minval = 1, maxval = 1000, group = GRP_TREND)
+
+float dojiBodyPct  = input.float(30.0, "Max Doji Body (% of candle range)", minval = 1.0, maxval = 99.0, step = 1.0,
+                     tooltip = "Body must be <= this share of the total High-Low range for the bar to qualify as a Doji.",
+                     group = GRP_SETUP)
+float wickTolTicks = input.float(0.0, "Flat-top Wick Tolerance (ticks)", minval = 0.0, step = 1.0,
+                     tooltip = "0 = the pullback candles must have a mathematically perfect flat top (no upper wick at all). " +
+                               "Raise to 1-2 ticks on illiquid symbols where an exact match almost never occurs.",
+                     group = GRP_SETUP)
+
+float rrRatio      = input.float(1.0, "Risk : Reward", minval = 0.1, maxval = 10.0, step = 0.1,
+                     tooltip = "1.0 = fixed 1:1 target, as specified.", group = GRP_RISK)
+
+bool  useTimeFilter = input.bool(false, "Enable Session Filter", group = GRP_TIME)
+int   sessStartHour = input.int(0,  "Session Start Hour (exchange time)", minval = 0, maxval = 23, group = GRP_TIME)
+int   sessEndHour   = input.int(24, "Session End Hour (exchange time)",   minval = 1, maxval = 24, group = GRP_TIME)
+
+bool  showLines     = input.bool(true,  "Draw Entry / SL / TP lines", group = GRP_VIZ)
+bool  showSignals   = input.bool(true,  "Show BUY markers",           group = GRP_VIZ)
+bool  showHaPlot    = input.bool(false, "Overlay Heikin-Ashi candles",
+                      tooltip = "Optional: draws the HA candles the signal logic actually sees, on top of the real chart.",
+                      group = GRP_VIZ)
+
+
+// =============================================================================
+//  2. HEIKIN-ASHI DATA (signal layer)
+// =============================================================================
+// Pull HA OHLC for THIS symbol at THIS timeframe. Same-timeframe + lookahead_off
+// means the values are identical to locally computed HA and cannot repaint.
+string haTicker = ticker.heikinashi(syminfo.tickerid)
+
+[haO, haH, haL, haC] = request.security(haTicker, timeframe.period, [open, high, low, close],
+                                         barmerge.gaps_off, barmerge.lookahead_off)
+
+// 100 EMA computed on the Heikin-Ashi close, per spec.
+float emaHA = ta.ema(haC, emaLen)
+
+// Derived HA geometry for the current bar.
+float haBodyTop = math.max(haO, haC)
+float haBodyBot = math.min(haO, haC)
+float haBody    = math.abs(haC - haO)
+float haRange   = haH - haL
+
+// Absolute price tolerance used for the "no upper wick" test.
+float wickTol = wickTolTicks * syminfo.mintick
+
+
+// =============================================================================
+//  3. STATE VARIABLES
+// =============================================================================
+// Persist across bars for the life of one trade, then get reset to na.
+var float slPrice    = na   // Stop loss  (real chart price)
+var float tpPrice    = na   // Take profit(real chart price)
+var float entryPrice = na   // Actual average fill price of the open position
+
+var line  lnEntry = na
+var line  lnSL    = na
+var line  lnTP    = na
+
+
+// =============================================================================
+//  4. SETUP CONDITIONS
+// =============================================================================
+
+// --- Helper: is this a RED Heikin-Ashi candle with a flat top (no upper wick)?
+//     For a red HA candle max(open, close) == open, so "no upper wick" means the
+//     high sits on the body top. math.max() is used anyway so the helper is safe
+//     regardless of candle colour.
+isRedFlatTop(float _o, float _h, float _c) =>
+    _c < _o and (_h - math.max(_o, _c)) <= wickTol
+
+// --- Warm-up guard: EMA seeded AND at least 3 HA bars of history available.
+//     Placed first in every condition chain so no boolean can evaluate to na.
+bool warmedUp = bar_index >= emaLen + 3 and not na(emaHA) and not na(haO[2])
+
+// --- Optional session window (disabled by default, so it is a no-op out of the box)
+bool inSession = not useTimeFilter or (hour >= sessStartHour and hour < sessEndHour)
+
+// --- CONDITION 1: Trend. HA close strictly above the 100 EMA.
+bool trendOK = haC > emaHA
+
+// --- CONDITION 2: Clean pullback. Bars [1] and [2] are BOTH red HA candles
+//     with NO upper wick.
+bool pullback1 = isRedFlatTop(haO[1], haH[1], haC[1])
+bool pullback2 = isRedFlatTop(haO[2], haH[2], haC[2])
+bool pullbackOK = pullback1 and pullback2
+
+// --- CONDITION 3: Doji trigger on the current bar [0].
+//     3a. Small body relative to total range.
+bool isDojiBody   = haRange > 0 and haBody <= (dojiBodyPct / 100.0) * haRange
+//     3b. Both an upper AND a lower wick must exist.
+bool hasUpperWick = haH > haBodyTop
+bool hasLowerWick = haL < haBodyBot
+//     3c. Range expansion: the Doji's range must exceed candle [1] OR candle [2].
+float range1      = haH[1] - haL[1]
+float range2      = haH[2] - haL[2]
+bool  expansionOK = haRange > range1 or haRange > range2
+
+bool dojiOK = isDojiBody and hasUpperWick and hasLowerWick and expansionOK
+
+// --- Trade-state gate: flat, with no armed trade left over.
+bool noPosition = strategy.position_size == 0 and na(slPrice)
+
+// --- Risk sanity on real prices: the signal bar must close above its own low,
+//     otherwise the 1:1 target would be degenerate (zero risk distance).
+bool validRisk = close > low
+
+bool setupOK = warmedUp and trendOK and pullbackOK and dojiOK
+
+
+// =============================================================================
+//  5. TRADE STATE RESET  (runs BEFORE new entries - prevents overlapping trades)
+// =============================================================================
+bool justClosed = strategy.position_size == 0 and strategy.position_size[1] != 0
+
+if justClosed
+    // Freeze the drawings at the exit bar, then release the handles so the next
+    // trade allocates a fresh set of lines.
+    if not na(lnEntry)
+        line.set_x2(lnEntry, bar_index)
+        line.set_x2(lnSL,    bar_index)
+        line.set_x2(lnTP,    bar_index)
+    lnEntry    := na
+    lnSL       := na
+    lnTP       := na
+    slPrice    := na
+    tpPrice    := na
+    entryPrice := na
+
+
+// =============================================================================
+//  6. ENTRY
+// =============================================================================
+bool longSignal = setupOK and inSession and noPosition and validRisk
+
+if longSignal
+    // SL is the REAL low of the Doji signal candle (execution price, not HA).
+    slPrice := low
+
+    // Provisional levels from the signal-bar close so the protective bracket is
+    // live from the very first tick after the fill. Refined below once the true
+    // average fill price is known.
+    float provRisk = close - slPrice
+    tpPrice := close + provRisk * rrRatio
+
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit", from_entry = "Long", stop = slPrice, limit = tpPrice,
+                  comment_profit = "TP", comment_loss = "SL")
+
+    alert("1M HA Doji Scalp: LONG signal @ " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+
+
+// =============================================================================
+//  7. POSITION MANAGEMENT  (re-price the bracket off the ACTUAL fill)
+// =============================================================================
+// Market entries fill at the next bar's open, so the true entry price is only
+// known one bar later. Re-issuing strategy.exit() with the same ID updates the
+// existing bracket rather than adding a second one.
+if strategy.position_size > 0 and not na(slPrice)
+    entryPrice := strategy.position_avg_price
+    float risk = entryPrice - slPrice
+
+    if risk > 0
+        tpPrice := entryPrice + risk * rrRatio
+        strategy.exit("Exit", from_entry = "Long", stop = slPrice, limit = tpPrice,
+                      comment_profit = "TP", comment_loss = "SL")
+    else
+        // The open gapped to or below the intended stop - the setup is already
+        // invalid, so flatten at market instead of holding unprotected risk.
+        strategy.close("Long", comment = "Invalid Risk")
+
+
+// =============================================================================
+//  8. VISUALS
+// =============================================================================
+
+// --- 100 EMA (blue)
+plot(emaHA, title = "100 EMA (HA close)", color = color.blue, linewidth = 2)
+
+// --- Optional Heikin-Ashi overlay so the pattern logic is auditable by eye.
+plotcandle(showHaPlot ? haO : na, showHaPlot ? haH : na, showHaPlot ? haL : na, showHaPlot ? haC : na,
+           title     = "Heikin-Ashi",
+           color     = haC >= haO ? color.new(color.teal, 55) : color.new(color.maroon, 55),
+           wickcolor = color.new(color.gray, 55),
+           bordercolor = haC >= haO ? color.new(color.teal, 30) : color.new(color.maroon, 30))
+
+// --- Buy marker on the Doji trigger bar.
+plotshape(showSignals and longSignal, title = "BUY Signal", style = shape.labelup,
+          location = location.belowbar, color = color.new(color.lime, 0),
+          textcolor = color.black, text = "BUY", size = size.tiny)
+
+// --- Live Entry / SL / TP rails, extended across the life of the open trade.
+if showLines and strategy.position_size > 0 and not na(entryPrice) and not na(slPrice) and not na(tpPrice)
+    if na(lnEntry)
+        // bar_index - 1 anchors the rails at the signal candle, not the fill bar.
+        lnEntry := line.new(bar_index - 1, entryPrice, bar_index, entryPrice, xloc.bar_index, extend.none,
+                            color.new(color.gray,  0), line.style_solid,  2)
+        lnSL    := line.new(bar_index - 1, slPrice,    bar_index, slPrice,    xloc.bar_index, extend.none,
+                            color.new(color.red,   0), line.style_dashed, 2)
+        lnTP    := line.new(bar_index - 1, tpPrice,    bar_index, tpPrice,    xloc.bar_index, extend.none,
+                            color.new(color.green, 0), line.style_dashed, 2)
+
+    // Stretch to the current bar every bar the position stays open.
+    line.set_y1(lnEntry, entryPrice), line.set_y2(lnEntry, entryPrice), line.set_x2(lnEntry, bar_index)
+    line.set_y1(lnSL,    slPrice),    line.set_y2(lnSL,    slPrice),    line.set_x2(lnSL,    bar_index)
+    line.set_y1(lnTP,    tpPrice),    line.set_y2(lnTP,    tpPrice),    line.set_x2(lnTP,    bar_index)
+
+// NOTE: alertcondition() is intentionally omitted - it has no effect inside a
+// strategy. The alert() call in the entry block above is the working alert hook;
+// create the alert with "Any alert() function call" as the condition.

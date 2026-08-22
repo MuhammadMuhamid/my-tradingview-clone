@@ -1,0 +1,61 @@
+# ── secrets ──
+# Never commit runtime credentials: DATABASE_URL, ALERT_ENCRYPTION_KEY,
+# SESSION_SECRET, ADMIN_PASSWORD_HASH and webhook secrets all live in these.
+.env
+.env.*
+!.env.example
+!.env.local.example
+!*.env.example
+*.pem
+*.key
+
+# ── dependencies / build output ──
+node_modules/
+.next/
+dist/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+
+# ── local database ──
+.pgdata/
+
+# ── optimizer result data (tens of GB of generated JSON) ──
+platform/backend/optimizer*/
+platform/backend/lean_optimizer*/
+platform/backend/lean_wf_*/
+platform/backend/lean3y15m/
+platform/backend/full3y1h/
+platform/backend/holdout1h/
+platform/backend/wf6m_1h/
+platform/backend/regime_wf/
+platform/backend/parity/
+platform/backend/backups/
+platform/backend/dist/
+
+# ── deploy bundles (rebuilt on demand; may embed config) ──
+platform/deployment/aws/src-*.tar.gz
+platform/deployment/aws/configs-*.tar.gz
+
+# ── logs and scratch ──
+*.log
+*.tmp.json
+*.tmp.ts
+dep.tmp.json
+ptest.tmp.ts
+
+# ── macOS ──
+.DS_Store
+
+# ── downloaded market data & tuning databases ──
+# Re-fetchable from Binance; keeping it out keeps the repo cloneable.
+backtest-spot/data/
+backtest-spot/optuna_dbs/
+scripts/binance_ohlc/
+*.csv
+*.db
+
+# ── graphify generated output ──
+# Regenerate with `graphify update .`; the dated snapshots are history only.
+graphify-out/20*/
+graphify-out/cache/

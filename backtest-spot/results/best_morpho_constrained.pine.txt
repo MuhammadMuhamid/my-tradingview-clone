@@ -1,0 +1,30 @@
+# Pine inputs (SR+Trend v5) — paste into TradingView Inputs
+
+touchAtrMult = 0.8
+pivLen5 = 11
+pivLen15 = 19
+pivLen60 = 7
+pivLen240 = 11
+retestConfirmBars = 15
+priorAboveLb = 2
+ma1_len = 200
+ma3_len = 400
+useMaTrend = True
+vwmaLen = 200
+useVwmaTrend = True
+lrLen = 12
+useLinReg = True
+stAtrLen = 15
+stMult = 2.5
+useSuperTrend = True
+atrLenExit = 10
+slAtrMult = 1.0
+structBuff = 4.0
+tpR = 3.0
+trailTriggerR = 2.25
+trailAtrMult = 1.4
+minSlDistAtr = 0.25
+
+# Fixed from your screenshots (not searched here):
+# ma1_tf=1, ma3_tf=60, vwmaTf=240, lrTf=1, stTf=5, exitMaTf=240, exitMaLen=100
+# initial_capital=1000, default_qty_value=930, commission_value=0.05

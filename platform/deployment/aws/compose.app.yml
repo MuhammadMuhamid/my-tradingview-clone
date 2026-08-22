@@ -1,0 +1,88 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4000
+      LOG_LEVEL: info
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_EXTRA_CA_CERTS: /etc/ssl/certs/aws-rds-global-bundle.pem
+      ALERT_ENCRYPTION_KEY: ${ALERT_ENCRYPTION_KEY}
+      ALLOWED_WEBHOOK_HOSTS: bot.alphawebstudioz.com,api.3commas.io
+      LIVE_TEST_ENABLED: "false"
+      WORKER_ENABLED: "true"
+      OPTIMIZER_DASHBOARD_DIR: /app/optimizer-dashboard
+      # Keep the cloud runner disabled during migration/QA. Enable only after
+      # the local runner is stopped to guarantee a single order emitter.
+      LIVE_RUNNER_ENABLED: ${LIVE_RUNNER_ENABLED:-false}
+      MA_ALERTS_ENABLED: ${MA_ALERTS_ENABLED:-true}
+      # Cookie-session sign-in (replaces the Caddy basic_auth that kept
+      # signing the user out). COOKIE_SECURE stays on: Caddy terminates TLS.
+      AUTH_ENABLED: "true"
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
+      SESSION_SECRET: ${SESSION_SECRET}
+      COOKIE_SECURE: "true"
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:alerts@example.com}
+    expose:
+      - "4000"
+    volumes:
+      - ./global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro
+      - /opt/srtrend/optimizer-dashboard:/app/optimizer-dashboard:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: &logging
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP}
+        awslogs-stream: backend
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:4000
+      AUTH_ENABLED: "true"
+    expose:
+      - "3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    logging:
+      <<: *logging
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP}
+        awslogs-stream: frontend
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+    logging:
+      <<: *logging
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP}
+        awslogs-stream: caddy
+
+volumes:
+  caddy_data:
+  caddy_config:

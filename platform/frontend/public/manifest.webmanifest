@@ -1,0 +1,18 @@
+{
+  "name": "SR+Trend Platform",
+  "short_name": "SR+Trend",
+  "description": "Charting and moving-average price alerts for Binance spot pairs",
+  "start_url": "/chart",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

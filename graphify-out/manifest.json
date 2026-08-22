@@ -1,0 +1,4487 @@
+{
+  ".claude/launch.json": {
+    "mtime": 1784239381.7690527,
+    "ast_hash": "be45e98a461c672cd2b1743d0f657910",
+    "semantic_hash": "be45e98a461c672cd2b1743d0f657910"
+  },
+  ".claude/settings.json": {
+    "mtime": 1785055054.1329217,
+    "ast_hash": "13a4015bed93741e823e044a5c1a77ce",
+    "semantic_hash": "13a4015bed93741e823e044a5c1a77ce"
+  },
+  ".claude/settings.local.json": {
+    "mtime": 1784243703.9242735,
+    "ast_hash": "a77a164a23ce3d007e8a841442796955",
+    "semantic_hash": "a77a164a23ce3d007e8a841442796955"
+  },
+  "3commas_alert_message_template.json": {
+    "mtime": 1780750657.5339062,
+    "ast_hash": "3a72a7a29a9e692d7f232679c111fa7e",
+    "semantic_hash": "3a72a7a29a9e692d7f232679c111fa7e"
+  },
+  "approach1_ui_automation/tv_optimizer.py": {
+    "mtime": 1779544881.5266485,
+    "ast_hash": "cd802ac87baffb1606ab10cd2e9f4ca6",
+    "semantic_hash": "cd802ac87baffb1606ab10cd2e9f4ca6"
+  },
+  "approach1_ui_automation/tv_optimizer_v2.py": {
+    "mtime": 1783608319.7401223,
+    "ast_hash": "2fcf513d0a6720714fc8f5d9b42fd01f",
+    "semantic_hash": "2fcf513d0a6720714fc8f5d9b42fd01f"
+  },
+  "backtest-spot/binance_data.py": {
+    "mtime": 1780750657.5357206,
+    "ast_hash": "2f00068612d8da793305942c9366b032",
+    "semantic_hash": "2f00068612d8da793305942c9366b032"
+  },
+  "backtest-spot/demo_binance_spot.py": {
+    "mtime": 1780750657.564345,
+    "ast_hash": "becd19f2310d9c672db0802799189f27",
+    "semantic_hash": "becd19f2310d9c672db0802799189f27"
+  },
+  "backtest-spot/download_data.py": {
+    "mtime": 1779442966.5497296,
+    "ast_hash": "1ba0067532a18a34cf260a6f8e32ae59",
+    "semantic_hash": "1ba0067532a18a34cf260a6f8e32ae59"
+  },
+  "backtest-spot/feature_bank.py": {
+    "mtime": 1780750657.533929,
+    "ast_hash": "9e5a92b3d6e2c4ac18cadfae195c6b2d",
+    "semantic_hash": "9e5a92b3d6e2c4ac18cadfae195c6b2d"
+  },
+  "backtest-spot/fetch_data.py": {
+    "mtime": 1780750657.4920993,
+    "ast_hash": "c38c4d21d4495c5045963a1906a1738b",
+    "semantic_hash": "c38c4d21d4495c5045963a1906a1738b"
+  },
+  "backtest-spot/optimize.py": {
+    "mtime": 1779443026.8970156,
+    "ast_hash": "059fa605a4f60760baf40c9dcbea8992",
+    "semantic_hash": "059fa605a4f60760baf40c9dcbea8992"
+  },
+  "backtest-spot/optimize_morpho.py": {
+    "mtime": 1780750657.5547822,
+    "ast_hash": "9f11268e482779e28269847114439a73",
+    "semantic_hash": "9f11268e482779e28269847114439a73"
+  },
+  "backtest-spot/optimize_optuna.py": {
+    "mtime": 1779544986.085851,
+    "ast_hash": "93bf3b04416048b64505ba91a3ae2ed0",
+    "semantic_hash": "93bf3b04416048b64505ba91a3ae2ed0"
+  },
+  "backtest-spot/optimize_tiausdt.py": {
+    "mtime": 1780750657.5644934,
+    "ast_hash": "ab82e0764a05618bdbf638cee84ee7ff",
+    "semantic_hash": "ab82e0764a05618bdbf638cee84ee7ff"
+  },
+  "backtest-spot/optimize_v8.py": {
+    "mtime": 1779566665.4457736,
+    "ast_hash": "f4ea86f50e97b31881acdc25c6a46196",
+    "semantic_hash": "f4ea86f50e97b31881acdc25c6a46196"
+  },
+  "backtest-spot/pine_map.py": {
+    "mtime": 1780750657.542578,
+    "ast_hash": "953df4b676799b11df1f18f19cd992d3",
+    "semantic_hash": "953df4b676799b11df1f18f19cd992d3"
+  },
+  "backtest-spot/results/APTUSDT_best.json": {
+    "mtime": 1779447902.9774587,
+    "ast_hash": "351cd6af3ac0cfde7e1b2e382998b47b",
+    "semantic_hash": "351cd6af3ac0cfde7e1b2e382998b47b"
+  },
+  "backtest-spot/results/best_morpho.json": {
+    "mtime": 1779114662.424012,
+    "ast_hash": "80ecf70ebe38c376d2bebea3603e5692",
+    "semantic_hash": "80ecf70ebe38c376d2bebea3603e5692"
+  },
+  "backtest-spot/results/best_morpho_constrained.json": {
+    "mtime": 1779121504.6720653,
+    "ast_hash": "0f7064234ce11106be06e37d0ff86c2f",
+    "semantic_hash": "0f7064234ce11106be06e37d0ff86c2f"
+  },
+  "backtest-spot/results/best_tiausdt.json": {
+    "mtime": 1779122553.549503,
+    "ast_hash": "5865266a492e1246cd496be94bcdbf27",
+    "semantic_hash": "5865266a492e1246cd496be94bcdbf27"
+  },
+  "backtest-spot/results/morpho_tv_manual.json": {
+    "mtime": 1780750657.5423589,
+    "ast_hash": "3d402a7712579998d1e9b6a419bbd571",
+    "semantic_hash": "3d402a7712579998d1e9b6a419bbd571"
+  },
+  "backtest-spot/retest_cache.py": {
+    "mtime": 1780750657.4030397,
+    "ast_hash": "a7f774037f8844b2f9c7b7d408f9353a",
+    "semantic_hash": "a7f774037f8844b2f9c7b7d408f9353a"
+  },
+  "backtest-spot/run_backtest.py": {
+    "mtime": 1780750657.4471452,
+    "ast_hash": "b6bcc328c36079b448845dc84d511398",
+    "semantic_hash": "b6bcc328c36079b448845dc84d511398"
+  },
+  "backtest-spot/run_sim.py": {
+    "mtime": 1779569178.1218202,
+    "ast_hash": "aad07181ecba42c4e66f41ada91b9e1c",
+    "semantic_hash": "aad07181ecba42c4e66f41ada91b9e1c"
+  },
+  "backtest-spot/simulate.py": {
+    "mtime": 1780750657.4989202,
+    "ast_hash": "1581590986615a45909a5745b23bb9eb",
+    "semantic_hash": "1581590986615a45909a5745b23bb9eb"
+  },
+  "backtest-spot/strategy_sim.py": {
+    "mtime": 1780750657.5424051,
+    "ast_hash": "08efbb16eac1f235a5dd027d9f998719",
+    "semantic_hash": "08efbb16eac1f235a5dd027d9f998719"
+  },
+  "platform/backend/optimizer1y15m/SUMMARY.json": {
+    "mtime": 1786022308.5811658,
+    "ast_hash": "a91611fba1bde63329819f8189b19910",
+    "semantic_hash": "a91611fba1bde63329819f8189b19910"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/SUMMARY-before-removal.json": {
+    "mtime": 1785363818.7469738,
+    "ast_hash": "43ca40e96ca1000dc8864358d51e514c",
+    "semantic_hash": "43ca40e96ca1000dc8864358d51e514c"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/best/ALGOUSDT.json": {
+    "mtime": 1785363818.773927,
+    "ast_hash": "fb77dcb16d8d9d192272fc5ee87ca3bb",
+    "semantic_hash": "fb77dcb16d8d9d192272fc5ee87ca3bb"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/best/APEUSDT.json": {
+    "mtime": 1785363818.765008,
+    "ast_hash": "896297dfa26ad44e54b5513e5e1338dc",
+    "semantic_hash": "896297dfa26ad44e54b5513e5e1338dc"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/best/APTUSDT.json": {
+    "mtime": 1785363818.7782915,
+    "ast_hash": "91a49a9c62ec9271a0448b81f5e56840",
+    "semantic_hash": "91a49a9c62ec9271a0448b81f5e56840"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/best/ARBUSDT.json": {
+    "mtime": 1785363818.7698298,
+    "ast_hash": "82271b7a97ef2ad50e39a38230bc829d",
+    "semantic_hash": "82271b7a97ef2ad50e39a38230bc829d"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/best/PYTHUSDT.json": {
+    "mtime": 1785363818.7550294,
+    "ast_hash": "23edfd8815cb151bbba8601d723588c9",
+    "semantic_hash": "23edfd8815cb151bbba8601d723588c9"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/best/TIAUSDT.json": {
+    "mtime": 1785363818.7597861,
+    "ast_hash": "3c46f87851abef4075fb24d5a93915a9",
+    "semantic_hash": "3c46f87851abef4075fb24d5a93915a9"
+  },
+  "platform/backend/optimizer1y15m/base_params.json": {
+    "mtime": 1784533608.56074,
+    "ast_hash": "0f36f40565ee9b308753c1768313b14b",
+    "semantic_hash": "0f36f40565ee9b308753c1768313b14b"
+  },
+  "platform/backend/optimizer1y15m/best/ALGOUSDT.json": {
+    "mtime": 1785092581.6555984,
+    "ast_hash": "fb77dcb16d8d9d192272fc5ee87ca3bb",
+    "semantic_hash": "fb77dcb16d8d9d192272fc5ee87ca3bb"
+  },
+  "platform/backend/optimizer1y15m/best/ALLOUSDT.json": {
+    "mtime": 1785477831.2580662,
+    "ast_hash": "82685e3fccefb75f981983144e0dab05",
+    "semantic_hash": "82685e3fccefb75f981983144e0dab05"
+  },
+  "platform/backend/optimizer1y15m/best/APEUSDT.json": {
+    "mtime": 1785031640.9990516,
+    "ast_hash": "896297dfa26ad44e54b5513e5e1338dc",
+    "semantic_hash": "896297dfa26ad44e54b5513e5e1338dc"
+  },
+  "platform/backend/optimizer1y15m/best/APTUSDT.json": {
+    "mtime": 1785192566.677837,
+    "ast_hash": "91a49a9c62ec9271a0448b81f5e56840",
+    "semantic_hash": "91a49a9c62ec9271a0448b81f5e56840"
+  },
+  "platform/backend/optimizer1y15m/best/ARBUSDT.json": {
+    "mtime": 1785198550.237458,
+    "ast_hash": "82271b7a97ef2ad50e39a38230bc829d",
+    "semantic_hash": "82271b7a97ef2ad50e39a38230bc829d"
+  },
+  "platform/backend/optimizer1y15m/best/DEXEUSDT.json": {
+    "mtime": 1785766520.3737285,
+    "ast_hash": "dbf8c2a70a614cbc525e52f04b293637",
+    "semantic_hash": "dbf8c2a70a614cbc525e52f04b293637"
+  },
+  "platform/backend/optimizer1y15m/best/EIGENUSDT.json": {
+    "mtime": 1784581562.2772515,
+    "ast_hash": "b66a0e8e4cce1a937d015e8bf9270642",
+    "semantic_hash": "b66a0e8e4cce1a937d015e8bf9270642"
+  },
+  "platform/backend/optimizer1y15m/best/ENAUSDT.json": {
+    "mtime": 1785103425.8129785,
+    "ast_hash": "4ec45c770aedc189f16a87efb20c8c19",
+    "semantic_hash": "4ec45c770aedc189f16a87efb20c8c19"
+  },
+  "platform/backend/optimizer1y15m/best/INJUSDT.json": {
+    "mtime": 1784540373.9818804,
+    "ast_hash": "ec61ff14185c1a4adbc4982ab462cdf9",
+    "semantic_hash": "ec61ff14185c1a4adbc4982ab462cdf9"
+  },
+  "platform/backend/optimizer1y15m/best/JSTUSDT.json": {
+    "mtime": 1785801668.175022,
+    "ast_hash": "6f8bfb65f92e3bdd9f338925adbb45ee",
+    "semantic_hash": "6f8bfb65f92e3bdd9f338925adbb45ee"
+  },
+  "platform/backend/optimizer1y15m/best/JTOUSDT.json": {
+    "mtime": 1785604075.8034906,
+    "ast_hash": "6b3aafb2d71c6131fed37c2d3f310ab1",
+    "semantic_hash": "6b3aafb2d71c6131fed37c2d3f310ab1"
+  },
+  "platform/backend/optimizer1y15m/best/JUPUSDT.json": {
+    "mtime": 1785296213.4892716,
+    "ast_hash": "d79e9e4bc9c4c1058ec60cb646a1c24e",
+    "semantic_hash": "d79e9e4bc9c4c1058ec60cb646a1c24e"
+  },
+  "platform/backend/optimizer1y15m/best/KAITOUSDT.json": {
+    "mtime": 1785461915.6880116,
+    "ast_hash": "e2c90b048fdb3cd4f036538a812ea631",
+    "semantic_hash": "e2c90b048fdb3cd4f036538a812ea631"
+  },
+  "platform/backend/optimizer1y15m/best/MORPHOUSDT.json": {
+    "mtime": 1784912901.3091354,
+    "ast_hash": "582c63aea6be769a709d94c2aabe2b63",
+    "semantic_hash": "582c63aea6be769a709d94c2aabe2b63"
+  },
+  "platform/backend/optimizer1y15m/best/NEARUSDT.json": {
+    "mtime": 1784775219.4147947,
+    "ast_hash": "fe6aeac406f0456b8d0897d846088509",
+    "semantic_hash": "fe6aeac406f0456b8d0897d846088509"
+  },
+  "platform/backend/optimizer1y15m/best/PUMPUSDT.json": {
+    "mtime": 1785125916.7007718,
+    "ast_hash": "4af7850f5e997a18c0221ddcc35ef21c",
+    "semantic_hash": "4af7850f5e997a18c0221ddcc35ef21c"
+  },
+  "platform/backend/optimizer1y15m/best/PYTHUSDT.json": {
+    "mtime": 1785210427.9729202,
+    "ast_hash": "23edfd8815cb151bbba8601d723588c9",
+    "semantic_hash": "23edfd8815cb151bbba8601d723588c9"
+  },
+  "platform/backend/optimizer1y15m/best/RIFUSDT.json": {
+    "mtime": 1785767963.4368284,
+    "ast_hash": "f8f1e7baf0a869b034e41d7f4fb79bc3",
+    "semantic_hash": "f8f1e7baf0a869b034e41d7f4fb79bc3"
+  },
+  "platform/backend/optimizer1y15m/best/SYNUSDT.json": {
+    "mtime": 1785043772.2532084,
+    "ast_hash": "d3c946cebdf4434ef2043d4e5c5137eb",
+    "semantic_hash": "d3c946cebdf4434ef2043d4e5c5137eb"
+  },
+  "platform/backend/optimizer1y15m/best/TAOUSDT.json": {
+    "mtime": 1784916626.648196,
+    "ast_hash": "bb12917785d1d6f35fc759dbd9299768",
+    "semantic_hash": "bb12917785d1d6f35fc759dbd9299768"
+  },
+  "platform/backend/optimizer1y15m/best/TIAUSDT.json": {
+    "mtime": 1784627780.114681,
+    "ast_hash": "3c46f87851abef4075fb24d5a93915a9",
+    "semantic_hash": "3c46f87851abef4075fb24d5a93915a9"
+  },
+  "platform/backend/optimizer1y15m/best/ZECUSDT.json": {
+    "mtime": 1784669186.5101492,
+    "ast_hash": "8c641612b798c71d509da27eb4b4ff0f",
+    "semantic_hash": "8c641612b798c71d509da27eb4b4ff0f"
+  },
+  "platform/backend/optimizer1y15m/best/\u5e01\u5b89\u4eba\u751fUSDT.json": {
+    "mtime": 1785599080.480627,
+    "ast_hash": "4ecad4ec942f35d1fc8c142fa65298ce",
+    "semantic_hash": "4ecad4ec942f35d1fc8c142fa65298ce"
+  },
+  "platform/backend/optimizer1y15m/config.json": {
+    "mtime": 1784627309.211621,
+    "ast_hash": "17b01d93f8e39cda5369ff8533f72e0a",
+    "semantic_hash": "17b01d93f8e39cda5369ff8533f72e0a"
+  },
+  "platform/backend/optimizer1y15m/evalWorker.boot.mjs": {
+    "mtime": 1784533608.5485117,
+    "ast_hash": "e2718d9e1b7081abd4b033e49fa10dc3",
+    "semantic_hash": "e2718d9e1b7081abd4b033e49fa10dc3"
+  },
+  "platform/backend/optimizer1y15m/evalWorker.ts": {
+    "mtime": 1784533608.5425892,
+    "ast_hash": "209c36db4b4778c9aa565ac35e4d1445",
+    "semantic_hash": "209c36db4b4778c9aa565ac35e4d1445"
+  },
+  "platform/backend/optimizer1y15m/idmap.json": {
+    "mtime": 1784533608.5688915,
+    "ast_hash": "f73e7cd212e5ecdce70157f7d6515c9a",
+    "semantic_hash": "f73e7cd212e5ecdce70157f7d6515c9a"
+  },
+  "platform/backend/optimizer1y15m/index/raw_counts.json": {
+    "mtime": 1785966757.1054893,
+    "ast_hash": "c5b3257f431d4c4f53a3eacb05b991f3",
+    "semantic_hash": "c5b3257f431d4c4f53a3eacb05b991f3"
+  },
+  "platform/backend/optimizer1y15m/opt_apply.py": {
+    "mtime": 1784533687.8059533,
+    "ast_hash": "35a44c90da06b4170b4814daa18edf0c",
+    "semantic_hash": "35a44c90da06b4170b4814daa18edf0c"
+  },
+  "platform/backend/optimizer1y15m/optimizer.ts": {
+    "mtime": 1784533608.5356534,
+    "ast_hash": "331dfc58e4c48ceefe291b19ca1640f8",
+    "semantic_hash": "331dfc58e4c48ceefe291b19ca1640f8"
+  },
+  "platform/backend/optimizer1y15m/params.json": {
+    "mtime": 1784533608.5546608,
+    "ast_hash": "3007cb8960f3986e219eb8a27aa99b06",
+    "semantic_hash": "3007cb8960f3986e219eb8a27aa99b06"
+  },
+  "platform/backend/optimizer1y15m/seeds.json": {
+    "mtime": 1784533608.5746312,
+    "ast_hash": "42778b24806c83d7aea6902eb57c314f",
+    "semantic_hash": "42778b24806c83d7aea6902eb57c314f"
+  },
+  "platform/backend/optimizer1y15m/show.py": {
+    "mtime": 1784533608.5864189,
+    "ast_hash": "1103b7afcdff015c05fb48762840f86e",
+    "semantic_hash": "1103b7afcdff015c05fb48762840f86e"
+  },
+  "platform/backend/optimizer1y1h/SUMMARY.json": {
+    "mtime": 1786022298.2826605,
+    "ast_hash": "8850370c58f07d66f132f2d3f11521fc",
+    "semantic_hash": "8850370c58f07d66f132f2d3f11521fc"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/SUMMARY-before-removal.json": {
+    "mtime": 1785363416.8041782,
+    "ast_hash": "199b836f18ebc50adaaa0cca54904308",
+    "semantic_hash": "199b836f18ebc50adaaa0cca54904308"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/best/ALGOUSDT.json": {
+    "mtime": 1785363419.7600384,
+    "ast_hash": "d7ee918071b831bdbd8af2c76d08f16d",
+    "semantic_hash": "d7ee918071b831bdbd8af2c76d08f16d"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/best/APEUSDT.json": {
+    "mtime": 1785363418.1485384,
+    "ast_hash": "78b121f6d440e5d704a130905b91a7ac",
+    "semantic_hash": "78b121f6d440e5d704a130905b91a7ac"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/best/APTUSDT.json": {
+    "mtime": 1785363420.4148357,
+    "ast_hash": "a079a2f200a9e903d5cf74ec07b4d50d",
+    "semantic_hash": "a079a2f200a9e903d5cf74ec07b4d50d"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/best/ARBUSDT.json": {
+    "mtime": 1785363418.871792,
+    "ast_hash": "7fefb02ff3dd0b023c9fa09d63153950",
+    "semantic_hash": "7fefb02ff3dd0b023c9fa09d63153950"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/best/PYTHUSDT.json": {
+    "mtime": 1785363416.8121712,
+    "ast_hash": "92768532f37013e626a29d7ad7e266e4",
+    "semantic_hash": "92768532f37013e626a29d7ad7e266e4"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/best/TIAUSDT.json": {
+    "mtime": 1785363417.431203,
+    "ast_hash": "2b6e5c69f36fa11e437e573c3f1bcbee",
+    "semantic_hash": "2b6e5c69f36fa11e437e573c3f1bcbee"
+  },
+  "platform/backend/optimizer1y1h/base_params.json": {
+    "mtime": 1784533608.5646837,
+    "ast_hash": "0f36f40565ee9b308753c1768313b14b",
+    "semantic_hash": "0f36f40565ee9b308753c1768313b14b"
+  },
+  "platform/backend/optimizer1y1h/best/ALGOUSDT.json": {
+    "mtime": 1785210954.5076609,
+    "ast_hash": "d7ee918071b831bdbd8af2c76d08f16d",
+    "semantic_hash": "d7ee918071b831bdbd8af2c76d08f16d"
+  },
+  "platform/backend/optimizer1y1h/best/ALLOUSDT.json": {
+    "mtime": 1784800331.2710557,
+    "ast_hash": "d5a2f47c4f52d0485b88b04c5bb51c26",
+    "semantic_hash": "d5a2f47c4f52d0485b88b04c5bb51c26"
+  },
+  "platform/backend/optimizer1y1h/best/APEUSDT.json": {
+    "mtime": 1784604666.708969,
+    "ast_hash": "78b121f6d440e5d704a130905b91a7ac",
+    "semantic_hash": "78b121f6d440e5d704a130905b91a7ac"
+  },
+  "platform/backend/optimizer1y1h/best/APTUSDT.json": {
+    "mtime": 1785115172.741737,
+    "ast_hash": "a079a2f200a9e903d5cf74ec07b4d50d",
+    "semantic_hash": "a079a2f200a9e903d5cf74ec07b4d50d"
+  },
+  "platform/backend/optimizer1y1h/best/ARBUSDT.json": {
+    "mtime": 1784926939.9558449,
+    "ast_hash": "7fefb02ff3dd0b023c9fa09d63153950",
+    "semantic_hash": "7fefb02ff3dd0b023c9fa09d63153950"
+  },
+  "platform/backend/optimizer1y1h/best/DEXEUSDT.json": {
+    "mtime": 1784890727.9022968,
+    "ast_hash": "776626373a055a26e353e589be576cb8",
+    "semantic_hash": "776626373a055a26e353e589be576cb8"
+  },
+  "platform/backend/optimizer1y1h/best/EIGENUSDT.json": {
+    "mtime": 1784649144.7530131,
+    "ast_hash": "316216aefe963201fdd4ee7b0e86c9f2",
+    "semantic_hash": "316216aefe963201fdd4ee7b0e86c9f2"
+  },
+  "platform/backend/optimizer1y1h/best/ENAUSDT.json": {
+    "mtime": 1785084663.4341712,
+    "ast_hash": "ce1aa0194f64e06780c87b52d69792ed",
+    "semantic_hash": "ce1aa0194f64e06780c87b52d69792ed"
+  },
+  "platform/backend/optimizer1y1h/best/INJUSDT.json": {
+    "mtime": 1785261654.8055973,
+    "ast_hash": "2c3f5fd37dac4abdeb7cdd52cffc7eee",
+    "semantic_hash": "2c3f5fd37dac4abdeb7cdd52cffc7eee"
+  },
+  "platform/backend/optimizer1y1h/best/JSTUSDT.json": {
+    "mtime": 1784829843.7072861,
+    "ast_hash": "6141896b7371634cf310ca43cb049079",
+    "semantic_hash": "6141896b7371634cf310ca43cb049079"
+  },
+  "platform/backend/optimizer1y1h/best/JTOUSDT.json": {
+    "mtime": 1785010774.2018657,
+    "ast_hash": "fe6aa569f7daebfdcd6f9b4918813027",
+    "semantic_hash": "fe6aa569f7daebfdcd6f9b4918813027"
+  },
+  "platform/backend/optimizer1y1h/best/JUPUSDT.json": {
+    "mtime": 1785206819.5426967,
+    "ast_hash": "49ec398cfca34d5a9594a436a38d3bed",
+    "semantic_hash": "49ec398cfca34d5a9594a436a38d3bed"
+  },
+  "platform/backend/optimizer1y1h/best/KAITOUSDT.json": {
+    "mtime": 1785149738.6463892,
+    "ast_hash": "b40ca8c770302e46b61eddda391728cb",
+    "semantic_hash": "b40ca8c770302e46b61eddda391728cb"
+  },
+  "platform/backend/optimizer1y1h/best/MORPHOUSDT.json": {
+    "mtime": 1784605827.6686547,
+    "ast_hash": "51b6e6f46ed47a681eb761e213a8dc82",
+    "semantic_hash": "51b6e6f46ed47a681eb761e213a8dc82"
+  },
+  "platform/backend/optimizer1y1h/best/NEARUSDT.json": {
+    "mtime": 1785903747.8353014,
+    "ast_hash": "fd8d21005fba1ff38ef89b7050a4f05d",
+    "semantic_hash": "fd8d21005fba1ff38ef89b7050a4f05d"
+  },
+  "platform/backend/optimizer1y1h/best/PUMPUSDT.json": {
+    "mtime": 1785784692.3824372,
+    "ast_hash": "15b27dd4691c17c42c654286d9242555",
+    "semantic_hash": "15b27dd4691c17c42c654286d9242555"
+  },
+  "platform/backend/optimizer1y1h/best/PYTHUSDT.json": {
+    "mtime": 1784637862.771559,
+    "ast_hash": "92768532f37013e626a29d7ad7e266e4",
+    "semantic_hash": "92768532f37013e626a29d7ad7e266e4"
+  },
+  "platform/backend/optimizer1y1h/best/RIFUSDT.json": {
+    "mtime": 1784650211.8281105,
+    "ast_hash": "06f6008a59018b73484eb516a148b14e",
+    "semantic_hash": "06f6008a59018b73484eb516a148b14e"
+  },
+  "platform/backend/optimizer1y1h/best/SYNUSDT.json": {
+    "mtime": 1785154769.333887,
+    "ast_hash": "2843468c868993eeeefd4ce7d08c61b3",
+    "semantic_hash": "2843468c868993eeeefd4ce7d08c61b3"
+  },
+  "platform/backend/optimizer1y1h/best/TAOUSDT.json": {
+    "mtime": 1785312111.2684178,
+    "ast_hash": "90968ec10268d5b7724cc07aa8b145bc",
+    "semantic_hash": "90968ec10268d5b7724cc07aa8b145bc"
+  },
+  "platform/backend/optimizer1y1h/best/TIAUSDT.json": {
+    "mtime": 1784549519.5013034,
+    "ast_hash": "2b6e5c69f36fa11e437e573c3f1bcbee",
+    "semantic_hash": "2b6e5c69f36fa11e437e573c3f1bcbee"
+  },
+  "platform/backend/optimizer1y1h/best/ZECUSDT.json": {
+    "mtime": 1784817722.7072377,
+    "ast_hash": "bcbe13889a9e581f1610dd6bf612252e",
+    "semantic_hash": "bcbe13889a9e581f1610dd6bf612252e"
+  },
+  "platform/backend/optimizer1y1h/best/\u5e01\u5b89\u4eba\u751fUSDT.json": {
+    "mtime": 1784737798.1881425,
+    "ast_hash": "97deb717fd7beb0fec603cba45b8bbaf",
+    "semantic_hash": "97deb717fd7beb0fec603cba45b8bbaf"
+  },
+  "platform/backend/optimizer1y1h/config.json": {
+    "mtime": 1784627309.5955997,
+    "ast_hash": "27d0691589b1908a537570dbcc4b8299",
+    "semantic_hash": "27d0691589b1908a537570dbcc4b8299"
+  },
+  "platform/backend/optimizer1y1h/evalWorker.boot.mjs": {
+    "mtime": 1784533608.5513942,
+    "ast_hash": "e2718d9e1b7081abd4b033e49fa10dc3",
+    "semantic_hash": "e2718d9e1b7081abd4b033e49fa10dc3"
+  },
+  "platform/backend/optimizer1y1h/evalWorker.ts": {
+    "mtime": 1784533608.545627,
+    "ast_hash": "209c36db4b4778c9aa565ac35e4d1445",
+    "semantic_hash": "209c36db4b4778c9aa565ac35e4d1445"
+  },
+  "platform/backend/optimizer1y1h/idmap.json": {
+    "mtime": 1784533608.5719666,
+    "ast_hash": "f73e7cd212e5ecdce70157f7d6515c9a",
+    "semantic_hash": "f73e7cd212e5ecdce70157f7d6515c9a"
+  },
+  "platform/backend/optimizer1y1h/index/raw_counts.json": {
+    "mtime": 1785966722.5413902,
+    "ast_hash": "55840eb4537e4ff5f93f0bb325a4b9cd",
+    "semantic_hash": "55840eb4537e4ff5f93f0bb325a4b9cd"
+  },
+  "platform/backend/optimizer1y1h/opt_apply.py": {
+    "mtime": 1784533688.0184183,
+    "ast_hash": "0ac7644665d8309193a569d9030c61b8",
+    "semantic_hash": "0ac7644665d8309193a569d9030c61b8"
+  },
+  "platform/backend/optimizer1y1h/optimizer.ts": {
+    "mtime": 1784533608.5389783,
+    "ast_hash": "3ef5a70a2b4cc45c46804cf031fa4bb0",
+    "semantic_hash": "3ef5a70a2b4cc45c46804cf031fa4bb0"
+  },
+  "platform/backend/optimizer1y1h/params.json": {
+    "mtime": 1784533608.5577645,
+    "ast_hash": "3007cb8960f3986e219eb8a27aa99b06",
+    "semantic_hash": "3007cb8960f3986e219eb8a27aa99b06"
+  },
+  "platform/backend/optimizer1y1h/seeds.json": {
+    "mtime": 1784533608.5774028,
+    "ast_hash": "42778b24806c83d7aea6902eb57c314f",
+    "semantic_hash": "42778b24806c83d7aea6902eb57c314f"
+  },
+  "platform/backend/optimizer1y1h/show.py": {
+    "mtime": 1784533608.5892115,
+    "ast_hash": "1103b7afcdff015c05fb48762840f86e",
+    "semantic_hash": "1103b7afcdff015c05fb48762840f86e"
+  },
+  "platform/backend/package.json": {
+    "mtime": 1783898443.405614,
+    "ast_hash": "f700634a26613aad603a67bf7ad4eb1c",
+    "semantic_hash": "f700634a26613aad603a67bf7ad4eb1c"
+  },
+  "platform/backend/parity/build_spec.py": {
+    "mtime": 1783731435.8376408,
+    "ast_hash": "5eb10b97727e7efd030c62df166378f0",
+    "semantic_hash": "5eb10b97727e7efd030c62df166378f0"
+  },
+  "platform/backend/parity/chart_inputs_DEXE_best.json": {
+    "mtime": 1783721151.33292,
+    "ast_hash": "37d206cb5d93b1100565cde2c3d2dd02",
+    "semantic_hash": "37d206cb5d93b1100565cde2c3d2dd02"
+  },
+  "platform/backend/parity/probe_st.ts": {
+    "mtime": 1783731068.9528441,
+    "ast_hash": "1c1ac880b8464e15a56d3bc92d4c4574",
+    "semantic_hash": "1c1ac880b8464e15a56d3bc92d4c4574"
+  },
+  "platform/backend/parity/spec_DEXEUSDT.json": {
+    "mtime": 1783730055.212974,
+    "ast_hash": "54bb0c77970d39bad648b33e1e5221c8",
+    "semantic_hash": "54bb0c77970d39bad648b33e1e5221c8"
+  },
+  "platform/backend/parity/spec_ZECUSDT.json": {
+    "mtime": 1783731478.110431,
+    "ast_hash": "2f98c93f28bf67e8b95584ba55eed144",
+    "semantic_hash": "2f98c93f28bf67e8b95584ba55eed144"
+  },
+  "platform/backend/parity/sync_filters.ts": {
+    "mtime": 1783733047.0427823,
+    "ast_hash": "f8bb89be3cdce90ba7325e24a93aa567",
+    "semantic_hash": "f8bb89be3cdce90ba7325e24a93aa567"
+  },
+  "platform/backend/parity/tv_DEXEUSDT_raw.json": {
+    "mtime": 1783721072.4683425,
+    "ast_hash": "1977a3de4eae0c7809903e3ff04601d1",
+    "semantic_hash": "1977a3de4eae0c7809903e3ff04601d1"
+  },
+  "platform/backend/parity/tv_DEXEUSDT_trades.json": {
+    "mtime": 1783729208.2035406,
+    "ast_hash": "43349d31403164e935db677dd28b3727",
+    "semantic_hash": "43349d31403164e935db677dd28b3727"
+  },
+  "platform/backend/parity/tv_ZECUSDT_raw.json": {
+    "mtime": 1783731374.8114684,
+    "ast_hash": "5ae7177e5a3bd584e26ef172928d86aa",
+    "semantic_hash": "5ae7177e5a3bd584e26ef172928d86aa"
+  },
+  "platform/backend/parity/tv_ZECUSDT_trades.json": {
+    "mtime": 1783731478.11125,
+    "ast_hash": "af628af1420d0c50901da9a69a6d519e",
+    "semantic_hash": "af628af1420d0c50901da9a69a6d519e"
+  },
+  "platform/backend/scripts/apply_allo_rif_dexe.ts": {
+    "mtime": 1783950857.7103455,
+    "ast_hash": "bf3a9119715ee26887b5ece030c3281d",
+    "semantic_hash": "bf3a9119715ee26887b5ece030c3281d"
+  },
+  "platform/backend/scripts/apply_coin_1h.ts": {
+    "mtime": 1784935682.5614378,
+    "ast_hash": "5a453771103973018e09fd3d632585a5",
+    "semantic_hash": "5a453771103973018e09fd3d632585a5"
+  },
+  "platform/backend/scripts/apply_coin_local.ts": {
+    "mtime": 1784430010.901302,
+    "ast_hash": "22ee83a9201b409f1653acd19d041b52",
+    "semantic_hash": "22ee83a9201b409f1653acd19d041b52"
+  },
+  "platform/backend/scripts/apply_dexe1889_jto26_morpho462.ts": {
+    "mtime": 1783951681.1984773,
+    "ast_hash": "bebd67ac26cf8c1e98b536a1972e6e5f",
+    "semantic_hash": "bebd67ac26cf8c1e98b536a1972e6e5f"
+  },
+  "platform/backend/scripts/apply_rank_deployment.ts": {
+    "mtime": 1784090366.5583224,
+    "ast_hash": "442c04b0c0b2884d8fb261a6fb9e088d",
+    "semantic_hash": "442c04b0c0b2884d8fb261a6fb9e088d"
+  },
+  "platform/backend/scripts/apply_single_snapshot.ts": {
+    "mtime": 1783951945.4844968,
+    "ast_hash": "3778cb796f58542f280f5aab95c870c4",
+    "semantic_hash": "3778cb796f58542f280f5aab95c870c4"
+  },
+  "platform/backend/scripts/backfill_1h.ts": {
+    "mtime": 1784413730.3163261,
+    "ast_hash": "158cc9da61dc48db48d11506158a2729",
+    "semantic_hash": "158cc9da61dc48db48d11506158a2729"
+  },
+  "platform/backend/scripts/backfill_history.ts": {
+    "mtime": 1783719345.8896337,
+    "ast_hash": "badb23137c1093536ab5286cbe8ba48b",
+    "semantic_hash": "badb23137c1093536ab5286cbe8ba48b"
+  },
+  "platform/backend/scripts/backfill_one_year_ma.ts": {
+    "mtime": 1784539567.0945308,
+    "ast_hash": "90eace466f8dc9c9b673ea1ad81cce84",
+    "semantic_hash": "90eace466f8dc9c9b673ea1ad81cce84"
+  },
+  "platform/backend/scripts/diff_tv_trades.ts": {
+    "mtime": 1783639766.4549398,
+    "ast_hash": "f80a638632eaba64f25c5d88ed8a7776",
+    "semantic_hash": "f80a638632eaba64f25c5d88ed8a7776"
+  },
+  "platform/backend/scripts/export_optimizer_dashboards.py": {
+    "mtime": 1785381899.6065218,
+    "ast_hash": "0e4f9a6922527d3f1c9e2d3ea16db2d3",
+    "semantic_hash": "0e4f9a6922527d3f1c9e2d3ea16db2d3"
+  },
+  "platform/backend/scripts/indexed_results.py": {
+    "mtime": 1785376527.6527386,
+    "ast_hash": "1f78ef26f705676127618a2581d24e90",
+    "semantic_hash": "1f78ef26f705676127618a2581d24e90"
+  },
+  "platform/backend/scripts/probe_gates.ts": {
+    "mtime": 1783730820.3817549,
+    "ast_hash": "9949875da4038d7d37ce2047a8e428c0",
+    "semantic_hash": "9949875da4038d7d37ce2047a8e428c0"
+  },
+  "platform/backend/scripts/resolve_config.py": {
+    "mtime": 1784931880.0144136,
+    "ast_hash": "3cc9b242facdcb2c36f6f6415c14f4c7",
+    "semantic_hash": "3cc9b242facdcb2c36f6f6415c14f4c7"
+  },
+  "platform/backend/scripts/run-optimizer-service.sh": {
+    "mtime": 1784245895.3598561,
+    "ast_hash": "a0d9f6baddb66ce5e26e41a74114fb60",
+    "semantic_hash": "a0d9f6baddb66ce5e26e41a74114fb60"
+  },
+  "platform/backend/scripts/run_backtest_cli.ts": {
+    "mtime": 1783721655.4928052,
+    "ast_hash": "ac4a01126ed4ad9a0b5f07c0e0df2840",
+    "semantic_hash": "ac4a01126ed4ad9a0b5f07c0e0df2840"
+  },
+  "platform/backend/scripts/validate_one_year_feeds.ts": {
+    "mtime": 1784539840.6702552,
+    "ast_hash": "f1ec50dc26c39d854aea160d24a044ae",
+    "semantic_hash": "f1ec50dc26c39d854aea160d24a044ae"
+  },
+  "platform/backend/src/alerts/dispatcher.ts": {
+    "mtime": 1783978081.2980232,
+    "ast_hash": "2b7cd3d85579381fc4b91839bdf83f9f",
+    "semantic_hash": "2b7cd3d85579381fc4b91839bdf83f9f"
+  },
+  "platform/backend/src/api/deploymentPatch.ts": {
+    "mtime": 1784240558.547121,
+    "ast_hash": "85b75fc1acfd2de5254d8d9f27426ec8",
+    "semantic_hash": "85b75fc1acfd2de5254d8d9f27426ec8"
+  },
+  "platform/backend/src/api/routes/backtests.ts": {
+    "mtime": 1783637035.5075533,
+    "ast_hash": "3c187d5017bb9df2fde4395721ab51ed",
+    "semantic_hash": "3c187d5017bb9df2fde4395721ab51ed"
+  },
+  "platform/backend/src/api/routes/data.ts": {
+    "mtime": 1783641545.9615505,
+    "ast_hash": "f7fd1ce98e01dae8cdde4bfb016221f3",
+    "semantic_hash": "f7fd1ce98e01dae8cdde4bfb016221f3"
+  },
+  "platform/backend/src/api/routes/deployments.ts": {
+    "mtime": 1784240572.2215505,
+    "ast_hash": "8c5906748c6c2d339c1e7ea919ed7a67",
+    "semantic_hash": "8c5906748c6c2d339c1e7ea919ed7a67"
+  },
+  "platform/backend/src/api/routes/health.ts": {
+    "mtime": 1783637005.3693643,
+    "ast_hash": "56b6041a45714eb630acf97044da462a",
+    "semantic_hash": "56b6041a45714eb630acf97044da462a"
+  },
+  "platform/backend/src/api/routes/layouts.ts": {
+    "mtime": 1784238663.695231,
+    "ast_hash": "4f4e9945415f60a5fefa479dd1f11938",
+    "semantic_hash": "4f4e9945415f60a5fefa479dd1f11938"
+  },
+  "platform/backend/src/api/routes/optimizer.ts": {
+    "mtime": 1785376541.8273914,
+    "ast_hash": "6837a28565654ca1b26f588ed3809a52",
+    "semantic_hash": "6837a28565654ca1b26f588ed3809a52"
+  },
+  "platform/backend/src/api/routes/strategies.ts": {
+    "mtime": 1783637023.5542068,
+    "ast_hash": "567878a5a57170ac1a93193d25c00c4c",
+    "semantic_hash": "567878a5a57170ac1a93193d25c00c4c"
+  },
+  "platform/backend/src/api/routes/symbols.ts": {
+    "mtime": 1785882801.6977313,
+    "ast_hash": "68fce0e90266aaa58fa8561ab8dcbf15",
+    "semantic_hash": "68fce0e90266aaa58fa8561ab8dcbf15"
+  },
+  "platform/backend/src/api/server.ts": {
+    "mtime": 1785885032.217042,
+    "ast_hash": "63cd39267d48d292810b308b1261d607",
+    "semantic_hash": "63cd39267d48d292810b308b1261d607"
+  },
+  "platform/backend/src/config.ts": {
+    "mtime": 1783898266.7277763,
+    "ast_hash": "e3b16d78b31181f514aa828b68c7bd08",
+    "semantic_hash": "e3b16d78b31181f514aa828b68c7bd08"
+  },
+  "platform/backend/src/data/binanceRest.ts": {
+    "mtime": 1785887209.7647011,
+    "ast_hash": "fa1d658e7439f2a37871b4e4b18c7523",
+    "semantic_hash": "fa1d658e7439f2a37871b4e4b18c7523"
+  },
+  "platform/backend/src/data/binanceWs.ts": {
+    "mtime": 1783642379.0144727,
+    "ast_hash": "7dd09c101de5452d40d68beb78a9c4f9",
+    "semantic_hash": "7dd09c101de5452d40d68beb78a9c4f9"
+  },
+  "platform/backend/src/db/migrate.ts": {
+    "mtime": 1784219063.3681958,
+    "ast_hash": "5cd7dd2b4efafaeec4df3566e4097357",
+    "semantic_hash": "5cd7dd2b4efafaeec4df3566e4097357"
+  },
+  "platform/backend/src/db/migrations/001_init.sql": {
+    "mtime": 1783636867.416299,
+    "ast_hash": "4d80858aa7e545d576a3b66f8c77380e",
+    "semantic_hash": "4d80858aa7e545d576a3b66f8c77380e"
+  },
+  "platform/backend/src/db/migrations/002_srtrend_v10.sql": {
+    "mtime": 1783828338.9422083,
+    "ast_hash": "a550631a43c0d56ec85ef4d9e7db4e57",
+    "semantic_hash": "a550631a43c0d56ec85ef4d9e7db4e57"
+  },
+  "platform/backend/src/db/migrations/003_security_hardening.sql": {
+    "mtime": 1783898309.3043811,
+    "ast_hash": "ae070dbacbd5d0ac999cb8c479846f02",
+    "semantic_hash": "ae070dbacbd5d0ac999cb8c479846f02"
+  },
+  "platform/backend/src/db/migrations/004_chart_layouts.sql": {
+    "mtime": 1784238610.7226045,
+    "ast_hash": "13e70fabb72fb3d78abc0a25ba006648",
+    "semantic_hash": "13e70fabb72fb3d78abc0a25ba006648"
+  },
+  "platform/backend/src/db/pool.ts": {
+    "mtime": 1784038631.4920614,
+    "ast_hash": "e6bc02dd19b1ccfb7dd71019558b0ee7",
+    "semantic_hash": "e6bc02dd19b1ccfb7dd71019558b0ee7"
+  },
+  "platform/backend/src/engine/backtester.ts": {
+    "mtime": 1785377404.7672012,
+    "ast_hash": "c0746380e02ffe4e4ca24919b1c3fa8d",
+    "semantic_hash": "c0746380e02ffe4e4ca24919b1c3fa8d"
+  },
+  "platform/backend/src/engine/broker.ts": {
+    "mtime": 1785377381.1962664,
+    "ast_hash": "d13d9348cd5f01765bdf286b0bd6e03f",
+    "semantic_hash": "d13d9348cd5f01765bdf286b0bd6e03f"
+  },
+  "platform/backend/src/engine/liveEvaluator.ts": {
+    "mtime": 1783979616.1278923,
+    "ast_hash": "ba952a24657d692a116219c157e8f86c",
+    "semantic_hash": "ba952a24657d692a116219c157e8f86c"
+  },
+  "platform/backend/src/engine/liveRunner.ts": {
+    "mtime": 1783978457.0227833,
+    "ast_hash": "bb05ac7bfacc04ed1020f71ceaf5ee6b",
+    "semantic_hash": "bb05ac7bfacc04ed1020f71ceaf5ee6b"
+  },
+  "platform/backend/src/engine/metrics.ts": {
+    "mtime": 1783638512.5909262,
+    "ast_hash": "775c19f721edd3401b249191842cfd6d",
+    "semantic_hash": "775c19f721edd3401b249191842cfd6d"
+  },
+  "platform/backend/src/engine/mtf.ts": {
+    "mtime": 1783731112.434519,
+    "ast_hash": "0041c1bcf75e722eded1c1e5c018a31c",
+    "semantic_hash": "0041c1bcf75e722eded1c1e5c018a31c"
+  },
+  "platform/backend/src/engine/srTrendLiveEvaluator.ts": {
+    "mtime": 1783979616.8781288,
+    "ast_hash": "6b4ac0e20a42477c828eb1585deb5465",
+    "semantic_hash": "6b4ac0e20a42477c828eb1585deb5465"
+  },
+  "platform/backend/src/engine/strategies/ma_rr_v9/index.ts": {
+    "mtime": 1783730144.0829382,
+    "ast_hash": "e57a6a556ab764cf3e5035958e123c89",
+    "semantic_hash": "e57a6a556ab764cf3e5035958e123c89"
+  },
+  "platform/backend/src/engine/strategies/ma_rr_v9/params.ts": {
+    "mtime": 1783730414.2478034,
+    "ast_hash": "d22b9f2faffcbd1e07430fa3a0243aa8",
+    "semantic_hash": "d22b9f2faffcbd1e07430fa3a0243aa8"
+  },
+  "platform/backend/src/engine/strategies/ma_rr_v9/signals.ts": {
+    "mtime": 1783979615.859743,
+    "ast_hash": "7f1379d63c775917d8abdb71d088c305",
+    "semantic_hash": "7f1379d63c775917d8abdb71d088c305"
+  },
+  "platform/backend/src/engine/strategies/srtrend_v10/index.ts": {
+    "mtime": 1783872907.3891852,
+    "ast_hash": "4ab52f6d7a009af07f70b28dac83cc4d",
+    "semantic_hash": "4ab52f6d7a009af07f70b28dac83cc4d"
+  },
+  "platform/backend/src/engine/strategies/srtrend_v10/params.ts": {
+    "mtime": 1783872906.8980997,
+    "ast_hash": "3c1ede3e700fe5cc104b565dbc37b145",
+    "semantic_hash": "3c1ede3e700fe5cc104b565dbc37b145"
+  },
+  "platform/backend/src/engine/strategies/srtrend_v10/signals.ts": {
+    "mtime": 1783979616.4014537,
+    "ast_hash": "3f374e6269db7fb46060b2cbb5de89ee",
+    "semantic_hash": "3f374e6269db7fb46060b2cbb5de89ee"
+  },
+  "platform/backend/src/engine/ta.ts": {
+    "mtime": 1785884372.5538929,
+    "ast_hash": "8400b9980482e9b13645749a5645e005",
+    "semantic_hash": "8400b9980482e9b13645749a5645e005"
+  },
+  "platform/backend/src/engine/worker.ts": {
+    "mtime": 1783638557.8907714,
+    "ast_hash": "c0e9ffc03c8f82a5697cdacdddba9199",
+    "semantic_hash": "c0e9ffc03c8f82a5697cdacdddba9199"
+  },
+  "platform/backend/src/index.ts": {
+    "mtime": 1783898309.9810998,
+    "ast_hash": "a46ea3aa8e24971e25e0b1548d2f9e4e",
+    "semantic_hash": "a46ea3aa8e24971e25e0b1548d2f9e4e"
+  },
+  "platform/backend/src/repositories/alerts.ts": {
+    "mtime": 1783978081.7917554,
+    "ast_hash": "6cc8285aea5be08ecb5c0bb01be72131",
+    "semantic_hash": "6cc8285aea5be08ecb5c0bb01be72131"
+  },
+  "platform/backend/src/repositories/backtests.ts": {
+    "mtime": 1783636997.033173,
+    "ast_hash": "87bd744cb11468d9a70a72d21243e046",
+    "semantic_hash": "87bd744cb11468d9a70a72d21243e046"
+  },
+  "platform/backend/src/repositories/candles.ts": {
+    "mtime": 1783636948.899354,
+    "ast_hash": "34dfca903f27b8063006283e6fcbda9d",
+    "semantic_hash": "34dfca903f27b8063006283e6fcbda9d"
+  },
+  "platform/backend/src/repositories/deployments.ts": {
+    "mtime": 1784240538.2263548,
+    "ast_hash": "2f24217249c59f2775f9f49bf3037adf",
+    "semantic_hash": "2f24217249c59f2775f9f49bf3037adf"
+  },
+  "platform/backend/src/repositories/layouts.ts": {
+    "mtime": 1784238642.7378652,
+    "ast_hash": "e9286b3ab536f3703cc0964801a39a0d",
+    "semantic_hash": "e9286b3ab536f3703cc0964801a39a0d"
+  },
+  "platform/backend/src/repositories/strategies.ts": {
+    "mtime": 1783636976.4895532,
+    "ast_hash": "693f8c6047fa4b11b02dbe8d92afde89",
+    "semantic_hash": "693f8c6047fa4b11b02dbe8d92afde89"
+  },
+  "platform/backend/src/repositories/symbols.ts": {
+    "mtime": 1783636957.484312,
+    "ast_hash": "d8ce43dd7f685204cfac7b4c67c8b0e9",
+    "semantic_hash": "d8ce43dd7f685204cfac7b4c67c8b0e9"
+  },
+  "platform/backend/src/security/secrets.ts": {
+    "mtime": 1783898877.7892253,
+    "ast_hash": "031acef1c617e773bde4ebeded80f5fe",
+    "semantic_hash": "031acef1c617e773bde4ebeded80f5fe"
+  },
+  "platform/backend/src/types/alerts.ts": {
+    "mtime": 1783636926.4818804,
+    "ast_hash": "9fe6ca9ec59ce56536f9a5da14bfd3fb",
+    "semantic_hash": "9fe6ca9ec59ce56536f9a5da14bfd3fb"
+  },
+  "platform/backend/src/types/backtest.ts": {
+    "mtime": 1785377374.5174203,
+    "ast_hash": "c4764a3962daaaab324200513f58708e",
+    "semantic_hash": "c4764a3962daaaab324200513f58708e"
+  },
+  "platform/backend/src/types/deployments.ts": {
+    "mtime": 1783979615.2830245,
+    "ast_hash": "52528baebc7abf6d9a16f5d58737b202",
+    "semantic_hash": "52528baebc7abf6d9a16f5d58737b202"
+  },
+  "platform/backend/src/types/market.ts": {
+    "mtime": 1783636899.679971,
+    "ast_hash": "85aa004d5f638b3ab9a5bcca9f2f8afa",
+    "semantic_hash": "85aa004d5f638b3ab9a5bcca9f2f8afa"
+  },
+  "platform/backend/src/types/strategy.ts": {
+    "mtime": 1783636908.210888,
+    "ast_hash": "210be869d0f1cefe9f796c2e96da668e",
+    "semantic_hash": "210be869d0f1cefe9f796c2e96da668e"
+  },
+  "platform/backend/tests/broker.test.ts": {
+    "mtime": 1783638614.5680196,
+    "ast_hash": "04730efdccc4f01d64abaa2285726d56",
+    "semantic_hash": "04730efdccc4f01d64abaa2285726d56"
+  },
+  "platform/backend/tests/deploymentPatch.test.ts": {
+    "mtime": 1784240611.6608622,
+    "ast_hash": "e29b4627bf6369c6c1ba7fc3c53d7678",
+    "semantic_hash": "e29b4627bf6369c6c1ba7fc3c53d7678"
+  },
+  "platform/backend/tests/dispatcher.test.ts": {
+    "mtime": 1783978097.3484826,
+    "ast_hash": "9fbf68699a4588c628ab3b69e7721223",
+    "semantic_hash": "9fbf68699a4588c628ab3b69e7721223"
+  },
+  "platform/backend/tests/layouts.test.ts": {
+    "mtime": 1784238711.9783,
+    "ast_hash": "915618649368e136f20646df1ce9c2da",
+    "semantic_hash": "915618649368e136f20646df1ce9c2da"
+  },
+  "platform/backend/tests/liveEvaluator.test.ts": {
+    "mtime": 1783979643.1641068,
+    "ast_hash": "b151b9363dd443bff3cc852cd54ac625",
+    "semantic_hash": "b151b9363dd443bff3cc852cd54ac625"
+  },
+  "platform/backend/tests/secrets.test.ts": {
+    "mtime": 1783898796.8890727,
+    "ast_hash": "b6aa089d3b3f14e3c8ac15f5ba08895a",
+    "semantic_hash": "b6aa089d3b3f14e3c8ac15f5ba08895a"
+  },
+  "platform/backend/tests/ta.test.ts": {
+    "mtime": 1783638586.115091,
+    "ast_hash": "4e2e7f20b4be004312dc807062ed15ba",
+    "semantic_hash": "4e2e7f20b4be004312dc807062ed15ba"
+  },
+  "platform/backend/tsconfig.json": {
+    "mtime": 1783636820.7606869,
+    "ast_hash": "5deb993bcc5f9cfa46ee6ac68540f1d0",
+    "semantic_hash": "5deb993bcc5f9cfa46ee6ac68540f1d0"
+  },
+  "platform/deployment/aws/apply_configs.mjs": {
+    "mtime": 1784432578.8513591,
+    "ast_hash": "c075069c6d79ff5598df3eafb66c8f05",
+    "semantic_hash": "c075069c6d79ff5598df3eafb66c8f05"
+  },
+  "platform/deployment/aws/build-and-push.sh": {
+    "mtime": 1784218823.824518,
+    "ast_hash": "45b03b80ea05d0c8cc6f1cea6b88143f",
+    "semantic_hash": "45b03b80ea05d0c8cc6f1cea6b88143f"
+  },
+  "platform/deployment/aws/cloud-deploy.sh": {
+    "mtime": 1784242336.944403,
+    "ast_hash": "6adad8864c8ad40bcd381c68708de1c7",
+    "semantic_hash": "6adad8864c8ad40bcd381c68708de1c7"
+  },
+  "platform/deployment/aws/configure-app.sh": {
+    "mtime": 1784218959.0005465,
+    "ast_hash": "1a98fbdafc89d24b04ad956e7a633154",
+    "semantic_hash": "1a98fbdafc89d24b04ad956e7a633154"
+  },
+  "platform/deployment/aws/deploy-stack.sh": {
+    "mtime": 1784215178.6766388,
+    "ast_hash": "2268d8deffb00015e49b46323e32bd6c",
+    "semantic_hash": "2268d8deffb00015e49b46323e32bd6c"
+  },
+  "platform/deployment/aws/deploy_1h_remote.sh": {
+    "mtime": 1784935985.507555,
+    "ast_hash": "dfccb8cc650d48055cf35a2ae92e01cf",
+    "semantic_hash": "dfccb8cc650d48055cf35a2ae92e01cf"
+  },
+  "platform/deployment/aws/deploy_configs_remote.sh": {
+    "mtime": 1784432496.6766293,
+    "ast_hash": "16c53b4840f39dde35cc2148440d8591",
+    "semantic_hash": "16c53b4840f39dde35cc2148440d8591"
+  },
+  "platform/deployment/aws/export-current-state.sh": {
+    "mtime": 1785381769.2296495,
+    "ast_hash": "3e5e3286294045741a44398eec73b837",
+    "semantic_hash": "3e5e3286294045741a44398eec73b837"
+  },
+  "platform/deployment/aws/install-dashboard-sync.sh": {
+    "mtime": 1784535703.3375435,
+    "ast_hash": "40d027070f741c113c669647cfe34c56",
+    "semantic_hash": "40d027070f741c113c669647cfe34c56"
+  },
+  "platform/deployment/aws/replace_1h.mjs": {
+    "mtime": 1784935855.9718704,
+    "ast_hash": "0cfe790347fd76833b65355f5b5efbfc",
+    "semantic_hash": "0cfe790347fd76833b65355f5b5efbfc"
+  },
+  "platform/deployment/aws/sync-optimizer-dashboards.sh": {
+    "mtime": 1784535668.824889,
+    "ast_hash": "70020c1ae47989489997104869af1d58",
+    "semantic_hash": "70020c1ae47989489997104869af1d58"
+  },
+  "platform/deployment/aws/update-app.sh": {
+    "mtime": 1784242309.3828883,
+    "ast_hash": "7195f040ee69557f7ea71ab834446eed",
+    "semantic_hash": "7195f040ee69557f7ea71ab834446eed"
+  },
+  "platform/deployment/aws/validate.sh": {
+    "mtime": 1784208143.9872382,
+    "ast_hash": "e6b21c5bae44472f2c28b5a157e81054",
+    "semantic_hash": "e6b21c5bae44472f2c28b5a157e81054"
+  },
+  "platform/frontend/.claude/launch.json": {
+    "mtime": 1783693705.7565424,
+    "ast_hash": "640d08c96dc83f08cb4814f073959c52",
+    "semantic_hash": "640d08c96dc83f08cb4814f073959c52"
+  },
+  "platform/frontend/app/backtests/[id]/page.tsx": {
+    "mtime": 1785378616.030815,
+    "ast_hash": "cde825ff32a647f36ad1ceb009f199a7",
+    "semantic_hash": "cde825ff32a647f36ad1ceb009f199a7"
+  },
+  "platform/frontend/app/backtests/page.tsx": {
+    "mtime": 1783711435.19526,
+    "ast_hash": "ac060662d4193ca2ea01942b07a6cc7c",
+    "semantic_hash": "ac060662d4193ca2ea01942b07a6cc7c"
+  },
+  "platform/frontend/app/chart/page.tsx": {
+    "mtime": 1785885290.8773358,
+    "ast_hash": "17ddd0917ca4c65af7e0356593d6955f",
+    "semantic_hash": "17ddd0917ca4c65af7e0356593d6955f"
+  },
+  "platform/frontend/app/deployments/page.tsx": {
+    "mtime": 1784240705.0058694,
+    "ast_hash": "3f922a789db91fb9c8843e32477d2bcc",
+    "semantic_hash": "3f922a789db91fb9c8843e32477d2bcc"
+  },
+  "platform/frontend/app/layout.tsx": {
+    "mtime": 1785378134.1817856,
+    "ast_hash": "248d061ddcc2bac7fa5b027b7e67f67a",
+    "semantic_hash": "248d061ddcc2bac7fa5b027b7e67f67a"
+  },
+  "platform/frontend/app/optimizers/page.tsx": {
+    "mtime": 1785377104.9619863,
+    "ast_hash": "e30ce07bd78403550707fd63f87aea5f",
+    "semantic_hash": "e30ce07bd78403550707fd63f87aea5f"
+  },
+  "platform/frontend/app/page.tsx": {
+    "mtime": 1783672106.340975,
+    "ast_hash": "3dfd748c199c410ed86b027e553e4767",
+    "semantic_hash": "3dfd748c199c410ed86b027e553e4767"
+  },
+  "platform/frontend/components/AlertFeed.tsx": {
+    "mtime": 1783672643.9197593,
+    "ast_hash": "601d46055aa9610c27baeceb13c83d33",
+    "semantic_hash": "601d46055aa9610c27baeceb13c83d33"
+  },
+  "platform/frontend/components/BacktestForm.tsx": {
+    "mtime": 1783672271.50936,
+    "ast_hash": "1efdbfe9ebc684578d04c7cebfb8a0a2",
+    "semantic_hash": "1efdbfe9ebc684578d04c7cebfb8a0a2"
+  },
+  "platform/frontend/components/CandleChart.tsx": {
+    "mtime": 1785885494.6286552,
+    "ast_hash": "861af5dc597798c93e833fd5dd6606bc",
+    "semantic_hash": "861af5dc597798c93e833fd5dd6606bc"
+  },
+  "platform/frontend/components/DeploymentForm.tsx": {
+    "mtime": 1783672629.749532,
+    "ast_hash": "672b77f860e7be69eb83a92053a67794",
+    "semantic_hash": "672b77f860e7be69eb83a92053a67794"
+  },
+  "platform/frontend/components/EquityCurve.tsx": {
+    "mtime": 1783699810.4005027,
+    "ast_hash": "b2d34f6a0b0576809c4f17792a5da469",
+    "semantic_hash": "b2d34f6a0b0576809c4f17792a5da469"
+  },
+  "platform/frontend/components/Metrics.tsx": {
+    "mtime": 1783672171.4364462,
+    "ast_hash": "c8405825e2a4c8edb58ddae7e9d92229",
+    "semantic_hash": "c8405825e2a4c8edb58ddae7e9d92229"
+  },
+  "platform/frontend/components/Modal.tsx": {
+    "mtime": 1783699627.0969875,
+    "ast_hash": "33908bd22f3015dc60af6f82c8f1f4ac",
+    "semantic_hash": "33908bd22f3015dc60af6f82c8f1f4ac"
+  },
+  "platform/frontend/components/Nav.tsx": {
+    "mtime": 1785378288.209104,
+    "ast_hash": "97763c91e20dc5fa99ba16a0a12d1f3e",
+    "semantic_hash": "97763c91e20dc5fa99ba16a0a12d1f3e"
+  },
+  "platform/frontend/components/ParamForm.tsx": {
+    "mtime": 1783672224.5941741,
+    "ast_hash": "23ef5dd457aa8e2d754a24c813047a08",
+    "semantic_hash": "23ef5dd457aa8e2d754a24c813047a08"
+  },
+  "platform/frontend/components/TradeList.tsx": {
+    "mtime": 1785377956.528316,
+    "ast_hash": "66ffc882b5cfd91dd4203e73584fd996",
+    "semantic_hash": "66ffc882b5cfd91dd4203e73584fd996"
+  },
+  "platform/frontend/components/tv/AlertModal.tsx": {
+    "mtime": 1783868710.5687609,
+    "ast_hash": "2caf230cfad9517fc9b3cdbc9ee0aaf0",
+    "semantic_hash": "2caf230cfad9517fc9b3cdbc9ee0aaf0"
+  },
+  "platform/frontend/components/tv/AlertsPanel.tsx": {
+    "mtime": 1785378155.4040537,
+    "ast_hash": "37fde5ceda33032a2ac775eef229618c",
+    "semantic_hash": "37fde5ceda33032a2ac775eef229618c"
+  },
+  "platform/frontend/components/tv/EditAlertModal.tsx": {
+    "mtime": 1784240653.1137662,
+    "ast_hash": "afcb56be139f1b7df1756d1110cdf776",
+    "semantic_hash": "afcb56be139f1b7df1756d1110cdf776"
+  },
+  "platform/frontend/components/tv/LayoutMenu.tsx": {
+    "mtime": 1783717424.004155,
+    "ast_hash": "b4513a9306bf675952af16d3c1247532",
+    "semantic_hash": "b4513a9306bf675952af16d3c1247532"
+  },
+  "platform/frontend/components/tv/StrategySettingsModal.tsx": {
+    "mtime": 1783782039.4319963,
+    "ast_hash": "05b47c8b58bb125a74a03e8a43557dca",
+    "semantic_hash": "05b47c8b58bb125a74a03e8a43557dca"
+  },
+  "platform/frontend/components/tv/StrategyTester.tsx": {
+    "mtime": 1785453551.9997058,
+    "ast_hash": "b1bd9376bb670b8ae7c98bc160e15f16",
+    "semantic_hash": "b1bd9376bb670b8ae7c98bc160e15f16"
+  },
+  "platform/frontend/components/tv/Watchlist.tsx": {
+    "mtime": 1785378155.4021108,
+    "ast_hash": "c2c40baa623f93b5c7e39f990f023f05",
+    "semantic_hash": "c2c40baa623f93b5c7e39f990f023f05"
+  },
+  "platform/frontend/components/ui.tsx": {
+    "mtime": 1783672122.114672,
+    "ast_hash": "9918bfc04c28c5723184d968c9d20888",
+    "semantic_hash": "9918bfc04c28c5723184d968c9d20888"
+  },
+  "platform/frontend/lib/api.ts": {
+    "mtime": 1785885172.906451,
+    "ast_hash": "8fbb455fa566f09325f378748c852dea",
+    "semantic_hash": "8fbb455fa566f09325f378748c852dea"
+  },
+  "platform/frontend/lib/format.ts": {
+    "mtime": 1783672054.8132825,
+    "ast_hash": "bb3a85f33c5714c98d3a2f7c2792c07e",
+    "semantic_hash": "bb3a85f33c5714c98d3a2f7c2792c07e"
+  },
+  "platform/frontend/lib/layouts.ts": {
+    "mtime": 1784238773.3739572,
+    "ast_hash": "1078b7817e31320b48e0dfc7919bb46f",
+    "semantic_hash": "1078b7817e31320b48e0dfc7919bb46f"
+  },
+  "platform/frontend/lib/paramSchema.ts": {
+    "mtime": 1783872777.34279,
+    "ast_hash": "eb529db5373cfc6d435b5ab187197688",
+    "semantic_hash": "eb529db5373cfc6d435b5ab187197688"
+  },
+  "platform/frontend/lib/types.ts": {
+    "mtime": 1785377901.6398387,
+    "ast_hash": "c476009ab02af249e2122ba3203bcaa1",
+    "semantic_hash": "c476009ab02af249e2122ba3203bcaa1"
+  },
+  "platform/frontend/next-env.d.ts": {
+    "mtime": 1785888738.666341,
+    "ast_hash": "8195d2c60ce847a459ae9d308d6a5724",
+    "semantic_hash": "8195d2c60ce847a459ae9d308d6a5724"
+  },
+  "platform/frontend/next.config.mjs": {
+    "mtime": 1784207993.9199665,
+    "ast_hash": "3b14287202684610d8e8cecd3254a326",
+    "semantic_hash": "3b14287202684610d8e8cecd3254a326"
+  },
+  "platform/frontend/package.json": {
+    "mtime": 1785888691.816676,
+    "ast_hash": "ed998e7643bd2c13ea1f1fef789e6521",
+    "semantic_hash": "ed998e7643bd2c13ea1f1fef789e6521"
+  },
+  "platform/frontend/postcss.config.mjs": {
+    "mtime": 1783671986.0723252,
+    "ast_hash": "c735540bb63936a123bc867d950c9f69",
+    "semantic_hash": "c735540bb63936a123bc867d950c9f69"
+  },
+  "platform/frontend/tailwind.config.ts": {
+    "mtime": 1783671998.6511853,
+    "ast_hash": "de0d63ca67aeb6dd0b64eaa44b8bd55e",
+    "semantic_hash": "de0d63ca67aeb6dd0b64eaa44b8bd55e"
+  },
+  "platform/frontend/tsconfig.json": {
+    "mtime": 1783899131.3590984,
+    "ast_hash": "d913ce7c456a52c3c6092ecc5385b2e3",
+    "semantic_hash": "d913ce7c456a52c3c6092ecc5385b2e3"
+  },
+  "platform/scripts/db.sh": {
+    "mtime": 1783637268.3959663,
+    "ast_hash": "6f3c2a59ab792b269d25889efb36b18f",
+    "semantic_hash": "6f3c2a59ab792b269d25889efb36b18f"
+  },
+  "reports/watchlist_backtest_2026-07-09.json": {
+    "mtime": 1783621112.4116743,
+    "ast_hash": "a230f0d91abc4c1c563feb755c41d289",
+    "semantic_hash": "a230f0d91abc4c1c563feb755c41d289"
+  },
+  "scripts/binance_ohlc/download_ohlc.py": {
+    "mtime": 1780750657.5336795,
+    "ast_hash": "db9e4ba257ef55a91c6304b173d10852",
+    "semantic_hash": "db9e4ba257ef55a91c6304b173d10852"
+  },
+  "scripts/ocr_settings.swift": {
+    "mtime": 1783828580.9464931,
+    "ast_hash": "19984b4d63c843b3b31b1a2fa6917ae6",
+    "semantic_hash": "19984b4d63c843b3b31b1a2fa6917ae6"
+  },
+  "tv_autotuner/SUMMARY.json": {
+    "mtime": 1783720391.9002771,
+    "ast_hash": "aef278bce648aab2c4a1b0850efc8d13",
+    "semantic_hash": "aef278bce648aab2c4a1b0850efc8d13"
+  },
+  "tv_autotuner/autotuner.py": {
+    "mtime": 1783714764.0482306,
+    "ast_hash": "a1485b3f9ef5541ff4d76cdd1c0c504d",
+    "semantic_hash": "a1485b3f9ef5541ff4d76cdd1c0c504d"
+  },
+  "tv_autotuner/backup_inputs.json": {
+    "mtime": 1783715727.9647484,
+    "ast_hash": "0764b59e4336d24d5de541832c28cf51",
+    "semantic_hash": "0764b59e4336d24d5de541832c28cf51"
+  },
+  "tv_autotuner/best/ALGOUSDT.json": {
+    "mtime": 1783698600.7343829,
+    "ast_hash": "f6d656f6a8999e60b55bf0f84e73797a",
+    "semantic_hash": "f6d656f6a8999e60b55bf0f84e73797a"
+  },
+  "tv_autotuner/best/APTUSDT.json": {
+    "mtime": 1783668007.9304512,
+    "ast_hash": "5a0fb3c668bfe90925000a60bda7df2c",
+    "semantic_hash": "5a0fb3c668bfe90925000a60bda7df2c"
+  },
+  "tv_autotuner/best/ARBUSDT.json": {
+    "mtime": 1783679628.992929,
+    "ast_hash": "6f177d30cad81d9ac22b7cb2f327908e",
+    "semantic_hash": "6f177d30cad81d9ac22b7cb2f327908e"
+  },
+  "tv_autotuner/best/DEXEUSDT.json": {
+    "mtime": 1783661717.4034588,
+    "ast_hash": "b5f54daa932a5202b79a533e720d7798",
+    "semantic_hash": "b5f54daa932a5202b79a533e720d7798"
+  },
+  "tv_autotuner/best/ENAUSDT.json": {
+    "mtime": 1783685032.6858919,
+    "ast_hash": "dbe9c689f05693dffd5d0be2c73c4ffa",
+    "semantic_hash": "dbe9c689f05693dffd5d0be2c73c4ffa"
+  },
+  "tv_autotuner/best/INJUSDT.json": {
+    "mtime": 1783696171.4958506,
+    "ast_hash": "9f19f26164066c3cb1ff03df7bc39744",
+    "semantic_hash": "9f19f26164066c3cb1ff03df7bc39744"
+  },
+  "tv_autotuner/best/JTOUSDT.json": {
+    "mtime": 1783696770.9818707,
+    "ast_hash": "7a38080c2b9268e3c71db33e7bdcad94",
+    "semantic_hash": "7a38080c2b9268e3c71db33e7bdcad94"
+  },
+  "tv_autotuner/best/JUPUSDT.json": {
+    "mtime": 1783645456.710836,
+    "ast_hash": "e9e6430715730267c9c701b4123e4797",
+    "semantic_hash": "e9e6430715730267c9c701b4123e4797"
+  },
+  "tv_autotuner/best/MORPHOUSDT.json": {
+    "mtime": 1783695845.673319,
+    "ast_hash": "cb04d14649c4a6dd67d4ba2fef8de816",
+    "semantic_hash": "cb04d14649c4a6dd67d4ba2fef8de816"
+  },
+  "tv_autotuner/best/NEARUSDT.json": {
+    "mtime": 1783637252.4098716,
+    "ast_hash": "230afed95dfc54b2015137230efddb65",
+    "semantic_hash": "230afed95dfc54b2015137230efddb65"
+  },
+  "tv_autotuner/best/PUMPUSDT.json": {
+    "mtime": 1783687447.3855114,
+    "ast_hash": "1dee3cb53ae2da1ba92a051124600719",
+    "semantic_hash": "1dee3cb53ae2da1ba92a051124600719"
+  },
+  "tv_autotuner/best/PYTHUSDT.json": {
+    "mtime": 1783642721.814235,
+    "ast_hash": "c1835a65b5ae38b0cbdce1cf792f5d5b",
+    "semantic_hash": "c1835a65b5ae38b0cbdce1cf792f5d5b"
+  },
+  "tv_autotuner/best/TAOUSDT.json": {
+    "mtime": 1783653563.9605653,
+    "ast_hash": "2af5ed895a97710e13bf8fc03ec31a26",
+    "semantic_hash": "2af5ed895a97710e13bf8fc03ec31a26"
+  },
+  "tv_autotuner/best/TIAUSDT.json": {
+    "mtime": 1783689570.5345538,
+    "ast_hash": "aea11a281b7c3301558363078193d12f",
+    "semantic_hash": "aea11a281b7c3301558363078193d12f"
+  },
+  "tv_autotuner/best/ZECUSDT.json": {
+    "mtime": 1783697066.3341773,
+    "ast_hash": "0e7ddb10e587caeff7579eab6d82108b",
+    "semantic_hash": "0e7ddb10e587caeff7579eab6d82108b"
+  },
+  "tv_autotuner/params.json": {
+    "mtime": 1783694821.3843987,
+    "ast_hash": "3007cb8960f3986e219eb8a27aa99b06",
+    "semantic_hash": "3007cb8960f3986e219eb8a27aa99b06"
+  },
+  "tv_autotuner/seeds.json": {
+    "mtime": 1783695034.9378097,
+    "ast_hash": "42778b24806c83d7aea6902eb57c314f",
+    "semantic_hash": "42778b24806c83d7aea6902eb57c314f"
+  },
+  "tv_autotuner/seeds_example.json": {
+    "mtime": 1783681084.7232258,
+    "ast_hash": "849dc78fa1237cca330ef3fee96c4c7b",
+    "semantic_hash": "849dc78fa1237cca330ef3fee96c4c7b"
+  },
+  "tv_autotuner/show.py": {
+    "mtime": 1783672151.7735913,
+    "ast_hash": "048858ab50ead482c357bf8c1484ce41",
+    "semantic_hash": "048858ab50ead482c357bf8c1484ce41"
+  },
+  ".claude/CLAUDE.md": {
+    "mtime": 1785055054.132174,
+    "ast_hash": "9b31786b637be3c13978bec4c2330752",
+    "semantic_hash": "9b31786b637be3c13978bec4c2330752"
+  },
+  ".claude/skills/graphify/SKILL.md": {
+    "mtime": 1785055054.1314273,
+    "ast_hash": "dfb0a6554c4af62df6effc61c6c7d245",
+    "semantic_hash": "dfb0a6554c4af62df6effc61c6c7d245"
+  },
+  ".claude/skills/graphify/references/add-watch.md": {
+    "mtime": 1785029185.1332831,
+    "ast_hash": "d59d027fe449f06aa03905a01184e779",
+    "semantic_hash": "d59d027fe449f06aa03905a01184e779"
+  },
+  ".claude/skills/graphify/references/exports.md": {
+    "mtime": 1785029185.1339207,
+    "ast_hash": "9da2a2152e60a22f07f05fed5158f287",
+    "semantic_hash": "9da2a2152e60a22f07f05fed5158f287"
+  },
+  ".claude/skills/graphify/references/extraction-spec.md": {
+    "mtime": 1785029185.1342888,
+    "ast_hash": "42fef56a01698118f7fd722acdadea34",
+    "semantic_hash": "42fef56a01698118f7fd722acdadea34"
+  },
+  ".claude/skills/graphify/references/github-and-merge.md": {
+    "mtime": 1785029185.1346765,
+    "ast_hash": "cde13df085e4c492aeb7ba298a996d0d",
+    "semantic_hash": "cde13df085e4c492aeb7ba298a996d0d"
+  },
+  ".claude/skills/graphify/references/hooks.md": {
+    "mtime": 1785029185.1348789,
+    "ast_hash": "3f545db6ce646650bb9de588f5512a27",
+    "semantic_hash": "3f545db6ce646650bb9de588f5512a27"
+  },
+  ".claude/skills/graphify/references/query.md": {
+    "mtime": 1785029185.1351326,
+    "ast_hash": "3c46f8ad006874260614ed8657d02307",
+    "semantic_hash": "3c46f8ad006874260614ed8657d02307"
+  },
+  ".claude/skills/graphify/references/transcribe.md": {
+    "mtime": 1785029185.1354532,
+    "ast_hash": "67b6a5fa6c0974e18f60db9f8932fbd8",
+    "semantic_hash": "67b6a5fa6c0974e18f60db9f8932fbd8"
+  },
+  ".claude/skills/graphify/references/update.md": {
+    "mtime": 1785029185.135735,
+    "ast_hash": "9378bd03d56baaf78bd738ab3848f142",
+    "semantic_hash": "9378bd03d56baaf78bd738ab3848f142"
+  },
+  "CLAUDE.md": {
+    "mtime": 1785055054.1325705,
+    "ast_hash": "82efb97a359f5c7290bf2513d14686be",
+    "semantic_hash": "82efb97a359f5c7290bf2513d14686be"
+  },
+  "CLAUDE_HANDOFF.md": {
+    "mtime": 1784237699.9754467,
+    "ast_hash": "3016a85b27dd909bdf85c3bda19ac6df",
+    "semantic_hash": "3016a85b27dd909bdf85c3bda19ac6df"
+  },
+  "OPTIMIZATION_SYSTEM_BLUEPRINT.md": {
+    "mtime": 1783608400.9012203,
+    "ast_hash": "3e8762a54deb16d542a0fd225ed5cbd7",
+    "semantic_hash": "3e8762a54deb16d542a0fd225ed5cbd7"
+  },
+  "SR_Trend_v5_Claude_Briefing_Manual.md": {
+    "mtime": 1779397122.5689337,
+    "ast_hash": "8ebbd61ca5b3d81218bcb286d288eb85",
+    "semantic_hash": "8ebbd61ca5b3d81218bcb286d288eb85"
+  },
+  "SR_Trend_v5_Optimization_Report_2026-05-21.md": {
+    "mtime": 1779372299.5899754,
+    "ast_hash": "b7ff7f7b764819559132f13713e1819f",
+    "semantic_hash": "b7ff7f7b764819559132f13713e1819f"
+  },
+  "approach1_ui_automation/requirements.txt": {
+    "mtime": 1779544818.4510114,
+    "ast_hash": "fae325bdfc7bdbf6544049aaa2a904fc",
+    "semantic_hash": "fae325bdfc7bdbf6544049aaa2a904fc"
+  },
+  "backtest-spot/README.md": {
+    "mtime": 1780750657.5592544,
+    "ast_hash": "59b30b9850daa4b71ddc71ac5eb74094",
+    "semantic_hash": "59b30b9850daa4b71ddc71ac5eb74094"
+  },
+  "backtest-spot/requirements.txt": {
+    "mtime": 1780750657.5069232,
+    "ast_hash": "7323fb66ba4f4d14c9bfddd0a29c6cca",
+    "semantic_hash": "7323fb66ba4f4d14c9bfddd0a29c6cca"
+  },
+  "backtest-spot/results/APTUSDT_pine.txt": {
+    "mtime": 1779447902.9792185,
+    "ast_hash": "1dda7c16e9cc68fffd351de88356f713",
+    "semantic_hash": "1dda7c16e9cc68fffd351de88356f713"
+  },
+  "backtest-spot/results/OPTIMIZATION_SUMMARY.md": {
+    "mtime": 1780750657.3376276,
+    "ast_hash": "836629b29af511672df9ac3475926bc9",
+    "semantic_hash": "836629b29af511672df9ac3475926bc9"
+  },
+  "backtest-spot/results/TIAUSDT_OPTIMIZATION.md": {
+    "mtime": 1780750657.5593991,
+    "ast_hash": "627fcf71f05d569e101a7c48cee75050",
+    "semantic_hash": "627fcf71f05d569e101a7c48cee75050"
+  },
+  "backtest-spot/results/best_morpho.pine.txt": {
+    "mtime": 1779114662.4242415,
+    "ast_hash": "6812f5d3183faa7534d071aa5a3a549f",
+    "semantic_hash": "6812f5d3183faa7534d071aa5a3a549f"
+  },
+  "backtest-spot/results/best_morpho_constrained.pine.txt": {
+    "mtime": 1779121504.6723433,
+    "ast_hash": "64fcf9e5c02794349a7d1aff33407cd4",
+    "semantic_hash": "64fcf9e5c02794349a7d1aff33407cd4"
+  },
+  "platform/README.md": {
+    "mtime": 1785889108.5163345,
+    "ast_hash": "d22465c9b91291d0f4cb2a30148a536f",
+    "semantic_hash": "d22465c9b91291d0f4cb2a30148a536f"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/active-coins-after-removal.txt": {
+    "mtime": 1785363872.5701463,
+    "ast_hash": "02edb5f78d2d9f923a682f4f5fff181b",
+    "semantic_hash": "02edb5f78d2d9f923a682f4f5fff181b"
+  },
+  "platform/backend/optimizer1y15m/archive/removed_20260730/coins-before-removal.txt": {
+    "mtime": 1785363818.7507284,
+    "ast_hash": "cb107bdcaaf23eb0c02a855ca2ebe60a",
+    "semantic_hash": "cb107bdcaaf23eb0c02a855ca2ebe60a"
+  },
+  "platform/backend/optimizer1y15m/coins.txt": {
+    "mtime": 1785363840.5589519,
+    "ast_hash": "02edb5f78d2d9f923a682f4f5fff181b",
+    "semantic_hash": "02edb5f78d2d9f923a682f4f5fff181b"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/active-coins-after-removal.txt": {
+    "mtime": 1785363461.652198,
+    "ast_hash": "25c15f892d3427bb84db2452d047ddfc",
+    "semantic_hash": "25c15f892d3427bb84db2452d047ddfc"
+  },
+  "platform/backend/optimizer1y1h/archive/removed_20260730/coins-before-removal.txt": {
+    "mtime": 1785363416.80804,
+    "ast_hash": "cb107bdcaaf23eb0c02a855ca2ebe60a",
+    "semantic_hash": "cb107bdcaaf23eb0c02a855ca2ebe60a"
+  },
+  "platform/backend/optimizer1y1h/coins.txt": {
+    "mtime": 1785363450.6377418,
+    "ast_hash": "25c15f892d3427bb84db2452d047ddfc",
+    "semantic_hash": "25c15f892d3427bb84db2452d047ddfc"
+  },
+  "platform/backend/parity/inputs_readable.txt": {
+    "mtime": 1783721277.3709426,
+    "ast_hash": "00c63ead1dead9aedb60f43c20278e94",
+    "semantic_hash": "00c63ead1dead9aedb60f43c20278e94"
+  },
+  "platform/deployment/aws/README.md": {
+    "mtime": 1784535408.0175052,
+    "ast_hash": "aa6e50dbe0e3962d0c7ded3788ff517a",
+    "semantic_hash": "aa6e50dbe0e3962d0c7ded3788ff517a"
+  },
+  "platform/deployment/aws/cloudformation.yml": {
+    "mtime": 1784535407.6979592,
+    "ast_hash": "5d5703ecd9f97ea58a2f81bc85389c64",
+    "semantic_hash": "5d5703ecd9f97ea58a2f81bc85389c64"
+  },
+  "platform/deployment/aws/compose.app.yml": {
+    "mtime": 1784535694.7560043,
+    "ast_hash": "2f0cca5010691b217173b9224314a8e1",
+    "semantic_hash": "2f0cca5010691b217173b9224314a8e1"
+  },
+  "platform/deployment/aws/compose.compute.yml": {
+    "mtime": 1785381737.234917,
+    "ast_hash": "130fc2205851319ca22140cf228f1576",
+    "semantic_hash": "130fc2205851319ca22140cf228f1576"
+  },
+  "platform/docker-compose.yml": {
+    "mtime": 1783898289.6191525,
+    "ast_hash": "5e4fa20ae3fc0593b47b8db6888086f0",
+    "semantic_hash": "5e4fa20ae3fc0593b47b8db6888086f0"
+  },
+  "reports/SR_Trend_v5_Optimization_Report_2026-05-21.html": {
+    "mtime": 1779373300.6466262,
+    "ast_hash": "719688e0152178d4d05e735edf108bb7",
+    "semantic_hash": "719688e0152178d4d05e735edf108bb7"
+  },
+  "scripts/binance_ohlc/requirements.txt": {
+    "mtime": 1780750657.3102381,
+    "ast_hash": "22786d47cefb5bc770ce19ce36f07aa1",
+    "semantic_hash": "22786d47cefb5bc770ce19ce36f07aa1"
+  },
+  "tv_autotuner/README.md": {
+    "mtime": 1783636065.1973317,
+    "ast_hash": "f4e042a714c075cba414e7328121a1f6",
+    "semantic_hash": "f4e042a714c075cba414e7328121a1f6"
+  },
+  "tv_autotuner/coins.txt": {
+    "mtime": 1783641440.020665,
+    "ast_hash": "75d0635bb72cf272caf3898445f005f2",
+    "semantic_hash": "75d0635bb72cf272caf3898445f005f2"
+  },
+  "tv_autotuner/requirements.txt": {
+    "mtime": 1783635688.4505148,
+    "ast_hash": "0b7e15a4cf584f307d121fe8b614b722",
+    "semantic_hash": "0b7e15a4cf584f307d121fe8b614b722"
+  },
+  "reports/SR_Trend_v5_Optimization_Report_2026-05-21.pdf": {
+    "mtime": 1779372932.031186,
+    "ast_hash": "9ca8e073b8585cbf1fa6ef49effdd5a9",
+    "semantic_hash": "9ca8e073b8585cbf1fa6ef49effdd5a9"
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.15.48\u202fAM.png": {
+    "mtime": 1780776951.3573697,
+    "ast_hash": "41019a47a7d5983cc02ad6f8b6d39515",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.15.50\u202fAM.png": {
+    "mtime": 1780776955.1178274,
+    "ast_hash": "341257d5ac09603a65d2ea4561e707d7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.15.54\u202fAM.png": {
+    "mtime": 1780776957.540569,
+    "ast_hash": "a9fbac354dfc5077bc39805ffae01828",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.15.56\u202fAM.png": {
+    "mtime": 1780776959.4330819,
+    "ast_hash": "9c45cafe09223dc85b31d550716ac590",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.15.58\u202fAM.png": {
+    "mtime": 1780776961.4376478,
+    "ast_hash": "8e7782d87d76101d0992cf2b70e6f3f6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.00\u202fAM.png": {
+    "mtime": 1780776963.707169,
+    "ast_hash": "ed1eff2152c481e0a9d2c273fc794597",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.03\u202fAM.png": {
+    "mtime": 1780776968.1434731,
+    "ast_hash": "b9d169402007deab6158da264a9cfe68",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.07\u202fAM.png": {
+    "mtime": 1780776971.066039,
+    "ast_hash": "0c4d6bb368f9f0b766dbe866ea4b5fd5",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.10\u202fAM.png": {
+    "mtime": 1780776974.379488,
+    "ast_hash": "360ce91478401e2672c6c4ef96c03230",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.13\u202fAM.png": {
+    "mtime": 1780776976.2385223,
+    "ast_hash": "02d6010fdfbe4294d305b557f21dcd2a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.15\u202fAM.png": {
+    "mtime": 1780776979.267912,
+    "ast_hash": "ed70a2a72e237005895905bb28963310",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.18\u202fAM.png": {
+    "mtime": 1780776981.2837172,
+    "ast_hash": "8275cde2dca26038a765bac879c20fb5",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 1.16.20\u202fAM.png": {
+    "mtime": 1780776986.9095302,
+    "ast_hash": "2d41237a0ee026d27587c41e00bd64c9",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ALGO/Screenshot 2026-06-07 at 2.01.24\u202fAM.png": {
+    "mtime": 1780779690.3742588,
+    "ast_hash": "33e1d78030b1cc06efc2ed70f61c5c04",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.02\u202fAM.png": {
+    "mtime": 1780779607.020097,
+    "ast_hash": "22415f7c2a6f301edfb9b5a3e7fd807a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.06\u202fAM.png": {
+    "mtime": 1780779612.8397884,
+    "ast_hash": "ff730fefd2b31db068938b4ed34f6bb9",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.14\u202fAM.png": {
+    "mtime": 1780779617.7595615,
+    "ast_hash": "0e8a04a77cb7d9d1175a94bf3b10d6f3",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.17\u202fAM.png": {
+    "mtime": 1780779620.1117163,
+    "ast_hash": "a6c636213afb1d02bfe3ee2158362c43",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.19\u202fAM.png": {
+    "mtime": 1780779622.2976983,
+    "ast_hash": "813b8fda5de175bad2a6cbc7d891368d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.21\u202fAM.png": {
+    "mtime": 1780779624.2654958,
+    "ast_hash": "9adf1b57f42d850a780cf3261bbce45c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.23\u202fAM.png": {
+    "mtime": 1780779626.5957122,
+    "ast_hash": "f6ab47a3fdf68ccdb566c0a920ee93a4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.26\u202fAM.png": {
+    "mtime": 1780779629.50508,
+    "ast_hash": "30aac95460bb18068e9d7ed4ab63f594",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.28\u202fAM.png": {
+    "mtime": 1780779631.581286,
+    "ast_hash": "7290a4e0cc6197f77ea68b9308a9cc4a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.30\u202fAM.png": {
+    "mtime": 1780779633.7504747,
+    "ast_hash": "bc3388b8bdd563b2950562fee2b7e411",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.33\u202fAM.png": {
+    "mtime": 1780779636.545276,
+    "ast_hash": "45469d972d09e54ad27708dfef6f8875",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.35\u202fAM.png": {
+    "mtime": 1780779639.6187847,
+    "ast_hash": "869794c2ec181efe0d2760168b39a48c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/INJ/Screenshot 2026-06-07 at 2.00.39\u202fAM.png": {
+    "mtime": 1780779645.510198,
+    "ast_hash": "6b86104771562db88e03ee288cbdc183",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.49.45\u202fAM.png": {
+    "mtime": 1780775388.5392008,
+    "ast_hash": "957de32dc61969dab3096c4efbb06e75",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.49.47\u202fAM.png": {
+    "mtime": 1780775390.60238,
+    "ast_hash": "fbf3f85f97aaf2a9c056ad2b903ef427",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.49.50\u202fAM.png": {
+    "mtime": 1780775392.4963899,
+    "ast_hash": "b2420dcec3af4843ffa149e3e9d65992",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.49.51\u202fAM.png": {
+    "mtime": 1780775394.2924078,
+    "ast_hash": "fa512487b286f75f9b0483770503b659",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.49.53\u202fAM.png": {
+    "mtime": 1780775397.3759952,
+    "ast_hash": "70b6644cc09a028c8e398be310029eb6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.49.56\u202fAM.png": {
+    "mtime": 1780775399.1792822,
+    "ast_hash": "6e0d9445ac874c296098f4373585a07b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.49.58\u202fAM.png": {
+    "mtime": 1780775401.008687,
+    "ast_hash": "fafbf6163d579d7d251e27fac55ac05b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.50.00\u202fAM.png": {
+    "mtime": 1780775403.4017487,
+    "ast_hash": "39cd8c21eb6779b39fb60754031105f6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.50.02\u202fAM.png": {
+    "mtime": 1780775405.0158422,
+    "ast_hash": "453b61fca837c6e74240f8e8452aea60",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.50.04\u202fAM.png": {
+    "mtime": 1780775407.5625212,
+    "ast_hash": "e1718ee7c7b16fa3deab54fd2e25421f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.50.06\u202fAM.png": {
+    "mtime": 1780775411.1887538,
+    "ast_hash": "2865c5d094ffb32bc843fa53d0baf3b8",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 12.50.10\u202fAM.png": {
+    "mtime": 1780775416.9017363,
+    "ast_hash": "9bb5863b923384073782b33f1cf1bffe",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/MORHPO/Screenshot 2026-06-07 at 2.01.46\u202fAM.png": {
+    "mtime": 1780779712.396154,
+    "ast_hash": "2b0bb5f40c0a32074cf1d9577a94714f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.01\u202fAM.png": {
+    "mtime": 1780775164.240114,
+    "ast_hash": "ca9ff5c409838aee7b7586b7044936d7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.03\u202fAM.png": {
+    "mtime": 1780775166.5101657,
+    "ast_hash": "431a87f7cd61347ac45dda70fb14e3fd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.05\u202fAM.png": {
+    "mtime": 1780775168.4664073,
+    "ast_hash": "41c06c8a4ebc4e1fe37dfec7ba3491ca",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.07\u202fAM.png": {
+    "mtime": 1780775170.454763,
+    "ast_hash": "fb8f650b9a85c5503dd1b685cad28c08",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.09\u202fAM.png": {
+    "mtime": 1780775172.586299,
+    "ast_hash": "2c20701f75e4d65e88045c23d29483b5",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.11\u202fAM.png": {
+    "mtime": 1780775175.1196442,
+    "ast_hash": "fd508954947656881b500f49d796cc69",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.14\u202fAM.png": {
+    "mtime": 1780775177.9531813,
+    "ast_hash": "bfef1110c2459e3d9dac6e1513ff17e4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.17\u202fAM.png": {
+    "mtime": 1780775180.2227433,
+    "ast_hash": "e6fe031e33b183dc86d7504d86d2cbed",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.19\u202fAM.png": {
+    "mtime": 1780775182.0157561,
+    "ast_hash": "a99f06c30f15810d5c518ab98f73815a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.21\u202fAM.png": {
+    "mtime": 1780775183.697494,
+    "ast_hash": "170203df213a8af0cfe8022d0751881d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 12.46.23\u202fAM.png": {
+    "mtime": 1780775188.8821967,
+    "ast_hash": "0025ba14e297e8c488cf9d754f9410e0",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/NEAR/Screenshot 2026-06-07 at 2.02.08\u202fAM.png": {
+    "mtime": 1780779734.0582836,
+    "ast_hash": "970cc8852cf8dc0161873b81d10c02e2",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.33\u202fAM.png": {
+    "mtime": 1780775677.6030781,
+    "ast_hash": "cbe204815fbc7b3199f160dcb1b6bb20",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.37\u202fAM.png": {
+    "mtime": 1780775679.6588306,
+    "ast_hash": "f9ffbd1adc400af1dd30c2c676b98a90",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.39\u202fAM.png": {
+    "mtime": 1780775682.0230849,
+    "ast_hash": "29b7c8bb8f2e3fa59826780641190cae",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.41\u202fAM.png": {
+    "mtime": 1780775684.262655,
+    "ast_hash": "691392ff7ff258dc8418337041f9f053",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.43\u202fAM.png": {
+    "mtime": 1780775686.903526,
+    "ast_hash": "4c59e14b39aa49ddd9fc5457397ccae8",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.46\u202fAM.png": {
+    "mtime": 1780775689.5389328,
+    "ast_hash": "64ef2355a1684e3c51ff14f1b6072c27",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.48\u202fAM.png": {
+    "mtime": 1780775692.407536,
+    "ast_hash": "e1e418a88146f9edd25d19122671f81a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.51\u202fAM.png": {
+    "mtime": 1780775694.5755324,
+    "ast_hash": "fb545ba4137285fa3ae1d8889b0eaab0",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.53\u202fAM.png": {
+    "mtime": 1780775697.010873,
+    "ast_hash": "a85fd5ea7ee92cb08622464712c7557e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.56\u202fAM.png": {
+    "mtime": 1780775699.317292,
+    "ast_hash": "d36bbdb86ea187dc1bc0981e1ab5fafc",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.54.58\u202fAM.png": {
+    "mtime": 1780775701.6279936,
+    "ast_hash": "85bef63fc412712aec1ad1a4e024f5fd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 12.55.01\u202fAM.png": {
+    "mtime": 1780775707.3001766,
+    "ast_hash": "c2dccd73f532e8e0db31a3ed9e587405",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V1/ZEC/Screenshot 2026-06-07 at 2.01.06\u202fAM.png": {
+    "mtime": 1780779671.9164863,
+    "ast_hash": "5871ea516dfe574a01f575e3452276fc",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.48.36\u202fPM.png": {
+    "mtime": 1780940922.3334978,
+    "ast_hash": "2f053a06423b74888f92d947c14b02b0",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.48.42\u202fPM.png": {
+    "mtime": 1780940925.421402,
+    "ast_hash": "2e71b5246fbd4b46b51d591212a7dd97",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.48.44\u202fPM.png": {
+    "mtime": 1780940928.6177888,
+    "ast_hash": "3270c6d6a84ee1c13dc1d877a6b87d65",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.48.48\u202fPM.png": {
+    "mtime": 1780940932.9803488,
+    "ast_hash": "46cf443c978d40686f9799bea2cf63e4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.48.52\u202fPM.png": {
+    "mtime": 1780940935.315448,
+    "ast_hash": "f095baf0307b59577ce8a967818b132d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.48.54\u202fPM.png": {
+    "mtime": 1780940937.8726423,
+    "ast_hash": "da5447849b471a92f83b47bef0f4f052",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.48.57\u202fPM.png": {
+    "mtime": 1780940940.8356922,
+    "ast_hash": "825685a7661e7ee2dba927bc7457a62b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.00\u202fPM.png": {
+    "mtime": 1780940943.8841453,
+    "ast_hash": "fc567022216f591154625a3096d839fd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.03\u202fPM.png": {
+    "mtime": 1780940946.7303855,
+    "ast_hash": "8654a017e063f0635275221ab1dda812",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.06\u202fPM.png": {
+    "mtime": 1780940949.307098,
+    "ast_hash": "a70b1f7ded2f8931682e0ee754e12651",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.08\u202fPM.png": {
+    "mtime": 1780940952.300364,
+    "ast_hash": "991b40107cbe6303d79a9fca7e4c2967",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.11\u202fPM.png": {
+    "mtime": 1780940954.7307565,
+    "ast_hash": "96d55ee5bd2664d93ca2ccc50c04bda7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.14\u202fPM.png": {
+    "mtime": 1780940957.031407,
+    "ast_hash": "9a2a044a08a865ac513a1a86ed7ebc20",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.16\u202fPM.png": {
+    "mtime": 1780940959.596196,
+    "ast_hash": "e8846b373502d12050413503e8d30fd2",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.19\u202fPM.png": {
+    "mtime": 1780940961.8287184,
+    "ast_hash": "f896b29b6b93c37f2e14375f8857a706",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.21\u202fPM.png": {
+    "mtime": 1780940964.790586,
+    "ast_hash": "3cbd2ac98eef2a12b7222f99fcbef187",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.49.24\u202fPM.png": {
+    "mtime": 1780940970.4045537,
+    "ast_hash": "3e3142184c6ade943d2da123b3679957",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ALGO/Screenshot 2026-06-08 at 10.52.19\u202fPM.png": {
+    "mtime": 1780941145.2554898,
+    "ast_hash": "f3753e4f2f82c4a32ff4298fb7774003",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.12.51\u202fAM.png": {
+    "mtime": 1780945977.211271,
+    "ast_hash": "85b6e4bd0f8e7338ca3f158a46f7fd10",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.12.57\u202fAM.png": {
+    "mtime": 1780945981.3125315,
+    "ast_hash": "0c35b7ee566b45ef862996e6f13116b4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.00\u202fAM.png": {
+    "mtime": 1780945986.0985644,
+    "ast_hash": "d562e2db17ba52b2efc103ad211cad86",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.05\u202fAM.png": {
+    "mtime": 1780945988.037155,
+    "ast_hash": "7c3df070f8df37b233b813c3d9ed9ad4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.07\u202fAM.png": {
+    "mtime": 1780945990.312287,
+    "ast_hash": "11467c64d8ab60419e3026f35aaaa5cc",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.09\u202fAM.png": {
+    "mtime": 1780945993.5947864,
+    "ast_hash": "30ba312fc0f99de121fc1ba8b590d68d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.12\u202fAM.png": {
+    "mtime": 1780945996.3383567,
+    "ast_hash": "5237ec5faba7c63bf4e7831e59baa570",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.15\u202fAM.png": {
+    "mtime": 1780945999.3910015,
+    "ast_hash": "a7d92a81ab43e11cc00718bc7da56579",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.18\u202fAM.png": {
+    "mtime": 1780946002.2873328,
+    "ast_hash": "203261b32ea16c5871387a0163e12e4a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.21\u202fAM.png": {
+    "mtime": 1780946005.0236864,
+    "ast_hash": "d3184cd7676a3d547788b06b4daacab4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.24\u202fAM.png": {
+    "mtime": 1780946007.788283,
+    "ast_hash": "a8d8773ed38f624875c10b26b8592d4f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.27\u202fAM.png": {
+    "mtime": 1780946010.362303,
+    "ast_hash": "247649b08e923f71e3bb5fc09d03f09a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.29\u202fAM.png": {
+    "mtime": 1780946012.40305,
+    "ast_hash": "d5510473c79d6eb7fa3ae500541be246",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.31\u202fAM.png": {
+    "mtime": 1780946015.9262972,
+    "ast_hash": "e9cfa42d2d6205b7e758d1a67d2ace4d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.35\u202fAM.png": {
+    "mtime": 1780946019.3897872,
+    "ast_hash": "148231bc3ef417ecc3cff74a189c2823",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.38\u202fAM.png": {
+    "mtime": 1780946023.2235541,
+    "ast_hash": "fa100db6e05a07a3acfff31809e5e82d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/DEXE/Screenshot 2026-06-09 at 12.13.42\u202fAM.png": {
+    "mtime": 1780946028.330357,
+    "ast_hash": "3f7c7e55449a9355e7fc0dbe7a5cc51e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.09.56\u202fAM.png": {
+    "mtime": 1780945801.320787,
+    "ast_hash": "bf314da62acd6341882a5055af2e2578",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.00\u202fAM.png": {
+    "mtime": 1780945803.3913753,
+    "ast_hash": "b804a56b0f1978c982228a7a6017cf4f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.02\u202fAM.png": {
+    "mtime": 1780945806.3611236,
+    "ast_hash": "f9a89363c2a3a173b385bde0b32998f7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.05\u202fAM.png": {
+    "mtime": 1780945809.3276324,
+    "ast_hash": "8ea48a188504dc96ceb23b339986e747",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.08\u202fAM.png": {
+    "mtime": 1780945812.0259888,
+    "ast_hash": "1c5ee6d8df1a62dd24f7465b903e8850",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.11\u202fAM.png": {
+    "mtime": 1780945814.8438597,
+    "ast_hash": "05e830a3ca4a91e67147e13c74c51200",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.14\u202fAM.png": {
+    "mtime": 1780945819.4432454,
+    "ast_hash": "a124010b6f81ad4a25052192434592ab",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.18\u202fAM.png": {
+    "mtime": 1780945822.4607885,
+    "ast_hash": "570345ca52209f5ae2bb199c2b817c9f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.21\u202fAM.png": {
+    "mtime": 1780945825.48109,
+    "ast_hash": "1cf003cdf9cff5d5db7900763a3e440e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.24\u202fAM.png": {
+    "mtime": 1780945830.6646128,
+    "ast_hash": "8a0df94d77213ef8e4d7ce18544fc708",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.30\u202fAM.png": {
+    "mtime": 1780945833.7928555,
+    "ast_hash": "e65684c01a3879857faf818e930a0cac",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.33\u202fAM.png": {
+    "mtime": 1780945836.660753,
+    "ast_hash": "e2b7576079738b5d4c1d2da692d39cac",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.36\u202fAM.png": {
+    "mtime": 1780945839.5865345,
+    "ast_hash": "d03cfd7c0ca5cb09f1f0a94e33bef4bc",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.38\u202fAM.png": {
+    "mtime": 1780945842.1591392,
+    "ast_hash": "ad5e884cb7fd220a90f6c2fcc6965064",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.41\u202fAM.png": {
+    "mtime": 1780945845.2429771,
+    "ast_hash": "124c67e26d13f05ec9f90b6a0dd5e142",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.44\u202fAM.png": {
+    "mtime": 1780945847.2443495,
+    "ast_hash": "4810d86718451a6257b06b028cd845e2",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/INJ/Screenshot 2026-06-09 at 12.10.46\u202fAM.png": {
+    "mtime": 1780945852.4844978,
+    "ast_hash": "6ebb36e63aa0cce175e6bc4f458a4ed6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.30\u202fAM.png": {
+    "mtime": 1780870595.2942834,
+    "ast_hash": "44ab84d8bc361b7974b6a3258e559053",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.34\u202fAM.png": {
+    "mtime": 1780870598.8422546,
+    "ast_hash": "e78e7665e9b37b07ac40e4cca5a1ba8c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.38\u202fAM.png": {
+    "mtime": 1780870602.6400032,
+    "ast_hash": "97e8d33a758a55e61356ba1b4c312842",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.42\u202fAM.png": {
+    "mtime": 1780870608.2206266,
+    "ast_hash": "bfc94d550737406432c6ab37d6968820",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.49\u202fAM.png": {
+    "mtime": 1780870612.1711006,
+    "ast_hash": "da9b085cfe5643cdcda1d8239d334ce4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.51\u202fAM.png": {
+    "mtime": 1780870614.2949102,
+    "ast_hash": "0e790efd0bbcdbb7ed20b4098a774a31",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.53\u202fAM.png": {
+    "mtime": 1780870616.372773,
+    "ast_hash": "5d2dba8b5039ae358f3cd9e2c797f13d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.55\u202fAM.png": {
+    "mtime": 1780870618.5588143,
+    "ast_hash": "9f5c86f03cd16b5aba03df124a8fc8b7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.57\u202fAM.png": {
+    "mtime": 1780870620.4923952,
+    "ast_hash": "9f055f7a45e1dedb4c3c30c49f29000f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.16.59\u202fAM.png": {
+    "mtime": 1780870622.8536115,
+    "ast_hash": "0c2798d53a230ef65e3c4ab88f9d5a29",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.17.02\u202fAM.png": {
+    "mtime": 1780870625.0120184,
+    "ast_hash": "917671664fab49e079bffe673a3a71de",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.17.04\u202fAM.png": {
+    "mtime": 1780870627.3658922,
+    "ast_hash": "f8519e49d10be4a7d73fe84fbe0a8afd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.17.06\u202fAM.png": {
+    "mtime": 1780870629.4283187,
+    "ast_hash": "5a03e093bf0bf5b3b92cb2fde39e8af0",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.17.08\u202fAM.png": {
+    "mtime": 1780870631.631343,
+    "ast_hash": "85dc04fdf16667dbb53b70fa78dddce3",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.17.11\u202fAM.png": {
+    "mtime": 1780870633.92129,
+    "ast_hash": "bce04c95b3685f5d492b1f20f82bd318",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.17.13\u202fAM.png": {
+    "mtime": 1780870637.4893675,
+    "ast_hash": "ec5b46fd591e5566a3be3ab22537183f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/JTO/Screenshot 2026-06-08 at 3.17.16\u202fAM.png": {
+    "mtime": 1780870643.2974293,
+    "ast_hash": "f75f8aee16d85281c15f65fb1621e551",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.57.46\u202fAM.png": {
+    "mtime": 1783636852.4921272,
+    "ast_hash": "d4896640f17cc961f4cc04d6c58c895c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.57.48\u202fAM.png": {
+    "mtime": 1780869473.3947988,
+    "ast_hash": "1c87972c9731d035ec2cb4d44830c549",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.57.52\u202fAM.png": {
+    "mtime": 1780869476.1175165,
+    "ast_hash": "4ab57ed216891e9122832ec5c5b48532",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.57.55\u202fAM.png": {
+    "mtime": 1780869478.60115,
+    "ast_hash": "19b90be766ffd5933a9efdbb1d3f4cee",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.57.58\u202fAM.png": {
+    "mtime": 1780869481.1657598,
+    "ast_hash": "7e949f420a117cfa300a2be7646e8427",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.00\u202fAM.png": {
+    "mtime": 1780869485.1786015,
+    "ast_hash": "ba9f34e7d31f272dd266cb46dfd07d4d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.04\u202fAM.png": {
+    "mtime": 1780869488.267715,
+    "ast_hash": "5a98f42aa41c4150edf22a2532587e4a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.07\u202fAM.png": {
+    "mtime": 1780869491.0256855,
+    "ast_hash": "1783f86488eefbec9e68780d6150e991",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.10\u202fAM.png": {
+    "mtime": 1780869493.5558355,
+    "ast_hash": "d6fa88cce44b4d1e3e5ee3afe5096058",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.12\u202fAM.png": {
+    "mtime": 1780869496.3751953,
+    "ast_hash": "120688c4fb65b8b1c50c05ec447bb84e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.15\u202fAM.png": {
+    "mtime": 1780869499.2925978,
+    "ast_hash": "8880b564f788bf5306b1d14d5345e392",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.18\u202fAM.png": {
+    "mtime": 1780869501.9091384,
+    "ast_hash": "070f810fb3e18715066d603e64978158",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.21\u202fAM.png": {
+    "mtime": 1780869505.1011622,
+    "ast_hash": "4f94a7317e01e78b8c0cbebd2d962c57",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.24\u202fAM.png": {
+    "mtime": 1780869507.8674188,
+    "ast_hash": "c5f9941ffbcd9f92bf2644aa5f462504",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.27\u202fAM.png": {
+    "mtime": 1780869512.7419622,
+    "ast_hash": "3438ff8e783eb60358559cf6b1124504",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 2.58.32\u202fAM.png": {
+    "mtime": 1780869518.0557346,
+    "ast_hash": "9aa125dd163e3a83cf4f3e79a85a1090",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/MORHPO/Screenshot 2026-06-08 at 3.18.07\u202fAM.png": {
+    "mtime": 1780870694.695134,
+    "ast_hash": "7986e6299370104014663049375e303b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.15\u202fAM.png": {
+    "mtime": 1780874781.5802166,
+    "ast_hash": "7bfb7db5c2774f52bb0b1448f1267910",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.20\u202fAM.png": {
+    "mtime": 1780874784.9142268,
+    "ast_hash": "695add0e56c0327a26a36970f62f6319",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.24\u202fAM.png": {
+    "mtime": 1780874787.9822097,
+    "ast_hash": "d11cb9601ea4018eceb893f8776916ea",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.27\u202fAM.png": {
+    "mtime": 1780874791.7669692,
+    "ast_hash": "7f0e6c694667e4d1dea43e110ff86c6b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.31\u202fAM.png": {
+    "mtime": 1780874797.2608654,
+    "ast_hash": "0bce8ba657766a1d49d897825daf0db1",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.36\u202fAM.png": {
+    "mtime": 1780874800.2181883,
+    "ast_hash": "8c108e7725176bdd3f55fe1d49e36bd1",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.39\u202fAM.png": {
+    "mtime": 1780874802.9828107,
+    "ast_hash": "f053102ef839b5218f91d5d1bf2bfb54",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.42\u202fAM.png": {
+    "mtime": 1780874805.725675,
+    "ast_hash": "147037b8da473ec17f81cad12fa2a880",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.45\u202fAM.png": {
+    "mtime": 1780874808.1361609,
+    "ast_hash": "0333209090c781338b3eaa35d39884c5",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.47\u202fAM.png": {
+    "mtime": 1780874811.0272915,
+    "ast_hash": "d9534e00e1e83d0c9cea6db70a89de94",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.50\u202fAM.png": {
+    "mtime": 1780874814.195432,
+    "ast_hash": "78771f05119b291d0cc27ef8c6fbefc1",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.53\u202fAM.png": {
+    "mtime": 1780874817.4800081,
+    "ast_hash": "5a7363a9fbfc1f0c4c57d9efd85bcb5b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.26.56\u202fAM.png": {
+    "mtime": 1780874820.918107,
+    "ast_hash": "732552cc8325878e2d6d9976cbe4dd96",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.27.00\u202fAM.png": {
+    "mtime": 1780874823.9712203,
+    "ast_hash": "4e5ac5cebd91939a72622b314daf3dec",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.27.03\u202fAM.png": {
+    "mtime": 1780874827.0295868,
+    "ast_hash": "4f8c4fad94a839dd6323bc67ddcd1e86",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.27.06\u202fAM.png": {
+    "mtime": 1780874829.6657128,
+    "ast_hash": "0ad14c6b32f396b29d82b92519ed6679",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.27.09\u202fAM.png": {
+    "mtime": 1780874833.4056897,
+    "ast_hash": "eaba8cca0cad5af570262a9d094ec26f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/MA + RR V5/ZEC/Screenshot 2026-06-08 at 4.27.12\u202fAM.png": {
+    "mtime": 1780874838.5870554,
+    "ast_hash": "15f2fa033b2bc97a61982457d7849eac",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.26\u202fAM.png": {
+    "mtime": 1780095091.7020004,
+    "ast_hash": "a04f73f25317b9bd724ea74f54050638",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.33\u202fAM.png": {
+    "mtime": 1780095097.7209764,
+    "ast_hash": "d22a69dd028e032883341004423dd1c6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.37\u202fAM.png": {
+    "mtime": 1780095100.4176977,
+    "ast_hash": "5fed58ae7e67c3c6a0fafdbbeda5ff17",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.39\u202fAM.png": {
+    "mtime": 1780095102.9156363,
+    "ast_hash": "f361038473babf416f899e3e647e7541",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.42\u202fAM.png": {
+    "mtime": 1780095105.0494323,
+    "ast_hash": "0a35e522c248426a98905677656d1d94",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.44\u202fAM.png": {
+    "mtime": 1780095107.4618847,
+    "ast_hash": "8f35e9e221ab7dd3722fca59f18ac987",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.46\u202fAM.png": {
+    "mtime": 1780095109.9872513,
+    "ast_hash": "04d0ecd29ae3bcc52631b823fe6f4ac2",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.49\u202fAM.png": {
+    "mtime": 1780095112.6716416,
+    "ast_hash": "f3ea5882b73325051d3368829cc66cc3",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.52\u202fAM.png": {
+    "mtime": 1780095115.870231,
+    "ast_hash": "fd6085c65464394728ae6eb49414fc00",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.55\u202fAM.png": {
+    "mtime": 1780095118.6841419,
+    "ast_hash": "2adc07128cf66f8cbabe4f26a255a593",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.51.58\u202fAM.png": {
+    "mtime": 1780095121.64433,
+    "ast_hash": "5b264d6083866b52c5f0d5e607687ccd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.52.01\u202fAM.png": {
+    "mtime": 1780095124.3513448,
+    "ast_hash": "0005a117dc061fd920fb49a5d6a01deb",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 3.52.03\u202fAM.png": {
+    "mtime": 1780095129.6746948,
+    "ast_hash": "d3684a53f2056175c3ab034c7893c0c8",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/NEAR/Screenshot 2026-05-30 at 4.32.15\u202fAM.png": {
+    "mtime": 1780097540.7867227,
+    "ast_hash": "5e48dc680adb7fd15bf11a64a054c823",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.22\u202fAM.png": {
+    "mtime": 1780014147.3276377,
+    "ast_hash": "e3889a42a0dc6406e0ffbb0ae9224f44",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.26\u202fAM.png": {
+    "mtime": 1780014151.6779397,
+    "ast_hash": "4dcc4833b769dc9afb9c49c867d33acd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.31\u202fAM.png": {
+    "mtime": 1780014155.498255,
+    "ast_hash": "bbf0164dd01516807999603399362413",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.34\u202fAM.png": {
+    "mtime": 1780014158.7618315,
+    "ast_hash": "a5b12706167e1a32d13060b877477ffd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.38\u202fAM.png": {
+    "mtime": 1780014162.198129,
+    "ast_hash": "a4fdfa577549509566cd80e9ea513782",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.41\u202fAM.png": {
+    "mtime": 1780014165.1862218,
+    "ast_hash": "9d191016f97ee2d3bcaacc2637648d2c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.44\u202fAM.png": {
+    "mtime": 1780014167.738741,
+    "ast_hash": "283e002e22600db754e3353edf04256a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.47\u202fAM.png": {
+    "mtime": 1780014173.0226998,
+    "ast_hash": "aba893817027f48aa87c65827d295ec3",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.55\u202fAM.png": {
+    "mtime": 1780014178.8804576,
+    "ast_hash": "3cd826e6b5a1b1ebc548a43e67e8c4ec",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.22.58\u202fAM.png": {
+    "mtime": 1780014182.311044,
+    "ast_hash": "446f63991dcb905393034b142d63e37b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.23.01\u202fAM.png": {
+    "mtime": 1780014185.5899034,
+    "ast_hash": "e7621e28c87147675784dd8f4e66936b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.23.04\u202fAM.png": {
+    "mtime": 1780014189.4745247,
+    "ast_hash": "3c95120526b774fa38109185083e1b60",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.23.08\u202fAM.png": {
+    "mtime": 1780014193.0410473,
+    "ast_hash": "15e3101902d8ffc2f09701c1624f7518",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.23.12\u202fAM.png": {
+    "mtime": 1780014198.9535744,
+    "ast_hash": "016803c06cabc04847e3e3a6bbe6df11",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/apt/Screenshot 2026-05-29 at 5.23.20\u202fAM.png": {
+    "mtime": 1780014205.924201,
+    "ast_hash": "73a4ae1f0356a58d1216fcd14c397689",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.33\u202fAM.png": {
+    "mtime": 1780093419.1385763,
+    "ast_hash": "5876d0772c540007d3d3c7d630a40576",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.38\u202fAM.png": {
+    "mtime": 1780093422.9281917,
+    "ast_hash": "2c4d7ad876a338b2960335e37374857e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.42\u202fAM.png": {
+    "mtime": 1780093426.753423,
+    "ast_hash": "2dbe5fc75e32917a85989028494df223",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.46\u202fAM.png": {
+    "mtime": 1780093430.0940683,
+    "ast_hash": "95e09529d28fec8b18e3b5b7f4b253fb",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.49\u202fAM.png": {
+    "mtime": 1780093433.042159,
+    "ast_hash": "46784d7542c19ad0bfdceaf928bfadfd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.52\u202fAM.png": {
+    "mtime": 1780093436.1382432,
+    "ast_hash": "b8549391c1fafa8366733d07b9cf034e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.55\u202fAM.png": {
+    "mtime": 1780093438.8878114,
+    "ast_hash": "b30b471f67d319364ebb834ebc11c689",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.23.58\u202fAM.png": {
+    "mtime": 1780093441.4805887,
+    "ast_hash": "c8668dee662acbd25e089beb7fce636b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.24.00\u202fAM.png": {
+    "mtime": 1780093444.1457453,
+    "ast_hash": "f45ec189aa993fe628ac1ba3208c2618",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.24.03\u202fAM.png": {
+    "mtime": 1780093447.226034,
+    "ast_hash": "59cd42028f5149ce984e784ad15f4ad6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.24.06\u202fAM.png": {
+    "mtime": 1780093450.3452096,
+    "ast_hash": "e4c5d70a2a521082444b192eb997a86f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.24.09\u202fAM.png": {
+    "mtime": 1780093453.5426562,
+    "ast_hash": "b316b5c3c4f59dd4ab2547b1f3b4c764",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 3.24.15\u202fAM.png": {
+    "mtime": 1780093461.5551002,
+    "ast_hash": "a7d3888510d46ebdf847fd991f86603b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 4.46.13\u202fAM.png": {
+    "mtime": 1780098378.7268903,
+    "ast_hash": "64c544b25d0bdbb9152cb3bb956eaa16",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/inj/Screenshot 2026-05-30 at 4.46.20\u202fAM.png": {
+    "mtime": 1780098386.315725,
+    "ast_hash": "022d3408327163e2dbee8f4360187b49",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.06\u202fPM.png": {
+    "mtime": 1779986892.440939,
+    "ast_hash": "00b51978e5c9cf1df4c847759ab1be29",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.14\u202fPM.png": {
+    "mtime": 1779986897.4103987,
+    "ast_hash": "9e59c64d15364701c1f0d22d90737cb6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.16\u202fPM.png": {
+    "mtime": 1779986899.9667542,
+    "ast_hash": "7cf7872814f42df1fd5da5ec7e9f36a9",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.19\u202fPM.png": {
+    "mtime": 1779986902.4931686,
+    "ast_hash": "1172549800a09d05cac6feac4376a0d5",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.21\u202fPM.png": {
+    "mtime": 1779986905.027116,
+    "ast_hash": "7d70294edda7edac51ac2273c8c0b30a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.24\u202fPM.png": {
+    "mtime": 1779986907.8491437,
+    "ast_hash": "0ab366ead5eb3f493c5299d4f1a5bde4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.27\u202fPM.png": {
+    "mtime": 1779986910.0272818,
+    "ast_hash": "4011dba07e6094bb01e584ab269422f8",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.29\u202fPM.png": {
+    "mtime": 1779986913.0396547,
+    "ast_hash": "8b4ad19113cb2d03d24b8d83b3b7287b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.32\u202fPM.png": {
+    "mtime": 1779986915.7068772,
+    "ast_hash": "56fab8c6e47a3c8ab0ca064f34524e43",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.35\u202fPM.png": {
+    "mtime": 1779986918.412436,
+    "ast_hash": "ed0c33cdd16c8185fdda1f7cea09ced6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.37\u202fPM.png": {
+    "mtime": 1779986923.8907971,
+    "ast_hash": "a2c2bd2176c26e8f872208f7ba7948f1",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.44\u202fPM.png": {
+    "mtime": 1779986927.123282,
+    "ast_hash": "65543e6025e1547e59073e7c08f1794e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.46\u202fPM.png": {
+    "mtime": 1779986929.6425054,
+    "ast_hash": "d4218c7fe60697becc35b184be7bd44f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-28 at 9.48.49\u202fPM.png": {
+    "mtime": 1779986934.6708622,
+    "ast_hash": "7164680f916de6dd96099fb5841ac71c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/morpho/Screenshot 2026-05-29 at 4.02.09\u202fAM.png": {
+    "mtime": 1780009332.38414,
+    "ast_hash": "804a7a4e0f5eb262122752b085882561",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.02.49\u202fAM.png": {
+    "mtime": 1780106573.6787763,
+    "ast_hash": "6f8347091c55fe224211cb1347ea012a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.02.53\u202fAM.png": {
+    "mtime": 1780106576.107319,
+    "ast_hash": "a9ee2a44e599105582869e9f24b3a585",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.02.55\u202fAM.png": {
+    "mtime": 1780106580.3329852,
+    "ast_hash": "d6c1d0148cbedb1641b0516cf60acda0",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.02.59\u202fAM.png": {
+    "mtime": 1780106583.1204267,
+    "ast_hash": "ae4cd749147b69153d910d8920271d4d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.02\u202fAM.png": {
+    "mtime": 1780106585.6907413,
+    "ast_hash": "650a3fb2dc299ed223019027572057d2",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.05\u202fAM.png": {
+    "mtime": 1780106588.4065669,
+    "ast_hash": "ef41af50f49e73e4f79c80a679e3d81c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.07\u202fAM.png": {
+    "mtime": 1780106590.9962332,
+    "ast_hash": "f8f5073099ff38c449d047435fb32e40",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.10\u202fAM.png": {
+    "mtime": 1780106593.2348986,
+    "ast_hash": "98c3ce6a8bc07fdc2d4cf48876e0426d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.12\u202fAM.png": {
+    "mtime": 1780106595.5715895,
+    "ast_hash": "3eb000724c62f23b868c721b641abc58",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.14\u202fAM.png": {
+    "mtime": 1780106597.8211348,
+    "ast_hash": "91e053e49fe87ea2946114ad8e3b601c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.17\u202fAM.png": {
+    "mtime": 1780106601.3812423,
+    "ast_hash": "3bdd9300a9061b564a6acfad1565a616",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.20\u202fAM.png": {
+    "mtime": 1780106604.7446833,
+    "ast_hash": "2f2780311ae0533e88bbeb503b0cb6e9",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.24\u202fAM.png": {
+    "mtime": 1780106610.315999,
+    "ast_hash": "9677e283a288b106827cab22cc8dd442",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v10/zec/Screenshot 2026-05-30 at 7.03.32\u202fAM.png": {
+    "mtime": 1780106618.2574775,
+    "ast_hash": "16654f749f1bb44d2b2f940a632c2785",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.57.50\u202fAM.png": {
+    "mtime": 1779753476.2702332,
+    "ast_hash": "244794f51f0ce20de6acbbd32ca877b5",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.57.55\u202fAM.png": {
+    "mtime": 1779753478.764667,
+    "ast_hash": "398ea17c6330d97e63085e61f2e6b26c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.57.58\u202fAM.png": {
+    "mtime": 1779753481.0786927,
+    "ast_hash": "de2ca6d48f6ab182f27a535207b54793",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.00\u202fAM.png": {
+    "mtime": 1779753484.5653944,
+    "ast_hash": "cb42c6e3efabb5be8c0242f7bed3cf09",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.03\u202fAM.png": {
+    "mtime": 1779753486.5417376,
+    "ast_hash": "0dd022d5d50ded6f401fd0532ad6a7cb",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.05\u202fAM.png": {
+    "mtime": 1779753488.8077536,
+    "ast_hash": "909644f07cb9ec7f8189aaaed8c0b191",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.08\u202fAM.png": {
+    "mtime": 1779753490.890992,
+    "ast_hash": "be4ed8eb8acd571200134d1731b61483",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.10\u202fAM.png": {
+    "mtime": 1779753493.2161431,
+    "ast_hash": "06ddbe7272a582139a47332b8fec852c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.12\u202fAM.png": {
+    "mtime": 1779753498.5809457,
+    "ast_hash": "e8b0c2e6d5278288c514d1ed9d876f12",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.48\u202fAM.png": {
+    "mtime": 1779753534.039901,
+    "ast_hash": "c1806a5d1f2f8ec7b13021af48bc7c4b",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.53\u202fAM.png": {
+    "mtime": 1779753536.1063402,
+    "ast_hash": "8064c0634c9c39e6e6964ccd2935acd9",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.55\u202fAM.png": {
+    "mtime": 1779753538.9265926,
+    "ast_hash": "e4f92232bfc99974c9017f205180d904",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/Screenshot 2026-05-26 at 4.58.58\u202fAM.png": {
+    "mtime": 1779753544.6858559,
+    "ast_hash": "bba79d35bcc2a39478a69de63ed3a728",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.21.57\u202fPM.png": {
+    "mtime": 1779733323.3161244,
+    "ast_hash": "484057cda3885762b32d79277e5c2614",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.22.02\u202fPM.png": {
+    "mtime": 1779733329.1929822,
+    "ast_hash": "e1506132a7fb7f57ec668d4316da1bc3",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.09\u202fPM.png": {
+    "mtime": 1779733693.766556,
+    "ast_hash": "02696a222a8d7f3f3f59b728a53cc956",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.13\u202fPM.png": {
+    "mtime": 1779733696.598112,
+    "ast_hash": "04f22c02f0d6374a7e2728b849c60743",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.16\u202fPM.png": {
+    "mtime": 1779733698.7497115,
+    "ast_hash": "30cecee153fd807b368c4b27476fd83f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.18\u202fPM.png": {
+    "mtime": 1779733700.8912356,
+    "ast_hash": "276542c24fa0228e1edddd098c6d08e6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.20\u202fPM.png": {
+    "mtime": 1779733703.395779,
+    "ast_hash": "364ea067399e6a0536a382364c5ff58a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.22\u202fPM.png": {
+    "mtime": 1779733705.9000027,
+    "ast_hash": "2988d2c9b1581c28dd395c6716e7f5df",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.25\u202fPM.png": {
+    "mtime": 1779733708.5749612,
+    "ast_hash": "44df5e7d3baa7fa9311a928d2e3535b4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.27\u202fPM.png": {
+    "mtime": 1779733711.210326,
+    "ast_hash": "7f7a298fc4061a767f4d0f19af6583f6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.30\u202fPM.png": {
+    "mtime": 1779733713.4032347,
+    "ast_hash": "74c6c976490bb0296ef67e536439315c",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.32\u202fPM.png": {
+    "mtime": 1779733715.6438816,
+    "ast_hash": "9c24952dfc36cd047ea5f828bd60ea83",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/apt/untitled folder/Screenshot 2026-05-25 at 11.28.35\u202fPM.png": {
+    "mtime": 1779733721.4753144,
+    "ast_hash": "759d9a9db0618ad1164c6a56463e4c1a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.31\u202fAM.png": {
+    "mtime": 1779738695.69902,
+    "ast_hash": "4579c3a7f0087b6c225fdf98dd4d1a3e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.35\u202fAM.png": {
+    "mtime": 1779738700.6085172,
+    "ast_hash": "00909e0cbf8b0a9c3fddd4c85bb98977",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.40\u202fAM.png": {
+    "mtime": 1779738703.7940671,
+    "ast_hash": "7b9ba3a9f2511cab04285af02d701421",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.43\u202fAM.png": {
+    "mtime": 1779738705.9161415,
+    "ast_hash": "dea00229025d4e628dee716a0ec56771",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.45\u202fAM.png": {
+    "mtime": 1779738707.9518588,
+    "ast_hash": "eec07e7b6215e0c1040826022cecfde8",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.47\u202fAM.png": {
+    "mtime": 1779738710.613719,
+    "ast_hash": "1be1f2fa40e852c32183f13f8ad751f7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.50\u202fAM.png": {
+    "mtime": 1779738712.9390087,
+    "ast_hash": "ba9e8bef5efaefee4198020c903c5d25",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.52\u202fAM.png": {
+    "mtime": 1779738716.02175,
+    "ast_hash": "1d5692fa3e1e5be930d8cbdd138d5348",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.55\u202fAM.png": {
+    "mtime": 1779738718.3391366,
+    "ast_hash": "e164a354b65dc1248c0ea608d28bc0cd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.51.57\u202fAM.png": {
+    "mtime": 1779738720.907664,
+    "ast_hash": "619710d46ebd78a213643f8c6f561f83",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.52.00\u202fAM.png": {
+    "mtime": 1779738723.3576393,
+    "ast_hash": "6d3c8ecaa6924290c35f9152e51a2ad9",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.52.02\u202fAM.png": {
+    "mtime": 1779738728.7617977,
+    "ast_hash": "4175784b946b3080cbb313ab58de9d54",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/Screenshot 2026-05-26 at 12.52.08\u202fAM.png": {
+    "mtime": 1779738734.5096571,
+    "ast_hash": "99178549c9862fe4f18fdb7cb586f2e6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.28.47\u202fPM.png": {
+    "mtime": 1779625730.8090122,
+    "ast_hash": "c6fe3df869ccf0d623c665103897e97f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.28.50\u202fPM.png": {
+    "mtime": 1779625733.6103635,
+    "ast_hash": "3aa392f1c0c3fddd845cc07f8728a35e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.28.53\u202fPM.png": {
+    "mtime": 1779625736.648341,
+    "ast_hash": "af9a7ed0a0ab1d5b95cde7f630012717",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.28.56\u202fPM.png": {
+    "mtime": 1779625739.1385906,
+    "ast_hash": "a257bdfd17301f5a7e478564c5a7ba0f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.28.58\u202fPM.png": {
+    "mtime": 1779625741.4664156,
+    "ast_hash": "6a1501278de556211f5af5cb4b43dcd6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.29.00\u202fPM.png": {
+    "mtime": 1779625747.291615,
+    "ast_hash": "0a19c6962712d30cdb49110b55e12e87",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.29.06\u202fPM.png": {
+    "mtime": 1779625753.0926566,
+    "ast_hash": "68f5fb57343a836be60d6f1a41f4bb79",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.29.14\u202fPM.png": {
+    "mtime": 1779625758.1911278,
+    "ast_hash": "c2dfaa7caeff81ad2abd2c4b8e53c422",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.29.17\u202fPM.png": {
+    "mtime": 1779625762.7423465,
+    "ast_hash": "1a25e92e45ceb3eedc6395671e03fafc",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/near/without vol/Screenshot 2026-05-24 at 5.29.22\u202fPM.png": {
+    "mtime": 1779625768.4795392,
+    "ast_hash": "6ffedc3c6fd0c62840662e48123df394",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.34.46\u202fAM.png": {
+    "mtime": 1779672889.9972954,
+    "ast_hash": "04a569d284c493bba9620f1d409e295a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.34.49\u202fAM.png": {
+    "mtime": 1779672893.5003896,
+    "ast_hash": "1ae525ff795cd4bc796e714dc0439a65",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.34.52\u202fAM.png": {
+    "mtime": 1779672898.2050169,
+    "ast_hash": "15f2f3e305caccec2e8f0138a71d14f3",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.34.57\u202fAM.png": {
+    "mtime": 1779672901.4445488,
+    "ast_hash": "18e485c82c588c8717849aa739779d02",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.35.00\u202fAM.png": {
+    "mtime": 1779672904.2701056,
+    "ast_hash": "bc3b0d51698dd9ee67e41640f74e77b4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.35.03\u202fAM.png": {
+    "mtime": 1779672909.6332028,
+    "ast_hash": "d1c605eb709ff0a233e2d4b93d3a4f43",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.35.09\u202fAM.png": {
+    "mtime": 1779672912.8669748,
+    "ast_hash": "683889c4f25243fe3b5eaad731077945",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.35.12\u202fAM.png": {
+    "mtime": 1779672915.4367127,
+    "ast_hash": "17f6ecc3181772ca072fce899a951679",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.35.14\u202fAM.png": {
+    "mtime": 1779672918.786281,
+    "ast_hash": "dfd76e0f98c427844ac5bf8fd8b530ec",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/tia/Screenshot 2026-05-25 at 6.35.18\u202fAM.png": {
+    "mtime": 1779672924.7848995,
+    "ast_hash": "ecf937591ba458bda1407e85aa7be7d1",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.16\u202fAM.png": {
+    "mtime": 1779750862.0103223,
+    "ast_hash": "27637a4e9adbc70310bee72e8b00eb81",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.21\u202fAM.png": {
+    "mtime": 1779750866.0377226,
+    "ast_hash": "754caee0fe9bd527296f3b6f63e0f4af",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.25\u202fAM.png": {
+    "mtime": 1779750869.103625,
+    "ast_hash": "84c791401a7731d11e082afab019e95e",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.28\u202fAM.png": {
+    "mtime": 1779750871.0497048,
+    "ast_hash": "9673daac9aa18cf3b6a729fb0de8a4cc",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.30\u202fAM.png": {
+    "mtime": 1779750873.0883336,
+    "ast_hash": "3a5d468078147250c5c991ec8637f140",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.32\u202fAM.png": {
+    "mtime": 1779750875.124819,
+    "ast_hash": "64de3eb48f04105d0c68ce8c99d8a4c4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.34\u202fAM.png": {
+    "mtime": 1779750878.3837647,
+    "ast_hash": "75be4d85f7742914e227047bda1928d6",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.37\u202fAM.png": {
+    "mtime": 1779750880.9094453,
+    "ast_hash": "51be8672de53d649f700684bb2fc1f15",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.40\u202fAM.png": {
+    "mtime": 1779750884.2883391,
+    "ast_hash": "d9e5997926fd78096b3022e853881ec4",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.43\u202fAM.png": {
+    "mtime": 1779750890.3971093,
+    "ast_hash": "449c3b41d24c794f1e362a21a4ca68a7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.49\u202fAM.png": {
+    "mtime": 1779750893.1183434,
+    "ast_hash": "f8c37f2979d76cab0ed796ac894b851f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.52\u202fAM.png": {
+    "mtime": 1779750896.6231477,
+    "ast_hash": "411ee9ee7f7fbc410a02c1829ef88528",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v8/zec/Screenshot 2026-05-26 at 4.14.56\u202fAM.png": {
+    "mtime": 1779750902.2327335,
+    "ast_hash": "97a392b3896c5bf2842f209c23c320fd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.14.58\u202fAM.png": {
+    "mtime": 1779837302.739544,
+    "ast_hash": "5f2f54ef3e7e8d632cad987a7c72037d",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.02\u202fAM.png": {
+    "mtime": 1779837305.796887,
+    "ast_hash": "80b644440b7147da5a897f31b9ce6934",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.05\u202fAM.png": {
+    "mtime": 1779837308.3372006,
+    "ast_hash": "7f0016bda24aeb487b4d8af74820b422",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.07\u202fAM.png": {
+    "mtime": 1779837311.3353803,
+    "ast_hash": "c159ca4151fd1db6258c2f7b9dc32108",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.10\u202fAM.png": {
+    "mtime": 1779837313.3187027,
+    "ast_hash": "85b84a3b129f07bc92fb5c7f78007801",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.12\u202fAM.png": {
+    "mtime": 1779837315.542373,
+    "ast_hash": "dc968ef05d60c1d4cf4b507d1cd7bd50",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.14\u202fAM.png": {
+    "mtime": 1779837317.6088233,
+    "ast_hash": "e95ca0243d09068c76e1d8b84c4b27d7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.17\u202fAM.png": {
+    "mtime": 1779837320.4406803,
+    "ast_hash": "d64fa851c75552a8eb3f31de0f331579",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.19\u202fAM.png": {
+    "mtime": 1779837323.0603652,
+    "ast_hash": "01bfd95d5c9d30ff17797f5812942da5",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.22\u202fAM.png": {
+    "mtime": 1779837326.8182821,
+    "ast_hash": "68fe34e8803094911a304bbf8f2dba2f",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.26\u202fAM.png": {
+    "mtime": 1779837330.834938,
+    "ast_hash": "cffe5f0393d0294c88cc7f222e6908cb",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.30\u202fAM.png": {
+    "mtime": 1779837335.0526323,
+    "ast_hash": "dd7fefe8571f85373824cefd6cb1178a",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.15.34\u202fAM.png": {
+    "mtime": 1779837340.5279098,
+    "ast_hash": "421e69adbd4bc1cbde48a98dd85d8820",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/morpho/Screenshot 2026-05-27 at 4.16.32\u202fAM.png": {
+    "mtime": 1779837398.0889637,
+    "ast_hash": "b7b06edeeeae7339165eb5db0efc5a43",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.15\u202fPM.png": {
+    "mtime": 1779809961.4990509,
+    "ast_hash": "2adea8d1d855be12a01043e283fd2f92",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.20\u202fPM.png": {
+    "mtime": 1779809966.49036,
+    "ast_hash": "26714eeab0784e16b2cc6f385dfbc4f3",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.25\u202fPM.png": {
+    "mtime": 1779809969.67149,
+    "ast_hash": "c9340328fc646dde246edb1c0ac38190",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.29\u202fPM.png": {
+    "mtime": 1779809971.5231442,
+    "ast_hash": "23538b9bf7528b494dcee39c88a66354",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.30\u202fPM.png": {
+    "mtime": 1779809973.6147308,
+    "ast_hash": "050847d272cb4c5bffc6d1042d1d6894",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.33\u202fPM.png": {
+    "mtime": 1779809976.3660595,
+    "ast_hash": "f034db875f0d5574b68893e734291980",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.35\u202fPM.png": {
+    "mtime": 1779809978.72275,
+    "ast_hash": "5870aa4829c6c66339d3ac4ba9ff67c7",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.38\u202fPM.png": {
+    "mtime": 1779809982.0081897,
+    "ast_hash": "30153a1ae7c96aeb5636d4baf0a846e1",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.41\u202fPM.png": {
+    "mtime": 1779809984.905343,
+    "ast_hash": "2507758340ec5f804d6f9e9833dd93c9",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.44\u202fPM.png": {
+    "mtime": 1779809987.7226028,
+    "ast_hash": "128b4f736f8da61cfa5fdf3734e3dbbb",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.47\u202fPM.png": {
+    "mtime": 1779809991.099134,
+    "ast_hash": "d3b4bb03f98c37562346efd059b39ecd",
+    "semantic_hash": ""
+  },
+  "coins settings/15m/v9/near/Screenshot 2026-05-26 at 8.39.50\u202fPM.png": {
+    "mtime": 1779809996.496653,
+    "ast_hash": "6a8a715a24913b29c229f64fb4d672c2",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/aptusdt/Screenshot 2026-05-12 at 2.03.18\u202fAM.png": {
+    "mtime": 1778533404.092896,
+    "ast_hash": "2638c14fe57384dae76b65b4757236be",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/aptusdt/Screenshot 2026-05-12 at 2.03.27\u202fAM.png": {
+    "mtime": 1778533413.2635365,
+    "ast_hash": "54b1c314cf31766ba6afed1671cf6747",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/aptusdt/Screenshot 2026-05-12 at 2.03.35\u202fAM.png": {
+    "mtime": 1778533420.5454273,
+    "ast_hash": "56125069ef670a48bd48ddf13b68bfe3",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/aptusdt/Screenshot 2026-05-12 at 2.03.41\u202fAM.png": {
+    "mtime": 1778533427.317398,
+    "ast_hash": "5fe5b132b8928af73aed8ba466816911",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/aptusdt/Screenshot 2026-05-12 at 2.03.49\u202fAM.png": {
+    "mtime": 1778533435.0275352,
+    "ast_hash": "cd37b9de200ad1ad739717a7fa4ff897",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/aptusdt/Screenshot 2026-05-12 at 2.03.56\u202fAM.png": {
+    "mtime": 1778533442.4642274,
+    "ast_hash": "235657903bd0067e7443a248fabfb363",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/aptusdt/Screenshot 2026-05-12 at 2.04.04\u202fAM.png": {
+    "mtime": 1778533449.5448093,
+    "ast_hash": "dd0d9b7c21834d7a7bd76ee07d5d496f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.57.41\u202fAM.png": {
+    "mtime": 1778709467.3939362,
+    "ast_hash": "e26c8edebd7cdf7b7c105d7641e51044",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.57.48\u202fAM.png": {
+    "mtime": 1778709473.5774462,
+    "ast_hash": "a95761acd0086352f345e4b04b72e5fa",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.57.53\u202fAM.png": {
+    "mtime": 1778709479.4104846,
+    "ast_hash": "8b8578cbc7a98d100b14e947f591d4ab",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.57.59\u202fAM.png": {
+    "mtime": 1778709485.3165324,
+    "ast_hash": "c722812850559129162000c4b1a83957",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.58.06\u202fAM.png": {
+    "mtime": 1778709492.3252313,
+    "ast_hash": "4a36e58da7d483b90cef25f546848b9d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.58.13\u202fAM.png": {
+    "mtime": 1778709498.887244,
+    "ast_hash": "4ded7d9761f7ffa654335b014b55def6",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.58.19\u202fAM.png": {
+    "mtime": 1778709505.1355596,
+    "ast_hash": "30cb3cc33692be9aee6c31055942ba3e",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin setings 3 TIA ,JUP , LUNC/Screenshot 2026-05-14 at 2.58.25\u202fAM.png": {
+    "mtime": 1778709511.3508825,
+    "ast_hash": "7dbfb49c5fd4e75b93f1db458c932212",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.12.53\u202fAM.png": {
+    "mtime": 1778703179.3544898,
+    "ast_hash": "f95a2a2d8ffafa423923fb3a9e50e152",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.02\u202fAM.png": {
+    "mtime": 1778703188.1573622,
+    "ast_hash": "24237096d9af9a8064f75904998862f0",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.09\u202fAM.png": {
+    "mtime": 1778703195.4369223,
+    "ast_hash": "8cbc7a1b9aa1aa62155a49ed37b369f4",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.16\u202fAM.png": {
+    "mtime": 1778703202.2947385,
+    "ast_hash": "d830f3cea3b93b98560482afa07c85e0",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.23\u202fAM.png": {
+    "mtime": 1778703208.8818042,
+    "ast_hash": "a3b8743751f8681be05076d18a07a184",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.30\u202fAM.png": {
+    "mtime": 1778703215.739236,
+    "ast_hash": "66f2c98efb01b59c3f1565188977e453",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.36\u202fAM.png": {
+    "mtime": 1778703221.9321537,
+    "ast_hash": "f3eefc574ed276df37511ba150e0a9e3",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.45\u202fAM.png": {
+    "mtime": 1778703230.5698946,
+    "ast_hash": "da2e5c3bb2aac257952da45df69aff53",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coin settings 2(MORPHO,tia,pump,tao/Screenshot 2026-05-14 at 1.13.50\u202fAM.png": {
+    "mtime": 1778703236.3145232,
+    "ast_hash": "a8534f94eaafe2854cb1b3220e798f1b",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.01\u202fAM.png": {
+    "mtime": 1778698987.2383332,
+    "ast_hash": "381588c253aac6a930cc739aa811e35b",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.09\u202fAM.png": {
+    "mtime": 1778698995.3526762,
+    "ast_hash": "80ceeae69f1a49cf02ef423c17d06e6a",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.17\u202fAM.png": {
+    "mtime": 1778699002.657781,
+    "ast_hash": "7563919e9ce30622c0fa83b42dd643c7",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.25\u202fAM.png": {
+    "mtime": 1778699010.8671122,
+    "ast_hash": "ecc8731822a39c65e0b958781c39aeb3",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.33\u202fAM.png": {
+    "mtime": 1778699018.8832572,
+    "ast_hash": "a981347a917c706f128cddd13983c9ae",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.41\u202fAM.png": {
+    "mtime": 1778699027.3366091,
+    "ast_hash": "6c0e77f145937176e1cdb2addb902b1f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.50\u202fAM.png": {
+    "mtime": 1778699035.6119533,
+    "ast_hash": "ea41a3a27884dfa992ecf2d3e065ca1d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.03.57\u202fAM.png": {
+    "mtime": 1778699043.3184857,
+    "ast_hash": "452f95f8c4f005ad90a02869a95a186e",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/sr + trend v2/multiple coins settings 1(apt)/Screenshot 2026-05-14 at 12.04.04\u202fAM.png": {
+    "mtime": 1778699049.5264053,
+    "ast_hash": "398e0ce13e77cc1df53c345600c38211",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/APT2/Screenshot 2026-05-19 at 12.12.28\u202fAM.png": {
+    "mtime": 1779131554.4454062,
+    "ast_hash": "6dac76e28086a19abdc9e55e646049a9",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/APT2/Screenshot 2026-05-19 at 12.12.40\u202fAM.png": {
+    "mtime": 1779131566.1034503,
+    "ast_hash": "2531b31340458c213f75c7415e6a6e16",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/APT2/Screenshot 2026-05-19 at 12.12.48\u202fAM.png": {
+    "mtime": 1779131573.6392276,
+    "ast_hash": "ea2c58c3e27f1113968b684ad11d3410",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/APT2/Screenshot 2026-05-19 at 12.12.55\u202fAM.png": {
+    "mtime": 1779131580.8032222,
+    "ast_hash": "055bc9a99ec9c1772f96f9cc9b636ba8",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/APT2/Screenshot 2026-05-19 at 12.13.03\u202fAM.png": {
+    "mtime": 1779131588.8023374,
+    "ast_hash": "9cfb51632d3e12085d378323a70e65ac",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/APT2/Screenshot 2026-05-19 at 12.13.09\u202fAM.png": {
+    "mtime": 1779131595.0877044,
+    "ast_hash": "fdf0e06e1b9fe7287f12a7cadc3e0970",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/APT2/Screenshot 2026-05-19 at 4.24.09\u202fPM.png": {
+    "mtime": 1779189855.0397756,
+    "ast_hash": "0baa0a8f980da3684df33e62bb30ff1f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.27.09\u202fPM.png": {
+    "mtime": 1779197234.900453,
+    "ast_hash": "46c502560806fbeff0343f4d787f36c1",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.27.15\u202fPM.png": {
+    "mtime": 1779197240.9337687,
+    "ast_hash": "7086b1a2df3f4c0f12f9aa4af567eb8f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.27.22\u202fPM.png": {
+    "mtime": 1779197248.2739947,
+    "ast_hash": "cc96ea6477d1d371b1a061c48acd418d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.27.30\u202fPM.png": {
+    "mtime": 1779197256.3658512,
+    "ast_hash": "d0cd8ebd015014451fc5a9db652dcf8d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.27.41\u202fPM.png": {
+    "mtime": 1779197267.0533571,
+    "ast_hash": "4b0b0876f3e4e36ed629bd393e573cf0",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.27.53\u202fPM.png": {
+    "mtime": 1779197278.6049943,
+    "ast_hash": "ed1f5873e82675ec48d47b4ff36fd139",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.27.59\u202fPM.png": {
+    "mtime": 1779197285.4115689,
+    "ast_hash": "5b1cc0b452a44de2e40c9593dcc14e73",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ENA/Screenshot 2026-05-19 at 6.28.05\u202fPM.png": {
+    "mtime": 1779197291.1760595,
+    "ast_hash": "52b5f0a10a93a4d40148bf8dddfadea9",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.36.46\u202fPM.png": {
+    "mtime": 1779287811.7955663,
+    "ast_hash": "9813e3acd3d8d49bbee706dc7056990b",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.36.52\u202fPM.png": {
+    "mtime": 1779287817.7122397,
+    "ast_hash": "43800e767ae557c56ff566e702c4774c",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.36.58\u202fPM.png": {
+    "mtime": 1779287823.9838932,
+    "ast_hash": "0075124e0a503636ad20c59f75713681",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.37.04\u202fPM.png": {
+    "mtime": 1779287830.1419594,
+    "ast_hash": "8483a4ab11ce3cee674c38ec677e66ec",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.37.13\u202fPM.png": {
+    "mtime": 1779287839.2908294,
+    "ast_hash": "d2605dbe144a6b2a52f3f2197e65375d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.37.19\u202fPM.png": {
+    "mtime": 1779287844.8328955,
+    "ast_hash": "bff2e6b0c3f3aeb70cf8238ae158f3cf",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.37.25\u202fPM.png": {
+    "mtime": 1779287850.8965049,
+    "ast_hash": "77e817472b2b9a407cf82d044bc28e11",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/NEAR/Screenshot 2026-05-20 at 7.37.31\u202fPM.png": {
+    "mtime": 1779287857.3340166,
+    "ast_hash": "a046b1ccc98569da644f4bc002e29fc4",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.20.12\u202fPM.png": {
+    "mtime": 1779189617.739179,
+    "ast_hash": "75f1d4fc04eea3b7658cdf0981bfe38f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.20.20\u202fPM.png": {
+    "mtime": 1779189626.235837,
+    "ast_hash": "f2a19573e4940566dc1a113770eb252f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.20.28\u202fPM.png": {
+    "mtime": 1779189634.2364745,
+    "ast_hash": "d0c9224c4419b4b0b7b971a5e93ac611",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.20.41\u202fPM.png": {
+    "mtime": 1779189646.7478452,
+    "ast_hash": "9d7a9d7c53d91d130f2491f8d5c2b04f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.21.05\u202fPM.png": {
+    "mtime": 1779189671.1978164,
+    "ast_hash": "7096e60bb78066346f986a1d39bede83",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.21.13\u202fPM.png": {
+    "mtime": 1779189678.7657237,
+    "ast_hash": "c703b73e74a94e474ca2377c2372c507",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.21.20\u202fPM.png": {
+    "mtime": 1779189685.6380563,
+    "ast_hash": "64ca672e508933fb4ce9a4d8dfdfb7d8",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/PUMP/Screenshot 2026-05-19 at 4.21.39\u202fPM.png": {
+    "mtime": 1779189704.9354124,
+    "ast_hash": "fa5c1ea52d72fa201efb91852772aa78",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.50.21\u202fPM.png": {
+    "mtime": 1779292226.6542437,
+    "ast_hash": "66c244aa644f2c02f8d03d1ee507918d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.50.26\u202fPM.png": {
+    "mtime": 1779292232.6207778,
+    "ast_hash": "de258d36f6b058725c9486bda776d866",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.50.32\u202fPM.png": {
+    "mtime": 1779292238.3307867,
+    "ast_hash": "ac8c76231b1d6b60e15b01b8d522bd61",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.50.37\u202fPM.png": {
+    "mtime": 1779292243.5487847,
+    "ast_hash": "7050280bf023c01bc9d3407028c784c3",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.50.45\u202fPM.png": {
+    "mtime": 1779292250.722417,
+    "ast_hash": "ea855be77a564badc7bff90874ddef22",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.50.52\u202fPM.png": {
+    "mtime": 1779292257.3515694,
+    "ast_hash": "ecc489de4fe1e109f7ba7d45c9a6b3e6",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.50.56\u202fPM.png": {
+    "mtime": 1779292261.2036893,
+    "ast_hash": "2e6dc105812e56e7750eba32be953173",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ZEC/Screenshot 2026-05-20 at 8.51.00\u202fPM.png": {
+    "mtime": 1779292266.5764894,
+    "ast_hash": "139314fa4d9a0ed730dab24d77f18c73",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.00.51\u202fAM.png": {
+    "mtime": 1778878856.7284687,
+    "ast_hash": "e752b03a57067b093710c476d25a087c",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.00.57\u202fAM.png": {
+    "mtime": 1778878863.0282736,
+    "ast_hash": "bc61ef845974ded4d3b906d7d79f5869",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.01.05\u202fAM.png": {
+    "mtime": 1778878870.8941426,
+    "ast_hash": "598b97580cb8e1cce65aad563d57c3bc",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.01.12\u202fAM.png": {
+    "mtime": 1778878878.1325572,
+    "ast_hash": "2d367be424bc2c832b0fa284556b4e5f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.01.18\u202fAM.png": {
+    "mtime": 1778878884.3779223,
+    "ast_hash": "d511546f0705cb00efe7f302f1425ec8",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.01.24\u202fAM.png": {
+    "mtime": 1778878890.2029197,
+    "ast_hash": "fa33c5ef755e3579f976d2d56c5a9e65",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.01.31\u202fAM.png": {
+    "mtime": 1778878896.5836082,
+    "ast_hash": "003d61c859e7c5f92a6ac813b8cb33d1",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.01.36\u202fAM.png": {
+    "mtime": 1778878902.2166812,
+    "ast_hash": "1a63d0cb9dedb73156366d37abe33a4b",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/apt/Screenshot 2026-05-16 at 2.01.44\u202fAM.png": {
+    "mtime": 1778878909.5858998,
+    "ast_hash": "822e90c907acfb81d57aba01cd6b1115",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.20.01\u202fPM.png": {
+    "mtime": 1779193207.5112472,
+    "ast_hash": "ed143949693baded417743553ab608bc",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.20.37\u202fPM.png": {
+    "mtime": 1779193242.6382585,
+    "ast_hash": "70193d1d18ba00ca7b534deb705ad8fd",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.20.43\u202fPM.png": {
+    "mtime": 1779193249.3676918,
+    "ast_hash": "c16491714e729f91228d57d79a46c953",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.20.51\u202fPM.png": {
+    "mtime": 1779193256.5725996,
+    "ast_hash": "c6138fe8705274c87304cbc3d84af7d6",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.20.59\u202fPM.png": {
+    "mtime": 1779193264.8401377,
+    "ast_hash": "d4385b631fe4de7558c4ab1c5341e0d9",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.21.09\u202fPM.png": {
+    "mtime": 1779193275.0285916,
+    "ast_hash": "717f7a63f09a40099f97558be200aade",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.21.15\u202fPM.png": {
+    "mtime": 1779193283.9634411,
+    "ast_hash": "1f4bc1bc94e3a3b4fab77d0a87e704c4",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/ldo/Screenshot 2026-05-19 at 5.21.23\u202fPM.png": {
+    "mtime": 1779193289.9528592,
+    "ast_hash": "c57b0f602b26c10ce3672eb33b2161ef",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 3.45.49\u202fAM.png": {
+    "mtime": 1779144355.1647146,
+    "ast_hash": "b54f9100f51cf72ed10cccd0cecf261d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 3.46.03\u202fAM.png": {
+    "mtime": 1779144368.8433144,
+    "ast_hash": "6da2650a63b9a5ea0a9e466d5425af1a",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 3.46.10\u202fAM.png": {
+    "mtime": 1779144373.530193,
+    "ast_hash": "55121e0f5e0fbc055c9b5cf920cc73a1",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 3.46.19\u202fAM.png": {
+    "mtime": 1779144385.2765336,
+    "ast_hash": "8ec5d0514e21575d33659f0a782a8f21",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 3.46.28\u202fAM.png": {
+    "mtime": 1779144394.1878417,
+    "ast_hash": "4a2e123be9c9d2a6131c614e55086faf",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 3.46.36\u202fAM.png": {
+    "mtime": 1779144401.6762266,
+    "ast_hash": "fb7fb538682fd2cf2f861fb7a628761b",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 3.46.42\u202fAM.png": {
+    "mtime": 1779144408.0056639,
+    "ast_hash": "fd06dc9f9c4582e1c78222fc4760a212",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/morpho/Screenshot 2026-05-19 at 4.23.07\u202fPM.png": {
+    "mtime": 1779189794.9787827,
+    "ast_hash": "8ad88e6dbecc81f44d9da840a8dc708d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.03.48\u202fPM.png": {
+    "mtime": 1779368634.6826339,
+    "ast_hash": "2ed01e6100b3d5bbc9522bb361dc4880",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.03.55\u202fPM.png": {
+    "mtime": 1779368641.3665988,
+    "ast_hash": "d0023415937efbed98db186294697caa",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.04.02\u202fPM.png": {
+    "mtime": 1779368647.7680316,
+    "ast_hash": "f4837363bd47fe7ff6cb7ceec44da865",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.04.13\u202fPM.png": {
+    "mtime": 1779368659.0174959,
+    "ast_hash": "a3e0f3a6c95fee53e68886eb550ab8dc",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.05.10\u202fPM.png": {
+    "mtime": 1779368716.3636196,
+    "ast_hash": "c41c0def25d23d0d64eb2b16daa0b7c7",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.05.16\u202fPM.png": {
+    "mtime": 1779368722.0220451,
+    "ast_hash": "90d5fdb2ce85d31e4684147d82660fc3",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.05.25\u202fPM.png": {
+    "mtime": 1779368731.5060322,
+    "ast_hash": "756c12acef241e14a4840d6a99e77562",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.05.33\u202fPM.png": {
+    "mtime": 1779368738.7833903,
+    "ast_hash": "de053d5577af26a0d9143c500147bce1",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.05.39\u202fPM.png": {
+    "mtime": 1779368745.498316,
+    "ast_hash": "f4f866b0f127053dbb50421b6e225596",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.14.16\u202fPM.png": {
+    "mtime": 1779369262.400841,
+    "ast_hash": "75fc0e21a41520dbceb74d0f8fe15785",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.14.23\u202fPM.png": {
+    "mtime": 1779369268.8517275,
+    "ast_hash": "1f579c5e709358ad7cfcc416e62927fd",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.14.29\u202fPM.png": {
+    "mtime": 1779369275.0152462,
+    "ast_hash": "50b0f8cc3a9f5951aaeb3087013a835c",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.14.35\u202fPM.png": {
+    "mtime": 1779369281.373648,
+    "ast_hash": "48c4c756530d307614c98f242e23bcc8",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.20.26\u202fPM.png": {
+    "mtime": 1779369633.2527847,
+    "ast_hash": "d8a2d21a60df885f913cb1bed8e3dcec",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.20.32\u202fPM.png": {
+    "mtime": 1779369638.7138314,
+    "ast_hash": "136bcfb102ff7d67e44b6a496d516013",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.20.39\u202fPM.png": {
+    "mtime": 1779369645.2460415,
+    "ast_hash": "87bb92aadce9ece4c6efc2ec0790bdda",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.20.47\u202fPM.png": {
+    "mtime": 1779369653.1049275,
+    "ast_hash": "5484cbc14927881c88d1503618538775",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.20.53\u202fPM.png": {
+    "mtime": 1779369658.7932637,
+    "ast_hash": "2a6b7c9acb1808c9ba39e8a970fa242c",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.21.00\u202fPM.png": {
+    "mtime": 1779369665.9503384,
+    "ast_hash": "bd366b7ce5d8c34b943786981f0b1597",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.21.05\u202fPM.png": {
+    "mtime": 1779369671.5501626,
+    "ast_hash": "53c57e4262790ae26edcead40d8e967d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.21.12\u202fPM.png": {
+    "mtime": 1779369677.8498867,
+    "ast_hash": "c825e8b6af82045e40bf4f9841d6efce",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/testing script and reports and ss/Screenshot 2026-05-21 at 6.21.18\u202fPM.png": {
+    "mtime": 1779369684.322623,
+    "ast_hash": "03f8aeba55170b420eba42db3a0a5be5",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/tia/Screenshot 2026-05-19 at 12.40.07\u202fAM.png": {
+    "mtime": 1779133212.8249629,
+    "ast_hash": "c0c37618b154a5d9b6d77ef17eb45c86",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/tia/Screenshot 2026-05-19 at 12.40.14\u202fAM.png": {
+    "mtime": 1779133219.6147943,
+    "ast_hash": "5db98480dcee6aad1d693d5d0337cb08",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/tia/Screenshot 2026-05-19 at 12.40.20\u202fAM.png": {
+    "mtime": 1779133226.297297,
+    "ast_hash": "62d8e53a652fbe4752b911ada8d2c274",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/tia/Screenshot 2026-05-19 at 12.40.27\u202fAM.png": {
+    "mtime": 1779133233.1264057,
+    "ast_hash": "475b7b510d0062d5eddd4230119fa3eb",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/tia/Screenshot 2026-05-19 at 12.40.35\u202fAM.png": {
+    "mtime": 1779133240.6706374,
+    "ast_hash": "70a2608a720e83b56aaab1f5c078d68a",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/tia/Screenshot 2026-05-19 at 12.40.40\u202fAM.png": {
+    "mtime": 1779133246.239748,
+    "ast_hash": "ea8296fa8287964fef2755de6941f6f8",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v5/tia/Screenshot 2026-05-19 at 12.40.50\u202fAM.png": {
+    "mtime": 1779133255.793695,
+    "ast_hash": "6dd50e776408f81c4facdc90bc1c2b64",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.54.55\u202fPM.png": {
+    "mtime": 1779476101.2128057,
+    "ast_hash": "b67599613937acb725e9144804a3b0c8",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.01\u202fPM.png": {
+    "mtime": 1779476105.0392497,
+    "ast_hash": "bbe968b50b5821324e63cf3d8e831b18",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.04\u202fPM.png": {
+    "mtime": 1779476108.5737228,
+    "ast_hash": "5886e3491fb6d843054839110f13828c",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.07\u202fPM.png": {
+    "mtime": 1779476111.6480403,
+    "ast_hash": "34b2be19a7ce5c75ddd7d9fbc8d28287",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.11\u202fPM.png": {
+    "mtime": 1779476114.2070663,
+    "ast_hash": "6289cdba8de6bac0612e7f90858f34d0",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.13\u202fPM.png": {
+    "mtime": 1779476118.7430542,
+    "ast_hash": "11a8c50cdf2e205a858e71089476d02a",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.18\u202fPM.png": {
+    "mtime": 1779476122.7209184,
+    "ast_hash": "13d03a9176a974e0c1ea61f76d888e7d",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.22\u202fPM.png": {
+    "mtime": 1779476125.198488,
+    "ast_hash": "d914976103f5cff12b47a19b7236128a",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.24\u202fPM.png": {
+    "mtime": 1779476129.115139,
+    "ast_hash": "a337145ee61ea40e6533661e8a2400f3",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.55.28\u202fPM.png": {
+    "mtime": 1779476134.5113616,
+    "ast_hash": "6aa6c72ecae9e61da636bfc6f053c227",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/APT/Screenshot 2026-05-22 at 11.56.13\u202fPM.png": {
+    "mtime": 1779476178.9219687,
+    "ast_hash": "fb3280e8f53e4d2134ac15608efe1720",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.01\u202fAM.png": {
+    "mtime": 1779479525.2342305,
+    "ast_hash": "e0daf60cda70b48111ae86f4d73ce17f",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.04\u202fAM.png": {
+    "mtime": 1779479527.43288,
+    "ast_hash": "aaab8c705a7ef7edf5347fea528801ae",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.06\u202fAM.png": {
+    "mtime": 1779479529.5265121,
+    "ast_hash": "b80a35bf371a44ee6f2f501f62169dc0",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.08\u202fAM.png": {
+    "mtime": 1779479531.9150147,
+    "ast_hash": "dcfe3622586ea4e4cf89770c93f259bb",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.11\u202fAM.png": {
+    "mtime": 1779479533.9523184,
+    "ast_hash": "6c6860e50fc84b0a9717d507973b87b1",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.13\u202fAM.png": {
+    "mtime": 1779479538.2989032,
+    "ast_hash": "2a24ef5e95485bda94050c3b01e45d0e",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.17\u202fAM.png": {
+    "mtime": 1779479540.346372,
+    "ast_hash": "13edf75b916c3264d0b8ce47a7388416",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.19\u202fAM.png": {
+    "mtime": 1779479542.7514818,
+    "ast_hash": "c7e6c01f4f794eaac55c4a4f8aa587ba",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.22\u202fAM.png": {
+    "mtime": 1779479545.2692933,
+    "ast_hash": "0cdcde3a393cf29590d0c3db8165f0cf",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.24\u202fAM.png": {
+    "mtime": 1779479551.2476394,
+    "ast_hash": "fda8fa8f5442207c230a966d6b7793e2",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/NEAR/Screenshot 2026-05-23 at 12.52.34\u202fAM.png": {
+    "mtime": 1779479560.283606,
+    "ast_hash": "b0b7152da67aecf92f94fbe7575134a0",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.55.22\u202fAM.png": {
+    "mtime": 1779486928.4084907,
+    "ast_hash": "7379f4ad9f45fa37fc4c154ae2085584",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.12\u202fAM.png": {
+    "mtime": 1779486977.7552114,
+    "ast_hash": "f511be535fdd7cd2000bdc98379cceda",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.18\u202fAM.png": {
+    "mtime": 1779486982.3051083,
+    "ast_hash": "84319fec4a736657f6da5db81186b605",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.21\u202fAM.png": {
+    "mtime": 1779486987.9235306,
+    "ast_hash": "0e8d56fe1aabc0c89f2469ea8a789683",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.27\u202fAM.png": {
+    "mtime": 1779486991.274329,
+    "ast_hash": "bffa2a25c7eb607b78f1bb323ce14732",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.30\u202fAM.png": {
+    "mtime": 1779486996.659427,
+    "ast_hash": "e61809b076bde0304103ad9bb0b591ab",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.37\u202fAM.png": {
+    "mtime": 1779487002.7021196,
+    "ast_hash": "36461c464d27431cc5a5ebab7440a281",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.42\u202fAM.png": {
+    "mtime": 1779487005.470048,
+    "ast_hash": "53cbafb3e7fa64ad1e43015fabdb9fe7",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.44\u202fAM.png": {
+    "mtime": 1779487010.1633906,
+    "ast_hash": "8d244e0e71bedd02cdba06964906c25b",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.56.49\u202fAM.png": {
+    "mtime": 1779487016.1655965,
+    "ast_hash": "aa77e4374107c1c24c0ba371e4f679ba",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/TIA/Screenshot 2026-05-23 at 2.57.21\u202fAM.png": {
+    "mtime": 1779487047.585782,
+    "ast_hash": "9fc8fe1db7cf0388f22994eebe936923",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.18\u202fAM.png": {
+    "mtime": 1779476783.846867,
+    "ast_hash": "84fa2b223ae9e0e003b38c5e5ca922e9",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.25\u202fAM.png": {
+    "mtime": 1779476788.6725972,
+    "ast_hash": "bedb424358f9e0c49a4bd713b0923afb",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.28\u202fAM.png": {
+    "mtime": 1779476791.282957,
+    "ast_hash": "cec45d649477f825a12320d730025973",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.30\u202fAM.png": {
+    "mtime": 1779476796.8772411,
+    "ast_hash": "1388cd3baee04916b8960bf1cb122891",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.36\u202fAM.png": {
+    "mtime": 1779476798.89613,
+    "ast_hash": "8fe63f250487946168da13d333e0a67c",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.38\u202fAM.png": {
+    "mtime": 1779476803.3843799,
+    "ast_hash": "599ff3bdadb1cc184c78808be19bebc1",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.42\u202fAM.png": {
+    "mtime": 1779476806.0218413,
+    "ast_hash": "4fdd2cbe91d0f3bc0c2bc6856c94b90a",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.45\u202fAM.png": {
+    "mtime": 1779476808.458369,
+    "ast_hash": "79e43bcd66017e8092f4fcbc30ce4ac6",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.47\u202fAM.png": {
+    "mtime": 1779476812.2573442,
+    "ast_hash": "3afd705e6b24c0b4d6983489c24e01b6",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.51\u202fAM.png": {
+    "mtime": 1779476817.4933426,
+    "ast_hash": "3af0f92c24e7de028526a61b61cc3c43",
+    "semantic_hash": ""
+  },
+  "coins settings/5m/v8/ZEC/Screenshot 2026-05-23 at 12.06.56\u202fAM.png": {
+    "mtime": 1779476822.8568833,
+    "ast_hash": "5a2a0bccfc46de283248828f45840fe8",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.03.48\u202fPM.png": {
+    "mtime": 1779368634.6826339,
+    "ast_hash": "2ed01e6100b3d5bbc9522bb361dc4880",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.03.55\u202fPM.png": {
+    "mtime": 1779368641.366599,
+    "ast_hash": "d0023415937efbed98db186294697caa",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.04.02\u202fPM.png": {
+    "mtime": 1779368647.7680316,
+    "ast_hash": "f4837363bd47fe7ff6cb7ceec44da865",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.04.13\u202fPM.png": {
+    "mtime": 1779368659.0174959,
+    "ast_hash": "a3e0f3a6c95fee53e68886eb550ab8dc",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.05.10\u202fPM.png": {
+    "mtime": 1779368716.3636196,
+    "ast_hash": "c41c0def25d23d0d64eb2b16daa0b7c7",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.05.16\u202fPM.png": {
+    "mtime": 1779368722.0220451,
+    "ast_hash": "90d5fdb2ce85d31e4684147d82660fc3",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.05.25\u202fPM.png": {
+    "mtime": 1779368731.506032,
+    "ast_hash": "756c12acef241e14a4840d6a99e77562",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.05.33\u202fPM.png": {
+    "mtime": 1779368738.7833903,
+    "ast_hash": "de053d5577af26a0d9143c500147bce1",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.05.39\u202fPM.png": {
+    "mtime": 1779368745.4983163,
+    "ast_hash": "f4f866b0f127053dbb50421b6e225596",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.14.16\u202fPM.png": {
+    "mtime": 1779369262.4008412,
+    "ast_hash": "75fc0e21a41520dbceb74d0f8fe15785",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.14.23\u202fPM.png": {
+    "mtime": 1779369268.8517272,
+    "ast_hash": "1f579c5e709358ad7cfcc416e62927fd",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.14.29\u202fPM.png": {
+    "mtime": 1779369275.0152462,
+    "ast_hash": "50b0f8cc3a9f5951aaeb3087013a835c",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.14.35\u202fPM.png": {
+    "mtime": 1779369281.373648,
+    "ast_hash": "48c4c756530d307614c98f242e23bcc8",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.20.26\u202fPM.png": {
+    "mtime": 1779369633.2527847,
+    "ast_hash": "d8a2d21a60df885f913cb1bed8e3dcec",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.20.32\u202fPM.png": {
+    "mtime": 1779369638.7138314,
+    "ast_hash": "136bcfb102ff7d67e44b6a496d516013",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.20.39\u202fPM.png": {
+    "mtime": 1779369645.2460413,
+    "ast_hash": "87bb92aadce9ece4c6efc2ec0790bdda",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.20.47\u202fPM.png": {
+    "mtime": 1779369653.1049275,
+    "ast_hash": "5484cbc14927881c88d1503618538775",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.20.53\u202fPM.png": {
+    "mtime": 1779369658.7932637,
+    "ast_hash": "2a6b7c9acb1808c9ba39e8a970fa242c",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.21.00\u202fPM.png": {
+    "mtime": 1779369665.9503384,
+    "ast_hash": "bd366b7ce5d8c34b943786981f0b1597",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.21.05\u202fPM.png": {
+    "mtime": 1779369671.5501626,
+    "ast_hash": "53c57e4262790ae26edcead40d8e967d",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.21.12\u202fPM.png": {
+    "mtime": 1779369677.8498867,
+    "ast_hash": "c825e8b6af82045e40bf4f9841d6efce",
+    "semantic_hash": ""
+  },
+  "testing script and reports and ss/Screenshot 2026-05-21 at 6.21.18\u202fPM.png": {
+    "mtime": 1779369684.3226233,
+    "ast_hash": "03f8aeba55170b420eba42db3a0a5be5",
+    "semantic_hash": ""
+  },
+  "platform/backend/sr_optimizer1h/SUMMARY.json": {
+    "mtime": 1785520965.339702,
+    "ast_hash": "f84e98f84228ac40381c53736715bb7b",
+    "semantic_hash": "f84e98f84228ac40381c53736715bb7b"
+  },
+  "platform/backend/sr_optimizer1h/base_params.json": {
+    "mtime": 1785372905.6755795,
+    "ast_hash": "3c932d5c6783f4d1cb1729b9754e6b05",
+    "semantic_hash": "3c932d5c6783f4d1cb1729b9754e6b05"
+  },
+  "platform/backend/sr_optimizer1h/best/ALLOUSDT.json": {
+    "mtime": 1785501263.3765202,
+    "ast_hash": "9263d1bc856812f47056037edf33510f",
+    "semantic_hash": "9263d1bc856812f47056037edf33510f"
+  },
+  "platform/backend/sr_optimizer1h/best/DEXEUSDT.json": {
+    "mtime": 1785393450.1502817,
+    "ast_hash": "cb3ed9ab74c2024aacf1a4addf4a812a",
+    "semantic_hash": "cb3ed9ab74c2024aacf1a4addf4a812a"
+  },
+  "platform/backend/sr_optimizer1h/best/EIGENUSDT.json": {
+    "mtime": 1785486666.7880838,
+    "ast_hash": "4d5481c9dd174beeeff5901b7298ef21",
+    "semantic_hash": "4d5481c9dd174beeeff5901b7298ef21"
+  },
+  "platform/backend/sr_optimizer1h/best/ENAUSDT.json": {
+    "mtime": 1785499337.6128926,
+    "ast_hash": "3813aad2b134aa3f9774bd57f5a87046",
+    "semantic_hash": "3813aad2b134aa3f9774bd57f5a87046"
+  },
+  "platform/backend/sr_optimizer1h/best/INJUSDT.json": {
+    "mtime": 1785393244.1359613,
+    "ast_hash": "ad84ec70ce1b47a2d96463dadef8067d",
+    "semantic_hash": "ad84ec70ce1b47a2d96463dadef8067d"
+  },
+  "platform/backend/sr_optimizer1h/best/JTOUSDT.json": {
+    "mtime": 1785510182.7314527,
+    "ast_hash": "f21bac1ccde6dd82e7ec8483d78a6759",
+    "semantic_hash": "f21bac1ccde6dd82e7ec8483d78a6759"
+  },
+  "platform/backend/sr_optimizer1h/best/JUPUSDT.json": {
+    "mtime": 1785422676.9550142,
+    "ast_hash": "97461483bb7cf37a4295032c19f4c8bd",
+    "semantic_hash": "97461483bb7cf37a4295032c19f4c8bd"
+  },
+  "platform/backend/sr_optimizer1h/best/KAITOUSDT.json": {
+    "mtime": 1785400109.1794372,
+    "ast_hash": "a2681fcc7c64246b295b55f8d961556a",
+    "semantic_hash": "a2681fcc7c64246b295b55f8d961556a"
+  },
+  "platform/backend/sr_optimizer1h/best/MORPHOUSDT.json": {
+    "mtime": 1785422238.5553343,
+    "ast_hash": "4026babfc3f85ed7b3d66b360d4df9d0",
+    "semantic_hash": "4026babfc3f85ed7b3d66b360d4df9d0"
+  },
+  "platform/backend/sr_optimizer1h/best/NEARUSDT.json": {
+    "mtime": 1785506511.5215354,
+    "ast_hash": "485a0e513603274f40e3a97f352c4eed",
+    "semantic_hash": "485a0e513603274f40e3a97f352c4eed"
+  },
+  "platform/backend/sr_optimizer1h/best/PUMPUSDT.json": {
+    "mtime": 1785443203.2493336,
+    "ast_hash": "075a354d016cbbcb4ae4777f2fca1dd3",
+    "semantic_hash": "075a354d016cbbcb4ae4777f2fca1dd3"
+  },
+  "platform/backend/sr_optimizer1h/best/RIFUSDT.json": {
+    "mtime": 1785468466.2737582,
+    "ast_hash": "ab05015710d0e26cc12a0324c3305ebb",
+    "semantic_hash": "ab05015710d0e26cc12a0324c3305ebb"
+  },
+  "platform/backend/sr_optimizer1h/best/SYNUSDT.json": {
+    "mtime": 1785465807.0066068,
+    "ast_hash": "039896b8348ae25c47d8bb20e0afbfea",
+    "semantic_hash": "039896b8348ae25c47d8bb20e0afbfea"
+  },
+  "platform/backend/sr_optimizer1h/best/TAOUSDT.json": {
+    "mtime": 1785493148.4991796,
+    "ast_hash": "877e46810b36cc7bd99efef76a6e6f9c",
+    "semantic_hash": "877e46810b36cc7bd99efef76a6e6f9c"
+  },
+  "platform/backend/sr_optimizer1h/best/ZECUSDT.json": {
+    "mtime": 1785437717.661788,
+    "ast_hash": "4b931b235586838017520cfc908ddda6",
+    "semantic_hash": "4b931b235586838017520cfc908ddda6"
+  },
+  "platform/backend/sr_optimizer1h/best/\u5e01\u5b89\u4eba\u751fUSDT.json": {
+    "mtime": 1785497485.754146,
+    "ast_hash": "391fe4ac07ee08b01379dadead02d565",
+    "semantic_hash": "391fe4ac07ee08b01379dadead02d565"
+  },
+  "platform/backend/sr_optimizer1h/config.json": {
+    "mtime": 1785372924.967733,
+    "ast_hash": "5eb2c3db6050fe4c32f3b778b6f3be5c",
+    "semantic_hash": "5eb2c3db6050fe4c32f3b778b6f3be5c"
+  },
+  "platform/backend/sr_optimizer1h/evalWorker.boot.mjs": {
+    "mtime": 1785372905.6677072,
+    "ast_hash": "e2718d9e1b7081abd4b033e49fa10dc3",
+    "semantic_hash": "e2718d9e1b7081abd4b033e49fa10dc3"
+  },
+  "platform/backend/sr_optimizer1h/evalWorker.ts": {
+    "mtime": 1785372905.6634636,
+    "ast_hash": "a94081b15dc3c424d1dbd5c037694d5e",
+    "semantic_hash": "a94081b15dc3c424d1dbd5c037694d5e"
+  },
+  "platform/backend/sr_optimizer1h/idmap.json": {
+    "mtime": 1785372905.679743,
+    "ast_hash": "8a80554c91d9fca8acb82f023de02f11",
+    "semantic_hash": "8a80554c91d9fca8acb82f023de02f11"
+  },
+  "platform/backend/sr_optimizer1h/index/raw_counts.json": {
+    "mtime": 1785966741.866737,
+    "ast_hash": "aa767098e2237f9c46d348d59cb987d8",
+    "semantic_hash": "aa767098e2237f9c46d348d59cb987d8"
+  },
+  "platform/backend/sr_optimizer1h/opt_apply.py": {
+    "mtime": 1785372924.9824271,
+    "ast_hash": "9bc9f7a08e2a8792d8020f7f25b23b56",
+    "semantic_hash": "9bc9f7a08e2a8792d8020f7f25b23b56"
+  },
+  "platform/backend/sr_optimizer1h/optimizer.ts": {
+    "mtime": 1785372941.5186818,
+    "ast_hash": "ede5408807a6a7c809619b44ded5cec6",
+    "semantic_hash": "ede5408807a6a7c809619b44ded5cec6"
+  },
+  "platform/backend/sr_optimizer1h/params.json": {
+    "mtime": 1785372905.6717598,
+    "ast_hash": "3036d6933b30fc8b95f3dccc22eefc7e",
+    "semantic_hash": "3036d6933b30fc8b95f3dccc22eefc7e"
+  },
+  "platform/backend/sr_optimizer1h/seeds.json": {
+    "mtime": 1785372905.68358,
+    "ast_hash": "8a80554c91d9fca8acb82f023de02f11",
+    "semantic_hash": "8a80554c91d9fca8acb82f023de02f11"
+  },
+  "platform/backend/sr_optimizer1h/show.py": {
+    "mtime": 1785372905.6880076,
+    "ast_hash": "1103b7afcdff015c05fb48762840f86e",
+    "semantic_hash": "1103b7afcdff015c05fb48762840f86e"
+  },
+  "platform/backend/sr_optimizer1h/coins.txt": {
+    "mtime": 1785372924.9744077,
+    "ast_hash": "2d89d5d5b33c42c764cf4c460ca7013a",
+    "semantic_hash": "2d89d5d5b33c42c764cf4c460ca7013a"
+  },
+  "platform/backend/tests/openTrade.test.ts": {
+    "mtime": 1785377426.137941,
+    "ast_hash": "b11a13bf6d8e3d508cae779eb231f1d1",
+    "semantic_hash": "b11a13bf6d8e3d508cae779eb231f1d1"
+  },
+  "platform/backend/dashboard/optimizer1y15m.json": {
+    "mtime": 1785381938.8790932,
+    "ast_hash": "7a75f7b4f20274038bccdf5c4a8ccc9e",
+    "semantic_hash": "7a75f7b4f20274038bccdf5c4a8ccc9e"
+  },
+  "platform/backend/dashboard/optimizer1y1h.json": {
+    "mtime": 1785381938.9598725,
+    "ast_hash": "3766fdcbfd9f2b9de4c3a974bd0d8eef",
+    "semantic_hash": "3766fdcbfd9f2b9de4c3a974bd0d8eef"
+  },
+  "platform/deployment/aws/deploy_caddy_healthz.sh": {
+    "mtime": 1785380809.4169598,
+    "ast_hash": "1dda341e4f9daf3621831b6ad5dd93f5",
+    "semantic_hash": "1dda341e4f9daf3621831b6ad5dd93f5"
+  },
+  "platform/deployment/aws/alerts_v2.sh": {
+    "mtime": 1785459533.7431839,
+    "ast_hash": "f9fb02d35aab6a6b196f452675d4a011",
+    "semantic_hash": "f9fb02d35aab6a6b196f452675d4a011"
+  },
+  "platform/deployment/aws/deployments_v1.sh": {
+    "mtime": 1785457103.4278617,
+    "ast_hash": "0ef894a6bd6274db654eb7e2067065f4",
+    "semantic_hash": "0ef894a6bd6274db654eb7e2067065f4"
+  },
+  "platform/deployment/aws/fixparams_v1.sh": {
+    "mtime": 1785807004.9342675,
+    "ast_hash": "c0d4dbce9de2f57ff2c9bff50f79f0ba",
+    "semantic_hash": "c0d4dbce9de2f57ff2c9bff50f79f0ba"
+  },
+  "platform/deployment/aws/wipe_chartss.sh": {
+    "mtime": 1785454897.439627,
+    "ast_hash": "034de71d68b50397885d768d20f10afc",
+    "semantic_hash": "034de71d68b50397885d768d20f10afc"
+  },
+  "platform/backend/src/api/routes/pine.ts": {
+    "mtime": 1785887219.727901,
+    "ast_hash": "356b2a1be1b81f5815f84810fde97437",
+    "semantic_hash": "356b2a1be1b81f5815f84810fde97437"
+  },
+  "platform/backend/src/db/migrations/005_pine_scripts.sql": {
+    "mtime": 1785884950.2714152,
+    "ast_hash": "d2ade51006fca7f35fd4b4111fc83670",
+    "semantic_hash": "d2ade51006fca7f35fd4b4111fc83670"
+  },
+  "platform/backend/src/pine/interpreter.ts": {
+    "mtime": 1785888372.7176025,
+    "ast_hash": "d0be5d1985eecd390c1d3af50e007147",
+    "semantic_hash": "d0be5d1985eecd390c1d3af50e007147"
+  },
+  "platform/backend/src/pine/lexer.ts": {
+    "mtime": 1785885799.4258447,
+    "ast_hash": "1b0774a02684a7ec4d844fb1bf4b5ae7",
+    "semantic_hash": "1b0774a02684a7ec4d844fb1bf4b5ae7"
+  },
+  "platform/backend/src/pine/parser.ts": {
+    "mtime": 1785887069.8124316,
+    "ast_hash": "39e2d67562b9b8e5e525316f679b118b",
+    "semantic_hash": "39e2d67562b9b8e5e525316f679b118b"
+  },
+  "platform/backend/src/pine/streamTa.ts": {
+    "mtime": 1785884140.9561691,
+    "ast_hash": "02cb6924ab382609540465fee783dca3",
+    "semantic_hash": "02cb6924ab382609540465fee783dca3"
+  },
+  "platform/backend/src/repositories/pineScripts.ts": {
+    "mtime": 1785884967.9754047,
+    "ast_hash": "8a5b2f0909f288be50d2b371b140317b",
+    "semantic_hash": "8a5b2f0909f288be50d2b371b140317b"
+  },
+  "platform/backend/tests/pine.test.ts": {
+    "mtime": 1785888374.7717185,
+    "ast_hash": "786f5076c3c1376ee34b1f9828a6f7ca",
+    "semantic_hash": "786f5076c3c1376ee34b1f9828a6f7ca"
+  },
+  "platform/frontend/components/tv/DrawingCanvas.tsx": {
+    "mtime": 1785883289.96331,
+    "ast_hash": "2334b40acaad63a07f0b6e9673fff46e",
+    "semantic_hash": "2334b40acaad63a07f0b6e9673fff46e"
+  },
+  "platform/frontend/components/tv/DrawingToolbar.tsx": {
+    "mtime": 1785883116.2069516,
+    "ast_hash": "45395900fa23b7819d69f1482417027b",
+    "semantic_hash": "45395900fa23b7819d69f1482417027b"
+  },
+  "platform/frontend/components/tv/PineEditor.tsx": {
+    "mtime": 1785885256.9739308,
+    "ast_hash": "b72950e5645a81c22a7e07b3f128b1cc",
+    "semantic_hash": "b72950e5645a81c22a7e07b3f128b1cc"
+  },
+  "platform/frontend/components/tv/SymbolSearch.tsx": {
+    "mtime": 1785882853.006875,
+    "ast_hash": "d61aa1d69f251af3fa93111b10f7ae92",
+    "semantic_hash": "d61aa1d69f251af3fa93111b10f7ae92"
+  },
+  "platform/frontend/lib/drawings.ts": {
+    "mtime": 1785888436.7705712,
+    "ast_hash": "e6791c232e88cb7b06eaaa24cf593b31",
+    "semantic_hash": "e6791c232e88cb7b06eaaa24cf593b31"
+  },
+  "platform/frontend/lib/pineHighlight.ts": {
+    "mtime": 1785885198.671344,
+    "ast_hash": "61d7103a753cbf0d39d238af83099a5d",
+    "semantic_hash": "61d7103a753cbf0d39d238af83099a5d"
+  }
+}

@@ -1,0 +1,396 @@
+//@version=5
+// ============================================================================
+//  THE DOUBLE BOLLINGER BAND ("DOUBLE B") 1-MINUTE SCALPING STRATEGY
+//  Spot Trading - LONG ONLY  |  Pine Script v5
+// ----------------------------------------------------------------------------
+//  SECTION MAP
+//    1.  Strategy Declaration
+//    2.  Inputs & Configuration
+//    3.  Indicator Calculations (BB1 / BB2)
+//    4.  Session Filter
+//    5.  Persistent State (case machine + active trade levels)
+//    6.  Drawing Helpers
+//    7.  Trade-Close Bookkeeping
+//    8.  Position Initialisation (levels computed on real fill price)
+//    9.  Break-Even Trailing + Exit Order Maintenance
+//    10. Entry Signal, Case Classification & Execution
+//    11. Visualisation (bands, session, levels, signals, dashboard)
+// ----------------------------------------------------------------------------
+//  NO REPAINTING: every decision is taken on a CONFIRMED bar close
+//  (calc_on_every_tick = false + barstate.isconfirmed). No request.security(),
+//  no lookahead. The break-even stop is only ever tightened AFTER the trigger
+//  bar has closed, so it can never "see" inside the bar it is reacting to.
+//
+//  ORDER TIMING: signal on bar N close -> market order fills at bar N+1 open.
+//  A stop-only protective exit is submitted on bar N together with the entry,
+//  so the position is never unprotected on its fill bar. Once filled, the real
+//  average price is read and the exit is upgraded to stop + limit.
+//
+//  NOTE ON CAPITAL / COMMISSION / SLIPPAGE: strategy() requires const
+//  arguments, so these CANNOT be input.* controls (they would silently do
+//  nothing). They are hardcoded below at 1000 / 0.075% / 1 tick and are
+//  adjustable in the PROPERTIES tab, which is the only place they take effect.
+// ============================================================================
+
+
+// ============================================================================
+// 1. STRATEGY DECLARATION
+// ============================================================================
+strategy(
+     title                   = "Double Bollinger Band (Double B) 1M Scalper [Long-Only Spot]",
+     shorttitle              = "DoubleB 1M",
+     overlay                 = true,
+     initial_capital         = 1000,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     pyramiding              = 1,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.075,
+     slippage                = 1,
+     calc_on_every_tick      = false,
+     process_orders_on_close = false,
+     max_lines_count         = 500,
+     max_labels_count        = 500)
+
+
+// ============================================================================
+// 2. INPUTS & CONFIGURATION
+// ============================================================================
+string G_RISK = "1) Capital & Risk  (capital/commission/slippage -> Properties tab)"
+string G_BB1  = "2) BB1 - Long-Term Bollinger Band"
+string G_BB2  = "3) BB2 - Short-Term Bollinger Band"
+string G_SESS = "4) Session Filter - First 2 Hours of Each Open"
+string G_CASE = "5) Case Logic & Risk/Reward"
+string G_VIS  = "6) Visuals"
+
+// --- Risk ---
+slBufferTicks  = input.int(0, "Stop-Loss Buffer (ticks below signal low)", minval = 0, group = G_RISK, tooltip = "Pushes the stop further from the signal candle low to survive wick hunts. 0 = exactly the low, per spec.")
+beCountsAsStop = input.bool(false, "Count Break-Even exits as stop-outs", group = G_RISK, tooltip = "OFF (default): a trade closed at break-even is NOT treated as a failed breakout, so the next signal is Case 1.\nON: a break-even exit arms the Case 2 / Case 3 re-breakout logic.")
+
+// --- BB1 (Long-Term) ---
+bb1Len  = input.int(20, "BB1 Length", minval = 1, group = G_BB1)
+bb1Mult = input.float(2.0, "BB1 Multiplier", minval = 0.1, step = 0.1, group = G_BB1)
+bb1Src  = input.source(close, "BB1 Source", group = G_BB1)
+
+// --- BB2 (Short-Term) ---
+bb2Len  = input.int(4, "BB2 Length", minval = 1, group = G_BB2)
+bb2Mult = input.float(4.0, "BB2 Multiplier", minval = 0.1, step = 0.1, group = G_BB2)
+bb2Src  = input.source(open, "BB2 Source", group = G_BB2)
+
+// --- Sessions ---
+useSession = input.bool(true, "Enable Session Filter", group = G_SESS)
+sessTz     = input.string("UTC", "Session Timezone", options = ["UTC", "America/New_York", "Europe/London", "Asia/Tokyo", "Asia/Singapore", "Exchange"], group = G_SESS)
+useAsia    = input.bool(true, "Asian Open", inline = "S1", group = G_SESS)
+sessAsia   = input.session("0000-0200:1234567", "", inline = "S1", group = G_SESS)
+useEuro    = input.bool(true, "Euro Open ", inline = "S2", group = G_SESS)
+sessEuro   = input.session("0700-0900:1234567", "", inline = "S2", group = G_SESS)
+useUs      = input.bool(true, "US Open   ", inline = "S3", group = G_SESS)
+sessUs     = input.session("1330-1530:1234567", "", inline = "S3", group = G_SESS)
+
+// --- Case logic ---
+c1TargetRR = input.float(2.0, "Case 1 - Target R:R", minval = 0.1, step = 0.1, inline = "C1", group = G_CASE)
+c1BeRR     = input.float(1.0, "BE at R:R", minval = 0.0, step = 0.1, inline = "C1", group = G_CASE)
+c2TargetRR = input.float(3.0, "Case 2 - Target R:R", minval = 0.1, step = 0.1, inline = "C2", group = G_CASE)
+c2BeRR     = input.float(1.5, "BE at R:R", minval = 0.0, step = 0.1, inline = "C2", group = G_CASE)
+c3TargetRR = input.float(2.0, "Case 3 - Target R:R", minval = 0.1, step = 0.1, inline = "C3", group = G_CASE)
+c3BeRR     = input.float(1.0, "BE at R:R", minval = 0.0, step = 0.1, inline = "C3", group = G_CASE)
+case2MaxBars = input.int(0, "Case 2 validity window (bars, 0 = unlimited)", minval = 0, group = G_CASE, tooltip = "Maximum bars between the Case 1 stop-out and the re-breakout for Case 2 to remain valid. 0 disables the check (pure spec behaviour).")
+
+// --- Visuals ---
+showBands    = input.bool(true,  "Show Bollinger Bands", group = G_VIS)
+showBasis    = input.bool(false, "Show BB Basis Lines", group = G_VIS)
+showSessBg   = input.bool(true,  "Shade Session Windows", group = G_VIS)
+showLevels   = input.bool(true,  "Show Entry / SL / TP / BE Levels", group = G_VIS)
+showSignals  = input.bool(true,  "Show Entry Signals & Bar Colours", group = G_VIS)
+showTable    = input.bool(true,  "Show State Dashboard", group = G_VIS)
+projectBars  = input.int(12, "Level Projection (bars to the right)", minval = 0, maxval = 100, group = G_VIS)
+
+
+// ============================================================================
+// 3. INDICATOR CALCULATIONS
+// ============================================================================
+// --- BB1: long-term trend / volatility envelope ---
+bb1Basis = ta.sma(bb1Src, bb1Len)
+bb1Dev   = bb1Mult * ta.stdev(bb1Src, bb1Len)
+bb1Upper = bb1Basis + bb1Dev
+bb1Lower = bb1Basis - bb1Dev
+
+// --- BB2: short-term impulse envelope (4-period, 4 sigma -> volatility spike) ---
+bb2Basis = ta.sma(bb2Src, bb2Len)
+bb2Dev   = bb2Mult * ta.stdev(bb2Src, bb2Len)
+bb2Upper = bb2Basis + bb2Dev
+bb2Lower = bb2Basis - bb2Dev
+
+
+// ============================================================================
+// 4. SESSION FILTER
+// ============================================================================
+f_inWindow(_enabled, _sess) =>
+    _enabled and not na(time(timeframe.period, _sess, sessTz))
+
+inAsia    = f_inWindow(useAsia, sessAsia)
+inEuro    = f_inWindow(useEuro, sessEuro)
+inUs      = f_inWindow(useUs,   sessUs)
+inAnySess = inAsia or inEuro or inUs
+inSession = not useSession or inAnySess
+
+
+// ============================================================================
+// 5. PERSISTENT STATE
+// ============================================================================
+// --- Case state machine (survives between trades) ---
+var int   lastTradeCase    = 0      // case number of the most recent CLOSED trade (0 = none / not stopped)
+var bool  lastTradeStopped = false  // did the most recent closed trade end on its stop?
+var int   lastStopBar      = 0      // bar_index of that stop-out (Case 2 validity window)
+var float origBreakoutLow  = na     // low of the ORIGINAL failed Case 1 signal candle -> Case 2 stop
+
+// --- Active trade context ---
+var int    activeCase    = 0
+var string activeEntryId = ""
+var float  pendingSL     = na       // stop known at signal time (before the fill price is known)
+var float  entryPrice    = na
+var float  entrySL       = na
+var float  entryTP       = na
+var float  beTrigger     = na
+var bool   isBreakEvenSet = false
+var bool   levelsReady    = false   // true once TP/BE have been computed from the real fill price
+
+
+// ============================================================================
+// 6. DRAWING HELPERS
+// ============================================================================
+var line  lnEntry = na
+var line  lnSL    = na
+var line  lnTP    = na
+var line  lnBE    = na
+var label lbEntry = na
+var label lbSL    = na
+var label lbTP    = na
+var label lbBE    = na
+
+f_newLine(_y, _col, _width, _style) =>
+    line.new(bar_index, _y, bar_index + projectBars, _y, xloc = xloc.bar_index, color = _col, width = _width, style = _style)
+
+f_newLabel(_y, _col, _txt) =>
+    label.new(bar_index + projectBars, _y, _txt, xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.black, 100), textcolor = _col, size = size.small)
+
+f_updateLevel(_ln, _lb, _y) =>
+    if not na(_ln)
+        line.set_x2(_ln, bar_index + projectBars)
+        line.set_y1(_ln, _y)
+        line.set_y2(_ln, _y)
+    if not na(_lb)
+        label.set_x(_lb, bar_index + projectBars)
+        label.set_y(_lb, _y)
+
+f_deleteLevel(_ln, _lb) =>
+    if not na(_ln)
+        line.delete(_ln)
+    if not na(_lb)
+        label.delete(_lb)
+
+
+// ============================================================================
+// 7. TRADE-CLOSE BOOKKEEPING
+//    Runs BEFORE the entry block so a stop-out on bar N can classify a
+//    re-entry signal that occurs on that same bar N.
+// ============================================================================
+tradeJustClosed = strategy.closedtrades > nz(strategy.closedtrades[1])
+
+if tradeJustClosed
+    int   ci     = strategy.closedtrades - 1
+    float exitPx = strategy.closedtrades.exit_price(ci)
+    float profit = strategy.closedtrades.profit(ci)
+
+    // A stop exit is identified by the fill landing at (or below, via slippage)
+    // the stop level that was active at the moment of the close.
+    bool stopExit = na(entrySL) ? profit <= 0 : exitPx <= entrySL + syminfo.mintick
+    bool beExit   = stopExit and isBreakEvenSet
+    bool realStop = stopExit and (not beExit or beCountsAsStop)
+
+    if realStop
+        lastTradeStopped := true
+        lastTradeCase    := activeCase
+        lastStopBar      := bar_index
+        // Only a failed CASE 1 breakout leaves a usable original-breakout low.
+        if activeCase != 1
+            origBreakoutLow := na
+    else
+        lastTradeStopped := false
+        lastTradeCase    := 0
+        origBreakoutLow  := na
+
+    // Reset per-trade context (chart lines are intentionally left frozen).
+    activeCase     := 0
+    activeEntryId  := ""
+    pendingSL      := na
+    entryPrice     := na
+    entrySL        := na
+    entryTP        := na
+    beTrigger      := na
+    isBreakEvenSet := false
+    levelsReady    := false
+
+
+// ============================================================================
+// 8. POSITION INITIALISATION - compute levels from the REAL fill price
+// ============================================================================
+newFill = strategy.position_size > 0 and not levelsReady
+
+if newFill
+    entryPrice := strategy.position_avg_price
+    entrySL    := pendingSL
+    float risk = entryPrice - entrySL
+
+    if na(risk) or risk <= 0
+        // Gapped through the stop on the open: no valid risk unit. Flatten.
+        entryTP     := na
+        beTrigger   := na
+        levelsReady := true
+        if activeEntryId != ""
+            strategy.close(activeEntryId, comment = "Invalid Risk")
+    else
+        float tgtRR = activeCase == 2 ? c2TargetRR : activeCase == 3 ? c3TargetRR : c1TargetRR
+        float beRR  = activeCase == 2 ? c2BeRR     : activeCase == 3 ? c3BeRR     : c1BeRR
+        entryTP        := entryPrice + risk * tgtRR
+        beTrigger      := beRR > 0 ? entryPrice + risk * beRR : na
+        isBreakEvenSet := false
+        levelsReady    := true
+
+        // --- Draw the level set for this trade (previous trade's lines cleared) ---
+        if showLevels
+            f_deleteLevel(lnEntry, lbEntry)
+            f_deleteLevel(lnSL,    lbSL)
+            f_deleteLevel(lnTP,    lbTP)
+            f_deleteLevel(lnBE,    lbBE)
+            lnEntry := f_newLine(entryPrice, color.aqua,  3, line.style_solid)
+            lbEntry := f_newLabel(entryPrice, color.aqua, "ENTRY C" + str.tostring(activeCase) + "  " + str.tostring(entryPrice, format.mintick))
+            lnSL    := f_newLine(entrySL, color.red, 2, line.style_solid)
+            lbSL    := f_newLabel(entrySL, color.red, "SL  " + str.tostring(entrySL, format.mintick))
+            lnTP    := f_newLine(entryTP, color.green, 2, line.style_solid)
+            lbTP    := f_newLabel(entryTP, color.green, "TP " + str.tostring(tgtRR, "#.#") + "R  " + str.tostring(entryTP, format.mintick))
+            if not na(beTrigger)
+                lnBE := f_newLine(beTrigger, color.gray, 1, line.style_dashed)
+                lbBE := f_newLabel(beTrigger, color.gray, "BE " + str.tostring(beRR, "#.#") + "R  " + str.tostring(beTrigger, format.mintick))
+            else
+                lnBE := na
+                lbBE := na
+
+
+// ============================================================================
+// 9. BREAK-EVEN TRAILING + EXIT ORDER MAINTENANCE
+// ============================================================================
+inPosition = strategy.position_size > 0 and levelsReady and not na(entryTP) and activeEntryId != ""
+
+if inPosition
+    // --- Break-even promotion (evaluated on the CLOSED bar, applied forward) ---
+    if not isBreakEvenSet and not na(beTrigger) and high >= beTrigger
+        entrySL        := entryPrice
+        isBreakEvenSet := true
+        if showLevels
+            // Freeze the original stop segment, start a fresh one at break-even.
+            if not na(lnSL)
+                line.set_x2(lnSL, bar_index)
+            f_deleteLevel(na, lbSL)
+            lnSL := f_newLine(entrySL, color.red, 2, line.style_solid)
+            lbSL := f_newLabel(entrySL, color.red, "SL @ BE  " + str.tostring(entrySL, format.mintick))
+
+    // --- Re-issue the bracket every bar so stop/limit always reflect state ---
+    strategy.exit("Exit", from_entry = activeEntryId, stop = entrySL, limit = entryTP)
+
+    // --- Keep the projections tracking the current bar ---
+    if showLevels
+        f_updateLevel(lnEntry, lbEntry, entryPrice)
+        f_updateLevel(lnSL,    lbSL,    entrySL)
+        f_updateLevel(lnTP,    lbTP,    entryTP)
+        if not na(beTrigger)
+            f_updateLevel(lnBE, lbBE, beTrigger)
+
+
+// ============================================================================
+// 10. ENTRY SIGNAL, CASE CLASSIFICATION & EXECUTION
+// ============================================================================
+// --- Raw breakout: close above BOTH upper bands ---
+bbBreakout = close > bb1Upper and close > bb2Upper
+
+baseSignal = barstate.isconfirmed and inSession and strategy.position_size == 0 and strategy.opentrades == 0 and bbBreakout
+
+int   sigCase = 0
+float sigSL   = na
+
+if baseSignal
+    // Case 2 requires: prior trade stopped out, prior trade WAS Case 1, a stored
+    // breakout low that is still below price, and (optionally) recency.
+    bool c2Recent = case2MaxBars == 0 or (bar_index - lastStopBar) <= case2MaxBars
+    bool c2Valid  = lastTradeStopped and lastTradeCase == 1 and not na(origBreakoutLow) and origBreakoutLow < close and c2Recent
+
+    sigCase := c2Valid ? 2 : lastTradeStopped ? 3 : 1
+    sigSL   := (sigCase == 2 ? origBreakoutLow : low) - slBufferTicks * syminfo.mintick
+
+// A signal is only tradable if it produces a positive risk unit.
+canEnter = baseSignal and not na(sigSL) and sigSL < close
+
+if canEnter
+    activeCase     := sigCase
+    activeEntryId  := "Long Case " + str.tostring(sigCase)
+    pendingSL      := sigSL
+    entrySL        := sigSL          // provisional, refreshed on fill
+    entryPrice     := na
+    entryTP        := na
+    beTrigger      := na
+    isBreakEvenSet := false
+    levelsReady    := false
+
+    // Only a Case 1 breakout defines a new "original breakout low" reference.
+    origBreakoutLow := sigCase == 1 ? low : na
+
+    strategy.entry(activeEntryId, strategy.long)
+    // Protective stop submitted with the entry so the fill bar is never naked.
+    strategy.exit("Exit", from_entry = activeEntryId, stop = sigSL)
+
+    alert("DoubleB LONG Case " + str.tostring(sigCase) + " | Signal close " + str.tostring(close, format.mintick) + " | SL " + str.tostring(sigSL, format.mintick), alert.freq_once_per_bar_close)
+
+
+// ============================================================================
+// 11. VISUALISATION
+// ============================================================================
+// --- Bollinger Bands ---
+pBB1U = plot(showBands ? bb1Upper : na, "BB1 Upper", color = color.new(color.blue, 0),   linewidth = 1)
+pBB1L = plot(showBands ? bb1Lower : na, "BB1 Lower", color = color.new(color.blue, 0),   linewidth = 1)
+plot(showBands and showBasis ? bb1Basis : na, "BB1 Basis", color = color.new(color.blue, 45), linewidth = 1)
+plot(showBands ? bb2Upper : na, "BB2 Upper", color = color.new(color.orange, 0), linewidth = 1)
+plot(showBands ? bb2Lower : na, "BB2 Lower", color = color.new(color.orange, 0), linewidth = 1)
+plot(showBands and showBasis ? bb2Basis : na, "BB2 Basis", color = color.new(color.orange, 45), linewidth = 1)
+fill(pBB1U, pBB1L, color = color.new(color.blue, 94), title = "BB1 Channel")
+
+// --- Session shading ---
+bgcolor(showSessBg and inAnySess ? color.new(color.green, 92) : na, title = "Session Window")
+
+// --- Entry signals ---
+plotshape(showSignals and canEnter and sigCase == 1, title = "LONG C1", text = "LONG C1", style = shape.labelup, location = location.belowbar, color = color.new(color.lime, 0),    textcolor = color.black, size = size.tiny)
+plotshape(showSignals and canEnter and sigCase == 2, title = "LONG C2", text = "LONG C2", style = shape.labelup, location = location.belowbar, color = color.new(color.fuchsia, 0), textcolor = color.white, size = size.tiny)
+plotshape(showSignals and canEnter and sigCase == 3, title = "LONG C3", text = "LONG C3", style = shape.labelup, location = location.belowbar, color = color.new(color.yellow, 0),  textcolor = color.black, size = size.tiny)
+
+// --- Signal candle body highlight ---
+barcolor(showSignals and canEnter ? (sigCase == 1 ? color.lime : sigCase == 2 ? color.fuchsia : color.yellow) : na, title = "Signal Candle")
+
+// --- State dashboard ---
+var table dash = table.new(position.top_right, 2, 11, bgcolor = color.new(color.black, 15), border_width = 1, border_color = color.new(color.gray, 60))
+
+f_cell(_row, _key, _val, _col) =>
+    table.cell(dash, 0, _row, _key, text_color = color.new(color.gray, 0), text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, _row, _val, text_color = _col, text_size = size.small, text_halign = text.align_right)
+
+if showTable and barstate.islast
+    string posTxt = strategy.position_size > 0 ? "LONG" : "FLAT"
+    f_cell(0,  "Session",        inSession ? "OPEN" : "CLOSED",                                                 inSession ? color.lime : color.red)
+    f_cell(1,  "Position",       posTxt,                                                                        strategy.position_size > 0 ? color.aqua : color.gray)
+    f_cell(2,  "Active Case",    activeCase == 0 ? "-" : "C" + str.tostring(activeCase),                         color.white)
+    f_cell(3,  "Entry",          na(entryPrice) ? "-" : str.tostring(entryPrice, format.mintick),                color.aqua)
+    f_cell(4,  "Stop Loss",      na(entrySL)    ? "-" : str.tostring(entrySL, format.mintick),                   color.red)
+    f_cell(5,  "Take Profit",    na(entryTP)    ? "-" : str.tostring(entryTP, format.mintick),                   color.green)
+    f_cell(6,  "BE Trigger",     na(beTrigger)  ? "-" : str.tostring(beTrigger, format.mintick),                 color.gray)
+    f_cell(7,  "BE Armed",       isBreakEvenSet ? "YES" : "NO",                                                  isBreakEvenSet ? color.orange : color.gray)
+    f_cell(8,  "Last Trade",     lastTradeCase == 0 ? "-" : "C" + str.tostring(lastTradeCase),                   color.white)
+    f_cell(9,  "Last Stopped",   lastTradeStopped ? "YES" : "NO",                                                lastTradeStopped ? color.red : color.lime)
+    f_cell(10, "Orig BO Low",    na(origBreakoutLow) ? "-" : str.tostring(origBreakoutLow, format.mintick),      color.fuchsia)

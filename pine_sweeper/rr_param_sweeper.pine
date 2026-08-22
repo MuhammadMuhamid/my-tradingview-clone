@@ -1,0 +1,340 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ═══════════════════════════════════════════════════════════════════════════════
+// MA_RR PARAM SWEEPER — Approach A ("Parallel Array Matrix" in-script optimizer)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// WHAT THIS IS
+//   Runs N parameter configurations of the MA+R:R execution layer SIMULTANEOUSLY
+//   in one chart pass. One shared entry-context (the locked MTF gates) is computed
+//   once per bar; each config then runs its own lightweight long-only fill
+//   simulator held in parallel arrays (state-machine per config index).
+//   On the last bar a sorted leaderboard table is rendered on the chart.
+//
+// ⚠️ FIDELITY DISCLAIMER — READ BEFORE TRUSTING NUMBERS
+//   • This is NOT the TradingView broker emulator. strategy.* cannot be
+//     instantiated N times, so fills are simulated in script code.
+//   • Same-bar stop+TP ambiguity is resolved CONSERVATIVELY (stop wins).
+//     The broker emulator uses its own intrabar assumption — numbers WILL
+//     differ by a few % on volatile bars.
+//   • Partial TPs (TP1/TP2) are NOT simulated here — the sweeper models the
+//     single-target R:R bracket + break-even + % trailing stop. Sweep the
+//     bracket first, then A/B the partial-TP overlay in the real strategy.
+//   • Use this to RANK parameter regions, never to certify a config.
+//     Validate the top 3–5 configs in the real strategy (Approach B) before
+//     any live deployment.
+//   • request.security uses lookahead_off everywhere; signals evaluate on
+//     confirmed bars only → no lookahead, no intra-bar repaint on history.
+//
+// WHY ONLY EXECUTION-LAYER PARAMS ARE SWEPT
+//   request.security timeframes/lengths must be simple (compile-time) values,
+//   so MTF context (MA TFs/lengths, exit-MA, HL-break pivot TF) CANNOT vary per
+//   config inside one script instance. The MTF context is therefore LOCKED
+//   (project decision: 1m×200 SMA + 1h×400 SMA, exit 4h×100 SMA, HL 15m×9)
+//   and only chart-TF execution params are swept: rrRatio, rrSwingLb, rrBufAtr,
+//   rrTrailPct. This keeps the security-call count constant regardless of how
+//   many configs run — the key trick that makes in-Pine sweeping feasible.
+//
+// CAPACITY / LIMITS
+//   • Default guard: 150 configs. Per-bar cost ≈ nCfg × (swing-low scan + state
+//     update) ≈ 150 × ~25 ops — far below Pine's 500 ms/bar loop budget.
+//   • 9 typed arrays × nCfg elements — trivially below the 100k-element ceiling.
+//   • One table (≤ 21 rows), zero labels/lines — no drawing-object pressure.
+//
+//@version=6
+indicator("MA_RR Param Sweeper — Approach A", "RR SWEEP", overlay = true,
+     max_labels_count = 500, max_lines_count = 300)
+
+// ── 1) Sweep grid — comma-separated value lists (cartesian product) ───────────
+string G_SW = "1 Sweep grid (comma-separated values)"
+sw_rr    = input.string("1.5,2.0,2.5,3.0", "rrRatio (reward:risk TP)", group = G_SW)
+sw_lb    = input.string("6,10,14",         "rrSwingLb (swing-low lookback)", group = G_SW)
+sw_buf   = input.string("0.1,0.3",         "rrBufAtr (SL buffer × ATR)", group = G_SW)
+sw_trail = input.string("0,2.0,3.0",       "rrTrailPct (% trail, 0 = off)", group = G_SW)
+maxCfg   = input.int(150, "Max configs guard (abort above)", minval = 1, maxval = 400, group = G_SW)
+
+// ── 2) Fixed execution params (shared by every config) ────────────────────────
+string G_FX = "2 Fixed execution params"
+minSlDistAtr = input.float(0.25, "Floor: min SL distance (× ATR)", step = 0.05, group = G_FX)
+useBreakEven = input.bool(true, "Break-even stop", group = G_FX)
+beTriggerR   = input.float(0.75, "BE trigger (+R)", step = 0.25, group = G_FX)
+useChoppy    = input.bool(true, "Consecutive-loss pause", group = G_FX)
+maxConsec    = input.int(2, "Max consecutive losses", minval = 1, group = G_FX)
+pauseBars    = input.int(20, "Pause bars", minval = 1, group = G_FX)
+atrLenRisk   = input.int(7, "ATR length (risk)", minval = 1, group = G_FX)
+
+// ── 3) Friction model — mirror the strategy() header EXACTLY ──────────────────
+string G_FR = "3 Friction (must match strategy properties)"
+feePct    = input.float(0.05, "Commission % per side", step = 0.005, group = G_FR)
+slipTicks = input.int(2, "Slippage (ticks) per fill", minval = 0, group = G_FR)
+tradeCash = input.float(930.0, "Cash per trade (USDT)", group = G_FR)
+initCap   = input.float(1000.0, "Initial capital", group = G_FR)
+
+// ── 4) Locked entry context (MTF gates — identical for every config) ──────────
+string G_CTX = "4 Locked entry context (not swept)"
+ma1_tf  = input.timeframe("1",  "MA1 timeframe", group = G_CTX)
+ma1_len = input.int(200, "MA1 length (SMA)", group = G_CTX)
+ma3_tf  = input.timeframe("60", "MA3 timeframe", group = G_CTX)
+ma3_len = input.int(400, "MA3 length (SMA)", group = G_CTX)
+reqSlope   = input.bool(false, "Require MAs rising (5-bar slope)", group = G_CTX)
+useVolFilt = input.bool(false, "Volume ≥ 1.2× 20-SMA on entry", group = G_CTX)
+
+string G_EX = "5 Locked soft exits (not swept)"
+useExitMa1   = input.bool(true, "Exit: close below MA1", group = G_EX)
+useExitMtfMa = input.bool(true, "Exit: MTF MA crossunder", group = G_EX)
+exitMaTf     = input.timeframe("240", "Exit MA timeframe", group = G_EX)
+exitMaLen    = input.int(100, "Exit MA length (SMA)", group = G_EX)
+useHlBreak   = input.bool(true, "Exit: HL structure break", group = G_EX)
+hlTf         = input.timeframe("15", "HL pivot timeframe", group = G_EX)
+hlPivLen     = input.int(9, "HL pivot length", group = G_EX)
+
+string G_OUT = "6 Leaderboard"
+scoreMode = input.string("Net/MaxDD", "Rank by", options = ["Net/MaxDD", "Net $", "Profit Factor"], group = G_OUT)
+topN      = input.int(15, "Rows to display", minval = 3, maxval = 20, group = G_OUT)
+
+max_bars_back(low, 500)
+
+// ── Shared per-bar context (computed ONCE, reused by all configs) ──────────────
+float atr = ta.atr(atrLenRisk)
+
+f_sma_mtf(string tf, int len) =>
+    request.security(syminfo.tickerid, tf, ta.sma(close, len), barmerge.gaps_off, barmerge.lookahead_off)
+
+float ma1 = f_sma_mtf(ma1_tf, ma1_len)
+float ma3 = f_sma_mtf(ma3_tf, ma3_len)
+
+bool slopeOk = not reqSlope or (not na(ma1[5]) and not na(ma3[5]) and ma1 > ma1[5] and ma3 > ma3[5])
+float volSma = ta.sma(volume, 20)
+bool  volOk  = not useVolFilt or (not na(volSma) and volume >= 1.2 * volSma)
+
+// Entry gate = state (matches strategy with MA-trend as PRIMARY: fires while flat & aligned)
+bool entryGate = barstate.isconfirmed and not na(ma1) and not na(ma3) and close > ma1 and close > ma3 and slopeOk and volOk
+
+// Shared soft-exit signal — MTF crossunder computed INSIDE security (matches strategy)
+f_exit_ma_cross() =>
+    bool cu = ta.crossunder(close, ta.sma(close, exitMaLen))
+    barstate.isconfirmed and cu
+bool _mtfExitRaw = request.security(syminfo.tickerid, exitMaTf, f_exit_ma_cross(), barmerge.gaps_off, barmerge.lookahead_off)
+
+float hlPivLow = request.security(syminfo.tickerid, hlTf,
+     ta.valuewhen(not na(ta.pivotlow(hlPivLen, hlPivLen)), ta.pivotlow(hlPivLen, hlPivLen), 0),
+     barmerge.gaps_off, barmerge.lookahead_off)
+
+bool sharedSoftExit = barstate.isconfirmed and (
+     (useExitMa1 and not na(ma1) and close < ma1) or
+     (useExitMtfMa and _mtfExitRaw) or
+     (useHlBreak and not na(hlPivLow) and close < hlPivLow))
+
+float slip = slipTicks * syminfo.mintick
+float fee  = feePct / 100.0
+
+// ── Config matrix expansion (bar 0) — cartesian product of the 4 grids ────────
+f_parse(string s) =>
+    array<float> out = array.new_float()
+    array<string> parts = str.split(s, ",")
+    for p in parts
+        float v = str.tonumber(str.replace_all(p, " ", ""))
+        if not na(v)
+            out.push(v)
+    out
+
+var array<float> cRr    = array.new_float()   // per-config: rrRatio
+var array<float> cLb    = array.new_float()   //             swing lookback
+var array<float> cBuf   = array.new_float()   //             SL buffer ×ATR
+var array<float> cTrail = array.new_float()   //             trail % (0=off)
+var int nCfg = 0
+
+if barstate.isfirst
+    array<float> vRr = f_parse(sw_rr)
+    array<float> vLb = f_parse(sw_lb)
+    array<float> vBuf = f_parse(sw_buf)
+    array<float> vTr = f_parse(sw_trail)
+    for r in vRr
+        for l in vLb
+            for b in vBuf
+                for t in vTr
+                    cRr.push(r)
+                    cLb.push(l)
+                    cBuf.push(b)
+                    cTrail.push(t)
+    nCfg := cRr.size()
+    if nCfg == 0
+        runtime.error("Sweep grid parsed to zero configs — check the value lists.")
+    if nCfg > maxCfg
+        runtime.error("Sweep grid = " + str.tostring(nCfg) + " configs > guard (" + str.tostring(maxCfg) + "). Shrink a list or raise the guard.")
+
+// ── Parallel state arrays (index = config) ─────────────────────────────────────
+var array<bool>  sPend    = array.new_bool(0)    // entry pending → fill next open
+var array<float> sPendSl  = array.new_float(0)   // stop computed at signal bar
+var array<float> sPendTp  = array.new_float(0)   // target computed at signal bar
+var array<bool>  sInPos   = array.new_bool(0)
+var array<float> sEntry   = array.new_float(0)
+var array<float> sStop    = array.new_float(0)   // base swing-low stop
+var array<float> sTp      = array.new_float(0)
+var array<float> sTrailA  = array.new_float(0)   // trail anchor (na = unarmed)
+var array<bool>  sBeDone  = array.new_bool(0)
+// metrics
+var array<float> mNet     = array.new_float(0)
+var array<float> mGrossP  = array.new_float(0)
+var array<float> mGrossL  = array.new_float(0)
+var array<int>   mTrades  = array.new_int(0)
+var array<int>   mWins    = array.new_int(0)
+var array<float> mPeakEq  = array.new_float(0)
+var array<float> mMaxDD   = array.new_float(0)
+var array<int>   mConsec  = array.new_int(0)
+var array<int>   mPause   = array.new_int(0)
+
+if barstate.isfirst
+    for i = 0 to nCfg - 1
+        sPend.push(false)
+        sPendSl.push(na)
+        sPendTp.push(na)
+        sInPos.push(false)
+        sEntry.push(na)
+        sStop.push(na)
+        sTp.push(na)
+        sTrailA.push(na)
+        sBeDone.push(false)
+        mNet.push(0.0)
+        mGrossP.push(0.0)
+        mGrossL.push(0.0)
+        mTrades.push(0)
+        mWins.push(0)
+        mPeakEq.push(initCap)
+        mMaxDD.push(0.0)
+        mConsec.push(0)
+        mPause.push(0)
+
+// Manual swing-low scan (ta.lowest can't take per-config lengths inside a loop —
+// its internal series state would be polluted by multiple calls per bar).
+f_swing_low(int n) =>
+    float m = low
+    if n > 1
+        for i = 1 to n - 1
+            m := math.min(m, low[i])
+    m
+
+f_close_trade(int c, float exitPx, bool isStopFill) =>
+    float xPx   = exitPx - (isStopFill ? slip : 0)          // adverse slippage on stop fills
+    float ePx   = sEntry.get(c)
+    float qty   = tradeCash / ePx
+    float pnl   = qty * (xPx - ePx) - fee * qty * (ePx + xPx)
+    mNet.set(c, mNet.get(c) + pnl)
+    if pnl > 0
+        mGrossP.set(c, mGrossP.get(c) + pnl)
+        mWins.set(c, mWins.get(c) + 1)
+        mConsec.set(c, 0)
+    else
+        mGrossL.set(c, mGrossL.get(c) - pnl)
+        mConsec.set(c, mConsec.get(c) + 1)
+        if useChoppy and mConsec.get(c) >= maxConsec
+            mPause.set(c, bar_index + pauseBars)
+            mConsec.set(c, 0)
+    mTrades.set(c, mTrades.get(c) + 1)
+    float eq = initCap + mNet.get(c)
+    mPeakEq.set(c, math.max(mPeakEq.get(c), eq))
+    float dd = mPeakEq.get(c) > 0 ? (mPeakEq.get(c) - eq) / mPeakEq.get(c) * 100.0 : 0.0
+    mMaxDD.set(c, math.max(mMaxDD.get(c), dd))
+    sInPos.set(c, false)
+    sEntry.set(c, na)
+    sStop.set(c, na)
+    sTp.set(c, na)
+    sTrailA.set(c, na)
+    sBeDone.set(c, false)
+
+// ── Per-bar simulation loop (historical bars are always confirmed) ─────────────
+if barstate.isconfirmed and nCfg > 0
+    for c = 0 to nCfg - 1
+        // 1) Fill pending entry at this bar's open (adverse slippage)
+        if sPend.get(c)
+            sPend.set(c, false)
+            sInPos.set(c, true)
+            sEntry.set(c, open + slip)
+            sStop.set(c, sPendSl.get(c))
+            sTp.set(c, sPendTp.get(c))
+
+        // 2) Manage open position
+        if sInPos.get(c)
+            float ePx  = sEntry.get(c)
+            float base = sStop.get(c)
+            float risk = ePx - base
+            // Break-even: after +beTriggerR, floor the stop at entry
+            if useBreakEven and not sBeDone.get(c) and risk > 0 and high >= ePx + beTriggerR * risk
+                sBeDone.set(c, true)
+            // % trailing stop: arms once green, ratchets up only
+            float trailPct = cTrail.get(c)
+            if trailPct > 0 and close > ePx
+                float cand = close * (1 - trailPct / 100.0)
+                sTrailA.set(c, na(sTrailA.get(c)) ? cand : math.max(sTrailA.get(c), cand))
+            float stopUse = base
+            if sBeDone.get(c)
+                stopUse := math.max(stopUse, ePx)
+            if not na(sTrailA.get(c))
+                stopUse := math.max(stopUse, sTrailA.get(c))
+            // Conservative fill ordering: gap-through → stop → TP → soft exit
+            if open <= stopUse
+                f_close_trade(c, open, true)
+            else if low <= stopUse
+                f_close_trade(c, stopUse, true)
+            else if open >= sTp.get(c)
+                f_close_trade(c, open, false)
+            else if high >= sTp.get(c)
+                f_close_trade(c, sTp.get(c), false)
+            else if sharedSoftExit
+                f_close_trade(c, close, false)
+
+        // 3) Arm a new entry (flat, gate true, not paused) — bracket computed NOW,
+        //    exactly like the strategy (swing low & close of the SIGNAL bar).
+        if not sInPos.get(c) and not sPend.get(c) and entryGate and bar_index > mPause.get(c)
+            int   lb   = math.max(2, int(cLb.get(c)))
+            float swLo = f_swing_low(lb)
+            float sl   = math.min(swLo - cBuf.get(c) * atr, close - minSlDistAtr * atr)
+            if not na(sl) and close > sl
+                sPend.set(c, true)
+                sPendSl.set(c, sl)
+                sPendTp.set(c, close + (close - sl) * cRr.get(c))
+
+// ── Leaderboard (sorted, last confirmed historical bar) ────────────────────────
+f_score(int c) =>
+    float net = mNet.get(c)
+    float pf  = mGrossL.get(c) > 0 ? mGrossP.get(c) / mGrossL.get(c) : (mGrossP.get(c) > 0 ? 999.0 : 0.0)
+    scoreMode == "Net $" ? net : scoreMode == "Profit Factor" ? pf : (mMaxDD.get(c) > 0.01 ? net / mMaxDD.get(c) : net)
+
+var table tbl = table.new(position.top_right, 10, 22, border_width = 1,
+     frame_color = color.new(color.gray, 40), frame_width = 1)
+
+if barstate.islastconfirmedhistory and nCfg > 0
+    // selection sort of config indices by score, descending (n ≤ 400 → cheap)
+    array<int> order = array.new_int()
+    for i = 0 to nCfg - 1
+        order.push(i)
+    for i = 0 to nCfg - 2
+        int best = i
+        for j = i + 1 to nCfg - 1
+            if f_score(order.get(j)) > f_score(order.get(best))
+                best := j
+        if best != i
+            int tmp = order.get(i)
+            order.set(i, order.get(best))
+            order.set(best, tmp)
+
+    color hd = color.new(color.black, 20)
+    string[] cols = array.from("#", "RR", "SwLb", "Buf", "Trail%", "Trades", "WR%", "PF", "Net$", "MaxDD%")
+    for k = 0 to cols.size() - 1
+        table.cell(tbl, k, 0, cols.get(k), text_color = color.white, bgcolor = hd, text_size = size.small)
+
+    int rows = math.min(topN, nCfg)
+    for r = 1 to rows
+        int c = order.get(r - 1)
+        float pf  = mGrossL.get(c) > 0 ? mGrossP.get(c) / mGrossL.get(c) : (mGrossP.get(c) > 0 ? 999.0 : 0.0)
+        float wr  = mTrades.get(c) > 0 ? 100.0 * mWins.get(c) / mTrades.get(c) : 0.0
+        color bg  = mNet.get(c) >= 0 ? color.new(color.green, 82) : color.new(color.red, 82)
+        table.cell(tbl, 0, r, str.tostring(r),                              bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 1, r, str.tostring(cRr.get(c),   "#.##"),           bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 2, r, str.tostring(cLb.get(c),   "#"),              bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 3, r, str.tostring(cBuf.get(c),  "#.##"),           bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 4, r, str.tostring(cTrail.get(c),"#.#"),            bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 5, r, str.tostring(mTrades.get(c)),                 bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 6, r, str.tostring(wr, "#.#"),                      bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 7, r, str.tostring(pf, "#.##"),                     bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 8, r, str.tostring(mNet.get(c), "#.##"),            bgcolor = bg, text_size = size.small)
+        table.cell(tbl, 9, r, str.tostring(mMaxDD.get(c), "#.##"),          bgcolor = bg, text_size = size.small)

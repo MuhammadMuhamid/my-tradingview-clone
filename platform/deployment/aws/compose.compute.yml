@@ -1,0 +1,35 @@
+# Continuous optimizer daemons for the compute EC2.
+#
+# Three systems as of 2026-07-30. The former ma15 (optimizer/) and ma1h
+# (optimizer1h/) services were removed along with their trees; sr1h is the
+# one-year SRTrend v10 1-hour system.
+#
+# Each service bind-mounts its history from the host over /app/<tree>, so the
+# image only needs to supply the tree's code.
+x-optimizer: &optimizer
+  image: ${OPTIMIZER_IMAGE}
+  restart: unless-stopped
+  environment:
+    DATABASE_URL: ${DATABASE_URL}
+  logging: &logging
+    driver: awslogs
+    options:
+      awslogs-region: ${AWS_REGION}
+      awslogs-group: ${LOG_GROUP}
+
+services:
+  ma1y15:
+    <<: *optimizer
+    command: ["node", "node_modules/tsx/dist/cli.mjs", "optimizer1y15m/optimizer.ts", "--daemon", "--round", "50"]
+    volumes: ["/opt/srtrend/optimizers/optimizer1y15m:/app/optimizer1y15m"]
+    logging: {<<: *logging, options: {awslogs-region: "${AWS_REGION}", awslogs-group: "${LOG_GROUP}", awslogs-stream: ma1y15}}
+  ma1y1h:
+    <<: *optimizer
+    command: ["node", "node_modules/tsx/dist/cli.mjs", "optimizer1y1h/optimizer.ts", "--daemon", "--round", "50"]
+    volumes: ["/opt/srtrend/optimizers/optimizer1y1h:/app/optimizer1y1h"]
+    logging: {<<: *logging, options: {awslogs-region: "${AWS_REGION}", awslogs-group: "${LOG_GROUP}", awslogs-stream: ma1y1h}}
+  sr1h:
+    <<: *optimizer
+    command: ["node", "node_modules/tsx/dist/cli.mjs", "sr_optimizer1h/optimizer.ts", "--daemon", "--round", "50"]
+    volumes: ["/opt/srtrend/optimizers/sr_optimizer1h:/app/sr_optimizer1h"]
+    logging: {<<: *logging, options: {awslogs-region: "${AWS_REGION}", awslogs-group: "${LOG_GROUP}", awslogs-stream: sr1h}}

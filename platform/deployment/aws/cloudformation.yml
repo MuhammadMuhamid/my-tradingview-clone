@@ -1,0 +1,307 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: SRTrend TradingView clone - app, isolated optimizer compute, encrypted RDS, ECR and backups
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: srtrend
+  DomainName:
+    Type: String
+    Description: Full hostname, for example chart.example.com
+  HostedZoneId:
+    Type: String
+    Default: ""
+    Description: Optional Route53 hosted-zone ID. Leave blank when DNS is managed elsewhere.
+  DBUsername:
+    Type: String
+    Default: platform
+  AppInstanceType:
+    Type: String
+    Default: t3.micro
+  ComputeInstanceType:
+    Type: String
+    # Four continuous optimizer workers need ~8-10 GiB in practice. A t3.micro
+    # has only 1 GiB and crashes under this workload; m6i.xlarge is the smallest
+    # sustained-CPU profile with a safe 16 GiB memory envelope.
+    Default: m6i.xlarge
+  DBInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Conditions:
+  CreateDns: !Not [!Equals [!Ref HostedZoneId, ""]]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: [{Key: Name, Value: !Sub "${ProjectName}-vpc"}]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: {VpcId: !Ref Vpc, InternetGatewayId: !Ref InternetGateway}
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.42.0.0/24
+      MapPublicIpOnLaunch: true
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.42.1.0/24
+      MapPublicIpOnLaunch: true
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.42.10.0/24
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.42.11.0/24
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: {VpcId: !Ref Vpc}
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicAssocA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PublicSubnetA, RouteTableId: !Ref PublicRouteTable}
+  PublicAssocB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PublicSubnetB, RouteTableId: !Ref PublicRouteTable}
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTPS only; administration uses SSM
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+      SecurityGroupEgress:
+        - {IpProtocol: -1, CidrIp: 0.0.0.0/0}
+  ComputeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: No inbound access; administration uses SSM
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - {IpProtocol: -1, CidrIp: 0.0.0.0/0}
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PostgreSQL from app and compute only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref AppSecurityGroup}
+        - {IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref ComputeSecurityGroup}
+
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchiveOldBackups
+            Status: Enabled
+            NoncurrentVersionTransitions:
+              - {StorageClass: GLACIER_IR, TransitionInDays: 30}
+
+  BackendRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ProjectName}-backend"
+      ImageScanningConfiguration: {ScanOnPush: true}
+      EncryptionConfiguration: {EncryptionType: AES256}
+  FrontendRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ProjectName}-frontend"
+      ImageScanningConfiguration: {ScanOnPush: true}
+      EncryptionConfiguration: {EncryptionType: AES256}
+  OptimizerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ProjectName}-optimizer"
+      ImageScanningConfiguration: {ScanOnPush: true}
+      EncryptionConfiguration: {EncryptionType: AES256}
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: !Sub "/${ProjectName}/app", RetentionInDays: 30}
+  ComputeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: !Sub "/${ProjectName}/compute", RetentionInDays: 30}
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: logs-and-backups
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["logs:CreateLogStream", "logs:PutLogEvents"]
+                Resource: "*"
+              - Effect: Allow
+                Action: ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
+                Resource:
+                  - !GetAtt BackupBucket.Arn
+                  - !Sub "${BackupBucket.Arn}/*"
+              - Effect: Allow
+                Action: ["secretsmanager:GetSecretValue"]
+                Resource: !GetAtt Database.MasterUserSecret.SecretArn
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: {Roles: [!Ref InstanceRole]}
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private SRTrend database subnets
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: postgres
+      DBInstanceClass: !Ref DBInstanceClass
+      DBName: platform
+      MasterUsername: !Ref DBUsername
+      ManageMasterUserPassword: true
+      AllocatedStorage: 20
+      MaxAllocatedStorage: 100
+      StorageType: gp3
+      StorageEncrypted: true
+      MultiAZ: false
+      PubliclyAccessible: false
+      CopyTagsToSnapshot: true
+      # Keep this disabled until the first deployment has completed. Enable it
+      # after production verification so failed stack creation can roll back.
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups: [!Ref DbSecurityGroup]
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref AppInstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+      MetadataOptions: {HttpTokens: required, HttpEndpoint: enabled}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf update -y
+          # Amazon Linux 2023 ships curl-minimal. Installing the full curl RPM
+          # conflicts with that package and causes cloud-init to abort.
+          dnf install -y docker postgresql16 jq
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+          systemctl enable --now docker amazon-ssm-agent
+          mkdir -p /opt/srtrend/deployment
+          chmod 750 /opt/srtrend
+      Tags: [{Key: Name, Value: !Sub "${ProjectName}-app"}]
+  AppEip:
+    Type: AWS::EC2::EIP
+    Properties: {Domain: vpc}
+  AppEipAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties: {AllocationId: !GetAtt AppEip.AllocationId, InstanceId: !Ref AppInstance}
+  ComputeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref ComputeInstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref PublicSubnetB
+      SecurityGroupIds: [!Ref ComputeSecurityGroup]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {VolumeSize: 40, VolumeType: gp3, Iops: 3000, Encrypted: true, DeleteOnTermination: false}
+      MetadataOptions: {HttpTokens: required, HttpEndpoint: enabled}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf update -y
+          dnf install -y docker jq
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+          systemctl enable --now docker amazon-ssm-agent
+          mkdir -p /opt/srtrend/optimizers /opt/srtrend/deployment
+          chmod 750 /opt/srtrend
+      Tags: [{Key: Name, Value: !Sub "${ProjectName}-compute"}]
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: 60
+      ResourceRecords: [!Ref AppEip]
+
+Outputs:
+  AppInstanceId: {Value: !Ref AppInstance}
+  ComputeInstanceId: {Value: !Ref ComputeInstance}
+  AppPublicIp: {Value: !Ref AppEip}
+  DatabaseEndpoint: {Value: !GetAtt Database.Endpoint.Address}
+  DatabaseSecretArn: {Value: !GetAtt Database.MasterUserSecret.SecretArn}
+  BackupBucket: {Value: !Ref BackupBucket}
+  BackendRepositoryUri: {Value: !GetAtt BackendRepository.RepositoryUri}
+  FrontendRepositoryUri: {Value: !GetAtt FrontendRepository.RepositoryUri}
+  OptimizerRepositoryUri: {Value: !GetAtt OptimizerRepository.RepositoryUri}
+  SiteUrl: {Value: !Sub "https://${DomainName}"}

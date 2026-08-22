@@ -1,0 +1,1483 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// SR+Trend v9 — MTF pivot S/R + MA trend (MTF) + SuperTrend + LinReg + VWMA + Volume + HH/HL structure
+//
+// WHAT CHANGED vs v8:
+//   ADDED:   Session Time Filter (Logic 1) — restrict entries to UTC hours; auto-close at session end.
+//   ADDED:   Entry Bar Body Filter (Logic 2) — reject bearish entry bars exceeding ATR threshold.
+//   ADDED:   Vol Exhaust Re-Entry Block (Logic 4) — prevent re-entry near exit zone for N bars.
+//   ADDED:   Adaptive TP (Logic 5) — higher R in strong HH-confirmed trend, lower in neutral market.
+//   ADDED:   ATR Spike Filter (Logic 6) — block entries during abnormal volatility spikes.
+//
+// WHAT CHANGED vs v5:
+//   REMOVED: All MACD, RSI, ADX, and IMBA (Fair Value Gap / Fib-channel) code.
+//   ADDED:   HTF Regime EMA filter (clean ADX replacement — price above rising 4h EMA).
+//   ADDED:   Volume Exhaustion exit (new N-bar high on drying volume = distribution top).
+//   ADDED:   HL Structure Break exit (confirmed close below last pivot low = early trend invalidation).
+//   ADDED:   Break-Even Stop (move SL to entry after +0.75R — kills "gave-back-all-gains" losses).
+//   ADDED:   Consecutive-Loss Pause / Choppy-Market Circuit Breaker (blocks re-entry during ranging).
+//
+// --- 3Commas Signal bot (TradingView Strategy) ---
+// 1) 3Commas → Signal bot → Alert type "TradingView Strategy" → copy webhook + JSON "secret" + "bot_uuid".
+// 2) Webhook URL (Signal bots only): https://api.3commas.io/signal_bots/webhooks
+// 3) TradingView alert: prefer "Order fills only" (not "… and alert()") when Signal delivery = 3Commas.
+// 4) Properties → "Recalculate after order is filled": ON vs OFF uses a different backtest timeline.
+//    Keep the same setting you used while tuning.
+// 5) Alert "Message": paste JSON from 3commas_alert_message_template.json (replace secret + bot_uuid only).
+// 6) Chart exchange + symbol must match your Signal bot pair (e.g. BINANCE:APTUSDT).
+//@version=6
+strategy("SR+Trendv12", shorttitle = "SRTrendv12", overlay = true,
+     max_labels_count = 500, max_lines_count = 300,
+     initial_capital = 1000, default_qty_type = strategy.cash, default_qty_value = 930,
+     commission_type = strategy.commission.percent, commission_value = 0.05,
+     slippage = 2, pyramiding = 0,
+     calc_on_every_tick = false, calc_on_order_fills = false)
+
+// ── Groups ────────────────────────────────────────────────────────────────────
+string G_GEN       = "1 General"
+string G_SR        = "2 Support / Resistance (MTF pivots)"
+string G_TR_MA     = "3 Trend — Moving averages (MTF)"
+string G_TR_ST     = "4 Trend — SuperTrend"
+string G_TR_LR     = "5 Trend — Linear regression"
+string G_TR_VW     = "6a Trend — VWMA (optional)"
+string G_TR_VW2    = "6b Trend — VWMA 2 (optional)"
+string G_TR_REGIME = "6c Trend — HTF Regime EMA"
+string G_TR_LOCAL  = "6d Trend — Local EMA stack (micro)"
+string G_TR_VOL    = "6e Volume filter"
+string G_TR_HH     = "6f Higher-high structure"
+string G_ENT_LONG  = "7 Entries — Long (support)"
+string G_ENT_SHRT  = "8 Entries — Short (resistance)"
+string G_EXIT      = "9 Risk — SL / TP / Trailing / Exits"
+string G_VIS       = "10 Visualization"
+string G_FILT      = "11 Advanced Entry Filters"
+string G_SESSION   = "12 Session / Time Filter"
+string G_HMA_STD   = "13 HMA — standalone (2 independent)"
+string G_RSI       = "14 RSI (embedded)"
+string G_CE        = "15 Chandelier Exit (embedded)"
+string G_ALMA      = "16 ALMA SD SuperTrend (embedded)"
+string G_PTP       = "17 Partial Take Profit (multi-stage)"
+
+// ── General ───────────────────────────────────────────────────────────────────
+useBarConfirm = input.bool(true, "Signals on confirmed bar only", group = G_GEN,
+     tooltip = "OFF = entry conditions can go true every tick → same-bar stop/re-entry loops + many 3Commas webhooks. Keep ON for live.")
+ordersOnConfirmedBar = input.bool(true, "New entries: bar close only (3Commas)", group = G_GEN,
+     tooltip = "When ON, only strategy.entry waits for barstate.isconfirmed. Exits are not delayed.")
+cooldownBarsAfterExit = input.int(0, "Min bars after exit before new entry", minval = 0, maxval = 50, group = G_GEN)
+
+// Choppy-market circuit breaker — pauses entries after back-to-back losses.
+// Solves the NEAR May 20-21 pattern: 4 consecutive losses in 36h during a sideways range
+// where all MA filters remained bullish but every support touch immediately reversed.
+useChoppyFilter = input.bool(true, "Pause entries after N consecutive losses", group = G_GEN,
+     tooltip = "After maxConsecLoss losing trades in a row, block all new entries for choppyPauseBars bars. Detects distribution / choppy phases that look bullish on the macro but fail at the micro level.")
+maxConsecLoss   = input.int(2, "Max consecutive losses before pause", minval = 1, maxval = 10, group = G_GEN,
+     tooltip = "2 is the recommended default. Raise to 3 on high win-rate coins where two losses in a row still represent normal variance.")
+choppyPauseBars = input.int(20, "Pause duration (bars) after max losses hit", minval = 1, maxval = 500, group = G_GEN,
+     tooltip = "On a 5m chart: 20 bars = 100 minutes. Set to 48 for a 4-hour pause. The market usually resolves its range or breaks out within this window.")
+
+signal_delivery = input.string("3Commas Signal Bot", "Signal delivery",
+     options = ["3Commas Signal Bot", "Custom webhook bot", "Off"], group = G_GEN,
+     tooltip = "3Commas: add a TradingView alert manually with 3Commas JSON + webhook (see header). Custom: FastAPI bot JSON via Pine alert().")
+string ALERT_SECRET  = input.string("REPLACE_ME", "[Custom bot] secret → WEBHOOK_SECRET", group = G_GEN, display = display.none)
+float  alert_buy_usdt  = input.float(800.0, "[Custom bot] BUY quote USDT", minval = 1, step = 1, group = G_GEN, display = display.none)
+float  alert_sell_base = input.float(0.001, "[Custom bot] SELL base qty",  minval = 0.00000001, step = 0.001, group = G_GEN, display = display.none)
+string alert_symbol    = input.string("APTUSDT", "[Custom bot] symbol", group = G_GEN, display = display.none)
+use_custom_webhook     = signal_delivery == "Custom webhook bot"
+
+// ── SR — pivot-based MTF ──────────────────────────────────────────────────────
+touchBandMode    = input.string("ATR", "Touch zone mode", options = ["ATR", "Ticks"], group = G_SR)
+touchAtrMult     = input.float(0.85, "Touch zone × ATR", step = 0.05, minval = 0.05, group = G_SR, inline = "tz")
+touchTicks       = input.int(5, "or ticks", minval = 1, group = G_SR, inline = "tz")
+srStrengthMin    = input.int(1, "Minimum pivot touches", minval = 1, maxval = 10, group = G_SR)
+strengthTf       = input.timeframe("15", "Strength: pivot-touch TF", group = G_SR)
+strengthPivotLen = input.int(14, "Strength TF pivot length", minval = 3, maxval = 50, group = G_SR)
+tf5_en   = input.bool(true, "Use 5m S/R",  group = G_SR, inline = "tf5")
+pivLen5  = input.int(13, "",  minval = 3, maxval = 50, group = G_SR, inline = "tf5")
+tf15_en  = input.bool(true, "Use 15m S/R", group = G_SR, inline = "tf15")
+pivLen15 = input.int(9,  "",  minval = 3, maxval = 50, group = G_SR, inline = "tf15")
+tf60_en  = input.bool(true, "Use 1h S/R",  group = G_SR, inline = "tf60")
+pivLen60 = input.int(9,  "",  minval = 3, maxval = 50, group = G_SR, inline = "tf60")
+tf240_en  = input.bool(true, "Use 4h S/R", group = G_SR, inline = "tf240")
+pivLen240 = input.int(5, "",  minval = 3, maxval = 50, group = G_SR, inline = "tf240")
+retestConfirmBars = input.int(8, "Bars after support touch to confirm entry", minval = 1, maxval = 30, group = G_SR)
+priorAboveLb      = input.int(4, "Pullback: prior bars close above support",  minval = 1, maxval = 20, group = G_SR)
+blockBreakReclaim = input.bool(true, "Block pierce-and-reclaim entries", group = G_SR)
+reclaimPierceAtr  = input.float(0.05, "Pierce below support (× ATR) = reclaim block", step = 0.05, minval = 0, group = G_SR)
+useResFlipSup     = input.bool(false, "Broken MTF resistance → support (retest longs)", group = G_SR)
+flipConfirmOnClose  = input.bool(false, "Flip on confirmed bar only", group = G_SR)
+flipBreakBufAtr     = input.float(0.05, "Flip when close above res (+ × ATR)", step = 0.05, minval = 0, group = G_SR)
+flipInvalidBufAtr   = input.float(0.2,  "Unflip when close below res (− × ATR)", step = 0.05, minval = 0.01, group = G_SR)
+
+// ── MA MTF trend ──────────────────────────────────────────────────────────────
+useMaTrend     = input.bool(true, "Require MA uptrend / downtrend", group = G_TR_MA)
+maType         = input.string("SMA", "MA type (TF1–TF3)", options = ["SMA", "EMA", "WMA", "RMA", "VWMA", "HMA"], group = G_TR_MA)
+maBlockWhenNa  = input.bool(true, "MA: block entries while MTF MA is na", group = G_TR_MA)
+plotMaLines    = input.bool(true, "Plot MTF MA lines (TF1–TF3)", group = G_TR_MA)
+requireMaSlope = input.bool(true, "Require enabled MAs to be rising (slope)", group = G_TR_MA)
+maSlopeLb      = input.int(5, "MA slope lookback (chart bars)", minval = 1, maxval = 50, group = G_TR_MA)
+ma1_en  = input.bool(true,  "TF1", group = G_TR_MA, inline = "m1")
+ma1_tf  = input.timeframe("1",   "", group = G_TR_MA, inline = "m1")
+ma1_len = input.int(200, "", group = G_TR_MA, inline = "m1")
+ma2_en  = input.bool(false, "TF2", group = G_TR_MA, inline = "m2")
+ma2_tf  = input.timeframe("240", "", group = G_TR_MA, inline = "m2")
+ma2_len = input.int(100, "", group = G_TR_MA, inline = "m2")
+ma3_en  = input.bool(true,  "TF3", group = G_TR_MA, inline = "m3")
+ma3_tf  = input.timeframe("60",  "", group = G_TR_MA, inline = "m3")
+ma3_len = input.int(400, "", group = G_TR_MA, inline = "m3")
+
+// ── SuperTrend ────────────────────────────────────────────────────────────────
+useSuperTrend = input.bool(true, "Require SuperTrend alignment", group = G_TR_ST)
+stTf          = input.timeframe("5", "SuperTrend timeframe", group = G_TR_ST)
+stAtrLen      = input.int(15, "ATR period", minval = 1, group = G_TR_ST)
+stMult        = input.float(2.5, "Multiplier", step = 0.1, minval = 0.1, group = G_TR_ST)
+stSrc         = input.source(hl2, "Source (same TF as chart only)", group = G_TR_ST)
+
+// ── LinReg ────────────────────────────────────────────────────────────────────
+useLinReg  = input.bool(true, "Use LinReg candle filter", group = G_TR_LR)
+lrTf       = input.timeframe("5", "LinReg timeframe", group = G_TR_LR)
+lrLen      = input.int(12, "LinReg length", minval = 2, group = G_TR_LR)
+sigLen     = input.int(11, "Signal line length (chart TF)", minval = 1, group = G_TR_LR)
+sigUseSma  = input.bool(false, "Signal = SMA (off = EMA)", group = G_TR_LR)
+
+// ── VWMA 1 ────────────────────────────────────────────────────────────────────
+useVwmaTrend = input.bool(true, "Require close above VWMA (HTF)", group = G_TR_VW)
+vwmaTf       = input.timeframe("240", "VWMA timeframe", group = G_TR_VW)
+vwmaLen      = input.int(200, "VWMA length", minval = 1, group = G_TR_VW)
+plotVwmaLine = input.bool(true, "Plot VWMA line", group = G_TR_VW)
+
+// ── VWMA 2 ────────────────────────────────────────────────────────────────────
+useVwma2Trend = input.bool(false, "Require close above VWMA 2 (HTF)", group = G_TR_VW2)
+vwma2Tf       = input.timeframe("60",  "VWMA 2 timeframe", group = G_TR_VW2)
+vwma2Len      = input.int(100, "VWMA 2 length", minval = 1, group = G_TR_VW2)
+plotVwma2Line = input.bool(true, "Plot VWMA 2 line", group = G_TR_VW2)
+
+// ── Local EMA stack (micro) ───────────────────────────────────────────────────
+useLocalTrend    = input.bool(true, "Require local EMA trend alignment", group = G_TR_LOCAL,
+     tooltip = "Fast EMA > slow EMA on the chosen TF confirms local directional bias. Use 5m to block entries when the 5m structure is down inside an HTF uptrend.")
+localTrendTf     = input.timeframe("5", "Local EMA timeframe", group = G_TR_LOCAL)
+localEmaFast     = input.int(21, "Fast EMA period", minval = 2, maxval = 200, group = G_TR_LOCAL)
+localEmaSlow     = input.int(34, "Slow EMA period",  minval = 2, maxval = 500, group = G_TR_LOCAL)
+requireAboveFast = input.bool(true, "Also require close above fast EMA (long)", group = G_TR_LOCAL,
+     tooltip = "For longs: close must also be above the fast EMA. Adds momentum confirmation.")
+plotLocalEma     = input.bool(false, "Plot local EMA lines", group = G_TR_LOCAL)
+
+// ── HTF Regime EMA ────────────────────────────────────────────────────────────
+// Clean replacement for ADX. Confirms macro trend is genuinely directional:
+// price must be above a rising HTF EMA (default: 4h EMA 200).
+// Prevents longs during macro corrections where all local MAs still pass
+// but the higher-timeframe trend has rolled over or is flat.
+useRegimeFilter    = input.bool(false, "Require HTF Regime EMA alignment", group = G_TR_REGIME,
+     tooltip = "Long entries only when price is above the HTF EMA and (optionally) the EMA is rising. Blocks longs during corrections where local MAs pass but the HTF trend has topped.")
+regimeTf           = input.timeframe("240", "Regime EMA timeframe", group = G_TR_REGIME)
+regimeEmaLen       = input.int(200, "Regime EMA length", minval = 1, group = G_TR_REGIME)
+requireRegimeSlope = input.bool(true, "Require regime EMA to be rising (slope)", group = G_TR_REGIME,
+     tooltip = "EMA must be above its value N chart bars ago. Prevents entries when the macro trend has peaked — price is still above the EMA but the EMA itself is flat or falling.")
+regimeSlopeLb      = input.int(10, "Regime slope lookback (chart bars)", minval = 1, maxval = 100, group = G_TR_REGIME)
+plotRegimeEma      = input.bool(false, "Plot Regime EMA (silver line)", group = G_TR_REGIME)
+
+// ── Volume filter ─────────────────────────────────────────────────────────────
+useVolumeFilter = input.bool(true, "Require above-average volume on entry", group = G_TR_VOL)
+volMaLen        = input.int(20, "Volume SMA length", minval = 5, group = G_TR_VOL)
+volMultMin      = input.float(1.2, "Min volume (× SMA)", step = 0.1, minval = 0.1, group = G_TR_VOL,
+     tooltip = "1.0 = at-least-average volume; 1.5 = 50% above average.")
+
+// ── Higher-high structure filter ──────────────────────────────────────────────
+useHhStructure = input.bool(false, "Require higher-high structure (HTF longs)", group = G_TR_HH,
+     tooltip = "Last confirmed pivot high on the chosen TF must be above the prior pivot high. Validates real HTF uptrend structure.")
+hhTf           = input.timeframe("15", "Higher-high timeframe", group = G_TR_HH)
+hhPivotLen     = input.int(9, "Pivot length (HH TF)", minval = 3, maxval = 30, group = G_TR_HH)
+
+// ── Long entries ──────────────────────────────────────────────────────────────
+long_en          = input.bool(true, "Enable longs at support retest", group = G_ENT_LONG)
+requireBounce    = input.bool(false, "Legacy: same-bar close above touched level", group = G_ENT_LONG)
+lrLongRule       = input.string("Green candle", "LinReg long rule", options = ["Green candle", "Close > signal", "Both"], group = G_ENT_LONG)
+useContLong      = input.bool(false, "Also enable continuation longs", group = G_ENT_LONG)
+contBreakLb      = input.int(10, "Continuation: prior high lookback", minval = 2, maxval = 100, group = G_ENT_LONG)
+contRequireGreen = input.bool(false, "Continuation: require green candle", group = G_ENT_LONG)
+contRelaxStrength = input.bool(false, "Continuation: skip pivot-touch strength filter", group = G_ENT_LONG)
+contExtraTpR      = input.float(1.0, "Continuation: extra TP when mode = R multiple", minval = 0, step = 0.25, group = G_ENT_LONG)
+
+// Logic 2 — Entry Bar Body Filter
+// Rejects bearish entry candles whose body exceeds a fraction of ATR.
+// A bearish close on the entry bar = momentum already shifted against you; skip it.
+useBodyFilter    = input.bool(true, "Body filter: reject bearish entry bar (Logic 2)", group = G_ENT_LONG,
+     tooltip = "Skips entries where the trigger bar is bearish AND its body (open−close) exceeds entryBodyAtrMult × ATR. A big bearish close on the setup bar is a momentum warning — skip it and wait for the next bar.")
+entryBodyAtrMult = input.float(0.3, "Body filter: max bearish body size (× ATR)", step = 0.05, minval = 0.05, group = G_ENT_LONG,
+     tooltip = "0.3 = reject only if the bearish body is larger than 30% of ATR. Increase to be more lenient (0.5 allows a medium bearish bar). Decrease to be stricter.")
+
+// ── Short entries ─────────────────────────────────────────────────────────────
+short_en     = input.bool(false, "Enable shorts at resistance", group = G_ENT_SHRT)
+lrShortRule  = input.string("Red candle", "LinReg short rule", options = ["Red candle", "Close < signal", "Both"], group = G_ENT_SHRT)
+
+// ── Exits ─────────────────────────────────────────────────────────────────────
+atrLenExit = input.int(7, "ATR length (risk)", minval = 1, group = G_EXIT)
+
+slMode    = input.string("Below structure & ATR", "Stop loss mode",
+     options = ["ATR multiple", "Percent", "Below structure & ATR", "Swing low lookback"], group = G_EXIT)
+slAtrMult = input.float(0.6, "SL × ATR (from entry)", step = 0.1, minval = 0.1, group = G_EXIT)
+slPct     = input.float(1.4, "SL percent (if Percent mode)", step = 0.05, minval = 0.05, group = G_EXIT)
+slSwingLb = input.int(25, "Swing low lookback bars", minval = 2, group = G_EXIT)
+structBuff = input.float(1.5, "Structure buffer × ATR under level", step = 0.05, group = G_EXIT)
+minSlDistAtr = input.float(0.25, "Floor: min SL distance from entry (× ATR)", step = 0.05, minval = 0.05, group = G_EXIT)
+minRForSoftExit = input.float(0.0, "Soft exit gate: min unrealized R (0 = off)", step = 0.25, minval = 0, group = G_EXIT,
+     tooltip = "Regime and micro exits are suppressed until unrealized profit reaches this R multiple.")
+
+// Break-even stop — moves hard SL to entry price after a defined R gain.
+// Eliminates the "turned green then hit original stop" scenario. After the trade
+// reaches breakEvenTriggerR in unrealized profit, losing is no longer possible.
+useBreakEven      = input.bool(true, "Move SL to break-even after +R (long)", group = G_EXIT,
+     tooltip = "Once unrealized profit reaches breakEvenTriggerR × initial risk, the hard stop moves to entry price. Converts a potential loss into a scratch exit on reversal.")
+breakEvenTriggerR = input.float(0.75, "Break-even trigger: unrealized R", step = 0.25, minval = 0.25, group = G_EXIT,
+     tooltip = "0.75 means: once the trade is up 75% of initial risk, SL moves to entry. Balance with trailTriggerR — break-even fires first, then trail takes over.")
+
+tpMode    = input.string("Risk multiple (R)", "Take profit mode",
+     options = ["Risk multiple (R)", "ATR multiple", "Percent"], group = G_EXIT)
+tpR       = input.float(2.0, "TP as R multiple", step = 0.25, minval = 0.25, group = G_EXIT)
+tpAtrMult = input.float(12.0, "TP × ATR from entry", step = 0.25, minval = 0.25, group = G_EXIT)
+tpPct     = input.float(1.5, "TP percent", step = 0.05, minval = 0.05, group = G_EXIT)
+
+// Logic 5 — Adaptive TP (adjusts R target by trend strength)
+// In a strong HH-confirmed uptrend: use a larger R target + later trail trigger.
+// In neutral / weak trend: use a tighter R target + earlier trail trigger to bank profit faster.
+useAdaptiveTp        = input.bool(true, "Adaptive TP: adjust R target by trend strength (Logic 5)", group = G_EXIT,
+     tooltip = "When ON, the TP R-multiple and trail trigger R adapt to whether the HH structure filter confirms a strong uptrend. Strong = larger target; neutral = tighter target to bank profits sooner. Only applies when TP mode = Risk multiple (R).")
+adaptiveTpStrong     = input.float(2.5, "Adaptive TP: R target in strong trend (HH confirmed)", step = 0.25, minval = 0.5, group = G_EXIT,
+     tooltip = "Used when hhOkLong is true (higher-high structure confirmed). Larger R captures extended trends.")
+adaptiveTpNeutral    = input.float(2.0, "Adaptive TP: R target in neutral / weak trend", step = 0.25, minval = 0.5, group = G_EXIT,
+     tooltip = "Used when HH structure is NOT confirmed. Smaller R banks profits faster in choppier conditions.")
+adaptiveTrailStrong  = input.float(1.75, "Adaptive trail trigger R: strong trend", step = 0.25, minval = 0.25, group = G_EXIT,
+     tooltip = "Trail arms later (higher R) in a strong trend so the ratchet gives the trade more room to run.")
+adaptiveTrailNeutral = input.float(1.25, "Adaptive trail trigger R: neutral trend", step = 0.25, minval = 0.25, group = G_EXIT,
+     tooltip = "Trail arms earlier (lower R) in neutral trend to lock in profits quickly before reversal.")
+
+useTrail      = input.bool(true, "Trailing stop after TP trigger", group = G_EXIT)
+trailTriggerR = input.float(0.5, "Activate trail after +R unrealized", step = 0.25, minval = 0.25, group = G_EXIT)
+trailAtrMult  = input.float(1.8, "Trail distance × ATR", step = 0.1, minval = 0.1, group = G_EXIT)
+trailStyle    = input.string("ATR from close (ratchet)", "Trailing style",
+     options = ["ATR from close (ratchet)", "Chandelier (swing ± ATR)"], group = G_EXIT,
+     tooltip = "Ratchet: stop follows close − ATR×mult (ratchets up, never down). Chandelier: stop = highest high since trail armed − ATR×mult (fewer premature exits in strong trends).")
+
+// HTF resistance break → runner trail
+useHtfBreakTrail        = input.bool(true, "HTF res break: cancel TP limit + trail runner", group = G_EXIT)
+htfResTf                = input.timeframe("60", "HTF resistance timeframe", group = G_EXIT)
+htfResPivotLen          = input.int(9, "HTF pivot length (resistance)", minval = 3, maxval = 50, group = G_EXIT)
+htfBreakConfirmMode     = input.string("HTF candle close", "Resistance break confirmation",
+     options = ["HTF candle close", "Chart close (aligned level)"], group = G_EXIT)
+htfBreakBufAtr          = input.float(0.25, "Break buffer × ATR above resistance", step = 0.05, minval = 0, group = G_EXIT)
+htfTrailImmediate       = input.bool(true, "After break: arm trailing immediately", group = G_EXIT)
+htfTrailTriggerR        = input.float(0.25, "After break: trail arms after +R (if not immediate)", step = 0.25, minval = 0, group = G_EXIT)
+htfTrailAtrMult         = input.float(1.0, "After break: trail distance × ATR", step = 0.1, minval = 0.1, group = G_EXIT)
+htfResetTrailAnchorOnBreak = input.bool(true, "After break: reset trail anchor", group = G_EXIT)
+
+// Exit MA (4h SMA cross)
+useExitLongMa  = input.bool(true, "Exit long: MTF close crosses below MA", group = G_EXIT)
+useExitShortMa = input.bool(false, "Exit short: MTF close crosses above MA", group = G_EXIT)
+exitMaTf       = input.timeframe("240", "Exit MA timeframe", group = G_EXIT)
+exitMaLen      = input.int(100, "Exit MA length", minval = 1, group = G_EXIT)
+exitMaType     = input.string("SMA", "Exit MA type", options = ["SMA", "EMA", "WMA", "RMA", "VWMA", "HMA"], group = G_EXIT)
+plotExitMa     = input.bool(false, "Plot exit MA (aligned to chart)", group = G_EXIT)
+
+// Micro exits
+useExitBelowSt     = input.bool(true, "Exit long: close below SuperTrend line", group = G_EXIT)
+useExitBelowMa1    = input.bool(true, "Exit long: close below TF1 MA", group = G_EXIT)
+useExitBelowLinReg = input.bool(true, "Exit long: close below LinReg close", group = G_EXIT)
+
+// Volume Exhaustion Exit ──────────────────────────────────────────────────────
+// Fires when price prints a new N-bar high while volume collapses. This is the
+// classic distribution / topping signature. The trailing stop catches it only
+// after a 2-4% giveback; this exit fires at the close of the exhaustion bar itself.
+useVolExhaustExit = input.bool(true, "Exit long: volume exhaustion at new high", group = G_EXIT,
+     tooltip = "Closes the long when the bar is a new N-bar high AND volume is below the exhaustion threshold. Catches distribution tops before the trailing stop gives back 2-4%.")
+volExhaustMult    = input.float(0.6, "Volume exhaustion: max vol (× SMA)", step = 0.05, minval = 0.05, group = G_EXIT,
+     tooltip = "Volume must drop to this fraction of its SMA to trigger. 0.6 = 40% below average. Lower = more selective. Start at 0.6 and tighten if too many early exits.")
+volExhaustLb      = input.int(12, "Volume exhaustion: new-high lookback (bars)", minval = 2, maxval = 100, group = G_EXIT,
+     tooltip = "Price must be printing the highest high over this many bars. Prevents premature exits on normal momentum bars mid-trend. 10-15 bars is typical on 5m.")
+volExhaustMinR    = input.float(1.0, "Volume exhaustion: min unrealized R to activate", step = 0.25, minval = 0, group = G_EXIT,
+     tooltip = "Suppress exhaustion exit until trade has this much unrealized profit. Prevents firing on early consolidation candles just after entry. 1.0R recommended.")
+
+// Logic 4 — Vol Exhaust Re-Entry Block
+// After a Vol Exhaust exit fires, block new longs near that price zone for N bars.
+// Prevents immediately re-entering into the same distribution / topping area.
+useVeReentryBlock = input.bool(true, "Vol Exhaust: block re-entry near exit zone (Logic 4)", group = G_EXIT,
+     tooltip = "After a Vol Exhaust exit, blocks new long entries for veBlockBars bars while price stays within veBlockZoneAtr × ATR of the exit price. Prevents immediately re-entering the same topping area.")
+veBlockBars       = input.int(24, "Vol Exhaust block: bars to block re-entry", minval = 1, maxval = 500, group = G_EXIT,
+     tooltip = "24 bars on a 5m chart = 2 hours. Set higher to extend the cool-off period after a distribution exit.")
+veBlockZoneAtr    = input.float(0.5, "Vol Exhaust block: zone size (× ATR)", step = 0.1, minval = 0.1, group = G_EXIT,
+     tooltip = "Price must move more than this many ATRs away from the Vol Exhaust exit price before re-entry is allowed (within the block window). 0.5 = half an ATR.")
+
+// HL Structure Break Exit ─────────────────────────────────────────────────────
+// A confirmed close below the most recent pivot low on hlBreakTf is the first
+// lower-low — structural invalidation of the local uptrend. Fires meaningfully
+// earlier than waiting for the 4h MA cross or SuperTrend flip to catch up.
+useHlBreakExit = input.bool(true, "Exit long: confirmed break of last pivot low (HL break)", group = G_EXIT,
+     tooltip = "Closes the long when price closes below the most recent pivot low on hlBreakTf. First lower-low = uptrend structure gone. Fires faster than trailing stop or MA cross.")
+hlBreakTf      = input.timeframe("15", "HL break pivot TF", group = G_EXIT,
+     tooltip = "15m pivot low recommended when running on 5m charts. The 15m pivot low represents a meaningful local higher-low; breaking it is an early invalidation signal.")
+hlBreakPivLen  = input.int(9, "HL break pivot length", minval = 3, maxval = 30, group = G_EXIT)
+hlBreakMinR    = input.float(0.0, "HL break: min unrealized R to activate (0 = always)", step = 0.25, minval = 0, group = G_EXIT,
+     tooltip = "Set > 0 to avoid exiting on the normal post-entry consolidation dip. 0 means always active. Recommended: 0 (let structure break always exit).")
+
+// ── Advanced entry filters ────────────────────────────────────────────────────
+// Logic 6 — ATR Spike Filter
+// Blocks entries when current ATR is abnormally high vs its recent average.
+// Abnormal volatility = erratic, wide-ranging bars = bad R:R for limit-like S/R entries.
+useAtrSpikeFilter = input.bool(true, "ATR spike filter: block high-volatility entries (Logic 6)", group = G_FILT,
+     tooltip = "When current ATR exceeds atrSpikeMaxMult × average ATR (SMA over atrSpikeAvgLen bars), entries are blocked. Avoids entering in panic/explosion candles with unpredictable stop placement.")
+atrSpikeAvgLen    = input.int(20, "ATR spike: average lookback (bars)", minval = 5, maxval = 100, group = G_FILT,
+     tooltip = "Length of the SMA used to compute average ATR. 20 bars on 5m = 100 minutes of ATR history.")
+atrSpikeMaxMult   = input.float(1.8, "ATR spike: max ATR (× average)", step = 0.1, minval = 1.0, group = G_FILT,
+     tooltip = "1.8 = block when current ATR is 80% above its 20-bar average. Lower = more restrictive. 2.0+ is very lenient.")
+
+// ── Session / Time Filter ─────────────────────────────────────────────────────
+// Logic 1 — Session Time Filter
+// Restricts new long entries to a defined UTC trading window.
+// Optionally auto-closes open positions when the session ends.
+useSessionFilter           = input.bool(true, "Session filter: restrict trading hours (UTC) (Logic 1)", group = G_SESSION,
+     tooltip = "When ON, new long entries are only allowed between sessionStartHour and sessionEndHour (UTC). Bars outside the window are treated as no-signal. Open positions are unaffected unless useSessionClose is ON.")
+sessionStartHour           = input.int(2,  "Session start hour (UTC, 0–23)", minval = 0, maxval = 23, group = G_SESSION,
+     tooltip = "First hour (UTC) when entries are allowed. Example: 2 = 02:00 UTC. Set to match your coin's active market hours.")
+sessionEndHour             = input.int(21, "Session end hour (UTC, 0–23)",   minval = 0, maxval = 23, group = G_SESSION,
+     tooltip = "Last active hour (UTC) — entries are blocked at this hour and beyond. Example: 21 = block entries from 21:00 UTC onward.")
+useSessionClose            = input.bool(true, "Auto-close position at session end", group = G_SESSION,
+     tooltip = "When the session window closes and a position is open, it is immediately closed at market. Prevents holding through the low-liquidity overnight period.")
+sessionCloseProfitableOnly = input.bool(true, "Auto-close profitable positions only", group = G_SESSION,
+     tooltip = "When ON, only profitable positions (unrealized R > 0) are auto-closed at session end. Losing positions are left open to let the stop or TP manage them rather than force a loss at session close.")
+
+// ── HMA — 2 standalone independent indicators ─────────────────────────────────
+// Two fully independent Hull Moving Averages, each with its own length, source and
+// timeframe. Calculated MTF via request.security and plotted as secondary trend
+// filters. Optional toggles let them gate long entries (close must be above the HMA).
+useHmaA          = input.bool(false, "HMA A — enable", group = G_HMA_STD, inline = "hmaA")
+hmaA_len         = input.int(55, "Len", minval = 2, group = G_HMA_STD, inline = "hmaA")
+hmaA_src         = input.source(close, "Src", group = G_HMA_STD, inline = "hmaA2")
+hmaA_tf          = input.timeframe("15", "TF", group = G_HMA_STD, inline = "hmaA2")
+useHmaAFilter    = input.bool(false, "HMA A: require close above for longs", group = G_HMA_STD)
+plotHmaA         = input.bool(true,  "HMA A: plot line", group = G_HMA_STD)
+
+useHmaB          = input.bool(false, "HMA B — enable", group = G_HMA_STD, inline = "hmaB")
+hmaB_len         = input.int(200, "Len", minval = 2, group = G_HMA_STD, inline = "hmaB")
+hmaB_src         = input.source(close, "Src", group = G_HMA_STD, inline = "hmaB2")
+hmaB_tf          = input.timeframe("60", "TF", group = G_HMA_STD, inline = "hmaB2")
+useHmaBFilter    = input.bool(false, "HMA B: require close above for longs", group = G_HMA_STD)
+plotHmaB         = input.bool(true,  "HMA B: plot line", group = G_HMA_STD)
+
+// ── RSI (embedded) ────────────────────────────────────────────────────────────
+// Wilder RSI ported from the provided RSI source (RMA-based up/down smoothing).
+// Computed in the background and available to strategy conditions. Optional filter:
+// require RSI within [rsiLongMin, rsiLongMax] on entry — keeps you out of exhausted
+// (overbought) or falling-knife (deeply oversold) conditions when enabled.
+useRsiFilter     = input.bool(false, "RSI filter: gate long entries by RSI band", group = G_RSI,
+     tooltip = "When ON, a long entry requires RSI between the min and max below. Default band 45–70 favours momentum without buying into overbought blow-offs.")
+rsiLengthInput   = input.int(14, "RSI Length", minval = 1, group = G_RSI)
+rsiSourceInput   = input.source(close, "RSI Source", group = G_RSI)
+rsiLongMin       = input.float(45.0, "Long entry: min RSI", minval = 0, maxval = 100, step = 1, group = G_RSI)
+rsiLongMax       = input.float(70.0, "Long entry: max RSI", minval = 0, maxval = 100, step = 1, group = G_RSI)
+useRsiExit       = input.bool(false, "Exit long when RSI crosses below level", group = G_RSI,
+     tooltip = "Optional soft exit: closes the long on a confirmed RSI crossunder of rsiExitLevel. Momentum-rollover exit, independent of price structure.")
+rsiExitLevel     = input.float(50.0, "RSI exit level (crossunder)", minval = 0, maxval = 100, step = 1, group = G_RSI)
+plotRsiState     = input.bool(false, "Plot RSI state marker (background availability check)", group = G_RSI)
+
+// ── Chandelier Exit (embedded) ────────────────────────────────────────────────
+// Ported from the provided Chandelier Exit source. longStop = highest(len) − ATR×mult,
+// ratcheting up; dir flips long/short. Available for conditions, usable as a soft
+// exit and as a trailing-stop source for the partial-TP runner (see group 17).
+ceLength         = input.int(22, "ATR Period", minval = 1, group = G_CE)
+ceMult           = input.float(3.0, "ATR Multiplier", step = 0.1, minval = 0.1, group = G_CE)
+ceUseClose       = input.bool(true, "Use close price for extremums", group = G_CE)
+useCeExit        = input.bool(false, "Exit long on Chandelier sell flip (dir → short)", group = G_CE,
+     tooltip = "Closes the long when the Chandelier Exit direction flips from long (1) to short (−1) on a confirmed bar.")
+plotCe           = input.bool(false, "Plot Chandelier long/short stop", group = G_CE)
+
+// ── ALMA SD SuperTrend (embedded) ─────────────────────────────────────────────
+// Ported from the provided "Alma SD SuperTrend | Oquant" source. ALMA midline with
+// stdev-scaled bands forms a SuperTrend; dir < 0 = bullish. Available for conditions,
+// usable as a long filter and as a trailing-stop source for the partial-TP runner.
+useAlmaFilter    = input.bool(false, "ALMA ST filter: require bullish (dir<0) for longs", group = G_ALMA)
+almaSrc          = input.source(close, "Source", group = G_ALMA)
+almaFactor       = input.float(1.8, "Factor", step = 0.05, group = G_ALMA)
+almaSdLen        = input.int(33, "SD Length", minval = 1, group = G_ALMA)
+almaLen          = input.int(35, "ALMA Length", minval = 1, group = G_ALMA)
+almaSigma        = input.float(4.0, "ALMA Sigma", step = 0.5, group = G_ALMA)
+almaOffset       = input.float(0.85, "ALMA Offset", step = 0.05, minval = 0, maxval = 1, group = G_ALMA)
+useAlmaExit      = input.bool(false, "Exit long on ALMA ST bearish flip (dir → short)", group = G_ALMA,
+     tooltip = "Closes the long when the ALMA SuperTrend direction flips from bullish to bearish on a confirmed bar.")
+plotAlma         = input.bool(false, "Plot ALMA SuperTrend line", group = G_ALMA)
+
+// ── Partial Take Profit (multi-stage) ─────────────────────────────────────────
+// Replaces the single-target TP for longs with a 3-tier partial profit engine.
+// Each tier closes a user-defined % of the ORIGINAL position at a user-defined %
+// price move above entry. After TP1 fills, a trailing stop arms on the remaining
+// contracts (source = fixed %, Chandelier Exit line, or ALMA SuperTrend line).
+//
+//   MATH (longs):
+//     tp1Price = entry × (1 + tp1Pct/100)   closes  entryQty × tp1Size/100  contracts
+//     tp2Price = entry × (1 + tp2Pct/100)   closes  entryQty × tp2Size/100  contracts
+//     tp3Price = entry × (1 + tp3Pct/100)   closes  the remaining contracts
+//   Position size closed across all tiers should sum to ≤ 100%; TP3 sweeps whatever
+//   remains so the runner is never left orphaned. Sizes are taken against the ORIGINAL
+//   filled quantity (captured at entry) — NOT the shrinking remainder — so the % you
+//   type is the % of the trade you actually realise at each level.
+usePartialTp     = input.bool(true, "Enable multi-stage partial TP (longs)", group = G_PTP,
+     tooltip = "When ON, the long exit uses the 3-tier partial-TP engine below instead of a single TP target. When OFF, the legacy single-TP R/ATR/% bracket is used.")
+tp1Pct           = input.float(2.0,  "TP1 — price move %", step = 0.1, minval = 0.1, group = G_PTP, inline = "ptp1")
+tp1Size          = input.float(25.0, "close % of pos", step = 5, minval = 1, maxval = 100, group = G_PTP, inline = "ptp1")
+tp2Pct           = input.float(5.0,  "TP2 — price move %", step = 0.1, minval = 0.1, group = G_PTP, inline = "ptp2")
+tp2Size          = input.float(35.0, "close % of pos", step = 5, minval = 1, maxval = 100, group = G_PTP, inline = "ptp2")
+tp3Pct           = input.float(10.0, "TP3 — price move %", step = 0.1, minval = 0.1, group = G_PTP, inline = "ptp3")
+tp3Size          = input.float(40.0, "close % of pos", step = 5, minval = 1, maxval = 100, group = G_PTP, inline = "ptp3")
+ptpTrailAfterTp1 = input.bool(true, "Arm trailing stop on remainder after TP1", group = G_PTP,
+     tooltip = "Once TP1 fills, the remaining position is protected by a trailing stop using the source below. This is in addition to the hard SL / break-even floor.")
+ptpTrailSource   = input.string("Chandelier Exit", "Trail source after TP1",
+     options = ["Percent", "Chandelier Exit", "ALMA SuperTrend"], group = G_PTP,
+     tooltip = "Percent: close × (1 − trail%/100), ratcheting up. Chandelier Exit: the embedded CE long stop. ALMA SuperTrend: the embedded ALMA ST line while bullish.")
+ptpTrailPct      = input.float(3.0, "Trail distance % (Percent source)", step = 0.1, minval = 0.1, group = G_PTP)
+
+// ── Visualization ─────────────────────────────────────────────────────────────
+showSrPlots  = input.bool(true, "Plot MTF support/resistance lines", group = G_VIS)
+showMarkers  = input.bool(true, "Plot Buy/Sell markers", group = G_VIS)
+showHtfBreak = input.bool(true, "Marker when HTF break runner arms", group = G_VIS)
+showFlipSup  = input.bool(true, "Plot levels acting as flipped support", group = G_VIS)
+showStBand   = input.bool(false, "Plot SuperTrend band", group = G_VIS)
+showExitPnL  = input.bool(true, "Label P/L % when a trade closes", group = G_VIS)
+showCumPnL   = input.bool(true, "Show cumulative net P/L % (table, last bar)", group = G_VIS)
+
+// ── Helper functions ──────────────────────────────────────────────────────────
+f_ma(string t, series float src, int length) =>
+    float maS = ta.sma(src, length)
+    float maE = ta.ema(src, length)
+    float maW = ta.wma(src, length)
+    float maR = ta.rma(src, length)
+    float maV = ta.vwma(src, length)
+    // HMA = WMA( 2·WMA(src, len/2) − WMA(src, len), floor(sqrt(len)) ). Ported from the
+    // provided Hull Moving Average source; embedded inline (no external dependency).
+    float maH = ta.wma(2 * ta.wma(src, int(math.max(1, length / 2))) - ta.wma(src, length), int(math.max(1, math.floor(math.sqrt(length)))))
+    t == "SMA" ? maS : t == "EMA" ? maE : t == "WMA" ? maW : t == "VWMA" ? maV : t == "HMA" ? maH : maR
+
+// MTF MA — explicit VWMA expansion so `volume` is visible to Pine v6's request.security analyser.
+f_ma_mtf(string tf, float lenF, bool en) =>
+    int   _L   = int(lenF)
+    float mSec = request.security(syminfo.tickerid, tf,
+         maType == "EMA"  ? ta.ema(close, _L) :
+         maType == "WMA"  ? ta.wma(close, _L) :
+         maType == "RMA"  ? ta.rma(close, _L) :
+         maType == "VWMA" ? ta.sma(close * volume, _L) / ta.sma(volume, _L) :
+         maType == "HMA"  ? ta.wma(2 * ta.wma(close, int(math.max(1, _L / 2))) - ta.wma(close, _L), int(math.max(1, math.floor(math.sqrt(_L))))) :
+                             ta.sma(close, _L),
+         barmerge.gaps_off, barmerge.lookahead_off)
+    en and lenF > 0 ? mSec : na
+
+// MTF VWMA — explicit formula keeps `volume` visible to Pine v6 dependency analyser.
+f_vwma_mtf(string tf, int lenV, bool en) =>
+    [cv_ma, v_ma] = request.security(syminfo.tickerid, tf,
+         [ta.sma(close * volume, lenV), ta.sma(volume, lenV)],
+         barmerge.gaps_off, barmerge.lookahead_off)
+    float result = (not na(v_ma) and v_ma > 0) ? cv_ma / v_ma : na
+    en and lenV > 0 ? result : na
+
+f_exit_ma_long_cross() =>
+    float m  = f_ma(exitMaType, close, exitMaLen)
+    bool  cu = ta.crossunder(close, m)
+    barstate.isconfirmed and cu
+
+f_exit_ma_short_cross() =>
+    float m  = f_ma(exitMaType, close, exitMaLen)
+    bool  co = ta.crossover(close, m)
+    barstate.isconfirmed and co
+
+f_last_pivot_low(string tf, int len_) =>
+    request.security(syminfo.tickerid, tf,
+         ta.valuewhen(not na(ta.pivotlow(len_, len_)), ta.pivotlow(len_, len_), 0),
+         barmerge.gaps_off, barmerge.lookahead_off)
+
+f_last_pivot_high(string tf, int len_) =>
+    request.security(syminfo.tickerid, tf,
+         ta.valuewhen(not na(ta.pivothigh(len_, len_)), ta.pivothigh(len_, len_), 0),
+         barmerge.gaps_off, barmerge.lookahead_off)
+
+f_hhph_last(int len_) =>
+    ta.valuewhen(not na(ta.pivothigh(len_, len_)), ta.pivothigh(len_, len_), 0)
+
+f_hhph_prior(int len_) =>
+    ta.valuewhen(not na(ta.pivothigh(len_, len_)), ta.pivothigh(len_, len_), 1)
+
+// SuperTrend bands evaluated on the TF where this runs (for request.security).
+f_super_trend_htf() =>
+    atr_ = ta.atr(stAtrLen)
+    src  = hl2
+    up   = src - stMult * atr_
+    up1  = nz(up[1], up)
+    up  := close[1] > up1 ? math.max(up, up1) : up
+    dn   = src + stMult * atr_
+    dn1  = nz(dn[1], dn)
+    dn  := close[1] < dn1 ? math.min(dn, dn1) : dn
+    tr   = 1
+    tr  := nz(tr[1], 1)
+    tr  := tr == -1 and close > dn1 ? 1 : tr == 1 and close < up1 ? -1 : tr
+    [up, dn, tr]
+
+f_linreg_ohlc(int lenLR) =>
+    [ta.linreg(open, lenLR, 0), ta.linreg(high, lenLR, 0), ta.linreg(low, lenLR, 0), ta.linreg(close, lenLR, 0)]
+
+f_strength_pl(int len_) =>
+    ta.valuewhen(not na(ta.pivotlow(len_, len_)), ta.pivotlow(len_, len_), 0)
+
+f_strength_ph(int len_) =>
+    ta.valuewhen(not na(ta.pivothigh(len_, len_)), ta.pivothigh(len_, len_), 0)
+
+// Confirmed close above latest pivot high on HTF (for HTF break detection).
+f_htf_close_above_resistance(int pivLen, float bufAtr) =>
+    float lv   = ta.valuewhen(not na(ta.pivothigh(pivLen, pivLen)), ta.pivothigh(pivLen, pivLen), 0)
+    float atrh = ta.atr(atrLenExit)
+    not na(lv) and barstate.isconfirmed and close > lv + bufAtr * atrh
+
+// ── Core series ───────────────────────────────────────────────────────────────
+atr      = ta.atr(atrLenExit)
+tickSize = syminfo.mintick
+
+float htfExitResLvl     = useHtfBreakTrail ? f_last_pivot_high(htfResTf, htfResPivotLen) : na
+bool  htfResBreakHtfBar = request.security(syminfo.tickerid, htfResTf, f_htf_close_above_resistance(htfResPivotLen, htfBreakBufAtr), barmerge.gaps_off, barmerge.lookahead_off)
+bool  rawBreakHtfBar    = useHtfBreakTrail and htfBreakConfirmMode == "HTF candle close" and htfResBreakHtfBar
+bool  rawBreakChartBar  = useHtfBreakTrail and htfBreakConfirmMode == "Chart close (aligned level)" and not na(htfExitResLvl) and barstate.isconfirmed and close > htfExitResLvl + htfBreakBufAtr * atr
+bool  rawHtfResBreakNow = rawBreakHtfBar or rawBreakChartBar
+
+float band = touchBandMode == "ATR" ? atr * touchAtrMult : touchTicks * tickSize
+
+float sup5   = tf5_en   ? f_last_pivot_low("5",   pivLen5)   : na
+float sup15  = tf15_en  ? f_last_pivot_low("15",  pivLen15)  : na
+float sup60  = tf60_en  ? f_last_pivot_low("60",  pivLen60)  : na
+float sup240 = tf240_en ? f_last_pivot_low("240", pivLen240) : na
+
+float res5   = tf5_en   ? f_last_pivot_high("5",   pivLen5)   : na
+float res15  = tf15_en  ? f_last_pivot_high("15",  pivLen15)  : na
+float res60  = tf60_en  ? f_last_pivot_high("60",  pivLen60)  : na
+float res240 = tf240_en ? f_last_pivot_high("240", pivLen240) : na
+
+touchedSupport(lvl) =>
+    not na(lvl) and low <= lvl + band
+
+touchedResistance(lvl) =>
+    not na(lvl) and high >= lvl - band
+
+breakReclaimBar(lvl) =>
+    not na(lvl) and low < lvl - reclaimPierceAtr * atr and close > lvl
+
+retestSupportBar(lvl) =>
+    if na(lvl)
+        false
+    else
+        bool inZone    = low <= lvl + band
+        bool fromAbove = ta.lowest(close[1], priorAboveLb) > lvl
+        bool reclaimOk = not blockBreakReclaim or not breakReclaimBar(lvl)
+        inZone and fromAbove and reclaimOk
+
+bounceLong(lvl) =>
+    not requireBounce or (not na(lvl) and close > lvl)
+
+bounceShort(lvl) =>
+    not requireBounce or (not na(lvl) and close < lvl)
+
+// ── Resistance → support flip ─────────────────────────────────────────────────
+var bool flipR5   = false
+var bool flipR15  = false
+var bool flipR60  = false
+var bool flipR240 = false
+
+if useResFlipSup
+    float brkFlip  = flipBreakBufAtr * atr
+    float invFlip  = flipInvalidBufAtr * atr
+    bool  okFlipBar = not flipConfirmOnClose or barstate.isconfirmed
+
+    if barstate.isconfirmed
+        if tf5_en   and not na(res5)   and not na(res5[1])   and res5   != res5[1]
+            flipR5   := false
+        if tf15_en  and not na(res15)  and not na(res15[1])  and res15  != res15[1]
+            flipR15  := false
+        if tf60_en  and not na(res60)  and not na(res60[1])  and res60  != res60[1]
+            flipR60  := false
+        if tf240_en and not na(res240) and not na(res240[1]) and res240 != res240[1]
+            flipR240 := false
+
+    if okFlipBar and tf5_en and not na(res5)
+        if close > res5 + brkFlip
+            flipR5 := true
+        if flipR5 and close < res5 - invFlip
+            flipR5 := false
+    if okFlipBar and tf15_en and not na(res15)
+        if close > res15 + brkFlip
+            flipR15 := true
+        if flipR15 and close < res15 - invFlip
+            flipR15 := false
+    if okFlipBar and tf60_en and not na(res60)
+        if close > res60 + brkFlip
+            flipR60 := true
+        if flipR60 and close < res60 - invFlip
+            flipR60 := false
+    if okFlipBar and tf240_en and not na(res240)
+        if close > res240 + brkFlip
+            flipR240 := true
+        if flipR240 and close < res240 - invFlip
+            flipR240 := false
+
+touchFlipRetest(bool tfEn, bool flipped, float resLvl) =>
+    // Evaluate retestSupportBar() unconditionally so its historical series always
+    // advances (the && short-circuit would otherwise skip it → CW10002 warning).
+    bool _rstFlip = retestSupportBar(resLvl)
+    useResFlipSup and tfEn and flipped and _rstFlip
+
+// Pre-compute unconditionally so historical series in retestSupportBar() always execute.
+bool _rst5   = retestSupportBar(sup5)
+bool _rst15  = retestSupportBar(sup15)
+bool _rst60  = retestSupportBar(sup60)
+bool _rst240 = retestSupportBar(sup240)
+bool retest5   = tf5_en   and _rst5
+bool retest15  = tf15_en  and _rst15
+bool retest60  = tf60_en  and _rst60
+bool retest240 = tf240_en and _rst240
+bool retestFlip5  = touchFlipRetest(tf5_en,   flipR5,   res5)
+bool retestFlip15 = touchFlipRetest(tf15_en,  flipR15,  res15)
+bool retestFlip60 = touchFlipRetest(tf60_en,  flipR60,  res60)
+bool retestFlip240 = touchFlipRetest(tf240_en, flipR240, res240)
+bool retestLongNow = retest5 or retest15 or retest60 or retest240 or retestFlip5 or retestFlip15 or retestFlip60 or retestFlip240
+
+// Use pre-computed retestFlip* vars instead of calling touchFlipRetest() again.
+touchLong  = (tf5_en and touchedSupport(sup5)) or touchedSupport(sup15) or touchedSupport(sup60) or touchedSupport(sup240) or retestFlip5 or retestFlip15 or retestFlip60 or retestFlip240
+touchShort = (tf5_en and touchedResistance(res5) and not (useResFlipSup and flipR5)) or (tf15_en and touchedResistance(res15) and not (useResFlipSup and flipR15)) or (tf60_en and touchedResistance(res60) and not (useResFlipSup and flipR60)) or (tf240_en and touchedResistance(res240) and not (useResFlipSup and flipR240))
+
+float nearestTouchSup = na
+if touchedSupport(sup240) or retestFlip240
+    nearestTouchSup := touchedSupport(sup240) ? sup240 : res240
+else if touchedSupport(sup60) or retestFlip60
+    nearestTouchSup := touchedSupport(sup60) ? sup60 : res60
+else if touchedSupport(sup15) or retestFlip15
+    nearestTouchSup := touchedSupport(sup15) ? sup15 : res15
+else if tf5_en and (touchedSupport(sup5) or retestFlip5)
+    nearestTouchSup := touchedSupport(sup5) ? sup5 : res5
+
+var int   lastRetestBar = na
+var float lastRetestLvl = na
+if retestLongNow
+    lastRetestBar := bar_index
+    lastRetestLvl := retest240 ? sup240 : retest60 ? sup60 : retest15 ? sup15 : retest5 ? sup5 : retestFlip240 ? res240 : retestFlip60 ? res60 : retestFlip15 ? res15 : retestFlip5 ? res5 : na
+
+int  barsSinceRetest  = na(lastRetestBar) ? 999999 : bar_index - lastRetestBar
+bool recentRetestWindow = not na(lastRetestBar) and barsSinceRetest >= 0 and barsSinceRetest <= retestConfirmBars
+bool retestLvlOk      = not requireBounce or na(lastRetestLvl) or close > lastRetestLvl
+bool retestEntryOk    = recentRetestWindow and retestLvlOk and not (blockBreakReclaim and not na(lastRetestLvl) and breakReclaimBar(lastRetestLvl))
+
+float nearestTouchRes = na
+if tf240_en and touchedResistance(res240) and not (useResFlipSup and flipR240)
+    nearestTouchRes := res240
+else if tf60_en and touchedResistance(res60) and not (useResFlipSup and flipR60)
+    nearestTouchRes := res60
+else if tf15_en and touchedResistance(res15) and not (useResFlipSup and flipR15)
+    nearestTouchRes := res15
+else if tf5_en and touchedResistance(res5) and not (useResFlipSup and flipR5)
+    nearestTouchRes := res5
+
+// ── Pivot-strength filter ─────────────────────────────────────────────────────
+float lastPL_str = request.security(syminfo.tickerid, strengthTf, f_strength_pl(strengthPivotLen), barmerge.gaps_off, barmerge.lookahead_off)
+float lastPH_str = request.security(syminfo.tickerid, strengthTf, f_strength_ph(strengthPivotLen), barmerge.gaps_off, barmerge.lookahead_off)
+
+tapsNearLong(lvl) =>
+    not na(lvl) and not na(lastPL_str) and math.abs(lastPL_str - lvl) <= band * 3 ? 1 : 0
+
+tapsNearShort(lvl) =>
+    not na(lvl) and not na(lastPH_str) and math.abs(lastPH_str - lvl) <= band * 3 ? 1 : 0
+
+int strengthSumLong  = (tf5_en ? tapsNearLong(sup5) : 0) + (tf15_en ? tapsNearLong(sup15) : 0) + (tf60_en ? tapsNearLong(sup60) : 0) + (tf240_en ? tapsNearLong(sup240) : 0)
+int strengthFlipLong = (tf5_en and flipR5 ? tapsNearLong(res5) : 0) + (tf15_en and flipR15 ? tapsNearLong(res15) : 0) + (tf60_en and flipR60 ? tapsNearLong(res60) : 0) + (tf240_en and flipR240 ? tapsNearLong(res240) : 0)
+int strengthSumShort = (tf5_en and not flipR5 ? tapsNearShort(res5) : 0) + (tf15_en and not flipR15 ? tapsNearShort(res15) : 0) + (tf60_en and not flipR60 ? tapsNearShort(res60) : 0) + (tf240_en and not flipR240 ? tapsNearShort(res240) : 0)
+bool strengthOkLong  = srStrengthMin <= 1 or strengthSumLong + strengthFlipLong >= srStrengthMin
+bool strengthOkShort = srStrengthMin <= 1 or strengthSumShort >= srStrengthMin
+
+float priorHighCont = ta.highest(high[1], contBreakLb)
+bool  deepSupTouch  = touchedSupport(sup15) or touchedSupport(sup60) or touchedSupport(sup240)
+
+// ── MA trend ──────────────────────────────────────────────────────────────────
+float ma1      = f_ma_mtf(ma1_tf, ma1_len, ma1_en)
+float ma2      = f_ma_mtf(ma2_tf, ma2_len, ma2_en)
+float ma3      = f_ma_mtf(ma3_tf, ma3_len, ma3_en)
+float vwTrend  = f_vwma_mtf(vwmaTf,  vwmaLen,  useVwmaTrend)
+float vwTrend2 = f_vwma_mtf(vwma2Tf, vwma2Len, useVwma2Trend)
+
+maPassLong(bool en, float m) =>
+    not en ? true :
+     maBlockWhenNa and na(m) ? false :
+     not maBlockWhenNa and na(m) ? true :
+     close > m
+
+maPassShort(bool en, float m) =>
+    not en ? true :
+     maBlockWhenNa and na(m) ? false :
+     not maBlockWhenNa and na(m) ? true :
+     close < m
+
+bool maUp = maPassLong(ma1_en, ma1) and maPassLong(ma2_en, ma2) and maPassLong(ma3_en, ma3)
+bool maDn = maPassShort(ma1_en, ma1) and maPassShort(ma2_en, ma2) and maPassShort(ma3_en, ma3)
+
+bool vwOkLong   = maPassLong(useVwmaTrend,  vwTrend)
+bool vwOkShort  = maPassShort(useVwmaTrend, vwTrend)
+bool vwOkLong2  = maPassLong(useVwma2Trend,  vwTrend2)
+bool vwOkShort2 = maPassShort(useVwma2Trend, vwTrend2)
+
+float exitMaAligned     = (useExitLongMa or useExitShortMa or plotExitMa) ? request.security(syminfo.tickerid, exitMaTf, f_ma(exitMaType, close, exitMaLen), barmerge.gaps_off, barmerge.lookahead_off) : na
+// Always compute cross signals unconditionally so their internal historical series never skip a bar.
+bool _exitMaLongRaw   = request.security(syminfo.tickerid, exitMaTf, f_exit_ma_long_cross(),  barmerge.gaps_off, barmerge.lookahead_off)
+bool _exitMaShortRaw  = request.security(syminfo.tickerid, exitMaTf, f_exit_ma_short_cross(), barmerge.gaps_off, barmerge.lookahead_off)
+bool exitLongMaTrigger  = useExitLongMa  and _exitMaLongRaw
+bool exitShortMaTrigger = useExitShortMa and _exitMaShortRaw
+
+// ── SuperTrend ────────────────────────────────────────────────────────────────
+bool stIsChartTf = timeframe.in_seconds(timeframe.period) == timeframe.in_seconds(stTf)
+
+float stAtr_c  = ta.atr(stAtrLen)
+float stUp_c   = stSrc - stMult * stAtr_c
+float stUp1_c  = nz(stUp_c[1], stUp_c)
+stUp_c        := close[1] > stUp1_c ? math.max(stUp_c, stUp1_c) : stUp_c
+float stDn_c   = stSrc + stMult * stAtr_c
+float stDn1_c  = nz(stDn_c[1], stDn_c)
+stDn_c        := close[1] < stDn1_c ? math.min(stDn_c, stDn1_c) : stDn_c
+var int stTrend_c = 1
+stTrend_c := nz(stTrend_c[1], 1)
+stTrend_c := stTrend_c == -1 and close > stDn1_c ? 1 : stTrend_c == 1 and close < stUp1_c ? -1 : stTrend_c
+
+[stUp_h, stDn_h, stTrend_h] = request.security(syminfo.tickerid, stTf, f_super_trend_htf(), barmerge.gaps_off, barmerge.lookahead_off)
+
+float stUp      = stIsChartTf ? stUp_c   : stUp_h
+float stDn      = stIsChartTf ? stDn_c   : stDn_h
+int   stTrendVal = stIsChartTf ? stTrend_c : int(stTrend_h)
+bool  stBull    = stTrendVal == 1
+bool  stBear    = stTrendVal == -1
+
+// ── LinReg ────────────────────────────────────────────────────────────────────
+[lrO, lrH, lrL, lrC] = request.security(syminfo.tickerid, lrTf, f_linreg_ohlc(lrLen), barmerge.gaps_off, barmerge.lookahead_off)
+float bopen  = useLinReg ? lrO : open
+float bhigh  = useLinReg ? lrH : high
+float blow   = useLinReg ? lrL : low
+float bclose = useLinReg ? lrC : close
+
+float sigSma = ta.sma(bclose, sigLen)
+float sigEma = ta.ema(bclose, sigLen)
+float sig    = sigUseSma ? sigSma : sigEma
+
+bool lrGreen = bopen < bclose
+bool lrRed   = bopen > bclose
+
+bool lrLongOk =
+     not useLinReg ? true :
+     lrLongRule == "Green candle"   ? lrGreen :
+     lrLongRule == "Close > signal" ? bclose > sig :
+     lrGreen and bclose > sig
+
+bool lrShortOk =
+     not useLinReg ? true :
+     lrShortRule == "Red candle"    ? lrRed :
+     lrShortRule == "Close < signal" ? bclose < sig :
+     lrRed and bclose < sig
+
+// ── MA slope ──────────────────────────────────────────────────────────────────
+bool ma1SlopeOk    = not requireMaSlope or not ma1_en or na(ma1) or na(ma1[maSlopeLb]) or ma1 > ma1[maSlopeLb]
+bool ma2SlopeOk    = not requireMaSlope or not ma2_en or na(ma2) or na(ma2[maSlopeLb]) or ma2 > ma2[maSlopeLb]
+bool ma3SlopeOk    = not requireMaSlope or not ma3_en or na(ma3) or na(ma3[maSlopeLb]) or ma3 > ma3[maSlopeLb]
+bool ma1SlopeDnOk  = not requireMaSlope or not ma1_en or na(ma1) or na(ma1[maSlopeLb]) or ma1 < ma1[maSlopeLb]
+bool ma2SlopeDnOk  = not requireMaSlope or not ma2_en or na(ma2) or na(ma2[maSlopeLb]) or ma2 < ma2[maSlopeLb]
+bool ma3SlopeDnOk  = not requireMaSlope or not ma3_en or na(ma3) or na(ma3[maSlopeLb]) or ma3 < ma3[maSlopeLb]
+bool maSlopeOkLong  = ma1SlopeOk  and ma2SlopeOk  and ma3SlopeOk
+bool maSlopeOkShort = ma1SlopeDnOk and ma2SlopeDnOk and ma3SlopeDnOk
+
+// ── Local EMA stack ───────────────────────────────────────────────────────────
+float localFastEma = useLocalTrend ? request.security(syminfo.tickerid, localTrendTf, ta.ema(close, localEmaFast), barmerge.gaps_off, barmerge.lookahead_off) : na
+float localSlowEma = useLocalTrend ? request.security(syminfo.tickerid, localTrendTf, ta.ema(close, localEmaSlow), barmerge.gaps_off, barmerge.lookahead_off) : na
+bool localTrendOkLong  = not useLocalTrend or (not na(localFastEma) and not na(localSlowEma) and localFastEma > localSlowEma and (not requireAboveFast or close > localFastEma))
+bool localTrendOkShort = not useLocalTrend or (not na(localFastEma) and not na(localSlowEma) and localFastEma < localSlowEma and (not requireAboveFast or close < localFastEma))
+
+// ── HTF Regime EMA ────────────────────────────────────────────────────────────
+// Confirms the macro trend is genuinely directional — not just locally bullish.
+// Default: 4h EMA 200. Price must be above it AND it must be rising (configurable).
+// This blocks longs during corrections where the 1m×200 and 1h×400 SMA still pass
+// but the 4h EMA has rolled over — the exact pattern behind the APT Feb 2026 losses.
+float regimeEma = useRegimeFilter
+     ? request.security(syminfo.tickerid, regimeTf, ta.ema(close, regimeEmaLen), barmerge.gaps_off, barmerge.lookahead_off)
+     : na
+
+bool regimeSlopeUp   = not requireRegimeSlope or na(regimeEma) or na(regimeEma[regimeSlopeLb]) or regimeEma > regimeEma[regimeSlopeLb]
+bool regimeSlopeDn   = not requireRegimeSlope or na(regimeEma) or na(regimeEma[regimeSlopeLb]) or regimeEma < regimeEma[regimeSlopeLb]
+bool regimeOkLong    = not useRegimeFilter or (not na(regimeEma) and close > regimeEma and regimeSlopeUp)
+bool regimeOkShort   = not useRegimeFilter or (not na(regimeEma) and close < regimeEma and regimeSlopeDn)
+
+// ── Volume filter ─────────────────────────────────────────────────────────────
+float volMaSeries = ta.sma(volume, volMaLen)
+bool  volOkLong   = not useVolumeFilter or (not na(volMaSeries) and volMaSeries > 0 and volume >= volMultMin * volMaSeries)
+bool  volOkShort  = not useVolumeFilter or (not na(volMaSeries) and volMaSeries > 0 and volume >= volMultMin * volMaSeries)
+
+// ── Higher-high structure ─────────────────────────────────────────────────────
+float hhLastPH  = useHhStructure ? request.security(syminfo.tickerid, hhTf, f_hhph_last(hhPivotLen),  barmerge.gaps_off, barmerge.lookahead_off) : na
+float hhPriorPH = useHhStructure ? request.security(syminfo.tickerid, hhTf, f_hhph_prior(hhPivotLen), barmerge.gaps_off, barmerge.lookahead_off) : na
+bool  hhOkLong  = not useHhStructure or (not na(hhLastPH) and not na(hhPriorPH) and hhLastPH > hhPriorPH)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EMBEDDED INDICATORS (Step 1) — HMA standalone ×2, RSI, Chandelier Exit, ALMA ST
+// All ported inline from the provided source codes; no external library imports.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Standalone HMA A / B (independent length, source, timeframe) ───────────────
+// MTF Hull MA. The request.security expression is evaluated in the target-TF context,
+// so the chosen source (close/hl2/…) is sampled on that timeframe. HMA formula:
+//   WMA( 2·WMA(src, len/2) − WMA(src, len), floor(sqrt(len)) ).
+float hmaA = useHmaA ? request.security(syminfo.tickerid, hmaA_tf,
+     ta.wma(2 * ta.wma(hmaA_src, int(math.max(1, hmaA_len / 2))) - ta.wma(hmaA_src, hmaA_len), int(math.max(1, math.floor(math.sqrt(hmaA_len))))),
+     barmerge.gaps_off, barmerge.lookahead_off) : na
+float hmaB = useHmaB ? request.security(syminfo.tickerid, hmaB_tf,
+     ta.wma(2 * ta.wma(hmaB_src, int(math.max(1, hmaB_len / 2))) - ta.wma(hmaB_src, hmaB_len), int(math.max(1, math.floor(math.sqrt(hmaB_len))))),
+     barmerge.gaps_off, barmerge.lookahead_off) : na
+bool hmaAOkLong = not useHmaAFilter or (not na(hmaA) and close > hmaA)
+bool hmaBOkLong = not useHmaBFilter or (not na(hmaB) and close > hmaB)
+
+// ── RSI (Wilder, RMA up/down smoothing) ───────────────────────────────────────
+float _rsiChange = ta.change(rsiSourceInput)
+float _rsiUp     = ta.rma(math.max(_rsiChange, 0), rsiLengthInput)
+float _rsiDn     = ta.rma(-math.min(_rsiChange, 0), rsiLengthInput)
+float rsiVal     = _rsiDn == 0 ? 100 : _rsiUp == 0 ? 0 : 100 - (100 / (1 + _rsiUp / _rsiDn))
+bool  rsiOkLong  = not useRsiFilter or (not na(rsiVal) and rsiVal >= rsiLongMin and rsiVal <= rsiLongMax)
+// Compute the crossunder unconditionally (every bar) so its internal historical state
+// is always maintained, then gate it — avoids CW10002 inconsistent-calculation warning.
+bool  _rsiXunder = ta.crossunder(rsiVal, rsiExitLevel)
+bool  rsiExitNow = useRsiExit and barstate.isconfirmed and _rsiXunder
+
+// ── Chandelier Exit (ratcheting long/short stops + direction) ─────────────────
+float _ceAtr        = ceMult * ta.atr(ceLength)
+float ceLongStop    = (ceUseClose ? ta.highest(close, ceLength) : ta.highest(ceLength)) - _ceAtr
+float _ceLongPrev   = nz(ceLongStop[1], ceLongStop)
+ceLongStop         := close[1] > _ceLongPrev ? math.max(ceLongStop, _ceLongPrev) : ceLongStop
+float ceShortStop   = (ceUseClose ? ta.lowest(close, ceLength) : ta.lowest(ceLength)) + _ceAtr
+float _ceShortPrev  = nz(ceShortStop[1], ceShortStop)
+ceShortStop        := close[1] < _ceShortPrev ? math.min(ceShortStop, _ceShortPrev) : ceShortStop
+var int ceDir       = 1
+ceDir              := close > _ceShortPrev ? 1 : close < _ceLongPrev ? -1 : ceDir
+bool ceSellSignal   = ceDir == -1 and ceDir[1] == 1
+bool ceExitNow      = useCeExit and barstate.isconfirmed and ceSellSignal
+
+// ── ALMA SD SuperTrend (ALMA midline + stdev bands → SuperTrend direction) ────
+float almaMid       = ta.alma(almaSrc, almaLen, almaOffset, almaSigma)
+float almaSd        = ta.stdev(almaSrc, almaSdLen)
+float almaUpper     = almaMid + almaFactor * almaSd
+float almaLower     = almaMid - almaFactor * almaSd
+float _almaPrevUp   = nz(almaUpper[1])
+float _almaPrevLo   = nz(almaLower[1])
+almaUpper          := almaUpper < _almaPrevUp or close[1] > _almaPrevUp ? almaUpper : _almaPrevUp
+almaLower          := almaLower > _almaPrevLo or close[1] < _almaPrevLo ? almaLower : _almaPrevLo
+var float almaSt    = na
+var int   almaDir   = 1
+float _almaPrevSt   = nz(almaSt[1])
+if na(almaSd[1])
+    almaDir := 1
+else if _almaPrevSt == _almaPrevUp
+    almaDir := close > almaUpper ? -1 : 1
+else
+    almaDir := close < almaLower ? 1 : -1
+almaSt             := almaDir == -1 ? almaLower : almaUpper
+bool almaBull       = almaDir < 0
+bool almaOkLong     = not useAlmaFilter or almaBull
+bool almaFlipBear   = almaDir > 0 and almaDir[1] < 0
+bool almaExitNow    = useAlmaExit and barstate.isconfirmed and almaFlipBear
+
+// ── Consecutive-loss / choppy-market circuit breaker ─────────────────────────
+// Tracks losing streaks and pauses entries after maxConsecLoss straight losses.
+// Directly solves the NEAR May 20-21 cluster: 4 back-to-back losses in a tight
+// range where all macro MA/VWMA filters remained bullish but every touch failed.
+var int consecLosses   = 0
+var int choppyUntilBar = 0
+
+if barstate.isconfirmed and strategy.closedtrades > nz(strategy.closedtrades[1])
+    float lastPnl = strategy.closedtrades.profit(strategy.closedtrades - 1)
+    if lastPnl < 0
+        consecLosses += 1
+        if consecLosses >= maxConsecLoss
+            // Arm the pause: block entries for choppyPauseBars from this bar.
+            choppyUntilBar := bar_index + choppyPauseBars
+            consecLosses   := 0
+    else
+        consecLosses := 0  // winning trade resets the streak
+
+bool choppyOk = not useChoppyFilter or bar_index > choppyUntilBar
+
+// ── Logic 2 — Entry Bar Body Filter ──────────────────────────────────────────
+// A bearish entry bar (close < open) whose body exceeds entryBodyAtrMult × ATR is
+// rejected. This filters out high-momentum bearish closes right at support which
+// have already shifted intra-bar momentum against the long setup.
+bool bodyFilterOkLong = not useBodyFilter or close >= open or (open - close) <= entryBodyAtrMult * atr
+
+// ── Logic 6 — ATR Spike Filter ────────────────────────────────────────────────
+// Computes a rolling SMA of ATR. If current ATR exceeds atrSpikeMaxMult × average,
+// the market is in an abnormal volatility regime and entries are blocked.
+float _atrAvgSpike   = ta.sma(atr, atrSpikeAvgLen)
+bool  atrSpikeOkLong = not useAtrSpikeFilter or na(_atrAvgSpike) or _atrAvgSpike <= 0 or atr <= atrSpikeMaxMult * _atrAvgSpike
+
+// ── Logic 1 — Session Time Filter ────────────────────────────────────────────
+// Entries are only allowed when the bar's UTC hour falls within [sessionStartHour, sessionEndHour).
+// inSession = false blocks new entries; open trades run until their SL/TP/trail.
+int  _barHour  = hour(time, "UTC")
+bool inSession = not useSessionFilter or (_barHour >= sessionStartHour and _barHour < sessionEndHour)
+
+// ── Logic 4 — Vol Exhaust Re-Entry Block ──────────────────────────────────────
+// After a Vol Exhaust exit, record the exit price and bar. Block new longs while:
+//   (a) fewer than veBlockBars bars have elapsed, AND
+//   (b) price is still within veBlockZoneAtr × ATR of the exit price.
+// Both conditions must hold simultaneously — moving price clears the zone block.
+var float _veBlockPrice = na
+var int   _veBlockBar   = na
+
+// exitVolExhaustNow is computed below (needs strategy state), but we only write
+// _veBlockPrice/_veBlockBar *after* the exit fires, so reference it on confirmed bars.
+// We use a sentinel: update these vars when Vol Exhaust fires this bar.
+bool veBlockOkLong = not useVeReentryBlock
+     or na(_veBlockBar)
+     or (bar_index - _veBlockBar) > veBlockBars
+     or math.abs(close - _veBlockPrice) > veBlockZoneAtr * atr
+
+// ── Logic 5 — Adaptive TP (computed per entry in entry block below) ───────────
+// hhOkLong (already computed) is reused as the trend-strength indicator.
+// When useAdaptiveTp is ON and tpMode = "Risk multiple (R)":
+//   strong trend (hhOkLong = true)  → adaptiveTpStrong  R target + adaptiveTrailStrong  trigger
+//   neutral trend (hhOkLong = false) → adaptiveTpNeutral R target + adaptiveTrailNeutral trigger
+// savedTrailTriggerR is set at entry time and used by the bracket manager.
+bool  adaptiveTrendStrong   = useAdaptiveTp and hhOkLong
+float adaptiveEffTpR        = useAdaptiveTp and tpMode == "Risk multiple (R)" ? (adaptiveTrendStrong ? adaptiveTpStrong : adaptiveTpNeutral) : tpR
+float adaptiveEffTrailR     = useAdaptiveTp ? (adaptiveTrendStrong ? adaptiveTrailStrong : adaptiveTrailNeutral) : trailTriggerR
+
+// ── Filters assembly ──────────────────────────────────────────────────────────
+bool filtLong =
+     (not useMaTrend or maUp) and
+     maSlopeOkLong and
+     (not useSuperTrend or stBull) and
+     lrLongOk and
+     vwOkLong and vwOkLong2 and
+     regimeOkLong and
+     localTrendOkLong and volOkLong and hhOkLong and
+     bodyFilterOkLong and    // Logic 2: reject bearish entry bars
+     atrSpikeOkLong and      // Logic 6: block during ATR volatility spikes
+     rsiOkLong and           // Step 1: RSI band filter (optional)
+     hmaAOkLong and hmaBOkLong and  // Step 1: standalone HMA trend filters (optional)
+     almaOkLong              // Step 1: ALMA SuperTrend bullish filter (optional)
+
+bool filtShort =
+     (not useMaTrend or maDn) and
+     maSlopeOkShort and
+     (not useSuperTrend or stBear) and
+     lrShortOk and
+     vwOkShort and vwOkShort2 and
+     regimeOkShort and
+     localTrendOkShort and volOkShort
+
+bool touchPathLong = long_en and retestEntryOk and filtLong and strengthOkLong
+bool contPathLong  = useContLong and long_en and filtLong and not deepSupTouch and close > priorHighCont and (not contRequireGreen or close > open) and (contRelaxStrength ? true : strengthOkLong)
+bool isContEntry   = contPathLong and not touchPathLong
+
+confirmed = not useBarConfirm or barstate.isconfirmed
+
+// ── Stop / target calculations ────────────────────────────────────────────────
+float swingLow = ta.lowest(low, slSwingLb)
+
+calcLongStop(float entry, float lvl) =>
+    float slAtr    = entry - slAtrMult * atr
+    float slPct_   = entry * (1 - slPct / 100)
+    float slStruct = na(lvl) ? slAtr : lvl - structBuff * atr
+    float slSwing  = swingLow
+    float sl       = slAtr
+    switch slMode
+        "ATR multiple"         => sl := slAtr
+        "Percent"              => sl := slPct_
+        "Below structure & ATR" => sl := math.min(slAtr, math.min(slStruct, slSwing))
+        =>                         sl := math.min(slAtr, slSwing)
+    float floor = entry - minSlDistAtr * atr
+    math.min(sl, floor)
+
+calcShortStop(float entry, float lvl) =>
+    float slAtr    = entry + slAtrMult * atr
+    float slPct_   = entry * (1 + slPct / 100)
+    float slStruct = na(lvl) ? slAtr : lvl + structBuff * atr
+    float slSwing  = ta.highest(high, slSwingLb)
+    float sl       = slAtr
+    switch slMode
+        "ATR multiple"         => sl := slAtr
+        "Percent"              => sl := slPct_
+        "Below structure & ATR" => sl := math.max(slAtr, math.max(slStruct, slSwing))
+        =>                         sl := math.max(slAtr, slSwing)
+    float ceil = entry + minSlDistAtr * atr
+    math.max(sl, ceil)
+
+calcLongTp(float entry, float stop_, float rMultOverride = na) =>
+    float risk = entry - stop_
+    float rUse = na(rMultOverride) ? tpR : rMultOverride
+    switch tpMode
+        "Risk multiple (R)" => entry + risk * rUse
+        "ATR multiple"      => entry + tpAtrMult * atr
+        =>                     entry * (1 + tpPct / 100)
+
+calcShortTp(float entry, float stop_) =>
+    float risk = stop_ - entry
+    switch tpMode
+        "Risk multiple (R)" => entry - risk * tpR
+        "ATR multiple"      => entry - tpAtrMult * atr
+        =>                     entry * (1 - tpPct / 100)
+
+// ── State variables ───────────────────────────────────────────────────────────
+var float savedLongStop       = na
+var float savedLongTp         = na
+var float savedShortStop      = na
+var float savedShortTp        = na
+var float trailAnchorLong     = na
+var float trailAnchorShort    = na
+var bool  trailActiveLong     = false
+var bool  trailActiveShort    = false
+var bool  longHtfBreakMode    = false
+var float trailSwingHiLong    = na
+var float trailSwingLoShort   = na
+// break-even stop level: set to entry price once the trade reaches breakEvenTriggerR.
+var float breakEvenStop       = na
+// Logic 5 — saved trail trigger R for the current trade (adaptive per-entry value).
+var float savedTrailTriggerR  = na
+
+var int lastExitToFlatBar = na
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    lastExitToFlatBar := bar_index
+
+int  barsSinceExitFlat = na(lastExitToFlatBar) ? 999999 : bar_index - lastExitToFlatBar
+bool cooldownExitOk    = cooldownBarsAfterExit <= 0 or na(lastExitToFlatBar) or barsSinceExitFlat > cooldownBarsAfterExit
+
+bool entryBarOk = not ordersOnConfirmedBar or barstate.isconfirmed
+
+bool rawLongSetup  = confirmed and strategy.position_size == 0 and (touchPathLong or contPathLong)
+bool rawShortSetup = short_en and confirmed and strategy.position_size == 0 and touchShort and filtShort and bounceShort(nearestTouchRes) and strengthOkShort
+
+// choppyOk gates are applied here — both longs and shorts respect the pause.
+// Logic 1 (inSession) and Logic 4 (veBlockOkLong) gate long entries only.
+bool longSignal  = rawLongSetup  and cooldownExitOk and choppyOk and entryBarOk and inSession and veBlockOkLong
+bool shortSignal = rawShortSetup and cooldownExitOk and choppyOk and entryBarOk
+
+var float lastPubLongStop  = na
+var float lastPubLongTp    = na
+var float lastPubShortStop = na
+var float lastPubShortTp   = na
+
+// ── Logic 1 — Session auto-close ─────────────────────────────────────────────
+// When the session window closes, auto-close open positions (optionally profitable-only).
+// We detect the transition from "in session" to "out of session" on confirmed bars.
+// Note: longUnrealR is defined later; we inline the profitability check here to avoid
+// a forward reference. Both expressions compute the same thing.
+bool _prevHourInSession = not useSessionFilter or (hour(time[1], "UTC") >= sessionStartHour and hour(time[1], "UTC") < sessionEndHour)
+bool _sessionProfOk     = not sessionCloseProfitableOnly
+     or (strategy.position_size > 0 and not na(savedLongStop)
+         and strategy.position_avg_price > savedLongStop
+         and close > strategy.position_avg_price)
+bool sessionJustEnded   = useSessionFilter and useSessionClose and barstate.isconfirmed
+     and not inSession and _prevHourInSession
+     and strategy.position_size > 0
+     and _sessionProfOk
+if sessionJustEnded
+    strategy.close("Long",  comment = "Session End")
+    strategy.close("Short", comment = "Session End")
+
+if longSignal
+    longHtfBreakMode := false
+    float lvlStop = isContEntry ? na : (na(lastRetestLvl) ? nearestTouchSup : lastRetestLvl)
+    lastRetestBar := na
+    float sl      = calcLongStop(close, lvlStop)
+    // Logic 5: use adaptive R target when applicable, otherwise fall back to tpR.
+    // Continuation entries add contExtraTpR on top of the effective base R.
+    float baseR   = adaptiveEffTpR
+    float rAdj    = tpMode == "Risk multiple (R)"
+         ? (isContEntry ? baseR + contExtraTpR : baseR)
+         : na
+    float tp      = calcLongTp(close, sl, rAdj)
+    savedLongStop        := sl
+    savedLongTp          := tp
+    savedTrailTriggerR   := adaptiveEffTrailR   // Logic 5: per-trade trail trigger
+    trailAnchorLong      := na
+    trailActiveLong      := false
+    trailSwingHiLong     := na
+    breakEvenStop        := na
+    lastPubLongStop      := na
+    lastPubLongTp        := na
+    strategy.entry("Long", strategy.long)
+
+if shortSignal
+    float sl = calcShortStop(close, nearestTouchRes)
+    float tp = calcShortTp(close, sl)
+    savedShortStop    := sl
+    savedShortTp      := tp
+    trailAnchorShort  := na
+    trailActiveShort  := false
+    trailSwingLoShort := na
+    lastPubShortStop  := na
+    lastPubShortTp    := na
+    strategy.entry("Short", strategy.short)
+
+// ── Unrealized R (gates soft exits) ──────────────────────────────────────────
+float longUnrealR   = strategy.position_size > 0 and not na(savedLongStop) and strategy.position_avg_price > savedLongStop
+     ? (close - strategy.position_avg_price) / (strategy.position_avg_price - savedLongStop)
+     : 0.0
+bool softExitRGateOk = minRForSoftExit <= 0 or longUnrealR >= minRForSoftExit
+
+// ── Micro exits (SuperTrend, TF1 MA, LinReg) ─────────────────────────────────
+float stLineLong      = stBull ? stUp : stDn
+bool exitBelowStNow   = useExitBelowSt     and not na(stLineLong) and close < stLineLong
+bool exitBelowMa1Now  = useExitBelowMa1    and ma1_en and not na(ma1) and close < ma1
+bool exitBelowLrNow   = useExitBelowLinReg and useLinReg and close < bclose
+
+// ── Volume Exhaustion Exit ────────────────────────────────────────────────────
+// Condition: bar is printing a new N-bar high (momentum present) but volume is
+// collapsing to less than volExhaustMult × SMA. This divergence between price
+// extension and volume dry-up is a classic distribution / topping signal.
+// The volExhaustMinR gate prevents this from firing too early in the trade.
+bool  volExhaustRGateOk = volExhaustMinR <= 0 or longUnrealR >= volExhaustMinR
+// Pre-compute ta.highest() unconditionally so its lookback buffer is always maintained.
+float _volExhaustHi     = ta.highest(high[1], volExhaustLb)
+bool exitVolExhaustNow  = useVolExhaustExit
+     and strategy.position_size > 0
+     and barstate.isconfirmed
+     and volExhaustRGateOk
+     and not na(volMaSeries) and volMaSeries > 0
+     and volume < volExhaustMult * volMaSeries   // volume well below average
+     and high >= _volExhaustHi                   // but price at new N-bar high
+
+// Logic 4 — update VE block state when Vol Exhaust fires this bar.
+// Must run after exitVolExhaustNow is defined so the capture is accurate.
+if barstate.isconfirmed and exitVolExhaustNow
+    _veBlockPrice := close
+    _veBlockBar   := bar_index
+
+// ── HL Structure Break Exit ───────────────────────────────────────────────────
+// A confirmed bar close below the most recent pivot low on hlBreakTf means the
+// local uptrend has printed its first lower-low: structural invalidation.
+// Fires significantly earlier than waiting for the 4h MA cross or full trailing
+// stop to trigger — avoids giving back 2-3% of gained profit on breakdown bars.
+float hlBreakPivLow  = useHlBreakExit ? f_last_pivot_low(hlBreakTf, hlBreakPivLen) : na
+bool  hlBreakRGateOk = hlBreakMinR <= 0 or longUnrealR >= hlBreakMinR
+bool  exitHlBreakNow = useHlBreakExit
+     and strategy.position_size > 0
+     and barstate.isconfirmed
+     and hlBreakRGateOk
+     and not na(hlBreakPivLow)
+     and close < hlBreakPivLow   // confirmed close below last pivot low = first lower-low
+
+// ── Composite long exit ───────────────────────────────────────────────────────
+// Step 1 soft exits (RSI rollover, Chandelier flip, ALMA ST flip) are folded in here.
+bool exitLongSignalNow = strategy.position_size > 0 and confirmed and softExitRGateOk
+     and (exitLongMaTrigger or exitBelowStNow or exitBelowMa1Now or exitBelowLrNow
+          or rsiExitNow or ceExitNow or almaExitNow)
+
+bool maCloseLongNow  = exitLongSignalNow or exitVolExhaustNow or exitHlBreakNow or sessionJustEnded
+bool maCloseShortNow = strategy.position_size < 0 and exitShortMaTrigger
+
+if maCloseLongNow
+    string exitWhy =
+         sessionJustEnded   ? "Session End"   :
+         exitVolExhaustNow  ? "Vol Exhaust"   :
+         exitHlBreakNow     ? "HL Break"      :
+         exitLongMaTrigger  ? "MTF MA exit"   :
+         exitBelowStNow     ? "Below ST"      :
+         exitBelowMa1Now    ? "Below TF1 MA"  :
+         rsiExitNow         ? "RSI rollover"  :
+         ceExitNow          ? "Chandelier flip" :
+         almaExitNow        ? "ALMA ST flip"  :
+         "Below LinReg"
+    strategy.close("Long", comment = exitWhy)
+
+if maCloseShortNow
+    strategy.close("Short", comment = "MTF MA exit")
+
+// ── HTF resistance break → runner trail ──────────────────────────────────────
+if strategy.position_size > 0 and rawHtfResBreakNow
+    bool firstHtfBreak = not longHtfBreakMode
+    longHtfBreakMode  := true
+    if firstHtfBreak and htfResetTrailAnchorOnBreak
+        trailAnchorLong  := na
+        trailSwingHiLong := na
+
+// ── Break-even stop ───────────────────────────────────────────────────────────
+// Once unrealized profit reaches breakEvenTriggerR × initial risk, move the hard
+// stop to entry price. After this point the trade cannot result in a loss — only
+// a scratch exit. Arms once (na → entry price) and is then held by the bracket.
+if useBreakEven and strategy.position_size > 0 and not na(savedLongStop) and na(breakEvenStop)
+    float risk = strategy.position_avg_price - savedLongStop
+    if risk > 0 and high >= strategy.position_avg_price + risk * breakEvenTriggerR
+        breakEvenStop := strategy.position_avg_price
+
+// ── Bracket management (SL + TP + trail + break-even) ────────────────────────
+tickEps = syminfo.mintick * 2
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STEP 3 — MULTI-STAGE PARTIAL TAKE PROFIT + POST-TP1 TRAILING (longs)
+// ──────────────────────────────────────────────────────────────────────────────
+// Engine overview (how the maths interact):
+//   • At fill we capture the ORIGINAL filled quantity (ptpEntryQty) and avg fill
+//     price (ptpEntryPx). Every tier sizes against ptpEntryQty — NOT the shrinking
+//     remainder — so "close 25%" realises 25% of the trade you actually opened.
+//   • Tier prices are pure % moves above entry:
+//        tp1Price = ptpEntryPx·(1+tp1Pct/100), etc.
+//   • Tiers are placed as independent strategy.exit orders, each an OCO of
+//        {limit = tpNPrice, stop = stopUse}. TP1/TP2 use absolute qty = ptpEntryQty·sizeN/100.
+//        TP3 carries NO qty, so it sweeps ALL remaining contracts (the runner) — this
+//        guarantees the position is fully bracketed even if the three % sizes sum < 100.
+//   • INTRA-BAR: because each leg is a resting stop/limit order, TradingView fills it
+//     the instant price trades through the level on the live bar — SL and TP both
+//     trigger mid-bar, not on close. (Entries remain bar-close via the entry block.)
+//   • stopUse (shared by all three legs) ratchets up = max(hard SL, break-even,
+//     post-TP1 trailing level). Once TP1 fills, the trailing source (Percent / Chandelier
+//     Exit / ALMA SuperTrend) takes over the remainder and can only move the stop higher.
+// ──────────────────────────────────────────────────────────────────────────────
+var float ptpEntryQty   = na
+var float ptpEntryPx    = na
+var bool  ptpTrailArmed = false
+var float ptpTrailAnchor = na
+var bool  ptpTp1Done    = false   // set once TP1 price is reached → stop re-issuing TP1
+var bool  ptpTp2Done    = false   // set once TP2 price is reached → stop re-issuing TP2
+
+// Capture original size/price the bar the long position first appears.
+bool justEnteredLong = strategy.position_size > 0 and nz(strategy.position_size[1]) <= 0
+if justEnteredLong
+    ptpEntryQty    := strategy.position_size
+    ptpEntryPx     := strategy.position_avg_price
+    ptpTrailArmed  := false
+    ptpTrailAnchor := na
+    ptpTp1Done     := false
+    ptpTp2Done     := false
+
+// Tier price levels (% move above the actual fill price).
+float tp1Price = na(ptpEntryPx) ? na : ptpEntryPx * (1 + tp1Pct / 100)
+float tp2Price = na(ptpEntryPx) ? na : ptpEntryPx * (1 + tp2Pct / 100)
+float tp3Price = na(ptpEntryPx) ? na : ptpEntryPx * (1 + tp3Pct / 100)
+// Absolute contracts to close at TP1 / TP2 (fractions of the ORIGINAL fill).
+float tp1Qty   = na(ptpEntryQty) ? na : ptpEntryQty * tp1Size / 100
+float tp2Qty   = na(ptpEntryQty) ? na : ptpEntryQty * tp2Size / 100
+
+if usePartialTp and strategy.position_size > 0 and not na(ptpEntryPx) and not na(savedLongStop) and not maCloseLongNow
+    // Mark a tier "done" once price trades through its limit (intra-bar high). A done
+    // tier is NOT re-issued — this prevents strategy.exit from creating a fresh order
+    // for the same chunk after it already filled (which would over-sell the position).
+    if not ptpTp1Done and not na(tp1Price) and high >= tp1Price
+        ptpTp1Done := true
+    if not ptpTp2Done and not na(tp2Price) and high >= tp2Price
+        ptpTp2Done := true
+
+    // Arm the runner trail the instant TP1 is reached.
+    if ptpTrailAfterTp1 and not ptpTrailArmed and ptpTp1Done
+        ptpTrailArmed := true
+
+    // Build the post-TP1 trailing level from the chosen source; ratchet up only.
+    float ptpTrailLvl = na
+    if ptpTrailArmed and ptpTrailAfterTp1
+        float byPct   = close * (1 - ptpTrailPct / 100)
+        float srcLine = ptpTrailSource == "Chandelier Exit" ? ceLongStop : ptpTrailSource == "ALMA SuperTrend" ? (almaBull ? almaSt : na) : byPct
+        float cand    = na(srcLine) ? byPct : srcLine
+        ptpTrailAnchor := na(ptpTrailAnchor) ? cand : math.max(ptpTrailAnchor, cand)
+        ptpTrailLvl    := ptpTrailAnchor
+
+    // Shared protective stop for all remaining contracts = highest of:
+    //   hard SL  ▸  break-even (entry)  ▸  post-TP1 trailing level.
+    float stopUse = savedLongStop
+    if useBreakEven and not na(breakEvenStop)
+        stopUse := math.max(stopUse, breakEvenStop)
+    if ptpTrailArmed and not na(ptpTrailLvl)
+        stopUse := math.max(stopUse, ptpTrailLvl)
+
+    // Place / refresh the OCO exit legs. Unfilled tiers are re-issued every bar so the
+    // shared stop ratchets up; a filled tier (flag set) is skipped so it isn't recreated.
+    // TP3 (runner, no qty) always carries the stop, so the remainder is bracketed even
+    // after TP1/TP2 fill or if the three % sizes sum to less than 100%.
+    if not ptpTp1Done
+        strategy.exit("TP1", from_entry = "Long", qty = tp1Qty, limit = tp1Price, stop = stopUse, comment_profit = "TP1", comment_loss = "SL")
+    if not ptpTp2Done
+        strategy.exit("TP2", from_entry = "Long", qty = tp2Qty, limit = tp2Price, stop = stopUse, comment_profit = "TP2", comment_loss = "SL")
+    strategy.exit("TP3", from_entry = "Long",                    limit = tp3Price, stop = stopUse, comment_profit = "TP3", comment_loss = "SL")
+
+// Legacy single-target bracket — runs only when the partial-TP engine is disabled.
+if not usePartialTp and strategy.position_size > 0 and not na(savedLongStop) and not na(savedLongTp) and not maCloseLongNow
+    float limitTpLong = longHtfBreakMode ? na : savedLongTp
+    float risk        = strategy.position_avg_price - savedLongStop
+    bool  trailLongEff   = useTrail or longHtfBreakMode
+    // Logic 5: use savedTrailTriggerR (set at entry) so adaptive trail trigger
+    // is preserved across bars. Falls back to trailTriggerR if not set (safety).
+    float effTrailR      = nz(savedTrailTriggerR, trailTriggerR)
+    float trTrigEff      = longHtfBreakMode ? htfTrailTriggerR : effTrailR
+    float trMultEff      = longHtfBreakMode ? htfTrailAtrMult  : trailAtrMult
+    bool  armTrailProfit = risk > 0 and high >= strategy.position_avg_price + risk * trTrigEff
+    bool  armTrailBreak  = longHtfBreakMode and htfTrailImmediate
+    if trailLongEff and (armTrailBreak or armTrailProfit)
+        trailActiveLong := true
+    float trailLvl = na
+    if trailActiveLong and trailLongEff
+        if trailStyle == "Chandelier (swing ± ATR)"
+            trailSwingHiLong := na(trailSwingHiLong) ? high : math.max(trailSwingHiLong, high)
+            trailLvl := trailSwingHiLong - trMultEff * atr
+        else
+            trailLvl := na(trailAnchorLong) ? close - trMultEff * atr : math.max(trailAnchorLong, close - trMultEff * atr)
+            trailAnchorLong := trailLvl
+
+    // Final stop = highest of: hard SL, trailing level, break-even level.
+    // This means: once break-even is armed, the stop can never drop back below entry.
+    float stopUse = savedLongStop
+    if trailActiveLong and not na(trailLvl)
+        stopUse := math.max(stopUse, trailLvl)
+    if useBreakEven and not na(breakEvenStop)
+        stopUse := math.max(stopUse, breakEvenStop)
+
+    bool tpLegChanged       = not (na(limitTpLong) and na(lastPubLongTp)) and (na(limitTpLong) or na(lastPubLongTp) or math.abs(limitTpLong - lastPubLongTp) >= tickEps)
+    bool longBracketChanged = na(lastPubLongStop) or math.abs(stopUse - lastPubLongStop) >= tickEps or tpLegChanged
+    if longBracketChanged
+        strategy.exit("Long X", from_entry = "Long", stop = stopUse, limit = limitTpLong)
+        lastPubLongStop := stopUse
+        lastPubLongTp   := limitTpLong
+
+if strategy.position_size < 0 and not na(savedShortStop) and not na(savedShortTp) and not maCloseShortNow
+    float risk = savedShortStop - strategy.position_avg_price
+    if useTrail and risk > 0 and low <= strategy.position_avg_price - risk * trailTriggerR
+        trailActiveShort := true
+    float trailLvl = na
+    if trailActiveShort and useTrail
+        if trailStyle == "Chandelier (swing ± ATR)"
+            trailSwingLoShort := na(trailSwingLoShort) ? low : math.min(trailSwingLoShort, low)
+            trailLvl := trailSwingLoShort + trailAtrMult * atr
+        else
+            trailLvl := na(trailAnchorShort) ? close + trailAtrMult * atr : math.min(trailAnchorShort, close + trailAtrMult * atr)
+            trailAnchorShort := trailLvl
+    float stopUse          = trailActiveShort and not na(trailLvl) ? math.min(savedShortStop, trailLvl) : savedShortStop
+    bool  shortBracketChanged = na(lastPubShortStop) or math.abs(stopUse - lastPubShortStop) >= tickEps or na(lastPubShortTp) or math.abs(savedShortTp - lastPubShortTp) >= tickEps
+    if shortBracketChanged
+        strategy.exit("Short X", from_entry = "Short", stop = stopUse, limit = savedShortTp)
+        lastPubShortStop := stopUse
+        lastPubShortTp   := savedShortTp
+
+// Reset all state when flat (but not on the bar that just opened a new position).
+flat = strategy.position_size == 0
+if flat and not longSignal and not shortSignal
+    savedLongStop       := na
+    savedLongTp         := na
+    savedShortStop      := na
+    savedShortTp        := na
+    trailAnchorLong     := na
+    trailAnchorShort    := na
+    trailActiveLong     := false
+    trailActiveShort    := false
+    trailSwingHiLong    := na
+    trailSwingLoShort   := na
+    longHtfBreakMode    := false
+    breakEvenStop       := na
+    savedTrailTriggerR  := na  // Logic 5: clear adaptive trail trigger
+    lastPubLongStop     := na
+    lastPubLongTp       := na
+    lastPubShortStop    := na
+    lastPubShortTp      := na
+    // Step 3: clear partial-TP engine state so the next trade starts clean.
+    ptpEntryQty         := na
+    ptpEntryPx          := na
+    ptpTrailArmed       := false
+    ptpTrailAnchor      := na
+    ptpTp1Done          := false
+    ptpTp2Done          := false
+
+// ── Plotting ──────────────────────────────────────────────────────────────────
+plot(showSrPlots and tf5_en ? sup5 : na,    "Support 5m",  color = color.new(color.aqua,  40), linewidth = 1, style = plot.style_linebr)
+plot(showSrPlots ? sup15 : na,              "Support 15m", color = color.new(color.teal,  30), linewidth = 1, style = plot.style_linebr)
+plot(showSrPlots ? sup60 : na,              "Support 1h",  color = color.new(color.green, 30), linewidth = 2, style = plot.style_linebr)
+plot(showSrPlots ? sup240 : na,             "Support 4h",  color = color.new(color.lime,  30), linewidth = 2, style = plot.style_linebr)
+
+plot(showSrPlots and tf5_en  and not (showFlipSup and flipR5)   ? res5   : na, "Resistance 5m",  color = color.new(color.yellow, 50), linewidth = 1, style = plot.style_linebr)
+plot(showSrPlots and tf15_en and not (showFlipSup and flipR15)  ? res15  : na, "Resistance 15m", color = color.new(color.orange, 30), linewidth = 1, style = plot.style_linebr)
+plot(showSrPlots and tf60_en and not (showFlipSup and flipR60)  ? res60  : na, "Resistance 1h",  color = color.new(color.red,    30), linewidth = 2, style = plot.style_linebr)
+plot(showSrPlots and tf240_en and not (showFlipSup and flipR240) ? res240 : na, "Resistance 4h", color = color.new(color.maroon, 30), linewidth = 2, style = plot.style_linebr)
+
+plot(showSrPlots and showFlipSup and tf5_en   and flipR5   ? res5   : na, "5m broken res → sup",  color = color.new(color.lime, 0), linewidth = 2, style = plot.style_linebr)
+plot(showSrPlots and showFlipSup and tf15_en  and flipR15  ? res15  : na, "15m broken res → sup", color = color.new(color.lime, 0), linewidth = 2, style = plot.style_linebr)
+plot(showSrPlots and showFlipSup and tf60_en  and flipR60  ? res60  : na, "1h broken res → sup",  color = color.new(color.aqua, 0), linewidth = 2, style = plot.style_linebr)
+plot(showSrPlots and showFlipSup and tf240_en and flipR240 ? res240 : na, "4h broken res → sup",  color = color.new(color.teal, 0), linewidth = 2, style = plot.style_linebr)
+
+plot(showStBand ? (stTrendVal == 1 ? stUp : na) : na, "ST up band", color = color.new(color.green, 40), linewidth = 2)
+plot(showStBand ? (stTrendVal == -1 ? stDn : na) : na, "ST dn band", color = color.new(color.red,   40), linewidth = 2)
+
+plot(plotMaLines and ma1_en ? ma1 : na, "MA TF1", color = color.new(color.orange,  0), linewidth = 2)
+plot(plotMaLines and ma2_en ? ma2 : na, "MA TF2", color = color.new(color.white,  15), linewidth = 2)
+plot(plotMaLines and ma3_en ? ma3 : na, "MA TF3", color = color.new(color.fuchsia, 0), linewidth = 2)
+plot(plotVwmaLine  and useVwmaTrend  ? vwTrend  : na, "VWMA (trend)",   color = color.new(color.yellow, 0), linewidth = 2)
+plot(plotVwma2Line and useVwma2Trend ? vwTrend2 : na, "VWMA 2 (trend)", color = color.new(color.aqua,   0), linewidth = 2)
+plot(plotLocalEma and useLocalTrend ? localFastEma : na, "Local EMA Fast", color = color.new(color.blue, 20), linewidth = 1)
+plot(plotLocalEma and useLocalTrend ? localSlowEma : na, "Local EMA Slow", color = color.new(color.navy, 30), linewidth = 1)
+plot(plotExitMa and (useExitLongMa or useExitShortMa) ? exitMaAligned : na, "Exit MA (MTF)", color = color.new(color.purple, 0), linewidth = 2)
+plot(plotRegimeEma and useRegimeFilter ? regimeEma : na, "Regime EMA", color = color.new(color.silver, 0), linewidth = 2)
+
+// Step 1 embedded indicators — standalone HMA A/B, Chandelier Exit, ALMA SuperTrend.
+plot(plotHmaA and useHmaA ? hmaA : na, "HMA A", color = color.new(color.aqua,   0), linewidth = 2)
+plot(plotHmaB and useHmaB ? hmaB : na, "HMA B", color = color.new(color.orange, 0), linewidth = 2)
+plot(plotCe ? (ceDir == 1 ? ceLongStop : na) : na, "Chandelier Long Stop",  color = color.new(color.green, 0), linewidth = 2, style = plot.style_linebr)
+plot(plotCe ? (ceDir == 1 ? na : ceShortStop) : na, "Chandelier Short Stop", color = color.new(color.red,   0), linewidth = 2, style = plot.style_linebr)
+plot(plotAlma ? almaSt : na, "ALMA SuperTrend", color = almaBull ? color.new(color.rgb(31, 211, 37), 0) : color.new(color.rgb(188, 8, 219), 0), linewidth = 2, style = plot.style_linebr)
+// RSI availability check marker (plots a small dot when RSI is in the long band).
+plotshape(plotRsiState and not na(rsiVal) and rsiVal >= rsiLongMin and rsiVal <= rsiLongMax ? high : na,
+     title = "RSI in long band", style = shape.circle, location = location.abovebar, color = color.new(color.purple, 40), size = size.tiny)
+
+plotshape(showMarkers and longSignal and isContEntry  ? low : na, title = "Cont long", style = shape.labelup,   location = location.absolute, color = color.new(color.teal,  0), textcolor = color.white, text = "Cont", size = size.small)
+plotshape(showMarkers and longSignal and not isContEntry ? low : na, title = "Buy long", style = shape.labelup, location = location.absolute, color = color.new(color.green, 0), textcolor = color.white, text = "Buy",  size = size.small)
+plotshape(showMarkers and shortSignal ? high : na, title = "Sell", style = shape.labeldown, location = location.absolute, color = color.new(color.red, 0), textcolor = color.white, text = "Sell", size = size.small)
+
+// Small ✕ at top of bar while the choppy-market pause is active and flat.
+plotshape(useChoppyFilter and bar_index <= choppyUntilBar and strategy.position_size == 0 ? high : na,
+     title = "Choppy pause", style = shape.xcross, location = location.absolute,
+     color = color.new(color.red, 40), size = size.tiny)
+
+// Closed-trade P/L label
+int ctClosed = strategy.closedtrades
+if showExitPnL and ctClosed > nz(ctClosed[1])
+    int   ti   = ctClosed - 1
+    float esz  = strategy.closedtrades.size(ti)
+    float ep   = strategy.closedtrades.entry_price(ti)
+    float xp   = strategy.closedtrades.exit_price(ti)
+    float pctx = na
+    if ep != 0 and esz != 0
+        pctx := esz > 0 ? (xp - ep) / ep * 100.0 : (ep - xp) / ep * 100.0
+    string tTxt = na(pctx) ? "—" : (pctx >= 0 ? "+" : "") + str.tostring(pctx, "#.##") + "%"
+    color  tCol = na(pctx) ? color.gray : pctx >= 0 ? color.new(color.green, 0) : color.new(color.red, 0)
+    float  yAt  = esz > 0 ? high : low
+    label.new(bar_index, yAt, tTxt, xloc = xloc.bar_index, style = esz > 0 ? label.style_label_down : label.style_label_up,
+         color = tCol, textcolor = color.white, size = size.small)
+
+// Cumulative P/L table (top-right, last bar)
+var table tblCum = na
+if showCumPnL
+    if na(tblCum)
+        tblCum := table.new(position.top_right, 2, 2, border_width = 1, frame_color = color.new(color.gray, 50), frame_width = 1)
+    if barstate.islastconfirmedhistory
+        float netPct = strategy.initial_capital != 0 ? 100.0 * strategy.netprofit / strategy.initial_capital : na
+        table.cell(tblCum, 0, 0, "Net P/L %",      text_color = color.white, bgcolor = color.new(color.black, 75))
+        table.cell(tblCum, 1, 0, str.tostring(netPct, "#.##") + "%", text_color = color.white, bgcolor = color.new(color.black, 75))
+        table.cell(tblCum, 0, 1, "Closed trades",  text_color = color.white, bgcolor = color.new(color.black, 75))
+        table.cell(tblCum, 1, 1, str.tostring(strategy.closedtrades), text_color = color.white, bgcolor = color.new(color.black, 75))
+
+plotshape(showHtfBreak and strategy.position_size > 0 and longHtfBreakMode and not longHtfBreakMode[1] ? high : na,
+     title = "HTF break runner", style = shape.diamond, location = location.absolute,
+     color = color.new(color.purple, 0), size = size.tiny)
+
+// ── Alerts — Custom FastAPI bot ───────────────────────────────────────────────
+if use_custom_webhook and (ALERT_SECRET == "REPLACE_ME" or str.length(ALERT_SECRET) < 32)
+    runtime.error("Set [Custom bot] secret to your full bot webhook secret")
+
+f_bot_json_buy() =>
+    "{\"secret\":\"" + ALERT_SECRET + "\",\"action\":\"buy\",\"symbol\":\"" + syminfo.ticker +
+     "\",\"quote_order_qty\":" + str.tostring(alert_buy_usdt) +
+     ",\"dedupe_key\":\"L-" + str.tostring(bar_index) + "-" + str.tostring(time) + "\"}"
+
+f_bot_json_sell_exit() =>
+    "{\"secret\":\"" + ALERT_SECRET + "\",\"action\":\"sell\",\"symbol\":\"" + syminfo.ticker +
+     "\",\"dedupe_key\":\"X-" + str.tostring(bar_index) + "-" + str.tostring(time) + "\"}"
+
+if use_custom_webhook and longSignal
+    alert(f_bot_json_buy(), alert.freq_once_per_bar_close)
+
+if use_custom_webhook and shortSignal
+    alert(
+         "{\"secret\":\"" + ALERT_SECRET + "\",\"action\":\"sell\",\"symbol\":\"" + syminfo.ticker +
+          "\",\"quantity\":" + str.tostring(alert_sell_base) +
+          ",\"dedupe_key\":\"S-" + str.tostring(bar_index) + "-" + str.tostring(time) + "\"}",
+         alert.freq_once_per_bar_close)
+
+bool longJustClosed = strategy.position_size == 0 and strategy.position_size[1] > 0
+if use_custom_webhook and longJustClosed
+    alert(f_bot_json_sell_exit(), alert.freq_once_per_bar_close)

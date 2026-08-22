@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.alphaweb.clone-frontend</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend/node_modules/next/dist/bin/next</string>
+    <string>start</string>
+    <string>-H</string><string>127.0.0.1</string>
+    <string>-p</string><string>3000</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend/frontend-service.log</string>
+  <key>StandardErrorPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend/frontend-service-error.log</string>
+</dict></plist>

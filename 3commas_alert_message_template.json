@@ -1,0 +1,20 @@
+{
+  "secret": "PASTE_SIGNAL_BOT_SECRET_FROM_3COMMAS",
+  "max_lag": "300",
+  "timestamp": "{{timenow}}",
+  "trigger_price": "{{close}}",
+  "tv_exchange": "{{exchange}}",
+  "tv_instrument": "{{ticker}}",
+  "action": "{{strategy.order.action}}",
+  "bot_uuid": "PASTE_SIGNAL_BOT_UUID_FROM_3COMMAS",
+  "strategy_info": {
+    "market_position": "{{strategy.market_position}}",
+    "market_position_size": "{{strategy.market_position_size}}",
+    "prev_market_position": "{{strategy.prev_market_position}}",
+    "prev_market_position_size": "{{strategy.prev_market_position_size}}"
+  },
+  "order": {
+    "amount": "{{strategy.order.contracts}}",
+    "currency_type": "base"
+  }
+}

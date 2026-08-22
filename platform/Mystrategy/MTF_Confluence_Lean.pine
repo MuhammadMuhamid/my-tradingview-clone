@@ -1,0 +1,1281 @@
+//@version=6
+// =====================================================================================================================
+//  MTF CONFLUENCE SPOT STRATEGY — LEAN
+//  Long only. Spot only. Per-filter timeframes, toggle-selected confluence, single R:R stop/TP engine.
+// =====================================================================================================================
+//  This is the trimmed build. Relative to the full version these sections were REMOVED on request:
+//      1b Profit-run limit (winning cluster cap)
+//      8  S2 — Demand zone (Supply/Demand)          → the whole volume-profile component is gone
+//      9  S3 — Support box [ChartPrime]             → the SR component is retained ONLY for gate G4
+//      9c Structure-stop engine (alternative)       → the R:R engine is now the only stop/TP engine
+//      11b Peak / spike filters (anti-chase)
+//      20 Indicator — AlphaTrend
+//  Every remaining input's DEFAULT is set to the configuration captured from the live chart, so a fresh
+//  "Add to chart" reproduces that setup without touching a single field.
+//
+//  ATTRIBUTION (mandatory — do not strip)
+//  -------------------------------------
+//    "Supertrend"                                  — TradingView / Everget style ATR trailing stop
+//    "Support and Resistance (High Volume Boxes)"  — (c) ChartPrime        — Mozilla Public License 2.0
+//    "Liquidity Sweeps [LuxAlgo]"                  — (c) LuxAlgo           — CC BY-NC-SA 4.0
+//    "Pivot Point SuperTrend"                      — (c) LonesomeTheBlue   — Mozilla Public License 2.0
+//    "Buyside & Sellside Liquidity [LuxAlgo]"      — (c) LuxAlgo           — CC BY-NC-SA 4.0
+//    "Pivot Points High Low [LuxAlgo]"             — (c) LuxAlgo           — CC BY-NC-SA 4.0
+//    "Bollinger Bands" / "Relative Strength Index" — (c) TradingView built-ins
+//    "Volume Flow Indicator [LazyBear]"            — (c) LazyBear
+//  CC BY-NC-SA 4.0 is NON-COMMERCIAL: this script may not be sold, licensed for money, or bundled into a paid
+//  product or service. Personal / non-commercial use only. Derivatives must be shared alike.
+//
+//  NOTES
+//  -----
+//   * HTF components draw nothing — Pine cannot create boxes/lines/labels inside request.security(). HTF values
+//     drive the LOGIC; the chart-timeframe instance of each component drives the VISUALS.
+//   * RSI / VFI have no separate pane (overlay strategy). Both are in the Data Window and the debug table.
+//   * Updating a script can scramble a placed study's saved inputs (TradingView maps them by position).
+//     After updating, REMOVE the study and RE-ADD it rather than trusting carried-over settings.
+// =====================================================================================================================
+
+strategy("MTF Confluence Lean", "MTF Lean", overlay = true,
+     default_qty_type        = strategy.cash,
+     default_qty_value       = 1000,
+     initial_capital         = 10000,
+     currency                = currency.USD,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 2,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     calc_on_order_fills     = false,
+     process_orders_on_close = true,
+     max_bars_back           = 1000,
+     max_boxes_count         = 500,
+     max_lines_count         = 500,
+     max_labels_count        = 500)
+
+
+// =====================================================================================================================
+//  GROUPS
+// =====================================================================================================================
+string G_GEN  = "1 General"
+string G_RISK = "2 Risk & position sizing"
+string G_G1   = "3 G1 — Supertrend regime"
+string G_G2   = "4 G2 — RSI regime"
+string G_G3   = "5 G3 — VFI (volume flow) regime"
+string G_G4   = "6 G4 — Price at/above SR support"
+string G_VOL  = "6e Volume filter"
+string G_HH   = "6f Higher-high structure"
+string G_S1   = "7 S1 — Liquidity sweep [LuxAlgo]"
+string G_S4   = "10 S4 — Supertrend structure"
+string G_S5   = "11 S5 — Pivot Point Supertrend"
+string G_S6   = "12 S6 — Sellside liquidity [LuxAlgo]"
+string G_S7   = "13 S7 — Pivot low [LuxAlgo]"
+string G_TRIG = "14 Entry trigger (Bollinger / Supertrend)"
+string G_ENT  = "7b Entries — Long"
+string G_RR   = "9b R:R — swing-low stop + ratio TP"
+string G_EXIT = "21 Exits — signal based"
+string G_VIS  = "30 Visualization"
+string G_DBG  = "31 Debug"
+
+
+// =====================================================================================================================
+//  1 GENERAL
+// =====================================================================================================================
+useBarConfirm        = input.bool(true, "Signals on confirmed bar only", group = G_GEN,
+     tooltip = "OFF = entry conditions can go true every tick → same-bar stop/re-entry loops and many webhooks. Keep ON for live.")
+ordersOnConfirmedBar = input.bool(true, "New entries: bar close only (3Commas)", group = G_GEN,
+     tooltip = "When ON, only strategy.entry waits for barstate.isconfirmed. Exits are not delayed.")
+cooldownBarsAfterExit= input.int(0, "Min bars after exit before new entry", minval = 0, maxval = 200, group = G_GEN)
+
+htfClosed = input.bool(true, "HTF reads: last CLOSED bar only (no repaint)", group = G_GEN,
+     tooltip = "ON  = every higher-timeframe value is taken from the last CLOSED bar ([1] offset). Backtest matches live. STRONGLY recommended.\nOFF = reads the in-progress HTF bar: signals look better historically and repaint live. Only use to eyeball what a filter is doing.")
+useHeikin = input.bool(false, "Signals from Heikin Ashi candles", group = G_GEN,
+     tooltip = "Feeds Heikin-Ashi OHLC into the entry TRIGGER only. Smoother, later, fewer false triggers. Stops, targets and fills always use REAL prices.")
+
+useChoppyFilter = input.bool(false, "Pause entries after N consecutive losses", group = G_GEN,
+     tooltip = "After N losing trades in a row, block new entries for the pause below. Detects choppy phases that still look bullish on the macro filters.")
+maxConsecLoss   = input.int(1,  "Max consecutive losses before pause", minval = 1, maxval = 10, group = G_GEN)
+choppyPauseBars = input.int(20, "Pause duration (bars) after max losses hit", minval = 1, maxval = 500, group = G_GEN,
+     tooltip = "On a 5m chart 20 bars = 100 minutes.")
+
+signal_delivery  = input.string("Off", "Signal delivery", options = ["3Commas Signal Bot", "Custom webhook bot", "Off"], group = G_GEN)
+string ALERT_SECRET   = input.string("REPLACE_ME", "[Custom bot] secret → WEBHOOK_SECRET", group = G_GEN, display = display.none)
+float  alert_buy_usdt = input.float(800.0, "[Custom bot] BUY quote USDT", minval = 1, step = 1, group = G_GEN, display = display.none)
+float  alert_sell_base= input.float(0.001, "[Custom bot] SELL base qty", minval = 0.00000001, step = 0.001, group = G_GEN, display = display.none)
+string alert_symbol   = input.string("ZECUSDT", "[Custom bot] symbol", group = G_GEN, display = display.none)
+use_custom_webhook    = signal_delivery == "Custom webhook bot"
+
+
+// =====================================================================================================================
+//  2 RISK & POSITION SIZING
+// =====================================================================================================================
+sizingMode = input.string("Fixed USDT", "Sizing Mode", options = ["Fixed USDT", "Risk % of Equity"], group = G_RISK)
+tradeAmt   = input.float(1000.0, "Trade Amount (USDT)", group = G_RISK, minval = 1, step = 50)
+riskPct    = input.float(1.0,    "Risk % of Equity",    group = G_RISK, minval = 0.01, maxval = 100, step = 0.1)
+atrLenRisk = input.int(6, "ATR length (risk)", minval = 1, group = G_RISK,
+     tooltip = "Drives the swing-low stop buffer, the minimum stop floor, and the ATR proximity tests.")
+
+
+// =====================================================================================================================
+//  3 G1 — SUPERTREND REGIME
+// =====================================================================================================================
+useG1     = input.bool(true, "G1 · Enable — Supertrend must be bullish", group = G_G1)
+g1_tf     = input.timeframe("15", "G1 timeframe", group = G_G1, tooltip = "Blank = chart timeframe.")
+g1_atrLen = input.int(10,  "G1 ATR period", minval = 1, group = G_G1)
+g1_mult   = input.float(3.0,"G1 ATR multiplier", step = 0.1, minval = 0.1, group = G_G1)
+g1_chgAtr = input.bool(true,"G1 change ATR calculation method?", group = G_G1)
+
+// =====================================================================================================================
+//  4 G2 — RSI REGIME
+// =====================================================================================================================
+useG2  = input.bool(true, "G2 · Enable — RSI above threshold", group = G_G2)
+g2_tf  = input.timeframe("15", "G2 timeframe", group = G_G2)
+g2_len = input.int(50, "G2 RSI length", minval = 1, group = G_G2)
+g2_thr = input.float(50.0, "G2 RSI threshold", minval = 0, maxval = 100, step = 1, group = G_G2)
+g2_max = input.float(100.0,"G2 RSI max (blocks overbought chasing)", minval = 0, maxval = 100, step = 1, group = G_G2,
+     tooltip = "Set to e.g. 70 to refuse entries when RSI is already exhausted. 100 = no upper bound.")
+
+// =====================================================================================================================
+//  5 G3 — VFI REGIME
+// =====================================================================================================================
+useG3     = input.bool(true, "G3 · Enable — VFI above level", group = G_G3)
+g3_tf     = input.timeframe("15", "G3 timeframe", group = G_G3)
+g3_len    = input.int(130, "G3 VFI length", minval = 1, group = G_G3,
+     tooltip = "LazyBear default 130. Needs ~130 CLOSED bars of this timeframe before it means anything; until then the gate reads false and the table shows 'warmup'.")
+g3_coef   = input.float(0.2, "G3 VFI coef", step = 0.05, group = G_G3)
+g3_vcoef  = input.float(2.5, "G3 VFI max volume cutoff", step = 0.1, group = G_G3)
+g3_sig    = input.int(5, "G3 VFI signal length", minval = 1, group = G_G3)
+g3_smooth = input.bool(true, "G3 smooth VFI", group = G_G3)
+g3_level  = input.float(0.0, "G3 VFI must be above", step = 0.5, group = G_G3)
+
+// =====================================================================================================================
+//  6 G4 — PRICE AT/ABOVE SR SUPPORT   (the only remaining consumer of the ChartPrime SR component)
+// =====================================================================================================================
+useG4      = input.bool(true, "G4 · Enable — price at/above SR support", group = G_G4)
+g4_tf      = input.timeframe("15", "G4 timeframe", group = G_G4)
+g4_lb      = input.int(20, "G4 SR lookback (pivot length)", minval = 1, group = G_G4,
+     tooltip = "Pivot confirmation delay = this many bars of the G4 timeframe. 20 bars on 15m = 5 hours.")
+g4_volLen  = input.int(2,  "G4 delta-volume filter length", minval = 1, group = G_G4)
+g4_boxW    = input.float(1.0, "G4 box width", minval = 0, step = 0.1, group = G_G4)
+g4_atrMult = input.float(1.0, "G4 tolerance (ATR mult below support)", minval = 0, step = 0.1, group = G_G4)
+
+// =====================================================================================================================
+//  6e VOLUME FILTER
+// =====================================================================================================================
+useVolumeFilter = input.bool(true, "Require above-average volume on entry", group = G_VOL)
+volTf           = input.timeframe("5", "Volume timeframe (blank = chart)", group = G_VOL)
+volMaLen        = input.int(100, "Volume SMA length", minval = 5, group = G_VOL)
+volMultMin      = input.float(1.4, "Min volume (× SMA)", step = 0.1, minval = 0.1, group = G_VOL,
+     tooltip = "1.0 = at-least-average volume; 1.4 = 40% above average.")
+
+// =====================================================================================================================
+//  6f HIGHER-HIGH STRUCTURE
+// =====================================================================================================================
+useHhStructure = input.bool(false, "Require higher-high structure", group = G_HH,
+     tooltip = "Last confirmed pivot high on the chosen TF must be above the prior pivot high.")
+hhTf           = input.timeframe("1", "Higher-high timeframe", group = G_HH)
+hhPivotLen     = input.int(5, "Pivot length (HH TF)", minval = 3, maxval = 30, group = G_HH)
+
+// =====================================================================================================================
+//  7 S1 — LIQUIDITY SWEEP
+// =====================================================================================================================
+useS1     = input.bool(true, "S1 · Enable — bullish liquidity sweep", group = G_S1)
+s1_tf     = input.timeframe("15", "S1 timeframe", group = G_S1)
+s1_len    = input.int(2, "S1 swings (pivot length)", minval = 1, group = G_S1,
+     tooltip = "Pivot confirmation delay = this many bars of the S1 timeframe. 2 bars on 15m = 30 minutes.")
+s1_maxAge = input.int(30, "S1 max bars since sweep", minval = 1, group = G_S1,
+     tooltip = "The sweep only counts as active if it confirmed within this many CLOSED bars of the S1 timeframe.")
+
+// =====================================================================================================================
+//  10 S4 — SUPERTREND STRUCTURE
+// =====================================================================================================================
+useS4     = input.bool(true, "S4 · Enable — Supertrend bullish", group = G_S4)
+s4_tf     = input.timeframe("5", "S4 timeframe", group = G_S4)
+s4_atrLen = input.int(10, "S4 ATR period", minval = 1, group = G_S4)
+s4_mult   = input.float(3.0, "S4 ATR multiplier", step = 0.1, minval = 0.1, group = G_S4)
+s4_chgAtr = input.bool(true, "S4 change ATR calculation method?", group = G_S4)
+
+// =====================================================================================================================
+//  11 S5 — PIVOT POINT SUPERTREND
+// =====================================================================================================================
+useS5    = input.bool(true, "S5 · Enable — Pivot Point Supertrend bullish", group = G_S5)
+s5_tf    = input.timeframe("15", "S5 timeframe", group = G_S5)
+s5_prd   = input.int(2, "S5 pivot point period", minval = 1, maxval = 50, group = G_S5)
+s5_factor= input.float(3.0, "S5 ATR factor", minval = 0.1, step = 0.1, group = G_S5)
+s5_pd    = input.int(10, "S5 ATR period", minval = 1, group = G_S5)
+
+// =====================================================================================================================
+//  12 S6 — SELLSIDE LIQUIDITY
+// =====================================================================================================================
+useS6     = input.bool(true, "S6 · Enable — sellside liquidity resting below", group = G_S6)
+s6_tf     = input.timeframe("15", "S6 timeframe", group = G_S6)
+s6_len    = input.int(3, "S6 detection length", minval = 3, maxval = 13, group = G_S6)
+s6_margin = input.float(7.0, "S6 margin", minval = 4, maxval = 9, step = 0.1, group = G_S6)
+s6_vis    = input.int(5, "S6 # levels kept", minval = 1, maxval = 50, group = G_S6)
+s6_prox   = input.float(4.0, "S6 max distance to level (ATR mult)", minval = 0, step = 0.5, group = G_S6)
+
+// =====================================================================================================================
+//  13 S7 — PIVOT LOW
+// =====================================================================================================================
+useS7  = input.bool(false, "S7 · Enable — above last confirmed pivot low", group = G_S7)
+s7_tf  = input.timeframe("15", "S7 timeframe", group = G_S7)
+s7_len = input.int(10, "S7 pivot length", minval = 1, group = G_S7,
+     tooltip = "Pivot confirmation delay = this many bars of the S7 timeframe.")
+
+// =====================================================================================================================
+//  14 ENTRY TRIGGER
+// =====================================================================================================================
+useTrigger  = input.bool(false, "Enable entry trigger", group = G_TRIG,
+     tooltip = "OFF = entries fire on the first bar where all enabled filters agree, with no timing trigger at all. This is the current configuration: the filters themselves decide entry timing.")
+trig_tf     = input.timeframe("", "Trigger timeframe (blank = chart)", group = G_TRIG)
+trigMode    = input.string("Bollinger Reclaim", "Trigger mode", group = G_TRIG,
+     options = ["Bollinger Reclaim", "Bollinger Basis Cross", "Supertrend Flip", "BB + Supertrend (both)"])
+bbReclaimLb = input.int(3, "BB reclaim lookback (bars)", minval = 1, group = G_TRIG)
+bb_len      = input.int(20, "BB length", minval = 1, group = G_TRIG)
+bb_maTyp    = input.string("SMA", "BB basis MA type", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = G_TRIG)
+bb_mult     = input.float(2.0, "BB stdev", minval = 0.001, maxval = 50, step = 0.1, group = G_TRIG)
+trig_stLen  = input.int(10, "Trigger Supertrend ATR period", minval = 1, group = G_TRIG)
+trig_stMult = input.float(3.0, "Trigger Supertrend multiplier", step = 0.1, minval = 0.1, group = G_TRIG)
+reqST5      = input.bool(false, "Require trigger-TF Supertrend bullish", group = G_TRIG)
+
+// =====================================================================================================================
+//  7b ENTRIES — LONG
+// =====================================================================================================================
+long_en          = input.bool(true, "Enable longs", group = G_ENT)
+useBodyFilter    = input.bool(true, "Body filter: reject bearish entry bar", group = G_ENT,
+     tooltip = "Skips entries where the entry bar is bearish AND its body (open−close) exceeds the multiple of ATR below. A big bearish close on the setup bar is a momentum warning.")
+entryBodyAtrMult = input.float(0.3, "Body filter: max bearish body size (× ATR)", step = 0.05, minval = 0.05, group = G_ENT)
+useOneTradePerSignal = input.bool(false, "One trade per trigger buy signal", group = G_ENT,
+     tooltip = "After a long is taken, no new long until a FRESH trigger event fires. Only meaningful when the entry trigger is enabled.")
+
+// =====================================================================================================================
+//  9b R:R — SWING-LOW STOP + RATIO TP   (the only stop/TP engine in this build)
+// =====================================================================================================================
+rrSwingLb    = input.int(10, "Swing low lookback (bars)", minval = 2, maxval = 200, group = G_RR)
+rrBufAtr     = input.float(1.0, "SL buffer below swing low (× ATR)", step = 0.05, minval = 0.0, group = G_RR)
+rrRatio      = input.float(3.75, "Reward : Risk ratio (TP)", step = 0.25, minval = 0.25, group = G_RR)
+minSlDistAtr = input.float(3.0, "Floor: min SL distance from entry (× ATR)", step = 0.05, minval = 0.05, group = G_RR,
+     tooltip = "The stop is never closer than this many ATRs below entry, even if the swing low sits right under price.")
+rrUsePartialTp = input.bool(false, "Take partial TPs (%) — TP1 / TP2 + runner", group = G_RR)
+rrTp1Pct  = input.float(6.0,  "TP1 — price move %", step = 0.1, minval = 0.1, group = G_RR, inline = "rtp1")
+rrTp1Size = input.float(40.0, "close % of pos",     step = 5, minval = 1, maxval = 100, group = G_RR, inline = "rtp1")
+rrTp2Pct  = input.float(8.0,  "TP2 — price move %", step = 0.1, minval = 0.1, group = G_RR, inline = "rtp2")
+rrTp2Size = input.float(30.0, "close % of pos",     step = 5, minval = 1, maxval = 100, group = G_RR, inline = "rtp2")
+rrUseTrailSl  = input.bool(false, "Trailing stop (%)", group = G_RR)
+rrTrailPct    = input.float(2.0, "Trailing stop distance (%)", step = 0.1, minval = 0.1, group = G_RR)
+rrTrailActPct = input.float(4.0, "Trailing: activate after +% in profit (0 = once green)", step = 0.1, minval = 0.0, group = G_RR)
+rrUseBE       = input.bool(false, "Move stop to break-even after +R", group = G_RR)
+rrBeAfterR    = input.float(1.0, "Break-even trigger (R)", step = 0.25, minval = 0.1, group = G_RR)
+rrBeOffR      = input.float(0.1, "Break-even offset (R)", step = 0.05, minval = 0, group = G_RR)
+plotRR        = input.bool(true, "Plot R:R levels (live SL + TP)", group = G_RR)
+
+// =====================================================================================================================
+//  21 EXITS
+// =====================================================================================================================
+exitOnG1Flip = input.bool(false, "Exit when G1 Supertrend turns bearish", group = G_EXIT)
+exitOnS4Flip = input.bool(false, "Exit when S4 Supertrend turns bearish", group = G_EXIT)
+maxBarsTrade = input.int(0, "Max bars in trade (0 = off)", minval = 0, group = G_EXIT)
+useHlBreakExit = input.bool(false, "Exit on confirmed break of last pivot low", group = G_EXIT)
+hlBreakTf      = input.timeframe("15", "HL break pivot TF", group = G_EXIT)
+hlBreakPivLen  = input.int(10, "HL break pivot length", minval = 3, maxval = 30, group = G_EXIT)
+
+// =====================================================================================================================
+//  30 VISUALIZATION  /  31 DEBUG
+// =====================================================================================================================
+maxDrawBars  = input.int(500, "Max historical bars for drawings", group = G_VIS, minval = 50,
+     tooltip = "Signal logic always runs on every bar. Only DRAWING is restricted to the most recent N bars.")
+showST       = input.bool(true,  "Show chart-TF Supertrend", group = G_VIS)
+showSTfill   = input.bool(true,  "Supertrend highlighter", group = G_VIS)
+showSTsig    = input.bool(false, "Supertrend buy/sell labels", group = G_VIS)
+showSR       = input.bool(false, "Show SR high-volume boxes [ChartPrime]", group = G_VIS)
+showLS       = input.bool(true,  "Show liquidity sweeps [LuxAlgo]", group = G_VIS)
+showPPST     = input.bool(false, "Show Pivot Point Supertrend", group = G_VIS)
+showBSL      = input.bool(true,  "Show buyside & sellside liquidity (heavy)", group = G_VIS)
+showPPHL     = input.bool(false, "Show pivot points high/low (heavy)", group = G_VIS)
+showBB       = input.bool(false, "Show Bollinger Bands", group = G_VIS)
+showEntryLbl = input.bool(true,  "Label entry bars", group = G_VIS)
+capSR   = input.int(40, "Cap · SR boxes",          group = G_VIS, minval = 1, maxval = 200)
+capLS   = input.int(60, "Cap · liq-sweep objects", group = G_VIS, minval = 1, maxval = 200)
+capBSL  = input.int(30, "Cap · BSL objects",       group = G_VIS, minval = 1, maxval = 200)
+capPP   = input.int(60, "Cap · pivot HL objects",  group = G_VIS, minval = 1, maxval = 200)
+capLbl  = input.int(50, "Cap · entry labels",      group = G_VIS, minval = 1, maxval = 200)
+
+showTable = input.bool(true, "Show debug table", group = G_DBG)
+tblSize   = input.string("Small", "Table text size", options = ["Tiny", "Small", "Normal"], group = G_DBG)
+showFunnel= input.bool(true, "Publish entry-funnel counters (data window)", group = G_DBG,
+     tooltip = "Cumulative counts of how many bars pass each stage. Read these when you get too few or too many trades — they show which filter is doing the rejecting.")
+
+
+// =====================================================================================================================
+//  UDTs
+// =====================================================================================================================
+type sr_zone
+    box   bx
+    bool  isSup
+
+type bsl_lvl
+    line  ln
+    line  lne
+    box   bxt
+    float prc
+    float top
+    float bot
+    bool  brk
+
+
+// =====================================================================================================================
+//  HELPERS
+// =====================================================================================================================
+// Blank timeframe input = chart timeframe (request.security needs a real TF string).
+f_tfn(simple string t) => t == "" ? timeframe.period : t
+
+// Non-repaint selector. htfClosed ON  -> value of the LAST CLOSED bar of the requested TF ([1] offset).
+//                       htfClosed OFF -> in-progress bar (repaints live; for visual inspection only).
+// Every request.security() below uses lookahead = barmerge.lookahead_off. There is no lookahead_on in this file.
+f_c(float x)  => htfClosed ? x[1] : x
+f_cb(bool x)  => htfClosed ? x[1] : x
+f_b2f(bool b) => b ? 1.0 : 0.0
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  Supertrend — port of "Supertrend" (v4 -> v6)
+// ---------------------------------------------------------------------------------------------------------------{
+f_supertrend(simple int periods, float src, simple float mult, simple bool changeATR) =>
+    float atrClassic = ta.sma(ta.tr, periods)
+    float atrStd     = ta.atr(periods)
+    float st_atr     = changeATR ? atrStd : atrClassic
+    float st_up  = src - (mult * st_atr)
+    float st_up1 = nz(st_up[1], st_up)
+    st_up := close[1] > st_up1 ? math.max(st_up, st_up1) : st_up
+    float st_dn  = src + (mult * st_atr)
+    float st_dn1 = nz(st_dn[1], st_dn)
+    st_dn := close[1] < st_dn1 ? math.min(st_dn, st_dn1) : st_dn
+    int st_trend = 1
+    st_trend := nz(st_trend[1], st_trend)
+    st_trend := st_trend == -1 and close > st_dn1 ? 1 : st_trend == 1 and close < st_up1 ? -1 : st_trend
+    float st_line = st_trend == 1 ? st_up : st_dn
+    bool  st_buy  = st_trend ==  1 and st_trend[1] == -1
+    bool  st_sell = st_trend == -1 and st_trend[1] ==  1
+    [st_trend, st_line, st_up, st_dn, st_buy, st_sell]
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  Pivot Point Supertrend — (c) LonesomeTheBlue (v4 -> v6)
+//  PIVOT LAG: ta.pivothigh/low(prd, prd) confirm `prd` bars AFTER the pivot forms. Real; not removed with offsets.
+// ---------------------------------------------------------------------------------------------------------------{
+f_pivotSupertrend(simple int prd, simple float factor, simple int pd) =>
+    float ppst_ph  = ta.pivothigh(prd, prd)
+    float ppst_pl  = ta.pivotlow(prd, prd)
+    float ppst_atr = ta.atr(pd)
+    var float ppst_center = na
+    float ppst_lastpp = not na(ppst_ph) ? ppst_ph : not na(ppst_pl) ? ppst_pl : na
+    if not na(ppst_lastpp)
+        ppst_center := na(ppst_center) ? ppst_lastpp : (ppst_center * 2.0 + ppst_lastpp) / 3.0
+    float ppst_Up = ppst_center - (factor * ppst_atr)
+    float ppst_Dn = ppst_center + (factor * ppst_atr)
+    float ppst_TUp   = na
+    float ppst_TDown = na
+    int   ppst_Trend = 0
+    ppst_TUp   := close[1] > ppst_TUp[1]   ? math.max(ppst_Up, ppst_TUp[1])   : ppst_Up
+    ppst_TDown := close[1] < ppst_TDown[1] ? math.min(ppst_Dn, ppst_TDown[1]) : ppst_Dn
+    ppst_Trend := close > ppst_TDown[1] ? 1 : close < ppst_TUp[1] ? -1 : nz(ppst_Trend[1], 1)
+    float ppst_tsl  = ppst_Trend == 1 ? ppst_TUp : ppst_TDown
+    bool  ppst_buy  = ppst_Trend ==  1 and ppst_Trend[1] == -1
+    bool  ppst_sell = ppst_Trend == -1 and ppst_Trend[1] ==  1
+    [ppst_Trend, ppst_tsl, ppst_center, ppst_buy, ppst_sell]
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  VFI — "Volume Flow Indicator [LazyBear]" (v4 -> v6)
+//  iff->ternary, stdev->ta.stdev, sma->ta.sma, ema->ta.ema, log->math.log, sum->math.sum
+// ---------------------------------------------------------------------------------------------------------------{
+f_vfi(simple int length, simple float coef, simple float vcoef, simple int signalLength, simple bool smooth) =>
+    float vfi_typ    = hlc3
+    float vfi_inter  = math.log(vfi_typ) - math.log(vfi_typ[1])
+    float vfi_vinter = ta.stdev(vfi_inter, 30)
+    float vfi_cutoff = coef * vfi_vinter * close
+    float vfi_vave   = ta.sma(volume, length)[1]
+    float vfi_vmax   = vfi_vave * vcoef
+    float vfi_vc     = volume < vfi_vmax ? volume : vfi_vmax
+    float vfi_mf     = vfi_typ - vfi_typ[1]
+    float vfi_vcp    = vfi_mf > vfi_cutoff ? vfi_vc : vfi_mf < -vfi_cutoff ? -vfi_vc : 0.0
+    float vfi_sum    = math.sum(vfi_vcp, length)          // extracted from the ternary: must run every bar
+    float vfi_raw    = vfi_vave == 0 ? 0.0 : vfi_sum / vfi_vave
+    float vfi_sm     = ta.sma(vfi_raw, 3)                 // evaluated unconditionally on purpose
+    float vfi_val    = smooth ? vfi_sm : vfi_raw
+    float vfi_ma     = ta.ema(vfi_val, signalLength)
+    bool  vfi_ready  = bar_index > length + 40
+    [vfi_val, vfi_ma, vfi_ready]
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  SR high-volume boxes — (c) ChartPrime (v5 -> v6), NUMERIC ONLY. Retained for gate G4 and the optional drawing.
+// ---------------------------------------------------------------------------------------------------------------{
+f_srBoxes(simple int lookback, simple int volLen, simple float boxWidth) =>
+    var bool sr_isBuyVol = true
+    sr_isBuyVol := close > open ? true : close < open ? false : sr_isBuyVol
+    float sr_vol   = sr_isBuyVol ? volume : -volume
+    float sr_volHi = ta.highest(sr_vol / 2.5, volLen)
+    float sr_volLo = ta.lowest(sr_vol / 2.5, volLen)
+    float sr_ph    = ta.pivothigh(close, lookback, lookback)
+    float sr_pl    = ta.pivotlow(close, lookback, lookback)
+    float sr_atr   = ta.atr(200)
+    float sr_wid   = sr_atr * boxWidth
+    float sr_volRef   = ta.highest(sr_vol, 25)
+    float sr_volRefLo = ta.lowest(sr_vol, 25)
+    var float sr_supTop = na
+    var float sr_supBot = na
+    var float sr_resBot = na
+    var float sr_resTop = na
+    var bool  sr_supOk  = false
+    var bool  sr_resOk  = false
+    bool sr_newSup = not na(sr_pl) and sr_vol > sr_volHi
+    bool sr_newRes = not na(sr_ph) and sr_vol < sr_volLo
+    if sr_newSup
+        sr_supTop := sr_pl
+        sr_supBot := sr_pl - sr_wid
+        sr_supOk  := true
+    if sr_newRes
+        sr_resBot := sr_ph
+        sr_resTop := sr_ph + sr_wid
+        sr_resOk  := true
+    bool sr_brkRes  = ta.crossover(low, sr_resTop)
+    bool sr_holdRes = ta.crossunder(high, sr_resBot)
+    bool sr_holdSup = ta.crossover(low, sr_supTop)
+    bool sr_brkSup  = ta.crossunder(high, sr_supBot)
+    if sr_brkSup
+        sr_supOk := false
+    if sr_holdSup
+        sr_supOk := true
+    if sr_brkRes
+        sr_resOk := false
+    if sr_holdRes
+        sr_resOk := true
+    [sr_supTop, sr_supBot, sr_supOk, sr_resBot, sr_resTop, sr_resOk, sr_newSup, sr_newRes, sr_vol,
+     sr_brkSup, sr_brkRes, sr_holdSup, sr_holdRes, sr_volRef, sr_volRefLo]
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  Liquidity Sweeps — (c) LuxAlgo (v5 -> v6), NUMERIC ONLY, 'Only Wicks' mode.
+//  A stored pivot is MITIGATED once price closes through it; a SWEEP is registered when price pierces it with a
+//  wick but closes back on the original side.  PIVOT LAG = `len` bars.
+// ---------------------------------------------------------------------------------------------------------------{
+f_liquiditySweeps(simple int len) =>
+    float ls_ph = ta.pivothigh(len, len)
+    float ls_pl = ta.pivotlow(len, len)
+    var array<float> ls_lPrc = array.new<float>(0)
+    var array<int>   ls_lBix = array.new<int>(0)
+    var array<bool>  ls_lWic = array.new<bool>(0)
+    var array<float> ls_hPrc = array.new<float>(0)
+    var array<int>   ls_hBix = array.new<int>(0)
+    var array<bool>  ls_hWic = array.new<bool>(0)
+    var float ls_bullLow  = na
+    var int   ls_bullBar  = na
+    var float ls_bullLvl  = na
+    var float ls_bearHigh = na
+    var int   ls_bearBar  = na
+    bool ls_bullNow = false
+    bool ls_bearNow = false
+    if not na(ls_pl)
+        ls_lPrc.unshift(ls_pl), ls_lBix.unshift(bar_index - len), ls_lWic.unshift(false)
+    if not na(ls_ph)
+        ls_hPrc.unshift(ls_ph), ls_hBix.unshift(bar_index - len), ls_hWic.unshift(false)
+    if ls_lPrc.size() > 0
+        for i = ls_lPrc.size() - 1 to 0
+            float p = ls_lPrc.get(i)
+            bool mit = false
+            if close < p
+                mit := true
+            else if low < p and close > p and not ls_lWic.get(i)
+                ls_bullLow := low
+                ls_bullLvl := p
+                ls_bullBar := bar_index
+                ls_bullNow := true
+                ls_lWic.set(i, true)
+            if mit or bar_index - ls_lBix.get(i) > 2000
+                ls_lPrc.remove(i), ls_lBix.remove(i), ls_lWic.remove(i)
+    if ls_hPrc.size() > 0
+        for i = ls_hPrc.size() - 1 to 0
+            float p = ls_hPrc.get(i)
+            bool mit = false
+            if close > p
+                mit := true
+            else if high > p and close < p and not ls_hWic.get(i)
+                ls_bearHigh := high
+                ls_bearBar  := bar_index
+                ls_bearNow  := true
+                ls_hWic.set(i, true)
+            if mit or bar_index - ls_hBix.get(i) > 2000
+                ls_hPrc.remove(i), ls_hBix.remove(i), ls_hWic.remove(i)
+    int ls_bullAge = na(ls_bullBar) ? 100000 : bar_index - ls_bullBar
+    int ls_bearAge = na(ls_bearBar) ? 100000 : bar_index - ls_bearBar
+    [ls_bullAge, ls_bullLow, ls_bullLvl, ls_bullNow, ls_bearAge, ls_bearHigh, ls_bearNow]
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  Buyside & Sellside Liquidity — (c) LuxAlgo (v5 -> v6), NUMERIC ONLY.
+//  Keeps the original zigzag + "3 or more swing points clustered inside atr/margin" detection.
+// ---------------------------------------------------------------------------------------------------------------{
+f_buysideSellside(simple int liqLen, simple float marginIn, simple int visLiq) =>
+    float bsl_liqMar = 10.0 / marginIn
+    float bsl_atr = ta.atr(10)
+    float bsl_ph  = ta.pivothigh(liqLen, 1)
+    float bsl_pl  = ta.pivotlow(liqLen, 1)
+    var array<int>   zz_d = array.new<int>(50, 0)
+    var array<int>   zz_x = array.new<int>(50, 0)
+    var array<float> zz_y = array.new<float>(50, na)
+    var array<float> bl_prc = array.new<float>(0)
+    var array<float> bl_top = array.new<float>(0)
+    var array<float> bl_bot = array.new<float>(0)
+    var array<int>   bl_bar = array.new<int>(0)
+    var array<bool>  bl_brk = array.new<bool>(0)
+    var array<float> sl_prc = array.new<float>(0)
+    var array<float> sl_top = array.new<float>(0)
+    var array<float> sl_bot = array.new<float>(0)
+    var array<int>   sl_bar = array.new<int>(0)
+    var array<bool>  sl_brk = array.new<bool>(0)
+    int   bsl_x2 = bar_index - 1
+    bool  bsl_newBuy  = false
+    bool  bsl_newSell = false
+    float bsl_evPrc = na
+    float bsl_evTop = na
+    float bsl_evBot = na
+    int   bsl_evBar = na
+    if not na(bsl_ph)
+        int   d1 = zz_d.get(0)
+        float y1 = zz_y.get(0)
+        float y2 = nz(high[1])
+        if d1 < 1
+            zz_d.unshift(1), zz_x.unshift(bsl_x2), zz_y.unshift(y2), zz_d.pop(), zz_x.pop(), zz_y.pop()
+        else if d1 == 1 and bsl_ph > y1
+            zz_x.set(0, bsl_x2), zz_y.set(0, y2)
+        int   cnt  = 0
+        float stP  = 0.0
+        int   stB  = 0
+        float minP = 0.0
+        float maxP = 10e6
+        for i = 0 to 49
+            if zz_d.get(i) == 1
+                if zz_y.get(i) > bsl_ph + (bsl_atr / bsl_liqMar)
+                    break
+                else if zz_y.get(i) > bsl_ph - (bsl_atr / bsl_liqMar) and zz_y.get(i) < bsl_ph + (bsl_atr / bsl_liqMar)
+                    cnt += 1
+                    stB := zz_x.get(i)
+                    stP := zz_y.get(i)
+                    if zz_y.get(i) > minP
+                        minP := zz_y.get(i)
+                    if zz_y.get(i) < maxP
+                        maxP := zz_y.get(i)
+        if cnt > 2
+            float tp = math.avg(minP, maxP) + (bsl_atr / bsl_liqMar)
+            float bt = math.avg(minP, maxP) - (bsl_atr / bsl_liqMar)
+            if bl_prc.size() > 0 and bl_bar.get(0) == stB
+                bl_prc.set(0, stP), bl_top.set(0, tp), bl_bot.set(0, bt)
+            else
+                bl_prc.unshift(stP), bl_top.unshift(tp), bl_bot.unshift(bt), bl_bar.unshift(stB), bl_brk.unshift(false)
+                bsl_newBuy := true
+                bsl_evPrc  := stP
+                bsl_evTop  := tp
+                bsl_evBot  := bt
+                bsl_evBar  := stB
+                if bl_prc.size() > visLiq
+                    bl_prc.pop(), bl_top.pop(), bl_bot.pop(), bl_bar.pop(), bl_brk.pop()
+    if not na(bsl_pl)
+        int   d2 = zz_d.get(0)
+        float w1 = zz_y.get(0)
+        float w2 = nz(low[1])
+        if d2 > -1
+            zz_d.unshift(-1), zz_x.unshift(bsl_x2), zz_y.unshift(w2), zz_d.pop(), zz_x.pop(), zz_y.pop()
+        else if d2 == -1 and bsl_pl < w1
+            zz_x.set(0, bsl_x2), zz_y.set(0, w2)
+        int   cnt2  = 0
+        float stP2  = 0.0
+        int   stB2  = 0
+        float minP2 = 0.0
+        float maxP2 = 10e6
+        for i = 0 to 49
+            if zz_d.get(i) == -1
+                if zz_y.get(i) < bsl_pl - (bsl_atr / bsl_liqMar)
+                    break
+                else if zz_y.get(i) > bsl_pl - (bsl_atr / bsl_liqMar) and zz_y.get(i) < bsl_pl + (bsl_atr / bsl_liqMar)
+                    cnt2 += 1
+                    stB2 := zz_x.get(i)
+                    stP2 := zz_y.get(i)
+                    if zz_y.get(i) > minP2
+                        minP2 := zz_y.get(i)
+                    if zz_y.get(i) < maxP2
+                        maxP2 := zz_y.get(i)
+        if cnt2 > 2
+            float tp2 = math.avg(minP2, maxP2) + (bsl_atr / bsl_liqMar)
+            float bt2 = math.avg(minP2, maxP2) - (bsl_atr / bsl_liqMar)
+            if sl_prc.size() > 0 and sl_bar.get(0) == stB2
+                sl_prc.set(0, stP2), sl_top.set(0, tp2), sl_bot.set(0, bt2)
+            else
+                sl_prc.unshift(stP2), sl_top.unshift(tp2), sl_bot.unshift(bt2), sl_bar.unshift(stB2), sl_brk.unshift(false)
+                bsl_newSell := true
+                bsl_evPrc   := stP2
+                bsl_evTop   := tp2
+                bsl_evBot   := bt2
+                bsl_evBar   := stB2
+                if sl_prc.size() > visLiq
+                    sl_prc.pop(), sl_top.pop(), sl_bot.pop(), sl_bar.pop(), sl_brk.pop()
+    if bl_prc.size() > 0
+        for i = 0 to bl_prc.size() - 1
+            if not bl_brk.get(i) and high > bl_top.get(i)
+                bl_brk.set(i, true)
+    if sl_prc.size() > 0
+        for i = 0 to sl_prc.size() - 1
+            if not sl_brk.get(i) and low < sl_bot.get(i)
+                sl_brk.set(i, true)
+    float bsl_sellNear = na
+    if sl_prc.size() > 0
+        for i = 0 to sl_prc.size() - 1
+            if not sl_brk.get(i) and sl_prc.get(i) < close
+                if na(bsl_sellNear) or sl_prc.get(i) > bsl_sellNear
+                    bsl_sellNear := sl_prc.get(i)
+    float bsl_buyNear = na
+    if bl_prc.size() > 0
+        for i = 0 to bl_prc.size() - 1
+            if not bl_brk.get(i) and bl_prc.get(i) > close
+                if na(bsl_buyNear) or bl_prc.get(i) < bsl_buyNear
+                    bsl_buyNear := bl_prc.get(i)
+    [bsl_sellNear, bsl_buyNear, bsl_newBuy, bsl_newSell, bsl_evPrc, bsl_evTop, bsl_evBot, bsl_evBar]
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  Pivot Points High Low — (c) LuxAlgo, regular pivots only.
+// ---------------------------------------------------------------------------------------------------------------{
+f_pivotPointsHL(simple int length) =>
+    float pp_ph = ta.pivothigh(length, length)
+    float pp_pl = ta.pivotlow(length, length)
+    var float pp_lastLow  = na
+    var float pp_lastHigh = na
+    if not na(pp_pl)
+        pp_lastLow := pp_pl
+    if not na(pp_ph)
+        pp_lastHigh := pp_ph
+    [pp_lastLow, pp_lastHigh, pp_ph, pp_pl]
+
+f_hhph_last(simple int len_) =>
+    float p = ta.pivothigh(len_, len_)
+    ta.valuewhen(not na(p), p, 0)
+f_hhph_prior(simple int len_) =>
+    float p = ta.pivothigh(len_, len_)
+    ta.valuewhen(not na(p), p, 1)
+f_lastPivotLow(simple int len_) =>
+    float p = ta.pivotlow(len_, len_)
+    ta.valuewhen(not na(p), p, 0)
+
+// ---------------------------------------------------------------------------------------------------------------{
+//  Bollinger Bands (TradingView built-in)
+// ---------------------------------------------------------------------------------------------------------------{
+f_bbMa(float source, simple int length, simple string mtype) =>
+    float o = switch mtype
+        "SMA"        => ta.sma(source, length)
+        "EMA"        => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA"        => ta.wma(source, length)
+        "VWMA"       => ta.vwma(source, length)
+        =>              ta.sma(source, length)
+    o
+
+
+// =====================================================================================================================
+//  PER-FILTER HTF PACKS — one request.security() per section, each on its own timeframe.
+// =====================================================================================================================
+f_packG1() =>
+    [t, l, u, d, b, s] = f_supertrend(g1_atrLen, hl2, g1_mult, g1_chgAtr)
+    float tf_ = t
+    float lf_ = l
+    [f_c(tf_), f_c(lf_)]
+
+f_packG2() =>
+    float r = ta.rsi(close, g2_len)
+    f_c(r)
+
+f_packG3() =>
+    [v, m, rdy] = f_vfi(g3_len, g3_coef, g3_vcoef, g3_sig, g3_smooth)
+    float vf = v
+    float rf = f_b2f(rdy)
+    [f_c(vf), f_c(rf)]
+
+f_packG4() =>
+    [supTop, supBot, supOk, resBot, resTop, resOk, nSup, nRes, dvol, bSup, bRes, hSup, hRes, vRef, vRefLo] = f_srBoxes(g4_lb, g4_volLen, g4_boxW)
+    float a = supTop
+    float b = supBot
+    float c = f_b2f(supOk)
+    float d = ta.atr(atrLenRisk)
+    [f_c(a), f_c(b), f_c(c), f_c(d)]
+
+f_packS1() =>
+    [age, lo, lvl, now, bAge, bHi, bNow] = f_liquiditySweeps(s1_len)
+    float a = age
+    float b = lo
+    [f_c(a), f_c(b)]
+
+f_packS4() =>
+    [t, l, u, d, b, s] = f_supertrend(s4_atrLen, hl2, s4_mult, s4_chgAtr)
+    float tf_ = t
+    float lf_ = l
+    [f_c(tf_), f_c(lf_)]
+
+f_packS5() =>
+    [t, tsl, ctr, b, s] = f_pivotSupertrend(s5_prd, s5_factor, s5_pd)
+    float tf_ = t
+    float sf_ = tsl
+    [f_c(tf_), f_c(sf_)]
+
+f_packS6() =>
+    [sellNear, buyNear, nBuy, nSell, evP, evT, evB, evX] = f_buysideSellside(s6_len, s6_margin, s6_vis)
+    float a = sellNear
+    float b = ta.atr(atrLenRisk)
+    [f_c(a), f_c(b)]
+
+f_packS7() =>
+    float p = f_lastPivotLow(s7_len)
+    f_c(p)
+
+// Entry trigger, evaluated entirely on the trigger timeframe so the cross is detected on THAT TF's closes.
+f_packTrigger() =>
+    // Heikin-Ashi close = ohlc4. Only the TRIGGER may use it; stops, targets and fills always use real prices.
+    float haC = (open + high + low + close) / 4
+    float src = useHeikin ? haC : close
+    float basis = f_bbMa(src, bb_len, bb_maTyp)
+    float dev   = bb_mult * ta.stdev(src, bb_len)
+    float upper = basis + dev
+    float lower = basis - dev
+    [stT, stL, stU, stD, stB, stS] = f_supertrend(trig_stLen, hl2, trig_stMult, true)
+    bool below = false
+    for i = 1 to bbReclaimLb
+        if src[i] < lower[i]
+            below := true
+    bool reclaim = ta.crossover(src, lower) or (src > lower and below and src[1] <= lower[1])
+    bool basisX  = ta.crossover(src, basis)
+    bool stFlip  = stT == 1 and stT[1] == -1
+    bool bothT   = reclaim and stT == 1
+    bool raw = switch trigMode
+        "Bollinger Reclaim"      => reclaim
+        "Bollinger Basis Cross"  => basisX
+        "Supertrend Flip"        => stFlip
+        "BB + Supertrend (both)" => bothT
+        =>                          false
+    bool trg = raw and (not reqST5 or stT == 1)
+    float bf = basis
+    float uf = upper
+    float lf = lower
+    float tf_ = stT
+    [f_cb(trg), f_c(bf), f_c(uf), f_c(lf), f_c(tf_)]
+
+f_packVol() =>
+    float v  = volume
+    float vs = ta.sma(volume, volMaLen)
+    [f_c(v), f_c(vs)]
+
+f_packHH() =>
+    float a = f_hhph_last(hhPivotLen)
+    float b = f_hhph_prior(hhPivotLen)
+    [f_c(a), f_c(b)]
+
+
+// =====================================================================================================================
+//  HTF FETCH — request.security call budget (Pine caps a script at 40):
+//    G1, G2, G3, G4, S1, S4, S5, S6, S7, Trigger, Volume, HH, HL-break  =  13 calls
+// =====================================================================================================================
+[g1TrendF, g1Line]        = request.security(syminfo.tickerid, f_tfn(g1_tf), f_packG1(), barmerge.gaps_off, barmerge.lookahead_off)
+float g2Rsi               = request.security(syminfo.tickerid, f_tfn(g2_tf), f_packG2(), barmerge.gaps_off, barmerge.lookahead_off)
+[g3Vfi, g3RdyF]           = request.security(syminfo.tickerid, f_tfn(g3_tf), f_packG3(), barmerge.gaps_off, barmerge.lookahead_off)
+[g4SupTop, g4SupBot, g4SupOkF, g4Atr] = request.security(syminfo.tickerid, f_tfn(g4_tf), f_packG4(), barmerge.gaps_off, barmerge.lookahead_off)
+[s1Age, s1Low]            = request.security(syminfo.tickerid, f_tfn(s1_tf), f_packS1(), barmerge.gaps_off, barmerge.lookahead_off)
+[s4TrendF, s4Line]        = request.security(syminfo.tickerid, f_tfn(s4_tf), f_packS4(), barmerge.gaps_off, barmerge.lookahead_off)
+[s5TrendF, s5Tsl]         = request.security(syminfo.tickerid, f_tfn(s5_tf), f_packS5(), barmerge.gaps_off, barmerge.lookahead_off)
+[s6SellLvl, s6Atr]        = request.security(syminfo.tickerid, f_tfn(s6_tf), f_packS6(), barmerge.gaps_off, barmerge.lookahead_off)
+float s7PivLow            = request.security(syminfo.tickerid, f_tfn(s7_tf), f_packS7(), barmerge.gaps_off, barmerge.lookahead_off)
+[trigFired, trigBasis, trigUpper, trigLower, trigStF] = request.security(syminfo.tickerid, f_tfn(trig_tf), f_packTrigger(), barmerge.gaps_off, barmerge.lookahead_off)
+[volCur, volSma]          = request.security(syminfo.tickerid, f_tfn(volTf), f_packVol(), barmerge.gaps_off, barmerge.lookahead_off)
+[hhLastPH, hhPriorPH]     = request.security(syminfo.tickerid, f_tfn(hhTf), f_packHH(), barmerge.gaps_off, barmerge.lookahead_off)
+float hlBreakPivLow       = request.security(syminfo.tickerid, f_tfn(hlBreakTf), f_lastPivotLow(hlBreakPivLen), barmerge.gaps_off, barmerge.lookahead_off)
+
+bool g1Bull  = g1TrendF == 1
+bool g3Ready = g3RdyF   == 1
+bool g4SupOk = g4SupOkF == 1
+bool s4Bull  = s4TrendF == 1
+bool s5Bull  = s5TrendF == 1
+
+
+// =====================================================================================================================
+//  CHART-TIMEFRAME CALCULATIONS (these are the instances allowed to DRAW)
+// =====================================================================================================================
+float atr = ta.atr(atrLenRisk)
+
+[loc_stTrend, loc_stLine, loc_stUp, loc_stDn, loc_stBuy, loc_stSell] = f_supertrend(trig_stLen, hl2, trig_stMult, true)
+[loc_ppTrend, loc_ppTsl, loc_ppCenter, loc_ppBuy, loc_ppSell]        = f_pivotSupertrend(s5_prd, s5_factor, s5_pd)
+float locBbBasis = f_bbMa(close, bb_len, bb_maTyp)
+float locBbDev   = bb_mult * ta.stdev(close, bb_len)
+float locBbUpper = locBbBasis + locBbDev
+float locBbLower = locBbBasis - locBbDev
+
+[v_supTop, v_supBot, v_supOk, v_resBot, v_resTop, v_resOk, v_newSup, v_newRes, v_dvol,
+ v_brkSup, v_brkRes, v_holdSup, v_holdRes, v_volRef, v_volRefLo] = f_srBoxes(g4_lb, g4_volLen, g4_boxW)
+[v_lsAge, v_lsLow, v_lsLvl, v_lsBullNow, v_lsBearAge, v_lsBearHigh, v_lsBearNow] = f_liquiditySweeps(s1_len)
+[v_sellNear, v_buyNear, v_newBuyLiq, v_newSellLiq, v_evPrc, v_evTop, v_evBot, v_evBar] = f_buysideSellside(s6_len, s6_margin, s6_vis)
+[v_ppLow, v_ppHigh, v_ppPhRaw, v_ppPlRaw] = f_pivotPointsHL(s7_len)
+
+bool inDrawWindow = last_bar_index - bar_index <= maxDrawBars
+
+
+// =====================================================================================================================
+//  FILTER EVALUATION — pure AND of ENABLED filters. A filter that is off is ignored completely.
+// =====================================================================================================================
+bool g1_ok = g1Bull
+bool g2_ok = g2Rsi > g2_thr and g2Rsi <= g2_max
+bool g3_ok = g3Ready and g3Vfi > g3_level
+bool g4_ok = not na(g4SupBot) and g4SupOk and close >= g4SupBot - g4_atrMult * nz(g4Atr)
+
+bool s1_ok = not na(s1Low) and s1Age <= s1_maxAge
+bool s4_ok = s4Bull
+bool s5_ok = s5Bull
+bool s6_ok = not na(s6SellLvl) and close > s6SellLvl and (close - s6SellLvl) <= s6_prox * nz(s6Atr)
+bool s7_ok = not na(s7PivLow) and close > s7PivLow
+
+bool volOk  = not useVolumeFilter or (not na(volSma) and volSma > 0 and volCur >= volMultMin * volSma)
+bool hhOk   = not useHhStructure or (not na(hhLastPH) and not na(hhPriorPH) and hhLastPH > hhPriorPH)
+bool bodyOk = not useBodyFilter or close >= open or (open - close) <= entryBodyAtrMult * atr
+
+bool gatesOk  = (not useG1 or g1_ok) and (not useG2 or g2_ok) and (not useG3 or g3_ok) and (not useG4 or g4_ok)
+bool structOk = (not useS1 or s1_ok) and (not useS4 or s4_ok) and (not useS5 or s5_ok) and
+     (not useS6 or s6_ok) and (not useS7 or s7_ok)
+bool filtersOk = gatesOk and structOk and volOk and hhOk and bodyOk
+
+int nEnabled = (useG1 ? 1 : 0) + (useG2 ? 1 : 0) + (useG3 ? 1 : 0) + (useG4 ? 1 : 0) +
+     (useS1 ? 1 : 0) + (useS4 ? 1 : 0) + (useS5 ? 1 : 0) + (useS6 ? 1 : 0) + (useS7 ? 1 : 0)
+int nPassing = (useG1 and g1_ok ? 1 : 0) + (useG2 and g2_ok ? 1 : 0) + (useG3 and g3_ok ? 1 : 0) + (useG4 and g4_ok ? 1 : 0) +
+     (useS1 and s1_ok ? 1 : 0) + (useS4 and s4_ok ? 1 : 0) + (useS5 and s5_ok ? 1 : 0) +
+     (useS6 and s6_ok ? 1 : 0) + (useS7 and s7_ok ? 1 : 0)
+
+// With the trigger disabled, the filters themselves decide entry timing.
+bool primaryFired = useTrigger ? trigFired : true
+
+
+// =====================================================================================================================
+//  CIRCUIT BREAKERS
+// =====================================================================================================================
+var int consecLosses   = 0
+var int choppyUntilBar = 0
+if barstate.isconfirmed and strategy.closedtrades > nz(strategy.closedtrades[1])
+    float lastPnl = strategy.closedtrades.profit(strategy.closedtrades - 1)
+    if lastPnl < 0
+        consecLosses += 1
+        if consecLosses >= maxConsecLoss
+            choppyUntilBar := bar_index + choppyPauseBars
+            consecLosses   := 0
+    else
+        consecLosses := 0
+bool choppyOk = not useChoppyFilter or bar_index > choppyUntilBar
+
+var int lastExitToFlatBar = na
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    lastExitToFlatBar := bar_index
+int  barsSinceExitFlat = na(lastExitToFlatBar) ? 999999 : bar_index - lastExitToFlatBar
+bool cooldownExitOk    = cooldownBarsAfterExit <= 0 or na(lastExitToFlatBar) or barsSinceExitFlat > cooldownBarsAfterExit
+
+var bool indSigArmed = false
+if useTrigger and trigFired
+    indSigArmed := true
+bool oneTradeGateOk = not useOneTradePerSignal or indSigArmed
+
+bool confirmed  = not useBarConfirm or barstate.isconfirmed
+bool entryBarOk = not ordersOnConfirmedBar or barstate.isconfirmed
+
+
+// =====================================================================================================================
+//  STOP — R:R swing-low engine (the only engine in this build)
+// =====================================================================================================================
+float rrSwingLow  = ta.lowest(low, rrSwingLb)
+float plannedStop = math.min(rrSwingLow - rrBufAtr * atr, close - minSlDistAtr * atr)
+bool  stopUsable  = not na(plannedStop) and plannedStop > 0 and plannedStop < close
+
+
+// =====================================================================================================================
+//  ENTRY
+//  SPOT-ONLY ASSERTION: there is no strategy.entry(..., strategy.short) and no negative-qty strategy.order() in
+//  this file. The sizing and stop maths below assume long-only.
+// =====================================================================================================================
+var float posEntry  = na
+var float posStop   = na      // FROZEN at entry; never recomputed afterwards
+var float posR      = na
+var float posTp1    = na
+var float posTp2    = na
+var float posTp3    = na
+var float hiSince   = na
+var int   entryBar  = na
+var bool  a_tp1 = false
+var bool  a_tp2 = false
+var bool  a_tp3 = false
+var bool  a_stop= false
+
+bool flat  = strategy.position_size == 0
+bool atrOk = not na(atr) and atr > 0
+
+bool rawLongSetup = confirmed and flat and long_en and filtersOk and primaryFired and stopUsable and atrOk
+bool longSignal   = rawLongSetup and cooldownExitOk and choppyOk and entryBarOk and oneTradeGateOk
+
+float riskPerUnit = close - plannedStop
+float qtyFixed    = close > 0 ? tradeAmt / close : na
+float qtyRisk     = riskPerUnit > 0 ? (strategy.equity * riskPct / 100.0) / riskPerUnit : na
+float entryQty    = sizingMode == "Fixed USDT" ? qtyFixed : qtyRisk
+
+if longSignal and not na(entryQty) and entryQty > 0
+    posEntry := close
+    posStop  := plannedStop
+    posR     := posEntry - posStop
+    posTp1   := posEntry * (1 + rrTp1Pct / 100)
+    posTp2   := posEntry * (1 + rrTp2Pct / 100)
+    posTp3   := posEntry + posR * rrRatio
+    hiSince  := high
+    entryBar := bar_index
+    indSigArmed := false
+    a_tp1 := false, a_tp2 := false, a_tp3 := false, a_stop := false
+    strategy.entry("Long", strategy.long, qty = entryQty)
+
+
+// =====================================================================================================================
+//  EXIT ENGINE
+// =====================================================================================================================
+bool inPos = strategy.position_size > 0
+
+if inPos and not longSignal
+    hiSince := math.max(nz(hiSince, high), high)
+
+int barsInTrade = inPos and not na(entryBar) ? bar_index - entryBar : 0
+
+float longUnrealR = inPos and not na(posStop) and strategy.position_avg_price > posStop
+     ? (close - strategy.position_avg_price) / (strategy.position_avg_price - posStop)
+     : 0.0
+
+// --- protective stop: frozen entry stop, lifted by break-even, then by the % trail. Monotonic. -----------------------
+var float trailAnchor = na
+var bool  trailArmed  = false
+if not inPos
+    trailAnchor := na
+    trailArmed  := false
+
+float effStop = posStop
+if inPos and rrUseBE and not na(posR) and posR > 0 and longUnrealR >= rrBeAfterR
+    effStop := math.max(nz(effStop, posStop), posEntry + rrBeOffR * posR)
+if inPos and rrUseTrailSl
+    if not trailArmed and (rrTrailActPct <= 0 ? close > posEntry : high >= posEntry * (1 + rrTrailActPct / 100))
+        trailArmed := true
+    if trailArmed
+        float candTrail = close * (1 - rrTrailPct / 100)
+        // MONOTONIC: the trail only ever ratchets up.
+        trailAnchor := na(trailAnchor) ? candTrail : math.max(trailAnchor, candTrail)
+        effStop     := math.max(nz(effStop, trailAnchor), trailAnchor)
+
+// --- signal exits ----------------------------------------------------------------------------------------------------
+bool exitG1Flip = exitOnG1Flip and inPos and not g1Bull
+bool exitS4Flip = exitOnS4Flip and inPos and not s4Bull
+bool exitTime   = maxBarsTrade > 0 and inPos and barsInTrade >= maxBarsTrade
+bool exitHlBrk  = useHlBreakExit and inPos and barstate.isconfirmed and not na(hlBreakPivLow) and close < hlBreakPivLow
+bool closeNow   = confirmed and (exitG1Flip or exitS4Flip or exitTime or exitHlBrk)
+
+if closeNow
+    string why = exitHlBrk ? "HL break" : exitG1Flip ? "G1 flip" : exitS4Flip ? "S4 flip" : "time stop"
+    strategy.close("Long", comment = why)
+
+// --- brackets ---------------------------------------------------------------------------------------------------------
+// qty_percent is a % of the position REMAINING when the exit executes, not of the original size. With TP1 = 40% and
+// TP2 = 30% of the ORIGINAL position:  leg2 = 30 / (100 - 40) * 100 = 50% of what remains.
+if (inPos or longSignal) and not closeNow and not na(posStop)
+    if rrUsePartialTp
+        strategy.exit("RR1", from_entry = "Long", qty_percent = rrTp1Size, limit = posTp1, stop = effStop, comment_profit = "TP1", comment_loss = "SL")
+        strategy.exit("RR2", from_entry = "Long", qty_percent = math.min(100.0, rrTp2Size / math.max(1.0, 100.0 - rrTp1Size) * 100.0), limit = posTp2, stop = effStop, comment_profit = "TP2", comment_loss = "SL")
+        strategy.exit("RR3", from_entry = "Long", limit = posTp3, stop = effStop, comment_profit = "TP", comment_loss = "SL")
+    else
+        strategy.exit("RR X", from_entry = "Long", limit = posTp3, stop = effStop, comment_profit = "TP", comment_loss = "SL")
+
+if flat and not longSignal
+    posEntry := na
+    posStop  := na
+    posR     := na
+    posTp1   := na
+    posTp2   := na
+    posTp3   := na
+    hiSince  := na
+
+
+// =====================================================================================================================
+//  DRAWING  (every block is toggle-gated, bar-window-gated, and has an eviction path)
+// =====================================================================================================================
+upPlot = plot(showST and loc_stTrend == 1 ? loc_stUp : na, "Supertrend Up",   style = plot.style_linebr, linewidth = 2, color = color.green)
+dnPlot = plot(showST and loc_stTrend == 1 ? na : (showST ? loc_stDn : na), "Supertrend Down", style = plot.style_linebr, linewidth = 2, color = color.red)
+mPlot  = plot(showST and showSTfill ? ohlc4 : na, "", style = plot.style_circles, linewidth = 1, display = display.none)
+fill(mPlot, upPlot, title = "UpTrend Highlighter",   color = showSTfill and loc_stTrend ==  1 ? color.new(color.green, 85) : na)
+fill(mPlot, dnPlot, title = "DownTrend Highlighter", color = showSTfill and loc_stTrend == -1 ? color.new(color.red,   85) : na)
+plotshape(showST and showSTsig and loc_stBuy  ? loc_stUp : na, "ST Buy",  location = location.absolute, style = shape.labelup,   size = size.tiny, color = color.green, textcolor = color.white, text = "Buy")
+plotshape(showST and showSTsig and loc_stSell ? loc_stDn : na, "ST Sell", location = location.absolute, style = shape.labeldown, size = size.tiny, color = color.red,   textcolor = color.white, text = "Sell")
+
+color ppLineCol = loc_ppTrend == 1 and nz(loc_ppTrend[1]) == 1 ? color.lime : loc_ppTrend == -1 and nz(loc_ppTrend[1]) == -1 ? color.red : na
+plot(showPPST ? loc_ppTsl : na, "PP SuperTrend", color = ppLineCol, linewidth = 2)
+
+plot(showBB ? locBbBasis : na, "BB Basis", color = #2962FF)
+bbP1 = plot(showBB ? locBbUpper : na, "BB Upper", color = #F23645)
+bbP2 = plot(showBB ? locBbLower : na, "BB Lower", color = #089981)
+fill(bbP1, bbP2, title = "BB Background", color = showBB ? color.rgb(33, 150, 243, 95) : na)
+
+// --- ChartPrime SR boxes (drawn from the G4 component instance) --------------------------------------------------------
+var array<sr_zone> srZones = array.new<sr_zone>(0)
+f_srEvict(array<sr_zone> arr, simple int cap) =>
+    while arr.size() > cap
+        sr_zone z = arr.shift()
+        z.bx.delete()
+    arr.size()
+
+if showSR and inDrawWindow and barstate.isconfirmed
+    if v_newSup
+        color supCol = color.from_gradient(v_dvol, 0, math.max(v_volRef, 1), color(na), color.new(color.green, 30))
+        box nb = box.new(bar_index - g4_lb, v_supTop, bar_index + 1, v_supBot,
+             border_color = color.green, border_width = 1, bgcolor = supCol,
+             text = "Vol: " + str.tostring(math.round(v_dvol, 2)), text_color = chart.fg_color, text_size = size.small)
+        srZones.push(sr_zone.new(nb, true))
+        f_srEvict(srZones, capSR)
+    if v_newRes
+        color resCol = color.from_gradient(v_dvol, math.min(v_volRefLo, -1), 0, color.new(color.red, 30), color(na))
+        box nb = box.new(bar_index - g4_lb, v_resTop, bar_index + 1, v_resBot,
+             border_color = color.red, border_width = 1, bgcolor = resCol,
+             text = "Vol: " + str.tostring(math.round(v_dvol, 2)), text_color = chart.fg_color, text_size = size.small)
+        srZones.push(sr_zone.new(nb, false))
+        f_srEvict(srZones, capSR)
+    if srZones.size() > 0
+        for i = 0 to srZones.size() - 1
+            sr_zone z = srZones.get(i)
+            z.bx.set_right(bar_index + 1)
+        for i = srZones.size() - 1 to 0
+            sr_zone z = srZones.get(i)
+            if z.isSup and (v_brkSup or v_holdSup)
+                z.bx.set_bgcolor(v_brkSup ? color.new(color.red, 80) : color.new(color.green, 80))
+                z.bx.set_border_color(v_brkSup ? color.red : color.green)
+                z.bx.set_border_style(v_brkSup ? line.style_dashed : line.style_solid)
+                break
+        for i = srZones.size() - 1 to 0
+            sr_zone z = srZones.get(i)
+            if not z.isSup and (v_brkRes or v_holdRes)
+                z.bx.set_bgcolor(v_brkRes ? color.new(color.green, 80) : color.new(color.red, 80))
+                z.bx.set_border_color(v_brkRes ? color.new(color.green, 0) : color.new(color.red, 0))
+                z.bx.set_border_style(v_brkRes ? line.style_dashed : line.style_solid)
+                break
+
+plotchar(showSR and v_holdRes, "Resistance Holds", "◆", color = #e92929, size = size.tiny, location = location.abovebar, offset = -1)
+plotchar(showSR and v_holdSup, "Support Holds",    "◆", color = #20ca26, size = size.tiny, location = location.belowbar, offset = -1)
+
+var array<label> srLabels = array.new<label>(0)
+if showSR and inDrawWindow and barstate.isconfirmed and (v_brkSup or v_brkRes)
+    if v_brkSup
+        srLabels.push(label.new(bar_index[1], nz(v_supTop[1], low), text = "Break Sup", style = label.style_label_down,
+             color = #7e1e1e, textcolor = chart.fg_color, size = size.small))
+    else
+        srLabels.push(label.new(bar_index[1], nz(v_resBot[1], high), text = "Break Res", style = label.style_label_up,
+             color = #2b6d2d, textcolor = chart.fg_color, size = size.small))
+    while srLabels.size() > capSR
+        srLabels.shift().delete()
+
+// --- LuxAlgo liquidity sweeps -----------------------------------------------------------------------------------------
+var array<box>  lsBoxes = array.new<box>(0)
+var array<line> lsLines = array.new<line>(0)
+f_lsPush(array<box> bxa, array<line> lna, box b, line l1, line l2, simple int cap) =>
+    bxa.push(b)
+    lna.push(l1)
+    lna.push(l2)
+    while bxa.size() > cap
+        bxa.shift().delete()
+    while lna.size() > cap * 2
+        lna.shift().delete()
+    bxa.size()
+
+if showLS and inDrawWindow and barstate.isconfirmed
+    if v_lsBullNow
+        box  b  = box.new(bar_index - 1, v_lsLvl, bar_index + 1, low, border_color = color(na), bgcolor = color.new(#089981, 75))
+        line l1 = line.new(bar_index, v_lsLvl, bar_index, low, color = #089981, width = 3)
+        line l2 = line.new(bar_index, high, bar_index + 3, high, color = #089981, style = line.style_dotted)
+        f_lsPush(lsBoxes, lsLines, b, l1, l2, capLS)
+    if v_lsBearNow
+        box  b  = box.new(bar_index - 1, high, bar_index + 1, nz(v_lsBearHigh, high), border_color = color(na), bgcolor = color.new(#f23645, 75))
+        line l1 = line.new(bar_index, high, bar_index, close, color = #f23645, width = 3)
+        line l2 = line.new(bar_index, low, bar_index + 3, low, color = #f23645, style = line.style_dotted)
+        f_lsPush(lsBoxes, lsLines, b, l1, l2, capLS)
+
+// --- LuxAlgo buyside / sellside liquidity ------------------------------------------------------------------------------
+var array<bsl_lvl> bslArr = array.new<bsl_lvl>(0)
+f_bslEvict(array<bsl_lvl> arr, simple int cap) =>
+    while arr.size() > cap
+        bsl_lvl z = arr.shift()
+        z.ln.delete()
+        z.lne.delete()
+        z.bxt.delete()
+    arr.size()
+
+if showBSL and inDrawWindow and barstate.isconfirmed
+    if v_newBuyLiq or v_newSellLiq
+        color c  = v_newBuyLiq ? color.new(#4caf50, 0) : color.new(#f23645, 0)
+        string t = v_newBuyLiq ? "Buyside liquidity" : "Sellside liquidity"
+        line  ln  = line.new(v_evBar, v_evPrc, bar_index - 1, v_evPrc, color = c)
+        line  lne = line.new(bar_index - 1, v_evPrc, bar_index, v_evPrc, color = c, style = line.style_dotted)
+        box   bxt = box.new(v_evBar, v_evPrc, bar_index + 10, v_evPrc, text = t, text_size = size.tiny,
+             text_halign = text.align_left, text_valign = v_newBuyLiq ? text.align_bottom : text.align_top,
+             text_color = color.new(c, 25), bgcolor = color(na), border_color = color(na))
+        bslArr.push(bsl_lvl.new(ln, lne, bxt, v_evPrc, v_evTop, v_evBot, false))
+        f_bslEvict(bslArr, capBSL)
+    if bslArr.size() > 0
+        for i = 0 to bslArr.size() - 1
+            bsl_lvl z = bslArr.get(i)
+            if not z.brk
+                z.lne.set_x2(bar_index)
+                z.bxt.set_right(bar_index + 10)
+                if high > z.top or low < z.bot
+                    z.brk := true
+
+// --- LuxAlgo pivot points high / low ------------------------------------------------------------------------------------
+var array<label> ppLabels = array.new<label>(0)
+var array<line>  ppLines  = array.new<line>(0)
+var int   ppPrevX = na
+var float ppPrevY = na
+if showPPHL and inDrawWindow and barstate.isconfirmed
+    if not na(v_ppPhRaw)
+        ppLabels.push(label.new(bar_index - s7_len, v_ppPhRaw, "▼", textcolor = color.white, color = #ef5350,
+             style = label.style_label_down, size = size.small, tooltip = str.tostring(v_ppPhRaw, "#.####")))
+        if not na(ppPrevX)
+            ppLines.push(line.new(ppPrevX, ppPrevY, bar_index - s7_len, v_ppPhRaw, color = #26a69a))
+        ppPrevX := bar_index - s7_len
+        ppPrevY := v_ppPhRaw
+    if not na(v_ppPlRaw)
+        ppLabels.push(label.new(bar_index - s7_len, v_ppPlRaw, "▲", textcolor = color.white, color = #26a69a,
+             style = label.style_label_up, size = size.small, tooltip = str.tostring(v_ppPlRaw, "#.####")))
+        if not na(ppPrevX)
+            ppLines.push(line.new(ppPrevX, ppPrevY, bar_index - s7_len, v_ppPlRaw, color = #ef5350))
+        ppPrevX := bar_index - s7_len
+        ppPrevY := v_ppPlRaw
+    while ppLabels.size() > capPP
+        ppLabels.shift().delete()
+    while ppLines.size() > capPP
+        ppLines.shift().delete()
+
+// --- live trade levels + entry label ------------------------------------------------------------------------------------
+plot(plotRR and inPos ? effStop : na, "Active Stop", color = color.new(color.red, 0), style = plot.style_stepline, linewidth = 2)
+// plot() has no dashed style, so take-profit levels are drawn as circle plots.
+plot(plotRR and inPos and rrUsePartialTp ? posTp1 : na, "TP1", color = color.new(color.green, 20), style = plot.style_circles)
+plot(plotRR and inPos and rrUsePartialTp ? posTp2 : na, "TP2", color = color.new(color.green, 40), style = plot.style_circles)
+plot(plotRR and inPos ? posTp3 : na, "TP / target", color = color.new(color.green, 60), style = plot.style_circles)
+
+var array<label> entryLabels = array.new<label>(0)
+if showEntryLbl and longSignal and inDrawWindow
+    entryLabels.push(label.new(bar_index, low, "▲ " + str.tostring(nPassing) + "/" + str.tostring(nEnabled),
+         style = label.style_label_up, color = color.new(color.teal, 20), textcolor = color.white, size = size.small,
+         tooltip = "Entry " + str.tostring(close, format.mintick) + "  SL " + str.tostring(plannedStop, format.mintick)))
+    while entryLabels.size() > capLbl
+        entryLabels.shift().delete()
+
+// --- data-window series ---------------------------------------------------------------------------------------------
+plot(g2Rsi, "G2 RSI", display = display.data_window)
+plot(g3Vfi, "G3 VFI", display = display.data_window)
+plot(atr,   "ATR",    display = display.data_window)
+
+// --- entry funnel counters ------------------------------------------------------------------------------------------
+// ta.cum() is hoisted out of the plot ternaries: running totals must accumulate on every bar, not only when shown.
+float nGates   = ta.cum(gatesOk      ? 1 : 0)
+float nStruct  = ta.cum(structOk     ? 1 : 0)
+float nFilters = ta.cum(filtersOk    ? 1 : 0)
+float nTrig    = ta.cum(primaryFired ? 1 : 0)
+float nBoth    = ta.cum(filtersOk and primaryFired ? 1 : 0)
+float nStopOk  = ta.cum(stopUsable   ? 1 : 0)
+float nEntries = ta.cum(longSignal   ? 1 : 0)
+plot(showFunnel ? nGates   : na, "n· gates ok",        display = display.data_window)
+plot(showFunnel ? nStruct  : na, "n· structure ok",    display = display.data_window)
+plot(showFunnel ? nFilters : na, "n· all filters",     display = display.data_window)
+plot(showFunnel ? nTrig    : na, "n· trigger",         display = display.data_window)
+plot(showFunnel ? nBoth    : na, "n· filters+trigger", display = display.data_window)
+plot(showFunnel ? nStopOk  : na, "n· stop usable",     display = display.data_window)
+plot(showFunnel ? nEntries : na, "n· ENTRIES",         display = display.data_window)
+
+
+// =====================================================================================================================
+//  DEBUG TABLE
+// =====================================================================================================================
+f_mark(bool en, bool ok) => not en ? "–" : ok ? "✓" : "✗"
+f_col(bool en, bool ok)  => not en ? color.gray : ok ? color.new(color.green, 0) : color.new(color.red, 0)
+
+var table dbg = table.new(position.top_right, 4, 13, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+
+// Pine forbids declaring a function inside a local scope, so the row writer lives at global scope and takes the
+// table, text size and header colour as parameters.
+f_row(table t, int r, string nm, string tf, string val, bool en, bool ok, string tsz, color hdr) =>
+    t.cell(0, r, nm,  text_color = color.silver, bgcolor = hdr, text_size = tsz)
+    t.cell(1, r, tf,  text_color = color.silver, text_size = tsz)
+    t.cell(2, r, val, text_color = color.white,  text_size = tsz)
+    t.cell(3, r, f_mark(en, ok), text_color = f_col(en, ok), text_size = tsz)
+    r
+
+if showTable and barstate.islast
+    string tsz = tblSize == "Tiny" ? size.tiny : tblSize == "Normal" ? size.normal : size.small
+    color  hdr = color.new(color.gray, 80)
+    dbg.cell(0, 0, "Filter", text_color = color.white, bgcolor = color.new(color.blue, 40), text_size = tsz)
+    dbg.cell(1, 0, "TF",     text_color = color.white, bgcolor = color.new(color.blue, 40), text_size = tsz)
+    dbg.cell(2, 0, "Value",  text_color = color.white, bgcolor = color.new(color.blue, 40), text_size = tsz)
+    dbg.cell(3, 0, "OK",     text_color = color.white, bgcolor = color.new(color.blue, 40), text_size = tsz)
+
+    f_row(dbg, 1, "G1 Supertrend", f_tfn(g1_tf), g1Bull ? "Bull" : "Bear", useG1, g1_ok, tsz, hdr)
+    f_row(dbg, 2, "G2 RSI",        f_tfn(g2_tf), str.tostring(g2Rsi, "#.#"), useG2, g2_ok, tsz, hdr)
+    f_row(dbg, 3, "G3 VFI",        f_tfn(g3_tf), g3Ready ? str.tostring(g3Vfi, "#.##") : "warmup", useG3, g3_ok, tsz, hdr)
+    f_row(dbg, 4, "G4 SR support", f_tfn(g4_tf), na(g4SupBot) ? "–" : str.tostring(g4SupBot, format.mintick), useG4, g4_ok, tsz, hdr)
+    f_row(dbg, 5, "S1 Liq sweep",  f_tfn(s1_tf), s1Age >= 100000 ? "none" : str.tostring(int(s1Age)) + " bars", useS1, s1_ok, tsz, hdr)
+    f_row(dbg, 6, "S4 Supertrend", f_tfn(s4_tf), na(s4Line) ? "–" : str.tostring(s4Line, format.mintick), useS4, s4_ok, tsz, hdr)
+    f_row(dbg, 7, "S5 PP ST",      f_tfn(s5_tf), na(s5Tsl) ? "–" : str.tostring(s5Tsl, format.mintick), useS5, s5_ok, tsz, hdr)
+    f_row(dbg, 8, "S6 Sellside",   f_tfn(s6_tf), na(s6SellLvl) ? "–" : str.tostring(s6SellLvl, format.mintick), useS6, s6_ok, tsz, hdr)
+    f_row(dbg, 9, "S7 Pivot low",  f_tfn(s7_tf), na(s7PivLow) ? "–" : str.tostring(s7PivLow, format.mintick), useS7, s7_ok, tsz, hdr)
+    f_row(dbg, 10,"Volume",        f_tfn(volTf), na(volSma) or volSma == 0 ? "–" : str.tostring(volCur / volSma, "#.##") + "× SMA", useVolumeFilter, volOk, tsz, hdr)
+
+    dbg.cell(0, 11, "PASSING", text_color = color.white, bgcolor = color.new(color.gray, 60), text_size = tsz)
+    dbg.cell(1, 11, useTrigger ? f_tfn(trig_tf) : "no trig", bgcolor = color.new(color.gray, 60), text_color = color.silver, text_size = tsz)
+    dbg.cell(2, 11, str.tostring(nPassing) + " / " + str.tostring(nEnabled) + " enabled",
+         text_color = color.white, bgcolor = filtersOk ? color.new(color.green, 55) : color.new(color.red, 55), text_size = tsz)
+    dbg.cell(3, 11, f_mark(true, filtersOk and primaryFired), text_color = f_col(true, filtersOk and primaryFired), bgcolor = color.new(color.gray, 60), text_size = tsz)
+
+    string posTxt = "flat"
+    if inPos
+        posTxt := "LONG @" + str.tostring(posEntry, format.mintick) +
+             "  SL " + str.tostring(effStop, format.mintick) +
+             "  TP " + str.tostring(posTp3, format.mintick) +
+             "  uR " + str.tostring(longUnrealR, "#.##")
+    dbg.cell(0, 12, "Position", text_color = color.silver, bgcolor = hdr, text_size = tsz)
+    dbg.cell(1, 12, "R:R " + str.tostring(rrRatio, "#.##"), text_color = color.silver, text_size = tsz)
+    dbg.cell(2, 12, posTxt, text_color = color.white, text_size = tsz)
+    dbg.cell(3, 12, stopUsable ? "SL ok" : "SL n/a", text_color = stopUsable ? color.green : color.red, text_size = tsz)
+
+
+// =====================================================================================================================
+//  ALERTS  (JSON payloads for webhook / bot consumption)
+// =====================================================================================================================
+f_json(string act, float px, float qty, float sl, float t1, float t2, float t3) =>
+    '{"action":"' + act + '"' +
+     ',"secret":"' + ALERT_SECRET + '"' +
+     ',"symbol":"' + (use_custom_webhook ? alert_symbol : syminfo.ticker) + '"' +
+     ',"exchange":"' + syminfo.prefix + '"' +
+     ',"tf":"' + timeframe.period + '"' +
+     ',"price":"' + str.tostring(px, format.mintick) + '"' +
+     ',"qty":"' + (na(qty) ? "" : str.tostring(qty, "#.########")) + '"' +
+     ',"quote_usdt":"' + str.tostring(alert_buy_usdt, "#.##") + '"' +
+     ',"sl":"' + (na(sl) ? "" : str.tostring(sl, format.mintick)) + '"' +
+     ',"tp1":"' + (na(t1) ? "" : str.tostring(t1, format.mintick)) + '"' +
+     ',"tp2":"' + (na(t2) ? "" : str.tostring(t2, format.mintick)) + '"' +
+     ',"tp3":"' + (na(t3) ? "" : str.tostring(t3, format.mintick)) + '"' +
+     ',"time":"' + str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ssZ", "UTC") + '"}'
+
+float noQty = na
+
+if longSignal and not na(entryQty)
+    alert(f_json("buy", close, entryQty, posStop, posTp1, posTp2, posTp3), alert.freq_once_per_bar_close)
+if inPos and not a_tp1 and rrUsePartialTp and not na(posTp1) and high >= posTp1
+    a_tp1 := true
+    alert(f_json("tp1_fill", posTp1, noQty, effStop, posTp1, posTp2, posTp3), alert.freq_once_per_bar_close)
+if inPos and not a_tp2 and rrUsePartialTp and not na(posTp2) and high >= posTp2
+    a_tp2 := true
+    alert(f_json("tp2_fill", posTp2, noQty, effStop, posTp1, posTp2, posTp3), alert.freq_once_per_bar_close)
+if inPos and not a_tp3 and not na(posTp3) and high >= posTp3
+    a_tp3 := true
+    alert(f_json("tp_fill", posTp3, noQty, effStop, posTp1, posTp2, posTp3), alert.freq_once_per_bar_close)
+if inPos and not a_stop and not na(effStop) and low <= effStop
+    a_stop := true
+    bool wasTrailing = not na(trailAnchor) and trailAnchor >= nz(posStop, trailAnchor)
+    alert(f_json(wasTrailing ? "trailing_stop_hit" : "stop_hit", effStop, noQty, effStop, posTp1, posTp2, posTp3), alert.freq_once_per_bar_close)
+if closeNow
+    alert(f_json("manual_exit", close, noQty, effStop, posTp1, posTp2, posTp3), alert.freq_once_per_bar_close)
