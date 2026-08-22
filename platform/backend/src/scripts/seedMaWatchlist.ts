@@ -12,14 +12,17 @@
  * Idempotent — every write is an upsert keyed by name or by
  * (symbol, timeframe, MA, mode), so re-running repairs rather than duplicates.
  *
- * Usage:  cd backend && npx tsx scripts/seed_ma_watchlist.ts [--dry]
+ * Lives under src/ so it is compiled into dist/ and can be run inside the
+ * production container, which ships no TypeScript toolchain:
+ *   local  : cd backend && npx tsx src/scripts/seedMaWatchlist.ts [--dry]
+ *   deployed: docker exec <backend> node dist/scripts/seedMaWatchlist.js
  */
-import * as symbolRepo from "../src/repositories/symbols";
-import * as watchlistRepo from "../src/repositories/watchlists";
-import * as layoutRepo from "../src/repositories/layouts";
-import * as maAlertRepo from "../src/repositories/maAlerts";
-import { closePool } from "../src/db/pool";
-import type { LayoutMaLine } from "../src/repositories/layouts";
+import * as symbolRepo from "../repositories/symbols";
+import * as watchlistRepo from "../repositories/watchlists";
+import * as layoutRepo from "../repositories/layouts";
+import * as maAlertRepo from "../repositories/maAlerts";
+import { closePool } from "../db/pool";
+import type { LayoutMaLine } from "../repositories/layouts";
 
 const WATCHLIST_NAME = "Main Watchlist";
 const TIMEFRAME = "1h" as const;
