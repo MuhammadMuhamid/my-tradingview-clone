@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 const LINKS = [
   { href: "/chart", label: "Chart" },
+  { href: "/alerts", label: "Alerts" },
   { href: "/optimizers", label: "Optimizers" },
   { href: "/backtests", label: "Backtests" },
   { href: "/deployments", label: "Live & Alerts" },

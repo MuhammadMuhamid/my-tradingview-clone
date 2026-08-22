@@ -932,7 +932,7 @@ export default function TvWorkspace() {
                 </svg>
               </button>
             </div>
-            {[["/chart", "Chart"], ["/optimizers", "Optimizers"],
+            {[["/chart", "Chart"], ["/alerts", "Alerts"], ["/optimizers", "Optimizers"],
               ["/backtests", "Backtests"], ["/deployments", "Live & Alerts"]].map(([href, label]) => (
               <a key={href} href={href}
                 className="rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">
