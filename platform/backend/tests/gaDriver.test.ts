@@ -166,7 +166,7 @@ test("genomeToParams is unchanged", () => {
 });
 
 test("the objective is unchanged across every branch", () => {
-  const objectives = [
+  const objectives: Record<string, number>[] = [
     {}, { min_trades: 30 }, { min_trades: 0, dd_weight: 2 },
     { min_profit_factor: 1.1 }, { overtrade_weight: 0.05, trade_soft_cap: 100 },
   ];
