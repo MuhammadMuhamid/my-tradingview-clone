@@ -1,0 +1,10 @@
+{
+  "id": "lean3y15m",
+  "strategy": "mtf_lean",
+  "timeframe": "15m",
+  "system": "three-year",
+  "kind": "replay",
+  "status": "historical",
+  "label": "MTF Confluence Lean \u00b7 15m \u00b7 three-year replay (historical)",
+  "note": "Runs a config pool that was selected under 100%-of-equity sizing at fixed size, so it answers a confounded question (OPT-10)."
+}

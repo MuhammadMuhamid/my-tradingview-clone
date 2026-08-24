@@ -10,16 +10,12 @@ from datetime import datetime, timezone
 
 ROOT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), ".."))
 OUT = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "dashboard"))
-# Keyed by the API's optimizerKey(timeframe, system): the leaderboard route reads
-# <family>.json from OPTIMIZER_DASHBOARD_DIR. Only ma_rr_v9 uses these snapshots —
-# srtrend_v10 is served straight from its tree, so sr_optimizer1h is not listed.
-# The "current" (Nov 1, 2025) trees were removed on 2026-07-30.
-SYSTEMS = {
-    "optimizer1y15m": ("one-year", "15m"),
-    "optimizer1y1h": ("one-year", "1h"),
-    # MTF Confluence Lean, 5-minute chart TF, one-year window (added 2026-08-10).
-    "optimizer1y5m": ("one-year", "5m"),
-}
+# X-04: this used to be a hand-written map keyed by the API's old
+# optimizerKey(timeframe, system), which is why three trees that exist on disk
+# were never exported and one entry named a tree that does not exist. The
+# leaderboard route now reads `<tree id>.json` from OPTIMIZER_DASHBOARD_DIR, and
+# the set of trees comes from the same registry the API uses: every directory
+# under ROOT that owns a `tree.json`.
 
 
 def load(path: str, fallback):
@@ -85,5 +81,24 @@ def export(family: str, system: str, timeframe: str) -> None:
     os.replace(tmp, os.path.join(OUT, family + ".json"))
 
 
-for key, (system, timeframe) in SYSTEMS.items():
+def registered_trees() -> list[tuple[str, str, str]]:
+    out = []
+    for entry in sorted(os.listdir(ROOT)):
+        meta = load(os.path.join(ROOT, entry, "tree.json"), None)
+        if not meta:
+            continue
+        # Search trees are the only ones that publish a best/ leaderboard; the
+        # walk-forward, holdout and replay trees publish fold reports instead.
+        if meta.get("kind") != "search":
+            continue
+        out.append((entry, meta.get("system", ""), meta.get("timeframe", "")))
+    return out
+
+
+trees = registered_trees()
+if not trees:
+    print(f"no optimizer tree with a tree.json under {ROOT}", file=sys.stderr)
+    raise SystemExit(1)
+for key, system, timeframe in trees:
     export(key, system, timeframe)
+    print(f"exported {key}")

@@ -135,8 +135,13 @@ export function validateOptimizerBest(value: unknown): OptimizerBest | null {
   if (!finite(p.initialCapital) || p.initialCapital <= 0) return null;
   if (!finite(p.commissionPct) || p.commissionPct < 0 || p.commissionPct > 100) return null;
   if (!finite(p.slippageTicks) || p.slippageTicks < 0) return null;
-  if (!finite(p.qtyCash) || p.qtyCash < 0) return null;
   if (p.qtyType !== "percent_of_equity" && p.qtyType !== "cash") return null;
+  // A cash-sized result must state its cash size. A percent-of-equity tree has
+  // no cash size to state, so `qtyCash: null` is correct there rather than a
+  // reason to reject the link.
+  if (p.qtyType === "cash"
+    ? !finite(p.qtyCash) || p.qtyCash < 0
+    : p.qtyCash !== null && !finite(p.qtyCash)) return null;
   if (!finite(p.qtyValue) || p.qtyValue < 0) return null;
   if (typeof p.rangeStart !== "string" || typeof p.rangeEnd !== "string") return null;
   if (Number.isNaN(Date.parse(p.rangeStart)) || Number.isNaN(Date.parse(p.rangeEnd))) return null;

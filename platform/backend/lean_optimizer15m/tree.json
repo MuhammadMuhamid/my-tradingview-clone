@@ -1,0 +1,10 @@
+{
+  "id": "lean_optimizer15m",
+  "strategy": "mtf_lean",
+  "timeframe": "15m",
+  "system": "one-year",
+  "kind": "search",
+  "status": "current",
+  "label": "MTF Confluence Lean \u00b7 15m \u00b7 one-year search",
+  "note": "Production selection tree for the 15m lean deployments. Fixed $1000 cash per trade; range.split is the IS/OOS boundary and the GA only ever scores the IS window."
+}

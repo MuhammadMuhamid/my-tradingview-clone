@@ -70,6 +70,42 @@ def check_cost_models() -> None:
         fail(f"tree '{tree}' has a config.json but is not documented in docs/COST-MODELS.md")
 
 
+# ── 2b: every tree owns a registry entry the API can route to (X-04) ──────────
+
+REQUIRED_TREE_FIELDS = ("id", "strategy", "timeframe", "system", "kind", "status", "label")
+TREE_KINDS = {"search", "walk-forward", "holdout", "replay"}
+TREE_STATUSES = {"current", "historical", "not-comparable"}
+
+
+def check_tree_registry() -> None:
+    """A tree the optimizer API cannot reach is finding X-04 all over again.
+
+    The route resolves trees from `<tree>/tree.json`, so a tree that has a
+    config.json but no registry entry is invisible to the application and would
+    render as an empty, successful leaderboard.
+    """
+    for cfg in sorted(TREES.glob("*/config.json")):
+        tree = cfg.parent.name
+        meta_path = cfg.parent / "tree.json"
+        if not meta_path.exists():
+            fail(f"tree '{tree}' has no tree.json, so the optimizer API cannot route to it (X-04)")
+            continue
+        try:
+            meta = json.loads(meta_path.read_text())
+        except json.JSONDecodeError as exc:
+            fail(f"{tree}/tree.json is not valid JSON: {exc}")
+            continue
+        for field in REQUIRED_TREE_FIELDS:
+            if not str(meta.get(field, "")).strip():
+                fail(f"{tree}/tree.json is missing '{field}'")
+        if meta.get("id") not in (tree, None):
+            fail(f"{tree}/tree.json declares id '{meta.get('id')}' but lives in '{tree}'")
+        if meta.get("kind") not in TREE_KINDS:
+            fail(f"{tree}/tree.json has kind '{meta.get('kind')}', not one of {sorted(TREE_KINDS)}")
+        if meta.get("status") not in TREE_STATUSES:
+            fail(f"{tree}/tree.json has status '{meta.get('status')}', not one of {sorted(TREE_STATUSES)}")
+
+
 # ── 3: referenced paths exist ─────────────────────────────────────────────────
 
 DOC_PATH_SOURCES = [
@@ -125,6 +161,7 @@ def check_referenced_paths() -> None:
 
 
 check_cost_models()
+check_tree_registry()
 check_referenced_paths()
 
 if failures:

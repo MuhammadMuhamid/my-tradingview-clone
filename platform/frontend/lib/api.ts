@@ -18,17 +18,23 @@ export interface OptimizerBest {
   params: StrategyParams;
   tunedParams: StrategyParams;
   properties: {
-    initialCapital: number;
-    commissionPct: number;
-    slippageTicks: number;
-    qtyCash: number;
+    // Null where the tree's own config.json does not state the figure. There is
+    // no invented default: a fabricated order size silently mis-sizes every
+    // reproduction of the leaderboard number (`OPT-11`).
+    initialCapital: number | null;
+    commissionPct: number | null;
+    slippageTicks: number | null;
+    qtyCash: number | null;
     qtyType: "percent_of_equity" | "cash";
-    qtyValue: number;
-    rangeStart: string;
-    rangeEnd: string;
+    qtyValue: number | null;
+    rangeStart: string | null;
+    rangeEnd: string | null;
   };
   timeframe: Interval;
   strategyKey: string;
+  tree?: OptimizerTree;
+  /** The ranked scan hit its byte budget, so the rank is best-within-scanned. */
+  rankTruncated?: boolean;
 }
 
 export interface SymbolSearchResult {
@@ -122,13 +128,42 @@ export interface PineRunResult {
   equityCurve?: { t: number; equity: number; drawdownPct: number }[];
 }
 
-export type OptimizerSystem = "current" | "one-year";
+export type OptimizerSystem = "current" | "one-year" | "three-year";
+
+/** One optimizer tree, as the backend registry (`<tree>/tree.json`) reports it. */
+export interface OptimizerTree {
+  id: string;
+  label: string;
+  strategy: string;
+  timeframe: Interval;
+  system: string;
+  kind: "search" | "walk-forward" | "holdout" | "replay";
+  status: "current" | "historical" | "not-comparable";
+  note?: string;
+  cost: {
+    initialCapital: number | null;
+    commissionPct: number | null;
+    slippageTicks: number | null;
+    range: { start?: string; end?: string; split?: string } | null;
+    hasSplit: boolean;
+  };
+}
 
 export interface OptimizerLeaderboard {
-  system: OptimizerSystem;
+  tree: OptimizerTree;
+  system: string;
   timeframe: Interval;
-  range: { start: string; end: string };
+  range: { start?: string; end?: string; split?: string } | null;
+  /** `snapshot` was exported elsewhere and may be old; `tree` is read live. */
+  source: "snapshot" | "tree";
   totalBacktests: number;
+  /** `pending` means the background line count has not finished — not zero. */
+  testsState?: "ready" | "pending" | "unavailable";
+  /** False when the tree exists but has produced no results yet (`X-04`). */
+  resultsAvailable?: boolean;
+  generatedAt?: string | null;
+  ageMinutes?: number | null;
+  stale?: boolean;
   leaderboard: Array<{
     symbol: string;
     score: number | null;
@@ -401,8 +436,10 @@ export const api = {
   // local optimizer winners
   optimizerBest: (symbol: string, rank = 1, strategy = "ma_rr_v9", timeframe: Interval = "15m") =>
     req<OptimizerBest>(`/api/optimizer/best/${symbol.toUpperCase()}?rank=${rank}&strategy=${strategy}&timeframe=${timeframe}`),
-  optimizerLeaderboard: (system: OptimizerSystem, timeframe: "15m" | "1h" | "5m", strategy = "ma_rr_v9") =>
-    req<OptimizerLeaderboard>(`/api/optimizer/leaderboard?strategy=${strategy}&system=${system}&timeframe=${timeframe}`),
+  /** Every tree the backend can actually reach, from its own registry. */
+  optimizerTrees: () => req<{ root: string; trees: OptimizerTree[] }>(`/api/optimizer/trees`),
+  optimizerLeaderboardByTree: (tree: string) =>
+    req<OptimizerLeaderboard>(`/api/optimizer/leaderboard?tree=${encodeURIComponent(tree)}`),
 
   // backtests
   listBacktests: (symbol?: string) =>

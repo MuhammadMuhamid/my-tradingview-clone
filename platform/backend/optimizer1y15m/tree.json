@@ -1,0 +1,10 @@
+{
+  "id": "optimizer1y15m",
+  "strategy": "ma_rr_v9",
+  "timeframe": "15m",
+  "system": "one-year",
+  "kind": "search",
+  "status": "current",
+  "label": "MA + R:R v9 \u00b7 15m \u00b7 one-year search",
+  "note": "Carries the permutation control in PARAMETER_REDUCTION.md."
+}

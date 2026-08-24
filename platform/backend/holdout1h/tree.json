@@ -1,0 +1,10 @@
+{
+  "id": "holdout1h",
+  "strategy": "ma_rr_v9",
+  "timeframe": "1h",
+  "system": "one-year",
+  "kind": "holdout",
+  "status": "historical",
+  "label": "MA + R:R v9 \u00b7 1h \u00b7 pre-optimizer holdout (historical)",
+  "note": "Replays the live 1h leaderboard over history the optimizer never saw. report.py's Spearman rank correlation is the reference method for judging whether in-sample rank predicts anything."
+}

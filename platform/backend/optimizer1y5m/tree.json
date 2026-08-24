@@ -1,0 +1,10 @@
+{
+  "id": "optimizer1y5m",
+  "strategy": "mtf_lean",
+  "timeframe": "5m",
+  "system": "one-year",
+  "kind": "search",
+  "status": "current",
+  "label": "MTF Confluence Lean \u00b7 5m \u00b7 one-year search",
+  "note": "Same procedure as lean_optimizer15m on the 5-minute chart timeframe."
+}

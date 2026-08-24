@@ -60,10 +60,42 @@ same cost.
 
 ## Platform backtest API
 
-`POST /api/backtests` defaults `commissionPct` to 0.05 — half what every
-optimizer tree uses. A backtest run through the app is therefore *not* directly
-comparable to a leaderboard row unless the caller passes `commissionPct: 0.1`
-explicitly. This is a live defect and is tracked in the remediation ledger.
+`POST /api/backtests` now defaults `commissionPct` to **0.1**, the same figure
+every tree runs, alongside `slippageTicks: 2` and `initialCapital: 1000`. The
+three defaults are named constants in
+`platform/backend/src/api/routes/backtests.ts` and the chart's
+`DEFAULT_PROPERTIES` states the same commission; a test asserts all of them
+against the trees' own `config.json` files.
+
+It previously defaulted to 0.05 — half the real friction — so an app backtest
+could not reproduce the leaderboard row it was meant to check, and nothing on
+screen said so. Runs already stored keep the cost model they actually ran under,
+because each row records its own `commissionPct`; a chart backtest run before
+this change is therefore still a 0.05 % run and is not comparable with one run
+after it.
+
+`POST /api/pine/run` is a script editor rather than a strategy reproduction and
+keeps its own defaults (`commissionPct: 0.1`, `slippageTicks: 0`, `qtyCash:
+930`). `930` is not a stray figure: it mirrors `default_qty_value = 930` in the
+Pine strategy declaration, and the engine's `ma_rr_v9` / `srtrend_v10` parameter
+defaults mirror it too.
+
+## The tree registry
+
+Each tree owns a `tree.json` naming its id, strategy, timeframe, system, kind
+(`search` / `walk-forward` / `holdout` / `replay`) and status (`current` /
+`historical` / `not-comparable`). `platform/backend/src/optimizer/registry.ts`
+discovers them under `OPTIMIZER_ROOT` — or, unset, the backend directory rather
+than the process working directory — and the optimizer API and the UI's tree
+list are both driven from it.
+
+Before this, four hardcoded directory names were mapped, all four were absent,
+and nine trees that exist had no route at all: the default optimizer view
+returned an **empty leaderboard with HTTP 200** (`X-04`). An unknown or absent
+tree now answers 404 naming the trees that do exist, and a tree that is
+registered but has produced no results yet says exactly that.
+`scripts/ci/check-docs.sh` fails when a tree has a `config.json` but no
+registry entry.
 
 ## Where the numbers come from
 

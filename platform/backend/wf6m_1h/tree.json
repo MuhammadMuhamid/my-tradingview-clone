@@ -1,0 +1,9 @@
+{
+  "id": "wf6m_1h",
+  "strategy": "ma_rr_v9",
+  "timeframe": "1h",
+  "system": "three-year",
+  "kind": "walk-forward",
+  "status": "historical",
+  "label": "MA + R:R v9 \u00b7 1h \u00b7 six-month forward blocks (historical)"
+}

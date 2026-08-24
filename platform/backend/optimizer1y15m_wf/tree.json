@@ -1,0 +1,9 @@
+{
+  "id": "optimizer1y15m_wf",
+  "strategy": "ma_rr_v9",
+  "timeframe": "15m",
+  "system": "one-year",
+  "kind": "walk-forward",
+  "status": "historical",
+  "label": "MA + R:R v9 \u00b7 15m \u00b7 walk-forward (historical)"
+}

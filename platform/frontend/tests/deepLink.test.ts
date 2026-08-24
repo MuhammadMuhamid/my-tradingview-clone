@@ -140,3 +140,34 @@ test("the validator accepts the shape the server actually returns", () => {
     null
   );
 });
+
+// ── OPT-11: a percent-of-equity tree states no cash size ─────────────────────
+
+test("a percent-of-equity result is accepted with qtyCash null", () => {
+  const best = {
+    ...validBest,
+    properties: {
+      ...validBest.properties,
+      qtyCash: null, qtyType: "percent_of_equity", qtyValue: 100,
+    },
+  };
+  assert.ok(validateOptimizerBest(best), "a tree that sizes by percent has no cash size to state");
+});
+
+test("a CASH result with no cash size is still refused", () => {
+  const best = {
+    ...validBest,
+    properties: { ...validBest.properties, qtyCash: null, qtyType: "cash", qtyValue: 800 },
+  };
+  assert.equal(validateOptimizerBest(best), null);
+});
+
+test("a non-numeric qtyCash is refused whatever the sizing mode", () => {
+  for (const qtyType of ["cash", "percent_of_equity"]) {
+    const best = {
+      ...validBest,
+      properties: { ...validBest.properties, qtyCash: "800", qtyType, qtyValue: 800 },
+    };
+    assert.equal(validateOptimizerBest(best), null, qtyType);
+  }
+});

@@ -1,0 +1,9 @@
+{
+  "id": "full3y1h",
+  "strategy": "ma_rr_v9",
+  "timeframe": "1h",
+  "system": "three-year",
+  "kind": "replay",
+  "status": "historical",
+  "label": "MA + R:R v9 \u00b7 1h \u00b7 three-year replay (historical)"
+}

@@ -15,12 +15,22 @@ export interface StrategyProperties {
   slippageTicks: number;
 }
 
+/**
+ * `X-09` / `OPT-03`: commission defaulted to 0.05 % here and in the backtest
+ * API, while every optimizer tree runs 0.1 % PER SIDE (0.2 % round trip, which
+ * is Binance spot taker). A chart backtest at half the real friction is not
+ * comparable with the leaderboard row it is meant to reproduce. Both defaults
+ * now state the same figure; saved layouts keep whatever they recorded.
+ */
 export const DEFAULT_PROPERTIES: StrategyProperties = {
   initialCapital: 1000,
+  // 930 mirrors the Pine script's own `default_qty_value = 930`; it is not
+  // touched here, because changing it would silently change every cash-sized
+  // chart backtest.
   qtyCash: 930,
   qtyType: "percent_of_equity",
   qtyValue: 100,
-  commissionPct: 0.05,
+  commissionPct: 0.1,
   slippageTicks: 2,
 };
 

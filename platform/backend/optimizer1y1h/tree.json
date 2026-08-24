@@ -1,0 +1,10 @@
+{
+  "id": "optimizer1y1h",
+  "strategy": "ma_rr_v9",
+  "timeframe": "1h",
+  "system": "one-year",
+  "kind": "search",
+  "status": "not-comparable",
+  "label": "MA + R:R v9 \u00b7 1h \u00b7 one-year search (not comparable)",
+  "note": "The only tree with slippageTicks 0, no IS/OOS split and qty_pct_equity 100. Its headline numbers are fully in-sample, zero-slippage and fully compounded. See docs/COST-MODELS.md (OPT-03)."
+}

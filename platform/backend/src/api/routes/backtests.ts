@@ -5,6 +5,20 @@ import * as symbols from "../../repositories/symbols";
 import { isInterval } from "../../types/market";
 import type { StrategyParams } from "../../types/strategy";
 
+/**
+ * Cost model applied when the caller does not state one.
+ *
+ * `X-09` / `OPT-03`: this defaulted to 0.05 % commission — half of the 0.1 %
+ * per side that EVERY optimizer tree runs — so a backtest run through the app
+ * was not comparable with the leaderboard row it was meant to reproduce, with
+ * nothing on screen to say so. 0.1 % per side is 0.2 % round trip, which is
+ * Binance spot taker. Existing runs are unaffected: each row stores the cost
+ * model it actually ran under.
+ */
+export const DEFAULT_COMMISSION_PCT = 0.1;
+export const DEFAULT_SLIPPAGE_TICKS = 2;
+export const DEFAULT_INITIAL_CAPITAL = 1000;
+
 export async function backtestRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Queue a backtest. If configId is given, its params/timeframe/symbol are
@@ -66,9 +80,9 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
       startTime,
       endTime,
       params: { ...baseParams, ...(body.params ?? {}) },
-      initialCapital: body.initialCapital ?? 1000,
-      commissionPct: body.commissionPct ?? 0.05,
-      slippageTicks: body.slippageTicks ?? 2,
+      initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+      commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
+      slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
     });
     return reply.code(201).send(created);
   });

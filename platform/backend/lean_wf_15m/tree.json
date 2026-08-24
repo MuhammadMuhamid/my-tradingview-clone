@@ -1,0 +1,10 @@
+{
+  "id": "lean_wf_15m",
+  "strategy": "mtf_lean",
+  "timeframe": "15m",
+  "system": "one-year",
+  "kind": "walk-forward",
+  "status": "historical",
+  "label": "MTF Confluence Lean \u00b7 15m \u00b7 walk-forward (historical)",
+  "note": "Validates a 30-parameter space including qty_pct_equity; the production tree searches 18 and pins qty_pct_equity to 0. These folds do not validate the current production space (OPT-02)."
+}

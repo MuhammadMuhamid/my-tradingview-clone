@@ -24,7 +24,7 @@ import { SymbolSearch } from "@/components/tv/SymbolSearch";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import * as drawStore from "@/lib/drawings";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
-import { api, type MaAlert, type PineScript } from "@/lib/api";
+import { api, type MaAlert, type OptimizerBest, type PineScript } from "@/lib/api";
 import { CancellableRequest, isAbortError, LatestRequest } from "@/lib/requestGuard";
 import {
   buildMaOverlays, currentMaValues, defaultMaLines, type MaLine, type MaType,
@@ -67,6 +67,38 @@ function stableStringify(v: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(v);
+}
+
+/**
+ * Apply only the properties the optimizer tree actually states.
+ *
+ * `OPT-11`: the API used to invent an order size (930) and a cost model for a
+ * tree that never recorded one. Those fields are now `null` when unknown, and
+ * an unknown field must leave the user's current setting alone rather than
+ * silently resetting it to a fabricated number.
+ */
+function withOptimizerProperties(
+  prev: StrategyProperties,
+  p: OptimizerBest["properties"]
+): StrategyProperties {
+  return {
+    ...prev,
+    ...(p.initialCapital !== null ? { initialCapital: p.initialCapital } : {}),
+    ...(p.commissionPct !== null ? { commissionPct: p.commissionPct } : {}),
+    ...(p.slippageTicks !== null ? { slippageTicks: p.slippageTicks } : {}),
+    ...(p.qtyCash !== null ? { qtyCash: p.qtyCash } : {}),
+    qtyType: p.qtyType,
+    ...(p.qtyValue !== null ? { qtyValue: p.qtyValue } : {}),
+  };
+}
+
+/** The optimizer's window, or null when the tree does not record one. */
+function optimizerRange(
+  p: OptimizerBest["properties"],
+  extra: { run?: boolean } = {}
+): { start: string; end: string; nonce: number; run?: boolean } | null {
+  if (!p.rangeStart || !p.rangeEnd) return null;
+  return { start: p.rangeStart, end: p.rangeEnd, nonce: Date.now(), ...extra };
 }
 
 export default function TvWorkspace() {
@@ -306,21 +338,9 @@ export default function TvWorkspace() {
       const best = await api.optimizerBest(symbol, 1, strategyKey, interval);
       setStrategyKey(best.strategyKey);
       setParams(best.params);
-      setProperties((prev) => ({
-        ...prev,
-        initialCapital: best.properties.initialCapital,
-        commissionPct: best.properties.commissionPct,
-        slippageTicks: best.properties.slippageTicks,
-        qtyCash: best.properties.qtyCash,
-        qtyType: best.properties.qtyType,
-        qtyValue: best.properties.qtyValue,
-      }));
+      setProperties((prev) => withOptimizerProperties(prev, best.properties));
       setInterval(best.timeframe);
-      setBestRange({
-        start: best.properties.rangeStart,
-        end: best.properties.rangeEnd,
-        nonce: Date.now(),
-      });
+      setBestRange(optimizerRange(best.properties));
       setTrades([]);
       const net = best.metrics.net_pct;
       const dd = best.metrics.dd_pct;
@@ -353,14 +373,10 @@ export default function TvWorkspace() {
       // asks the server instead, which is the trustworthy source.
       const best = request.payload
         ?? await api.optimizerBest(request.symbol, request.rank, request.strategy, request.timeframe);
-      const appliedProperties = { ...properties,
-        initialCapital: best.properties.initialCapital, commissionPct: best.properties.commissionPct,
-        slippageTicks: best.properties.slippageTicks, qtyCash: best.properties.qtyCash,
-        qtyType: best.properties.qtyType, qtyValue: best.properties.qtyValue,
-      };
+      const appliedProperties = withOptimizerProperties(properties, best.properties);
       setSymbol(request.symbol); setInterval(best.timeframe); setStrategyKey(best.strategyKey);
       setParams(best.params); setProperties(appliedProperties);
-      setBestRange({ start: best.properties.rangeStart, end: best.properties.rangeEnd, nonce: Date.now(), run: true });
+      setBestRange(optimizerRange(best.properties, { run: true }));
       setTrades([]);
       if (request.layoutName) {
         // createLayout is an atomic name-based upsert, making this safe when

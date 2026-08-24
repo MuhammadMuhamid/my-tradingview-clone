@@ -1,0 +1,9 @@
+{
+  "id": "optimizer1y5m_ma",
+  "strategy": "ma_rr_v9",
+  "timeframe": "5m",
+  "system": "one-year",
+  "kind": "search",
+  "status": "current",
+  "label": "MA + R:R v9 \u00b7 5m \u00b7 one-year search"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "optimizer1y1h_wf_trail",
+  "strategy": "ma_rr_v9",
+  "timeframe": "1h",
+  "system": "one-year",
+  "kind": "walk-forward",
+  "status": "historical",
+  "label": "MA + R:R v9 \u00b7 1h \u00b7 walk-forward with trailing exit (historical)"
+}
