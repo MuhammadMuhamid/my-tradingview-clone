@@ -1,0 +1,125 @@
+{
+ "_comment": "Search space for the autotuner, REDUCED 2026-08-21 from 31 parameters to 7. Retained only parameters whose contribution beat a permutation null by z>2 over the 7.2M archived evals: hhPivotLen (z=9.6), rrRatio (7.7), volMultMin (4.9), runMaxPct (4.4), hlBreakPivLen (2.7), ma1_slopeLb (2.5), volMaLen (2.5). The other 24 are pinned in base_params.json -- see that file's _comment for the values and the reasoning. NOTE: the genome is a POSITIONAL array, so any edit here invalidates every stored genome and requires a wipe. 2026-08-21 (user request): useSuperTrend is SEARCHED again as an explicit on/off tunable, so every coin is backtested both with and without the SuperTrend filter and the leaderboard can show which side wins per coin. Its own settings are frozen in base_params.json (ATR period 10, multiplier 3, source hl2) -- the switch is searched, the tuning is not. This takes the space from 185,220 to 370,440 and the genome from 7 to 8 positions, which invalidates every stored genome (wipe required).",
+ "objective": {
+  "_comment": "score = net_pct - dd_weight*|dd_pct| - overtrade_penalty*max(0, trades-overtrade_cap). Configs with fewer than min_trades score -inf. dd_weight raised 1.0 -> 2.5 and min_trades 30 -> 50 to match the Lean trees: drawdown is now penalised hard enough that a config cannot buy net% with unbounded risk, and 30 trades was too thin to be evidence.",
+  "dd_weight": 2.5,
+  "min_trades": 50,
+  "overtrade_cap": 600,
+  "overtrade_penalty": 0.05,
+  "min_profit_factor": 0.0
+ },
+ "search": {
+  "algorithm": "ga",
+  "ga_population": 14,
+  "ga_mutation_rate": 0.18,
+  "random_seed": 42
+ },
+ "parameters": [
+  {
+   "name": "ma1_slopeLb",
+   "id": "in_25",
+   "type": "int",
+   "values": [
+    10,
+    20,
+    30,
+    50,
+    5,
+    15
+   ]
+  },
+  {
+   "name": "volMaLen",
+   "id": "in_67",
+   "type": "int",
+   "values": [
+    20,
+    50,
+    100
+   ]
+  },
+  {
+   "name": "volMultMin",
+   "id": "in_68",
+   "type": "float",
+   "values": [
+    1.0,
+    1.3,
+    1.6,
+    2.0,
+    1.5,
+    0.2,
+    0.4
+   ]
+  },
+  {
+   "name": "hhPivotLen",
+   "id": "in_72",
+   "type": "int",
+   "values": [
+    6,
+    10,
+    15,
+    25,
+    16,
+    14,
+    8
+   ]
+  },
+  {
+   "name": "rrRatio",
+   "id": "in_84",
+   "type": "float",
+   "values": [
+    0.75,
+    1.0,
+    1.5,
+    2.0,
+    2.5
+   ]
+  },
+  {
+   "name": "runMaxPct",
+   "id": "in_103",
+   "type": "float",
+   "values": [
+    10.0,
+    17.0,
+    25.0,
+    13.0,
+    19.0,
+    18.0
+   ]
+  },
+  {
+   "name": "hlBreakPivLen",
+   "id": "in_125",
+   "type": "int",
+   "values": [
+    9,
+    15,
+    21,
+    22,
+    12,
+    10,
+    30
+   ]
+  },
+  {
+   "name": "useSuperTrend",
+   "id": "in_44",
+   "type": "bool",
+   "values": [
+    false,
+    true
+   ]
+  }
+ ],
+ "verify_map": {
+  "_comment": "Sanity anchors: input id -> expected dialog label prefix. Bot refuses to run if these do not match (protects against Pine input reordering).",
+  "in_67": "Volume SMA length",
+  "in_72": "Pivot length (HH TF)",
+  "in_84": "Reward : Risk ratio (TP)",
+  "in_125": "HL break pivot length"
+ }
+}

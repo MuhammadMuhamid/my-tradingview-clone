@@ -1,0 +1,16 @@
+{
+  "_comment": "THREE-YEAR test of the top-N MTF Confluence Lean 15m configs per coin. Replays each config from 2023-08-01 (or the coin listing date) through today.",
+  "_important": "The lean 15m optimizer searched 2025-08-11 -> now. Everything BEFORE 2025-08-11 is genuinely out-of-sample; everything after is the window the configs were selected on. report.py splits the two.",
+  "_sizing": "$1000 account, FIXED $1000 notional per trade (qty_pct_equity forced to 0). The live lean tree SEARCHES qty_pct_equity, so its net% partly measures leverage; this removes that.",
+  "topN": 1000,
+  "holdoutStart": "2023-08-01T00:00:00Z",
+  "holdoutEnd": "2026-08-13T23:59:59Z",
+  "splitDate": "2025-08-11T00:00:00Z",
+  "initialCapital": 1000,
+  "qtyCash": 1000,
+  "commissionPct": 0.1,
+  "slippageTicks": 2,
+  "timeframe": "15m",
+  "workers": 5,
+  "minMonths": 6
+}

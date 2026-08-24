@@ -1,0 +1,444 @@
+{
+ "_comment": "FIXED-SIZE variant. qty_pct_equity removed from the search space and pinned at 20% in base_params. The baseline lean walk-forward showed the GA was optimising leverage rather than edge: the rule that picked 17.5% average size was the only positive one (t=+1.09), while the rule that picked 77.5% lost money at 14% drawdown. Everything else is identical to lean_wf_15m.",
+ "objective": {
+  "_comment": "score = net_pct - dd_weight*|dd_pct| - overtrade_penalty*max(0, trades-overtrade_cap). REVISED 2026-08-11 after the 618K-eval analysis: the old dd_weight=1.0 / min_trades=1 objective was filling the board with 8-19 trade flukes (DEXE +2634% on 10 trades, PF 73). dd_weight 2.5 makes a config earn 2.5 points of profit per point of drawdown; min_trades 50 kills thin samples (15m median is 9 trades, p99 is 49). `trades` counts distinct ENTRIES, not exit legs, so the gate cannot be cleared by enabling partial TPs. No overtrade penalty: more trades is wanted.",
+  "dd_weight": 2.5,
+  "min_trades": 50,
+  "overtrade_cap": 1000000,
+  "overtrade_penalty": 0.0,
+  "min_profit_factor": 0.0
+ },
+ "search": {
+  "algorithm": "ga",
+  "ga_population": 14,
+  "ga_mutation_rate": 0.18,
+  "random_seed": 42
+ },
+ "parameters": [
+  {
+   "_c": "ATR length (risk) \u2014 user range 1 to 20",
+   "name": "atrLenRisk",
+   "type": "int",
+   "values": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20
+   ]
+  },
+  {
+   "_c": "7 S1 \u2014 swings (pivot length), user range 1 to 20",
+   "name": "s1_len",
+   "type": "int",
+   "values": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20
+   ]
+  },
+  {
+   "_c": "7 S1 \u2014 max bars since sweep, user range 10 to 40",
+   "name": "s1_maxAge",
+   "type": "int",
+   "values": [
+    10,
+    14,
+    18,
+    22,
+    26,
+    30,
+    34,
+    40
+   ]
+  },
+  {
+   "_c": "6E Volume \u2014 SMA length, user restricted to 50 or 100 ONLY",
+   "name": "volMaLen",
+   "type": "int",
+   "values": [
+    50,
+    100
+   ]
+  },
+  {
+   "_c": "6E Volume \u2014 min volume x SMA, user range 0.1 to 3",
+   "name": "volMultMin",
+   "type": "float",
+   "values": [
+    0.1,
+    0.3,
+    0.5,
+    0.7,
+    0.9,
+    1.1,
+    1.3,
+    1.5,
+    1.8,
+    2.1,
+    2.5,
+    3.0
+   ]
+  },
+  {
+   "_c": "5 G3 VFI \u2014 on/off for testing; its other inputs stay fixed",
+   "name": "useG3",
+   "type": "bool",
+   "values": [
+    true,
+    false
+   ]
+  },
+  {
+   "_c": "5 G3 VFI \u2014 timeframe, user restricted to 1h or 15m ONLY",
+   "name": "g3_tf",
+   "type": "string",
+   "values": [
+    "60",
+    "15"
+   ]
+  },
+  {
+   "_c": "9B R:R \u2014 swing low lookback, user range 4 to 20",
+   "name": "rrSwingLb",
+   "type": "int",
+   "values": [
+    4,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20
+   ]
+  },
+  {
+   "_c": "9B R:R \u2014 SL buffer below swing low (x ATR), user range 0.1 to 4",
+   "name": "rrBufAtr",
+   "type": "float",
+   "values": [
+    0.1,
+    0.3,
+    0.5,
+    0.8,
+    1.0,
+    1.4,
+    1.8,
+    2.2,
+    2.8,
+    3.4,
+    4.0
+   ]
+  },
+  {
+   "_c": "9B R:R \u2014 reward:risk ratio, user range 0.75 to 6",
+   "name": "rrRatio",
+   "type": "float",
+   "values": [
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    2.0,
+    2.5,
+    3.0,
+    3.5,
+    4.0,
+    4.5,
+    5.0,
+    6.0
+   ]
+  },
+  {
+   "_c": "9B R:R floor, min SL distance (x ATR). WIDENED 2026-08-11: values below ~2 were measured INERT because rrBufAtr x ATR below the swing low already exceeds them; the upper end is where it actually binds.",
+   "name": "minSlDistAtr",
+   "type": "float",
+   "values": [
+    0.1,
+    0.6,
+    1.5,
+    2.5,
+    3.9,
+    5.0,
+    6.5,
+    8.0,
+    10.0
+   ]
+  },
+  {
+   "_c": "7B Entries \u2014 body filter max bearish body size (x ATR), user range 0.1 to 0.5",
+   "name": "entryBodyAtrMult",
+   "type": "float",
+   "values": [
+    0.1,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.35,
+    0.4,
+    0.45,
+    0.5
+   ]
+  },
+  {
+   "_c": "12 S6 max distance to level (ATR mult). MEASURED as the #1 lever that generalises across all 19 coins: 4 -> 12 took entries 442 -> 864 and net 15% -> 45%. Was FROZEN at 4.",
+   "name": "s6_prox",
+   "type": "float",
+   "values": [
+    0.5,
+    1,
+    2,
+    3,
+    4,
+    6,
+    8,
+    12,
+    20
+   ]
+  },
+  {
+   "_c": "12 S6 detection length. Pine input bounds 3-13.",
+   "name": "s6_len",
+   "type": "int",
+   "values": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+   ]
+  },
+  {
+   "_c": "12 S6 margin. Pine input bounds 4-9.",
+   "name": "s6_margin",
+   "type": "float",
+   "values": [
+    4,
+    4.5,
+    5,
+    5.5,
+    6,
+    6.5,
+    6.9,
+    7,
+    7.5,
+    8,
+    8.5,
+    9
+   ]
+  },
+  {
+   "_c": "12 S6 # levels kept.",
+   "name": "s6_vis",
+   "type": "int",
+   "values": [
+    1,
+    2,
+    3,
+    5,
+    8,
+    12,
+    18,
+    25,
+    35,
+    50
+   ]
+  },
+  {
+   "_c": "12 S6 on/off \u2014 removing S6 entirely was one of the higher-entry configurations.",
+   "name": "useS6",
+   "type": "bool",
+   "values": [
+    true,
+    false
+   ]
+  },
+  {
+   "_c": "6 G4 on/off. Was FROZEN off on 15m.",
+   "name": "useG4",
+   "type": "bool",
+   "values": [
+    true,
+    false
+   ]
+  },
+  {
+   "_c": "6 G4 SR lookback (pivot length).",
+   "name": "g4_lb",
+   "type": "int",
+   "values": [
+    10,
+    14,
+    18,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40
+   ]
+  },
+  {
+   "_c": "6 G4 delta-volume filter length.",
+   "name": "g4_volLen",
+   "type": "int",
+   "values": [
+    1,
+    2,
+    3,
+    4,
+    6,
+    8,
+    10,
+    13,
+    16,
+    20
+   ]
+  },
+  {
+   "_c": "6 G4 box width.",
+   "name": "g4_boxW",
+   "type": "float",
+   "values": [
+    1,
+    1.5,
+    2,
+    3,
+    4,
+    5,
+    6.5,
+    8,
+    10
+   ]
+  },
+  {
+   "_c": "6 G4 tolerance (ATR mult below support).",
+   "name": "g4_atrMult",
+   "type": "float",
+   "values": [
+    1,
+    1.5,
+    2,
+    3,
+    4,
+    5,
+    6.5,
+    8,
+    10
+   ]
+  },
+  {
+   "_c": "EXIT MGMT \u2014 partial TPs. NOTE: across all 19 coins partials averaged NEGATIVE, but were strongly positive on individual coins. Searchable so the GA can pick per coin; do NOT enable globally.",
+   "name": "rrUsePartialTp",
+   "type": "bool",
+   "values": [
+    true,
+    false
+   ]
+  },
+  {
+   "_c": "EXIT MGMT \u2014 TP1 price move %.",
+   "name": "rrTp1Pct",
+   "type": "float",
+   "values": [
+    0.5,
+    0.8,
+    1.2,
+    1.8,
+    2.5,
+    3.5,
+    5.0,
+    6.0
+   ]
+  },
+  {
+   "_c": "EXIT MGMT \u2014 TP2 price move %.",
+   "name": "rrTp2Pct",
+   "type": "float",
+   "values": [
+    1.0,
+    1.5,
+    2.5,
+    3.5,
+    5.0,
+    7.0,
+    8.0,
+    10.0
+   ]
+  },
+  {
+   "_c": "EXIT MGMT \u2014 break-even after +R.",
+   "name": "rrUseBE",
+   "type": "bool",
+   "values": [
+    true,
+    false
+   ]
+  },
+  {
+   "_c": "EXIT MGMT \u2014 % trailing stop. Same caveat as partials: negative on the 19-coin average, strongly positive on ZEC. Per-coin search only.",
+   "name": "rrUseTrailSl",
+   "type": "bool",
+   "values": [
+    true,
+    false
+   ]
+  },
+  {
+   "_c": "EXIT MGMT \u2014 trailing distance %.",
+   "name": "rrTrailPct",
+   "type": "float",
+   "values": [
+    0.5,
+    0.8,
+    1.2,
+    1.9,
+    2.5,
+    3.0,
+    4.0,
+    5.0
+   ]
+  },
+  {
+   "_c": "EXIT MGMT \u2014 trailing arms after this profit %.",
+   "name": "rrTrailActPct",
+   "type": "float",
+   "values": [
+    0.0,
+    0.5,
+    1.0,
+    2.0,
+    3.0,
+    4.0,
+    6.0
+   ]
+  }
+ ]
+}

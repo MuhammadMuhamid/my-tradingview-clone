@@ -21,13 +21,33 @@ __pycache__/
 .pgdata/
 
 # ── optimizer result data (tens of GB of generated JSON) ──
-platform/backend/optimizer*/
-platform/backend/lean_optimizer*/
-platform/backend/lean_wf_*/
-platform/backend/lean3y15m/
-platform/backend/full3y1h/
-platform/backend/holdout1h/
-platform/backend/wf6m_1h/
+# The TREES themselves are tracked (code, config, coins.txt, README) — only the
+# generated data underneath them is excluded. Do not re-add a blanket
+# `optimizer*/` rule: git will not descend into an excluded directory, so the
+# per-tree documentation would silently vanish from the repo.
+platform/backend/*/results/
+platform/backend/*/best/
+platform/backend/*/index/
+platform/backend/*/archive/
+platform/backend/*/__pycache__/
+platform/backend/*/SUMMARY.json
+platform/backend/*/.optimizer.pid
+platform/backend/*/service*.log
+platform/backend/*/seeds.json
+# one-off analysis scratch files
+platform/backend/*/sens.json
+platform/backend/*/picks*.json
+platform/backend/*/verified*.json
+platform/backend/backups/
+
+# ── build/deploy bundles (one is 426 MB; GitHub caps files at 100 MB) ──
+*.tar.gz
+*.tgz
+*.zip
+
+# ── logs and local scratch ──
+*.log
+.DS_Store
 platform/backend/regime_wf/
 platform/backend/parity/
 platform/backend/backups/
@@ -59,3 +79,8 @@ scripts/binance_ohlc/
 # Regenerate with `graphify update .`; the dated snapshots are history only.
 graphify-out/20*/
 graphify-out/cache/
+
+# ── generated result streams (every optimizer writes these) ──
+*.jsonl
+platform/backend/*/folds/
+platform/backend/*/*.pid

@@ -1,0 +1,45 @@
+{
+  "_comment": "MA+R:R v9 1h walk-forward with SIX-MONTH out-of-sample blocks, run over the 2023-08 history backfilled for the 3-year test. This exists to resolve a contradiction: the 3-year holdout (24-month windows, backward direction) gave a +16.9% median with TAO/SYN/KAITO outstanding, while the original walk-forward (2-month blocks, forward direction) gave zero. Six-month FORWARD blocks test whether the edge is real but slow, or an artifact of testing backwards.",
+  "_sizing": "FIXED $1000 per trade \u2014 qty_pct_equity forced to 0 in base_params, so leverage cannot flatter the result.",
+  "feedRange": {
+    "start": "2023-08-01T00:00:00Z",
+    "end": "2026-08-13T23:59:59Z"
+  },
+  "initialCapital": 1000,
+  "commissionPct": 0.1,
+  "slippageTicks": 2,
+  "timeframe": "1h",
+  "workers": 6,
+  "evalsPerCoinPerFold": 25000,
+  "minTrainMonths": 9,
+  "folds": [
+    {
+      "id": "F1",
+      "trainStart": "2023-08-01T00:00:00Z",
+      "trainEnd": "2024-08-01T00:00:00Z",
+      "testStart": "2024-08-01T00:00:00Z",
+      "testEnd": "2025-02-01T00:00:00Z"
+    },
+    {
+      "id": "F2",
+      "trainStart": "2023-08-01T00:00:00Z",
+      "trainEnd": "2025-02-01T00:00:00Z",
+      "testStart": "2025-02-01T00:00:00Z",
+      "testEnd": "2025-08-01T00:00:00Z"
+    },
+    {
+      "id": "F3",
+      "trainStart": "2023-08-01T00:00:00Z",
+      "trainEnd": "2025-08-01T00:00:00Z",
+      "testStart": "2025-08-01T00:00:00Z",
+      "testEnd": "2026-02-01T00:00:00Z"
+    },
+    {
+      "id": "F4",
+      "trainStart": "2023-08-01T00:00:00Z",
+      "trainEnd": "2026-02-01T00:00:00Z",
+      "testStart": "2026-02-01T00:00:00Z",
+      "testEnd": "2026-08-13T00:00:00Z"
+    }
+  ]
+}

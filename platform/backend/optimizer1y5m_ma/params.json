@@ -1,0 +1,127 @@
+{
+ "_comment": "Search space for the 5m MA+R:R optimizer. The 7 non-switch tunables are the parameters that cleared a permutation null at z>2 on BOTH the 15m tree (7.2M evals) and the 1h tree (9.9M evals) -- an independent replication across timeframes, which is much stronger evidence than either tree alone. z scores (15m / 1h): hhPivotLen 9.6/5.6, rrRatio 7.7/4.9, volMultMin 4.9/6.6, runMaxPct 4.4/3.2, hlBreakPivLen 2.7/5.1, ma1_slopeLb 2.5/3.4, entryBodyAtrMult 2.0/2.9. useSuperTrend is searched as an explicit on/off so each coin is backtested both with and without the filter; its tuning is frozen in base_params.json. Value LISTS are inherited from the 15m tree (the nearest timeframe) -- they have not been re-tuned for 5m bar counts, so widen them if the winners pile up at a list edge. NOTE: the genome is a POSITIONAL array; editing this file requires a wipe.",
+ "objective": {
+  "_comment": "score = net_pct - dd_weight*|dd_pct| - overtrade_penalty*max(0, trades-overtrade_cap). min_trades is 80 here vs the 15m tree's 50. It was set empirically, not assumed: over 60 random genomes on 5 coins the in-sample entry count ran p10=78, median=125, max=316, so 80 rejects about 12% of configs as genuinely thin while 100 would have rejected 30%. Note 5m does NOT produce three times the 15m entry count as one might expect -- the HTF filters (MA3/MA4 on 15m, SuperTrend on 1h) gate entries regardless of the chart timeframe. ALLOUSDT is the thinnest coin (median 83, only ~4 months in-sample) and will populate more slowly than the rest.",
+  "dd_weight": 2.5,
+  "min_trades": 80,
+  "overtrade_cap": 600,
+  "overtrade_penalty": 0.05,
+  "min_profit_factor": 0.0
+ },
+ "search": {
+  "algorithm": "ga",
+  "ga_population": 14,
+  "ga_mutation_rate": 0.18,
+  "random_seed": 42
+ },
+ "parameters": [
+  {
+   "name": "hhPivotLen",
+   "id": "in_72",
+   "type": "int",
+   "values": [
+    6,
+    10,
+    15,
+    25,
+    16,
+    14,
+    8
+   ]
+  },
+  {
+   "name": "rrRatio",
+   "id": "in_84",
+   "type": "float",
+   "values": [
+    0.75,
+    1.0,
+    1.5,
+    2.0,
+    2.5
+   ]
+  },
+  {
+   "name": "volMultMin",
+   "id": "in_68",
+   "type": "float",
+   "values": [
+    1.0,
+    1.3,
+    1.6,
+    2.0,
+    1.5,
+    0.2,
+    0.4
+   ]
+  },
+  {
+   "name": "runMaxPct",
+   "id": "in_103",
+   "type": "float",
+   "values": [
+    10.0,
+    17.0,
+    25.0,
+    13.0,
+    19.0,
+    18.0
+   ]
+  },
+  {
+   "name": "hlBreakPivLen",
+   "id": "in_125",
+   "type": "int",
+   "values": [
+    9,
+    15,
+    21,
+    22,
+    12,
+    10,
+    30
+   ]
+  },
+  {
+   "name": "ma1_slopeLb",
+   "id": "in_25",
+   "type": "int",
+   "values": [
+    10,
+    20,
+    30,
+    50,
+    5,
+    15
+   ]
+  },
+  {
+   "name": "entryBodyAtrMult",
+   "id": "in_77",
+   "type": "float",
+   "values": [
+    0.3,
+    0.5,
+    0.8,
+    0.2,
+    0.6,
+    0.4
+   ]
+  },
+  {
+   "name": "useSuperTrend",
+   "id": "in_44",
+   "type": "bool",
+   "values": [
+    false,
+    true
+   ]
+  }
+ ],
+ "verify_map": {
+  "_comment": "Sanity anchors: input id -> expected dialog label prefix. Bot refuses to run if these do not match (protects against Pine input reordering).",
+  "in_72": "Pivot length (HH TF)",
+  "in_84": "Reward : Risk ratio (TP)",
+  "in_125": "HL break pivot length"
+ }
+}

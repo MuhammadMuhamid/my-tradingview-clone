@@ -1,0 +1,29 @@
+# 5m MA + R:R Strategy v5 universe, created 2026-08-21.
+# Mirrors the active optyear (15m) universe. Lines starting with # are ignored.
+# After editing: launchctl kickstart -k gui/501/com.alphaweb.ma-1y5m
+#
+# EXCLUDED: 币安人生USDT. Its 5m history only starts 2026-01-07, which leaves
+# roughly two months inside the in-sample window -- too thin to be evidence.
+# It is also stored under a display name rather than a Binance API ticker, so
+# it cannot be auto-refreshed.
+#
+# SHORT HISTORY (kept, but they do not cover the full year on 5m):
+#   PUMPUSDT   from 2025-09-11   (~11 months)
+#   MORPHOUSDT from 2025-10-03   (~10.5 months)
+#   ALLOUSDT   from 2025-11-11   (~9 months, only ~4 months in-sample)
+SYNUSDT
+ALLOUSDT
+DEXEUSDT
+RIFUSDT
+ZECUSDT
+JTOUSDT
+NEARUSDT
+INJUSDT
+MORPHOUSDT
+KAITOUSDT
+EIGENUSDT
+TAOUSDT
+JUPUSDT
+JSTUSDT
+ENAUSDT
+PUMPUSDT
