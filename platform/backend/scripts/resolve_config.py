@@ -22,7 +22,22 @@ def main() -> None:
         return
     coin = sys.argv[1].upper()
     orig = int(sys.argv[2])
-    optdir = sys.argv[3] if len(sys.argv) > 3 else "optimizer"
+    # OPT-11 / X-04: "optimizer" is a directory that does not exist. There is no
+    # safe default here — a wrong tree silently resolves a config from the wrong
+    # search space — so the argument is required.
+    if len(sys.argv) > 3:
+        optdir = sys.argv[3]
+    else:
+        trees = sorted(
+            d for d in os.listdir(os.path.join(BASE, ".."))
+            if os.path.isfile(os.path.join(BASE, "..", d, "config.json"))
+        )
+        print(json.dumps({
+            "error": "the optimizer tree is required — there is no default. "
+                     "A wrong tree resolves a config from the wrong search space.",
+            "available": trees,
+        }))
+        return
     HERE = os.path.join(BASE, "..", optdir)
     db = sqlite3.connect(os.path.join(HERE, "index", "leaderboard.sqlite3"))
     row = db.execute(
@@ -47,14 +62,45 @@ def main() -> None:
     full = {**base, **(rec.get("params") or {})}
     m = rec.get("metrics") or {}
     qty_pct = float(full.get("qty_pct_equity") or 0)
-    qty_cash = float(full.get("qty_cash") or 930)
+
+    # OPT-11: read the COST MODEL FROM THE TREE, not from constants here.
+    #
+    # This used to hardcode initialCapital 1000, commissionPct 0.1 and
+    # slippageTicks 0 regardless of which tree the config came from — a fourth
+    # variant that no tree actually uses (X-09). The lean trees run
+    # initialCapital 10000 with 2 ticks of slippage. Reproducing a leaderboard
+    # row with the wrong friction produces a different number and no indication
+    # that anything is wrong.
+    #
+    # `qty_cash` likewise defaulted to 930, a superseded figure.
+    cfg_path = os.path.join(HERE, "config.json")
+    try:
+        cfg = json.load(open(cfg_path))
+    except (OSError, ValueError) as exc:
+        print(json.dumps({
+            "error": f"cannot read the cost model from {optdir}/config.json: {exc}. "
+                     "Refusing to guess — a wrong cost model silently changes every metric.",
+        }))
+        return
+
+    missing = [k for k in ("initialCapital", "commissionPct", "slippageTicks") if k not in cfg]
+    if missing:
+        print(json.dumps({
+            "error": f"{optdir}/config.json is missing {', '.join(missing)}. "
+                     "Refusing to substitute defaults.",
+        }))
+        return
+
+    qty_cash = float(full.get("qty_cash") or cfg.get("qtyCash") or 0)
     props = {
-        "initialCapital": 1000,
+        "initialCapital": cfg["initialCapital"],
         "qtyCash": qty_cash,
         "qtyType": "percent_of_equity" if qty_pct > 0 else "cash",
         "qtyValue": qty_pct if qty_pct > 0 else qty_cash,
-        "commissionPct": 0.1,
-        "slippageTicks": 0,
+        "commissionPct": cfg["commissionPct"],
+        "slippageTicks": cfg["slippageTicks"],
+        # Named, so a reproduced number can be checked against the right tree.
+        "sourceTree": optdir,
     }
     print(json.dumps({
         "orig": orig,

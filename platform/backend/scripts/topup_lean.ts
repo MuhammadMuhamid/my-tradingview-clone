@@ -10,6 +10,7 @@ import path from "node:path";
 import { ensureCandles } from "../src/data/binanceRest";
 import { closePool } from "../src/db/pool";
 import * as candleRepo from "../src/repositories/candles";
+import { checkSeries } from "../src/data/candleSeries";
 import type { Interval } from "../src/types/market";
 
 const DAY = 86_400_000;
@@ -31,7 +32,49 @@ async function main(): Promise<void> {
       const existing = await candleRepo.getCandles(symbol, interval, { from: now - 400 * DAY, to: now });
       const last = existing.length ? existing[existing.length - 1]!.openTime : now - 400 * DAY;
       const staleDays = (now - last) / DAY;
-      if (staleDays < 0.05) { console.log(`${symbol} ${interval}: current`); ok++; continue; }
+
+      /*
+       * OPT-12: this checked ONLY the newest bar, so a feed with a hole in the
+       * middle reported "current" forever — and every rolling indicator
+       * computed over a silently compressed timeline (the same defect as
+       * BE-14, on the research side).
+       *
+       * The interior is checked too now, and a gap is repaired even when the
+       * tail is up to date.
+       */
+      const check = checkSeries(existing, interval);
+      const missing = check.gaps.reduce((n, g) => n + g.missingBars, 0);
+      if (staleDays < 0.05 && missing === 0) {
+        console.log(`${symbol} ${interval}: current, contiguous`);
+        ok++;
+        continue;
+      }
+      if (missing > 0) {
+        const worst = check.gaps.reduce((a, b) => (b.missingBars > a.missingBars ? b : a));
+        console.log(
+          `${symbol} ${interval}: ${missing} bar(s) MISSING from the interior ` +
+          `(largest gap ${worst.missingBars} after ` +
+          `${new Date(worst.afterOpenTime).toISOString()}) — repairing`
+        );
+        // Re-request the whole window: a targeted refetch of each gap would be
+        // many small paged calls, and `upsertCandles` is idempotent.
+        try {
+          await ensureCandles(symbol, interval, now - 400 * DAY, now);
+          const after = await candleRepo.getCandles(symbol, interval, { from: now - 400 * DAY, to: now });
+          const still = checkSeries(after, interval).gaps.reduce((n, g) => n + g.missingBars, 0);
+          if (still > 0) {
+            console.log(`${symbol} ${interval}: ${still} bar(s) still missing after refetch`);
+            failed.push(`${symbol} ${interval} (gaps)`);
+          } else {
+            console.log(`${symbol} ${interval}: interior repaired`);
+            ok++;
+          }
+        } catch (err) {
+          console.log(`${symbol} ${interval}: gap repair FAILED: ${(err as Error).message}`);
+          failed.push(`${symbol} ${interval} (gaps)`);
+        }
+        if (staleDays < 0.05) continue;
+      }
       // Re-request from a little before the last stored bar so any partial tail is repaired.
       const from = last - 2 * DAY;
       process.stdout.write(`${symbol} ${interval}: ${staleDays.toFixed(1)}d behind -> `);

@@ -20,11 +20,16 @@ while pgrep -f "lean3y15m/run.ts" >/dev/null 2>&1; do sleep 120; done
 echo "[$(stamp)] 3-year lean test done"
 
 echo "[$(stamp)] ── TEST 1: lean walk-forward, size fixed at 20% ──"
+# OPT-25: `$?` must be captured BEFORE `$(stamp)` runs, because the command
+# substitution resets it — so this always reported "exit 0", including for a
+# run that crashed on its first line.
 npx tsx lean_wf_fixedsize/wf.ts --workers 6 >> lean_wf_fixedsize/wffixed.log 2>&1
-echo "[$(stamp)] test 1 finished (exit $?)"
+rc=$?
+echo "[$(stamp)] test 1 finished (exit $rc)"
 
 echo "[$(stamp)] ── TEST 2: MA+R:R 1h, six-month OOS blocks ──"
 npx tsx wf6m_1h/wf.ts --workers 6 >> wf6m_1h/wf6m.log 2>&1
-echo "[$(stamp)] test 2 finished (exit $?)"
+rc=$?
+echo "[$(stamp)] test 2 finished (exit $rc)"
 
 echo "[$(stamp)] queue complete"
