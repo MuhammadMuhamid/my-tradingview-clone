@@ -104,7 +104,8 @@ export function AlertModal({
                 placeholder={delivery === "3commas" ? "blank = api.3commas.io/signal_bots/webhooks" : "http://your-bot/webhook"} />
             </Row>
             <Row label="Secret">
-              <input value={secret} onChange={(e) => setSecret(e.target.value)} className={box} placeholder="webhook secret" />
+              <input value={secret} onChange={(e) => setSecret(e.target.value)} className={box}
+                placeholder="webhook secret" type="password" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore />
             </Row>
             {delivery === "3commas" && (
               <Row label="Bot UUID">

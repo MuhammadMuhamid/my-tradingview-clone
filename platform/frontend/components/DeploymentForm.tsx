@@ -79,7 +79,8 @@ export function DeploymentForm({
               <TextInput value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder={delivery === "3commas" ? "https://api.3commas.io/signal_bots/webhooks" : "http://your-bot/webhook"} />
             </Field>
             <Field label="Secret">
-              <TextInput value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="bot webhook secret" />
+              <TextInput value={secret} onChange={(e) => setSecret(e.target.value)}
+                placeholder="bot webhook secret" type="password" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore />
             </Field>
             {delivery === "3commas" && (
               <Field label="Bot UUID">

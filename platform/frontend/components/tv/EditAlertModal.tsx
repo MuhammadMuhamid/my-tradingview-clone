@@ -109,7 +109,7 @@ export function EditAlertModal({
               </Row>
               <Row label="Secret">
                 <input value={secret} onChange={(e) => setSecret(e.target.value)} className={box}
-                  placeholder="leave blank to keep the current secret" />
+                  placeholder="leave blank to keep the current secret" type="password" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore />
               </Row>
               {delivery === "3commas" && (
                 <Row label="Bot UUID">

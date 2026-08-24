@@ -4,22 +4,20 @@
  * API call returns 401.
  *
  * The cookie signature is NOT verified here — that is the backend's job with
- * the signing secret. Middleware only checks for presence, so a forged cookie
- * buys a redirect and nothing more.
+ * the signing secret, which must not reach the edge runtime. Presence-only is
+ * therefore intentional: a forged cookie buys a redirect and nothing more, and
+ * every protected byte still comes from the authenticated API.
+ *
+ * Renamed from `middleware.ts`: the `middleware` convention is deprecated in
+ * Next 16 in favour of `proxy`. Same behaviour, same matcher.
  */
 import { NextResponse, type NextRequest } from "next/server";
+import { authEnabled } from "@/lib/authFlag";
 
 const SESSION_COOKIE = "srtrend_session";
 
-/**
- * Opt-in, mirroring the backend: local development runs without credentials
- * configured, and gating the pages there would redirect to a login the
- * backend would not accept.
- */
-const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
-
-export function middleware(req: NextRequest) {
-  if (!AUTH_ENABLED) return NextResponse.next();
+export function proxy(req: NextRequest) {
+  if (!authEnabled()) return NextResponse.next();
   if (req.cookies.get(SESSION_COOKIE)) return NextResponse.next();
 
   const url = req.nextUrl.clone();
