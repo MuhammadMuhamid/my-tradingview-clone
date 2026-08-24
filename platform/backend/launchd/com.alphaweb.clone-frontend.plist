@@ -1,18 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE, not a ready-to-load file (findings OPT-23, BE-30).
+
+  Every path in the shipped version was an absolute path under a different
+  username, so none of these agents could run on any other checkout — and they
+  mixed `/usr/local/bin/node` (Intel Homebrew) with `/opt/homebrew/...`
+  (Apple Silicon), which cannot both be right on one machine.
+
+  Render with:
+
+      platform/scripts/install-launchd.sh <target-dir>
+
+  which fills the checkout, node and postgres placeholders below from this
+  checkout and the tools actually on PATH. Loading a rendered agent is a
+  separate, explicit step; the script never calls launchctl for you.
+-->
 <plist version="1.0"><dict>
   <key>Label</key><string>com.alphaweb.clone-frontend</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/local/bin/node</string>
-    <string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend/node_modules/next/dist/bin/next</string>
+    <string>__NODE_BIN__</string>
+    <string>__CHECKOUT__/platform/frontend/node_modules/next/dist/bin/next</string>
     <string>start</string>
     <string>-H</string><string>127.0.0.1</string>
     <string>-p</string><string>3000</string>
   </array>
-  <key>WorkingDirectory</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend</string>
+  <key>WorkingDirectory</key><string>__CHECKOUT__/platform/frontend</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
-  <key>StandardOutPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend/frontend-service.log</string>
-  <key>StandardErrorPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend/frontend-service-error.log</string>
+  <key>StandardOutPath</key><string>__CHECKOUT__/platform/frontend/frontend-service.log</string>
+  <key>StandardErrorPath</key><string>__CHECKOUT__/platform/frontend/frontend-service-error.log</string>
 </dict></plist>

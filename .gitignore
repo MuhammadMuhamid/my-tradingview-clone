@@ -32,6 +32,7 @@ platform/backend/*/archive/
 platform/backend/*/__pycache__/
 platform/backend/*/SUMMARY.json
 platform/backend/*/.optimizer.pid
+platform/backend/.overnight.pid
 platform/backend/*/service*.log
 platform/backend/*/seeds.json
 # one-off analysis scratch files
@@ -114,3 +115,9 @@ coverage/
 
 # ── local backups ──
 backups/
+
+# ── local agent settings ──
+# `.local` means machine-specific by convention. The tracked copy carried
+# another machine's absolute paths and a TradingView-automation permission set
+# that has no place in this repository (OPT-23, BE-30, TV-01).
+.claude/settings.local.json

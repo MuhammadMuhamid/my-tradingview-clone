@@ -4,7 +4,7 @@
 > **HISTORICAL — superseded in part.** Written 2026-07-17 as a handover, and
 > parts of it no longer describe this checkout. Verified contradictions:
 >
-> - §2 and §8 give absolute paths under `/Users/muhammadmuhamid/…` and name four
+> - §2 and §8 named four
 >   optimizer trees (`optimizer/`, `optimizer5m/`, `sr_optimizer15m/`,
 >   `sr_optimizer5m/`) **that do not exist**. Thirteen different trees do; see
 >   [docs/COST-MODELS.md](docs/COST-MODELS.md). (`OPT-30`, `X-04`)
@@ -43,11 +43,11 @@ deployments, secrets, position state, or AWS as production-sensitive.
 
 Repository root:
 
-`/Users/muhammadmuhamid/Projects/supportandresistance strategy`
+`<checkout>`
 
 Main platform:
 
-`/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform`
+`<checkout>/platform`
 
 Important paths:
 
@@ -283,7 +283,7 @@ Local database runs on port 5433. See `platform/README.md` for complete steps.
 Backend:
 
 ```bash
-cd "/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend"
+cd "<checkout>/platform/backend"
 npm install
 npm run typecheck
 npm test
@@ -293,7 +293,7 @@ npm run build
 Frontend:
 
 ```bash
-cd "/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend"
+cd "<checkout>/platform/frontend"
 npm install
 npm run typecheck
 npm run build
@@ -373,7 +373,7 @@ first unless the user explicitly requests an emergency production repair.
 ```text
 You are continuing development of my production MyTradingView clone. The
 repository is at:
-/Users/muhammadmuhamid/Projects/supportandresistance strategy
+<checkout>
 
 First read CLAUDE_HANDOFF.md completely, then read platform/README.md and
 platform/deployment/aws/README.md. Treat the AWS PostgreSQL database as the

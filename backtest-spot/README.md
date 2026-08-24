@@ -5,7 +5,7 @@
 ## Setup
 
 ```bash
-cd "/Users/muhammadmuhamid/Projects/supportandresistance strategy/backtest-spot"
+cd "<checkout>/backtest-spot"
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt

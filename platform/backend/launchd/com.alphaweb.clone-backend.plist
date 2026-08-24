@@ -25,10 +25,10 @@
 
   To install:
 
-      scripts/install-launchd.sh          # fills the placeholders in, then loads
+      platform/scripts/install-launchd.sh   # fills the placeholders in
 
-  Or by hand: replace __NODE_BIN__ and __CHECKOUT__ below, write the result to
-  ~/Library/LaunchAgents/, and `launchctl load` it. Do not load this file as-is.
+  It renders and stops. Review the result, write it to ~/Library/LaunchAgents/
+  and `launchctl load` it yourself. Do not load this file as-is.
 -->
 <plist version="1.0"><dict>
   <key>Label</key><string>com.alphaweb.clone-backend</string>

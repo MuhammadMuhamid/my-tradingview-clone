@@ -568,7 +568,7 @@ filtLong = (not useMaTrend or maUp)
 
 The complete Pine Script v6 source is included below. File path for local sync:
 
-`/Users/muhammadmuhamid/Projects/supportandresistance strategy/SR_Uptrend_Strategy.pine`
+`<checkout>/SR_Uptrend_Strategy.pine`
 
 ```pine
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
