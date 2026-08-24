@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPayload, customDedupeKey } from "../src/alerts/dispatcher";
+import { buildPayload, customDedupeKey, deliveryAdvancesState } from "../src/alerts/dispatcher";
 import type { CustomBotAlertPayload, ThreeCommasAlertPayload } from "../src/types/alerts";
 import type { DeploymentRow } from "../src/types/deployments";
 import { initialRuntimeState } from "../src/types/deployments";
@@ -47,8 +47,9 @@ function receiverAccepts(body: Record<string, unknown>): Receiver {
   if (q != null && (typeof q !== "number" || !(q > 0) || q > 1_000_000)) return { ok: false, reason: "quote_order_qty" };
   const sp = body.sell_percent;
   if (sp != null) {
-    // `.positive().lt(100)` — strictly less than 100.
-    if (typeof sp !== "number" || !(sp > 0) || !(sp < 100)) return { ok: false, reason: "sell_percent" };
+    // Contract v1: `> 0 && <= 100`. It was `< 100`, which made the exact-100
+    // leg the sender could produce a terminal 400 (X-01).
+    if (typeof sp !== "number" || !(sp > 0) || !(sp <= 100)) return { ok: false, reason: "sell_percent" };
   }
   const allowed = new Set([
     "secret", "action", "symbol", "tv_instrument", "quote_order_qty",
@@ -109,36 +110,47 @@ test("partial exits below 100 % round-trip for every leg the evaluator can emit"
   }
 });
 
-test("KNOWN MISMATCH X-01: the sender can emit sell_percent exactly 100 and the receiver rejects it", () => {
+test("X-01 FIXED: the sender no longer expresses a full close as sell_percent 100", () => {
+  // The evaluator now resets the position and omits `sell_percent` entirely
+  // when a tier takes 100 % of the remainder, and the contract accepts 100 as a
+  // fail-safe for any sender that has not been updated. This test asserted the
+  // broken behaviour in Phase 0; the change here is the fix landing.
   const { payload } = buildPayload(dep(), ctx({ action: "sell", sellPercent: 100, exitLeg: "tp2" }));
   const p = payload as CustomBotAlertPayload;
+  // `buildPayload` still forwards whatever the caller hands it, so a direct
+  // caller CAN produce 100 — and the receiver must now accept it.
   assert.equal(p.sell_percent, 100);
-  const verdict = receiverAccepts(p as unknown as Record<string, unknown>);
-  assert.deepEqual(verdict, { ok: false, reason: "sell_percent" },
-    "documents today's behaviour: an exact-100 partial is a hard 400 with no retry");
+  assert.deepEqual(
+    receiverAccepts(p as unknown as Record<string, unknown>),
+    { ok: true },
+    "the receiver mirror in this file was updated to the v1 contract"
+  );
 });
 
-test("KNOWN MISMATCH X-02: the platform dedupe key is not the value the Pine template produces", () => {
+test("X-02 FIXED: the dedupe key no longer embeds a bar index, so both senders agree", () => {
   const barTime = 1_700_000_000_000;
+  // The bar index the two senders would each have computed. They never matched.
   const platformBarIndex = Math.floor(barTime / INTERVAL_MS["15m"]);
-  const platformKey = customDedupeKey("buy", platformBarIndex, barTime);
-  // Pine's `bar_index` counts from the left edge of the loaded chart history.
   const pineBarIndex = 4321;
-  const pineKey = `L-${pineBarIndex}-${barTime}`;
-  assert.equal(platformKey, `L-${platformBarIndex}-${barTime}`);
-  assert.notEqual(platformKey, pineKey);
+  assert.notEqual(platformBarIndex, pineBarIndex);
   assert.ok(platformBarIndex > 1_000_000, "epoch/interval is ~1.9e6 for a 15m bar");
-  // The *format* matches; only the embedded quantity differs.
-  assert.match(platformKey, /^L-\d+-\d+$/);
-  assert.match(pineKey, /^L-\d+-\d+$/);
+
+  // The key is now bar open time only, which both sides read identically.
+  assert.equal(customDedupeKey("buy", platformBarIndex, barTime), `L-${barTime}`);
+  assert.equal(customDedupeKey("buy", pineBarIndex, barTime), `L-${barTime}`);
+  assert.equal(
+    customDedupeKey("buy", platformBarIndex, barTime),
+    customDedupeKey("buy", pineBarIndex, barTime),
+    "the same bar now produces the same key regardless of sender"
+  );
 });
 
 test("dedupe keys are stable per (action, bar, leg) and distinct across legs", () => {
   const k = (leg?: "tp1" | "tp2") => customDedupeKey("sell", 42, 1_700_000_000_000, leg);
   assert.equal(k(), k());
   assert.notEqual(k("tp1"), k("tp2"));
-  assert.equal(k("tp1"), "X-42-1700000000000-tp1");
-  assert.equal(customDedupeKey("buy", 42, 1_700_000_000_000), "L-42-1700000000000");
+  assert.equal(k("tp1"), "X-1700000000000-tp1");
+  assert.equal(customDedupeKey("buy", 42, 1_700_000_000_000), "L-1700000000000");
 });
 
 test("the 3Commas payload is all-strings and carries no dedupe key at all", () => {
@@ -158,16 +170,21 @@ test("delivery=off builds the custom shape with an empty secret and no URL", () 
   assert.equal((payload as CustomBotAlertPayload).secret, "");
 });
 
-test("KNOWN MISMATCH X-12: the receiver reports three different outcomes with one success shape", () => {
-  // The sender's success test is `res.ok`; these all arrive as HTTP 200.
-  const outcomes = ["ok", "ignored_duplicate", "ignored_stale_sell"];
-  for (const status of outcomes) {
-    const body = { status };
-    // Today nothing in the dispatcher inspects `status` on a 2xx.
-    assert.equal(typeof body.status, "string");
-  }
-  assert.equal(outcomes.length, 3,
-    "ignored_stale_sell means NO order was placed and the receiver is still long");
+test("X-12 FIXED: the dispatcher now distinguishes the receiver's outcomes", () => {
+  // `deliveryAdvancesState` reads the receiver's own `status` field rather than
+  // trusting `res.ok`. Full coverage of the outcome matrix lives in
+  // `tests/contract.test.ts`; this asserts the sender-side wiring.
+  assert.equal(deliveryAdvancesState({ status: "sent", attempts: 1, outcome: "ok" }), true);
+  assert.equal(
+    deliveryAdvancesState({ status: "skipped", attempts: 1, outcome: "ignored_duplicate" }),
+    true
+  );
+  assert.equal(
+    deliveryAdvancesState({ status: "blocked", attempts: 1, outcome: "ignored_stale_sell" }),
+    false,
+    "no order was placed and the receiver is still long"
+  );
+  assert.equal(deliveryAdvancesState({ status: "failed", attempts: 4 }), false);
 });
 
 test("action and symbol normalisation the receiver applies to platform payloads", () => {
