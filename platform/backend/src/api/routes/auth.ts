@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { config } from "../../config";
+import { clientKey, loginLimiter } from "../../security/rateLimit";
 import {
   SESSION_COOKIE, clearCookie, readCookie, safeEqual, sessionCookie,
   signSession, verifyPassword, verifySession,
@@ -14,7 +15,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/auth/me", async (req) => {
     if (!config.authEnabled) return { authenticated: true, username: null, authEnabled: false };
     const token = readCookie(req.headers.cookie, SESSION_COOKIE);
-    const claims = token ? verifySession(token, config.sessionSecret) : null;
+    const claims = token
+      ? verifySession(token, config.sessionSecret, { expectedUsername: config.adminUsername })
+      : null;
     return {
       authenticated: !!claims,
       username: claims?.username ?? null,
@@ -37,6 +40,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       req.log.warn({ ip: req.ip }, "failed sign-in attempt");
       return reply.code(401).send({ error: "Incorrect username or password" });
     }
+    // A user who signs in correctly should not be locked out by earlier typos.
+    loginLimiter.reset(clientKey(req.ip, req.headers["x-forwarded-for"], config.trustProxy));
     reply.header(
       "set-cookie",
       sessionCookie(signSession(username, config.sessionSecret), config.cookieSecure)
