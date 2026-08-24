@@ -116,6 +116,18 @@ export default function AlertsPage() {
             Price levels and moving averages, evaluated server-side and pushed to your devices —
             the chart does not need to be open.
           </p>
+          {/*
+            These alerts NOTIFY. They cannot reach a deployment, a broker or an
+            order, and that separation is asserted over the alert runner's whole
+            transitive import graph in tests/alertIsolation.test.ts. Saying so
+            here is what stops the two surfaces being "unified" later by someone
+            who reasonably assumes an alert is an alert.
+          */}
+          <p className="text-xs text-ink-faint">
+            These notify only. Strategy automations that place orders live on{" "}
+            <a href="/deployments" className="underline hover:text-ink">Live trading</a>, and their
+            delivery health is on <a href="/operations" className="underline hover:text-ink">Operations</a>.
+          </p>
         </div>
         <div className="w-full sm:w-[320px]">
           <PushSetup onMessage={setToast} />
