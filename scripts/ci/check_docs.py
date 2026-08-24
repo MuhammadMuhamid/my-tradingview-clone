@@ -160,8 +160,120 @@ def check_referenced_paths() -> None:
                     fail(f"{rel}:{i} references '{candidate}' which does not exist")
 
 
+# ── 4: a documented search space must match the params.json it describes ─────
+
+
+def space_size(tree: pathlib.Path) -> tuple[int, int] | None:
+    """(parameter count, combination count) read from a tree's params.json."""
+    params = tree / "params.json"
+    if not params.exists():
+        return None
+    try:
+        parameters = json.loads(params.read_text())["parameters"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        fail(f"{tree.name}/params.json has no readable `parameters` list")
+        return None
+    combos = 1
+    for p in parameters:
+        combos *= max(1, len(p.get("values") or []))
+    return len(parameters), combos
+
+
+DOC_TUNABLES = re.compile(r"\*\*(?P<n>\d+) tunables kept", re.M)
+DOC_COMBOS = re.compile(r"Space is \*\*(?P<n>[\d,]+)\*\* combinations", re.M)
+
+
+def check_documented_space() -> None:
+    """OPT-15: `PARAMETER_REDUCTION.md` said 7 tunables and 185,220 combinations.
+
+    Measured from `params.json`: 8 and 370,440 — `useSuperTrend` was restored to
+    the search and the document was never updated. The figures are recomputed
+    here so the two cannot drift apart again.
+    """
+    for doc in sorted(TREES.glob("*/PARAMETER_REDUCTION.md")):
+        tree = doc.parent
+        actual = space_size(tree)
+        if actual is None:
+            fail(f"{tree.name}/PARAMETER_REDUCTION.md exists but the tree has no params.json")
+            continue
+        n_params, n_combos = actual
+        text = doc.read_text()
+        m = DOC_TUNABLES.search(text)
+        if not m:
+            fail(f"{tree.name}/PARAMETER_REDUCTION.md must state '**N tunables kept**'")
+        elif int(m.group("n")) != n_params:
+            fail(f"{tree.name}/PARAMETER_REDUCTION.md says {m.group('n')} tunables, "
+                 f"params.json has {n_params}")
+        m = DOC_COMBOS.search(text)
+        if not m:
+            fail(f"{tree.name}/PARAMETER_REDUCTION.md must state 'Space is **N** combinations'")
+        elif int(m.group("n").replace(",", "")) != n_combos:
+            fail(f"{tree.name}/PARAMETER_REDUCTION.md says {m.group('n')} combinations, "
+                 f"params.json has {n_combos:,}")
+
+
+# ── 5: a walk-forward tree must say whether it validates the live space ──────
+
+
+def check_walkforward_space() -> None:
+    """OPT-02: `lean_wf_15m/config.json` claimed its search space was 'exactly as
+    lean_optimizer15m has it (qty_pct_equity still searched)'. Both halves were
+    false — 30 parameters against 18, and the production tree pins
+    `qty_pct_equity` to 0 — so the current production space had no walk-forward
+    evidence at all and nothing said so.
+
+    Each walk-forward tree therefore declares `spaceDivergesFromProduction`, and
+    that claim is recomputed here against the two `params.json` files.
+    """
+    trees = {}
+    for meta_path in sorted(TREES.glob("*/tree.json")):
+        try:
+            trees[meta_path.parent.name] = json.loads(meta_path.read_text())
+        except json.JSONDecodeError:
+            continue   # reported by check_tree_registry
+    production = {
+        (m["strategy"], m["timeframe"]): name
+        for name, m in trees.items() if m.get("kind") == "search"
+    }
+    for name, meta in trees.items():
+        if meta.get("kind") != "walk-forward":
+            continue
+        declared = meta.get("spaceDivergesFromProduction")
+        if declared is None:
+            fail(f"{name}/tree.json must declare `spaceDivergesFromProduction` (OPT-02)")
+            continue
+        counterpart = production.get((meta["strategy"], meta["timeframe"]))
+        if counterpart is None:
+            fail(f"{name} is a walk-forward for {meta['strategy']} {meta['timeframe']}, "
+                 "which has no production search tree")
+            continue
+
+        def names(tree_name: str) -> set[str] | None:
+            f = TREES / tree_name / "params.json"
+            if not f.exists():
+                return None
+            try:
+                return {p["name"] for p in json.loads(f.read_text())["parameters"]}
+            except (json.JSONDecodeError, KeyError, TypeError):
+                return None
+
+        mine, theirs = names(name), names(counterpart)
+        if mine is None or theirs is None:
+            fail(f"cannot compare {name} with {counterpart}: a params.json is missing or unreadable")
+            continue
+        actually_diverges = mine != theirs
+        if actually_diverges != bool(declared):
+            fail(
+                f"{name}/tree.json says spaceDivergesFromProduction={declared}, but its space "
+                f"{'differs from' if actually_diverges else 'matches'} {counterpart} "
+                f"({len(mine)} vs {len(theirs)} parameters)"
+            )
+
+
 check_cost_models()
 check_tree_registry()
+check_documented_space()
+check_walkforward_space()
 check_referenced_paths()
 
 if failures:

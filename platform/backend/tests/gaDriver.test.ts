@@ -19,8 +19,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  Driver, coinSeed, resumeFromResults, restoreRngState, saveRngState, scoreMetrics,
-  type ParamDef,
+  Driver, buildRunManifest, coinSeed, recordRunManifest, repoRevision, resumeFromResults,
+  restoreRngState, saveRngState, scoreMetrics, type ParamDef,
 } from "../src/optimizer/gaDriver";
 
 // ── The ORIGINAL, copied verbatim from lean_optimizer15m/optimizer.ts ────────
@@ -302,4 +302,65 @@ test("a chunk boundary in the middle of a line does not lose or duplicate a row"
   const driver = new Driver(SPACE, CFG, 42);
   const { replayed } = resumeFromResults(file, driver);
   assert.equal(replayed, 6000, "a row was lost or duplicated at a chunk boundary");
+});
+
+// ── OPT-08: provenance ──────────────────────────────────────────────────────
+
+test("a run manifest hashes every input, so a changed search space changes its id", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ga-tree-"));
+  fs.writeFileSync(path.join(dir, "params.json"), JSON.stringify({ parameters: SPACE }));
+  fs.writeFileSync(path.join(dir, "base_params.json"), JSON.stringify({ qty_cash: 1000 }));
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ timeframe: "15m" }));
+  fs.writeFileSync(path.join(dir, "coins.txt"), "DEXEUSDT\nZECUSDT\n");
+
+  const info = { objective: { min_trades: 50 }, search: CFG, coins: ["DEXEUSDT"], roundSize: 50 };
+  const a = buildRunManifest(dir, info);
+  const b = buildRunManifest(dir, info);
+  assert.equal(a.id, b.id, "identical inputs must produce the same run id");
+  assert.notEqual(a.startedAt, undefined);
+  assert.equal(a.inputs["params.json"]!.length, 32);
+  // A file the tree does not have is recorded as absent, not omitted.
+  assert.equal(a.inputs["seeds.json"], null);
+
+  fs.writeFileSync(path.join(dir, "base_params.json"), JSON.stringify({ qty_cash: 930 }));
+  assert.notEqual(buildRunManifest(dir, info).id, a.id, "a changed input must change the id");
+
+  assert.notEqual(
+    buildRunManifest(dir, { ...info, objective: { min_trades: 30 } }).id, a.id,
+    "a changed objective must change the id"
+  );
+  assert.notEqual(
+    buildRunManifest(dir, { ...info, coins: ["ZECUSDT"] }).id, a.id,
+    "a changed coin list must change the id"
+  );
+});
+
+test("the manifest is appended, so a tree's run history accumulates", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ga-tree-"));
+  const info = { objective: {}, search: {}, coins: ["A"], roundSize: 1 };
+  const first = recordRunManifest(dir, buildRunManifest(dir, info));
+  const second = recordRunManifest(dir, buildRunManifest(dir, { ...info, coins: ["B"] }));
+  assert.notEqual(first, second);
+  const lines = fs.readFileSync(path.join(dir, "index", "runs.jsonl"), "utf8")
+    .trim().split("\n").map((l) => JSON.parse(l) as { id: string; tree: string });
+  assert.equal(lines.length, 2);
+  assert.deepEqual(lines.map((l) => l.id), [first, second]);
+  assert.equal(lines[0]!.tree, path.basename(dir));
+});
+
+test("the engine revision is read from .git without shelling out", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ga-repo-"));
+  const nested = path.join(repo, "platform", "backend", "sometree");
+  fs.mkdirSync(nested, { recursive: true });
+  fs.mkdirSync(path.join(repo, ".git", "refs", "heads"), { recursive: true });
+  fs.writeFileSync(path.join(repo, ".git", "HEAD"), "ref: refs/heads/main\n");
+  fs.writeFileSync(path.join(repo, ".git", "refs", "heads", "main"), "abc123def456\n");
+  assert.equal(repoRevision(nested), "abc123def456");
+
+  // A detached HEAD is the revision itself.
+  fs.writeFileSync(path.join(repo, ".git", "HEAD"), "cafebabe0000\n");
+  assert.equal(repoRevision(nested), "cafebabe0000");
+
+  // Outside a repository this is null, not a thrown error.
+  assert.equal(repoRevision(os.tmpdir()), null);
 });

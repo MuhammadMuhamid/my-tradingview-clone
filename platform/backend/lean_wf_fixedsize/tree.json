@@ -5,5 +5,7 @@
   "system": "one-year",
   "kind": "walk-forward",
   "status": "historical",
-  "label": "MTF Confluence Lean \u00b7 15m \u00b7 walk-forward, size fixed at 20% (historical)"
+  "label": "MTF Confluence Lean \u00b7 15m \u00b7 walk-forward, size fixed at 20% (historical)",
+  "spaceDivergesFromProduction": true,
+  "note": "Searches 29 parameters against lean_optimizer15m's 18, at a position size fixed to 20% of equity. Historical A/B, not a validation of the current space (OPT-02)."
 }

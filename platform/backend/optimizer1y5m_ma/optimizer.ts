@@ -24,7 +24,8 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import type { ParamDef } from "../src/optimizer/gaDriver";
 import {
-  Driver, coinSeed, resumeFromResults, restoreRngState, saveRngState, scoreMetrics,
+  Driver, buildRunManifest, coinSeed, recordRunManifest, resumeFromResults,
+  restoreRngState, saveRngState, scoreMetrics,
 } from "../src/optimizer/gaDriver";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -192,6 +193,15 @@ async function main(): Promise<void> {
   const nWorkers = Math.max(1, Number(config.workers) || os.cpus().length - 2);
   console.log(`optimizer: ${coins.length} coins, ${nWorkers} workers, round=${roundSize}, daemon=${daemon}`);
 
+  // OPT-08: every result this process writes carries this run's id, and the
+  // manifest records the content hash of every input file, so a stored number
+  // can be tied to the exact search space, objective and engine that produced
+  // it. A record with no `run` field predates this and cannot be.
+  const runId = recordRunManifest(
+    HERE, buildRunManifest(HERE, { objective, search, coins, roundSize })
+  );
+  console.log(`run ${runId} — inputs hashed into ${path.join("index", "runs.jsonl")}`);
+
   const workers: Worker[] = [];
   const idle: Worker[] = [];
   const waiting: ((w: Worker) => void)[] = [];
@@ -267,7 +277,7 @@ async function main(): Promise<void> {
           try {
             const m = await runJob(w, job);
             const s = scoreMetrics(m, objective);
-            const extra: Record<string, unknown> = {};
+            const extra: Record<string, unknown> = { run: runId };
             if (seed) {
               extra.seed = true;
               extra.note = seed.note;
@@ -299,7 +309,8 @@ async function main(): Promise<void> {
     }
     rows.sort((a, b) => ((b.score as number) ?? -1e18) - ((a.score as number) ?? -1e18));
     fs.writeFileSync(path.join(HERE, "SUMMARY.json"), JSON.stringify({
-      generated_utc: new Date().toISOString(), timeframe: config.timeframe, leaderboard: rows,
+      generated_utc: new Date().toISOString(), run: runId,
+      timeframe: config.timeframe, leaderboard: rows,
     }, null, 1));
     const dt = (Date.now() - t0) / 1000;
     console.log(`round ${round} done: ${evals} evals in ${dt.toFixed(0)}s (${(evals / dt).toFixed(1)}/s)`);

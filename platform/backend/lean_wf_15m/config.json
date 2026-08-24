@@ -1,58 +1,58 @@
 {
-  "_comment": "Walk-forward validation of MTF Confluence Lean, 15m chart. Anchored (expanding) training windows, contiguous 2-month out-of-sample blocks. Training never sees a bar at or after its fold testStart. BASELINE RUN: the search space is left exactly as lean_optimizer15m has it (qty_pct_equity still searched) so this measures the CURRENT procedure end-to-end. Cost model is the one change: 2 ticks slippage, applied identically in train and test.",
-  "feedRange": {
-    "start": "2024-07-10T00:00:00Z",
-    "end": "2026-07-30T23:59:59Z"
+ "_comment": "Walk-forward validation of MTF Confluence Lean, 15m chart. Anchored (expanding) training windows, contiguous 2-month out-of-sample blocks. Training never sees a bar at or after its fold testStart. CORRECTED 2026-08-24 (OPT-02): this previously claimed 'the search space is left exactly as lean_optimizer15m has it (qty_pct_equity still searched) so this measures the CURRENT procedure end-to-end'. Both halves are false, measured from the two params.json files: this tree searches 30 parameters INCLUDING qty_pct_equity, while lean_optimizer15m searches 18 and pins qty_pct_equity to 0. These folds do NOT measure the current procedure, and the current production space has no walk-forward evidence at all. The folds are kept as historical evidence of the procedure that was replaced; re-pointing the space requires a re-run, which needs the market data and compute this checkout does not have. Cost model is the one change: 2 ticks slippage, applied identically in train and test.",
+ "feedRange": {
+  "start": "2024-07-10T00:00:00Z",
+  "end": "2026-07-30T23:59:59Z"
+ },
+ "initialCapital": 1000,
+ "commissionPct": 0.1,
+ "slippageTicks": 2,
+ "timeframe": "15m",
+ "workers": 6,
+ "evalsPerCoinPerFold": 12000,
+ "minTrainMonths": 6,
+ "folds": [
+  {
+   "id": "F1",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2025-08-01T00:00:00Z",
+   "testStart": "2025-08-01T00:00:00Z",
+   "testEnd": "2025-10-01T00:00:00Z"
   },
-  "initialCapital": 1000,
-  "commissionPct": 0.1,
-  "slippageTicks": 2,
-  "timeframe": "15m",
-  "workers": 6,
-  "evalsPerCoinPerFold": 12000,
-  "minTrainMonths": 6,
-  "folds": [
-    {
-      "id": "F1",
-      "trainStart": "2024-08-01T00:00:00Z",
-      "trainEnd": "2025-08-01T00:00:00Z",
-      "testStart": "2025-08-01T00:00:00Z",
-      "testEnd": "2025-10-01T00:00:00Z"
-    },
-    {
-      "id": "F2",
-      "trainStart": "2024-08-01T00:00:00Z",
-      "trainEnd": "2025-10-01T00:00:00Z",
-      "testStart": "2025-10-01T00:00:00Z",
-      "testEnd": "2025-12-01T00:00:00Z"
-    },
-    {
-      "id": "F3",
-      "trainStart": "2024-08-01T00:00:00Z",
-      "trainEnd": "2025-12-01T00:00:00Z",
-      "testStart": "2025-12-01T00:00:00Z",
-      "testEnd": "2026-02-01T00:00:00Z"
-    },
-    {
-      "id": "F4",
-      "trainStart": "2024-08-01T00:00:00Z",
-      "trainEnd": "2026-02-01T00:00:00Z",
-      "testStart": "2026-02-01T00:00:00Z",
-      "testEnd": "2026-04-01T00:00:00Z"
-    },
-    {
-      "id": "F5",
-      "trainStart": "2024-08-01T00:00:00Z",
-      "trainEnd": "2026-04-01T00:00:00Z",
-      "testStart": "2026-04-01T00:00:00Z",
-      "testEnd": "2026-06-01T00:00:00Z"
-    },
-    {
-      "id": "F6",
-      "trainStart": "2024-08-01T00:00:00Z",
-      "trainEnd": "2026-06-01T00:00:00Z",
-      "testStart": "2026-06-01T00:00:00Z",
-      "testEnd": "2026-07-30T00:00:00Z"
-    }
-  ]
+  {
+   "id": "F2",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2025-10-01T00:00:00Z",
+   "testStart": "2025-10-01T00:00:00Z",
+   "testEnd": "2025-12-01T00:00:00Z"
+  },
+  {
+   "id": "F3",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2025-12-01T00:00:00Z",
+   "testStart": "2025-12-01T00:00:00Z",
+   "testEnd": "2026-02-01T00:00:00Z"
+  },
+  {
+   "id": "F4",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2026-02-01T00:00:00Z",
+   "testStart": "2026-02-01T00:00:00Z",
+   "testEnd": "2026-04-01T00:00:00Z"
+  },
+  {
+   "id": "F5",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2026-04-01T00:00:00Z",
+   "testStart": "2026-04-01T00:00:00Z",
+   "testEnd": "2026-06-01T00:00:00Z"
+  },
+  {
+   "id": "F6",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2026-06-01T00:00:00Z",
+   "testStart": "2026-06-01T00:00:00Z",
+   "testEnd": "2026-07-30T00:00:00Z"
+  }
+ ]
 }

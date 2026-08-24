@@ -5,5 +5,7 @@
   "system": "one-year",
   "kind": "walk-forward",
   "status": "historical",
-  "label": "MA + R:R v9 \u00b7 15m \u00b7 walk-forward (historical)"
+  "label": "MA + R:R v9 \u00b7 15m \u00b7 walk-forward (historical)",
+  "spaceDivergesFromProduction": true,
+  "note": "Searches the pre-reduction 31-parameter space; optimizer1y15m was reduced to 8 on 2026-08-21. These folds validate a procedure that was replaced (OPT-02)."
 }

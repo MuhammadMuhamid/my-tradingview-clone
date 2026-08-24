@@ -6,5 +6,6 @@
   "kind": "walk-forward",
   "status": "historical",
   "label": "MTF Confluence Lean \u00b7 15m \u00b7 walk-forward (historical)",
-  "note": "Validates a 30-parameter space including qty_pct_equity; the production tree searches 18 and pins qty_pct_equity to 0. These folds do not validate the current production space (OPT-02)."
+  "note": "Searches 30 parameters including qty_pct_equity; lean_optimizer15m searches 18 and pins qty_pct_equity to 0. Its own config.json claimed the spaces were identical \u2014 both halves were false. The current production space therefore has NO walk-forward evidence (OPT-02).",
+  "spaceDivergesFromProduction": true
 }

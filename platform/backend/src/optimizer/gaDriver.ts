@@ -234,3 +234,118 @@ export function saveRngState(treeDir: string, coin: string, driver: Driver): voi
     // A tree on a read-only mount still runs; it just loses restart determinism.
   }
 }
+
+// ── OPT-08: make a result traceable to the inputs that produced it ───────────
+
+/**
+ * `OPT-08`: none of the reported results were reproducible or auditable from
+ * the repository. `results/`, `best/`, `index/`, `archive/`, `SUMMARY.json` and
+ * `seeds.json` are gitignored — correctly, they run to tens of gigabytes — so
+ * every eval count in `BACKTESTING_SYSTEMS.md` was unverifiable, and
+ * `PARAMETER_REDUCTION.md` cites an archive that is not in the repository at
+ * all. Compounded by the trees having no Git history of their own.
+ *
+ * What is fixable here is the other half: making a stored result traceable to
+ * the exact inputs that produced it. Every round writes a manifest recording
+ * the content hash of every input file, the objective, the search settings, the
+ * coin list, the engine revision and the runtime — and every result record
+ * carries that manifest's id. A number from a run whose manifest is present can
+ * be tied to its search space; one from before this change cannot, and the
+ * absence of a `run` field says so.
+ */
+export interface RunManifest {
+  id: string;
+  tree: string;
+  startedAt: string;
+  /** sha256 of each input file, so a changed search space is visible. */
+  inputs: Record<string, string | null>;
+  objective: Record<string, number>;
+  search: Record<string, number | string>;
+  coins: string[];
+  roundSize: number;
+  engine: { node: string; revision: string | null };
+}
+
+function sha256File(file: string): string | null {
+  try {
+    // Loaded lazily: this module is imported by the API, which has no reason to
+    // pull in crypto for a code path only the optimizer trees use.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createHash } = require("node:crypto") as typeof import("node:crypto");
+    return createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 32);
+  } catch {
+    return null;
+  }
+}
+
+/** The checked-out revision, read from `.git` without shelling out. */
+export function repoRevision(fromDir: string): string | null {
+  let dir = path.resolve(fromDir);
+  for (let up = 0; up < 8; up += 1) {
+    const gitDir = path.join(dir, ".git");
+    try {
+      const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+      if (head.startsWith("ref: ")) {
+        const ref = head.slice(5).trim();
+        try {
+          return fs.readFileSync(path.join(gitDir, ref), "utf8").trim();
+        } catch {
+          // A packed ref; the HEAD name is still better than nothing.
+          return ref;
+        }
+      }
+      return head;
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  return null;
+}
+
+export function buildRunManifest(
+  treeDir: string,
+  info: {
+    objective: Record<string, number>;
+    search: Record<string, number | string>;
+    coins: string[];
+    roundSize: number;
+    startedAt?: string;
+  }
+): RunManifest {
+  const inputs: Record<string, string | null> = {};
+  for (const name of ["params.json", "base_params.json", "config.json", "coins.txt", "idmap.json", "seeds.json", "evalWorker.ts"]) {
+    const file = path.join(treeDir, name);
+    inputs[name] = fs.existsSync(file) ? sha256File(file) : null;
+  }
+  const manifest: Omit<RunManifest, "id"> = {
+    tree: path.basename(treeDir),
+    startedAt: info.startedAt ?? new Date().toISOString(),
+    inputs,
+    objective: info.objective,
+    search: info.search,
+    coins: info.coins,
+    roundSize: info.roundSize,
+    engine: { node: process.version, revision: repoRevision(treeDir) },
+  };
+  // The id covers everything EXCEPT the timestamp, so two runs over identical
+  // inputs share an id and a changed search space produces a different one.
+  const { startedAt: _ignored, ...identity } = manifest;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createHash } = require("node:crypto") as typeof import("node:crypto");
+  const id = createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0, 16);
+  return { id, ...manifest };
+}
+
+/** Append the manifest to the tree's run log. Returns its id. */
+export function recordRunManifest(treeDir: string, manifest: RunManifest): string {
+  const file = path.join(treeDir, "index", "runs.jsonl");
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify(manifest) + "\n");
+  } catch {
+    // A read-only tree still runs; it just cannot record its provenance.
+  }
+  return manifest.id;
+}

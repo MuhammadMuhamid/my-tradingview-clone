@@ -66,6 +66,23 @@ prevented is a configuration reaching production because nobody could tell
 different window than the one now frozen, because a holdout that moves is not a
 holdout (`OPT-18`).
 
+### The gate is now wired into the deploy path
+
+`platform/deployment/aws/lib/holdoutGate.mjs` enforces it in all four
+`replace_*.mjs`. **Absence of a holdout result is a refusal, not a pass.** The
+frozen window and the thresholds come from the deploy artifact, not from the
+deploy invocation, so a window cannot be chosen to fit; one uncleared coin
+refuses the whole portfolio, because those scripts replace it as a set.
+
+A deliberate override exists — `HOLDOUT_GATE=off` **together with**
+`HOLDOUT_OVERRIDE_REASON`, both printed prominently — because the failure being
+prevented is silent passage, not a considered decision by the owner.
+
+**No current artifact carries a holdout block, so those scripts will refuse
+until one is scored.** The refusal names the exact fields to add. Producing the
+score requires running a tree over the frozen window, which needs the market
+data and database this checkout does not have.
+
 ### What is NOT in place
 
 Nothing has been re-selected, and no tree has been re-run. Those are explicitly
@@ -190,12 +207,31 @@ repository can be reproduced from source.** Labelling those documents honestly
 is the only remedy available without the data, and that is what the status
 banners on them do.
 
-Separately, `OPT-06` records that the GA is not deterministic across restarts —
-it seeds from `random_seed + (h % 1000)` and `loadDriver` is called inside
-`coinTask`, replaying history through `tell()` without advancing the RNG — so
-the documented `random_seed: 42` does not make a run reproducible even with the
-data present. `platform/backend/lean_wf_15m/wf.ts` by contrast **is** deterministic, and is the
-model to follow.
+`OPT-08` is half-fixed, and the half that is fixed is the half that could be.
+The generated data stays out of the repository — it runs to tens of gigabytes —
+so a clone still cannot re-derive a historical number. What a clone CAN now do
+is tie a result to its inputs: from 2026-08-24 every round writes
+`<tree>/index/runs.jsonl` recording the content hash of `params.json`,
+`base_params.json`, `config.json`, `coins.txt`, `idmap.json`, `seeds.json` and
+`evalWorker.ts`, plus the objective, the coin list, the node version and the
+checked-out revision — and every result record carries that run's id. **A result
+with no `run` field predates this and cannot be tied to a search space.** That
+is every result currently on disk.
+
+`OPT-06` — the GA was not deterministic across restarts. It seeds from
+`random_seed + (h % 1000)`, and resuming replays the whole history through
+`tell()`, which does not advance the RNG: a process resuming at evaluation
+10,000 started from the same RNG state as a fresh one, while a process that had
+run continuously to 10,000 was somewhere else entirely. The documented
+`random_seed: 42` therefore did not make a run reproducible even with the data
+present.
+
+**Fixed.** The RNG state is persisted beside the results and restored on resume,
+so a resumed run continues exactly where it stopped;
+`platform/backend/tests/gaDriver.test.ts` shows a resumed driver reproducing a
+continuous one's next twenty candidates. `platform/backend/lean_wf_15m/wf.ts`
+was already deterministic — it never resumes — and both now use one shared
+driver whose equivalence with the original is pinned by that same test file.
 
 ---
 

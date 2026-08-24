@@ -5,5 +5,7 @@
   "system": "one-year",
   "kind": "walk-forward",
   "status": "historical",
-  "label": "MA + R:R v9 \u00b7 1h \u00b7 walk-forward with trailing exit (historical)"
+  "label": "MA + R:R v9 \u00b7 1h \u00b7 walk-forward with trailing exit (historical)",
+  "spaceDivergesFromProduction": true,
+  "note": "Swaps rrRatio for rrTrailActPct/rrTrailPct \u2014 a trailing-exit variant, not the deployed space (OPT-02)."
 }
