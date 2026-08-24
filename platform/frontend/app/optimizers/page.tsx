@@ -37,6 +37,98 @@ const STATUS_NOTE: Record<OptimizerTree["status"], string> = {
 const n = (v: number | null | undefined, digits = 1) =>
   v === null || v === undefined ? "—" : v.toFixed(digits);
 
+/**
+ * What these numbers are, above the numbers themselves.
+ *
+ * `OPT-01` is the audit's most consequential research finding and it is not a
+ * bug in the engine: the way winning configurations were chosen re-used the
+ * data meant to check them, and nothing on this page said so. A leaderboard
+ * rendered without that context reads as measured performance. It is not.
+ *
+ * Collapsed by default so it does not shout on every visit, and open on first
+ * load for a viewer who has not dismissed it before — the choice is remembered
+ * per browser, and a browser that refuses storage simply shows it collapsed.
+ */
+function Methodology() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      setOpen(window.localStorage.getItem("optimizer-methodology-seen") !== "1");
+    } catch {
+      // Private windows and blocked site data throw on access. Not a reason to
+      // fail; just start collapsed.
+    }
+  }, []);
+
+  const toggle = () => {
+    setOpen((wasOpen) => {
+      if (wasOpen) {
+        try { window.localStorage.setItem("optimizer-methodology-seen", "1"); } catch { /* fine */ }
+      }
+      return !wasOpen;
+    });
+  };
+
+  return (
+    <Card>
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-sm font-medium text-ink">
+          How these numbers were produced — read before trusting one
+        </span>
+        <span aria-hidden="true" className="text-xs text-ink-faint">{open ? "hide" : "show"}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-border px-4 py-3 text-xs leading-relaxed text-ink-muted">
+          <p className="text-ink">
+            <strong>Out-of-sample is not a validation set for anything deployed.</strong> The
+            selection rule gates on the out-of-sample window and maximises over it, so IS/OOS
+            agreement is a selection artefact rather than evidence of robustness. The analysis
+            script that produces the deploy artifact says so itself: <em>&ldquo;OOS is optimized
+            here and is consumed; forward/paper validation is mandatory.&rdquo;</em>
+          </p>
+          <p>
+            Corroborating, from inside this repository: the 1-hour hold-out report measured a mean
+            rank correlation of <strong>+0.03</strong> between in-sample leaderboard rank and
+            out-of-sample net, where 1.0 would be perfect. In-sample rank has essentially no
+            predictive power.
+          </p>
+          <p>
+            <strong>A maximum over an enormous search lands on its constraints.</strong> Rows
+            marked <span className="rounded bg-warn/20 px-1 text-[10px] font-medium">floor</span>{" "}
+            won with the fewest trades the objective allows — the fewer trades a result rests on,
+            the more of its return can be luck.
+          </p>
+          <p>
+            <strong>Trees are not comparable unless their cost models agree.</strong> Each tree
+            states its own, and one tree runs zero slippage with full compounding and no IS/OOS
+            split at all; it is labelled <em>not comparable</em> and its numbers must not be
+            ranked beside the others&rsquo;.
+          </p>
+          <p>
+            <strong>Historical trees describe a parameter space that was replaced.</strong> Four of
+            the five walk-forward trees search a different set of parameters from the production
+            tree they are cited for, so the current production space has no walk-forward evidence.
+          </p>
+          <p>
+            <strong>Before deploying:</strong> choose on the in-sample views, then score the chosen
+            configuration once on the frozen holdout. The deploy scripts refuse a configuration
+            with no holdout record — absence of a result is not a pass.
+          </p>
+          <p className="text-ink-faint">
+            The long form, with the evidence for each statement, is in
+            {" "}<code>docs/RESEARCH-METHODOLOGY.md</code> and <code>docs/COST-MODELS.md</code>.
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function OptimizersPage() {
   const [trees, setTrees] = useState<OptimizerTree[] | null>(null);
   const [treesError, setTreesError] = useState("");
@@ -113,6 +205,8 @@ export default function OptimizersPage() {
           In-sample leaderboards beside the out-of-sample window each row was never fitted on.
         </p>
       </div>
+
+      <Methodology />
       <div className="grid gap-3 md:grid-cols-2">
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium text-ink-muted">Optimizer tree</span>

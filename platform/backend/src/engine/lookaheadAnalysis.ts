@@ -72,9 +72,23 @@ export interface LookaheadReport {
 export function analyseLookahead(
   chart: Bars,
   feed: Bars,
-  convention: MergeConvention = "chartClose"
+  convention: MergeConvention = "chartClose",
+  /**
+   * The merge index to check. Defaults to the one this codebase builds, which
+   * is the point of the analysis.
+   *
+   * It is a parameter because the violation detector is otherwise unreachable:
+   * `buildMergeIndex` selects `j` such that `feed.closeTime[j] <= cutoff`, and
+   * for `chartClose` that cutoff IS the chart bar's close — so under either
+   * shipped convention a violation is impossible by construction, for any feed.
+   * That is a real guarantee and it is worth stating; it also means a test can
+   * only prove the detector works by handing it an index that does leak, which
+   * is what `tests/lookaheadGuard.test.ts` does. A future merge that computes
+   * its index differently is exactly what this parameter lets us check.
+   */
+  index?: Int32Array
 ): LookaheadReport {
-  const idx = buildMergeIndex(chart, feed, convention);
+  const idx = index ?? buildMergeIndex(chart, feed, convention);
   const other: MergeConvention = convention === "chartClose" ? "chartOpen" : "chartClose";
   const idxOther = buildMergeIndex(chart, feed, other);
 
