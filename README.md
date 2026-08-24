@@ -30,7 +30,8 @@ merged — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | `platform/deployment` | AWS deployment scripts. Run by the owner only; nothing here is executed by CI. |
 | `docs` | Source-of-truth documentation. Machine-checked by `scripts/ci/check-docs.sh`. |
 | `scripts` | Repository tooling, including the CI hygiene checks. |
-| `platform/backend/lean_optimizer15m` and twelve sibling directories | Optimizer and research trees. Code and configuration are tracked; the multi-GB generated result data is not. |
+| `platform/backend/lean_optimizer15m` and thirteen sibling directories | Optimizer and research trees. Each owns a `tree.json` the application routes through; code and configuration are tracked, the multi-GB generated result data is not. |
+| `research-archive` | Retired research trees, kept as labelled evidence. Nothing here runs, and no live code path may depend on it. |
 
 ## Local development
 
@@ -89,6 +90,7 @@ it reports file and line only, never the value.
 | [docs/ALERTS.md](docs/ALERTS.md) | Price and moving-average notifications, and the four frequency modes. |
 | [docs/CANDLE-PERFORMANCE.md](docs/CANDLE-PERFORMANCE.md) | Candle and chart loading: what was measured, and what was not. |
 | [docs/WEB-QA.md](docs/WEB-QA.md) | Desktop and mobile browser QA: what was exercised, and what was not. |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator console, the halt control, paper mode, testnet, and what has never been verified here. |
 | [docs/RESEARCH-METHODOLOGY.md](docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected. |
 | [docs/REMEDIATION-LEDGER.md](docs/REMEDIATION-LEDGER.md) | Every audit finding and its disposition. |
 | `BACKTESTING_SYSTEMS.md` | Metric definitions and per-tree research notes. |
@@ -100,3 +102,15 @@ it reports file and line only, never the value.
 CI installs dependencies, lints, typechecks, tests and builds. It does not
 deploy, does not hold AWS credentials, does not reach an exchange or a webhook,
 does not read a production database, and does not run optimizers or backtests.
+
+Three repository-hygiene checks run beside them, each one guarding a fix so it
+cannot quietly come back:
+
+| Check | Refuses |
+|---|---|
+| `scripts/ci/scan-secrets.sh` | Credential-shaped literals in tracked source. Reports file and line, never the value. |
+| `scripts/ci/check-docs.sh` | A documented path that does not exist, a cost-model figure that disagrees with a tree's `config.json`, a tree with no registry entry, a documented search-space size that disagrees with `params.json`, and a walk-forward tree whose divergence claim disagrees with the two parameter lists. |
+| `scripts/ci/check-repo-hygiene.sh` | An absolute home directory in tracked source, TradingView login automation, a browser remote-debugging port, a live code path depending on the research archive, and a tree re-declaring its own GA driver or objective. |
+
+`python3 scripts/ledger/render.py --check` fails when the rendered ledger and
+its JSON source disagree.
