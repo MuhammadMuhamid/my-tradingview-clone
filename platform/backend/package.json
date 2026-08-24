@@ -13,7 +13,8 @@
     "test": "node --env-file=tests/test.env --import tsx --test tests/*.test.ts",
     "hash-password": "tsx src/security/session.ts",
     "lint": "eslint src tests --max-warnings=0",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run build"
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
+    "bench:candles": "node --env-file=tests/test.env --import tsx scripts/bench_candles.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",

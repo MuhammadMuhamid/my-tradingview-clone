@@ -177,6 +177,51 @@ export interface ServerLayout {
   updatedAt: string;
 }
 
+/**
+ * FE-07: every call accepts an `AbortSignal`.
+ *
+ * Without one, switching symbol while a 2.5 MB candle request is in flight
+ * leaves that request running — still holding a connection, still parsed in
+ * full by the browser — and its response can land after the newer one and
+ * overwrite it. `lib/requestGuard.ts` carries the pieces that use this.
+ */
+// ── Compact candle wire format ──────────────────────────────────────────────
+
+/** `[openTime, open, high, low, close, volume]`. Mirrors
+ *  `platform/backend/src/data/candleWire.ts`. */
+export type CompactBar = [number, number, number, number, number, number];
+
+export interface CompactCandles {
+  format: "compact-v1";
+  symbol: string;
+  interval: Interval;
+  stepMs: number;
+  count: number;
+  bars: CompactBar[];
+}
+
+/**
+ * Expand the compact response into the `Candle` shape the chart uses.
+ *
+ * `closeTime` is derived rather than transmitted — it is
+ * `openTime + stepMs - 1` by definition, and sending it per bar was a
+ * meaningful share of the payload.
+ */
+export function expandCompact(payload: CompactCandles): Candle[] {
+  const { symbol, interval, stepMs } = payload;
+  return payload.bars.map(([openTime, open, high, low, close, volume]) => ({
+    symbol,
+    interval,
+    openTime,
+    open,
+    high,
+    low,
+    close,
+    volume,
+    closeTime: openTime + stepMs - 1,
+  }));
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
@@ -250,11 +295,36 @@ export const api = {
     req<SymbolSearchResponse>(
       `/api/symbols/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}&limit=${limit}`
     ),
-  candles: (symbol: string, interval: Interval, limit = 1000) =>
-    req<Candle[]>(`/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}`),
+  /**
+   * Candles in the COMPACT wire format.
+   *
+   * Measured on the chart's default 10,000-bar 15m request
+   * (`platform/backend/scripts/bench_candles.ts`): 2,487,844 -> 674,250 bytes
+   * (249 -> 67 per bar) and 11.1 -> 4.2 ms to `JSON.parse`. That parse is on
+   * the main thread before anything can be drawn, and it happens again on every
+   * symbol and timeframe switch.
+   */
+  candles: (symbol: string, interval: Interval, limit = 1000, signal?: AbortSignal) =>
+    req<CompactCandles>(
+      `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}&format=compact`,
+      signal ? { signal } : undefined
+    ).then(expandCompact),
+
+  /** The verbose shape, for consumers that need quoteVolume or tradeCount. */
+  candlesVerbose: (symbol: string, interval: Interval, limit = 1000, signal?: AbortSignal) =>
+    req<Candle[]>(
+      `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}`,
+      signal ? { signal } : undefined
+    ),
   /** Candles covering an explicit window — used to frame a backtest's own range. */
-  candlesRange: (symbol: string, interval: Interval, fromMs: number, toMs: number, limit = 200000) =>
-    req<Candle[]>(`/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}`),
+  candlesRange: (
+    symbol: string, interval: Interval, fromMs: number, toMs: number,
+    limit = 200000, signal?: AbortSignal
+  ) =>
+    req<CompactCandles>(
+      `/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`,
+      signal ? { signal } : undefined
+    ).then(expandCompact),
   backfill: (symbol: string, interval: Interval, start: string, end: string) =>
     req<{ fetched: number }>("/api/data/backfill", { method: "POST", body: JSON.stringify({ symbol, interval, start, end }) }),
 

@@ -79,6 +79,7 @@ DOC_PATH_SOURCES = [
     "docs/WEBHOOK-CONTRACT.md",
     "docs/REMEDIATION-LEDGER.md",
     "docs/RESEARCH-METHODOLOGY.md",
+    "docs/CANDLE-PERFORMANCE.md",
 ]
 
 # A backticked token that looks like a repository path.

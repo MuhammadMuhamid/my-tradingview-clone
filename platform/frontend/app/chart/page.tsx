@@ -20,6 +20,7 @@ import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import * as drawStore from "@/lib/drawings";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import { api, type MaAlert, type OptimizerBest, type PineScript } from "@/lib/api";
+import { CancellableRequest, isAbortError, LatestRequest } from "@/lib/requestGuard";
 import {
   buildMaOverlays, currentMaValues, defaultMaLines, type MaLine, type MaType,
 } from "@/lib/movingAverages";
@@ -472,25 +473,69 @@ export default function TvWorkspace() {
   };
 
   // ── candles ──
+  /*
+   * Three things this load path did not do, all of which the audit found:
+   *
+   *  FE-07  no AbortSignal, so switching symbol left a 2.5 MB request running.
+   *  ——     `setCandles(data)` was unconditional, so a slow FIRST response
+   *         could land after a fast second one and paint the previous symbol's
+   *         candles under the new symbol's label, with no error.
+   *  ——     the backfill path re-requested the FULL window a second time.
+   *
+   * `LatestRequest` compares tokens rather than parameters, which matters: a
+   * user who switches away and back lands on the same parameters, and a
+   * parameter comparison would then wrongly accept the first, slower response.
+   */
+  const requestSeq = useRef(new LatestRequest());
+  const inFlight = useRef(new CancellableRequest());
+
   const load = useCallback(async () => {
+    const token = requestSeq.current.next();
+    const signal = inFlight.current.start();
     setLoading(true);
     setErr(null);
     try {
-      let data = await api.candles(symbol, interval, bars);
+      let data = await api.candles(symbol, interval, bars, signal);
+
+      // Not enough history stored: backfill, then fetch only what is missing
+      // rather than the whole window again.
       if (data.length < Math.min(bars, 500) * 0.98) {
+        if (!requestSeq.current.isCurrent(token)) return;
         const lookbackMs = Math.ceil(bars * 1.1) * INTERVAL_MS[interval];
-        await api.backfill(symbol, interval, new Date(Date.now() - lookbackMs).toISOString(), new Date().toISOString());
-        data = await api.candles(symbol, interval, bars);
+        await api.backfill(
+          symbol, interval,
+          new Date(Date.now() - lookbackMs).toISOString(),
+          new Date().toISOString()
+        );
+        if (!requestSeq.current.isCurrent(token)) return;
+        const haveFrom = data.length > 0 ? data[0]!.openTime : Date.now();
+        const missing = await api.candlesRange(
+          symbol, interval, Date.now() - lookbackMs, haveFrom - 1, bars, signal
+        );
+        data = missing.length > 0 ? [...missing, ...data] : await api.candles(symbol, interval, bars, signal);
       }
+
+      // The response is applied ONLY if it is still the one being waited for.
+      if (!requestSeq.current.isCurrent(token)) return;
       setCandles(data);
     } catch (e) {
+      // An abort is this component superseding itself, not a failure to report.
+      if (isAbortError(e)) return;
+      if (!requestSeq.current.isCurrent(token)) return;
       setErr((e as Error).message);
     } finally {
-      setLoading(false);
+      if (requestSeq.current.isCurrent(token)) setLoading(false);
     }
   }, [symbol, interval, bars]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Unmounting must not leave a request running against a dead component.
+  useEffect(() => {
+    const controller = inFlight.current;
+    const seq = requestSeq.current;
+    return () => { controller.cancel(); seq.invalidate(); };
+  }, []);
 
   const changeSymbol = (s: string) => { setSymbol(s); setTrades([]); };
   const changeInterval = (i: Interval) => { setInterval(i); setTrades([]); };

@@ -28,6 +28,20 @@ const INTERVAL_MS: Record<Interval, number> = {
   "1h": 3600000, "2h": 7200000, "4h": 14400000, "6h": 21600000, "12h": 43200000, "1d": 86400000,
 };
 
+/**
+ * The states the live feed can be in. `stale` and `unknown` exist so the chart
+ * never presents a frozen price as current — which is precisely what FE-09
+ * described.
+ */
+export type ChartFeedState = "idle" | "connecting" | "live" | "reconnecting" | "stale";
+
+/**
+ * Silence after which an open socket is treated as dead and rebuilt. An active
+ * kline stream updates about once a second; 45 s of nothing is not a lull.
+ */
+export const WS_SILENCE_TIMEOUT_MS = 45_000;
+const WS_WATCHDOG_INTERVAL_MS = 5_000;
+
 /** Binance combined stream for one symbol/interval; updates the forming candle live. */
 function streamUrl(symbol: string, interval: Interval): string {
   return `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
@@ -108,6 +122,8 @@ export function CandleChart({
   const timeIndexRef = useRef<Map<number, number>>(new Map());
   const hoverTimeRef = useRef<number | null>(null);
   const [legend, setLegend] = useState<LegendBar | null>(null);
+  /** FE-09: what the live feed is actually doing, so the UI can say so. */
+  const [feedState, setFeedState] = useState<ChartFeedState>("idle");
   /** bumped once the chart/series exist, so the drawing layer can attach */
   const [chartReady, setChartReady] = useState(0);
 
@@ -309,14 +325,68 @@ export function CandleChart({
     }
   }, [overlays, chartReady, candles, compact]);
 
-  // Live: update the forming candle from Binance kline WS.
+  /*
+   * Live: update the forming candle from the Binance kline websocket.
+   *
+   * FE-09: this had `onmessage` and nothing else — no `onerror`, no `onclose`,
+   * no reconnect and no watchdog. When the socket dropped, or stayed open while
+   * delivering nothing (a half-open TCP connection, or a server that has
+   * stopped sending), the last price simply froze on screen and kept being
+   * displayed as if it were current. There was no way for a user to tell.
+   *
+   * Now: exponential-backoff reconnect, a silence watchdog, and a feed state
+   * the caller can render. `unknown` and `stale` are real answers — nothing
+   * here reports "live" without a recent message to justify it.
+   */
   useEffect(() => {
-    if (!live) return;
+    if (!live) { setFeedState("idle"); return; }
     const series = seriesRef.current;
     const vol = volRef.current;
     if (!series || !vol) return;
-    const ws = new WebSocket(streamUrl(symbol, interval));
+
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let watchdog: ReturnType<typeof setInterval> | null = null;
+    let attempt = 0;
+    let lastMessageAt = 0;
+    let closed = false;
+
+    const connect = (): void => {
+      if (closed) return;
+      setFeedState(attempt === 0 ? "connecting" : "reconnecting");
+      const ws = new WebSocket(streamUrl(symbol, interval));
+      socket = ws;
+      wireHandlers(ws);
+    };
+
+    const scheduleReconnect = (): void => {
+      if (closed) return;
+      attempt += 1;
+      setFeedState("reconnecting");
+      // Capped exponential backoff: a Binance outage must not become a
+      // reconnect storm from every open chart tab.
+      const delay = Math.min(1000 * 2 ** Math.min(attempt, 5), 30_000);
+      reconnectTimer = setTimeout(connect, delay);
+    };
+
+    const wireHandlers = (ws: WebSocket): void => {
+    ws.onopen = () => {
+      attempt = 0;
+      lastMessageAt = Date.now();
+      setFeedState("live");
+    };
+    ws.onerror = () => {
+      // `onerror` is always followed by `onclose`, which does the reconnecting.
+      setFeedState("reconnecting");
+    };
+    ws.onclose = () => {
+      if (closed || socket !== ws) return;
+      socket = null;
+      scheduleReconnect();
+    };
     ws.onmessage = (ev) => {
+      lastMessageAt = Date.now();
+      setFeedState("live");
       try {
         const msg = JSON.parse(ev.data as string) as {
           k?: { t: number; o: string; h: string; l: string; c: string; v: string };
@@ -348,7 +418,39 @@ export function CandleChart({
         }
       } catch { /* ignore malformed frames */ }
     };
-    return () => ws.close();
+    };
+
+    connect();
+
+    /*
+     * The watchdog is the half of this that `isConnected()`-style checks miss:
+     * a socket can sit in readyState OPEN and deliver nothing at all. An active
+     * kline stream updates roughly once a second, so 45 seconds of complete
+     * silence means the connection is not carrying data whatever its state
+     * says.
+     */
+    watchdog = setInterval(() => {
+      if (closed || lastMessageAt === 0) return;
+      const silentFor = Date.now() - lastMessageAt;
+      if (silentFor <= WS_SILENCE_TIMEOUT_MS) return;
+      setFeedState("stale");
+      // Rebuild rather than wait: the socket is not going to recover on its own.
+      const dead = socket;
+      socket = null;
+      try { dead?.close(); } catch { /* already gone */ }
+      lastMessageAt = Date.now();
+      scheduleReconnect();
+    }, WS_WATCHDOG_INTERVAL_MS);
+
+    return () => {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (watchdog) clearInterval(watchdog);
+      const open = socket;
+      socket = null;
+      try { open?.close(); } catch { /* already gone */ }
+      setFeedState("idle");
+    };
   }, [symbol, interval, live]);
 
   const up = legend ? legend.close >= legend.open : true;
@@ -404,8 +506,39 @@ export function CandleChart({
           )}
         </div>
       )}
+      {/*
+        FE-09: the feed's real state, next to the price it is supposed to be
+        updating. A frozen price used to look exactly like a live one.
+        `live` is not rendered — a green dot beside every chart is noise, and
+        the states worth interrupting for are the ones where the number on
+        screen is NOT current.
+      */}
+      {live && feedState !== "live" && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`pointer-events-none absolute right-2 top-1.5 z-10 flex items-center gap-1.5 rounded px-2 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState].className}`}
+        >
+          <span aria-hidden="true">●</span>
+          {FEED_BADGE[feedState].label}
+        </div>
+      )}
     </div>
   );
 }
+
+/**
+ * How each non-live feed state is presented.
+ *
+ * `stale` is the loudest: the socket is open and the price on screen is not
+ * moving, which is the state a user is most likely to misread as calm.
+ */
+const FEED_BADGE: Record<ChartFeedState, { label: string; className: string }> = {
+  idle: { label: "not live", className: "bg-[#121722]/75 text-[#9aa4b6]" },
+  connecting: { label: "connecting…", className: "bg-[#121722]/75 text-[#9aa4b6]" },
+  live: { label: "live", className: "bg-[#121722]/75 text-[#2ebd85]" },
+  reconnecting: { label: "reconnecting…", className: "bg-[#3a2a12]/85 text-[#f0b90b]" },
+  stale: { label: "feed stalled — price is not current", className: "bg-[#3a1c24]/85 text-[#f6465d]" },
+};
 
 export { INTERVAL_MS };
