@@ -9,8 +9,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { Worker } from "node:worker_threads";
 import type { Bars } from "../src/engine/mtf";
-import { PineBusyError, poolState, runPineInWorker } from "../src/pine/runInWorker";
+import { PineBusyError, pineWorkerEntry, poolState, runPineInWorker } from "../src/pine/runInWorker";
 
 function makeBars(n: number): Bars {
   const time: number[] = [], open: number[] = [], high: number[] = [],
@@ -153,4 +154,24 @@ plot(acc)
   // Everything else completed one way or another, and the pool drained.
   assert.equal(poolState().running, 0);
   assert.equal(poolState().queued, 0);
+});
+
+test("the worker entry starts without inheriting this thread's TypeScript loader", async () => {
+  // A worker thread does not reliably inherit the parent's loader: on Node 22
+  // the hooks tsx registers through `module.register()` do not apply inside
+  // one, so a `.ts` entry was read by Node's own type stripping and died on
+  // its first relative import — every run above came back "crash" there while
+  // passing on Node 26. Starting a real worker with an EMPTY `execArgv` is the
+  // strongest form of that condition: no loader is inherited at all, so the
+  // entry has to bring its own. This pins the entry, not the interpreter.
+  const outcome = await new Promise<{ kind: string; message?: string }>((resolve) => {
+    const worker = new Worker(pineWorkerEntry(), {
+      workerData: { ...request("//@version=5\nindicator(\"entry\")\nplot(close)", 5_000) },
+      execArgv: [],
+    });
+    worker.on("message", (msg) => resolve(msg as { kind: string }));
+    worker.on("error", (err) => resolve({ kind: "crash", message: err.message }));
+    worker.on("exit", () => resolve({ kind: "crash", message: "exited without answering" }));
+  });
+  assert.equal(outcome.kind, "ok", outcome.message ?? "");
 });

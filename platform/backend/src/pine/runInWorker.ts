@@ -67,13 +67,72 @@ function release(): void {
   waiting.shift()?.();
 }
 
+/** Extensions that mean this module is running from TypeScript source. */
+const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
+
 /**
- * The compiled worker sits beside this file, so it is `.ts` under tsx and
- * `.js` under `dist/`. Workers inherit the parent's `execArgv`, which is what
- * carries the TypeScript loader in development and in the test runner.
+ * Where the worker thread starts.
+ *
+ * Compiled, that is `runner.worker.js` beside this file and no loader is
+ * involved. From source it is a plain-CommonJS bootstrap that installs the
+ * TypeScript require hook itself, because a worker thread does **not**
+ * reliably inherit the parent's: on Node 22 the hooks tsx registers through
+ * `module.register()` do not apply inside a worker, so a `.ts` entry was read
+ * by Node's own type stripping and died on its first relative import. The
+ * bootstrap makes the entry independent of whatever the parent was started
+ * with, which is the property `pineWorkerEntry` exists to let a test pin.
  */
-function workerFile(): string {
-  return path.join(__dirname, `runner.worker${path.extname(__filename)}`);
+export function pineWorkerEntry(): string {
+  const ext = path.extname(__filename);
+  if (SOURCE_EXTENSIONS.has(ext)) return path.join(__dirname, "runner.worker.bootstrap.cjs");
+  return path.join(__dirname, `runner.worker${ext}`);
+}
+
+/**
+ * Node's own loader and worker-startup failures, which surface on the worker's
+ * `error` event before the script has run at all. The interpreter's own
+ * failures never reach that event — `executePine` catches them and answers with
+ * a message — so an `error` here is an infrastructure fault, not a script one.
+ */
+const STARTUP_ERROR_CODES = new Set([
+  "ERR_MODULE_NOT_FOUND",
+  "MODULE_NOT_FOUND",
+  "ERR_UNKNOWN_FILE_EXTENSION",
+  "ERR_WORKER_UNSUPPORTED_EXTENSION",
+  "ERR_WORKER_INIT_FAILED",
+  "ERR_WORKER_PATH",
+  "ERR_UNSUPPORTED_DIR_IMPORT",
+  "ERR_REQUIRE_ESM",
+  "ERR_INVALID_MODULE_SPECIFIER",
+  "ERR_UNSUPPORTED_ESM_URL_SCHEME",
+]);
+
+/**
+ * Turn a worker failure into something an operator can act on without leaking
+ * anything. The caller's Pine source, the request and the environment are never
+ * touched; only the error's own class and code reach the response, and the full
+ * diagnostic — paths and stack, no script text — goes to the server log.
+ */
+function crashOutcome(err: Error, entry: string): PineRunOutcome {
+  const code = (err as NodeJS.ErrnoException).code;
+  const label = code ?? err.name ?? "unknown error";
+  console.error(
+    `[pine] worker thread failed to start or died outside the interpreter: ` +
+      `entry=${entry} code=${label} message=${err.message}`,
+    err.stack
+  );
+  if (code !== undefined && STARTUP_ERROR_CODES.has(code)) {
+    return {
+      kind: "crash",
+      message:
+        `the Pine execution worker could not be started (${label}); ` +
+        "this is a server fault, not a fault in the script",
+    };
+  }
+  return {
+    kind: "crash",
+    message: `the Pine execution worker failed (${label}); the script did not complete`,
+  };
 }
 
 export async function runPineInWorker(req: PineRunRequest): Promise<PineRunOutcome> {
@@ -81,11 +140,13 @@ export async function runPineInWorker(req: PineRunRequest): Promise<PineRunOutco
   try {
     return await new Promise<PineRunOutcome>((resolve) => {
       const payload: PineWorkerRequest = req;
-      const worker = new Worker(workerFile(), {
+      const entry = pineWorkerEntry();
+      const worker = new Worker(entry, {
         workerData: payload,
         resourceLimits: { maxOldGenerationSizeMb: MAX_HEAP_MB, maxYoungGenerationSizeMb: 64 },
       });
       let settled = false;
+      let failed = false;
       const finish = (outcome: PineRunOutcome): void => {
         if (settled) return;
         settled = true;
@@ -100,11 +161,16 @@ export async function runPineInWorker(req: PineRunRequest): Promise<PineRunOutco
       // Do not hold the process open for a run nobody is waiting on.
       killer.unref?.();
       worker.on("message", (msg: PineWorkerResponse) => finish(msg));
-      worker.on("error", (err) => finish({ kind: "crash", message: err.message }));
+      worker.on("error", (err) => {
+        failed = true;
+        finish(crashOutcome(err, entry));
+      });
       worker.on("exit", (code) => {
         // An exit with no message means the thread died: terminated for the
-        // wall clock, or killed by its own heap limit.
-        if (code === 1) finish({ kind: "crash", message: "the script exhausted its memory limit" });
+        // wall clock, or killed by its own heap limit. A thread that already
+        // reported an error exits here too, and has been answered already.
+        if (failed) finish({ kind: "crash", message: "the Pine execution worker failed" });
+        else if (code === 1) finish({ kind: "crash", message: "the script exhausted its memory limit" });
         else finish({ kind: "timeout", budgetMs: req.timeBudgetMs });
       });
     });
