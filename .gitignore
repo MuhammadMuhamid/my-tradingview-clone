@@ -20,25 +20,6 @@ __pycache__/
 # ── local database ──
 .pgdata/
 
-# ── optimizer result data (tens of GB of generated JSON) ──
-# The TREES themselves are tracked (code, config, coins.txt, README) — only the
-# generated data underneath them is excluded. Do not re-add a blanket
-# `optimizer*/` rule: git will not descend into an excluded directory, so the
-# per-tree documentation would silently vanish from the repo.
-backtestingsystems/trees/*/results/
-backtestingsystems/trees/*/best/
-backtestingsystems/trees/*/index/
-backtestingsystems/trees/*/archive/
-backtestingsystems/trees/*/__pycache__/
-backtestingsystems/trees/*/SUMMARY.json
-backtestingsystems/trees/*/.optimizer.pid
-backtestingsystems/trees/*/service*.log
-backtestingsystems/trees/*/seeds.json
-# one-off analysis scratch files
-backtestingsystems/trees/*/sens.json
-backtestingsystems/trees/*/picks*.json
-backtestingsystems/trees/*/verified*.json
-platform/backend/backups/
 
 # ── build/deploy bundles (one is 426 MB; GitHub caps files at 100 MB) ──
 *.tar.gz
@@ -85,10 +66,11 @@ graphify-out/cache/
 backtestingsystems/trees/*/folds/
 backtestingsystems/trees/*/*.pid
 
-# ── backtestingsystems: generated data and vendored deps ──
-backtestingsystems/node_modules
-backtestingsystems/data/
-backtestingsystems/legacy/*/data/
-backtestingsystems/legacy/*/optuna_dbs/
-backtestingsystems/legacy/**/__pycache__/
-backtestingsystems/**/*.csv
+
+
+# ── backtesting systems live in their own repository ──
+# Separated 2026-08-22. platform/ (this repo) is the TradingView clone only;
+# every optimizer, its results and the legacy systems moved to
+# backtestingsystems/, which has its own .git and pushes to
+# github.com/MuhammadMuhamid/pythoncryptobacktesingsystems
+backtestingsystems/

@@ -1,9 +1,0 @@
-{
- "_comment": "Independent one-year 1-hour optimizer. Fresh history: 2025-07-20 through now.",
- "range": {"start": "2025-07-20T00:00:00Z", "end": "now"},
- "initialCapital": 1000,
- "commissionPct": 0.1,
- "slippageTicks": 0,
- "timeframe": "1h",
- "workers": 1
-}
