@@ -9,13 +9,22 @@ import * as strategyRepo from "../repositories/strategies";
 import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
 import { FeedStore, toBars } from "./mtf";
 import { computeMetrics, downsampleEquity, toTradeRecords } from "./metrics";
+import { ACTIVE_CORRECTIONS, correctionsFingerprint, describeCorrections } from "./corrections";
 import { maRrV9Module } from "./strategies/ma_rr_v9";
 import { srTrendV10Module } from "./strategies/srtrend_v10";
+import { mtfLeanModule } from "./strategies/mtf_lean";
 import type { TradeRecord, BacktestMetrics, EquityPoint, OpenTrade } from "../types/backtest";
 
+/*
+ * BE-19: `mtf_lean` was absent from this registry, so the strategy actually
+ * deployed with real money had no in-platform backtest path at all — and
+ * BE-01/BE-02 therefore could not be checked through the supported route. Its
+ * `warmupMs` signature was the blocker; it now matches the others.
+ */
 const MODULES: Record<string, unknown> = {
   [maRrV9Module.key]: maRrV9Module,
   [srTrendV10Module.key]: srTrendV10Module,
+  [mtfLeanModule.key]: mtfLeanModule,
 };
 
 export interface BacktestOutput {
@@ -24,6 +33,16 @@ export interface BacktestOutput {
   trades: TradeRecord[];
   /** Position still running when the window ended, or null. */
   openTrade: OpenTrade | null;
+  /**
+   * Which engine produced this result.
+   *
+   * A stored number that does not say which engine produced it is exactly how
+   * the cost-model confusion in `X-09` became unresolvable, so every result
+   * carries its correction set.
+   */
+  engine: string;
+  /** Exit legs the exchange filters refused, when `exchangeFilters` is on. */
+  rejectedLegs: { bar: number; id: string; qty: number; reason: string }[];
 }
 
 export async function executeBacktest(
@@ -56,6 +75,8 @@ export async function executeBacktest(
 
   // Data: every required (symbol, interval) feed, warmup included.
   const needs = module.requiredFeeds(params, row.timeframe);
+  // BE-19: `mtf_lean` sizes its warmup per feed like the others now, so this
+  // loop is uniform across the registry.
   const feeds = new FeedStore();
   for (const need of needs) {
     const symbol = need.symbol ?? row.symbol;
@@ -78,6 +99,10 @@ export async function executeBacktest(
     tickSize,
     qtyCash: Number(params.qty_cash),
     qtyPctEquity: Number(params.qty_pct_equity ?? 0),
+    // BE-07: the exchange filters are already stored on the symbol row and were
+    // read by nothing. They apply only when `exchangeFilters` is on.
+    qtyStep: symbolInfo?.qtyStep ?? 0,
+    minNotional: symbolInfo?.minNotional ?? 0,
     fillOnBarClose: Boolean(params.fill_bar_close ?? false),
   }, { startMs, endMs });
 
@@ -85,7 +110,8 @@ export async function executeBacktest(
     result.broker.closed,
     result.equityCurve,
     row.initialCapital,
-    result.broker.commissionPaid
+    result.broker.commissionPaid,
+    ACTIVE_CORRECTIONS
   );
   const trades = toTradeRecords(result.broker.closed);
 
@@ -137,10 +163,22 @@ export async function executeBacktest(
   }
 
   log(`done: ${metrics.totalTrades} trades, net ${metrics.netProfitPct.toFixed(2)}%`);
+  const rejectedLegs = (result.broker as { rejectedLegs?: BacktestOutput["rejectedLegs"] })
+    .rejectedLegs ?? [];
+  if (rejectedLegs.length > 0) {
+    log(
+      `${rejectedLegs.length} exit leg(s) refused by the exchange filters — ` +
+      "the position stayed open on those bars (BE-07)"
+    );
+  }
+  log(describeCorrections(ACTIVE_CORRECTIONS));
+
   return {
     metrics,
     equityCurve: downsampleEquity(result.equityCurve),
     trades,
     openTrade,
+    engine: correctionsFingerprint(ACTIVE_CORRECTIONS),
+    rejectedLegs,
   };
 }

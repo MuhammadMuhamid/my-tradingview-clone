@@ -1,22 +1,55 @@
 import type { BacktestMetrics, EquityPoint, TradeRecord } from "../types/backtest";
 import type { ClosedLeg } from "./broker";
+import { ACTIVE_CORRECTIONS, type CorrectionSet } from "./corrections";
 
 export function computeMetrics(
   closed: ClosedLeg[],
   equityCurve: EquityPoint[],
   initialCapital: number,
-  commissionPaid: number
+  commissionPaid: number,
+  corrections: CorrectionSet = ACTIVE_CORRECTIONS
 ): BacktestMetrics {
   let grossProfit = 0;
   let grossLoss = 0;
   let wins = 0;
   let losses = 0;
+  let scratches = 0;
   let pctSum = 0;
   let barsSum = 0;
   for (const t of closed) {
     const pnl = t.pnl ?? 0;
-    if (pnl > 0) { grossProfit += pnl; wins++; } else { grossLoss += -pnl; losses++; }
-    pctSum += t.pnlPct ?? 0;
+    /*
+     * BE-10: a trade closing at EXACTLY zero is neither a win nor a loss, but
+     * the test `pnl > 0` counted it as a loss — inflating `losingTrades` and
+     * deflating `winRatePct`. Definitional rather than arithmetically wrong,
+     * which is why it is behind a flag: turning it on changes published win
+     * rates wherever an exact-zero trade exists.
+     */
+    if (pnl > 0) {
+      grossProfit += pnl;
+      wins++;
+    } else if (corrections.zeroPnlIsScratch && pnl === 0) {
+      scratches++;
+    } else {
+      grossLoss += -pnl;
+      losses++;
+    }
+    /*
+     * BE-05: `pnlPct` is raw price change while every neighbouring metric is
+     * net of commission, so `avgTradePct` overstates per-trade edge by the
+     * round-trip cost — about 0.2 percentage points at 0.1 % per side, which on
+     * a strategy averaging +0.3 %/trade is most of the edge.
+     *
+     * The correction reads the commission the broker already attributed to this
+     * leg, so it needs no cost model of its own and cannot disagree with one.
+     */
+    if (corrections.netAvgTrade) {
+      const notional = t.entryPrice * Math.abs(t.qty);
+      const netPct = notional > 0 ? ((t.pnl ?? 0) / notional) * 100 : (t.pnlPct ?? 0);
+      pctSum += netPct;
+    } else {
+      pctSum += t.pnlPct ?? 0;
+    }
     barsSum += t.exitBar - t.entryBar;
   }
   const netProfit = grossProfit - grossLoss;
@@ -25,6 +58,9 @@ export function computeMetrics(
     if (pt.drawdownPct > maxDrawdownPct) maxDrawdownPct = pt.drawdownPct;
   }
   const total = closed.length;
+  // With `zeroPnlIsScratch` off, `scratches` stays zero and every figure below
+  // is bit-for-bit what it was.
+  const decided = total - scratches;
   return {
     netProfit,
     netProfitPct: initialCapital !== 0 ? (netProfit / initialCapital) * 100 : 0,
@@ -34,7 +70,10 @@ export function computeMetrics(
     totalTrades: total,
     winningTrades: wins,
     losingTrades: losses,
-    winRatePct: total > 0 ? (wins / total) * 100 : 0,
+    // The win rate is over DECIDED trades: a scratch is excluded from the
+    // denominator as well as the numerator, or excluding it from one only would
+    // move the rate for the wrong reason.
+    winRatePct: decided > 0 ? (wins / decided) * 100 : 0,
     maxDrawdownPct,
     avgTradePct: total > 0 ? pctSum / total : 0,
     avgBarsInTrade: total > 0 ? barsSum / total : 0,
@@ -57,9 +96,54 @@ export function computeSegmentMetrics(
   equityCurve: EquityPoint[],
   initialCapital: number,
   fromMs: number,
-  toMs: number
+  toMs: number,
+  opts: {
+    corrections?: CorrectionSet;
+    /**
+     * The `qty_pct_equity` the run used. Required for `assertSegmentValidity`
+     * to do anything — a segment split is only meaningful under fixed-cash
+     * sizing, and that precondition was documented in a comment and never
+     * checked while `qty_pct_equity` remained a searchable live parameter.
+     */
+    qtyPctEquity?: number;
+  } = {}
 ): BacktestMetrics {
-  const legs = closed.filter((t) => t.entryTime >= fromMs && t.entryTime < toMs);
+  const corrections = opts.corrections ?? ACTIVE_CORRECTIONS;
+
+  /*
+   * BE-06, first half: assert the validity precondition instead of documenting
+   * it. Under percent-of-equity sizing a later segment's outcomes DEPEND on how
+   * the earlier one performed, so rebasing each segment to `initialCapital`
+   * produces a number with no interpretation. Failing loudly is the only honest
+   * option — a silently meaningless OOS figure is what selection then optimises
+   * against.
+   */
+  if (corrections.assertSegmentValidity && (opts.qtyPctEquity ?? 0) > 0) {
+    throw new Error(
+      `computeSegmentMetrics is valid only under fixed-cash sizing, but this run ` +
+      `used qty_pct_equity=${opts.qtyPctEquity}. Segment (IS/OOS) metrics from a ` +
+      "compounding run are meaningless; re-run with qty_pct_equity pinned to 0."
+    );
+  }
+
+  /*
+   * BE-06, second half: attribute a boundary-straddling trade by its EXIT.
+   *
+   * Membership was by entry time alone, so a trade opened on the last
+   * in-sample bar and closed weeks into the out-of-sample window counted
+   * WHOLLY as in-sample — and its out-of-sample price action, which is the
+   * thing the split exists to hold back, contributed to the in-sample score.
+   * Attributing by exit puts the trade in the window whose data decided it.
+   */
+  const legs = corrections.assertSegmentValidity
+    ? closed.filter((t) => {
+        // A leg with no exit time is still open, so it belongs to no closed
+        // segment. Falling back to the entry time would put it in the earlier
+        // window on the strength of a decision that has not been made yet.
+        const exit = t.exitTime;
+        return exit !== null && exit !== undefined && exit >= fromMs && exit < toMs;
+      })
+    : closed.filter((t) => t.entryTime >= fromMs && t.entryTime < toMs);
   const pts = equityCurve.filter((p) => p.t >= fromMs && p.t < toMs);
   const base = pts.length > 0 ? pts[0]!.equity : initialCapital;
   let peak = initialCapital;
@@ -75,7 +159,7 @@ export function computeSegmentMetrics(
     });
   }
   const commission = legs.reduce((s, t) => s + (t.commission ?? 0), 0);
-  const out = computeMetrics(legs, seg, initialCapital, commission);
+  const out = computeMetrics(legs, seg, initialCapital, commission, corrections);
   // Exit-reason tally, counted per ENTRY (partial TPs close one entry as several
   // legs, so a leg-based rate would misrepresent the trade).
   //

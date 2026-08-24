@@ -17,6 +17,7 @@
 import type { Interval } from "../../../types/market";
 import type { StrategyParams } from "../../../types/strategy";
 import { Broker, BrokerOptions } from "../../broker";
+import { ACTIVE_CORRECTIONS } from "../../corrections";
 import { FeedStore } from "../../mtf";
 import type { EquityPoint } from "../../../types/backtest";
 import { MA_RR_V9_DEFAULTS, MaRrParams, requiredFeeds, resolveParams, warmupMs } from "./params";
@@ -44,6 +45,7 @@ export function runBars(
   const chart = feeds.get(symbol, chartTf);
   const sig: SignalArrays = computeSignals(feeds, symbol, chartTf, p);
   const broker = new Broker(brokerOpts);
+  const corrections = brokerOpts.corrections ?? ACTIVE_CORRECTIONS;
 
   // ── Pine `var` state ──
   let consecLosses = 0;
@@ -184,16 +186,37 @@ export function runBars(
       ptpTp2Done = false;
     }
 
-    // 1141: R:R exit engine
-    if (p.useRR && pos > 0 && !Number.isNaN(savedLongStop) && !Number.isNaN(ptpEntryPx) && !maCloseLongNow) {
+    /*
+     * 1141: R:R exit engine.
+     *
+     * BE-04: the gate was `pos > 0`, and `pos` is read at line 87 — BEFORE the
+     * fill. On the bar that fills the entry, `pos` is therefore still 0, so no
+     * bracket is issued; `broker.setExitLeg` records `issuedBar = i` and
+     * `processIntrabar` only activates a leg from `i + 1`. The fill bar has no
+     * stop and no target.
+     *
+     * Worse, the tier-touch latches below fire on that bar anyway, permanently
+     * cancelling a partial take-profit that was never taken — the comment
+     * "including the fill-bar quirk" recorded this as known.
+     *
+     * `mtf_lean/index.ts` gets it right with `(pos > 0 || longSignal)`. Behind
+     * the `entryBarBrackets` flag because turning it on moves every `ma_rr_v9`
+     * and `srtrend_v10` leaderboard number.
+     */
+    const bracketsGate = corrections.entryBarBrackets ? (pos > 0 || longSignal) : pos > 0;
+    if (p.useRR && bracketsGate && !Number.isNaN(savedLongStop) && !Number.isNaN(ptpEntryPx) && !maCloseLongNow) {
       const rrTp1P = ptpEntryPx * (1 + p.rrTp1Pct / 100);
       const rrTp2P = ptpEntryPx * (1 + p.rrTp2Pct / 100);
       const rrTp1Q = ptpEntryQty * (p.rrTp1Size / 100);
       const rrTp2Q = ptpEntryQty * (p.rrTp2Size / 100);
       // Tier-touch flags (set by PRICE, not fills — including the fill-bar quirk
       // where a tier touched before its bracket exists is skipped permanently).
-      if (p.rrUsePartialTp && !ptpTp1Done && high >= rrTp1P) ptpTp1Done = true;
-      if (p.rrUsePartialTp && !ptpTp2Done && high >= rrTp2P) ptpTp2Done = true;
+      // The latches must not fire while flat: on the fill bar under the
+      // corrected gate there IS a bracket, and before it there is no position
+      // for a tier to have been taken from.
+      const latchable = corrections.entryBarBrackets ? pos > 0 : true;
+      if (p.rrUsePartialTp && latchable && !ptpTp1Done && high >= rrTp1P) ptpTp1Done = true;
+      if (p.rrUsePartialTp && latchable && !ptpTp2Done && high >= rrTp2P) ptpTp2Done = true;
       // % trailing stop arm + ratchet
       if (p.rrUseTrailSl && !ptpTrailArmed &&
           (p.rrTrailActPct <= 0 ? close > ptpEntryPx : high >= ptpEntryPx * (1 + p.rrTrailActPct / 100))) {

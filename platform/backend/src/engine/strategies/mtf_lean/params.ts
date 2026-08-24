@@ -13,6 +13,7 @@ import type { StrategyParams } from "../../../types/strategy";
 import type { Interval } from "../../../types/market";
 import { INTERVAL_MS } from "../../../types/market";
 import { pineTfToInterval } from "../../mtf";
+import { ACTIVE_CORRECTIONS, type CorrectionSet } from "../../corrections";
 
 export const MTF_LEAN_DEFAULTS = {
   // ── 1 General ──
@@ -189,7 +190,22 @@ export interface FeedNeed { symbol: string | null; interval: Interval; warmupBar
  * We request unconditionally for the always-evaluated ones to keep the feed set
  * stable across a GA generation — cheaper than re-fetching per genome.
  */
-export function requiredFeeds(p: MtfLeanParams, chartTf: Interval): FeedNeed[] {
+/**
+ * Bars of history a ratcheting indicator needs before its value is
+ * reproducible. Matches `ma_rr_v9`'s floor so the two strategy families warm up
+ * alike (BE-09).
+ *
+ * The figure comes from `ma_rr_v9`, which chose it; `analyseWarmupSensitivity`
+ * in `engine/lookaheadAnalysis.ts` is the tool for deriving it from data rather
+ * than inheriting it.
+ */
+export const RATCHET_WARMUP_FLOOR_BARS = 1500;
+
+export function requiredFeeds(
+  p: MtfLeanParams,
+  chartTf: Interval,
+  corrections: CorrectionSet = ACTIVE_CORRECTIONS
+): FeedNeed[] {
   const needs = new Map<string, FeedNeed>();
   const add = (symbol: string | null, pineTf: string, warmupBars: number): void => {
     const interval = pineTfToInterval(String(pineTf), chartTf);
@@ -201,7 +217,10 @@ export function requiredFeeds(p: MtfLeanParams, chartTf: Interval): FeedNeed[] {
   // Chart feed: risk ATR, swing low, body filter, Bollinger (chart-TF trigger).
   add(null, "", Math.max(p.atrLenRisk * 4, p.rrSwingLb, p.bb_len * 3, 200));
 
-  add(null, p.g1_tf, p.g1_atrLen * 4 + 60);
+  // g1 is also a ratcheting Supertrend. Same floor, same reason.
+  add(null, p.g1_tf, corrections.leanWarmupFloor
+    ? Math.max(p.g1_atrLen * 4 + 60, RATCHET_WARMUP_FLOOR_BARS)
+    : p.g1_atrLen * 4 + 60);
   add(null, p.g2_tf, p.g2_len * 4 + 60);
   // VFI needs `length` bars for the rolling sum plus its own 130-bar warmup gate.
   add(null, p.g3_tf, p.g3_len * 3 + 120);
@@ -209,7 +228,21 @@ export function requiredFeeds(p: MtfLeanParams, chartTf: Interval): FeedNeed[] {
   add(null, p.g4_tf, Math.max(200 * 3, p.g4_lb * 4) + 60);
   add(null, p.volTf, p.volMaLen * 3 + 60);
   add(null, p.s1_tf, p.s1_len * 8 + 2100);         // sweep store prunes at 2000 bars
-  add(null, p.s4_tf, p.s4_atrLen * 4 + 60);
+  /*
+   * BE-09: `s4` is a Supertrend, which RATCHETS — its value at bar i depends on
+   * its value at bar i-1, all the way back to wherever the loaded window began.
+   * `ma_rr_v9` applies a `Math.max(len * 8 + 30, 1500)` floor to every such
+   * indicator for exactly this reason; `mtf_lean` applied none, so re-running
+   * after the candle table gained history silently changed which trades were
+   * taken and the results were not reproducible.
+   *
+   * Behind the `leanWarmupFloor` flag because raising the floor changes results
+   * — slightly, and in the direction of reproducibility, but it changes them.
+   * The floor matches `ma_rr_v9`'s so the two families warm up alike.
+   */
+  add(null, p.s4_tf, corrections.leanWarmupFloor
+    ? Math.max(p.s4_atrLen * 4 + 60, RATCHET_WARMUP_FLOOR_BARS)
+    : p.s4_atrLen * 4 + 60);
   add(null, p.s5_tf, Math.max(p.s5_pd * 4, p.s5_prd * 8) + 60);
   add(null, p.s6_tf, Math.max(p.s6_len * 8, 60) + 200);
 
@@ -218,15 +251,25 @@ export function requiredFeeds(p: MtfLeanParams, chartTf: Interval): FeedNeed[] {
   // both RAM and runtime for a filter that is switched off.
   if (p.useHhStructure) add(null, p.hhTf, p.hhPivotLen * 8 + 60);
   if (p.useS7) add(null, p.s7_tf, p.s7_len * 8 + 60);
-  if (p.useTrigger) add(null, p.trig_tf, Math.max(p.bb_len * 3, p.trig_stLen * 4, p.bbReclaimLb) + 60);
+  // trig_st is a third Supertrend.
+  if (p.useTrigger) {
+    const base = Math.max(p.bb_len * 3, p.trig_stLen * 4, p.bbReclaimLb) + 60;
+    add(null, p.trig_tf, corrections.leanWarmupFloor
+      ? Math.max(base, RATCHET_WARMUP_FLOOR_BARS)
+      : base);
+  }
   if (p.useHlBreakExit) add(null, p.hlBreakTf, p.hlBreakPivLen * 8 + 60);
 
   return [...needs.values()];
 }
 
-export function warmupMs(p: MtfLeanParams, chartTf: Interval): number {
+export function warmupMs(
+  p: MtfLeanParams,
+  chartTf: Interval,
+  corrections: CorrectionSet = ACTIVE_CORRECTIONS
+): number {
   let ms = 0;
-  for (const need of requiredFeeds(p, chartTf)) {
+  for (const need of requiredFeeds(p, chartTf, corrections)) {
     ms = Math.max(ms, need.warmupBars * INTERVAL_MS[need.interval]);
   }
   return ms;

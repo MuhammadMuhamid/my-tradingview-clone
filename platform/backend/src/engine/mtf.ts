@@ -2,17 +2,47 @@
  * Multi-timeframe machinery — the local equivalent of Pine's
  * request.security(sym, tf, expr, barmerge.gaps_off, barmerge.lookahead_off).
  *
- * TV-backtest merge convention (what the TradingView Strategy Tester shows on
- * historical bars): a chart bar sees the value of the most recent OTHER-TF bar
- * that had CLOSED by the relevant moment:
- *   - higher TF:  last HTF bar with closeTime <= chart bar's OPEN time
- *                 (the classic one-HTF-bar delay; hour-10's value first appears
- *                 on the chart bar opening at 11:00)
- *   - lower/equal TF: last bar with closeTime <= chart bar's CLOSE time
- *                 (same-TF passthrough falls out of this rule naturally)
+ * ── UNRESOLVED: which cutoff does TradingView actually use? (BE-08) ───────
  *
- * Live/realtime TV behaves differently (developing HTF values) — the Stage 3
- * live runner implements that mode on top of the same feeds.
+ * This header used to assert TWO DIFFERENT conventions, and the implementation
+ * followed only one of them:
+ *
+ *   claimed for a higher TF : last HTF bar with closeTime <= chart bar's OPEN
+ *                             (the classic one-bar delay — hour-10's value
+ *                             first appears on the chart bar opening at 11:00)
+ *   claimed for lower/equal : last bar with closeTime <= chart bar's CLOSE
+ *   actually implemented    : closeTime <= chart bar's CLOSE, for ALL timeframes
+ *
+ * If the header was right and the code is wrong, every `ma_rr_v9` and
+ * `srtrend_v10` result carries one bar of higher-timeframe LOOK-AHEAD, because
+ * neither strategy applies a compensating shift. `mtf_lean` does — it gates on
+ * `htfClosed` and then `shift(src, 1)` — which is why it is unaffected either
+ * way, and why the two families cannot be compared until this is settled.
+ *
+ * The inline comment at `buildMergeIndex` cited a "DEXE parity run 2026-07-11"
+ * as verification. Those artifacts lived in `platform/backend/parity/`, which is
+ * gitignored and absent from every clone, so the claim cannot be checked from
+ * source. `platform/README.md` separately records the parity run as "deferred".
+ *
+ * **Nothing here guesses.** The convention is an explicit parameter, the
+ * default is exactly what the code did before, and both conventions are
+ * implemented and tested. Resolving BE-08 is a one-line change to that default
+ * with visible, tested consequences.
+ *
+ * ── The test that settles it ──────────────────────────────────────────────
+ *
+ * In TradingView, on a 15m chart:
+ *
+ *     plot(request.security(syminfo.tickerid, "60", close))
+ *
+ * Read the plotted value on the bar CLOSING at 10:00. Then compare against
+ * `mergeValues(buildMergeIndex(chart15m, feed1h, convention), feed1h.close)[i]`
+ * for the same bar under each convention. Whichever matches is the answer.
+ *
+ * Needs a TradingView account. See docs/RESEARCH-METHODOLOGY.md.
+ *
+ * Live/realtime TV behaves differently again (developing HTF values) — the
+ * Stage 3 live runner implements that mode on top of the same feeds.
  */
 import type { Candle, Interval } from "../types/market";
 
@@ -102,19 +132,54 @@ export class FeedStore {
  * sees under the TV-backtest convention, or -1 if none has closed yet.
  * O(n + m) two-pointer sweep.
  */
-export function buildMergeIndex(chart: Bars, feed: Bars): Int32Array {
+/**
+ * The two candidate cutoffs. See the BE-08 note in this file's header.
+ *
+ *   `chartClose` — a chart bar sees the last feed bar that closed by the chart
+ *                  bar's CLOSE. The final constituent bar of a higher-timeframe
+ *                  period already sees that period's value, because the two
+ *                  closes are simultaneous.
+ *   `chartOpen`  — a chart bar sees the last feed bar that closed by the chart
+ *                  bar's OPEN. A higher-timeframe value is delayed by one chart
+ *                  bar, which is the convention the old header described.
+ */
+export const MERGE_CONVENTIONS = ["chartClose", "chartOpen"] as const;
+export type MergeConvention = (typeof MERGE_CONVENTIONS)[number];
+
+/**
+ * The default is `chartClose` because that is what the code has always done,
+ * and every stored result was produced under it. It is NOT asserted to be
+ * correct — see BE-08.
+ */
+export const DEFAULT_MERGE_CONVENTION: MergeConvention =
+  (process.env.MTF_MERGE_CONVENTION as MergeConvention | undefined) ?? "chartClose";
+
+if (!(MERGE_CONVENTIONS as readonly string[]).includes(DEFAULT_MERGE_CONVENTION)) {
+  throw new Error(
+    `MTF_MERGE_CONVENTION must be one of ${MERGE_CONVENTIONS.join(", ")}, ` +
+    `got ${JSON.stringify(process.env.MTF_MERGE_CONVENTION)}`
+  );
+}
+
+export function buildMergeIndex(
+  chart: Bars,
+  feed: Bars,
+  convention: MergeConvention = DEFAULT_MERGE_CONVENTION
+): Int32Array {
   const n = chart.length;
   const idx = new Int32Array(n);
-  // Verified against TV (DEXE parity run 2026-07-11): for higher AND lower
-  // TFs, a chart bar sees the last feed bar that has CLOSED by the chart
-  // bar's close. In particular the final constituent bar of an HTF period
-  // (15m bar closing 09:00 on a 1h feed) already sees that HTF bar's value —
-  // the HTF close and chart close are simultaneous, and Pine evaluates at
-  // the chart bar's close.
   let j = -1;
   for (let i = 0; i < n; i++) {
-    const cutoff = chart.closeTime[i]!;
-    while (j + 1 < feed.length && feed.closeTime[j + 1]! <= cutoff) j++;
+    // `chartOpen` compares against the bar's OPEN time, so a feed bar closing
+    // exactly at that instant is not yet visible — hence `< cutoff` there, and
+    // `<= cutoff` for `chartClose`, where a simultaneous close IS visible.
+    if (convention === "chartClose") {
+      const cutoff = chart.closeTime[i]!;
+      while (j + 1 < feed.length && feed.closeTime[j + 1]! <= cutoff) j++;
+    } else {
+      const cutoff = chart.time[i]!;
+      while (j + 1 < feed.length && feed.closeTime[j + 1]! < cutoff) j++;
+    }
     idx[i] = j;
   }
   return idx;
