@@ -11,15 +11,19 @@ ls -1 "$CFG"
 CID="$($C ps -q backend)"
 [ -n "$CID" ] || { echo "backend container not found"; exit 1; }
 docker cp "$CFG/replace_1h.mjs" "$CID:/app/replace_1h.mjs"
-# OPT-27: the replace scripts share `lib/replaceGuard.mjs` (write-intent and the
-# refuse-if-a-position-is-open check). It must be staged alongside them, or the
-# import fails inside the container. Fail loudly here rather than there.
-[ -f "$CFG/lib/replaceGuard.mjs" ] || {
-  echo "missing $CFG/lib/replaceGuard.mjs — stage platform/deployment/aws/lib/ with the script" >&2
-  exit 1
-}
+# The replace scripts share `lib/` — `replaceGuard.mjs` (write intent and the
+# refuse-if-a-position-is-open check, OPT-27) and `holdoutGate.mjs` (the
+# frozen-holdout deploy gate, OPT-01). The whole directory must be staged
+# alongside them, or the import fails inside the container. Fail loudly here
+# rather than there.
+for required in replaceGuard.mjs holdoutGate.mjs; do
+  [ -f "$CFG/lib/$required" ] || {
+    echo "missing $CFG/lib/$required — stage platform/deployment/aws/lib/ with the script" >&2
+    exit 1
+  }
+done
 docker exec "$CID" mkdir -p /app/lib
-docker cp "$CFG/lib/replaceGuard.mjs" "$CID:/app/lib/replaceGuard.mjs"
+docker cp "$CFG/lib/." "$CID:/app/lib/"
 docker cp "$CFG/deploy_1h_manifest.json" "$CID:/tmp/deploy_1h_manifest.json"
 
 echo "==================== DRY ===================="

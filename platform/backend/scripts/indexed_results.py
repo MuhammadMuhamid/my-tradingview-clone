@@ -23,6 +23,53 @@ PROFILES = {
 }
 
 
+def profile_for(here: str):
+    """Shell aliases for a tree, falling back to its own registry entry.
+
+    X-04: this was a hardcoded map of five names and a bare `PROFILES[family]`
+    lookup, so running it in any of the other eight trees raised a KeyError.
+    A tree that owns a `tree.json` is a real tree; it just has no shell alias.
+    """
+    family = os.path.basename(here)
+    if family in PROFILES:
+        return PROFILES[family]
+    try:
+        with open(os.path.join(here, "tree.json")) as fh:
+            meta = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        raise SystemExit(
+            f"{family} is not an optimizer tree: it has no tree.json. "
+            f"Registered trees own one; see docs/COST-MODELS.md."
+        )
+    return (meta.get("label", family).upper(), f"<{family}-results>", f"<{family}-apply>", "")
+
+
+# OPT-05: sort modes that rank by the OUT-OF-SAMPLE window.
+#
+# The architecture correctly keeps the GA off that window, and then this tool
+# offered eight ways to pick its maximum by hand, each view ending in a
+# one-keystroke "Apply one" command. Choosing by an out-of-sample metric IS
+# selection on the validation window; a warning printed beside an easier path is
+# not a control, so these views no longer print an apply command at all.
+OOS_SORTS = {"oos", "oosdd", "ooswr", "oospf", "oostrades", "oossl", "held", "robust"}
+
+OOS_REFUSAL = (
+    "   Apply: NOT OFFERED for an out-of-sample ranking.\n"
+    "   Ranking by an OOS metric and then deploying the top row makes the\n"
+    "   out-of-sample window a second selection criterion, which is exactly the\n"
+    "   defect OPT-01 records. Choose on the in-sample views, then score the\n"
+    "   chosen config once on the frozen holdout — the deploy scripts refuse a\n"
+    "   config with no holdout record (platform/deployment/aws/lib/holdoutGate.mjs).\n"
+)
+
+
+def apply_line(mode, apply_cmd, coin, suffix="ORIG#"):
+    """The apply hint for a view, or the refusal when the view ranks on OOS."""
+    if mode in OOS_SORTS:
+        return f"{Y}{OOS_REFUSAL}{END}"
+    return f"   {DIM}Apply: {apply_cmd} {coin}:{suffix}{END}"
+
+
 class ResultIndex:
     def __init__(self, here: str):
         self.here = here
@@ -307,7 +354,8 @@ def show_robust(idx, here, coin, command, apply_cmd, sample=40):
                  if x["name"] not in strong and x["name"] not in leaning] if space else []
     if undecided:
         print(f"   {DIM}no signal (any value is fine, do not tune these): {', '.join(undecided)}{END}")
-    print(f"\n   {DIM}Configs: {command} {coin} held   |   Apply one: {apply_cmd} {coin}:ORIG#{END}\n")
+    print(f"\n   {DIM}Configs: {command} {coin} held{END}")
+    print(apply_line("robust", apply_cmd, coin) + "\n")
 
 
 def show(here: str):
@@ -316,7 +364,7 @@ def show(here: str):
         _capital = json.load(open(os.path.join(here, "config.json"))).get("initialCapital")
     except (OSError, json.JSONDecodeError):
         _capital = None
-    title, command, apply_cmd, service_label = PROFILES[family]
+    title, command, apply_cmd, service_label = profile_for(here)
     idx = ResultIndex(here)
     args = sys.argv[1:]
     if not args:
@@ -364,7 +412,7 @@ def show(here: str):
         row = idx.ranked(coin, 1, rank - 1)
         if not row: print(f"{coin} has {count} ranked results — pick 1..{count}"); return
         print_record(coin, idx.read_record(coin, row[0][0]), f"RANK #{rank} RESULT", _capital)
-        print(f"   {DIM}Apply: {apply_cmd} {coin}:{rank}{END}\n")
+        print(f"   {DIM}Apply: {apply_cmd} {coin}:{rank}{END}\n")   # in-sample rank
         return
 
     orders = {
@@ -436,5 +484,6 @@ def show(here: str):
         print(f"      {n:<6}{orig:<8}{color_net(net)}  {dd or 0:6.1f}%  {wr or 0:5.1f}%  {trades or 0:6}  {pf or 0:5.2f}"
               f"  {sl_cell(slr)}  {DIM}|{END}{oos_cells(onet, odd, owr, otr, oslr)}  {verdict(net, onet)}")
     print(f"\n   {DIM}{count} unique configs indexed from {idx.raw_count(coin)} preserved raw evaluations.{END}")
-    print(f"   {DIM}Inputs: {command} {coin} ORIG#   |   Apply: {apply_cmd} {coin}:ORIG#{END}")
+    print(f"   {DIM}Inputs: {command} {coin} ORIG#{END}")
+    print(apply_line(mode, apply_cmd, coin))
     print(f"   {DIM}Sort: net | dd | wr | pf | trades | best   ·   out-of-sample: oos | oosdd | ooswr | oospf | oostrades | sl | oossl | held | robust{END}\n")

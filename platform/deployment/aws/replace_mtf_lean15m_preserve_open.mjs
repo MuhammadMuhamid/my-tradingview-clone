@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import pg from "pg";
 import { parseWriteIntent } from "./lib/replaceGuard.mjs";
+import { assertHoldoutClearance } from "./lib/holdoutGate.mjs";
 
 const SOURCE = process.argv[2] || "/tmp/LEAN15M_WIN_QUALITY_2026-08-20.json";
 // OPT-27: writing is opt-in. `--dry` still previews; passing neither flag
@@ -60,7 +61,7 @@ const entries = SELECTED.map((symbol) => {
   if (partial && coin.full_params.rrTp1Size + coin.full_params.rrTp2Size >= 100) {
     throw new Error(`TP1 + TP2 leaves no runner for ${symbol}`);
   }
-  return { symbol, params: coin.full_params, metrics: coin.metrics };
+  return { symbol, params: coin.full_params, metrics: coin.metrics, holdout: coin.holdout ?? null };
 });
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -83,6 +84,10 @@ console.log(`PLAN: ${entries.length} replacement deployments; ${EXPECTED_PARTIAL
 for (const e of entries) {
   console.log(e.symbol, e.params.rrUsePartialTp ? "TP1/TP2/runner" : "full runner", e.metrics);
 }
+// OPT-01: refuse a portfolio whose configurations have not been scored on
+// data no selection step read. Absence of a holdout result is not a pass.
+assertHoldoutClearance(report, entries, "replace_mtf_lean15m_preserve_open.mjs");
+
 console.log(INTENT.explain());
 if (DRY) {
   await pool.end();

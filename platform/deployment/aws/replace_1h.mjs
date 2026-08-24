@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import pg from "pg";
 import { assertNoOpenPositions, parseWriteIntent } from "./lib/replaceGuard.mjs";
+import { assertHoldoutClearance } from "./lib/holdoutGate.mjs";
 
 const MANIFEST = process.argv[2] || "/tmp/deploy_1h_manifest.json";
 // OPT-27: writing is opt-in. `--dry` still previews; passing neither flag
@@ -40,6 +41,19 @@ console.log("BEFORE — deployments:", before.rows.length, "layouts:", lay.rows[
 // platform needs in order to sell it. The lean scripts already refused; this
 // one did not.
 await assertNoOpenPositions(pool, "replace_1h.mjs");
+
+// OPT-01: the manifest must carry the same holdout evidence as the lean
+// artifacts. A 1h portfolio is deployed the same way and is chosen the same
+// way, so it is gated the same way.
+// The 1h manifest is historically a bare array; a newer one may be an object
+// carrying the window beside its coins. Both are accepted, and a bare array
+// simply has no holdout evidence, which is a refusal.
+const manifestCoins = Array.isArray(manifest) ? manifest : (manifest.coins ?? []);
+assertHoldoutClearance(
+  Array.isArray(manifest) ? {} : manifest,
+  manifestCoins.map((m) => ({ symbol: m.symbol, holdout: m.holdout ?? null })),
+  "replace_1h.mjs"
+);
 
 console.log(INTENT.explain());
 if (DRY) {
