@@ -38,6 +38,8 @@ function streamName(symbol: string, interval: Interval): string {
   return `${symbol.toLowerCase()}@kline_${interval}`;
 }
 
+// Declaration merging is the standard way to give EventEmitter typed events.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export declare interface BinanceWsManager {
   on(event: "barClose", listener: (e: BarCloseEvent) => void): this;
   on(event: "open", listener: () => void): this;
@@ -45,6 +47,7 @@ export declare interface BinanceWsManager {
   on(event: "error", listener: (err: Error) => void): this;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class BinanceWsManager extends EventEmitter {
   private ws: WebSocket | null = null;
   private streams = new Set<string>();

@@ -12,6 +12,8 @@ async function main(): Promise<void> {
   const encrypted = await encryptLegacySecrets();
   // The LiveRunner needs a logger; routes need the runner. Break the cycle with
   // a lazy getter — routes only touch the runner at request time, by when it exists.
+  // Assigned below, after buildServer captures the getter. Not a const.
+  // eslint-disable-next-line prefer-const
   let runner: LiveRunner | undefined;
   const app = buildServer(() => {
     if (!runner) throw new Error("live runner not initialized");

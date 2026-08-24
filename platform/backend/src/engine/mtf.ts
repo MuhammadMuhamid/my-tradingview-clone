@@ -15,7 +15,6 @@
  * live runner implements that mode on top of the same feeds.
  */
 import type { Candle, Interval } from "../types/market";
-import { INTERVAL_MS } from "../types/market";
 
 export interface Bars {
   symbol: string;

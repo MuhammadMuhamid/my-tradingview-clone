@@ -26,7 +26,6 @@ export interface Group {
 }
 
 const MA_TYPES = ["SMA", "EMA", "WMA", "RMA", "VWMA", "HMA"];
-const SRC = ["Open", "High", "Low", "Close"];
 const TF_OPTS = ["1", "3", "5", "15", "30", "60", "120", "240", "360", "720", "D"];
 
 export const PARAM_GROUPS: Group[] = [

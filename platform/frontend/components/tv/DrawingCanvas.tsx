@@ -57,7 +57,6 @@ export function DrawingCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [style, setStyle] = useState(DEFAULT_STYLE);
-  const [, forceRedraw] = useState(0);
 
   // Refs mirror state for use inside the imperative pointer/raf handlers.
   const draftRef = useRef<{ tool: DrawingTool; points: Anchor[] } | null>(null);

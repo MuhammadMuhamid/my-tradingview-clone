@@ -47,7 +47,7 @@ export function evaluateMtfLeanBar(
   const i = chart.time.indexOf(barTime);
   if (i < 0) throw new Error(`bar ${barTime} not present in ${symbol} ${chartTf} feed`);
   const sig = computeSignals(feeds, symbol, chartTf, p);
-  let next = copy(state);
+  const next = copy(state);
   const steps: MtfLeanStep[] = [];
   const close = chart.close[i]!;
   const open = chart.open[i]!;

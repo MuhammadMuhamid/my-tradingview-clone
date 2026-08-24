@@ -43,7 +43,7 @@ export function evaluateSrTrendBar(feeds: FeedStore, symbol: string, chartTf: In
     (sig.exitMa[i]! || sig.belowSt[i]! || sig.belowMa1[i]! || sig.belowLinReg[i]!);
   const structural = (p.hlBreakMinR <= 0 || unrealR >= p.hlBreakMinR) && sig.hlBreak[i]!;
   const stopHit = l <= stop, tpHit = next.savedLongTp !== null && h >= next.savedLongTp;
-  let reason: string | null = structural ? "HL Break" :
+  const reason: string | null = structural ? "HL Break" :
     soft ? "Signal exit" : stopHit ? (next.trailAnchor !== null && stop === next.trailAnchor ? "Trail" : "SL") : tpHit ? "TP" : null;
   if (!reason) return { next, decision: null };
   const win = (tpHit ? next.savedLongTp! : stopHit ? stop : c) > entry;

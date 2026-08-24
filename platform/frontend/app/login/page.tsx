@@ -1,10 +1,9 @@
 "use client";
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/chart";
   const [username, setUsername] = useState("");
