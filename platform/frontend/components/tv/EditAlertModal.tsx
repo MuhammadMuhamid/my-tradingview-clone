@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { api } from "@/lib/api";
+import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Deployment } from "@/lib/types";
 
 /**
@@ -98,10 +99,11 @@ export function EditAlertModal({
             <select value={delivery} onChange={(e) => setDelivery(e.target.value as DeliveryMode)} className={box}>
               <option value="custom">Custom webhook bot</option>
               <option value="3commas">3Commas Signal Bot</option>
-              <option value="off">Off — log signals only (dry run)</option>
+              <option value="paper">Paper — simulate fills, send nothing</option>
+              <option value="off">Off — log signals only, simulate nothing</option>
             </select>
           </Row>
-          {delivery !== "off" && (
+          {deliversLiveOrders(delivery) && (
             <>
               <Row label="Webhook URL">
                 <input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} className={box}

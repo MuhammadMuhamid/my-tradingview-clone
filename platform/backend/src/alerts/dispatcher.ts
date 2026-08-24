@@ -121,7 +121,12 @@ export function buildPayload(dep: DeploymentRow, ctx: SignalContext): BuiltAlert
     return { payload, dedupeKey: null, url };
   }
 
-  // delivery === "off": build the custom shape for logging, deliver nothing.
+  // delivery is "off" or "paper": build the custom shape so the recorded alert
+  // has the same structure as a live one, and deliver nothing. The empty secret
+  // is deliberate — a mode that makes no outbound call holds no credential.
+  //
+  // `paper` never reaches `deliver`; `liveRunner.fireAlert` branches before it
+  // and simulates the fill in `engine/paperBroker.ts` instead.
   const dedupeKey = customDedupeKey(ctx.action, ctx.barIndex, ctx.barTime, ctx.exitLeg);
   const payload: CustomBotAlertPayload = {
     secret: "",

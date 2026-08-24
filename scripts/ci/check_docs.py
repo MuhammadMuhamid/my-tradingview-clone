@@ -118,6 +118,7 @@ DOC_PATH_SOURCES = [
     "docs/CANDLE-PERFORMANCE.md",
     "docs/WEB-QA.md",
     "docs/ALERTS.md",
+    "docs/OPERATIONS.md",
 ]
 
 # A backticked token that looks like a repository path.

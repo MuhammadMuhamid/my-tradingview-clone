@@ -18,6 +18,7 @@ import {
   countOpenPositions, describeRiskState, intendedExposure, realisedPnlInWindow,
 } from "../../engine/riskControls";
 import { worstFeedState, type FeedState } from "../../data/feedHealth";
+import { summariseDelivery } from "../../engine/deliveryHealth";
 import { config } from "../../config";
 import type { LiveRunner } from "../../engine/liveRunner";
 
@@ -48,6 +49,11 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
 
       const feeds = await liveSafety.listFeedHealth();
       const lease = await liveSafety.getEmitterLease();
+      const deliveryWindowHours = 24;
+      const delivery = summariseDelivery(
+        await liveSafety.listDeliveryOutcomes(deliveryWindowHours),
+        { now: Date.now(), windowHours: deliveryWindowHours }
+      );
 
       let runnerIsEmitter = false;
       try {
@@ -95,6 +101,26 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
           active: active.length,
           long: snapshot.openPositions,
           paused: deployments.filter((d) => d.status === "paused").length,
+        },
+        /**
+         * Are the signals this system produced actually reaching the bot? Before
+         * this the only way to ask was to read the alerts table by hand, so a
+         * webhook that had been failing for a day looked like a quiet market.
+         */
+        delivery: {
+          ...delivery,
+          lastSentAt: delivery.lastSentAt === null ? null : new Date(delivery.lastSentAt).toISOString(),
+          lastFailureAt: delivery.lastFailureAt === null ? null : new Date(delivery.lastFailureAt).toISOString(),
+        },
+        /**
+         * Binance testnet is a bot-side setting; the platform records what it
+         * believes so the two cannot silently disagree. No credentialed call is
+         * made from here — see docs/OPERATIONS.md.
+         */
+        exchange: {
+          testnetConfigured: process.env.BINANCE_TESTNET === "true",
+          note: "Reported from this process's configuration. The execution bot holds the "
+            + "credentials and is the authority; nothing here contacts Binance.",
         },
         feeds: {
           worst: worstFeedState(feeds.map((f) => f.state as FeedState)),

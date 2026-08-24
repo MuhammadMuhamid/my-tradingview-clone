@@ -1,7 +1,25 @@
 import type { Interval } from "./market";
 import type { StrategyParams } from "./strategy";
 
-export type DeliveryMode = "3commas" | "custom" | "off";
+/**
+ * How a deployment's signals leave the platform.
+ *
+ *   `custom`   — POST to the execution bot's webhook. Real orders.
+ *   `3commas`  — POST to a 3Commas bot. Real orders.
+ *   `off`      — evaluate and record; send nothing, simulate nothing.
+ *   `paper`    — evaluate, record, and SIMULATE the fill with the live cost
+ *                model. Sends nothing. `engine/paperBroker.ts` does the
+ *                simulation and cannot reach the dispatcher; the isolation is
+ *                asserted in tests/paperIsolation.test.ts.
+ */
+export type DeliveryMode = "3commas" | "custom" | "off" | "paper";
+
+/** Modes that reach an external system. Everything else is local-only. */
+export const LIVE_DELIVERY_MODES: readonly DeliveryMode[] = ["3commas", "custom"];
+
+export function deliversLiveOrders(mode: DeliveryMode): boolean {
+  return LIVE_DELIVERY_MODES.includes(mode);
+}
 export type DeploymentStatus = "active" | "paused" | "stopped";
 
 /**

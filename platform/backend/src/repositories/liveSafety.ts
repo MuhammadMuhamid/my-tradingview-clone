@@ -10,6 +10,7 @@ import { query } from "../db/pool";
 import type { RiskLimits, HaltSource } from "../engine/riskControls";
 import { DEFAULT_RISK_LIMITS } from "../engine/riskControls";
 import type { FeedState } from "../data/feedHealth";
+import type { DeliveryRow } from "../engine/deliveryHealth";
 
 // ── Order intent (BE-13, BE-16) ─────────────────────────────────────────────
 
@@ -259,6 +260,39 @@ export async function listRealisedPnl(
   return rows.map((r) => ({
     closedAt: r.closed_at.getTime(),
     pnlQuote: typeof r.pnl_quote === "number" ? r.pnl_quote : Number(r.pnl_quote),
+  }));
+}
+
+/**
+ * Recent delivery outcomes, for the operator surface's signal-delivery health.
+ *
+ * Read-only and bounded: the newest `limit` rows inside the window, so a busy
+ * day cannot turn a status poll into a table scan.
+ */
+export async function listDeliveryOutcomes(
+  windowHours: number,
+  limit = 500
+): Promise<DeliveryRow[]> {
+  const { rows } = await query<{
+    delivery_status: DeliveryRow["status"];
+    fired_at: Date;
+    sent_at: Date | null;
+    attempts: number;
+    http_status: number | null;
+  }>(
+    `SELECT delivery_status, fired_at, sent_at, attempts, http_status
+       FROM alerts
+      WHERE fired_at >= now() - ($1 || ' hours')::interval
+      ORDER BY fired_at DESC
+      LIMIT $2`,
+    [String(windowHours), limit]
+  );
+  return rows.map((r) => ({
+    status: r.delivery_status,
+    firedAt: r.fired_at.getTime(),
+    sentAt: r.sent_at === null ? null : r.sent_at.getTime(),
+    attempts: r.attempts,
+    httpStatus: r.http_status,
   }));
 }
 

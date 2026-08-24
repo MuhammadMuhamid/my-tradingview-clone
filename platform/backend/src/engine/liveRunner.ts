@@ -39,6 +39,9 @@ import { evaluateSrTrendBar } from "./srTrendLiveEvaluator";
 import { mtfLeanModule } from "./strategies/mtf_lean";
 import { evaluateMtfLeanBar, type MtfLeanDecision } from "./mtfLeanLiveEvaluator";
 import { INTERVAL_MS } from "../types/market";
+import { deliversLiveOrders } from "../types/deployments";
+import { applyPaperSignal } from "./paperBroker";
+import * as paperRepo from "../repositories/paperFills";
 
 /**
  * How long a lease is granted for, and how often it is renewed. The renewal
@@ -621,7 +624,9 @@ export class LiveRunner {
       reason: decision.reason,
       payload: built.payload,
       dedupeKey: built.dedupeKey,
-      deliveryStatus: dep.delivery === "off" ? "skipped" : "pending",
+      // `off` and `paper` never contact anything, so their alert is terminal at
+      // creation. Only a mode that actually POSTs starts as `pending`.
+      deliveryStatus: deliversLiveOrders(dep.delivery) ? "pending" : "skipped",
     });
     this.log.info(
       { deploymentId: dep.id, action: decision.action, reason: decision.reason, price: decision.price },
@@ -634,6 +639,59 @@ export class LiveRunner {
       if (intentId !== null) {
         await liveSafety.resolveIntent(intentId, "delivered", "delivery is off; nothing was sent");
       }
+      return true;
+    }
+
+    /*
+     * PAPER. Simulate the fill and return — this branch is BEFORE the dispatcher
+     * and there is no path from here to it.
+     *
+     * `engine/paperBroker.ts` is a pure function of the signal and the current
+     * simulated position; it holds no credentials and imports nothing that can
+     * place an order, which `tests/paperIsolation.test.ts` asserts over its
+     * whole transitive import graph. The cost model is the live one, because a
+     * paper run at zero fees flatters a configuration exactly where it matters
+     * least (X-09).
+     */
+    if (dep.delivery === "paper") {
+      const position = await paperRepo.currentPosition(dep.id);
+      const outcome = applyPaperSignal(position, {
+        action: decision.action,
+        price: decision.price,
+        barTime: decision.barTime,
+        buyQuoteQty: dep.buyQuoteQty ?? 0,
+        sellPercent: decision.sellPercent ?? null,
+        reason: decision.reason,
+      });
+      if (outcome.filled) {
+        await paperRepo.recordFill({
+          deploymentId: dep.id, alertId: alert.id, fill: outcome.fill, reason: decision.reason,
+        });
+        this.log.info(
+          {
+            deploymentId: dep.id, action: decision.action, price: decision.price,
+            qty: outcome.fill.qty, realisedPnl: outcome.fill.realisedPnl,
+          },
+          "PAPER fill simulated — nothing was sent"
+        );
+      } else {
+        // A refusal is not a silent no-op: it means the platform's idea of the
+        // position and the simulation's have diverged, which is one of the
+        // things a paper run exists to surface.
+        this.log.warn(
+          { deploymentId: dep.id, action: decision.action, reason: outcome.reason },
+          "PAPER signal not filled"
+        );
+      }
+      if (intentId !== null) {
+        await liveSafety.resolveIntent(
+          intentId, "delivered",
+          outcome.filled ? "paper fill simulated; nothing was sent" : `paper: ${outcome.reason}`
+        );
+      }
+      // State advances either way: the live path advances on a delivered
+      // signal, and a paper deployment must track the same state machine or it
+      // is simulating a different strategy.
       return true;
     }
 

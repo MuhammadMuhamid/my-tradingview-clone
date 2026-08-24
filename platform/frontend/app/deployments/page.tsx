@@ -5,8 +5,9 @@ import { DeploymentForm } from "@/components/DeploymentForm";
 import { AlertFeed } from "@/components/AlertFeed";
 import { EditAlertModal } from "@/components/tv/EditAlertModal";
 import { StaleNotice } from "@/components/StaleNotice";
-import { api } from "@/lib/api";
+import { api, type PaperResult } from "@/lib/api";
 import { freshAt, type Freshness } from "@/lib/freshness";
+import { deliversLiveOrders } from "@/lib/types";
 import type { Alert, Deployment, SymbolInfo } from "@/lib/types";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 
@@ -16,6 +17,7 @@ export default function DeploymentsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Deployment | null>(null);
+  const [paper, setPaper] = useState<PaperResult | null>(null);
   /**
    * FE-12/FE-13: this page used `refresh().catch(() => {})`, so a backend that
    * went away left it rendering the last successful response for as long as it
@@ -53,6 +55,16 @@ export default function DeploymentsPage() {
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  /** Load a paper deployment's simulated fills into the panel. */
+  const openPaper = async (id: string): Promise<void> => {
+    setActionError(null);
+    try {
+      setPaper(await api.paperResult(id));
+    } catch (e) {
+      setActionError((e as Error).message);
+    }
+  };
 
   /**
    * Run one action against a deployment, and say so when it fails.
@@ -111,6 +123,87 @@ export default function DeploymentsPage() {
 
       {showForm && <DeploymentForm symbols={symbols} onCreated={() => { setShowForm(false); void refresh(); }} />}
 
+      {paper && (
+        <Card>
+          <CardHeader
+            title={`Paper results — ${paper.symbol} ${paper.timeframe}`}
+            right={
+              <button
+                onClick={() => setPaper(null)}
+                aria-label="Close paper results"
+                className="text-xs text-ink-faint hover:text-ink"
+              >
+                ✕
+              </button>
+            }
+          />
+          <div className="space-y-3 px-4 pb-4">
+            <p className="rounded border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-ink">
+              {paper.caveat}
+            </p>
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
+              <dt className="text-ink-muted">Realised</dt>
+              <dd className={`text-right tabular ${paper.summary.realisedPnl >= 0 ? "text-up" : "text-down"}`}>
+                {paper.summary.realisedPnl >= 0 ? "+" : ""}
+                {paper.summary.realisedPnl.toFixed(2)} USDT
+              </dd>
+              <dt className="text-ink-muted">Commission</dt>
+              <dd className="text-right tabular text-ink">
+                {paper.summary.commissionPaid.toFixed(2)} USDT
+              </dd>
+              <dt className="text-ink-muted">Closed trades</dt>
+              <dd className="text-right tabular text-ink">{paper.summary.sells}</dd>
+              <dt className="text-ink-muted">Win rate</dt>
+              <dd className="text-right tabular text-ink">
+                {paper.summary.winRatePct === null ? "—" : `${paper.summary.winRatePct.toFixed(1)}%`}
+              </dd>
+              <dt className="text-ink-muted">Open position</dt>
+              <dd className="text-right tabular text-ink">
+                {paper.summary.openPosition.qty > 0
+                  ? `${paper.summary.openPosition.qty.toFixed(6)} @ ${paper.summary.openPosition.entryPrice ?? "—"}`
+                  : "flat"}
+              </dd>
+              <dt className="text-ink-muted">Simulated size</dt>
+              <dd className="text-right tabular text-ink">{paper.buyQuoteQty ?? "—"} USDT</dd>
+            </dl>
+            {paper.fills.length === 0 ? (
+              <Empty>No simulated fills yet. The strategy has not signalled since paper mode was set.</Empty>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm tabular">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-ink-muted">
+                      <th className="px-2 py-1.5 text-left">Bar</th>
+                      <th className="px-2 py-1.5 text-left">Action</th>
+                      <th className="px-2 py-1.5 text-right">Price</th>
+                      <th className="px-2 py-1.5 text-right">Qty</th>
+                      <th className="px-2 py-1.5 text-right">Fee</th>
+                      <th className="px-2 py-1.5 text-right">Realised</th>
+                      <th className="px-2 py-1.5 text-left">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paper.fills.slice(0, 50).map((f) => (
+                      <tr key={f.id} className="border-b border-border/50">
+                        <td className="px-2 py-1.5 text-ink-faint">{new Date(f.barTime).toLocaleString()}</td>
+                        <td className="px-2 py-1.5 font-medium">{f.action}</td>
+                        <td className="px-2 py-1.5 text-right">{f.price}</td>
+                        <td className="px-2 py-1.5 text-right">{f.qty.toFixed(6)}</td>
+                        <td className="px-2 py-1.5 text-right">{f.commission.toFixed(4)}</td>
+                        <td className={`px-2 py-1.5 text-right ${(f.realisedPnl ?? 0) >= 0 ? "text-up" : "text-down"}`}>
+                          {f.realisedPnl === null ? "—" : f.realisedPnl.toFixed(2)}
+                        </td>
+                        <td className="px-2 py-1.5 text-ink-faint">{f.reason ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
       <Card>
         <CardHeader title="Deployments" right={<span className="text-xs text-ink-faint">{deps.length}</span>} />
         {deps.length === 0 ? (
@@ -122,7 +215,24 @@ export default function DeploymentsPage() {
                 <StatusBadge status={d.status} />
                 <span className="font-medium">{d.symbol}</span>
                 <span className="text-sm text-ink-muted">{d.timeframe}</span>
-                <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-muted">{d.delivery}</span>
+                <span
+                  className={
+                    d.delivery === "paper"
+                      ? "rounded bg-accent/15 px-1.5 py-0.5 text-xs font-medium text-accent"
+                      : deliversLiveOrders(d.delivery)
+                        ? "rounded bg-warn/15 px-1.5 py-0.5 text-xs font-medium text-ink"
+                        : "rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-muted"
+                  }
+                  title={
+                    d.delivery === "paper"
+                      ? "Paper: fills are simulated at the live cost model. No order is sent anywhere."
+                      : deliversLiveOrders(d.delivery)
+                        ? "Live: this deployment sends real buy and sell orders."
+                        : "Off: signals are recorded and nothing is sent or simulated."
+                  }
+                >
+                  {d.delivery === "paper" ? "paper (simulated)" : d.delivery}
+                </span>
                 {d.buyQuoteQty != null && (
                   <span className="text-xs text-ink-muted">buy {d.buyQuoteQty} USDT</span>
                 )}
@@ -133,6 +243,11 @@ export default function DeploymentsPage() {
                 </span>
                 {d.lastBarTime && <span className="text-xs text-ink-faint">last bar {fmtAgo(d.lastBarTime)}</span>}
                 <div className="ml-auto flex items-center gap-2">
+                  {d.delivery === "paper" && (
+                    <Button onClick={() => void openPaper(d.id)} disabled={busy !== null}>
+                      Paper results
+                    </Button>
+                  )}
                   <Button onClick={() => setEditing(d)} disabled={busy !== null}>Edit</Button>
                   <Button
                     variant={d.status === "active" ? "default" : "primary"}

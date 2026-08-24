@@ -261,6 +261,99 @@ export function expandCompact(payload: CompactCandles): Candle[] {
   }));
 }
 
+// ── Operator console ────────────────────────────────────────────────────────
+
+/**
+ * `mode` has four states and none of them is a guess. A process that does not
+ * hold the emitter lease cannot report on emission, and `DISABLED` means the
+ * live runner is off by configuration rather than by an operator's decision.
+ */
+export type OpsMode = "LIVE" | "STANDBY" | "HALTED" | "DISABLED";
+export type FeedState = "live" | "lagging" | "stale" | "gapped" | "unknown";
+export type DeliveryState = "failing" | "stalled" | "degraded" | "idle" | "healthy";
+
+export interface OpsStatus {
+  mode: OpsMode;
+  emitter: {
+    thisProcess: string;
+    liveRunnerEnabled: boolean;
+    holdsLease: boolean;
+    lease: {
+      holder: string; hostname: string | null; pid: number | null;
+      acquiredAt: string; expiresAt: string; isThisProcess: boolean;
+    } | null;
+  };
+  risk: {
+    tradingHalted: boolean;
+    haltedReason: string | null;
+    haltedBy: string | null;
+    haltedAt: string | null;
+    maxTotalExposureQuote: number | null;
+    maxConcurrentPositions: number | null;
+    maxDailyLossQuote: number | null;
+    dailyLossWindowHours: number;
+    snapshot: {
+      currentExposureQuote: number;
+      openPositions: number;
+      realisedPnlInWindow: number;
+    };
+    summary: string;
+  };
+  deployments: { total: number; active: number; long: number; paused: number };
+  delivery: {
+    state: DeliveryState;
+    summary: string;
+    windowHours: number;
+    counts: Record<"pending" | "sent" | "failed" | "skipped" | "blocked", number>;
+    total: number;
+    lastSentAt: string | null;
+    lastFailureAt: string | null;
+    stuckPending: number;
+    retried: number;
+  };
+  exchange: { testnetConfigured: boolean; note: string };
+  feeds: {
+    worst: FeedState;
+    rows: Array<{
+      symbol: string; interval: string; state: string;
+      lastBarTime: string | null; lastCheckedAt: string;
+      barsBehind: number | null; gapCount?: number | null; detail?: string | null;
+    }>;
+  };
+  time: string;
+}
+
+export interface UnresolvedIntents {
+  count: number;
+  intents: Array<{
+    id: number; deploymentId: string; state: string; action: string;
+    barTime: string; createdAt: string; resolvedAt: string | null;
+    dedupeKey?: string | null;
+  }>;
+}
+
+/** A paper deployment's simulated fills and their running result. */
+export interface PaperResult {
+  deploymentId: string;
+  symbol: string;
+  timeframe: Interval;
+  buyQuoteQty: number | null;
+  commissionPctPerSide: number;
+  caveat: string;
+  summary: {
+    fills: number; buys: number; sells: number;
+    realisedPnl: number; commissionPaid: number;
+    wins: number; losses: number; winRatePct: number | null;
+    openPosition: { qty: number; costBasis: number; entryPrice: number | null };
+    unrealisedPnl: number | null;
+  };
+  fills: Array<{
+    id: number; action: "buy" | "sell"; barTime: string; filledAt: string;
+    price: number; qty: number; quote: number; commission: number;
+    realisedPnl: number | null; positionQty: number; reason: string | null;
+  }>;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
@@ -440,6 +533,29 @@ export const api = {
   // local optimizer winners
   optimizerBest: (symbol: string, rank = 1, strategy = "ma_rr_v9", timeframe: Interval = "15m") =>
     req<OptimizerBest>(`/api/optimizer/best/${symbol.toUpperCase()}?rank=${rank}&strategy=${strategy}&timeframe=${timeframe}`),
+  /** Simulated fills for a `paper` deployment. 409 when it is not one. */
+  paperResult: (deploymentId: string) =>
+    req<PaperResult>(`/api/deployments/${deploymentId}/paper`),
+
+  // operator console
+  opsStatus: () => req<OpsStatus>(`/api/ops/status`),
+  opsUnresolvedIntents: () => req<UnresolvedIntents>(`/api/ops/unresolved-intents`),
+  opsHalt: (reason: string) =>
+    req<{ halted: true; reason: string }>(`/api/ops/halt`, {
+      method: "POST",
+      body: JSON.stringify({ confirmation: "HALT_TRADING", reason }),
+    }),
+  opsResume: () =>
+    req<{ halted: false; previousReason?: string | null; note?: string }>(`/api/ops/resume`, {
+      method: "POST",
+      body: JSON.stringify({ confirmation: "RESUME_TRADING" }),
+    }),
+  opsSetRiskLimits: (patch: Record<string, number | null>) =>
+    req<OpsStatus["risk"]>(`/api/ops/risk-limits`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
   /** Every tree the backend can actually reach, from its own registry. */
   optimizerTrees: () => req<{ root: string; trees: OptimizerTree[] }>(`/api/optimizer/trees`),
   optimizerLeaderboardByTree: (tree: string) =>

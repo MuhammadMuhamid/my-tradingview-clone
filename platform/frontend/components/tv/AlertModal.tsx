@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { api } from "@/lib/api";
+import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Interval, Strategy, StrategyParams } from "@/lib/types";
 import { defaultParamsFor } from "@/lib/paramSchema";
 
@@ -62,8 +63,8 @@ export function AlertModal({
       const dep = await api.createDeployment({
         strategyKey: selected.key,
         symbol, timeframe, params: selected.key === strategy?.key ? params : defaultParamsFor(selected.key), delivery,
-        webhookUrl: delivery === "off" ? undefined : webhookUrl || undefined,
-        secret: secret || undefined,
+        webhookUrl: deliversLiveOrders(delivery) ? webhookUrl || undefined : undefined,
+        secret: deliversLiveOrders(delivery) ? secret || undefined : undefined,
         botUuid: delivery === "3commas" ? botUuid || undefined : undefined,
         buyQuoteQty,
       });
@@ -122,10 +123,11 @@ export function AlertModal({
           <select value={delivery} onChange={(e) => setDelivery(e.target.value as DeliveryMode)} className={box}>
             <option value="custom">Custom webhook bot</option>
             <option value="3commas">3Commas Signal Bot</option>
-            <option value="off">Off — log signals only (dry run)</option>
+            <option value="paper">Paper — simulate fills, send nothing</option>
+            <option value="off">Off — log signals only, simulate nothing</option>
           </select>
         </Row>
-        {delivery !== "off" && (
+        {deliversLiveOrders(delivery) && (
           <>
             <Row label="Webhook URL">
               <input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} className={box}
@@ -162,7 +164,9 @@ export function AlertModal({
           <span>
             {delivery === "off"
               ? "I understand this starts the strategy. Delivery is off, so signals are logged and no orders are sent."
-              : `I understand this starts trading immediately and sends real ${buyQuoteQty} USDT buy orders to my bot.`}
+              : delivery === "paper"
+                ? `I understand this starts the strategy in PAPER mode: fills are simulated at ${buyQuoteQty} USDT with the live 0.1 % per-side cost model, and no order is sent anywhere.`
+                : `I understand this starts trading immediately and sends real ${buyQuoteQty} USDT buy orders to my bot.`}
           </span>
         </label>
         {err && <p className="text-sm text-down" role="alert">{err}</p>}

@@ -143,7 +143,7 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
                 </div>
                 <div className="mt-0.5 flex items-center justify-between">
                   <span className="text-xs text-ink-faint">
-                    {d.delivery === "off" ? "dry run" : d.delivery}
+                    {d.delivery === "off" ? "log only" : d.delivery === "paper" ? "paper" : d.delivery}
                     {d.buyQuoteQty != null && <> · {d.buyQuoteQty} USDT</>}
                     {" · "}{d.runtimeState.position === "long" ? "in position" : "flat"}
                   </span>
