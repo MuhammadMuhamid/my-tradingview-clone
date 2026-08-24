@@ -17,14 +17,14 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Candle, Interval } from "../types/market";
 import { INTERVAL_MS } from "../types/market";
-import { maLabel, describeMode, type MaType } from "../types/maAlerts";
+import { type MaType } from "../types/maAlerts";
 import type { MaAlertRow } from "../types/maAlerts";
 import * as maAlertRepo from "../repositories/maAlerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent } from "../data/binanceWs";
 import { sma, ema } from "./ta";
-import { evaluateMaAlert, cooldownElapsed, type Side } from "../alerts/maEvaluator";
+import { evaluateMaAlert, cooldownElapsed, formatMaAlertPush, type Side } from "../alerts/maEvaluator";
 import { sendPush } from "../alerts/webPush";
 
 /** Bars of history pulled per evaluation: enough to seed the longest MA. */
@@ -167,19 +167,11 @@ export class MaAlertRunner {
   private async fire(
     alert: MaAlertRow, bar: Candle, maValue: number, distancePct: number
   ): Promise<void> {
-    const line = maLabel(alert.maType, alert.maLength);
-    const title = `${alert.symbol} ${alert.timeframe} — ${line}`;
-    const body =
-      `Price ${describeMode(alert)} the ${line} ` +
-      `(close ${fmt(bar.close)}, ${line} ${fmt(maValue)}, ` +
-      `${distancePct >= 0 ? "+" : ""}${distancePct.toFixed(2)}%)`;
+    const { title, body, tag, url } = formatMaAlertPush(alert, bar, maValue, distancePct);
 
     let pushedTo = 0;
     try {
-      const res = await sendPush(
-        { title, body, tag: `ma-${alert.id}`, url: `/chart?symbol=${alert.symbol}&interval=${alert.timeframe}` },
-        this.log
-      );
+      const res = await sendPush({ title, body, tag, url }, this.log);
       pushedTo = res.sent;
     } catch (err) {
       this.log.error({ alertId: alert.id, err: (err as Error).message }, "ma alert push failed");
@@ -199,11 +191,4 @@ export class MaAlertRunner {
     });
     this.log.info({ alertId: alert.id, symbol: alert.symbol, mode: alert.mode, pushedTo }, "ma alert fired");
   }
-}
-
-/** Price formatting that keeps sub-cent alt pairs readable. */
-function fmt(n: number): string {
-  const abs = Math.abs(n);
-  const d = abs >= 1000 ? 2 : abs >= 1 ? 4 : abs >= 0.01 ? 6 : 8;
-  return n.toFixed(d).replace(/\.?0+$/, "");
 }
