@@ -7,9 +7,15 @@ import { StatusBadge } from "@/components/ui";
 import { EditAlertModal } from "./EditAlertModal";
 
 /**
- * TradingView-style Alerts sidebar: "Alerts" tab lists active alerts (our
- * live deployments) with pause/resume/delete; "Log" tab shows every fired
- * signal and its delivery outcome. Empty state mirrors TV's.
+ * The automation sidebar: running strategy deployments with
+ * pause/resume/delete, and the log of every signal they sent and how the bot
+ * answered.
+ *
+ * FE-01: this was called "Alerts", which is also what the price and moving
+ * average notifications are called. Two very different things sharing one word
+ * is how a user ends up believing a live 800 USDT deployment will merely buzz
+ * their phone. Notifications live on the /alerts page and in the MA panel;
+ * everything in here places orders.
  */
 export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
   const [tab, setTab] = useState<"alerts" | "log">("alerts");
@@ -53,20 +59,20 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
     <aside className="flex h-full w-[85vw] max-w-[290px] shrink-0 flex-col border-l border-border bg-surface md:w-[290px]">
       {/* tabs */}
       <div className="flex items-center gap-1 border-b border-border p-2">
-        {(["alerts", "log"] as const).map((t) => (
+        {([["alerts", "Running"], ["log", "Order log"]] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === t ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"
             }`}
           >
-            {t}
+            {label}
           </button>
         ))}
       </div>
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <button onClick={onCreateAlert} className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink" title="Create alert">
+        <button onClick={onCreateAlert} className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink" title="Automate a strategy — sends live orders">
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2v11M2 7.5h11" stroke="currentColor" strokeWidth="1.5" /></svg>
         </button>
         <span className="text-xs text-ink-faint">
@@ -79,12 +85,17 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
           deps.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
               <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6b7486" strokeWidth="1.2">
-                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
-                <path d="M17 14h6M20 11v6" strokeWidth="1.4" />
+                <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
               </svg>
-              <p className="text-sm text-ink-muted">Alerts notify your bot instantly when your strategy fires. Create one to get started.</p>
+              <p className="text-sm text-ink-muted">
+                An automation runs a strategy server-side and sends every buy and sell to your bot
+                as a real order.
+              </p>
+              <p className="text-xs text-ink-faint">
+                Looking to be notified about a price instead? That is the bell in the toolbar.
+              </p>
               <button onClick={onCreateAlert} className="rounded-md bg-ink px-4 py-1.5 text-sm font-semibold text-bg hover:bg-ink/90">
-                Create alert
+                Automate a strategy
               </button>
             </div>
           ) : (
@@ -129,7 +140,8 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
           )
         ) : log.length === 0 ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-ink-faint">
-            No fired alerts yet. Signals appear here the moment a strategy fires.
+            No orders sent yet. Every signal an automation produces appears here with the
+            answer your bot gave.
           </div>
         ) : (
           log.map((a) => (

@@ -12,7 +12,9 @@ import { StrategyTester } from "@/components/tv/StrategyTester";
 import { StrategySettingsModal, StrategyProperties, DEFAULT_PROPERTIES } from "@/components/tv/StrategySettingsModal";
 import { AlertModal } from "@/components/tv/AlertModal";
 import { MaPanel } from "@/components/tv/MaPanel";
+import { alertColor, describeAlert, isAlertActive } from "@/lib/alerts";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
+import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
@@ -178,6 +180,17 @@ export default function TvWorkspace() {
   const [maLines, setMaLines] = useState<MaLine[]>(defaultMaLines);
   const [maAlerts, setMaAlerts] = useState<MaAlert[]>([]);
   const [armLine, setArmLine] = useState<{ type: MaType; length: number } | null>(null);
+  /**
+   * The price-alert dialog, and the level it opened with.
+   *
+   * `pickingLevel` is the intermediate state: the user asked to place a level
+   * and the next chart click supplies it. Keeping it separate from the dialog
+   * means the chart is only click-armed while that mode is on, and behaves
+   * exactly as before at every other moment.
+   */
+  const [priceAlertOpen, setPriceAlertOpen] = useState(false);
+  const [priceAlertLevel, setPriceAlertLevel] = useState<number | null>(null);
+  const [pickingLevel, setPickingLevel] = useState(false);
 
   const refreshMaAlerts = useCallback(async () => {
     try {
@@ -186,6 +199,24 @@ export default function TvWorkspace() {
   }, [symbol]);
 
   useEffect(() => { void refreshMaAlerts(); }, [refreshMaAlerts]);
+
+  /**
+   * Ask for a level off the chart, then open the dialog with it.
+   *
+   * Two steps rather than one because the price a user means is the one they
+   * can see, and a dialog opening first would cover it.
+   */
+  const pickLevel = useCallback((price: number) => {
+    setPickingLevel(false);
+    setPriceAlertLevel(price);
+    setPriceAlertOpen(true);
+  }, []);
+
+  /** Open the dialog with no level picked; it falls back to the last price. */
+  const openPriceAlert = useCallback(() => {
+    setPriceAlertLevel(null);
+    setPriceAlertOpen(true);
+  }, []);
 
   const toggleMa = useCallback((type: MaType, length: number) => {
     setMaLines((prev) => prev.map((l) =>
@@ -541,6 +572,31 @@ export default function TvWorkspace() {
   const changeInterval = (i: Interval) => { setInterval(i); setTrades([]); };
   const last = candles[candles.length - 1];
 
+  /**
+   * Armed price alerts, drawn as horizontal levels on the chart.
+   *
+   * Only the ones for the timeframe being looked at: an alert armed on the 1d
+   * chart is not a level the 5m chart is watching, and drawing it there would
+   * imply a line that will fire from what is on screen.
+   */
+  const alertPriceLines = useMemo<ChartPriceLine[]>(
+    () => maAlerts
+      .filter((a) => a.conditionKind === "price" && a.targetPrice !== null &&
+                     a.timeframe === interval && isAlertActive(a))
+      .map((a) => ({
+        price: a.targetPrice!,
+        color: alertColor(a),
+        title: `🔔 ${describeAlert(a).replace("price ", "")}`,
+        dashed: true,
+      })),
+    [maAlerts, interval]
+  );
+
+  const allPriceLines = useMemo(
+    () => [...priceLines, ...alertPriceLines],
+    [priceLines, alertPriceLines]
+  );
+
   /** MA lines drawn beneath any Pine overlays, so scripts stay on top. */
   const maOverlays = useMemo(() => buildMaOverlays(candles, maLines), [candles, maLines]);
   const maValues = useMemo(() => currentMaValues(candles, maLines), [candles, maLines]);
@@ -667,12 +723,27 @@ export default function TvWorkspace() {
             </svg>
             Split
           </button>
-          <button onClick={() => setAlertOpen(true)}
+          {/*
+            FE-01: this bell used to open the deployment dialog, which created
+            AND activated a live 800 USDT strategy. A bell means "tell me when",
+            in this product and in every other one; automation now has its own
+            button, below, that says what it does.
+          */}
+          <button onClick={openPriceAlert}
+            title="Notify me when price reaches a level"
             className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
             </svg>
             Alert
+          </button>
+          <button onClick={() => setAlertOpen(true)}
+            title="Run this strategy server-side and send live orders to your bot"
+            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
+            </svg>
+            Automate
           </button>
           <button onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
@@ -728,12 +799,25 @@ export default function TvWorkspace() {
               Loading {symbol} {interval}…
             </div>
           ) : (
+            <>
+            {pickingLevel && (
+              <div className="flex items-center justify-between gap-3 border-b border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent">
+                <span>Click the chart at the price you want the alert on.</span>
+                <button
+                  onClick={() => { setPickingLevel(false); setPriceAlertOpen(true); }}
+                  className="rounded px-2 py-0.5 hover:bg-accent/20"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             <CandleChart symbol={symbol} interval={interval} candles={candles}
               trades={indicators.trades ?? trades}
               overlays={chartOverlays}
               markers={indicators.markers}
               pineDrawings={indicators.drawings}
-              priceLines={priceLines} live fill compact={isMobile}
+              priceLines={allPriceLines} live fill compact={isMobile}
+              onPriceSelect={pickingLevel ? pickLevel : undefined}
               drawingTool={tool}
               onDrawingToolDone={() => setTool("cursor")}
               drawings={drawings}
@@ -742,6 +826,7 @@ export default function TvWorkspace() {
               drawingsLocked={drawLocked}
               drawingsHidden={drawHidden}
             />
+            </>
           )}
           </div>
           {splitOpen && (
@@ -866,7 +951,15 @@ export default function TvWorkspace() {
                   onToggle={toggleMa}
                   onToggleAll={toggleAllMa}
                   onArm={(type, length) => setArmLine({ type, length })}
-                  onOpenAlert={(a) => setArmLine({ type: a.maType, length: a.maLength })}
+                  onArmPrice={openPriceAlert}
+                  onOpenAlert={(a) => {
+                    if (a.conditionKind === "price") {
+                      setPriceAlertLevel(a.targetPrice);
+                      setPriceAlertOpen(true);
+                    } else if (a.maType !== null && a.maLength !== null) {
+                      setArmLine({ type: a.maType, length: a.maLength });
+                    }
+                  }}
                   push={<PushSetup onMessage={setToast} />}
                 />
               </aside>
@@ -903,7 +996,7 @@ export default function TvWorkspace() {
         <button
           onClick={() => setPanel((p) => (p === "ma" ? null : "ma"))}
           className={railBtn(panel === "ma")}
-          title="Moving averages & price alerts"
+          title="Moving averages and the alerts armed on them"
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
@@ -917,7 +1010,7 @@ export default function TvWorkspace() {
         <button
           onClick={() => setPanel((p) => (p === "alerts" ? null : "alerts"))}
           className={railBtn(panel === "alerts")}
-          title="Alerts"
+          title="Automations — running strategies and their order log"
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
@@ -936,8 +1029,8 @@ export default function TvWorkspace() {
             <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />],
           ["indicators", "Studies", panel === "indicators", () => togglePanel("indicators"),
             <><path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" /></>],
-          ["alerts", "Alerts", panel === "alerts", () => togglePanel("alerts"),
-            <><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" /></>],
+          ["alerts", "Automate", panel === "alerts", () => togglePanel("alerts"),
+            <path d="M13 2L4 14h7l-1 8 9-12h-7z" />],
         ] as const).map(([id, label, active, onClick, icon]) => (
           <button
             key={id}
@@ -978,7 +1071,7 @@ export default function TvWorkspace() {
               </button>
             </div>
             {[["/chart", "Chart"], ["/alerts", "Alerts"], ["/optimizers", "Optimizers"],
-              ["/backtests", "Backtests"], ["/deployments", "Live & Alerts"]].map(([href, label]) => (
+              ["/backtests", "Backtests"], ["/deployments", "Live trading"]].map(([href, label]) => (
               <a key={href} href={href}
                 className="rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">
                 {label}
@@ -1014,6 +1107,17 @@ export default function TvWorkspace() {
         onSelect={changeSymbol}
         onSymbolAdded={refreshSymbols}
       />
+      <PriceAlertModal
+        open={priceAlertOpen}
+        onClose={() => setPriceAlertOpen(false)}
+        symbol={symbol}
+        chartTimeframe={interval}
+        initialPrice={priceAlertLevel}
+        lastPrice={last?.close ?? null}
+        existing={maAlerts.filter((a) => a.conditionKind === "price")}
+        onPickFromChart={() => { setPriceAlertOpen(false); setPickingLevel(true); }}
+        onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
+      />
       <MaAlertModal
         open={armLine !== null}
         onClose={() => setArmLine(null)}
@@ -1022,7 +1126,8 @@ export default function TvWorkspace() {
         maType={armLine?.type ?? "sma"}
         maLength={armLine?.length ?? 200}
         existing={maAlerts.filter(
-          (a) => a.maType === armLine?.type && a.maLength === armLine?.length
+          (a) => a.conditionKind === "ma" &&
+                 a.maType === armLine?.type && a.maLength === armLine?.length
         )}
         onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
       />
@@ -1034,7 +1139,7 @@ export default function TvWorkspace() {
         strategy={strategy}
         strategies={strategies}
         params={params}
-        onCreated={(name) => { setToast(`Alert created — ${name} live on ${symbol} ${interval}`); setPanel("alerts"); }}
+        onCreated={(name) => { setToast(`Automation live — ${name} on ${symbol} ${interval}, sending real orders`); setPanel("alerts"); }}
       />
       {toast && (
         <div className="fixed bottom-4 right-16 z-50 flex items-center gap-3 rounded-md border border-up/30 bg-surface px-4 py-2.5 text-sm shadow-xl">

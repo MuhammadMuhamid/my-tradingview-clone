@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -7,9 +7,19 @@ import type { DeliveryMode, Interval, Strategy, StrategyParams } from "@/lib/typ
 import { defaultParamsFor } from "@/lib/paramSchema";
 
 /**
- * TradingView-style "Create alert" dialog. In this platform an alert IS a live
- * deployment: the strategy runs server-side on confirmed bar closes and every
- * buy/sell POSTs your bot's exact webhook payload ("Order fills only" mode).
+ * Start automated trading on a strategy.
+ *
+ * This is NOT a notification. It creates a deployment and activates it: the
+ * strategy runs server-side on confirmed bar closes and every buy/sell POSTs
+ * your bot's webhook payload, which places real orders with real money.
+ *
+ * FE-01: this dialog used to be reached from a bell labelled "Alert" and
+ * created a live 800 USDT deployment on the first click. A bell means "tell me
+ * when" — a user asking to be notified about a price could arm live trading
+ * instead, and only find out when an order filled. The bell now opens the price
+ * alert dialog; this one is behind a button that says "Automate", says what it
+ * does in its own title, and requires the consequence to be acknowledged before
+ * Create is enabled.
  */
 export function AlertModal({
   open, onClose, symbol, timeframe, strategy, strategies, params, onCreated,
@@ -31,6 +41,17 @@ export function AlertModal({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [conditionKey, setConditionKey] = useState(strategy?.key ?? "ma_rr_v9");
+  /**
+   * Explicit consent to live order placement.
+   *
+   * Deliberately not remembered between openings: this dialog activates the
+   * deployment on Create, so every activation is its own decision.
+   */
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  // Reopening, or changing what the consent is FOR, clears it. A checkbox left
+  // ticked from a dry run must not carry over into a live one.
+  useEffect(() => { setAcknowledged(false); }, [open, delivery, buyQuoteQty]);
 
   const create = async () => {
     const selected = strategies.find((s) => s.key === conditionKey) ?? strategy;
@@ -65,17 +86,24 @@ export function AlertModal({
   const box = "w-full rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink outline-none focus:border-accent";
 
   return (
-    <Modal open={open} onClose={onClose} title={<>Create alert on <span className="text-accent">{symbol}</span></>}
+    <Modal open={open} onClose={onClose}
+      title={<>Automate trading on <span className="text-accent">{symbol}</span></>}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={create} disabled={busy || !strategy}>
-            {busy ? "Creating…" : "Create"}
+          <Button variant="primary" onClick={create} disabled={busy || !strategy || !acknowledged}>
+            {busy ? "Starting…" : "Start trading"}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
+        <div className="rounded-md border border-down/40 bg-down/10 px-3 py-2 text-xs text-down">
+          This is not a notification. It starts the strategy immediately and every signal it
+          produces sends a real order to your bot. To be told when a price is reached without
+          trading, use the bell in the toolbar instead.
+        </div>
+
         <Row label="Condition">
           <select value={conditionKey} onChange={(e) => setConditionKey(e.target.value)} className={box}>
             {strategies.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
@@ -120,9 +148,24 @@ export function AlertModal({
 
         <p className="pt-1 text-xs text-ink-faint">
           Message payload is fixed to your bot&apos;s exact JSON format (dedupe-keyed, idempotent).
-          The alert never expires and survives restarts. Manage it on the Live &amp; Alerts page.
+          The automation never expires and survives restarts. Manage it on the Deployments page.
         </p>
-        {err && <p className="text-sm text-down">{err}</p>}
+
+        <div className="my-1 border-t border-border" />
+        <label className="flex items-start gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(e) => setAcknowledged(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent,#f0b90b)]"
+          />
+          <span>
+            {delivery === "off"
+              ? "I understand this starts the strategy. Delivery is off, so signals are logged and no orders are sent."
+              : `I understand this starts trading immediately and sends real ${buyQuoteQty} USDT buy orders to my bot.`}
+          </span>
+        </label>
+        {err && <p className="text-sm text-down" role="alert">{err}</p>}
       </div>
     </Modal>
   );
