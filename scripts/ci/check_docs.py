@@ -86,6 +86,11 @@ DOC_PATH_SOURCES = [
 PATHISH = re.compile(r"`([A-Za-z0-9_][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]*)`")
 # Paths the docs mention precisely because they are absent or are runtime-only.
 KNOWN_ABSENT_MARKER = "KNOWN-ABSENT"
+# `bg-warn/10`, `text-ink-muted/50` — a utility class, not a path.
+TAILWIND_CLASS = re.compile(
+    r"(?:bg|text|border|ring|fill|stroke|divide|from|to|via|outline|shadow|accent|decoration|caret|placeholder)"
+    r"-[a-z0-9-]+/\d{1,3}"
+)
 
 
 def check_referenced_paths() -> None:
@@ -107,6 +112,10 @@ def check_referenced_paths() -> None:
                 if re.fullmatch(r"MuhammadMuhamid/[A-Za-z0-9_.-]+", candidate):
                     continue
                 if any(ch in candidate for ch in "<>*{}"):
+                    continue
+                # A Tailwind utility with an opacity modifier — `bg-warn/10`,
+                # `border-down/30` — is a CSS class, not a repository path.
+                if TAILWIND_CLASS.fullmatch(candidate):
                     continue
                 target = ROOT / candidate.rstrip("/")
                 if not target.exists():
