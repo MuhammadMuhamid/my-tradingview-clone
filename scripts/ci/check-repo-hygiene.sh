@@ -75,6 +75,27 @@ while IFS= read -r -d '' file; do
   fi
 done < <(tracked)
 
+# ── 5. one GA driver and one objective ───────────────────────────────────────
+# The five search trees each carried a byte-identical copy of the driver and the
+# objective. They now import one implementation whose equivalence with the
+# original is pinned by tests/gaDriver.test.ts. A tree that re-declares its own
+# is a fourth objective definition in the making (TV-13).
+while IFS= read -r -d '' file; do
+  case "$file" in
+    platform/backend/src/optimizer/gaDriver.ts) continue ;;
+    platform/backend/tests/gaDriver.test.ts) continue ;;
+    research-archive/*|*/graphify-out/*) continue ;;
+    scripts/ci/check-repo-hygiene.sh) continue ;;
+  esac
+  case "$file" in
+    platform/backend/*/optimizer.ts|platform/backend/*/wf.ts)
+      if grep -Eq '^class Driver|^function scoreMetrics' "$file" 2>/dev/null; then
+        report "$file re-declares the shared GA driver or objective (OPT-06, TV-13)"
+      fi
+      ;;
+  esac
+done < <(tracked)
+
 if [ "$fail" -ne 0 ]; then
   echo "repository hygiene check failed" >&2
   exit 1

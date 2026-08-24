@@ -12,11 +12,20 @@
  * optimizer/SUMMARY.json — identical shape to tv_autotuner so the same
  * leaderboard tooling works.
  */
+// `execFileSync` was used by the process-lock check below and never imported,
+// so the call threw ReferenceError inside a `try { } catch { /* stale lock */ }`
+// and `alive` stayed false: the PID-reuse guard this tree added never actually
+// ran, and every lock was treated as stale.
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
+import type { ParamDef } from "../src/optimizer/gaDriver";
+import {
+  Driver, coinSeed, resumeFromResults, restoreRngState, saveRngState, scoreMetrics,
+} from "../src/optimizer/gaDriver";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,86 +60,10 @@ function releaseProcessLock(): void {
 acquireProcessLock();
 process.on("exit", releaseProcessLock);
 
-interface ParamDef { name: string; id: string; type: string; values: (number | boolean)[] }
 interface Space { parameters: ParamDef[]; objective: Record<string, number>; search: Record<string, number | string> }
 
-// ── GA driver (port of tv_autotuner Driver) ────────────────────────────────────
-class Driver {
-  space: ParamDef[];
-  pop: number; mut: number;
-  seen = new Set<string>();
-  scored: [number[], number][] = [];
-  private rng: () => number;
-
-  constructor(space: ParamDef[], cfg: Record<string, number | string>, seed: number) {
-    this.space = space;
-    this.pop = Number(cfg.ga_population ?? 14);
-    this.mut = Number(cfg.ga_mutation_rate ?? 0.18);
-    let s = seed >>> 0;
-    this.rng = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; };
-  }
-
-  genomeToParams(g: number[]): Record<string, number | boolean> {
-    const out: Record<string, number | boolean> = {};
-    this.space.forEach((p, k) => { out[p.name] = p.values[g[k]!]!; });
-    return out;
-  }
-
-  private rand(): number[] {
-    return this.space.map((p) => Math.floor(this.rng() * p.values.length));
-  }
-
-  private tournament(k = 3): number[] {
-    let best: [number[], number] | null = null;
-    for (let i = 0; i < k; i++) {
-      const c = this.scored[Math.floor(this.rng() * this.scored.length)]!;
-      if (!best || c[1] > best[1]) best = c;
-    }
-    return best![0];
-  }
-
-  ask(): number[] | null {
-    for (let attempt = 0; attempt < 200; attempt++) {
-      let g: number[];
-      if (this.scored.length < this.pop) g = this.rand();
-      else {
-        const a = this.tournament(), b = this.tournament();
-        g = a.map((v, i) => (this.rng() < 0.5 ? v : b[i]!));
-        g = g.map((v, i) =>
-          this.rng() < this.mut ? Math.floor(this.rng() * this.space[i]!.values.length) : v);
-      }
-      if (!this.seen.has(g.join(","))) return g;
-    }
-    // A mature GA can converge so tightly that every crossover/mutation attempt
-    // is already in `seen`, even though the full parameter space is enormous.
-    // Fall back to broad random exploration so daemon rounds keep producing new
-    // evaluations instead of silently completing with zero work.
-    for (let attempt = 0; attempt < 10_000; attempt++) {
-      const g = this.rand();
-      if (!this.seen.has(g.join(","))) return g;
-    }
-    return null;
-  }
-
-  tell(g: number[], score: number | null): void {
-    const s = score === null || Number.isNaN(score) ? -Infinity : score;
-    this.seen.add(g.join(","));
-    this.scored.push([g, s]);
-    if (this.scored.length > 400) this.scored.splice(0, this.scored.length - 400);
-  }
-}
 
 // ── objective (identical to tv_autotuner score_metrics) ───────────────────────
-function scoreMetrics(m: Record<string, number | null>, obj: Record<string, number>): number {
-  const net = m.net_pct, dd = m.dd_pct, trades = m.trades;
-  if (net === null || net === undefined || Number.isNaN(net)) return -Infinity;
-  if ((trades ?? 0) < (obj.min_trades ?? 30)) return -Infinity;
-  const pf = m.profit_factor;
-  if ((obj.min_profit_factor ?? 0) > 0 && (pf ?? 0) < obj.min_profit_factor!) return -Infinity;
-  let s = net - (obj.dd_weight ?? 1) * Math.abs(dd ?? 0);
-  s -= (obj.overtrade_penalty ?? 0) * Math.max(0, (trades ?? 0) - (obj.overtrade_cap ?? 600));
-  return s;
-}
 
 // ── seed handling (params + in_XX context via idmap) ──────────────────────────
 function loadSeeds(coin: string, space: ParamDef[], idmap: Record<string, string>):
@@ -225,39 +158,6 @@ function record(coin: string, genome: number[], params: Record<string, unknown>,
   }
 }
 
-function loadDriver(coin: string, space: ParamDef[], search: Record<string, number | string>): Driver {
-  let h = 0;
-  for (const ch of coin) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const d = new Driver(space, search, Number(search.random_seed ?? 42) + (h % 1000));
-  const f = path.join(RESULTS, `${coin}.jsonl`);
-  if (fs.existsSync(f)) {
-    let n = 0;
-    for (const line of fs.readFileSync(f, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const r = JSON.parse(line);
-        d.tell(r.genome, r.score ?? null);
-        n++;
-      } catch { /* skip bad line */ }
-    }
-    if (n > 0) console.log(`[${coin}] resumed ${n} prior evaluations`);
-  }
-  return d;
-}
-
-function seedDone(coin: string): Set<string> {
-  const done = new Set<string>();
-  const f = path.join(RESULTS, `${coin}.jsonl`);
-  if (!fs.existsSync(f)) return done;
-  for (const line of fs.readFileSync(f, "utf8").split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const r = JSON.parse(line);
-      done.add(r.genome.join(",") + "|" + JSON.stringify(r.context ?? {}));
-    } catch { /* ignore */ }
-  }
-  return done;
-}
 
 // ── worker pool ────────────────────────────────────────────────────────────────
 interface Job {
@@ -342,8 +242,14 @@ async function main(): Promise<void> {
 
     // Per-coin sequential GA, coins in parallel across the pool.
     const coinTask = async (coin: string): Promise<void> => {
-      const d = loadDriver(coin, space, search);
-      const done = seedDone(coin);
+      // OPT-06 / OPT-07: one streaming pass over the history produces BOTH the
+      // replayed driver and the set of seeds already evaluated, and the RNG
+      // state is restored so a resumed run continues rather than restarting.
+      const d = new Driver(space, search, coinSeed(coin, Number(search.random_seed ?? 42)));
+      const resumed = resumeFromResults(path.join(RESULTS, `${coin}.jsonl`), d);
+      if (resumed.replayed > 0) console.log(`[${coin}] resumed ${resumed.replayed} prior evaluations`);
+      restoreRngState(HERE, coin, d);
+      const done = resumed.done;
       const seeds = loadSeeds(coin, space, idmap).filter((s) => {
         const key = s.genome.join(",") + "|" + JSON.stringify(
           Object.keys(s.extraParams).length > 0 ? { ctx: s.extraParams } : {});
@@ -377,6 +283,7 @@ async function main(): Promise<void> {
         }
       } finally {
         release(w);
+        saveRngState(HERE, coin, d);
       }
     };
 
