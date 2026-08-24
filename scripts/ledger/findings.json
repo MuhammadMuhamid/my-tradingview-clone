@@ -56,12 +56,12 @@
   {
    "id": "X-05",
    "repo": "bot",
-   "verified": "Confirmed present in two tracked files at audit time.",
-   "disposition": "open",
+   "verified": "Confirmed present in two tracked files at audit time; both literals are now `PASTE_YOUR_BOT_SECRET_HERE`.",
+   "disposition": "fixed",
    "phase": "Phase 0",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot a61fed3",
+   "evidence": "`scripts/ci/scan-secrets.sh` returns clean in both repositories and now fails CI on a 40+ hex literal (verified against a probe file). The old value was never printed, used or propagated.",
+   "risk": "**The credential itself is still exposed.** Rotation, and updating every TradingView alert input and platform deployment record, is Mahamid's action (M1) and must happen at a flat-position window."
   },
   {
    "id": "X-06",
@@ -426,12 +426,12 @@
   {
    "id": "BE-29",
    "repo": "platform",
-   "verified": "Carried from the register: Test coverage inverted relative to risk.",
+   "verified": "Confirmed: 12 test files, none covering liveRunner, backtester, mtf, metrics or the strategy bar loops. Phase 0 added 42 characterization cases (timeframe registry, candle contract, MA bar-close behaviour, push boundaries, cross-repository contract) but not the two highest-value suites \u2014 golden-file per strategy and backtest-vs-live equivalence.",
    "disposition": "open",
-   "phase": "Phase 0",
+   "phase": "Phase 0 (partial) \u2192 Phase 3",
    "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "evidence": "Platform backend: 150 tests pass (110 pre-existing, 42 new, plus the extraction coverage). Frontend: 9 tests where there were none.",
+   "risk": "Golden-file and equivalence suites are gated on resolving BE-08 first, or they would enshrine a look-ahead bug as expected output."
   },
   {
    "id": "BE-30",
@@ -446,12 +446,12 @@
   {
    "id": "BOT-002",
    "repo": "bot",
-   "verified": "Carried from the register: PASTE_IN_CLOUDSHELL.txt pipes an ephemeral third-party URL into bash.",
-   "disposition": "open",
+   "verified": "Confirmed: the file's entire content was one `curl \u2026 | bash` line against an ephemeral localtunnel subdomain.",
+   "disposition": "fixed",
    "phase": "Phase 0",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot a61fed3",
+   "evidence": "File deleted; the reference in `bot:docs/BOT_COMPLETE_GUIDE.md` removed; `scan-secrets.sh` now fails on any remote script piped into a shell.",
+   "risk": "None locally. Operators must upload `bot:deploy/cloudshell-launch.sh` through CloudShell's Actions \u2192 Upload file instead."
   },
   {
    "id": "BOT-003",
@@ -786,12 +786,12 @@
   {
    "id": "BOT-037",
    "repo": "bot",
-   "verified": "Carried from the register: Zero tests, zero CI.",
-   "disposition": "open",
+   "verified": "Confirmed: no test file and no CI workflow existed.",
+   "disposition": "fixed",
    "phase": "Phase 0",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 1daadd1, 8fc5ae4, 3f32844",
+   "evidence": "38 tests across three files pass; `npm run verify` runs lint (0 warnings), typecheck, tests and build; CI runs all four plus the secret scan with DRY_RUN forced true.",
+   "risk": "Coverage is at the pure-logic layer. Route- and Prisma-level tests still need a database harness."
   },
   {
    "id": "BOT-038",
@@ -1136,12 +1136,12 @@
   {
    "id": "OPT-30",
    "repo": "platform",
-   "verified": "Carried from the register: CLAUDE_HANDOFF.md describes a system that no longer exists.",
-   "disposition": "open",
+   "verified": "Confirmed: \u00a72/\u00a78 name four optimizer trees that are absent; \u00a77 states a cost model no tree runs and points at a gitignored, absent parity directory.",
+   "disposition": "fixed",
    "phase": "Phase 0",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "213fe3c, 3ed8d79",
+   "evidence": "`CLAUDE_HANDOFF.md` carries a banner naming each contradiction; `docs/` is declared authoritative; `scripts/ci/check-docs.sh` now fails when a document names a directory that does not exist or a cost figure that disagrees with its config.json.",
+   "risk": "The document is retained as history. Its production claims about the AWS stack remain unverifiable from here."
   },
   {
    "id": "FE-01",
@@ -1296,12 +1296,12 @@
   {
    "id": "FE-18",
    "repo": "platform",
-   "verified": "Carried from the register: ESLint is not installed, so six eslint-disable comments are inert.",
-   "disposition": "open",
+   "verified": "Confirmed: ESLint was absent from `platform/frontend`, so its six `eslint-disable` comments were inert.",
+   "disposition": "fixed",
    "phase": "Phase 0",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "711ebda",
+   "evidence": "`npm run lint` runs a flat config with typescript-eslint and react-hooks; four real unused-binding errors were found and fixed; the suite now reports 0 errors.",
+   "risk": "Seven `exhaustive-deps` warnings are left visible rather than silenced. Changing a dependency array in the charting surface changes runtime behaviour and is handled in the QA phase, not by a lint fix."
   },
   {
    "id": "TV-01",

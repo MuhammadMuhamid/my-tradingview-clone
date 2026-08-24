@@ -13,9 +13,10 @@ explicit check proves the new behaviour — never because documentation was upda
 
 | Disposition | Count |
 |---|---:|
+| fixed | 5 |
 | audit finding corrected or stale | 1 |
 | blocked by Mahamid/external evidence | 1 |
-| not yet dispositioned | 152 |
+| not yet dispositioned | 147 |
 | **total** | **154** |
 
 ## Scope reserved for Mahamid
@@ -39,7 +40,7 @@ following, and no finding is marked `fixed` on the strength of one:
 | `X-02` | both | Confirmed: platform barIndex is floor(epoch/interval); Pine bar_index is chart-relative. | not yet dispositioned | Phase 2 | — | — | — |
 | `X-03` | both | Confirmed: liveRunner consumes only `flat` from a two-state report. | not yet dispositioned | Phase 2 | — | — | — |
 | `X-04` | platform | Confirmed: 4 mapped directories are absent; 13 trees exist on disk, 4 are routable. | not yet dispositioned | Phase 7 | — | — | — |
-| `X-05` | bot | Confirmed present in two tracked files at audit time. | not yet dispositioned | Phase 0 | — | — | — |
+| `X-05` | bot | Confirmed present in two tracked files at audit time; both literals are now `PASTE_YOUR_BOT_SECRET_HERE`. | fixed | Phase 0 | `bot a61fed3` | `scripts/ci/scan-secrets.sh` returns clean in both repositories and now fails CI on a 40+ hex literal (verified against a probe file). The old value was never printed, used or propagated. | **The credential itself is still exposed.** Rotation, and updating every TradingView alert input and platform deployment record, is Mahamid's action (M1) and must happen at a flat-position window. |
 | `X-06` | platform | Confirmed: `LIVE_RUNNER_ENABLED !== "false"`, and the plist sets no environment. | not yet dispositioned | Phase 2 | — | — | — |
 | `X-07` | bot | Confirmed: the `dev-insecure-key` fallback is reachable whenever DRY_RUN is true. | not yet dispositioned | Phase 1 | — | — | — |
 | `X-08` | bot | Confirmed: length-only salt validation; `Buffer.from(str,'hex')` truncates silently. | not yet dispositioned | Phase 1 | — | — | — |
@@ -81,7 +82,7 @@ following, and no finding is marked `fixed` on the strength of one:
 | `BE-26` | platform | Carried from the register: MA-alert symbols bypass assertSymbol and reach the WebSocket URL builder. | not yet dispositioned | Phase 1 | — | — | — |
 | `BE-27` | platform | Carried from the register: Receiver response bodies stored and served verbatim. | not yet dispositioned | Phase 1 | — | — | — |
 | `BE-28` | platform | Carried from the register: AWS account id and Secrets Manager ARN in a committed script. | not yet dispositioned | Phase 1 | — | — | — |
-| `BE-29` | platform | Carried from the register: Test coverage inverted relative to risk. | not yet dispositioned | Phase 0 | — | — | — |
+| `BE-29` | platform | Confirmed: 12 test files, none covering liveRunner, backtester, mtf, metrics or the strategy bar loops. Phase 0 added 42 characterization cases (timeframe registry, candle contract, MA bar-close behaviour, push boundaries, cross-repository contract) but not the two highest-value suites — golden-file per strategy and backtest-vs-live equivalence. | not yet dispositioned | Phase 0 (partial) → Phase 3 | — | Platform backend: 150 tests pass (110 pre-existing, 42 new, plus the extraction coverage). Frontend: 9 tests where there were none. | Golden-file and equivalence suites are gated on resolving BE-08 first, or they would enshrine a look-ahead bug as expected output. |
 | `BE-30` | platform | Carried from the register: Portability and dependency floating. | not yet dispositioned | Phase 7 | — | — | — |
 
 ## Execution bot (`BOT-*`)
@@ -89,7 +90,7 @@ following, and no finding is marked `fixed` on the strength of one:
 | Id | Repo | Status verified | Disposition | Phase | Commit | Evidence | Remaining risk |
 |---|---|---|---|---|---|---|---|
 | `BOT-A` | bot | Alias for BOT-017 in the register's priority table; not a separate finding. | audit finding corrected or stale | Phase 0 | — | Tracked as `BOT-017`. | None — identifier bookkeeping only. |
-| `BOT-002` | bot | Carried from the register: PASTE_IN_CLOUDSHELL.txt pipes an ephemeral third-party URL into bash. | not yet dispositioned | Phase 0 | — | — | — |
+| `BOT-002` | bot | Confirmed: the file's entire content was one `curl … | bash` line against an ephemeral localtunnel subdomain. | fixed | Phase 0 | `bot a61fed3` | File deleted; the reference in `bot:docs/BOT_COMPLETE_GUIDE.md` removed; `scan-secrets.sh` now fails on any remote script piped into a shell. | None locally. Operators must upload `bot:deploy/cloudshell-launch.sh` through CloudShell's Actions → Upload file instead. |
 | `BOT-003` | bot | Carried from the register: Default bot config is the maximum-risk one. | not yet dispositioned | Phase 2 | — | — | — |
 | `BOT-004` | bot | Carried from the register: .env.example ships DRY_RUN=false with placeholders that pass every check. | not yet dispositioned | Phase 1 | — | — | — |
 | `BOT-005` | bot | Carried from the register: Double-sell race: three of four close paths never take the lock. | not yet dispositioned | Phase 2 | — | — | — |
@@ -123,7 +124,7 @@ following, and no finding is marked `fixed` on the strength of one:
 | `BOT-033` | bot | Carried from the register: The TP/SL loop is sequential and can exceed its own interval. | not yet dispositioned | Phase 2 | — | — | — |
 | `BOT-034` | bot | Carried from the register: Starting a bot has no confirmation; live-vs-dry-run is invisible. | not yet dispositioned | Phase 6 | — | — | — |
 | `BOT-035` | bot | Carried from the register: DRY_RUN is not a simulation — simulated exits are capped by real balances. | not yet dispositioned | Phase 2 | — | — | — |
-| `BOT-037` | bot | Carried from the register: Zero tests, zero CI. | not yet dispositioned | Phase 0 | — | — | — |
+| `BOT-037` | bot | Confirmed: no test file and no CI workflow existed. | fixed | Phase 0 | `bot 1daadd1, 8fc5ae4, 3f32844` | 38 tests across three files pass; `npm run verify` runs lint (0 warnings), typecheck, tests and build; CI runs all four plus the secret scan with DRY_RUN forced true. | Coverage is at the pure-logic layer. Route- and Prisma-level tests still need a database harness. |
 | `BOT-038` | bot | Carried from the register: Webhook secret comparison is a DB lookup rather than constant-time. | not yet dispositioned | Phase 1 | — | — | — |
 | `BOT-039` | bot | Carried from the register: binance-api-node@0.12.9 is effectively unmaintained. | not yet dispositioned | Phase 7 | — | — | — |
 | `BOT-040` | bot | Carried from the register: An anonymous /login visit spends from the shared refresh budget. | not yet dispositioned | Phase 1 | — | — | — |
@@ -162,7 +163,7 @@ following, and no finding is marked `fixed` on the strength of one:
 | `OPT-27` | platform | Carried from the register: replace_*.mjs DELETE FROM deployments and re-create flat. | not yet dispositioned | Phase 7 | — | — | — |
 | `OPT-28` | platform | Carried from the register: wipe_chartss.sh ships a base64-encoded destructive production payload. | not yet dispositioned | Phase 7 | — | — | — |
 | `OPT-29` | platform | Carried from the register: Dashboard snapshots served to the UI are two weeks stale. | not yet dispositioned | Phase 7 | — | — | — |
-| `OPT-30` | platform | Carried from the register: CLAUDE_HANDOFF.md describes a system that no longer exists. | not yet dispositioned | Phase 0 | — | — | — |
+| `OPT-30` | platform | Confirmed: §2/§8 name four optimizer trees that are absent; §7 states a cost model no tree runs and points at a gitignored, absent parity directory. | fixed | Phase 0 | `213fe3c, 3ed8d79` | `CLAUDE_HANDOFF.md` carries a banner naming each contradiction; `docs/` is declared authoritative; `scripts/ci/check-docs.sh` now fails when a document names a directory that does not exist or a cost figure that disagrees with its config.json. | The document is retained as history. Its production claims about the AWS stack remain unverifiable from here. |
 
 ## Platform frontend (`FE-*`)
 
@@ -183,7 +184,7 @@ following, and no finding is marked `fixed` on the strength of one:
 | `FE-13` | platform | Carried from the register: Pervasive empty catch {} blocks (the register groups FE-04–FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them). | not yet dispositioned | Phase 6 | — | — | — |
 | `FE-14` | platform | Carried from the register: Frontend robustness item grouped in the register without an individual description (the register groups FE-04–FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them). | not yet dispositioned | Phase 6 | — | — | — |
 | `FE-15` | platform | Carried from the register: Frontend robustness item grouped in the register without an individual description (the register groups FE-04–FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them). | not yet dispositioned | Phase 6 | — | — | — |
-| `FE-18` | platform | Carried from the register: ESLint is not installed, so six eslint-disable comments are inert. | not yet dispositioned | Phase 0 | — | — | — |
+| `FE-18` | platform | Confirmed: ESLint was absent from `platform/frontend`, so its six `eslint-disable` comments were inert. | fixed | Phase 0 | `711ebda` | `npm run lint` runs a flat config with typescript-eslint and react-hooks; four real unused-binding errors were found and fixed; the suite now reports 0 errors. | Seven `exhaustive-deps` warnings are left visible rather than silenced. Changing a dependency array in the charting surface changes runtime behaviour and is handled in the QA phase, not by a lint fix. |
 
 ## Experimental TradingView trees (`TV-*`)
 
