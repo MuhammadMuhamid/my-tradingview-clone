@@ -11,6 +11,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import type { Candle, Interval } from "../types/market";
 import { upsertCandles } from "../repositories/candles";
+import { WS_SILENCE_TIMEOUT_MS } from "./feedHealth";
 
 const WS_BASE = "wss://stream.binance.com:9443/stream";
 const MAX_STREAMS_PER_CONN = 200; // Binance allows up to 1024; stay conservative
@@ -34,6 +35,12 @@ export interface BarCloseEvent {
   candle: Candle;
 }
 
+/** Emitted when a nominally-open connection has gone silent and is rebuilt. */
+export interface StaleEvent {
+  silentForMs: number;
+  streams: number;
+}
+
 function streamName(symbol: string, interval: Interval): string {
   return `${symbol.toLowerCase()}@kline_${interval}`;
 }
@@ -45,6 +52,7 @@ export declare interface BinanceWsManager {
   on(event: "open", listener: () => void): this;
   on(event: "close", listener: () => void): this;
   on(event: "error", listener: (err: Error) => void): this;
+  on(event: "stale", listener: (e: StaleEvent) => void): this;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
@@ -55,6 +63,14 @@ export class BinanceWsManager extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private rebuildTimer: NodeJS.Timeout | null = null;
   private closedByUser = false;
+  /**
+   * Watchdog state. A socket can sit in readyState OPEN while delivering
+   * nothing — a half-open TCP connection, or a server that has stopped sending.
+   * `isConnected()` returns true throughout, which is exactly why nothing
+   * noticed: prices froze while still being displayed as live.
+   */
+  private lastMessageAt = 0;
+  private watchdogTimer: NodeJS.Timeout | null = null;
 
   /** subscriptions map streamName → set of intervals is implicit in the name. */
   subscribe(symbol: string, interval: Interval): void {
@@ -77,6 +93,27 @@ export class BinanceWsManager extends EventEmitter {
 
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Milliseconds since the last message on ANY subscribed stream, or null when
+   * nothing has arrived yet. Connectivity alone is not liveness, so this is
+   * what the health surface reads rather than `isConnected()`.
+   */
+  silentForMs(now = Date.now()): number | null {
+    if (this.lastMessageAt === 0) return null;
+    return now - this.lastMessageAt;
+  }
+
+  /**
+   * True when the transport should not be trusted: either not open, or open and
+   * silent past the timeout. This is the value `assessFeed` takes as
+   * `transportDown`.
+   */
+  isTransportDown(now = Date.now()): boolean {
+    if (!this.isConnected()) return true;
+    const silent = this.silentForMs(now);
+    return silent !== null && silent > WS_SILENCE_TIMEOUT_MS;
   }
 
   /**
@@ -114,12 +151,22 @@ export class BinanceWsManager extends EventEmitter {
 
     ws.on("open", () => {
       this.reconnectAttempts = 0;
+      this.lastMessageAt = Date.now();
+      this.startWatchdog();
       this.emit("open");
     });
 
     ws.on("message", (raw: WebSocket.RawData) => {
+      // Every frame counts, closed bar or not: liveness is about the transport,
+      // not about whether this particular message was interesting.
+      this.lastMessageAt = Date.now();
       void this.handleMessage(raw.toString());
     });
+
+    // `ws` answers ping frames automatically, but a pong is also proof the
+    // connection is alive, so it resets the watchdog too.
+    ws.on("ping", () => { this.lastMessageAt = Date.now(); });
+    ws.on("pong", () => { this.lastMessageAt = Date.now(); });
 
     ws.on("error", (err) => this.emit("error", err as Error));
 
@@ -127,8 +174,34 @@ export class BinanceWsManager extends EventEmitter {
       this.emit("close");
       if (this.closedByUser || this.ws !== ws) return;
       this.ws = null;
+      this.stopWatchdog();
       this.scheduleReconnect();
     });
+  }
+
+  /**
+   * Force a rebuild when the connection has gone silent for longer than a
+   * stream this active could plausibly be quiet.
+   */
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    const period = Math.max(5_000, Math.floor(WS_SILENCE_TIMEOUT_MS / 3));
+    this.watchdogTimer = setInterval(() => {
+      if (this.closedByUser || this.streams.size === 0) return;
+      const silent = this.silentForMs();
+      if (silent === null || silent <= WS_SILENCE_TIMEOUT_MS) return;
+      this.emit("stale", { silentForMs: silent, streams: this.streams.size });
+      // Reset first, so the rebuilt socket is not judged on the old timestamp.
+      this.lastMessageAt = Date.now();
+      this.doRebuild();
+    }, period);
+    // A watchdog must never be the reason a process refuses to exit.
+    this.watchdogTimer.unref?.();
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+    this.watchdogTimer = null;
   }
 
   private scheduleReconnect(): void {
@@ -170,6 +243,7 @@ export class BinanceWsManager extends EventEmitter {
 
   close(): void {
     this.closedByUser = true;
+    this.stopWatchdog();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
     this.streams.clear();
