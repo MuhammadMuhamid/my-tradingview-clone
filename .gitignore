@@ -25,19 +25,19 @@ __pycache__/
 # generated data underneath them is excluded. Do not re-add a blanket
 # `optimizer*/` rule: git will not descend into an excluded directory, so the
 # per-tree documentation would silently vanish from the repo.
-platform/backend/*/results/
-platform/backend/*/best/
-platform/backend/*/index/
-platform/backend/*/archive/
-platform/backend/*/__pycache__/
-platform/backend/*/SUMMARY.json
-platform/backend/*/.optimizer.pid
-platform/backend/*/service*.log
-platform/backend/*/seeds.json
+backtestingsystems/trees/*/results/
+backtestingsystems/trees/*/best/
+backtestingsystems/trees/*/index/
+backtestingsystems/trees/*/archive/
+backtestingsystems/trees/*/__pycache__/
+backtestingsystems/trees/*/SUMMARY.json
+backtestingsystems/trees/*/.optimizer.pid
+backtestingsystems/trees/*/service*.log
+backtestingsystems/trees/*/seeds.json
 # one-off analysis scratch files
-platform/backend/*/sens.json
-platform/backend/*/picks*.json
-platform/backend/*/verified*.json
+backtestingsystems/trees/*/sens.json
+backtestingsystems/trees/*/picks*.json
+backtestingsystems/trees/*/verified*.json
 platform/backend/backups/
 
 # ── build/deploy bundles (one is 426 MB; GitHub caps files at 100 MB) ──
@@ -82,5 +82,13 @@ graphify-out/cache/
 
 # ── generated result streams (every optimizer writes these) ──
 *.jsonl
-platform/backend/*/folds/
-platform/backend/*/*.pid
+backtestingsystems/trees/*/folds/
+backtestingsystems/trees/*/*.pid
+
+# ── backtestingsystems: generated data and vendored deps ──
+backtestingsystems/node_modules
+backtestingsystems/data/
+backtestingsystems/legacy/*/data/
+backtestingsystems/legacy/*/optuna_dbs/
+backtestingsystems/legacy/**/__pycache__/
+backtestingsystems/**/*.csv

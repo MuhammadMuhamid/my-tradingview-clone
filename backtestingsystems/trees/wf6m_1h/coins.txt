@@ -1,0 +1,30 @@
+# Walk-forward universe. A coin is skipped for any fold whose training window
+# holds less than config.minTrainMonths of real candle data, so late listings
+# simply join at the first fold they qualify for (logged as "skipped: history").
+#
+# 1h candle coverage (checked 2026-08-12 against the platform DB):
+#   2024-07-11  DEXE ENA INJ JTO JUP NEAR TAO ZEC
+#   2024-07-13  SYN JST RIF
+#   2024-10-01  EIGEN
+#   2025-02-20  KAITO
+#   2025-09-11  PUMP      -> joins from F3
+#   2025-10-03  MORPHO    -> joins from F4
+#   2025-11-11  ALLO      -> joins from F4
+#   2026-01-07  币安人生    -> joins from F6 only (thin; treat its result as indicative)
+SYNUSDT
+币安人生USDT
+ALLOUSDT
+DEXEUSDT
+RIFUSDT
+ZECUSDT
+JTOUSDT
+NEARUSDT
+INJUSDT
+MORPHOUSDT
+KAITOUSDT
+EIGENUSDT
+TAOUSDT
+JUPUSDT
+JSTUSDT
+ENAUSDT
+PUMPUSDT

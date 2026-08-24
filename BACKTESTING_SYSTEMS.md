@@ -4,17 +4,38 @@ _Generated 2026-08-22._
 
 Five independent genetic-algorithm optimizers, each with its own window, cost
 model, search space and result store. They share the backtest engine in
-`platform/backend/src/engine/` but never share state.
+`platform/backend/src/engine/` (shared with the live runner) but never share state.
 
 | tree | strategy | TF | service | evals | coins | tunables | search space |
 |---|---|---|---|---|---|---|---|
-| [`lean_optimizer15m`](platform/backend/lean_optimizer15m/README.md) | MTF Confluence Lean | 15m | **running** | 4,671,836 | 19 | 18 | 132,765,696,000 |
-| [`optimizer1y5m`](platform/backend/optimizer1y5m/README.md) | MTF Confluence Lean | 5m | **running** | 3,476,704 | 19 | 18 | 132,765,696,000 |
-| [`optimizer1y15m`](platform/backend/optimizer1y15m/README.md) | MA + R:R Strategy v5 | 15m | **running** | 1,284,934 | 17 | 8 | 370,440 |
-| [`optimizer1y5m_ma`](platform/backend/optimizer1y5m_ma/README.md) | MA + R:R Strategy v5 | 5m | stopped | 540,228 | 16 | 8 | 740,880 |
-| [`optimizer1y1h`](platform/backend/optimizer1y1h/README.md) | MA + R:R Strategy v5 | 1h | **running** | 369,750 | 17 | 31 | 14,765,025,303,000,000,000 |
+| [`lean_optimizer15m`](backtestingsystems/trees/lean_optimizer15m/README.md) | MTF Confluence Lean | 15m | **running** | 4,671,836 | 19 | 18 | 132,765,696,000 |
+| [`optimizer1y5m`](backtestingsystems/trees/optimizer1y5m/README.md) | MTF Confluence Lean | 5m | **running** | 3,476,704 | 19 | 18 | 132,765,696,000 |
+| [`optimizer1y15m`](backtestingsystems/trees/optimizer1y15m/README.md) | MA + R:R Strategy v5 | 15m | **running** | 1,284,934 | 17 | 8 | 370,440 |
+| [`optimizer1y5m_ma`](backtestingsystems/trees/optimizer1y5m_ma/README.md) | MA + R:R Strategy v5 | 5m | stopped | 540,228 | 16 | 8 | 740,880 |
+| [`optimizer1y1h`](backtestingsystems/trees/optimizer1y1h/README.md) | MA + R:R Strategy v5 | 1h | **running** | 369,750 | 17 | 31 | 14,765,025,303,000,000,000 |
 
 **Total: 10,343,452 evaluations.**
+
+## Layout
+
+```
+backtestingsystems/
+  trees/     14 optimizer trees (config, code, docs; results are git-ignored)
+  shared/    indexed_results.py viewer, run-optimizer-service.sh, analysis scripts
+  analysis/  win-quality reports, parity harness, dashboards
+  legacy/    previous systems: backtest-spot, tv_autotuner, pine_sweeper, ...
+  launchd/   the five optimizer service plists
+  data/      OHLC CSVs
+platform/    TradingView clone only (API, frontend, live runner, engine)
+```
+
+Separated 2026-08-22. The trees import the backtest engine from
+`platform/backend/src/` by relative path — **one copy, deliberately**. Duplicating
+it would let the backtest engine drift from the live runner, and the moment that
+happens backtest results stop predicting live behaviour.
+
+The service script keeps its working directory in `platform/backend` because
+`dotenv/config` loads `.env` from CWD; the tree is addressed by absolute path.
 
 ## Shared engine
 
@@ -85,9 +106,9 @@ Same pattern for `lean5m-results`, `optyear-results`, `opt1hyear-results`,
 
 ## Method notes worth reading
 
-- [`optimizer1y15m/PARAMETER_REDUCTION.md`](platform/backend/optimizer1y15m/PARAMETER_REDUCTION.md)
+- [`optimizer1y15m/PARAMETER_REDUCTION.md`](backtestingsystems/trees/optimizer1y15m/PARAMETER_REDUCTION.md)
   — how 31 parameters were cut to 7 using a permutation control, and why raw
   "pin cost" is an artifact of sample size rather than a measure of importance.
-- [`lean_optimizer15m/BEST_CONFIGS.md`](platform/backend/lean_optimizer15m/BEST_CONFIGS.md)
+- [`lean_optimizer15m/BEST_CONFIGS.md`](backtestingsystems/trees/lean_optimizer15m/BEST_CONFIGS.md)
   — per-coin config selection, including two earlier ranking methods that were
   wrong and why.
