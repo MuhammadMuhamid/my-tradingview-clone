@@ -682,6 +682,14 @@ export default function TvWorkspace() {
 
       {/* ── main column ── */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/*
+          The chart's title is the symbol and timeframe already shown in the
+          toolbar, so a visible heading would repeat it and cost a row of a
+          screen this page spends its whole design reclaiming. It is announced
+          instead: a screen-reader user navigating by headings otherwise lands
+          on a page with no top-level heading at all.
+        */}
+        <h1 className="sr-only">{symbol} {interval} chart</h1>
         {/* top toolbar */}
         <div className="flex flex-nowrap items-center gap-2 border-b border-border bg-surface px-2 py-1.5 sm:flex-wrap sm:overflow-x-visible sm:px-3">
           {/* Phone-only: site nav lives here, so the global bar can be hidden. */}
@@ -931,7 +939,10 @@ export default function TvWorkspace() {
                     window.localStorage.setItem(bottomKey(), "0");
                   }
                 }}
-                className={`border-b-2 pb-1 text-xs font-medium ${
+                // 22px measured on a phone. The tab strip is also the handle
+                // that brings a collapsed panel back, so it has to be pressable
+                // with a thumb, not only clickable with a pointer.
+                className={`flex min-h-[32px] items-end border-b-2 pb-1.5 text-xs font-medium ${
                   bottomTab === id && !bottomCollapsed
                     ? "border-accent text-ink"
                     : "border-transparent text-ink-muted hover:text-ink"
@@ -954,7 +965,10 @@ export default function TvWorkspace() {
                 onClick={toggleBottom}
                 title={bottomCollapsed ? "Expand panel" : "Minimize panel"}
                 aria-label={bottomCollapsed ? "Expand panel" : "Minimize panel"}
-                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
+                // 20x20 measured below the 24x24 minimum a pointer target
+                // needs, and it is the control that hides the panel covering
+                // the chart — the one a phone user reaches for most.
+                className="flex h-7 w-7 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
                   {bottomCollapsed ? <path d="M6 15l6-6 6 6" /> : <path d="M6 9l6 6 6-6" />}

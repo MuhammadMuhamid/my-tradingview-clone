@@ -89,6 +89,12 @@ export default function OptimizersPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
+      <div>
+        <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
+        <p className="text-xs text-ink-faint">
+          In-sample leaderboards beside the out-of-sample window each row was never fitted on.
+        </p>
+      </div>
       <div className="grid gap-3 md:grid-cols-2">
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium text-ink-muted">Optimizer system</span>
