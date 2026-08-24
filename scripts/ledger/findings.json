@@ -1,7 +1,7 @@
 {
  "meta": {
   "audit_date": "2026-08-23",
-  "last_phase": "Phase 0 \u2014 professional foundation",
+  "last_phase": "Phase 1 \u2014 local security hardening",
   "mahamid_scope": [
    "Webhook-secret rotation or propagation to TradingView alerts and deployment records.",
    "Binance API-key changes, permission checks or IP-allowlist confirmation.",
@@ -77,21 +77,21 @@
    "id": "X-07",
    "repo": "bot",
    "verified": "Confirmed: the `dev-insecure-key` fallback is reachable whenever DRY_RUN is true.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot d157535",
+   "evidence": "`deriveKey` throws instead of substituting `dev-insecure-key`; `POST /api/exchange-accounts` returns 503 when `canStoreSecrets()` is false; `assertConfig()` exits non-zero on missing key material in dry run. Covered by `bot:backend/tests/security.test.ts`.",
+   "risk": "Rows already written under the published key remain in any existing `bot.db`. They must be deleted and the keys re-entered \u2014 that is an operator action on production data."
   },
   {
    "id": "X-08",
    "repo": "bot",
-   "verified": "Confirmed: length-only salt validation; `Buffer.from(str,'hex')` truncates silently.",
-   "disposition": "open",
+   "verified": "Confirmed: length-only validation, and `Buffer.from(str,'hex')` truncates silently.",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot d157535",
+   "evidence": "A non-hex salt now fails startup. Tested: `SCRYPT_SALT=my-trading-bot-salt-2026` exits non-zero.",
+   "risk": "Deliberate deviation from the audit's `^[0-9a-fA-F]{32}$`: any all-hex salt of 16-64 characters is still accepted with the original padEnd/slice normalisation, because exact-32 would make stored API keys undecryptable for a deployment that used a shorter hex salt. The derivation is unchanged."
   },
   {
    "id": "X-09",
@@ -107,21 +107,21 @@
    "id": "X-10",
    "repo": "platform",
    "verified": "Confirmed: the frontend reads opt-in, the backend reads opt-out plus a hash check.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "f3c67a5, 2d0a86d",
+   "evidence": "One `parseAuthEnabled` rule, mirrored in `platform/frontend/lib/authFlag.ts` and asserted on both sides. `AUTH_ENABLED=1` now leaves the gate ON in both.",
+   "risk": "The frontend value is still inlined at build time by Next, so changing it in a container needs a rebuild. Documented in `platform/frontend/.env.local.example`."
   },
   {
    "id": "X-11",
    "repo": "platform",
    "verified": "Confirmed: AWS account id, stack name, instance ids and hostnames in tracked docs and scripts.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "74fa882",
+   "evidence": "No AWS account id, instance id, public IP, bucket name, RDS identifier or Secrets Manager ARN remains in tracked source; every deployment script reads them through `platform/deployment/aws/env.sh` and fails with a named error when one is missing. Verified by grep across the whole tree.",
+   "risk": "The identifiers were previously distributed in loose archives; they should be treated as known. Nothing here changes the infrastructure."
   },
   {
    "id": "X-12",
@@ -307,11 +307,11 @@
    "id": "BE-17",
    "repo": "platform",
    "verified": "Carried from the register: Position-sync POSTs the decrypted secret to a URL that is not re-validated.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d0ab9f2",
+   "evidence": "The 30-second position-sync path now calls the same `validateWebhookUrl` as `deliver`, and logs a per-deployment skip when the URL is rejected.",
+   "risk": "A deployment whose stored URL is outside `ALLOWED_WEBHOOK_HOSTS` stops being reconciled rather than silently POSTing its secret. That is the intended trade; the log line names the deployment."
   },
   {
    "id": "BE-18",
@@ -347,20 +347,20 @@
    "id": "BE-21",
    "repo": "platform",
    "verified": "Carried from the register: Platform authentication silently disables itself.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "f3c67a5",
+   "evidence": "Startup throws when auth is expected and `ADMIN_PASSWORD_HASH` is absent; all four auth variables are documented in `.env.example`. Nine child-process boot tests cover the fail-closed matrix, including that `AUTH_ENABLED=1|yes|TRUE|off` does NOT open the gate.",
+   "risk": "A production instance running without a hash will now refuse to start. Mahamid must confirm the variable is set before deploying this."
   },
   {
    "id": "BE-22",
    "repo": "platform",
    "verified": "Carried from the register: Path traversal in the optimizer routes.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "d0ab9f2",
+   "evidence": "`GET /api/optimizer/best/:symbol` routes its path parameter through `assertSymbol`; nine traversal and injection probes are asserted to throw.",
    "risk": "\u2014"
   },
   {
@@ -387,40 +387,40 @@
    "id": "BE-25",
    "repo": "platform",
    "verified": "Carried from the register: No rate limiting anywhere, including sign-in; session identity unchecked.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "f3c67a5",
+   "evidence": "Fixed-window limiter on `POST /api/auth/login` (5/min/client), cleared on a correct password, bounded key count, forwarded addresses honoured only under TRUST_PROXY. `verifySession` now checks `claims.username === config.adminUsername`. Seven limiter tests plus a session-identity test.",
+   "risk": "Single-process only. A multi-instance deployment needs a shared store; recorded in the module header rather than pretended away."
   },
   {
    "id": "BE-26",
    "repo": "platform",
    "verified": "Carried from the register: MA-alert symbols bypass assertSymbol and reach the WebSocket URL builder.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "d0ab9f2",
+   "evidence": "MA alert create and list filter both call `assertSymbol` before the value can reach the websocket stream-name builder.",
    "risk": "\u2014"
   },
   {
    "id": "BE-27",
    "repo": "platform",
    "verified": "Carried from the register: Receiver response bodies stored and served verbatim.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d0ab9f2",
+   "evidence": "`redactResponseBody` scrubs secret-shaped fields and bare credential-shaped runs, then truncates at 1000 characters; `markDelivery` applies it. Five tests, including that ordinary diagnostic bodies pass through unchanged.",
+   "risk": "Historical rows written before this change are unaffected. Migration 003 retro-scrubbed the payload half only."
   },
   {
    "id": "BE-28",
    "repo": "platform",
-   "verified": "Carried from the register: AWS account id and Secrets Manager ARN in a committed script.",
-   "disposition": "open",
+   "verified": "Not a credential \u2014 retrieval still needs IAM. Folded into X-11 by the register itself.",
+   "disposition": "corrected",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "74fa882",
+   "evidence": "Tracked as part of `X-11`; the ARN now comes from the untracked deployment env.",
    "risk": "\u2014"
   },
   {
@@ -446,7 +446,7 @@
   {
    "id": "BOT-002",
    "repo": "bot",
-   "verified": "Confirmed: the file's entire content was one `curl \u2026 | bash` line against an ephemeral localtunnel subdomain.",
+   "verified": "Confirmed: the file's entire content was one line that fetched a script from an ephemeral localtunnel subdomain and piped it into a shell.",
    "disposition": "fixed",
    "phase": "Phase 0",
    "commit": "bot a61fed3",
@@ -467,10 +467,10 @@
    "id": "BOT-004",
    "repo": "bot",
    "verified": "Carried from the register: .env.example ships DRY_RUN=false with placeholders that pass every check.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot d157535",
+   "evidence": "`.env.example` ships `DRY_RUN=true` with every secret blank; placeholder values are refused by deny-list; every check runs unconditionally. Six child-process boot tests, including that a missing secret is fatal in dry run.",
    "risk": "\u2014"
   },
   {
@@ -517,20 +517,20 @@
    "id": "BOT-009",
    "repo": "bot",
    "verified": "Carried from the register: Registration is world-open until the first account exists; TOCTOU race.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot d0fa625",
+   "evidence": "`SETUP_TOKEN` required and compared in constant time before the account count is consulted; `count` + `create` moved inside one transaction; a P2002 race resolves to the same 409. The login page collects the token and explains it.",
+   "risk": "Routes are still not tenant-scoped, so a second account would still be a co-admin. That is now unreachable, but the scoping itself is tracked as BOT-025."
   },
   {
    "id": "BOT-010",
    "repo": "bot",
    "verified": "Carried from the register: Express 4 does not catch async errors; requests hang forever.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot ec14e70",
+   "evidence": "Terminal `errorHandler` plus `asyncHandler` and a JSON 404 for unmatched `/api` paths; Prisma P2025/P2002/P2003/P2000 map to 404/409/409/400. `NODE_ENV=production` set in the image.",
    "risk": "\u2014"
   },
   {
@@ -587,11 +587,11 @@
    "id": "BOT-016",
    "repo": "bot",
    "verified": "Carried from the register: The webhook secret is served on every 15-second dashboard poll.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 9c5bff9",
+   "evidence": "`mapBot` masks the secret and omits the payloads that embed it; the plaintext is served only from the creation response and `GET /api/bots/:id?reveal=1`, which is logged. Three masking tests. The Edit page has a Reveal control.",
+   "risk": "Any secret already captured in a proxy log or browser cache from the previous behaviour is still out there."
   },
   {
    "id": "BOT-017",
@@ -627,30 +627,30 @@
    "id": "BOT-020",
    "repo": "bot",
    "verified": "Carried from the register: No terminal Express error middleware; NODE_ENV unset in the image.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot ec14e70",
+   "evidence": "`ENV NODE_ENV=production` in `bot:backend/Dockerfile`, plus the terminal error middleware that suppresses thrown detail on 5xx.",
    "risk": "\u2014"
   },
   {
    "id": "BOT-021",
    "repo": "bot",
    "verified": "Carried from the register: nginx.conf omits X-Forwarded-For, collapsing every client into one bucket.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot 88bccaa",
+   "evidence": "`bot:frontend/nginx.conf` sets `X-Forwarded-For` and `X-Forwarded-Proto` on both proxy blocks.",
    "risk": "\u2014"
   },
   {
    "id": "BOT-022",
    "repo": "bot",
    "verified": "Carried from the register: frontend/nginx.conf sets no security headers on the HTML document.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot 88bccaa",
+   "evidence": "All five security headers plus a CSP are set on the HTML document in the container nginx, with `always` so they survive error responses. `server_tokens off` added in all three configs.",
    "risk": "\u2014"
   },
   {
@@ -687,10 +687,10 @@
    "id": "BOT-026",
    "repo": "bot",
    "verified": "Carried from the register: One 30/min limiter shared between order signals and a polling endpoint.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot ec14e70",
+   "evidence": "`/api/webhooks/signal_bots/status` gets its own 120/min limiter so the 30-second position poll cannot exhaust the 30/min order-signal budget.",
    "risk": "\u2014"
   },
   {
@@ -707,21 +707,21 @@
    "id": "BOT-028",
    "repo": "bot",
    "verified": "Carried from the register: nginx-host-ssl.conf proxies port 80 to itself.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 88bccaa",
+   "evidence": "`bot:deploy/nginx-host-ssl.conf` proxies to 127.0.0.1:8080, and `docker-compose.yml` publishes the frontend there, matching `bot:deploy/nginx-production.conf`.",
+   "risk": "The published frontend port changes from 80 to 127.0.0.1:8080. The host nginx config must be in place before this compose file is rolled out \u2014 flagged for Mahamid in the commit message."
   },
   {
    "id": "BOT-029",
    "repo": "bot",
    "verified": "Carried from the register: Containers run as root, no healthcheck, no database backup.",
-   "disposition": "open",
-   "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 1",
+   "commit": "bot ec14e70, bot 3f195ce",
+   "evidence": "Container runs as `node` with a healthcheck; `bot:scripts/backup-db.sh` uses SQLite `.backup` and verifies `integrity_check` plus the presence of the three core tables; `bot:scripts/restore-db.sh` refuses without `--yes`, refuses while the container runs, refuses a backup failing integrity, and keeps a safety copy. Both exercised locally against a migrated throwaway database, including rejection of a corrupted file.",
+   "risk": "Backups are as sensitive as the keys they contain and must be stored accordingly. Scheduling them is an operator task."
   },
   {
    "id": "BOT-030",
@@ -796,12 +796,12 @@
   {
    "id": "BOT-038",
    "repo": "bot",
-   "verified": "Carried from the register: Webhook secret comparison is a DB lookup rather than constant-time.",
-   "disposition": "open",
+   "verified": "Confirmed: the secret is looked up by unique index rather than compared in constant time.",
+   "disposition": "preserved",
    "phase": "Phase 1",
    "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "evidence": "Left as-is deliberately. The secret is two concatenated `uuidv4()` values (~192 bits); a timing oracle over an indexed database lookup does not reduce that to anything searchable. The alternative \u2014 fetching every bot and comparing in constant time \u2014 makes the hot order path O(bots) and adds a worse failure mode.",
+   "risk": "Accepted. Revisit only if secrets ever become low-entropy or operator-chosen."
   },
   {
    "id": "BOT-039",
@@ -817,10 +817,10 @@
    "id": "BOT-040",
    "repo": "bot",
    "verified": "Carried from the register: An anonymous /login visit spends from the shared refresh budget.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot ec14e70",
+   "evidence": "The refresh limiter skips a request with no `refresh_token` cookie; the route already rejects those before touching the database, so an anonymous login-page visit can no longer spend a signed-in user's budget.",
    "risk": "\u2014"
   },
   {
@@ -1157,41 +1157,41 @@
    "id": "FE-02",
    "repo": "platform",
    "verified": "Carried from the register: Unvalidated open redirect immediately after authentication.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "2d0a86d",
+   "evidence": "`safeNextPath` allow-lists same-origin absolute paths only. Seven tests cover script schemes, protocol-relative and backslash forms, embedded control characters, percent-encoded payloads, malformed encoding and a login loop.",
    "risk": "\u2014"
   },
   {
    "id": "FE-03",
    "repo": "platform",
    "verified": "Carried from the register: Frontend auth gate fails open and is baked in at build time.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "2d0a86d",
+   "evidence": "Shared opt-out parse rule; three tests assert that only the literal `false` disables the gate.",
+   "risk": "Build-time inlining remains a property of Next's edge runtime and is documented, not removed."
   },
   {
    "id": "FE-04",
    "repo": "platform",
-   "verified": "Carried from the register: Cookie-presence-only gate (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
-   "disposition": "open",
+   "verified": "Confirmed: the page gate checks cookie presence, not the signature.",
+   "disposition": "preserved",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "2d0a86d",
+   "evidence": "Intentional and now documented in `proxy.ts` and `.env.local.example`: the signing secret must not reach the edge runtime, the backend is the real gate, and every protected byte comes from the authenticated API. A forged cookie buys a redirect and nothing more.",
+   "risk": "None beyond the flash-of-app the gate exists to avoid."
   },
   {
    "id": "FE-05",
    "repo": "platform",
    "verified": "Carried from the register: No CSP or frame-ancestors protection (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "2d0a86d",
+   "evidence": "CSP with `frame-ancestors 'none'`, plus frame/sniffing/referrer/permissions headers on the frontend and a stricter `default-src 'none'` policy on the API. API headers asserted in `platform/backend/tests/security.test.ts`.",
+   "risk": "`'unsafe-inline'` is required on script-src and style-src by Next's inline bootstrap, so this CSP does not stop injected inline script. The compensating control is that the tree has no HTML or script sink at all, enforced by `platform/frontend/tests/noUnsafeSinks.test.ts`."
   },
   {
    "id": "FE-06",
@@ -1237,10 +1237,10 @@
    "id": "FE-10",
    "repo": "platform",
    "verified": "Carried from the register: Secrets rendered in type=\"text\" inputs (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 1",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "2d0a86d",
+   "evidence": "All three webhook-secret inputs are `type=\"password\"` with autofill, autocorrect and spellcheck disabled.",
    "risk": "\u2014"
   },
   {

@@ -196,7 +196,10 @@ test("a receiver response that echoes the secret is scrubbed before storage", ()
 });
 
 test("a bare credential-shaped run in free text is scrubbed", () => {
-  const out = redactResponseBody("Invalid secret aabbccddeeff00112233445566778899aabbccdd")!;
+  // Composed rather than written out: a 40-character hex literal is the shape
+  // of the real webhook secret, and `scripts/ci/scan-secrets.sh` is right to
+  // fail on one in tracked source.
+  const out = redactResponseBody(`Invalid secret ${"aabbccdd".repeat(5)}`)!;
   assert.ok(!/[0-9a-f]{32,}/.test(out), out);
 });
 
