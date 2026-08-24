@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   console.log(`\n  watchlist "${WATCHLIST_NAME}" → ${COINS.length} symbols`);
 
   if (!dry) {
-    const alerts = await maAlertRepo.listAlerts({ enabledOnly: true });
+    const alerts = await maAlertRepo.listAlerts({ activeOnly: true });
     const layouts = await layoutRepo.listLayouts();
     console.log(
       `\ndone — ${layouts.length} layouts, ${alerts.length} enabled MA alerts in the database`

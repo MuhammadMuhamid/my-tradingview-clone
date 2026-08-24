@@ -1,23 +1,33 @@
 import { query } from "../db/pool";
 import type { Interval } from "../types/market";
 import type {
-  MaAlertEventRow, MaAlertMode, MaAlertRow, MaType,
+  ConditionKind, MaAlertEventRow, MaAlertMode, MaAlertRow, MaType, PriceDirection,
 } from "../types/maAlerts";
+import type { AlertFrequency } from "../alerts/alertFrequency";
 
 interface DbAlert {
   id: string;
   symbol: string;
   timeframe: Interval;
-  ma_type: MaType;
-  ma_length: number;
-  mode: MaAlertMode;
+  condition_kind: ConditionKind;
+  ma_type: MaType | null;
+  ma_length: number | null;
+  mode: MaAlertMode | null;
+  ma2_type: MaType | null;
+  ma2_length: number | null;
+  target_price: string | number | null;
+  price_direction: PriceDirection | null;
   near_min_pct: string | number;
   near_max_pct: string | number;
   enabled: boolean;
+  frequency: AlertFrequency;
   cooldown_min: number;
   note: string | null;
   last_side: "above" | "below" | null;
   last_fired_at: Date | null;
+  last_fired_bar_time: Date | null;
+  last_bar_time: Date | null;
+  completed_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -25,22 +35,32 @@ interface DbAlert {
 // pg returns numeric as string to preserve precision; these are display-scale
 // percentages, so Number() is safe and keeps the API shape numeric.
 const num = (v: string | number): number => (typeof v === "number" ? v : Number(v));
+const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
 function toRow(r: DbAlert): MaAlertRow {
   return {
     id: r.id,
     symbol: r.symbol,
     timeframe: r.timeframe,
+    conditionKind: r.condition_kind,
     maType: r.ma_type,
     maLength: r.ma_length,
     mode: r.mode,
+    ma2Type: r.ma2_type,
+    ma2Length: r.ma2_length,
+    targetPrice: r.target_price === null ? null : num(r.target_price),
+    priceDirection: r.price_direction,
     nearMinPct: num(r.near_min_pct),
     nearMaxPct: num(r.near_max_pct),
     enabled: r.enabled,
+    frequency: r.frequency,
     cooldownMin: r.cooldown_min,
     note: r.note,
     lastSide: r.last_side,
-    lastFiredAt: r.last_fired_at ? r.last_fired_at.toISOString() : null,
+    lastFiredAt: iso(r.last_fired_at),
+    lastFiredBarTime: iso(r.last_fired_bar_time),
+    lastBarTime: iso(r.last_bar_time),
+    completedAt: iso(r.completed_at),
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
   };
@@ -49,38 +69,70 @@ function toRow(r: DbAlert): MaAlertRow {
 export interface MaAlertInput {
   symbol: string;
   timeframe: Interval;
-  maType: MaType;
-  maLength: number;
-  mode: MaAlertMode;
+  conditionKind?: ConditionKind;
+  maType?: MaType | null;
+  maLength?: number | null;
+  mode?: MaAlertMode | null;
+  ma2Type?: MaType | null;
+  ma2Length?: number | null;
+  targetPrice?: number | null;
+  priceDirection?: PriceDirection | null;
   nearMinPct?: number;
   nearMaxPct?: number;
   enabled?: boolean;
+  frequency?: AlertFrequency;
   cooldownMin?: number;
   note?: string | null;
 }
 
+/** The unique index that governs "the same alert" for each condition kind. */
+const CONFLICT_TARGET: Record<ConditionKind, string> = {
+  ma: "(symbol, timeframe, ma_type, ma_length, mode) WHERE condition_kind = 'ma'",
+  price: "(symbol, timeframe, target_price, price_direction) WHERE condition_kind = 'price'",
+  ma_vs_ma:
+    "(symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode)" +
+    " WHERE condition_kind = 'ma_vs_ma'",
+};
+
 /**
- * Upsert on (symbol, timeframe, ma, mode). Arming the same line twice edits the
- * existing alert rather than creating a duplicate that would double-notify.
+ * Upsert on whatever identifies "the same alert" for this kind. Arming the same
+ * line, or the same price, twice edits the existing alert rather than creating a
+ * duplicate that would double-notify.
+ *
+ * Re-arming also CLEARS the completion and firing state: a user who re-arms a
+ * spent once_only alert means "watch this again", and leaving `completed_at` set
+ * would hand them an alert that looks armed and can never fire.
  */
 export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
+  const kind = input.conditionKind ?? "ma";
   const { rows } = await query<DbAlert>(
     `INSERT INTO ma_alerts
-       (symbol, timeframe, ma_type, ma_length, mode,
-        near_min_pct, near_max_pct, enabled, cooldown_min, note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-     ON CONFLICT (symbol, timeframe, ma_type, ma_length, mode) DO UPDATE SET
-       near_min_pct = EXCLUDED.near_min_pct,
-       near_max_pct = EXCLUDED.near_max_pct,
-       enabled      = EXCLUDED.enabled,
-       cooldown_min = EXCLUDED.cooldown_min,
-       note         = EXCLUDED.note,
-       updated_at   = now()
+       (symbol, timeframe, condition_kind, ma_type, ma_length, mode,
+        ma2_type, ma2_length, target_price, price_direction,
+        near_min_pct, near_max_pct, enabled, frequency, cooldown_min, note)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
+       near_min_pct        = EXCLUDED.near_min_pct,
+       near_max_pct        = EXCLUDED.near_max_pct,
+       enabled             = EXCLUDED.enabled,
+       frequency           = EXCLUDED.frequency,
+       cooldown_min        = EXCLUDED.cooldown_min,
+       note                = EXCLUDED.note,
+       ma2_type            = EXCLUDED.ma2_type,
+       ma2_length          = EXCLUDED.ma2_length,
+       completed_at        = NULL,
+       last_fired_at       = NULL,
+       last_fired_bar_time = NULL,
+       updated_at          = now()
      RETURNING *`,
     [
-      input.symbol.toUpperCase(), input.timeframe, input.maType, input.maLength,
-      input.mode, input.nearMinPct ?? 0.2, input.nearMaxPct ?? 0.5,
-      input.enabled ?? true, input.cooldownMin ?? 60, input.note ?? null,
+      input.symbol.toUpperCase(), input.timeframe, kind,
+      input.maType ?? null, input.maLength ?? null, input.mode ?? null,
+      input.ma2Type ?? null, input.ma2Length ?? null,
+      input.targetPrice ?? null, input.priceDirection ?? null,
+      input.nearMinPct ?? 0.2, input.nearMaxPct ?? 0.5,
+      input.enabled ?? true, input.frequency ?? "once_per_bar_close",
+      input.cooldownMin ?? 60, input.note ?? null,
     ]
   );
   return toRow(rows[0]!);
@@ -89,16 +141,19 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
 export async function listAlerts(opts: {
   symbol?: string;
   timeframe?: Interval;
-  enabledOnly?: boolean;
+  /** Only alerts the runner should be watching: enabled and not yet retired. */
+  activeOnly?: boolean;
 } = {}): Promise<MaAlertRow[]> {
   const params: unknown[] = [];
   const where: string[] = [];
   if (opts.symbol) { params.push(opts.symbol.toUpperCase()); where.push(`symbol = $${params.length}`); }
   if (opts.timeframe) { params.push(opts.timeframe); where.push(`timeframe = $${params.length}`); }
-  if (opts.enabledOnly) where.push("enabled");
+  // A spent once_only alert is not something the runner should still subscribe
+  // a websocket stream for.
+  if (opts.activeOnly) where.push("enabled AND completed_at IS NULL");
   const { rows } = await query<DbAlert>(
     `SELECT * FROM ma_alerts ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-     ORDER BY symbol, timeframe, ma_length DESC, ma_type`,
+     ORDER BY symbol, timeframe, condition_kind, ma_length DESC NULLS LAST, target_price NULLS LAST`,
     params
   );
   return rows.map(toRow);
@@ -109,10 +164,12 @@ export async function getAlert(id: string): Promise<MaAlertRow | null> {
   return rows[0] ? toRow(rows[0]) : null;
 }
 
-export async function updateAlert(
-  id: string,
-  patch: Partial<Pick<MaAlertInput, "enabled" | "cooldownMin" | "nearMinPct" | "nearMaxPct" | "note" | "mode" | "timeframe">>
-): Promise<MaAlertRow | null> {
+export type MaAlertPatch = Partial<Pick<MaAlertInput,
+  | "enabled" | "cooldownMin" | "nearMinPct" | "nearMaxPct" | "note"
+  | "mode" | "timeframe" | "frequency" | "targetPrice" | "priceDirection"
+>>;
+
+export async function updateAlert(id: string, patch: MaAlertPatch): Promise<MaAlertRow | null> {
   const cols: Record<string, unknown> = {};
   if (patch.enabled !== undefined) cols.enabled = patch.enabled;
   if (patch.cooldownMin !== undefined) cols.cooldown_min = patch.cooldownMin;
@@ -121,6 +178,12 @@ export async function updateAlert(
   if (patch.note !== undefined) cols.note = patch.note;
   if (patch.mode !== undefined) cols.mode = patch.mode;
   if (patch.timeframe !== undefined) cols.timeframe = patch.timeframe;
+  if (patch.frequency !== undefined) cols.frequency = patch.frequency;
+  if (patch.targetPrice !== undefined) cols.target_price = patch.targetPrice;
+  if (patch.priceDirection !== undefined) cols.price_direction = patch.priceDirection;
+  // Re-enabling a retired once_only alert must actually re-arm it. Otherwise the
+  // UI shows an enabled alert that can never fire.
+  if (patch.enabled === true) cols.completed_at = null;
   const keys = Object.keys(cols);
   if (keys.length === 0) return getAlert(id);
   const sets = keys.map((k, i) => `${k} = $${i + 2}`);
@@ -137,18 +200,32 @@ export async function deleteAlert(id: string): Promise<boolean> {
   return (rowCount ?? 0) > 0;
 }
 
-/** Persist cross-detection state and the cooldown clock in one write. */
-export async function recordEvaluation(
-  id: string,
-  side: "above" | "below" | null,
-  fired: boolean
-): Promise<void> {
+/**
+ * Persist everything one evaluation decided, in a single write.
+ *
+ * All of it in one statement is deliberate: the cross side, the fired-bar cap
+ * and the retirement flag are one consistent view of "what this alert has seen".
+ * Splitting them would let a crash between writes leave an alert that has
+ * notified but does not remember doing so — which is a duplicate notification on
+ * the next tick.
+ */
+export async function recordEvaluation(input: {
+  id: string;
+  side: "above" | "below" | null;
+  barTime: number;
+  fired: boolean;
+  /** Retire a once_only alert. Only ever true after a successful delivery. */
+  complete: boolean;
+}): Promise<void> {
   await query(
     `UPDATE ma_alerts
-       SET last_side = $2,
-           last_fired_at = CASE WHEN $3 THEN now() ELSE last_fired_at END
+       SET last_side           = $2,
+           last_bar_time       = $3,
+           last_fired_at       = CASE WHEN $4 THEN now() ELSE last_fired_at END,
+           last_fired_bar_time = CASE WHEN $4 THEN $3 ELSE last_fired_bar_time END,
+           completed_at        = CASE WHEN $5 THEN now() ELSE completed_at END
      WHERE id = $1`,
-    [id, side, fired]
+    [input.id, input.side, new Date(input.barTime), input.fired, input.complete]
   );
 }
 
@@ -161,14 +238,18 @@ export async function createEvent(input: {
   title: string;
   body: string;
   pushedTo: number;
+  intrabar: boolean;
+  frequency: AlertFrequency;
 }): Promise<void> {
   await query(
     `INSERT INTO ma_alert_events
-       (alert_id, bar_time, price, ma_value, distance_pct, title, body, pushed_to)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+       (alert_id, bar_time, price, ma_value, distance_pct, title, body,
+        pushed_to, intrabar, frequency)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [
       input.alertId, new Date(input.barTime), input.price, input.maValue,
       input.distancePct, input.title, input.body, input.pushedTo,
+      input.intrabar, input.frequency,
     ]
   );
 }
@@ -177,6 +258,7 @@ interface DbEvent {
   id: string; alert_id: string; fired_at: Date; bar_time: Date;
   price: string; ma_value: string; distance_pct: string;
   title: string; body: string; pushed_to: number;
+  intrabar: boolean; frequency: AlertFrequency | null;
 }
 
 export async function listEvents(limit = 100): Promise<MaAlertEventRow[]> {
@@ -195,5 +277,7 @@ export async function listEvents(limit = 100): Promise<MaAlertEventRow[]> {
     title: r.title,
     body: r.body,
     pushedTo: r.pushed_to,
+    intrabar: r.intrabar,
+    frequency: r.frequency,
   }));
 }
