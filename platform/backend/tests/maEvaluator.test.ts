@@ -73,3 +73,55 @@ test("cooldown suppresses repeats inside the window", () => {
   assert.equal(cooldownElapsed(null, 60, now), true);
   assert.equal(cooldownElapsed(fired, 0, now), true);
 });
+
+// ── provisional (intrabar) moving averages ────────────────────────────────
+// The runner rolls each MA forward by one forming bar in constant time rather
+// than recomputing the whole series on every tick. These assert that shortcut
+// lands on exactly the value a full recomputation would.
+import { provisionalSma, provisionalEma } from "../src/alerts/maEvaluator";
+import { sma as fullSma, ema as fullEma } from "../src/engine/ta";
+
+/** A deterministic price path with enough shape to catch an off-by-one. */
+function series(n: number): number[] {
+  const out: number[] = [];
+  let x = 100;
+  for (let i = 0; i < n; i++) { x *= 1 + Math.sin(i * 1.7) * 0.004; out.push(x); }
+  return out;
+}
+
+test("provisionalSma equals a full SMA over closed bars + the forming bar", () => {
+  const closed = series(400);
+  for (const len of [15, 21, 50, 100, 200]) {
+    const tail = closed.slice(closed.length - (len - 1));
+    const tailSum = tail.reduce((a, b) => a + b, 0);
+    for (const forming of [closed[closed.length - 1]! * 1.03, 42, 1e5]) {
+      const quick = provisionalSma(tailSum, forming, len);
+      const full = fullSma([...closed, forming], len).at(-1)!;
+      assert.ok(Math.abs(quick - full) / full < 1e-12, `len=${len}: ${quick} vs ${full}`);
+    }
+  }
+});
+
+test("provisionalEma equals a full EMA over closed bars + the forming bar", () => {
+  const closed = series(400);
+  for (const len of [15, 21, 50, 100, 200]) {
+    const prev = fullEma(closed, len).at(-1)!;
+    for (const forming of [closed[closed.length - 1]! * 0.97, 42, 1e5]) {
+      const quick = provisionalEma(prev, forming, len);
+      const full = fullEma([...closed, forming], len).at(-1)!;
+      assert.ok(Math.abs(quick - full) / full < 1e-12, `len=${len}: ${quick} vs ${full}`);
+    }
+  }
+});
+
+test("a forming bar that closes unchanged leaves the MA where the tick had it", () => {
+  // The intrabar value must be continuous with the bar-close value, or an
+  // alert would fire on a tick and then look wrong in the fired-alert feed.
+  const closed = series(300);
+  const forming = closed.at(-1)! * 1.01;
+  const len = 21;
+  const tailSum = closed.slice(closed.length - (len - 1)).reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(
+    provisionalSma(tailSum, forming, len) - fullSma([...closed, forming], len).at(-1)!
+  ) < 1e-9);
+});

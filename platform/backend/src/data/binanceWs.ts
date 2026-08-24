@@ -1,7 +1,12 @@
 /**
  * Binance spot kline WebSocket manager. Aggregates multiple (symbol, interval)
  * kline streams over one combined connection, persists every closed bar, and
- * emits 'barClose' when Binance flags a candle final ("x": true).
+ * emits 'barClose' when Binance flags a candle final ("x": true), and
+ * 'barUpdate' for every forming tick in between.
+ *
+ * Only CLOSED bars are persisted. A forming candle's high/low/close still move,
+ * so writing it would put provisional numbers into the candle history that
+ * backtests and MA warmups read as final.
  *
  * Reconnects with capped backoff and re-subscribes the active stream set. On
  * (re)connect a REST gap-fill is the caller's job (the live runner backfills
@@ -34,12 +39,16 @@ export interface BarCloseEvent {
   candle: Candle;
 }
 
+/** A still-forming candle. Same shape, but its values are provisional. */
+export type BarUpdateEvent = BarCloseEvent;
+
 function streamName(symbol: string, interval: Interval): string {
   return `${symbol.toLowerCase()}@kline_${interval}`;
 }
 
 export declare interface BinanceWsManager {
   on(event: "barClose", listener: (e: BarCloseEvent) => void): this;
+  on(event: "barUpdate", listener: (e: BarUpdateEvent) => void): this;
   on(event: "open", listener: () => void): this;
   on(event: "close", listener: () => void): this;
   on(event: "error", listener: (err: Error) => void): this;
@@ -142,7 +151,7 @@ export class BinanceWsManager extends EventEmitter {
     } catch {
       return;
     }
-    if (!msg.data || msg.data.e !== "kline" || !msg.data.k.x) return; // only closed bars
+    if (!msg.data || msg.data.e !== "kline") return;
     const k = msg.data.k;
     const candle: Candle = {
       symbol: msg.data.s,
@@ -157,9 +166,17 @@ export class BinanceWsManager extends EventEmitter {
       tradeCount: k.n,
       closeTime: k.T,
     };
+    const event = { symbol: candle.symbol, interval: candle.interval, candle };
+
+    // Forming bar: announce it, but never persist provisional values.
+    if (!k.x) {
+      this.emit("barUpdate", event);
+      return;
+    }
+
     try {
       await upsertCandles([candle]);
-      this.emit("barClose", { symbol: candle.symbol, interval: candle.interval, candle });
+      this.emit("barClose", event);
     } catch (err) {
       this.emit("error", err as Error);
     }

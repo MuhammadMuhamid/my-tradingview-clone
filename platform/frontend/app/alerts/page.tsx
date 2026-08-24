@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, Button, Empty } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
-import { api, type MaAlert, type MaAlertEvent } from "@/lib/api";
+import { api, type MaAlert, type MaAlertEvent, type TriggerMode } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 
@@ -96,6 +96,13 @@ export default function AlertsPage() {
     }
   };
 
+  /** Short badge text; the default bar-close mode is left unlabelled as noise. */
+  const TRIGGER_BADGE: Record<TriggerMode, string | null> = {
+    once: "once only",
+    once_per_bar: "intrabar",
+    once_per_bar_close: null,
+  };
+
   const describe = (a: MaAlert): string => {
     switch (a.mode) {
       case "touch": return "touches";
@@ -172,6 +179,11 @@ export default function AlertsPage() {
                     <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">
                       {a.timeframe}
                     </span>
+                    {TRIGGER_BADGE[a.trigger] && (
+                      <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
+                        {TRIGGER_BADGE[a.trigger]}
+                      </span>
+                    )}
                     <span className="text-[11px] text-ink-faint">
                       cooldown {a.cooldownMin}m
                       {a.lastFiredAt && ` · last fired ${fmtAgo(a.lastFiredAt)}`}

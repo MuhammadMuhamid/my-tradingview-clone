@@ -58,6 +58,27 @@ export function evaluateMaAlert(
   return { side, distancePct, triggered };
 }
 
+/**
+ * The MA value including a still-forming bar, in constant time.
+ *
+ * These are the ordinary definitions with the forming bar as the newest
+ * sample, not approximations — `provisionalSma` is the window mean and
+ * `provisionalEma` is one recursion step. Keeping them here, pure, is what
+ * lets a test assert they equal a full recomputation over the same data.
+ */
+export function provisionalSma(
+  tailSum: number, formingClose: number, length: number
+): number {
+  return (tailSum + formingClose) / length;
+}
+
+export function provisionalEma(
+  prevEma: number, formingClose: number, length: number
+): number {
+  const alpha = 2 / (length + 1);
+  return alpha * formingClose + (1 - alpha) * prevEma;
+}
+
 /** True when the cooldown window since the last fire has elapsed. */
 export function cooldownElapsed(
   lastFiredAt: string | null,

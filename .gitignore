@@ -74,3 +74,11 @@ backtestingsystems/trees/*/*.pid
 # backtestingsystems/, which has its own .git and pushes to
 # github.com/MuhammadMuhamid/pythoncryptobacktesingsystems
 backtestingsystems/
+
+# ── stray working copies ──
+# A duplicate of the whole project made by hand ("platform copy", "platform 2",
+# …). Committing one doubles the repo and creates a second, silently diverging
+# source of truth for every file.
+platform copy/
+platform [0-9]*/
+*-copy/

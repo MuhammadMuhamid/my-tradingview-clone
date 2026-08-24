@@ -129,6 +129,11 @@ export function MaPanel({
               />
               <span className={`flex-1 truncate ${a.enabled ? "text-ink" : "text-ink-faint line-through"}`}>
                 {maLabel(a.maType, a.maLength)} · {describe(a)}
+                {a.trigger !== "once_per_bar_close" && (
+                  <span className="ml-1 text-accent">
+                    · {a.trigger === "once" ? "once" : "intrabar"}
+                  </span>
+                )}
               </span>
               <span className={`shrink-0 text-[10px] ${a.timeframe === timeframe ? "text-accent" : "text-ink-faint"}`}>
                 {a.timeframe}

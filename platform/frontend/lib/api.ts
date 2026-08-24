@@ -200,6 +200,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export type MaAlertMode = "touch" | "cross_up" | "cross_down" | "near_above" | "near_below";
 export type MaType = "sma" | "ema";
 
+/** How often an alert may fire; mirrors TradingView's three options. */
+export type TriggerMode = "once" | "once_per_bar" | "once_per_bar_close";
+
 export interface MaAlert {
   id: string;
   symbol: string;
@@ -213,8 +216,10 @@ export interface MaAlert {
   enabled: boolean;
   cooldownMin: number;
   note: string | null;
+  trigger: TriggerMode;
   lastSide: "above" | "below" | null;
   lastFiredAt: string | null;
+  lastFiredBarTime: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -350,11 +355,12 @@ export const api = {
   createMaAlert: (body: {
     symbol: string; timeframe: Interval; maType: MaType; maLength: number;
     mode: MaAlertMode; nearMinPct?: number; nearMaxPct?: number;
-    cooldownMin?: number; note?: string | null;
+    cooldownMin?: number; note?: string | null; trigger?: TriggerMode;
   }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
   updateMaAlert: (id: string, body: Partial<{
     enabled: boolean; cooldownMin: number; nearMinPct: number;
     nearMaxPct: number; mode: MaAlertMode; timeframe: Interval; note: string | null;
+    trigger: TriggerMode;
   }>) => req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
   maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),

@@ -1,7 +1,7 @@
 import { query } from "../db/pool";
 import type { Interval } from "../types/market";
 import type {
-  MaAlertEventRow, MaAlertMode, MaAlertRow, MaType,
+  MaAlertEventRow, MaAlertMode, MaAlertRow, MaType, TriggerMode,
 } from "../types/maAlerts";
 
 interface DbAlert {
@@ -16,8 +16,10 @@ interface DbAlert {
   enabled: boolean;
   cooldown_min: number;
   note: string | null;
+  trigger_mode: TriggerMode;
   last_side: "above" | "below" | null;
   last_fired_at: Date | null;
+  last_fired_bar_time: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -39,8 +41,10 @@ function toRow(r: DbAlert): MaAlertRow {
     enabled: r.enabled,
     cooldownMin: r.cooldown_min,
     note: r.note,
+    trigger: r.trigger_mode,
     lastSide: r.last_side,
     lastFiredAt: r.last_fired_at ? r.last_fired_at.toISOString() : null,
+    lastFiredBarTime: r.last_fired_bar_time ? r.last_fired_bar_time.toISOString() : null,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
   };
@@ -57,6 +61,7 @@ export interface MaAlertInput {
   enabled?: boolean;
   cooldownMin?: number;
   note?: string | null;
+  trigger?: TriggerMode;
 }
 
 /**
@@ -67,20 +72,22 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
   const { rows } = await query<DbAlert>(
     `INSERT INTO ma_alerts
        (symbol, timeframe, ma_type, ma_length, mode,
-        near_min_pct, near_max_pct, enabled, cooldown_min, note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        near_min_pct, near_max_pct, enabled, cooldown_min, note, trigger_mode)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (symbol, timeframe, ma_type, ma_length, mode) DO UPDATE SET
        near_min_pct = EXCLUDED.near_min_pct,
        near_max_pct = EXCLUDED.near_max_pct,
        enabled      = EXCLUDED.enabled,
        cooldown_min = EXCLUDED.cooldown_min,
        note         = EXCLUDED.note,
+       trigger_mode = EXCLUDED.trigger_mode,
        updated_at   = now()
      RETURNING *`,
     [
       input.symbol.toUpperCase(), input.timeframe, input.maType, input.maLength,
       input.mode, input.nearMinPct ?? 0.2, input.nearMaxPct ?? 0.5,
       input.enabled ?? true, input.cooldownMin ?? 60, input.note ?? null,
+      input.trigger ?? "once_per_bar_close",
     ]
   );
   return toRow(rows[0]!);
@@ -111,7 +118,7 @@ export async function getAlert(id: string): Promise<MaAlertRow | null> {
 
 export async function updateAlert(
   id: string,
-  patch: Partial<Pick<MaAlertInput, "enabled" | "cooldownMin" | "nearMinPct" | "nearMaxPct" | "note" | "mode" | "timeframe">>
+  patch: Partial<Pick<MaAlertInput, "enabled" | "cooldownMin" | "nearMinPct" | "nearMaxPct" | "note" | "mode" | "timeframe" | "trigger">>
 ): Promise<MaAlertRow | null> {
   const cols: Record<string, unknown> = {};
   if (patch.enabled !== undefined) cols.enabled = patch.enabled;
@@ -121,6 +128,7 @@ export async function updateAlert(
   if (patch.note !== undefined) cols.note = patch.note;
   if (patch.mode !== undefined) cols.mode = patch.mode;
   if (patch.timeframe !== undefined) cols.timeframe = patch.timeframe;
+  if (patch.trigger !== undefined) cols.trigger_mode = patch.trigger;
   const keys = Object.keys(cols);
   if (keys.length === 0) return getAlert(id);
   const sets = keys.map((k, i) => `${k} = $${i + 2}`);
@@ -137,18 +145,37 @@ export async function deleteAlert(id: string): Promise<boolean> {
   return (rowCount ?? 0) > 0;
 }
 
-/** Persist cross-detection state and the cooldown clock in one write. */
+/**
+ * Persist cross-detection state, the cooldown clock and the fired-bar stamp in
+ * one write.
+ *
+ * `disable` implements the "Once only" trigger: the alert switches itself off
+ * after firing, exactly as TradingView retires a one-shot alert.
+ */
 export async function recordEvaluation(
   id: string,
-  side: "above" | "below" | null,
-  fired: boolean
+  opts: {
+    side?: "above" | "below" | null;
+    fired: boolean;
+    barTime?: number | null;
+    disable?: boolean;
+  }
 ): Promise<void> {
   await query(
     `UPDATE ma_alerts
-       SET last_side = $2,
-           last_fired_at = CASE WHEN $3 THEN now() ELSE last_fired_at END
+       SET last_side = COALESCE($2, last_side),
+           last_fired_at = CASE WHEN $3 THEN now() ELSE last_fired_at END,
+           last_fired_bar_time = CASE WHEN $3 AND $4::timestamptz IS NOT NULL
+                                      THEN $4 ELSE last_fired_bar_time END,
+           enabled = CASE WHEN $5 THEN false ELSE enabled END
      WHERE id = $1`,
-    [id, side, fired]
+    [
+      id,
+      opts.side ?? null,
+      opts.fired,
+      opts.barTime != null ? new Date(opts.barTime) : null,
+      opts.disable ?? false,
+    ]
   );
 }
 

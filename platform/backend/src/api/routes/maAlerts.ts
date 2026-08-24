@@ -6,7 +6,10 @@
 import type { FastifyInstance } from "fastify";
 import * as maAlertRepo from "../../repositories/maAlerts";
 import { isInterval } from "../../types/market";
-import { isMaType, isMaAlertMode, MA_ALERT_MODES, MA_LENGTHS, MA_TYPES } from "../../types/maAlerts";
+import {
+  isMaType, isMaAlertMode, isTriggerMode,
+  MA_ALERT_MODES, MA_LENGTHS, MA_TYPES, TRIGGER_MODES,
+} from "../../types/maAlerts";
 
 export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
   /** Vocabulary for the alert dialog, so the UI never hardcodes it. */
@@ -14,6 +17,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     maTypes: MA_TYPES,
     maLengths: MA_LENGTHS,
     modes: MA_ALERT_MODES,
+    triggers: TRIGGER_MODES,
   }));
 
   app.get("/api/ma-alerts", async (req) => {
@@ -56,6 +60,10 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: "nearMaxPct must be greater than nearMinPct" });
       }
     }
+    const trigger = b.trigger === undefined ? "once_per_bar_close" : String(b.trigger);
+    if (!isTriggerMode(trigger)) {
+      return reply.code(400).send({ error: `trigger must be one of ${TRIGGER_MODES.join(", ")}` });
+    }
     const cooldownMin = b.cooldownMin === undefined ? 60 : Number(b.cooldownMin);
     if (!Number.isInteger(cooldownMin) || cooldownMin < 0) {
       return reply.code(400).send({ error: "cooldownMin must be a non-negative integer" });
@@ -63,7 +71,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
 
     const row = await maAlertRepo.upsertAlert({
       symbol, timeframe, maType, maLength, mode,
-      nearMinPct, nearMaxPct, cooldownMin,
+      nearMinPct, nearMaxPct, cooldownMin, trigger,
       enabled: b.enabled === undefined ? true : Boolean(b.enabled),
       note: b.note === undefined ? null : String(b.note),
     });
@@ -83,6 +91,11 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
       const mode = String(b.mode);
       if (!isMaAlertMode(mode)) return reply.code(400).send({ error: "invalid mode" });
       patch.mode = mode;
+    }
+    if (b.trigger !== undefined) {
+      const t = String(b.trigger);
+      if (!isTriggerMode(t)) return reply.code(400).send({ error: "invalid trigger" });
+      patch.trigger = t;
     }
     if (b.timeframe !== undefined) {
       const tf = String(b.timeframe);
