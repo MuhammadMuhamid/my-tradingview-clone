@@ -3,6 +3,9 @@
  * kline streams over one combined connection, persists every closed bar, and
  * emits 'barClose' when Binance flags a candle final ("x": true).
  *
+ * Forming candles are emitted as 'barUpdate' and never written to the database:
+ * only a closed bar is a fact about the market. See BarUpdateEvent.
+ *
  * Reconnects with capped backoff and re-subscribes the active stream set. On
  * (re)connect a REST gap-fill is the caller's job (the live runner backfills
  * missed bars before resuming), so a dropped connection never loses signals.
@@ -35,6 +38,23 @@ export interface BarCloseEvent {
   candle: Candle;
 }
 
+/**
+ * A snapshot of the candle currently FORMING. Binance sends one roughly every
+ * second on a kline stream, whether or not anything is listening.
+ *
+ * The candle is deliberately NOT persisted. `upsertCandles` on a forming bar
+ * would write an unfinished high/low/close into the candle store, and every
+ * backtest, indicator and chart that later read that row would be reading a
+ * bar that never existed — a silent corruption that survives long after the
+ * websocket frame is forgotten. Only closed bars are written; a forming bar is
+ * an observation, and lives no longer than the listener that reads it.
+ */
+export interface BarUpdateEvent {
+  symbol: string;
+  interval: Interval;
+  candle: Candle;
+}
+
 /** Emitted when a nominally-open connection has gone silent and is rebuilt. */
 export interface StaleEvent {
   silentForMs: number;
@@ -49,6 +69,7 @@ function streamName(symbol: string, interval: Interval): string {
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export declare interface BinanceWsManager {
   on(event: "barClose", listener: (e: BarCloseEvent) => void): this;
+  on(event: "barUpdate", listener: (e: BarUpdateEvent) => void): this;
   on(event: "open", listener: () => void): this;
   on(event: "close", listener: () => void): this;
   on(event: "error", listener: (err: Error) => void): this;
@@ -218,8 +239,12 @@ export class BinanceWsManager extends EventEmitter {
     } catch {
       return;
     }
-    if (!msg.data || msg.data.e !== "kline" || !msg.data.k.x) return; // only closed bars
+    if (!msg.data || msg.data.e !== "kline") return;
     const k = msg.data.k;
+    // Nothing is watching forming bars on this manager — the live strategy
+    // runner never does — so do not pay to parse one. This keeps the cost of
+    // the intrabar feature exactly zero for the callers that do not use it.
+    if (!k.x && this.listenerCount("barUpdate") === 0) return;
     const candle: Candle = {
       symbol: msg.data.s,
       interval: k.i as Interval,
@@ -233,6 +258,14 @@ export class BinanceWsManager extends EventEmitter {
       tradeCount: k.n,
       closeTime: k.T,
     };
+
+    // A forming bar is announced but never stored. See BarUpdateEvent for why
+    // persisting one would corrupt every later read of the candle store.
+    if (!k.x) {
+      this.emit("barUpdate", { symbol: candle.symbol, interval: candle.interval, candle });
+      return;
+    }
+
     try {
       await upsertCandles([candle]);
       this.emit("barClose", { symbol: candle.symbol, interval: candle.interval, candle });
