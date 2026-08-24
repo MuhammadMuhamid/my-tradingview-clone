@@ -17,6 +17,13 @@ export interface AppConfig {
   cookieSecure: boolean;
   /** Trust `X-Forwarded-For` when a reverse proxy terminates TLS. */
   trustProxy: boolean;
+  /**
+   * The live runner sends real buy/sell instructions to the execution bot.
+   * OPT-IN: it starts only when this is explicitly `true`.
+   */
+  liveRunnerEnabled: boolean;
+  /** Stable identity for the single-emitter lease. */
+  emitterId: string;
   /** True when this process is running as a production deployment. */
   isProduction: boolean;
 }
@@ -76,6 +83,15 @@ export const config: AppConfig = {
   sessionSecret: process.env.SESSION_SECRET ?? "",
   cookieSecure: process.env.COOKIE_SECURE !== "false",
   trustProxy: process.env.TRUST_PROXY === "true",
+  /*
+   * X-06: this was `!== "false"`, i.e. opt-OUT — and the launch agent shipped in
+   * `platform/backend/launchd/` sets no environment at all, with RunAtLoad and
+   * KeepAlive. Loading it, or following the repository on a fresh machine,
+   * started a SECOND live emitter against the same production bot, with its
+   * runtime state in a different database from the first. Opt-in now.
+   */
+  liveRunnerEnabled: process.env.LIVE_RUNNER_ENABLED === "true",
+  emitterId: process.env.EMITTER_ID ?? `${process.env.HOSTNAME ?? "unknown"}:${process.pid}`,
   isProduction: (process.env.NODE_ENV ?? "").toLowerCase() === "production",
 };
 

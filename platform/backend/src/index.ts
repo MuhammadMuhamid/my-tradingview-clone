@@ -32,8 +32,13 @@ async function main(): Promise<void> {
     app.log.info("backtest worker started");
   }
 
-  if (process.env.LIVE_RUNNER_ENABLED !== "false") {
+  // OPT-IN. See config.liveRunnerEnabled for why this inverted (X-06).
+  if (config.liveRunnerEnabled) {
     await runner.start();
+  } else {
+    app.log.warn(
+      "live runner DISABLED — set LIVE_RUNNER_ENABLED=true to emit real signals"
+    );
   }
 
   // Independent of the strategy live runner: MA alerts must keep watching even

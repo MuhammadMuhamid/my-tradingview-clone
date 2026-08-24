@@ -146,6 +146,46 @@ export async function reconcileReceiverFlat(id: string, closedAt = Date.now()): 
 }
 
 /**
+ * The mirror case: the receiver reports LONG for a deployment this platform
+ * believes is flat.
+ *
+ * `reconcileReceiverFlat` handled one direction only, and the audit named the
+ * consequence exactly (X-03): the state left behind by a crash between delivery
+ * and persistence (BE-13), or by a dedupe skip that advanced state without
+ * placing an order (BE-16), is *locally flat, receiver long*. From there the
+ * platform issues a fresh BUY on the next entry signal, adding to a position it
+ * does not know it holds, and computing stops and targets from the wrong entry
+ * price. The 30-second sync that exists to prevent divergence could not see it.
+ *
+ * This does NOT adopt the position. The platform does not know the entry price,
+ * the stop, the targets or which tiers were taken — inventing them would put
+ * real money behind a guess. It pauses the deployment and records why, so the
+ * operator decides. A paused deployment cannot emit, which makes the safe
+ * outcome the automatic one.
+ *
+ * Returns true only when a deployment was actually paused by this call.
+ */
+export async function pauseOnReceiverLong(id: string, detail: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE deployments
+        SET status = 'paused',
+            runtime_state = runtime_state || $2::jsonb,
+            updated_at = now()
+      WHERE id = $1
+        AND status = 'active'
+        AND COALESCE(runtime_state->>'position', 'flat') = 'flat'`,
+    [
+      id,
+      JSON.stringify({
+        divergenceDetectedAt: Date.now(),
+        divergenceDetail: detail,
+      }),
+    ]
+  );
+  return (result.rowCount ?? 0) === 1;
+}
+
+/**
  * Edit the delivery-side settings of an alert (TradingView "edit alert").
  * Strategy identity (symbol/timeframe/params) is intentionally not editable —
  * runtime state is tied to it; recreate the alert to change the strategy.
