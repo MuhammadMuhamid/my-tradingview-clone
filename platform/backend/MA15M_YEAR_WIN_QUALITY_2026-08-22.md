@@ -1,5 +1,14 @@
 # MA + R:R 15m one-year win-quality audit
 
+<!-- doc-status -->
+> **HISTORICAL — a dated analysis artifact.** Produced on the date in this
+> file's name from the optimizer results as they stood then. The underlying
+> result data is gitignored and absent from clones (`OPT-08`), so nothing here
+> is reproducible from source. Configurations named here were selected under
+> the procedure recorded as `OPT-01` (the out-of-sample window was itself
+> maximised over), so IS/OOS agreement in these tables is a selection artefact,
+> not evidence of robustness. Do not deploy from this document.
+
 Generated: 2026-08-22T04:24:19.966714+05:00
 
 **Research shortlist only.** IS and OOS were both used to select these rows, so OOS is no longer independent. Paper/forward-test before risking capital.

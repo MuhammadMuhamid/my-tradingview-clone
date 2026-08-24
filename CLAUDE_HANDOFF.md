@@ -1,5 +1,25 @@
 # MyTradingView Clone — Claude Handoff
 
+<!-- doc-status -->
+> **HISTORICAL — superseded in part.** Written 2026-07-17 as a handover, and
+> parts of it no longer describe this checkout. Verified contradictions:
+>
+> - §2 and §8 give absolute paths under `/Users/muhammadmuhamid/…` and name four
+>   optimizer trees (`optimizer/`, `optimizer5m/`, `sr_optimizer15m/`,
+>   `sr_optimizer5m/`) **that do not exist**. Thirteen different trees do; see
+>   [docs/COST-MODELS.md](docs/COST-MODELS.md). (`OPT-30`, `X-04`)
+> - §7 states commission 0.1 % and slippage 0 ticks as the common model. Every
+>   tree runs 0.1 % **per side with 2 ticks**, except `optimizer1y1h` which runs
+>   0 ticks. (`X-09`, `OPT-03`)
+> - §7 names parity artifacts in `platform/backend/parity/`. That directory is
+>   gitignored and absent from every clone, so the release gate it describes
+>   cannot be run here. (`BE-08` blocker)
+> - §3–§4 describe the live AWS stack. Nothing in this programme connected to
+>   AWS, so every production statement here is an unverified documentation
+>   claim, not an observation.
+>
+> Where this document and `docs/` disagree, `docs/` is authoritative.
+
 Last updated: 2026-07-17 (Asia/Karachi)
 
 ## 1. Objective

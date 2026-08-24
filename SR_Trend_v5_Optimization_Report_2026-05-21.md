@@ -1,5 +1,12 @@
 # SR+Trend v5 — Strategy Optimization Report
 
+<!-- doc-status -->
+> **HISTORICAL — a dated report, not current truth.** Produced 2026-05-21 from
+> TradingView chart overlays and CSV exports for a strategy generation that has
+> since been superseded. Its headline percentages were not produced by this
+> repository's engine and are not comparable with any leaderboard here. Do not
+> select or deploy a configuration from this document.
+
 **Document date:** May 21, 2026  
 **Strategy:** SR+Trend v5 (Pine Script v6)  
 **Execution timeframe:** 5 minutes  

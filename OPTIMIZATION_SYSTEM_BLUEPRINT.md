@@ -1,5 +1,14 @@
 # MA+R:R Optimization System — Architectural Blueprint
 
+<!-- doc-status -->
+> **HISTORICAL — superseded on the cost model.** Written 2026-07-09. Its "one
+> source of truth: 0.05 % commission, 2 ticks slippage, $1000 capital,
+> $930/trade" was never what the trees ran. Measured from every
+> `config.json`: **0.1 % per side**, 2 ticks (0 in `optimizer1y1h`), $1 000 or
+> $10 000 initial capital, $1 000 fixed cash per trade. The design discussion
+> below remains useful; the friction figures do not. See
+> [docs/COST-MODELS.md](docs/COST-MODELS.md). (`X-09`)
+
 Strategy under test: `ma_riskreward_strategy.pine` (SR+Trend v9 lineage, Pine v6).
 Last updated: 2026-07-09.
 

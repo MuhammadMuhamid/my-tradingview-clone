@@ -1,5 +1,12 @@
 # Crypto backtesting systems — overview
 
+<!-- doc-status -->
+> **Generated snapshot, 2026-08-22.** The evaluation counts and "running"
+> markers below were true when the file was written and are not refreshed. The
+> results they summarise are **not reproducible from a clone**: `results/`,
+> `best/`, `index/` and `archive/` are gitignored and absent (`OPT-08`). Metric
+> definitions in this document remain authoritative; the numbers are history.
+
 _Generated 2026-08-22._
 
 Five independent genetic-algorithm optimizers, each with its own window, cost

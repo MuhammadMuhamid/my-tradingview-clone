@@ -1,5 +1,14 @@
 # MTF Confluence Lean — provisional live-candidate audit
 
+<!-- doc-status -->
+> **HISTORICAL — a dated analysis artifact.** Produced on the date in this
+> file's name from the optimizer results as they stood then. The underlying
+> result data is gitignored and absent from clones (`OPT-08`), so nothing here
+> is reproducible from source. Configurations named here were selected under
+> the procedure recorded as `OPT-01` (the out-of-sample window was itself
+> maximised over), so IS/OOS agreement in these tables is a selection artefact,
+> not evidence of robustness. Do not deploy from this document.
+
 **Important:** these are not promises of future profit. The OOS window has now been used as a selection veto, so it is no longer untouched. Every candidate must pass a later forward/paper-trading window before real money.
 
 ## 5m system

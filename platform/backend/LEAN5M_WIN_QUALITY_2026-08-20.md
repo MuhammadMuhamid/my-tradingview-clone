@@ -1,5 +1,14 @@
 # 5m MTF Lean — win-quality multi-objective audit
 
+<!-- doc-status -->
+> **HISTORICAL — a dated analysis artifact.** Produced on the date in this
+> file's name from the optimizer results as they stood then. The underlying
+> result data is gitignored and absent from clones (`OPT-08`), so nothing here
+> is reproducible from source. Configurations named here were selected under
+> the procedure recorded as `OPT-01` (the out-of-sample window was itself
+> maximised over), so IS/OOS agreement in these tables is a selection artefact,
+> not evidence of robustness. Do not deploy from this document.
+
 **Research shortlist only.** OOS was included in selection and is no longer an independent validation set. A fresh forward/paper period is mandatory.
 
 Score priority: confidence-adjusted per-entry win rate on the weaker side (55%), weaker-side PF (15%), weaker-side net (15%), worst DD (10%), IS/OOS win-rate consistency (5%).
