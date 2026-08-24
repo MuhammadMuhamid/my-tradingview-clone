@@ -13,11 +13,11 @@ explicit check proves the new behaviour — never because documentation was upda
 
 | Disposition | Count |
 |---|---:|
-| fixed | 72 |
+| fixed | 73 |
 | audit finding corrected or stale | 4 |
 | intentionally preserved | 2 |
 | blocked by Mahamid/external evidence | 2 |
-| not yet dispositioned | 74 |
+| not yet dispositioned | 73 |
 | **total** | **154** |
 
 ## Scope reserved for Mahamid
@@ -129,7 +129,7 @@ following, and no finding is marked `fixed` on the strength of one:
 | `BOT-038` | bot | Confirmed: the secret is looked up by unique index rather than compared in constant time. | intentionally preserved | Phase 1 | — | Left as-is deliberately. The secret is two concatenated `uuidv4()` values (~192 bits); a timing oracle over an indexed database lookup does not reduce that to anything searchable. The alternative — fetching every bot and comparing in constant time — makes the hot order path O(bots) and adds a worse failure mode. | Accepted. Revisit only if secrets ever become low-entropy or operator-chosen. |
 | `BOT-039` | bot | Carried from the register: binance-api-node@0.12.9 is effectively unmaintained. | not yet dispositioned | Phase 7 | — | — | — |
 | `BOT-040` | bot | Carried from the register: An anonymous /login visit spends from the shared refresh budget. | fixed | Phase 1 | `bot ec14e70` | The refresh limiter skips a request with no `refresh_token` cookie; the route already rejects those before touching the database, so an anonymous login-page visit can no longer spend a signed-in user's budget. | — |
-| `BOT-041` | bot | Carried from the register: Assorted minor items. | not yet dispositioned | Phase 6 | — | — | — |
+| `BOT-041` | bot | The register lists BOT-041 as 'assorted minor items' without enumerating them. Browser QA of the bot's dashboard across 5 viewports found four concrete defects of the class the platform's FE-08/FE-11/FE-13 group describes, none of which the register names individually. | fixed | Phase 6 | `bot 243a688, bot 90b81e4, bot fc4ea90, bot dad50ff` | (1) No error boundary anywhere: a render fault blanked the interface that shows whether bots are running and holds the only controls for closing a position. Added, wrapping `AuthProvider` so an auth-bootstrap throw is caught too. (2) The Partial Close overlay — which sells part of a real position — was a bare `fixed inset-0` div with no role, no Escape, no focus management and an unlabelled close button; it now uses a `Dialog` with the same contract as the platform's `Modal`. (3) Every sign-in field was unlabelled: the `<label>` had no `htmlFor` and did not wrap its input, so a screen reader announced 'edit text, blank' for the username, password, setup token and authenticator code. (4) The password reveal was 13x13, unnamed, and `tabIndex={-1}` — unreachable by keyboard. Verified in Chromium: 15 loads with 0 overflow, 0 page errors, 0 unnamed controls, 0 text fields below 16px; both sign-in fields report their names and the toggle is 28x28 and focusable. | The Partial Close dialog itself has NOT been driven in a browser — reaching it needs a bot with an open trade, and therefore a backend with data. Its keyboard contract is the same code as the platform's, which was verified, but this instance is unexercised. The register's 'assorted minor items' may also cover things not found here; nothing in the audit enumerates them. |
 
 ## Research, optimizer and operations (`OPT-*`)
 

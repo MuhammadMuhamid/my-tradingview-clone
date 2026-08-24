@@ -826,12 +826,12 @@
   {
    "id": "BOT-041",
    "repo": "bot",
-   "verified": "Carried from the register: Assorted minor items.",
-   "disposition": "open",
+   "verified": "The register lists BOT-041 as 'assorted minor items' without enumerating them. Browser QA of the bot's dashboard across 5 viewports found four concrete defects of the class the platform's FE-08/FE-11/FE-13 group describes, none of which the register names individually.",
+   "disposition": "fixed",
    "phase": "Phase 6",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 243a688, bot 90b81e4, bot fc4ea90, bot dad50ff",
+   "evidence": "(1) No error boundary anywhere: a render fault blanked the interface that shows whether bots are running and holds the only controls for closing a position. Added, wrapping `AuthProvider` so an auth-bootstrap throw is caught too. (2) The Partial Close overlay \u2014 which sells part of a real position \u2014 was a bare `fixed inset-0` div with no role, no Escape, no focus management and an unlabelled close button; it now uses a `Dialog` with the same contract as the platform's `Modal`. (3) Every sign-in field was unlabelled: the `<label>` had no `htmlFor` and did not wrap its input, so a screen reader announced 'edit text, blank' for the username, password, setup token and authenticator code. (4) The password reveal was 13x13, unnamed, and `tabIndex={-1}` \u2014 unreachable by keyboard. Verified in Chromium: 15 loads with 0 overflow, 0 page errors, 0 unnamed controls, 0 text fields below 16px; both sign-in fields report their names and the toggle is 28x28 and focusable.",
+   "risk": "The Partial Close dialog itself has NOT been driven in a browser \u2014 reaching it needs a bot with an open trade, and therefore a backend with data. Its keyboard contract is the same code as the platform's, which was verified, but this instance is unexercised. The register's 'assorted minor items' may also cover things not found here; nothing in the audit enumerates them."
   },
   {
    "id": "BOT-A",

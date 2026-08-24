@@ -96,7 +96,38 @@ design reclaiming.
 
 ---
 
-## 4. Still open
+## 4. The execution bot's interface
+
+The same harness was pointed at the bot's dashboard build (`bot:frontend`),
+across the three routes reachable without a backend: 15 loads, 5 viewports.
+
+| Check | Result |
+|---|---|
+| Horizontal overflow, page errors, oversized-for-viewport elements | **0** |
+| Text fields below 16px on a phone | **0** |
+| Controls with no accessible name | **1 → 0** (below) |
+
+It found three defects, all fixed:
+
+- **The dashboard had no error boundary.** React unmounts the whole tree on a
+  render error, so any component fault replaced the interface that shows
+  whether bots are running — and holds the only controls for closing a
+  position — with a blank page.
+- **Every sign-in field was unlabelled.** The `<label>` had no `htmlFor` and did
+  not wrap its input, so a screen reader announced "edit text, blank" for the
+  username, the password, the setup token and the authenticator code.
+- **The password reveal was 13×13, unnamed, and `tabIndex={-1}`** — unreachable
+  by keyboard, which removes the feature from the people it exists for.
+
+The Partial Close overlay — which sells part of a real position — was also a
+bare `fixed inset-0` div with no role, no Escape and no focus management. It
+now uses a `Dialog` with the same contract as the platform's `Modal`. It could
+not be QA'd in a browser, because reaching it needs a bot with an open trade
+and therefore a backend with data.
+
+---
+
+## 5. Still open
 
 - **`Charting by TradingView`, 35×19.** The attribution link injected by
   `lightweight-charts`. Below the target minimum, not ours to size, and removing
