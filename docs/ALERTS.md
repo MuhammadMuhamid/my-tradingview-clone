@@ -1,7 +1,7 @@
 # Alerts
 
 **Status:** current. Behaviour is pinned by
-`platform/backend/tests/alert*.test.ts` and `platform/frontend/tests/alerts.test.ts`.
+`platform/backend/tests/` (the `alert*.test.ts` files) and `platform/frontend/tests/alerts.test.ts`.
 
 ---
 
@@ -196,7 +196,7 @@ Uniqueness is preserved per kind, with the `ma` key byte-for-byte the one
 migration 007 used: two alerts that coexisted before still coexist.
 
 **Not verified:** no PostgreSQL server is available in this workspace, so 010
-has *not* been executed. `tests/alertMigration.test.ts` pins the properties its
+has *not* been executed. `platform/backend/tests/alertMigration.test.ts` pins the properties its
 safety rests on by parsing the SQL; that is not the same as running it. Applying
 it against a populated database is outstanding, and is recorded as such in
 [REMEDIATION-LEDGER.md](REMEDIATION-LEDGER.md).

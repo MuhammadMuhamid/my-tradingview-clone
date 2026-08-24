@@ -88,6 +88,7 @@ it reports file and line only, never the value.
 | [docs/COST-MODELS.md](docs/COST-MODELS.md) | The cost model each research tree actually ran. |
 | [docs/ALERTS.md](docs/ALERTS.md) | Price and moving-average notifications, and the four frequency modes. |
 | [docs/CANDLE-PERFORMANCE.md](docs/CANDLE-PERFORMANCE.md) | Candle and chart loading: what was measured, and what was not. |
+| [docs/WEB-QA.md](docs/WEB-QA.md) | Desktop and mobile browser QA: what was exercised, and what was not. |
 | [docs/RESEARCH-METHODOLOGY.md](docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected. |
 | [docs/REMEDIATION-LEDGER.md](docs/REMEDIATION-LEDGER.md) | Every audit finding and its disposition. |
 | `BACKTESTING_SYSTEMS.md` | Metric definitions and per-tree research notes. |

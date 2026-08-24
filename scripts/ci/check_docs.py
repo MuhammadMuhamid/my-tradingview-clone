@@ -80,6 +80,8 @@ DOC_PATH_SOURCES = [
     "docs/REMEDIATION-LEDGER.md",
     "docs/RESEARCH-METHODOLOGY.md",
     "docs/CANDLE-PERFORMANCE.md",
+    "docs/WEB-QA.md",
+    "docs/ALERTS.md",
 ]
 
 # A backticked token that looks like a repository path.
