@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${BACKUP_BUCKET:?Set BACKUP_BUCKET to the stack's private bucket}"
+: "${BACKUP_BUCKET:?Set BACKUP_BUCKET to the private bucket created by the stack}"
 MODE="${1:-push}"
 PREFIX="s3://${BACKUP_BUCKET}/optimizer-dashboard"
 

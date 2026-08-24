@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Production identifiers come from the untracked .env in this directory (X-11).
+. "$(dirname "$0")/env.sh"
+aws_env_require BUCKET DB_HOST DB_SECRET REGION
+
 ROOT=/opt/srtrend
 DEPLOY="$ROOT/deployment"
 SOURCE="$ROOT-src/platform"
-BUCKET=srtrend-production-backupbucket-qawhaukynxzt
-DB_HOST=srtrend-production-database-xwpbny18v09d.clcku6yq0s30.ap-south-1.rds.amazonaws.com
-DB_SECRET='arn:aws:secretsmanager:ap-south-1:683444362522:secret:rds!db-59a0ca04-5279-40ca-8b43-1ff0ee8b98a4-NB7JkZ'
 
 mkdir -p "$DEPLOY"
 cp "$SOURCE/deployment/aws/compose.app.yml" "$DEPLOY/compose.app.yml"
@@ -16,7 +17,7 @@ sed -i 's/LIVE_RUNNER_ENABLED: "true"/LIVE_RUNNER_ENABLED: ${LIVE_RUNNER_ENABLED
 aws s3 cp "s3://$BUCKET/deploy/backend.env" /tmp/backend.env
 umask 077
 KEY="$(sed -n 's/^ALERT_ENCRYPTION_KEY=//p' /tmp/backend.env)"
-SECRET="$(aws secretsmanager get-secret-value --region ap-south-1 --secret-id "$DB_SECRET" --query SecretString --output text)"
+SECRET="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id "$DB_SECRET" --query SecretString --output text)"
 DB_USER="$(jq -r .username <<<"$SECRET")"
 DB_PASS="$(jq -r .password <<<"$SECRET")"
 DB_ENC="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$DB_PASS")"
@@ -31,7 +32,7 @@ printf '%s\n' \
   'FRONTEND_IMAGE=srtrend-frontend:latest' \
   'AWS_REGION=ap-south-1' \
   'LOG_GROUP=/srtrend/app' \
-  'DOMAIN_NAME=mytradingview.alphawebstudioz.com' \
+  'DOMAIN_NAME=${DOMAIN}' \
   'ADMIN_USERNAME=admin' \
   "ADMIN_PASSWORD_HASH=$ADMIN_HASH_ESCAPED" \
   "DATABASE_URL=$DB_URL" \

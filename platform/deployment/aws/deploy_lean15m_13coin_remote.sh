@@ -7,6 +7,7 @@
 # is explicitly set to "active" — pushing config and starting live order
 # execution are deliberately two separate acts.
 set -euo pipefail
+
 CFG="${1:-/tmp/lean15m}"
 DEPLOY=/opt/srtrend/deployment
 C="docker compose --env-file $DEPLOY/.env -f $DEPLOY/compose.app.yml"
@@ -38,5 +39,5 @@ for _ in $(seq 1 36); do
 done
 echo "backend health: $st"
 $C logs --tail 40 backend 2>&1 | grep -iE "live runner started|migration|FATAL|error" | tail -8
-curl -s -o /dev/null -w "site healthz: %{http_code}\n" https://mytradingview.alphawebstudioz.com/healthz || true
+curl -s -o /dev/null -w "site healthz: %{http_code}\n" https://${DOMAIN}/healthz || true
 echo DONE

@@ -80,51 +80,42 @@ secrets, or optimizer databases/results that contain private data.
 
 ## 3. Current AWS production deployment
 
-AWS account ID: `683444362522`
+**Identifiers removed (finding `X-11`).** The AWS account id, region,
+CloudFormation stack name, both EC2 instance ids, the public IP, the RDS
+identifier, the S3 bucket and the Secrets Manager ARN were written out here in
+plain text. None is a credential, but together they pin the exact hosts that
+terminate the money path, and this repository has been copied around.
 
-Region: `ap-south-1` (Mumbai)
+They now live in `platform/deployment/aws/.env`, which is untracked. Every
+script in that directory reads them through `platform/deployment/aws/env.sh` and
+refuses to run with a named, actionable error if one is missing. The template is
+`platform/deployment/aws/.env.example`; it lists what each value is and carries
+no values of its own.
 
-CloudFormation stack: `srtrend-production`
+Shape of the deployment, without the identifiers:
 
-Public domain:
-
-`https://mytradingview.alphawebstudioz.com/`
-
-DNS A record:
-
-`mytradingview.alphawebstudioz.com -> 13.201.244.214`
-
-App EC2:
-
-- instance ID: `i-09888f3320763000f`
-- public IP: `13.201.244.214`
-- hosts Caddy, frontend, backend/API, backtest worker, and live alert runner.
-
-Compute EC2:
-
-- instance ID: `i-03b12ed8de9a10efe`
-- intended for continuous optimizers, isolated from live-alert latency.
-
-Database:
-
-- private encrypted RDS PostgreSQL 16;
-- endpoint and credentials are obtained from CloudFormation/Secrets Manager;
-- do not hardcode or expose them in prompts or source files.
+- one CloudFormation stack in a single region;
+- an **app** EC2 instance hosting Caddy, the frontend, the backend/API, the
+  backtest worker and the live alert runner;
+- a **compute** EC2 instance intended for the continuous optimizers, isolated
+  from live-alert latency;
+- a private, encrypted RDS PostgreSQL 16 instance whose endpoint and credentials
+  are read at runtime from CloudFormation and Secrets Manager, never hardcoded;
+- an S3 bucket created by the stack, used for deploy bundles and `backend.env`.
 
 Administration:
 
-- use AWS Systems Manager / CloudShell;
-- port 22 is intentionally closed;
-- runtime files are under `/opt/srtrend` on the app server;
-- deployment Compose files are under `/opt/srtrend/deployment`;
-- generated dashboard password is stored server-side at
+- via AWS Systems Manager / CloudShell; port 22 is intentionally closed;
+- runtime files under `/opt/srtrend`, compose files under
+  `/opt/srtrend/deployment`;
+- the generated dashboard password is stored server-side at
   `/opt/srtrend/admin-password.txt` with restricted permissions;
-- do not paste passwords, webhook secrets, Binance credentials, database
-  passwords, or `ALERT_ENCRYPTION_KEY` into this document or chat.
+- passwords, webhook secrets, Binance credentials, database passwords and
+  `ALERT_ENCRYPTION_KEY` must never be pasted into this document or a chat.
 
-The website is protected by Caddy HTTPS and HTTP Basic Authentication. The
-username is `admin`; retrieve/reset the password securely on the server when
-needed rather than storing it here.
+The site is fronted by Caddy over HTTPS. The dashboard now authenticates through
+the backend's own cookie session rather than Caddy basic auth; see
+`platform/backend/.env.example` for the variables that gate it.
 
 ## 4. Production runtime status and cutover
 

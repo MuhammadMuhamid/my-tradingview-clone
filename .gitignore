@@ -56,6 +56,9 @@ platform/backend/dist/
 # ── deploy bundles (rebuilt on demand; may embed config) ──
 platform/deployment/aws/src-*.tar.gz
 platform/deployment/aws/configs-*.tar.gz
+# Production identifiers for the deployment scripts (finding X-11). The
+# template `.env.example` beside it IS tracked and holds no values.
+platform/deployment/aws/.env
 
 # ── logs and scratch ──
 *.log
