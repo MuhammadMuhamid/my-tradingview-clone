@@ -14,6 +14,7 @@ the reason it is unreliable.
 |---|---|---|
 | [`tv_autotuner/`](tv_autotuner/ARCHIVED.md) | Drove the real TradingView UI over an unauthenticated DevTools port; measurement could record the previous configuration's metrics against a new genome | `TV-02`–`TV-06`, `TV-13`–`TV-25` |
 | [`backtest-spot/`](backtest-spot/ARCHIVED.md) | Six confirmed methodology defects, including look-ahead in the feature alignment and an entry point that can never fire | `TV-07`–`TV-12` |
+| [`one-off-apply-scripts/`](one-off-apply-scripts/ARCHIVED.md) | Two scripts that applied one specific set of coins and ranks, from `/tmp` files that no longer exist | `OPT-26` |
 
 `approach1_ui_automation/` was **deleted**, not archived. It scripted a password
 login to tradingview.com and had never produced any output — there was no

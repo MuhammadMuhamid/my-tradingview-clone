@@ -1,6 +1,18 @@
+/**
+ * Point one deployment at a ranked optimizer result.
+ *
+ *   npx tsx scripts/apply_rank_deployment.ts SYMBOL RANK|line:N BUY_USDT [5m|15m] [tree] [--apply]
+ *
+ * OPT-26: preview by default. The order size is already an explicit argument
+ * here, so `--buy` is not needed — but writing still is not the default.
+ * BE-24: the ranked lookup streams the result file in bounded chunks instead of
+ * reading a multi-gigabyte JSONL into memory.
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { pool, closePool } from "../src/db/pool";
+import { scanRanked } from "../src/optimizer/resultsIndex";
+import { requireApplyFlag } from "./lib/applyGuard";
 
 type ResultRecord = {
   score: number | null;
@@ -9,26 +21,17 @@ type ResultRecord = {
   metrics?: Record<string, number | null>;
 };
 
-function rankedResult(dir: string, symbol: string, rank: number): ResultRecord {
+async function rankedResult(dir: string, symbol: string, rank: number): Promise<ResultRecord> {
   const file = path.join(dir, "results", `${symbol}.jsonl`);
   if (!fs.existsSync(file)) throw new Error(`no optimizer results for ${symbol}`);
-  const seen = new Set<string>();
-  const rows: ResultRecord[] = [];
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const row = JSON.parse(line) as ResultRecord;
-      const key = JSON.stringify(row.genome ?? []);
-      if (row.score === null || seen.has(key)) continue;
-      seen.add(key);
-      rows.push(row);
-    } catch { /* ignore incomplete trailing lines */ }
+  const scan = await scanRanked(file, { topK: Math.max(rank, 1000) });
+  if (rank < 1 || rank > scan.records.length) {
+    throw new Error(
+      `${symbol} has ${scan.records.length} ranked results` +
+      `${scan.truncated ? " within the scan budget" : ""}; requested ${rank}`
+    );
   }
-  rows.sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
-  if (rank < 1 || rank > rows.length) {
-    throw new Error(`${symbol} has ${rows.length} ranked results; requested ${rank}`);
-  }
-  return rows[rank - 1]!;
+  return scan.records[rank - 1] as ResultRecord;
 }
 
 function resultAtLine(dir: string, symbol: string, lineNumber: number): ResultRecord {
@@ -42,7 +45,11 @@ function resultAtLine(dir: string, symbol: string, lineNumber: number): ResultRe
 }
 
 async function main(): Promise<void> {
-  const [symbolArg, rankArg, amountArg, timeframeArg = "15m", optimizerArg = "optimizer"] = process.argv.slice(2);
+  const intent = requireApplyFlag(process.argv.slice(2), "apply_rank_deployment.ts");
+  // X-04 / OPT-11: "optimizer" is a directory that does not exist. There is no
+  // safe default tree — a wrong tree resolves a config from the wrong search
+  // space — so the tree id is required.
+  const [symbolArg, rankArg, amountArg, timeframeArg = "15m", optimizerArg] = intent.rest;
   const symbol = symbolArg?.toUpperCase();
   const lineSelection = rankArg?.startsWith("line:") ? Number(rankArg.slice(5)) : null;
   const rank = lineSelection === null ? Number(rankArg) : null;
@@ -50,15 +57,35 @@ async function main(): Promise<void> {
   if (!symbol || (lineSelection === null
       ? (!Number.isInteger(rank) || (rank ?? 0) < 1)
       : (!Number.isInteger(lineSelection) || lineSelection < 1))
-      || !Number.isFinite(amount) || amount <= 0) {
-    throw new Error("usage: apply_rank_deployment SYMBOL RANK|line:N BUY_USDT [5m|15m] [optimizer-dir]");
+      || !Number.isFinite(amount) || amount <= 0 || !optimizerArg) {
+    throw new Error(
+      "usage: apply_rank_deployment SYMBOL RANK|line:N BUY_USDT [5m|15m] TREE_ID [--apply]"
+    );
   }
   if (timeframeArg !== "5m" && timeframeArg !== "15m") throw new Error("timeframe must be 5m or 15m");
 
-  const optimizerDir = path.resolve(import.meta.dirname, "..", optimizerArg);
+  const backend = path.resolve(import.meta.dirname, "..");
+  const optimizerDir = path.join(backend, optimizerArg);
+  if (!fs.existsSync(path.join(optimizerDir, "tree.json"))) {
+    const available = fs.readdirSync(backend, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && fs.existsSync(path.join(backend, e.name, "tree.json")))
+      .map((e) => e.name).sort();
+    throw new Error(`no optimizer tree '${optimizerArg}'. Registered trees: ${available.join(", ")}`);
+  }
   const selected = lineSelection === null
-    ? rankedResult(optimizerDir, symbol, rank!)
+    ? await rankedResult(optimizerDir, symbol, rank!)
     : resultAtLine(optimizerDir, symbol, lineSelection);
+  console.log(intent.banner());
+  if (!intent.apply) {
+    console.log(JSON.stringify({
+      wouldApply: { symbol, rank, historyLine: lineSelection, timeframe: timeframeArg,
+        buyQuoteQty: amount, tree: optimizerArg, status: "paused" },
+      score: selected.score, metrics: selected.metrics,
+      params: Object.keys(selected.params).length,
+    }, null, 2));
+    await closePool();
+    return;
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

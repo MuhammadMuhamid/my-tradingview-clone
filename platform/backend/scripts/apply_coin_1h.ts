@@ -1,16 +1,22 @@
 /**
  * Build one coin from the 1h optimizer, locally: resolve its config by the
- * frozen ORIG# (drift-proof), upsert a 1h layout, and create a live alert at
- * 280.01 USDT with the provided secret + webhook. The running backend encrypts
- * the secret; it is never printed here. All local — AWS is done in the final
- * deploy.
+ * frozen ORIG# (drift-proof), upsert a 1h layout, and create a live alert with
+ * the secret, webhook and order size from the credentials file. The running
+ * backend encrypts the secret; it is never printed here. All local — AWS is
+ * done in the final deploy.
  *
  *   CREDS_FILE=/path/alert_creds.json npx tsx scripts/apply_coin_1h.ts DEXEUSDT 1
+ *   CREDS_FILE=... npx tsx scripts/apply_coin_1h.ts DEXEUSDT 1 --apply
+ *
+ * OPT-26: preview by default — this creates an ACTIVE alert, which is live
+ * order flow. The order size comes from the credentials file, so there is no
+ * hidden figure here and `--buy` is not required.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { query } from "../src/db/pool";
+import { requireApplyFlag } from "./lib/applyGuard";
 
 const API = "http://127.0.0.1:4000";
 const OPT = "optimizer1y1h"; // 1h, one-year range (2025-07-20 → now)
@@ -25,8 +31,9 @@ function resolve(symbol: string, orig: number): {
 }
 
 async function main(): Promise<void> {
-  const [symbolArg, rankArg] = process.argv.slice(2);
-  if (!symbolArg || !rankArg) throw new Error("usage: apply_coin_1h.ts SYMBOL ORIG#");
+  const intent = requireApplyFlag(process.argv.slice(2), "apply_coin_1h.ts");
+  const [symbolArg, rankArg] = intent.rest;
+  if (!symbolArg || !rankArg) throw new Error("usage: apply_coin_1h.ts SYMBOL ORIG# [--apply]");
   const symbol = symbolArg.toUpperCase();
   const orig = Number(rankArg);
 
@@ -36,10 +43,17 @@ async function main(): Promise<void> {
     secret: string; webhookUrl: string; buyQuoteQty: number;
   };
 
+  console.log(intent.banner());
   const r = resolve(symbol, orig);
   if (r.error) throw new Error(`resolve: ${r.error}`);
   const { params, metrics: m, properties } = r;
   console.log(`${symbol} 1h ORIG#${orig}: net ${m.net_pct}% dd ${m.dd_pct}% wr ${m.win_rate}% trades ${m.trades} pf ${m.profit_factor} (${Object.keys(params).length} params)`);
+
+  if (!intent.apply) {
+    console.log(`  would upsert layout "${symbol} 1h" and CREATE an ACTIVE 1h alert ` +
+      `at buy ${creds.buyQuoteQty} using the webhook in ${credsFile}`);
+    process.exit(0);
+  }
 
   // 1h layout
   const layout = await fetch(`${API}/api/layouts`, {

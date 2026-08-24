@@ -11,13 +11,22 @@ ls -1 "$CFG"
 CID="$($C ps -q backend)"
 [ -n "$CID" ] || { echo "backend container not found"; exit 1; }
 docker cp "$CFG/replace_1h.mjs" "$CID:/app/replace_1h.mjs"
+# OPT-27: the replace scripts share `lib/replaceGuard.mjs` (write-intent and the
+# refuse-if-a-position-is-open check). It must be staged alongside them, or the
+# import fails inside the container. Fail loudly here rather than there.
+[ -f "$CFG/lib/replaceGuard.mjs" ] || {
+  echo "missing $CFG/lib/replaceGuard.mjs — stage platform/deployment/aws/lib/ with the script" >&2
+  exit 1
+}
+docker exec "$CID" mkdir -p /app/lib
+docker cp "$CFG/lib/replaceGuard.mjs" "$CID:/app/lib/replaceGuard.mjs"
 docker cp "$CFG/deploy_1h_manifest.json" "$CID:/tmp/deploy_1h_manifest.json"
 
 echo "==================== DRY ===================="
 docker exec -w /app "$CID" node replace_1h.mjs /tmp/deploy_1h_manifest.json --dry
 
 echo "==================== REPLACE ===================="
-docker exec -w /app "$CID" node replace_1h.mjs /tmp/deploy_1h_manifest.json
+docker exec -w /app "$CID" node replace_1h.mjs /tmp/deploy_1h_manifest.json --apply
 
 echo "============ RESTART BACKEND (runner reload) ===="
 $C restart backend

@@ -26,7 +26,8 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const symbols = args.length > 0 ? args : universe();
   const now = Date.now();
-  let ok = 0, failed: string[] = [];
+  let ok = 0;
+  const failed: string[] = [];
   for (const symbol of symbols) {
     for (const interval of INTERVALS) {
       const existing = await candleRepo.getCandles(symbol, interval, { from: now - 400 * DAY, to: now });
