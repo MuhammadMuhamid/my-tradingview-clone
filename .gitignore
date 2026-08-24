@@ -84,3 +84,30 @@ graphify-out/cache/
 *.jsonl
 platform/backend/*/folds/
 platform/backend/*/*.pid
+
+# ── browser / session state ──
+# A saved browser profile, cookie jar or HAR is a live credential. The
+# TradingView experiment trees write session jars beside their sources.
+.playwright/
+playwright-report/
+test-results/
+.auth/
+cookies.json
+cookies.txt
+storageState.json
+*.har
+tv_session/
+*_cookies.json
+chrome-profile/
+user-data-dir/
+
+# ── caches ──
+.cache/
+.npm/
+.eslintcache
+coverage/
+.pytest_cache/
+.ruff_cache/
+
+# ── local backups ──
+backups/
