@@ -86,6 +86,9 @@ it reports file and line only, never the value.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What each system owns, and how a signal reaches an order. |
 | [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md) | The cross-repository payload contract, versioned. |
 | [docs/COST-MODELS.md](docs/COST-MODELS.md) | The cost model each research tree actually ran. |
+| [docs/ALERTS.md](docs/ALERTS.md) | Price and moving-average notifications, and the four frequency modes. |
+| [docs/CANDLE-PERFORMANCE.md](docs/CANDLE-PERFORMANCE.md) | Candle and chart loading: what was measured, and what was not. |
+| [docs/RESEARCH-METHODOLOGY.md](docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected. |
 | [docs/REMEDIATION-LEDGER.md](docs/REMEDIATION-LEDGER.md) | Every audit finding and its disposition. |
 | `BACKTESTING_SYSTEMS.md` | Metric definitions and per-tree research notes. |
 | `OPTIMIZATION_SYSTEM_BLUEPRINT.md` | Optimizer design. Contains figures superseded by `docs/COST-MODELS.md`. |

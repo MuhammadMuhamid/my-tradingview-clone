@@ -3,7 +3,7 @@
 **Status:** current. Generated from `scripts/ledger/findings.json` by
 `scripts/ledger/render.py`; CI fails if the two disagree. Do not hand-edit this file.
 
-Audit of 2026-08-23, 154 findings. Last updated after **Phase 2 — local trading reliability and contract safety**.
+Audit of 2026-08-23, 154 findings. Last updated after **Phase 5 — price and indicator alerts, four frequency modes**.
 
 Every finding identifier in the audit's findings register appears here exactly
 once. A finding is marked `fixed` only when code changed and a test or an
@@ -13,11 +13,11 @@ explicit check proves the new behaviour — never because documentation was upda
 
 | Disposition | Count |
 |---|---:|
-| fixed | 64 |
+| fixed | 65 |
 | audit finding corrected or stale | 2 |
 | intentionally preserved | 2 |
 | blocked by Mahamid/external evidence | 2 |
-| not yet dispositioned | 84 |
+| not yet dispositioned | 83 |
 | **total** | **154** |
 
 ## Scope reserved for Mahamid
@@ -170,7 +170,7 @@ following, and no finding is marked `fixed` on the strength of one:
 
 | Id | Repo | Status verified | Disposition | Phase | Commit | Evidence | Remaining risk |
 |---|---|---|---|---|---|---|---|
-| `FE-01` | platform | Carried from the register: Chart Alert button creates a LIVE 800 USDT deployment and activates it. | not yet dispositioned | Phase 6 | — | — | — |
+| `FE-01` | platform | Confirmed in current source: the chart toolbar's bell, labelled "Alert", called setAlertOpen, and AlertModal.create() called createDeployment followed immediately by activateDeployment with a default buyQuoteQty of 800. One click on a bell started live trading. | fixed | Phase 5 | `ffd8678` | The bell now opens the price-alert dialog. Automation has a separate 'Automate' button and a dialog titled 'Automate trading on <symbol>' whose first line states it is not a notification; Create is disabled until an acknowledgement naming the buy size (or naming delivery=off as a dry run) is ticked, and that acknowledgement is reset by `useEffect` on open, delivery and buyQuoteQty so it cannot carry from a dry run into a live one. The 'Live & Alerts' nav entry, which sat beside a separate 'Alerts' entry, is now 'Live trading'. The AlertsPanel tabs are 'Running' and 'Order log'. No deployment route, payload or activation semantics changed. Frontend typecheck, lint (0 errors), 47 tests and `next build` all pass. | The word 'alert' still names both concepts in the API surface (/api/ma-alerts for notifications, /api/alerts for deployment signal log). The UI no longer conflates them; the route names are a Phase 7 rename. |
 | `FE-02` | platform | Carried from the register: Unvalidated open redirect immediately after authentication. | fixed | Phase 1 | `2d0a86d` | `safeNextPath` allow-lists same-origin absolute paths only. Seven tests cover script schemes, protocol-relative and backslash forms, embedded control characters, percent-encoded payloads, malformed encoding and a login loop. | — |
 | `FE-03` | platform | Carried from the register: Frontend auth gate fails open and is baked in at build time. | fixed | Phase 1 | `2d0a86d` | Shared opt-out parse rule; three tests assert that only the literal `false` disables the gate. | Build-time inlining remains a property of Next's edge runtime and is documented, not removed. |
 | `FE-04` | platform | Confirmed: the page gate checks cookie presence, not the signature. | intentionally preserved | Phase 1 | `2d0a86d` | Intentional and now documented in `proxy.ts` and `.env.local.example`: the signing secret must not reach the edge runtime, the backend is the real gate, and every protected byte comes from the authenticated API. A forged cookie buys a redirect and nothing more. | None beyond the flash-of-app the gate exists to avoid. |

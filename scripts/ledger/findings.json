@@ -1,7 +1,7 @@
 {
  "meta": {
   "audit_date": "2026-08-23",
-  "last_phase": "Phase 2 \u2014 local trading reliability and contract safety",
+  "last_phase": "Phase 5 \u2014 price and indicator alerts, four frequency modes",
   "mahamid_scope": [
    "Webhook-secret rotation or propagation to TradingView alerts and deployment records.",
    "Binance API-key changes, permission checks or IP-allowlist confirmation.",
@@ -1146,12 +1146,12 @@
   {
    "id": "FE-01",
    "repo": "platform",
-   "verified": "Carried from the register: Chart Alert button creates a LIVE 800 USDT deployment and activates it.",
-   "disposition": "open",
-   "phase": "Phase 6",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "verified": "Confirmed in current source: the chart toolbar's bell, labelled \"Alert\", called setAlertOpen, and AlertModal.create() called createDeployment followed immediately by activateDeployment with a default buyQuoteQty of 800. One click on a bell started live trading.",
+   "disposition": "fixed",
+   "phase": "Phase 5",
+   "commit": "ffd8678",
+   "evidence": "The bell now opens the price-alert dialog. Automation has a separate 'Automate' button and a dialog titled 'Automate trading on <symbol>' whose first line states it is not a notification; Create is disabled until an acknowledgement naming the buy size (or naming delivery=off as a dry run) is ticked, and that acknowledgement is reset by `useEffect` on open, delivery and buyQuoteQty so it cannot carry from a dry run into a live one. The 'Live & Alerts' nav entry, which sat beside a separate 'Alerts' entry, is now 'Live trading'. The AlertsPanel tabs are 'Running' and 'Order log'. No deployment route, payload or activation semantics changed. Frontend typecheck, lint (0 errors), 47 tests and `next build` all pass.",
+   "risk": "The word 'alert' still names both concepts in the API surface (/api/ma-alerts for notifications, /api/alerts for deployment signal log). The UI no longer conflates them; the route names are a Phase 7 rename."
   },
   {
    "id": "FE-02",
