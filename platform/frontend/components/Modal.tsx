@@ -34,7 +34,33 @@ export function Modal({
   const panelRef = useRef<HTMLDivElement>(null);
   /** Whatever had focus before the dialog opened, so it can be given back. */
   const restoreTo = useRef<HTMLElement | null>(null);
+  /**
+   * The last thing focused outside any dialog.
+   *
+   * Reading `document.activeElement` when the open-effect runs is too late: a
+   * field with `autoFocus` has already taken focus by then, so the dialog
+   * records one of its own children as the thing to restore to, finds it
+   * removed on close, and drops focus to `<body>`. That is not visible in
+   * review or in a unit test — it was found by driving a real browser.
+   *
+   * The test is `closest('[role="dialog"]')` rather than this panel's own ref
+   * for two reasons. The ref is still null during the commit in which a child
+   * autofocuses itself, so a ref test would record that child as "outside".
+   * And every dialog in the application mounts one of these listeners, so each
+   * must ignore focus landing in any dialog, not only its own.
+   */
+  const lastOutsideFocus = useRef<HTMLElement | null>(null);
   const titleId = useId();
+
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent): void => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest || target.closest('[role="dialog"]')) return;
+      lastOutsideFocus.current = target;
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
 
   const focusables = useCallback((): HTMLElement[] => {
     const panel = panelRef.current;
@@ -51,7 +77,9 @@ export function Modal({
   // not at the top of the page.
   useEffect(() => {
     if (!open) return;
-    restoreTo.current = document.activeElement as HTMLElement | null;
+    const active = document.activeElement as HTMLElement | null;
+    restoreTo.current =
+      active && !panelRef.current?.contains(active) ? active : lastOutsideFocus.current;
     const first = focusables()[0] ?? panelRef.current;
     first?.focus();
     return () => {
