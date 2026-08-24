@@ -1,7 +1,7 @@
 {
  "meta": {
   "audit_date": "2026-08-23",
-  "last_phase": "Phase 7 \u2014 architecture, research tooling and repository cleanup",
+  "last_phase": "Phase 8 \u2014 remaining internal features",
   "mahamid_scope": [
    "Webhook-secret rotation or propagation to TradingView alerts and deployment records.",
    "Binance API-key changes, permission checks or IP-allowlist confirmation.",
@@ -248,10 +248,10 @@
    "repo": "platform",
    "verified": "Carried from the register: No kill switch, daily-loss limit, exposure cap or order-rate cap.",
    "disposition": "fixed",
-   "phase": "Phase 2",
+   "phase": "Phase 2, Phase 8",
    "commit": "b314f60, 42f325b, bot 41dffb9",
-   "evidence": "Kill switch plus exposure, concurrency and rolling daily-loss limits in both repositories, checked before delivery on the platform and before the order on the bot. 15 platform tests and 8 bot tests, including that an exit is never refused by a numeric limit and that every limit is off until configured. Operator routes: halt (mandatory reason), resume (refuses while a latched loss limit is still breached), and a status read.",
-   "risk": "Every limit ships disabled, so nothing is enforced until an operator sets a number. Deliberate: enabling a limit silently would change live behaviour on deploy."
+   "evidence": "The kill switch, the exposure cap, the concurrent-position cap and the rolling daily-loss limit are enforced in `platform/backend/src/engine/riskControls.ts` at the one point before anything is written or sent, with every limit opt-in and off by default. Phase 8 adds the operator surface: `/operations` renders the trading mode in four distinct states, halt and resume with the confirmation the API requires, each limit beside what is used against it, per-feed freshness and gaps, signal-delivery health, the emitter lease and the unresolved order intents. Before it, the controls could be reached only by curl \u2014 so in the situation they exist for, they did not exist.",
+   "risk": "Halting refuses emission; it does NOT close open positions, and a flatten-all control is deliberately absent \u2014 the platform holds no credentials and does not know the fill price of anything it did not open. Stated on the page and in docs/OPERATIONS.md."
   },
   {
    "id": "BE-12",
@@ -848,9 +848,9 @@
    "repo": "platform",
    "verified": "Carried from the register: Live-deployed configs selected by maximising over the out-of-sample window.",
    "disposition": "fixed",
-   "phase": "Phase 3, Phase 7",
-   "commit": "569e625, 9816a88",
-   "evidence": "`platform/backend/src/engine/holdout.ts` defines a third window no selection step may read and `assertWindowUsage` throws when one tries. `platform/deployment/aws/lib/holdoutGate.mjs` enforces `evaluateClearance` in all four `replace_*.mjs`: ABSENCE OF A HOLDOUT RESULT IS A REFUSAL, the frozen window and thresholds come from the artifact rather than the invocation, and one uncleared coin refuses the whole portfolio. A deliberate override needs `HOLDOUT_GATE=off` AND `HOLDOUT_OVERRIDE_REASON`, both printed. `platform/backend/tests/holdoutGate.test.mjs` holds the TypeScript and JavaScript copies to the same answer across nine cases.",
+   "phase": "Phase 3, Phase 7, Phase 8",
+   "commit": "569e625, 9816a88, b2e0a45",
+   "evidence": "`platform/backend/src/engine/holdout.ts` defines a third window no selection step may read and `assertWindowUsage` throws when one tries. `platform/deployment/aws/lib/holdoutGate.mjs` enforces `evaluateClearance` in all four `replace_*.mjs`: ABSENCE OF A HOLDOUT RESULT IS A REFUSAL, the frozen window and thresholds come from the artifact rather than the invocation, and one uncleared coin refuses the whole portfolio. A deliberate override needs `HOLDOUT_GATE=off` AND `HOLDOUT_OVERRIDE_REASON`, both printed. `platform/backend/tests/holdoutGate.test.mjs` holds the TypeScript and JavaScript copies to the same answer across nine cases. Phase 8 adds the forward validation the artifact's own metadata demands: `delivery: \"paper\"` runs a deployment on live bars and simulates the fill at the live cost model, structurally unable to place an order (`platform/backend/tests/paperIsolation.test.ts`).",
    "risk": "No current artifact carries a holdout block, so the deploy scripts will REFUSE until one is scored. Producing that score needs the market data and database this checkout does not have; the refusal names the exact fields. Nothing has been re-selected and no tree re-run \u2014 that is M8, the owner's decision."
   },
   {
@@ -858,10 +858,10 @@
    "repo": "platform",
    "verified": "Carried from the register: The walk-forward tree validates a parameter space production no longer has.",
    "disposition": "fixed",
-   "phase": "Phase 7",
-   "commit": "25cb932",
-   "evidence": "`platform/backend/lean_wf_15m/config.json`'s claim that its space was 'exactly as lean_optimizer15m has it (qty_pct_equity still searched)' is corrected in place with the measured facts: 30 parameters against 18, and the production tree pins `qty_pct_equity` to 0. Every walk-forward tree declares `spaceDivergesFromProduction` in its `tree.json`, and `scripts/ci/check-docs.sh` recomputes that claim from the two parameter lists. Measured: four of five diverge; `wf6m_1h` alone matches.",
-   "risk": "The current production search space still has NO walk-forward evidence. Re-pointing `platform/backend/lean_wf_15m/params.json` and re-running is the fix; the re-run needs data and compute this checkout does not have."
+   "phase": "Phase 7, Phase 8",
+   "commit": "25cb932, 089387f",
+   "evidence": "`platform/backend/lean_wf_15m/config.json`'s claim that its space was 'exactly as lean_optimizer15m has it (qty_pct_equity still searched)' is corrected in place with the measured facts: 30 parameters against 18, and the production tree pins `qty_pct_equity` to 0. Every walk-forward tree declares `spaceDivergesFromProduction` in its `tree.json`, and `scripts/ci/check-docs.sh` recomputes that claim from the two parameter lists \u2014 four of five diverge; `wf6m_1h` alone matches. Phase 8 adds `platform/backend/lean_wf_15m_current`, whose params and base params are COPIES of the production tree's and whose fold schedule, cost model and eval budget are `lean_wf_15m`'s unchanged, so the only difference between the two trees is the space searched.",
+   "risk": "`lean_wf_15m_current` has produced NO folds: running it needs the market data and compute this checkout does not have. Until it runs, the current production space still has no walk-forward evidence. `lean_wf_15m` is kept as historical evidence of the procedure that was replaced, not relabelled."
   },
   {
    "id": "OPT-03",
@@ -1057,11 +1057,11 @@
    "id": "OPT-22",
    "repo": "platform",
    "verified": "Grouped in the register as fill-realism issues with no individual description published.",
-   "disposition": "preserved",
-   "phase": "Phase 7",
-   "commit": "04157ef",
-   "evidence": "The fill-realism gap that IS described elsewhere is BE-02 \u2014 the backtest fills a stop intrabar at the trigger while the live path can only exit at the next bar close \u2014 and it is dispositioned there.",
-   "risk": "Carried by BE-02, which is gated on BE-08 and on testnet validation of the exchange-native stop."
+   "disposition": "fixed",
+   "phase": "Phase 7, Phase 8",
+   "commit": "04157ef, 089387f",
+   "evidence": "The fill-realism gap that IS described elsewhere is `BE-02` and is dispositioned there. The one addressable here is the same-bar ambiguity: when a bar's range contains both a stop and a target, which filled first is unknowable from OHLC and the broker guessed from the bar's colour \u2014 two bars with an identical high and low give opposite answers. `ENGINE_CORRECTIONS=barMagnifier` walks the actual sub-bar path from a feed the run already loads. `platform/backend/tests/barMagnifier.test.ts` pins the semantics, determinism, and that the default path is unchanged bit for bit with the flag off, with no finer feed, with an empty slice and with a null slice.",
+   "risk": "Off by default; enabling it changes every result on a bar that touched both levels. The ambiguity is reduced to one sub-bar rather than removed, and what remains inside that sub-bar is still resolved by the colour heuristic. `BE-02`'s half \u2014 the backtest filling at the trigger while the live path exits at the next bar close \u2014 remains gated on testnet validation and BE-08."
   },
   {
    "id": "OPT-23",
