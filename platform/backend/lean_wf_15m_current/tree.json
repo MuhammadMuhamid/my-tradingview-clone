@@ -1,0 +1,11 @@
+{
+  "id": "lean_wf_15m_current",
+  "strategy": "mtf_lean",
+  "timeframe": "15m",
+  "system": "one-year",
+  "kind": "walk-forward",
+  "status": "current",
+  "label": "MTF Confluence Lean \u00b7 15m \u00b7 walk-forward of the CURRENT space",
+  "spaceDivergesFromProduction": false,
+  "note": "Walk-forward of the space lean_optimizer15m actually searches (OPT-02). No folds have been run: this checkout has neither the market data nor the compute. lean_wf_15m remains the historical run against the 30-parameter space that was replaced."
+}

@@ -41,6 +41,7 @@ COPY holdout1h ./holdout1h
 COPY lean3y15m ./lean3y15m
 COPY lean_optimizer15m ./lean_optimizer15m
 COPY lean_wf_15m ./lean_wf_15m
+COPY lean_wf_15m_current ./lean_wf_15m_current
 COPY lean_wf_fixedsize ./lean_wf_fixedsize
 COPY optimizer1y15m ./optimizer1y15m
 COPY optimizer1y15m_wf ./optimizer1y15m_wf

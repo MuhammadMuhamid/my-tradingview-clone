@@ -99,6 +99,28 @@ export const CORRECTION_KEYS = [
    * leaderboard number moves.
    */
   "entryBarBrackets",
+
+  /**
+   * Bar magnifier. When a stop and a target both sit inside one bar's range,
+   * which filled first is unknowable from OHLC alone, and the broker resolves
+   * it with TradingView's heuristic: a green bar is walked open → low → high,
+   * a red bar open → high → low. That is a guess, and on a partial-TP
+   * configuration it decides whether the trade booked +2R or −1R.
+   *
+   * With this on, and a finer feed available, the broker walks the ACTUAL
+   * sub-bar path instead. The ambiguity does not vanish — it shrinks to one
+   * sub-bar — and what remains is resolved by the same heuristic, now over a
+   * minute rather than an hour.
+   *
+   * Deterministic: for a given chart bar and sub-bar sequence the fills are
+   * fully determined, with no randomness and no tie-breaking by insertion
+   * order. Where no finer feed is loaded the behaviour is bit-for-bit the old
+   * one.
+   *
+   * Changes historical results: YES, on any bar where a stop and a target were
+   * both touched.
+   */
+  "barMagnifier",
 ] as const;
 
 export type CorrectionKey = (typeof CORRECTION_KEYS)[number];

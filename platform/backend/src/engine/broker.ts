@@ -43,6 +43,25 @@ export interface BrokerOptions {
 
   /** Which engine corrections this broker applies. Default: the process-wide set. */
   corrections?: CorrectionSet;
+
+  /**
+   * Finer-resolution path through a chart bar, for the `barMagnifier`
+   * correction. Returns the sub-bars covering chart bar `i` in chronological
+   * order, or null when no finer feed covers it.
+   *
+   * A function rather than a feed, so the broker never has to know how the
+   * finer series is stored or aligned — and so a caller with no finer data
+   * simply does not pass one.
+   */
+  magnifier?: (bars: Bars, i: number) => readonly SubBar[] | null;
+}
+
+/** One finer-resolution step inside a chart bar. */
+export interface SubBar {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 interface ExitLeg {
@@ -288,7 +307,45 @@ export class Broker {
         if (high >= leg.limit) fillLeg(leg, leg.limit, exitReasons.tp[leg.id] ?? "TP");
       }
     };
-    if (green) {
+    /*
+     * Which of a stop and a target filled first, when the bar touched both, is
+     * unknowable from OHLC alone. TradingView's heuristic — green bar walked
+     * open → low → high, red bar open → high → low — is what runs by default,
+     * and on a partial-TP configuration it decides whether the trade booked
+     * +2R or −1R.
+     *
+     * `barMagnifier`: walk the ACTUAL finer path when one is available. The
+     * ambiguity shrinks to a single sub-bar rather than disappearing, and what
+     * remains inside that sub-bar is resolved by the same heuristic — now over
+     * a minute instead of an hour. With no finer feed the behaviour is
+     * bit-for-bit the old one.
+     */
+    const walk = (h: number, l: number, rising: boolean): void => {
+      const stops = (): void => {
+        for (const leg of remaining()) {
+          if (this.positionQty <= 0) break;
+          if (l <= leg.stop) fillLeg(leg, leg.stop - this.slip, exitReasons.sl);
+        }
+      };
+      const limits = (): void => {
+        const legsAsc = remaining().sort((a, b) => a.limit - b.limit);
+        for (const leg of legsAsc) {
+          if (this.positionQty <= 0) break;
+          if (h >= leg.limit) fillLeg(leg, leg.limit, exitReasons.tp[leg.id] ?? "TP");
+        }
+      };
+      if (rising) { stops(); limits(); } else { limits(); stops(); }
+    };
+
+    const subBars = this.corrections.barMagnifier
+      ? this.opts.magnifier?.(bars, i) ?? null
+      : null;
+    if (subBars && subBars.length > 0) {
+      for (const sub of subBars) {
+        if (this.positionQty <= 0) break;
+        walk(sub.high, sub.low, sub.close >= sub.open);
+      }
+    } else if (green) {
       runStops();   // open → low first
       runLimits();  // then low → high
     } else {

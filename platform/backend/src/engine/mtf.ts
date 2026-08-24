@@ -204,3 +204,42 @@ export function mergeBools(idx: Int32Array, src: boolean[]): boolean[] {
   }
   return out;
 }
+
+/**
+ * Slice a finer feed into the sub-bars covering one chart bar.
+ *
+ * The bar-magnifier source for `broker.ts`. Returns null when the finer feed
+ * does not cover the bar at all, which the broker reads as "no finer path
+ * available" and falls back to the whole-bar heuristic.
+ *
+ * A binary search over the finer feed's open times, so a 1-minute feed over a
+ * year does not become a linear scan per chart bar.
+ */
+export function subBarsFor(
+  chart: Bars,
+  finer: Bars,
+  i: number
+): { open: number; high: number; low: number; close: number }[] | null {
+  const start = chart.time[i];
+  const end = chart.closeTime[i];
+  if (start === undefined || end === undefined) return null;
+
+  // First finer bar whose open time is at or after the chart bar's open.
+  let lo = 0, hi = finer.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (finer.time[mid]! < start) lo = mid + 1;
+    else hi = mid;
+  }
+
+  const out: { open: number; high: number; low: number; close: number }[] = [];
+  for (let j = lo; j < finer.length && finer.time[j]! <= end; j += 1) {
+    // A finer bar that runs past the chart bar's close does not belong to it.
+    if (finer.closeTime[j]! > end) break;
+    out.push({
+      open: finer.open[j]!, high: finer.high[j]!,
+      low: finer.low[j]!, close: finer.close[j]!,
+    });
+  }
+  return out.length > 0 ? out : null;
+}

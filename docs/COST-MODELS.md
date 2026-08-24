@@ -25,6 +25,7 @@ rows that agree.
 | `optimizer1y5m_ma` | 5m | 10 000 | 0.1 | 2 | fixed $1 000 cash | `range.split` |
 | `optimizer1y1h` | 1h | 1 000 | 0.1 | **0** | `qty_pct_equity: 100` (full compounding) | **none** |
 | `lean_wf_15m` | 15m | 1 000 | 0.1 | 2 | searched (see note) | walk-forward folds |
+| `lean_wf_15m_current` | 15m | 1 000 | 0.1 | 2 | fixed $1 000 cash (production's space) | walk-forward folds |
 | `lean_wf_fixedsize` | 15m | 1 000 | 0.1 | 2 | fixed 20 % of equity | walk-forward folds |
 | `optimizer1y15m_wf` | 15m | 1 000 | 0.1 | 2 | searched | walk-forward folds |
 | `optimizer1y1h_wf_trail` | 1h | 1 000 | 0.1 | 2 | searched | walk-forward folds |
@@ -44,11 +45,19 @@ rows that agree.
   DEXEUSDT in `ANALYSIS_1H_1Y.md` — are fully in-sample, zero-slippage and fully
   compounded. `BACKTESTING_SYSTEMS.md` already quarantines it; treat every figure
   from it as non-comparable rather than merely optimistic. (`OPT-03`)
-- **`lean_wf_15m`** states in its own `config.json` that its search space is
+- **`lean_wf_15m`** stated in its own `config.json` that its search space was
   "exactly as `lean_optimizer15m` has it". Measured directly, the production tree
   searches 18 parameters and the walk-forward searches 30, including
-  `qty_pct_equity`. The current production search space therefore has no
-  walk-forward evidence. (`OPT-02`)
+  `qty_pct_equity`. The claim is corrected in place and the tree is kept as
+  historical evidence of the procedure that was replaced. (`OPT-02`)
+- **`lean_wf_15m_current`** is the walk-forward of the space
+  `lean_optimizer15m` actually searches: its `params.json` and
+  `base_params.json` are copies of the production tree's, and its fold schedule,
+  cost model and eval budget are `lean_wf_15m`'s unchanged, so the only
+  difference between the two trees is the space being searched. **It has
+  produced no folds** — running it needs the market data and compute this
+  checkout does not have. Until it runs, the current production space still has
+  no walk-forward evidence.
 
 ## Slippage is per tick, not per cent
 

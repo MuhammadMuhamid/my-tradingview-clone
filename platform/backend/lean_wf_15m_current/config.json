@@ -1,0 +1,58 @@
+{
+ "_comment": "Walk-forward validation of the CURRENT lean_optimizer15m search space (OPT-02). lean_wf_15m searches 30 parameters including qty_pct_equity; the production tree searches 18 and pins qty_pct_equity to 0, so those folds validate a procedure that was replaced and the current production space has no walk-forward evidence at all. This tree exists to produce it: params.json and base_params.json are COPIES of lean_optimizer15m's, and the fold schedule, cost model and eval budget are lean_wf_15m's unchanged, so the only difference between the two trees is the space being searched. It has produced no results yet \u2014 running it needs the market data and compute this checkout does not have. lean_wf_15m is kept as historical evidence of the procedure that was replaced, not relabelled.",
+ "feedRange": {
+  "start": "2024-07-10T00:00:00Z",
+  "end": "2026-07-30T23:59:59Z"
+ },
+ "initialCapital": 1000,
+ "commissionPct": 0.1,
+ "slippageTicks": 2,
+ "timeframe": "15m",
+ "workers": 6,
+ "evalsPerCoinPerFold": 12000,
+ "minTrainMonths": 6,
+ "folds": [
+  {
+   "id": "F1",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2025-08-01T00:00:00Z",
+   "testStart": "2025-08-01T00:00:00Z",
+   "testEnd": "2025-10-01T00:00:00Z"
+  },
+  {
+   "id": "F2",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2025-10-01T00:00:00Z",
+   "testStart": "2025-10-01T00:00:00Z",
+   "testEnd": "2025-12-01T00:00:00Z"
+  },
+  {
+   "id": "F3",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2025-12-01T00:00:00Z",
+   "testStart": "2025-12-01T00:00:00Z",
+   "testEnd": "2026-02-01T00:00:00Z"
+  },
+  {
+   "id": "F4",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2026-02-01T00:00:00Z",
+   "testStart": "2026-02-01T00:00:00Z",
+   "testEnd": "2026-04-01T00:00:00Z"
+  },
+  {
+   "id": "F5",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2026-04-01T00:00:00Z",
+   "testStart": "2026-04-01T00:00:00Z",
+   "testEnd": "2026-06-01T00:00:00Z"
+  },
+  {
+   "id": "F6",
+   "trainStart": "2024-08-01T00:00:00Z",
+   "trainEnd": "2026-06-01T00:00:00Z",
+   "testStart": "2026-06-01T00:00:00Z",
+   "testEnd": "2026-07-30T00:00:00Z"
+  }
+ ]
+}

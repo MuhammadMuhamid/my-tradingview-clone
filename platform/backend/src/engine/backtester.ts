@@ -7,13 +7,14 @@ import * as candleRepo from "../repositories/candles";
 import * as symbolRepo from "../repositories/symbols";
 import * as strategyRepo from "../repositories/strategies";
 import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
-import { FeedStore, toBars } from "./mtf";
+import { FeedStore, subBarsFor, toBars, type Bars } from "./mtf";
 import { computeMetrics, downsampleEquity, toTradeRecords } from "./metrics";
 import { ACTIVE_CORRECTIONS, correctionsFingerprint, describeCorrections } from "./corrections";
 import { maRrV9Module } from "./strategies/ma_rr_v9";
 import { srTrendV10Module } from "./strategies/srtrend_v10";
 import { mtfLeanModule } from "./strategies/mtf_lean";
 import type { TradeRecord, BacktestMetrics, EquityPoint, OpenTrade } from "../types/backtest";
+import { INTERVAL_MS, type Interval } from "../types/market";
 
 /*
  * BE-19: `mtf_lean` was absent from this registry, so the strategy actually
@@ -43,6 +44,25 @@ export interface BacktestOutput {
   engine: string;
   /** Exit legs the exchange filters refused, when `exchangeFilters` is on. */
   rejectedLegs: { bar: number; id: string; qty: number; reason: string }[];
+}
+
+/** The finest already-loaded feed strictly below `chartTf`, or null. */
+function finestLoadedFeedBelow(
+  feeds: FeedStore,
+  symbol: string,
+  chartTf: Interval,
+  needs: readonly { symbol: string | null; interval: Interval }[]
+): Bars | null {
+  const chartMs = INTERVAL_MS[chartTf];
+  let best: Bars | null = null;
+  for (const need of needs) {
+    if (need.symbol !== null && need.symbol !== symbol) continue;
+    if (INTERVAL_MS[need.interval] >= chartMs) continue;
+    if (!feeds.has(symbol, need.interval)) continue;
+    const bars = feeds.get(symbol, need.interval);
+    if (best === null || INTERVAL_MS[need.interval] < INTERVAL_MS[best.interval]) best = bars;
+  }
+  return best;
 }
 
 export async function executeBacktest(
@@ -92,6 +112,22 @@ export async function executeBacktest(
   }
 
   log(`running ${strategy.key} on ${row.symbol} ${row.timeframe}`);
+  /**
+   * The finest loaded feed below the chart timeframe, if any. Chosen rather
+   * than fetched: adding a feed the strategy did not ask for would change what
+   * `ensureCandles` downloads, and a magnifier is a refinement of an existing
+   * run, not a new data dependency.
+   */
+  const magnifierFeed = ACTIVE_CORRECTIONS.barMagnifier
+    ? finestLoadedFeedBelow(feeds, row.symbol, row.timeframe, needs)
+    : null;
+  if (ACTIVE_CORRECTIONS.barMagnifier) {
+    log(magnifierFeed
+      ? `bar magnifier: resolving intrabar order with the ${magnifierFeed.interval} feed`
+      : "bar magnifier is ON but no feed finer than the chart is loaded — "
+        + "intrabar order falls back to the open/close heuristic");
+  }
+
   const result = module.runBars(feeds, row.symbol, row.timeframe, params, {
     initialCapital: row.initialCapital,
     commissionPct: row.commissionPct,
@@ -104,6 +140,16 @@ export async function executeBacktest(
     qtyStep: symbolInfo?.qtyStep ?? 0,
     minNotional: symbolInfo?.minNotional ?? 0,
     fillOnBarClose: Boolean(params.fill_bar_close ?? false),
+    /*
+     * Bar magnifier: when the correction is on AND a finer feed than the chart
+     * happens to be loaded (several strategies already request a 1m or 5m
+     * feed), the broker walks the actual sub-bar path instead of guessing
+     * which of a stop and a target filled first. With no finer feed this is
+     * undefined and the behaviour is unchanged.
+     */
+    ...(magnifierFeed
+      ? { magnifier: (chartBars: Bars, i: number) => subBarsFor(chartBars, magnifierFeed, i) }
+      : {}),
   }, { startMs, endMs });
 
   const metrics = computeMetrics(

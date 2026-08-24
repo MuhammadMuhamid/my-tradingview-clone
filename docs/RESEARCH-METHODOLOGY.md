@@ -178,6 +178,7 @@ is meant to remove.
 | `zeroPnlIsScratch` | `BE-10` | An exact-zero trade is neither a win nor a loss, and is excluded from both sides of the win rate. | Only where such a trade exists |
 | `assertSegmentValidity` | `BE-06` | Throws when IS/OOS metrics are computed on a compounding run, and attributes a boundary-straddling trade by its EXIT. | The recorded split only |
 | `entryBarBrackets` | `BE-04` | `ma_rr_v9` and `srtrend_v10` issue brackets on the fill bar, as `mtf_lean` already does. | **Yes — every leaderboard number for those two moves** |
+| `barMagnifier` | fill realism (`OPT-22`, `BE-02`-adjacent) | When a bar's range contains both a stop and a target, walks the ACTUAL finer path instead of guessing from the bar's colour. | **Yes, on any bar that touched both** |
 
 `correctionsFingerprint()` is recorded on every backtest output, so a stored
 result always says which engine produced it. That is the property whose absence
@@ -186,6 +187,26 @@ made the cost-model contradiction in `X-09` unresolvable.
 **None of the implemented corrections depends on resolving BE-08.** The
 `BE08_DEPENDENT` list and `assertNotBe08Dependent` exist so that a future
 correction which *is* dependent cannot be added without declaring it.
+
+### The bar magnifier, in particular
+
+Which of a stop and a target filled first, when one bar touched both, is
+unknowable from OHLC alone. The default is TradingView's heuristic — a green bar
+walked open → low → high, a red bar open → high → low — and on a partial-take-
+profit configuration that guess decides whether the trade booked +2R or −1R.
+Two bars with an identical high and low give opposite answers purely by close;
+`platform/backend/tests/barMagnifier.test.ts` demonstrates exactly that.
+
+With the flag on, and a feed finer than the chart **already loaded** — several
+strategies request a 1m or 5m feed anyway — the broker walks the real sub-bar
+path. The ambiguity does not vanish: it shrinks to one sub-bar, and what remains
+inside it is resolved by the same heuristic, now over a minute instead of an
+hour. The magnifier is chosen from the feeds a run already loads rather than
+fetched, because adding a data dependency to a refinement would change what a
+re-run downloads.
+
+With no finer feed loaded the behaviour is bit-for-bit the old one, the run says
+so in its log, and with the flag off the magnifier is not consulted at all.
 
 ---
 
