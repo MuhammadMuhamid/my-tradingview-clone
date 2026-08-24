@@ -1,7 +1,7 @@
 {
  "meta": {
   "audit_date": "2026-08-23",
-  "last_phase": "Phase 1 \u2014 local security hardening",
+  "last_phase": "Phase 2 \u2014 local trading reliability and contract safety",
   "mahamid_scope": [
    "Webhook-secret rotation or propagation to TradingView alerts and deployment records.",
    "Binance API-key changes, permission checks or IP-allowlist confirmation.",
@@ -17,31 +17,31 @@
    "id": "X-01",
    "repo": "both",
    "verified": "Confirmed by inspection: sender clamps to 100, receiver schema is `.lt(100)`.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "0780a4e, 080c0a9, bot 9074f1a",
+   "evidence": "Contract v1 accepts `<= 100`; the evaluator resets the position and omits `sell_percent` for a full-remainder tier, and `limits()` stops there rather than also emitting the runner leg. `emittablePayloads()` round-trips through the validator on BOTH sides. The Phase 0 test that asserted the rejection now asserts acceptance.",
+   "risk": "Exits that previously failed will start executing. Deploy at a flat-position window."
   },
   {
    "id": "X-02",
    "repo": "both",
    "verified": "Confirmed: platform barIndex is floor(epoch/interval); Pine bar_index is chart-relative.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "0780a4e, 080c0a9",
+   "evidence": "`customDedupeKey` returns `<L|X>-<barOpenTimeMs>[-<leg>]`; a test asserts the platform's and Pine's bar indices differ while the keys now match. The false byte-identity comment is replaced with the reason it was false. Legacy keys still validate, so an un-updated sender is not locked out.",
+   "risk": "Old keys stop matching, so run the change at a flat-position window. The Pine template in the bot repository still emits the legacy form until Mahamid updates the TradingView alerts."
   },
   {
    "id": "X-03",
    "repo": "both",
    "verified": "Confirmed: liveRunner consumes only `flat` from a two-state report.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "eb11ac1",
+   "evidence": "`pauseOnReceiverLong` pauses a locally-flat deployment when the receiver reports long, records the divergence in runtime state, and removes it from the runner so it cannot emit.",
+   "risk": "The position is NOT adopted \u2014 the platform does not know the entry price, stop or targets. An operator must reconcile before re-activating. That is deliberate: inventing an entry price would put real money behind a guess."
   },
   {
    "id": "X-04",
@@ -67,11 +67,11 @@
    "id": "X-06",
    "repo": "platform",
    "verified": "Confirmed: `LIVE_RUNNER_ENABLED !== \"false\"`, and the plist sets no environment.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "eb11ac1",
+   "evidence": "`config.liveRunnerEnabled` is `=== \"true\"`, so unset means disabled; the launch agent is a template that sets it to `false` explicitly and carries placeholders instead of another user's absolute paths. A boot with no variable logs that the runner is disabled.",
+   "risk": "**Production must set `LIVE_RUNNER_ENABLED=true` explicitly or live alerting stops.** Coordinate with the AWS deployment before shipping."
   },
   {
    "id": "X-07",
@@ -127,11 +127,11 @@
    "id": "X-12",
    "repo": "both",
    "verified": "Confirmed: `ignored_stale_sell` returns HTTP 200 and the dispatcher treats any 2xx as sent.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "0780a4e, 080c0a9, bot 41dffb9",
+   "evidence": "`deliveryAdvancesState` reads the receiver's `status` instead of `res.ok`; a 409 carrying a no-order outcome is terminal; `blocked` is a distinct `DeliveryStatus`. The receiver answers 409 for `ignored_stale_sell`, `halted` and `risk_blocked`. An invariant test asserts no 2xx is ever an outcome the sender may not act on.",
+   "risk": "The platform will stop silently flattening its own state on a skipped sell, so those deployments will now visibly stall instead of quietly diverging."
   },
   {
    "id": "X-13",
@@ -147,16 +147,16 @@
    "id": "BE-01",
    "repo": "platform",
    "verified": "Carried from the register: Live MTF feed is two bars staler than the backtest's.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "eb11ac1",
+   "evidence": "The feed read's upper bound is `barTime + INTERVAL_MS[chartTf] - 1`, matching the backtest's close-time cutoff. No backtest change \u2014 the backtest was the correct side.",
+   "risk": "Live entries will now be gated on fresher MTF values, so live signal timing changes deliberately."
   },
   {
    "id": "BE-02",
    "repo": "platform",
-   "verified": "Carried from the register: Backtest fills stops intrabar at the trigger; live cannot.",
+   "verified": "Confirmed: `broker.ts:202` fills a stop at the trigger price while the live path can only exit at the next bar close, and the payload carries no price at all. Partially addressed: BOT-017 provides the exchange-side resting stop that would honour the trigger, but it is BLOCKED on testnet validation. The backtest-side correction alters historical results and is gated on BE-08.",
    "disposition": "open",
    "phase": "Phase 3",
    "commit": null,
@@ -167,11 +167,11 @@
    "id": "BE-03",
    "repo": "platform",
    "verified": "Carried from the register: Exit precedence inverted between backtest and live.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "42f325b",
+   "evidence": "`liveEvaluator` and `srTrendLiveEvaluator` resolve brackets before signal exits along the broker's OHLC path (green: stop first; red: target first). Six tests assert the ordering against a reproduction of the broker's path. `mtfLeanLiveEvaluator` already matched and is unchanged.",
+   "risk": "Live exit prices change deliberately, which changes the win/loss flag and therefore the choppy-pause schedule \u2014 that is the divergence being removed."
   },
   {
    "id": "BE-04",
@@ -247,61 +247,61 @@
    "id": "BE-11",
    "repo": "platform",
    "verified": "Carried from the register: No kill switch, daily-loss limit, exposure cap or order-rate cap.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "b314f60, 42f325b, bot 41dffb9",
+   "evidence": "Kill switch plus exposure, concurrency and rolling daily-loss limits in both repositories, checked before delivery on the platform and before the order on the bot. 15 platform tests and 8 bot tests, including that an exit is never refused by a numeric limit and that every limit is off until configured. Operator routes: halt (mandatory reason), resume (refuses while a latched loss limit is still breached), and a status read.",
+   "risk": "Every limit ships disabled, so nothing is enforced until an operator sets a number. Deliberate: enabling a limit silently would change live behaviour on deploy."
   },
   {
    "id": "BE-12",
    "repo": "platform",
    "verified": "Carried from the register: Webhook retries can duplicate real orders on the 3Commas path.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "080c0a9, eb11ac1",
+   "evidence": "`deliver` takes `idempotent`, and the runner passes `built.dedupeKey !== null` \u2014 so the 3Commas path, which carries no key, gets one attempt instead of four.",
+   "risk": "A genuine transient failure on the 3Commas path is no longer retried. That is the correct trade: a duplicate real order is worse than a missed one that can be re-sent deliberately."
   },
   {
    "id": "BE-13",
    "repo": "platform",
    "verified": "Carried from the register: Crash between delivery and persistence re-fires the order.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "b314f60, eb11ac1",
+   "evidence": "`claimIntent` writes a UNIQUE `order_intents` row before delivery and resolves it after with the receiver's outcome. On startup any still-pending intent is marked `stale`, never retried, and logged with the deployments needing reconciliation.",
+   "risk": "After a crash the operator must verify the receiver's positions. The runner will not re-fire, which is the point, but it also cannot know what happened."
   },
   {
    "id": "BE-14",
    "repo": "platform",
    "verified": "Carried from the register: 1.5% silent data-gap tolerance in the live path.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d8efb51, eb11ac1",
+   "evidence": "`assessForEvaluation` refuses to evaluate on any gap; a test asserts the exact 2100-bar/31-missing window that passed the old 98.5% heuristic is now refused. Feed state is recorded per (symbol, interval) and only `live` is evaluable, asserted as an invariant across all six states.",
+   "risk": "A feed with a persistent gap will stop producing signals rather than producing wrong ones. The gap must be backfilled; `ensureCandles` retries on each bar close."
   },
   {
    "id": "BE-15",
    "repo": "platform",
    "verified": "Carried from the register: Live win/loss ignores fees, desynchronising the circuit breaker.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "42f325b",
+   "evidence": "`isNetWin`/`netPnlPct` in `platform/backend/src/engine/liveCosts.ts`, used by all three live evaluators, charge 0.1% per side \u2014 the figure measured from every research tree. Six tests, including the +0.03% case from the finding and a break-even epsilon whose absence would have made the classification float-dependent.",
+   "risk": "Live win/loss now matches the backtest, so the choppy-pause schedule changes deliberately."
   },
   {
    "id": "BE-16",
    "repo": "platform",
    "verified": "Carried from the register: Dedupe-key skip reported to the caller as accepted.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "b314f60, eb11ac1",
+   "evidence": "`dedupeKeyExists` is no longer on the emission path. `claimIntent` uses `INSERT \u2026 ON CONFLICT DO NOTHING RETURNING`, and a lost claim returns the existing row so `delivered`/`duplicate` and `blocked`/`rejected`/`failed` produce different answers.",
+   "risk": "None known. The unique index is now the authority rather than a read-then-write."
   },
   {
    "id": "BE-17",
@@ -317,16 +317,16 @@
    "id": "BE-18",
    "repo": "platform",
    "verified": "Carried from the register: Single-emitter enforced only by an in-memory Set.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "b314f60, eb11ac1",
+   "evidence": "`emitter_lease` is one row with a 90-second TTL, renewed every 30 seconds. A process that cannot acquire it subscribes nothing and emits nothing; losing it mid-flight stops emission immediately.",
+   "risk": "Two emitters pointed at DIFFERENT databases are still not mutually exclusive \u2014 the lease is only as authoritative as the database it lives in. That is inherent, and X-06 is what prevents the second emitter starting at all."
   },
   {
    "id": "BE-19",
    "repo": "platform",
-   "verified": "Carried from the register: mtf_lean cannot be backtested through the platform.",
+   "verified": "Confirmed: `mtf_lean` is not registered in `backtester.ts` and its `warmupMs` signature differs from `ma_rr_v9`'s. Deferred to Phase 3 with the other engine work.",
    "disposition": "open",
    "phase": "Phase 3",
    "commit": null,
@@ -337,11 +337,11 @@
    "id": "BE-20",
    "repo": "platform",
    "verified": "Carried from the register: Live SELL contracts computed from the original size, with a dead ternary.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "42f325b",
+   "evidence": "`sellContracts` computes from the entry price and subtracts the tiers already taken; the dead ternary is gone. Six tests including clamping and the missing-entry-price fallback.",
+   "risk": "Only the 3Commas payload reads this value. The custom path uses `sell_percent`, which is unaffected."
   },
   {
    "id": "BE-21",
@@ -457,11 +457,11 @@
    "id": "BOT-003",
    "repo": "bot",
    "verified": "Carried from the register: Default bot config is the maximum-risk one.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 41dffb9, bot 328c823",
+   "evidence": "Defaults are 5% with a stop loss at 3% and exits enabled, in the schema, the API and the form. `assertSafeBotConfig` refuses >= 50% effective size with no stop, and PATCH checks the MERGED configuration so the old shape cannot be rebuilt one field at a time. Verified against a populated database: existing rows keep their values.",
+   "risk": "Existing bots keep their stored 100%/no-stop configuration. Changing those is an operator decision on live positions."
   },
   {
    "id": "BOT-004",
@@ -477,41 +477,41 @@
    "id": "BOT-005",
    "repo": "bot",
    "verified": "Carried from the register: Double-sell race: three of four close paths never take the lock.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot b4e4db0",
+   "evidence": "The lock moved to `bot:backend/src/lib/tradeCloseLock.ts`; all four close paths acquire it, each with a `finally` release. Four tests including that a throwing body still releases and that contention reports `{ran:false}` rather than silently doing nothing.",
+   "risk": "In-process only, as the previous lock was. A multi-process deployment would need a database lock; recorded in the module header."
   },
   {
    "id": "BOT-006",
    "repo": "bot",
    "verified": "Carried from the register: Recorded quantity is gross of commission.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot c53c977, bot b4e4db0",
+   "evidence": "`netBaseQty` deducts only base-asset commission from `executedQty`; the average price still uses the gross quantity. Both close paths refuse to mark a trade closed when the fill did not cover it, reducing the trade and leaving it OPEN instead. Five tests.",
+   "risk": "Binance's base-asset commission semantics were not executable here, so this rests on documented behaviour. Existing rows still hold gross quantities \u2014 a full close of a pre-existing trade may still under-fill, and now says so instead of silently closing."
   },
   {
    "id": "BOT-007",
    "repo": "bot",
    "verified": "Carried from the register: An order that succeeds then throws leaves an untracked live position.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot c53c977, bot 41dffb9",
+   "evidence": "Every order carries a deterministic `newClientOrderId` derived from the logical order's dedupe key, stored on the trade with a UNIQUE constraint. Two tests cover determinism and Binance's 36-character alphanumeric limit.",
+   "risk": "The lookup-by-id recovery path is not implemented \u2014 the id makes an orphan findable, and Binance rejects the duplicate, but nothing yet queries by it automatically."
   },
   {
    "id": "BOT-008",
    "repo": "bot",
    "verified": "Carried from the register: detectManualCloses fabricates P&L and closes partially drained trades.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot b4e4db0",
+   "evidence": "`readSellFills` reads real `myTrades` fills; a partial external sell records a `PartialClose` and reduces the trade rather than closing it; unreadable fills leave the trade OPEN and flagged rather than recording an estimate as fact.",
+   "risk": "Not exercisable without exchange credentials. The pure fill-parsing is unit-testable; the `myTrades` call itself is not verified here."
   },
   {
    "id": "BOT-009",
@@ -537,51 +537,51 @@
    "id": "BOT-011",
    "repo": "bot",
    "verified": "Carried from the register: No kill switch, max exposure, daily-loss limit or concurrency cap.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 41dffb9",
+   "evidence": "See BE-11 \u2014 implemented on both sides. Bot-side gate is in `guardEntry`, with `/api/ops/halt|resume|risk-limits|status`.",
+   "risk": "Every limit ships disabled."
   },
   {
    "id": "BOT-012",
    "repo": "bot",
    "verified": "Carried from the register: direction short/reversal is offered and stored but never affects order side.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 41dffb9, bot 328c823",
+   "evidence": "`direction` is `z.literal(\"long\")` in the API, the frontend type is the literal `\"long\"`, the picker offers only long and says why, and the trade row records `\"long\"` unconditionally.",
+   "risk": "An existing bot stored as `short` keeps that value in the column; it was already being ignored, and it is now visibly unselectable."
   },
   {
    "id": "BOT-013",
    "repo": "bot",
    "verified": "Carried from the register: 'per Bot' and 'per SmartTrade' investment units compute identically.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot c53c977",
+   "evidence": "`calcOrderQuoteUsdt` subtracts the bot's committed `quoteSpent` for per-Bot units. Five tests including the exact three-position case from the finding, which now totals 100 rather than 400.",
    "risk": "\u2014"
   },
   {
    "id": "BOT-014",
    "repo": "bot",
    "verified": "Carried from the register: toFixed(2) rounds the quote up, so default-sized buys are rejected.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot c53c977",
+   "evidence": "`floorQuote` floors to two decimals; a test contrasts it with `toFixed(2)` on the exact value from the finding. The Binance error code is preserved through a typed `ExchangeError` instead of being flattened to a 503.",
    "risk": "\u2014"
   },
   {
    "id": "BOT-015",
    "repo": "bot",
    "verified": "Carried from the register: exitEnabled defaults to false, so a default bot rejects every exit webhook.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 41dffb9",
+   "evidence": "`exitEnabled` defaults true in the schema, the API and the form. The guide's contradicting statements are corrected in the Phase 9 documentation pass.",
+   "risk": "Existing bots keep `exitEnabled = false` if that is what they were created with."
   },
   {
    "id": "BOT-016",
@@ -596,32 +596,32 @@
   {
    "id": "BOT-017",
    "repo": "bot",
-   "verified": "Carried from the register: No exchange-native stop-loss; protection dies with the process.",
-   "disposition": "open",
+   "verified": "Confirmed: `binance.ts` places `type: \"MARKET\"` exclusively; no STOP_LOSS, STOP_LOSS_LIMIT, TAKE_PROFIT or OCO order exists anywhere.",
+   "disposition": "blocked",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot d62b8ae",
+   "evidence": "A complete adapter exists in `bot:backend/src/services/exchangeStops.ts` with a pure, unit-tested planner (quantity and both prices round DOWN; lot-minimum and notional refusals typed). `EXCHANGE_STOPS_ENABLED` defaults to false with `=== \"true\"` parsing, and nothing in the live path calls it while off.",
+   "risk": "**BLOCKED on Binance testnet credentials (M5).** Not production-ready and must not be described as such. The header records five checks Mahamid must complete, the most important being sequencing against BOT-006: a resting SELL LOCKS the base balance, and `resolveSellQuantity` caps against the FREE balance, so the resting order must be cancelled before any other exit path runs."
   },
   {
    "id": "BOT-018",
    "repo": "bot",
    "verified": "Carried from the register: Stale quantity in the TP/SL loop.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot b4e4db0",
+   "evidence": "The TP/SL loop sells `fresh.quantity` and computes P&L against `fresh.quoteSpent`. The re-fetch was already present and simply unused.",
    "risk": "\u2014"
   },
   {
    "id": "BOT-019",
    "repo": "bot",
    "verified": "Carried from the register: Stale-sell guard is in-memory and evaporates on restart.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot b4e4db0, bot 41dffb9",
+   "evidence": "`PairCloseMark` makes the guard durable, with an in-process cache in front and the database as the authority; expired rows are pruned daily.",
+   "risk": "A database read failure falls back to the in-process value rather than reporting no recent close, which is the fail-safe direction."
   },
   {
    "id": "BOT-020",
@@ -667,21 +667,21 @@
    "id": "BOT-024",
    "repo": "bot",
    "verified": "Carried from the register: PartialClose index dropped and never recreated; no SmartTrade.status index.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot 41dffb9",
+   "evidence": "`PartialClose_tradeId_idx` recreated, plus SmartTrade indexes on status, (botId,status), (pair,status), closedAt and exchangeOrderId. Migration applied to a scratch and a populated database; `integrity_check` ok.",
    "risk": "\u2014"
   },
   {
    "id": "BOT-025",
    "repo": "bot",
    "verified": "Carried from the register: exchangeOrderId nullable and non-unique; no tenant scoping or audit trail.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 41dffb9",
+   "evidence": "`clientOrderId` is UNIQUE, which is the real idempotency guarantee; `exchangeOrderId` gains a plain index.",
+   "risk": "Deliberate deviation: `exchangeOrderId` is NOT made unique, because a unique index could fail to build against a live database that already holds a duplicate, and a migration that refuses to apply blocks startup. Tenant scoping and an append-only audit log remain open (Phase 7)."
   },
   {
    "id": "BOT-026",
@@ -697,11 +697,11 @@
    "id": "BOT-027",
    "repo": "bot",
    "verified": "Carried from the register: Buy dedupe blocks legitimate scale-ins and returns HTTP 200.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot 41dffb9",
+   "evidence": "The 45-second trade-event guard applies to exits only. Entries rely on the caller's own durable dedupe key; `assertCanOpenTrade` and the risk gate bound how many positions can exist.",
+   "risk": "An entry with no `dedupe_key` from a sender that retries blindly is no longer deduplicated by this layer. The exchange-side `newClientOrderId` is what collapses that case."
   },
   {
    "id": "BOT-028",
@@ -720,8 +720,8 @@
    "disposition": "fixed",
    "phase": "Phase 1",
    "commit": "bot ec14e70, bot 3f195ce",
-   "evidence": "Container runs as `node` with a healthcheck; `bot:scripts/backup-db.sh` uses SQLite `.backup` and verifies `integrity_check` plus the presence of the three core tables; `bot:scripts/restore-db.sh` refuses without `--yes`, refuses while the container runs, refuses a backup failing integrity, and keeps a safety copy. Both exercised locally against a migrated throwaway database, including rejection of a corrupted file.",
-   "risk": "Backups are as sensitive as the keys they contain and must be stored accordingly. Scheduling them is an operator task."
+   "evidence": "Non-root container, healthcheck, and verified backup/restore tooling. See the Phase 1 entry.",
+   "risk": "Backups are as sensitive as the keys they contain. Scheduling them is an operator task."
   },
   {
    "id": "BOT-030",
@@ -737,20 +737,20 @@
    "id": "BOT-031",
    "repo": "bot",
    "verified": "Carried from the register: No MIN_NOTIONAL check; a zero-fill order creates an immortal trade.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot c53c977",
+   "evidence": "`getMinNotional` reads the NOTIONAL/MIN_NOTIONAL filter and `marketBuyQuote` throws a typed `MinNotionalError` with the required and requested figures before sending the order.",
+   "risk": "The zero-fill immortal-trade half is addressed by the coverage assertion in BOT-006 rather than separately."
   },
   {
    "id": "BOT-032",
    "repo": "bot",
    "verified": "Carried from the register: floorToStep float error leaves dust.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
+   "commit": "bot c53c977",
+   "evidence": "`floorToStep` works in integer step units with a magnitude-scaled tolerance. Tests cover `0.29 @ 0.01` and `2.9999999999999996 @ 0.1`, and assert the result never meaningfully exceeds the input across six step sizes.",
    "risk": "\u2014"
   },
   {
@@ -767,21 +767,21 @@
    "id": "BOT-034",
    "repo": "bot",
    "verified": "Carried from the register: Starting a bot has no confirmation; live-vs-dry-run is invisible.",
-   "disposition": "open",
-   "phase": "Phase 6",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 2",
+   "commit": "bot 328c823",
+   "evidence": "Starting a bot requires a confirmation that states the pairs, size and which guards are actually configured. The dashboard badge has four states including `MODE UNKNOWN`, and the halt/resume controls sit beside it.",
+   "risk": "None. Further QA of the surface is Phase 6."
   },
   {
    "id": "BOT-035",
    "repo": "bot",
    "verified": "Carried from the register: DRY_RUN is not a simulation \u2014 simulated exits are capped by real balances.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot c53c977, bot b4e4db0",
+   "evidence": "The dry-run branch is FIRST in both `marketBuyQuote` and `marketSellBase`, so a simulated exit is no longer capped by real balances; `detectManualCloses` returns immediately in dry run, so a simulated position is not auto-closed within 60 seconds with a fabricated P&L.",
+   "risk": "Dry run still reads real balances for sizing (`getUsdtBalance`) and real prices. It simulates the exchange's ORDER path, not the account."
   },
   {
    "id": "BOT-037",
