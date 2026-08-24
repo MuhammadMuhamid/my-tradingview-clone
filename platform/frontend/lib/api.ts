@@ -164,10 +164,14 @@ export interface OptimizerLeaderboard {
   generatedAt?: string | null;
   ageMinutes?: number | null;
   stale?: boolean;
+  /** The objective's `min_trades` floor, from the tree's own params.json. */
+  minTrades?: number | null;
   leaderboard: Array<{
     symbol: string;
     score: number | null;
     tests: number;
+    /** OPT-09: this winner sits on the objective's min_trades floor. */
+    atTradeFloor?: boolean;
     metrics: {
       net_pct?: number | null;
       dd_pct?: number | null;

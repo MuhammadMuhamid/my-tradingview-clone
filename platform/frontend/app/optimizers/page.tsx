@@ -161,6 +161,15 @@ export default function OptimizersPage() {
           </p>
         )}
         {current?.note && <p className="px-4 pb-2 text-xs text-ink-faint">{current.note}</p>}
+        {rows.some((r) => r.atTradeFloor) && (
+          <p className="mx-4 mb-2 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink">
+            Rows marked <span className="rounded bg-warn/20 px-1 text-[10px] font-medium">floor</span> won
+            with the fewest trades this tree&apos;s objective allows
+            {data?.minTrades ? ` (${data.minTrades})` : ""}. A maximum taken over an enormous search space
+            lands on that floor by construction — the fewer trades a result rests on, the more of its
+            return can be luck.
+          </p>
+        )}
         {data?.stale && (
           <p className="mx-4 mb-2 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink">
             These numbers come from an exported snapshot
@@ -214,7 +223,23 @@ export default function OptimizersPage() {
                     </td>
                     <td className="px-4 py-2 text-right">{n(row.metrics.dd_pct)}%</td>
                     <td className="px-4 py-2 text-right">{n(row.metrics.win_rate)}%</td>
-                    <td className="px-4 py-2 text-right">{row.metrics.trades ?? "—"}</td>
+                    <td className="px-4 py-2 text-right">
+                      {row.metrics.trades ?? "—"}
+                      {row.atTradeFloor && (
+                        <span
+                          className="ml-1 rounded bg-warn/20 px-1 text-[10px] font-medium text-ink"
+                          title={
+                            `This winner sits on the objective's minimum-trade floor` +
+                            (data?.minTrades ? ` of ${data.minTrades}` : "") +
+                            `. Maximising over an enormous search space with a hard floor produces ` +
+                            `winners at the floor by construction: the fewer trades a result rests ` +
+                            `on, the more of its return can be luck.`
+                          }
+                        >
+                          floor
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-right">{n(row.metrics.profit_factor, 2)}</td>
                     <td className="px-4 py-2 text-right">{row.metrics.sl_loss_rate === null || row.metrics.sl_loss_rate === undefined ? "—" : `${n(row.metrics.sl_loss_rate)}%`}</td>
                     <td className={`px-2 py-2 text-right border-l border-border ${(row.metrics.oos_net_pct ?? 0) >= 0 ? "text-up" : "text-down"}`}>

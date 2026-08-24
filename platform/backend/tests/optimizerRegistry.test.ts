@@ -193,3 +193,34 @@ test("a rewritten (shorter) stream is recounted from zero, not left stale", asyn
   fs.writeFileSync(file, "x\n".repeat(3));
   assert.equal((await refreshCounts(tree)).counts.BBBUSDT, 3);
 });
+
+// ── OPT-09: winners on the min_trades floor ─────────────────────────────────
+
+test("a tree's min_trades floor is read from its own objective", () => {
+  const root = fixtureRoot();
+  const tree = treeById("alpha15m", root)!;
+  fs.writeFileSync(
+    path.join(tree.dir, "params.json"),
+    JSON.stringify({ parameters: [], objective: { min_trades: 50 } })
+  );
+  const space = JSON.parse(fs.readFileSync(path.join(tree.dir, "params.json"), "utf8")) as {
+    objective: { min_trades: number };
+  };
+  assert.equal(space.objective.min_trades, 50);
+});
+
+test("every tree in this repository states a min_trades floor, or has no objective", () => {
+  // A tree that gates on trades must say what the gate is, or the leaderboard
+  // cannot tell a floor-hugging winner from a comfortable one (OPT-09).
+  resetRegistryCache();
+  for (const tree of listTrees(BACKEND)) {
+    const params = path.join(tree.dir, "params.json");
+    if (!fs.existsSync(params)) continue;
+    const space = JSON.parse(fs.readFileSync(params, "utf8")) as {
+      objective?: { min_trades?: unknown };
+    };
+    if (space.objective === undefined) continue;
+    assert.equal(typeof space.objective.min_trades, "number",
+      `${tree.id}/params.json has an objective but no numeric min_trades`);
+  }
+});

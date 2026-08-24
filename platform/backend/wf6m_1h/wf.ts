@@ -32,6 +32,9 @@ import { fileURLToPath } from "node:url";
 // candidate sequence and the original scores.
 import type { ParamDef } from "../src/optimizer/gaDriver";
 import { Driver, scoreMetrics } from "../src/optimizer/gaDriver";
+// OPT-04: `riskPerTrade` combined an ENTRY count with a LEG win rate and a
+// LEG profit factor. It counts the population those rates describe now.
+import { riskPerTrade } from "../src/optimizer/selection";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -67,30 +70,6 @@ type Metrics = Record<string, number | null>;
  * identity (1 + kL)^wins * (1 - L)^losses = 1 + net/100, where the observed
  * win/loss size ratio k = pf * losses / wins. Same estimator as the analysis.
  */
-function riskPerTrade(m: Metrics): number | null {
-  const net = m.net_pct ?? 0, trades = m.trades ?? 0, wr = m.win_rate ?? 0, pf = m.profit_factor ?? 0;
-  const w = Math.round(trades * wr / 100), l = trades - w;
-  if (w <= 0 || l <= 0 || pf <= 0) return null;
-  const M = 1 + net / 100;
-  if (M <= 0) return null;
-  const k = pf * l / w;
-  const tgt = Math.log(M);
-  const f = (L: number): number => (L >= 0.999 ? 1e9 : w * Math.log(1 + k * L) + l * Math.log(1 - L) - tgt);
-  let lo = 1e-7, hi = 0.95;
-  if (f(lo) * f(hi) > 0) {
-    let best = 0, bv = Infinity;
-    for (let i = 1; i < 1900; i++) {
-      const L = i / 2000, v = Math.abs(f(L));
-      if (v < bv) { bv = v; best = L; }
-    }
-    return best * 100;
-  }
-  for (let i = 0; i < 100; i++) {
-    const mid = (lo + hi) / 2;
-    if (f(lo) * f(mid) <= 0) hi = mid; else lo = mid;
-  }
-  return (lo + hi) / 2 * 100;
-}
 
 interface Trial { genome: number[]; params: Record<string, number | boolean>; metrics: Metrics; score: number }
 

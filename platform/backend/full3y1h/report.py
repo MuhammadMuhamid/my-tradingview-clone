@@ -69,6 +69,54 @@ def h(r, k, d=0):
     v = r["holdout"].get(k)
     return d if v is None else v
 
+def spearman(xs, ys):
+    """Rank correlation, robust to the wild outliers replay returns produce.
+
+    OPT-16: `holdout1h/report.py` framed its results as a DISTRIBUTION and led
+    with this number — the single most honest piece of analysis in either
+    repository. This tree shares byte-identical config sets with it and dropped
+    the analysis, leaving only leaderboards, which read as if in-sample rank
+    means something. It does not, unless this number says so.
+    """
+    n = len(xs)
+    if n < 3:
+        return 0.0
+
+    def ranks(v):
+        order = sorted(range(n), key=lambda i: v[i])
+        out = [0.0] * n
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and v[order[j + 1]] == v[order[i]]:
+                j += 1
+            avg = (i + j) / 2 + 1
+            for k in range(i, j + 1):
+                out[order[k]] = avg
+            i = j + 1
+        return out
+
+    rx, ry = ranks(xs), ranks(ys)
+    mx, my = sum(rx) / n, sum(ry) / n
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    dx = sum((a - mx) ** 2 for a in rx) ** 0.5
+    dy = sum((b - my) ** 2 for b in ry) ** 0.5
+    return 0.0 if dx == 0 or dy == 0 else num / (dx * dy)
+
+
+def rank_correlation_line(rows, field="net_pct"):
+    """Does in-sample rank predict anything here? Printed before any leaderboard."""
+    usable = [r for r in rows if r.get("rank") is not None and h(r, field, None) is not None]
+    if len(usable) < 3:
+        return None
+    rk = [-r["rank"] for r in usable]                 # negate: higher = better rank
+    val = [h(r, field) for r in usable]
+    rho = spearman(rk, val)
+    verdict = ("in-sample rank predicts this well" if rho >= 0.4 else
+               "weak" if rho >= 0.15 else
+               "IN-SAMPLE RANK PREDICTS NOTHING HERE")
+    return (rho, verdict, len(usable))
+
 
 def print_record(coin, r, title):
     hd = r["holdout"]
@@ -194,9 +242,25 @@ def coin_view(coin, mode):
         print(f"      {i:<5}{r['rank']:<8}{color_net(hd.get('net_pct'))}  {color_net(hd.get('oos_net_pct'))}  "
               f"{hd.get('dd_pct', 0):6.1f}%  {hd.get('win_rate') or 0:5.1f}%  {hd.get('trades', 0):6}  "
               f"{hd.get('profit_factor') or 0:5.2f}  {'$' + format(1000 + hd.get('net_usdt', 0), ',.0f'):>9}")
-    print(f"\n   {Y}Recommended: ORIG#{med_oos['rank']}{END} — the median config by out-of-sample profit "
-          f"({h(med_oos, 'oos_net_pct'):+.1f}% OOS, {h(med_oos, 'net_pct'):+.1f}% total).")
-    print(f"   {DIM}Top rows are the luckiest of {n} draws; the median is the honest representative.{END}")
+    # OPT-17: this printed "Recommended: ORIG#<median by OOS net>" beside an
+    # Apply command. Taking the median rather than the maximum is the right way
+    # to DESCRIBE a distribution, but choosing a config by ANY out-of-sample
+    # statistic is selection on the validation window — the same defect as
+    # OPT-01, one step less obvious. The median is still reported, as a
+    # description; it is no longer a recommendation and carries no apply hint.
+    print(f"\n   {DIM}Median config by out-of-sample profit: ORIG#{med_oos['rank']} "
+          f"({h(med_oos, 'oos_net_pct'):+.1f}% OOS, {h(med_oos, 'net_pct'):+.1f}% total). "
+          f"Top rows are the luckiest of {n} draws, so the median describes the "
+          f"distribution far better than the maximum.{END}")
+    print(f"   {Y}It is NOT a recommendation. Choosing a config by an out-of-sample "
+          f"statistic makes that window a selection criterion (OPT-01/OPT-17); "
+          f"pick on the in-sample views, then score the choice once on the frozen "
+          f"holdout.{END}")
+    rc = rank_correlation_line(rows)
+    if rc:
+        rho, verdict, used = rc
+        print(f"   {DIM}Spearman(in-sample rank, replay net) = {rho:+.2f} over {used} configs "
+              f"— {verdict}.{END}")
     print(f"   {DIM}Inputs: {CMD} {coin} RANK#   |   Apply: {APPLY} {coin}{END}\n")
 
 

@@ -244,22 +244,85 @@ rows that are not comparable with the rest, and why:
   no IS/OOS split, and the only one that compounds (`qty_pct_equity: 100`). Its
   headline figures, including the +3114 % for DEXEUSDT in `ANALYSIS_1H_1Y.md`,
   are fully in-sample, zero-slippage and fully compounded (`OPT-03`).
-- **`lean_wf_15m`** — its own `config.json` states the search space is "exactly
-  as `lean_optimizer15m` has it". Measured: production searches 18 parameters,
-  the walk-forward searches 30, including `qty_pct_equity`. **The current
-  production search space has no walk-forward evidence at all** (`OPT-02`).
+- **`lean_wf_15m`** — its own `config.json` claimed the search space was
+  "exactly as `lean_optimizer15m` has it (qty_pct_equity still searched)". Both
+  halves were false: production searches 18 parameters and pins
+  `qty_pct_equity` to 0; the walk-forward searches 30 and includes it. **The
+  current production search space has no walk-forward evidence at all**
+  (`OPT-02`). The claim is corrected in place, every walk-forward tree now
+  declares `spaceDivergesFromProduction` in its `tree.json`, and
+  `scripts/ci/check-docs.sh` recomputes that claim from the two parameter lists.
+  Four of the five diverge; `wf6m_1h` is the only one that matches.
 
-Two further metric-definition hazards, both recorded and neither corrected here:
+### Metric-definition hazards
 
-- `OPT-04` — `win_rate` and `profit_factor` are **leg**-based while `trades` is
-  **entry**-based in the same metrics object, and `wf.ts`'s `riskPerTrade()`
-  mixes them inside `multiPick`'s Pareto vector. One of the three selection
-  rules the walk-forward exists to compare is therefore arithmetically broken
-  and biased toward partial-take-profit configurations.
+- `OPT-04` — **fixed.** `win_rate` and `profit_factor` are leg-based in every
+  tree, while `trades` is entry-based in the two MTF Lean trees (deliberately,
+  so `min_trades` is not inflated ~13× by partial take-profits).
+  `riskPerTrade()` multiplied the entry count by the leg win rate, and its
+  output feeds `multiPick`'s Pareto vector — one of the three pre-declared rules
+  the walk-forward exists to *compare*.
+
+  The solver was worse than the mixed counts. It bisected `[1e-7, 0.95]` and
+  fell back to a grid search whenever the endpoints shared a sign — which is
+  almost always, because the target function is unimodal with a root on each
+  side of its peak. The fallback returned the *argmax*, the peak-growth
+  fraction, not a root, and it was not monotone in net: on a real Lean record,
+  20 % net implied 33.3, 50 % implied 1.2, 120 % implied 31.5. The rule was
+  ranking on noise. It now counts the population the rates describe, returns the
+  smallest fraction that reproduces the multiple, and returns `null` when no
+  fraction does. `platform/backend/tests/selection.test.ts` pins all of it,
+  including the old version's non-monotonicity.
+
 - `OPT-09` — GA winners cluster exactly on the `min_trades` floor. SYNUSDT,
   KAITOUSDT and EIGENUSDT all win with **31** trades against a floor of 30,
   reporting +2799 %, +494 % and +342 %. Maximising over ~1e19 candidates with a
-  hard floor produces winners at the floor by construction.
+  hard floor produces winners at the floor by construction: the fewer trades a
+  result rests on, the more of its return can be luck, and the search is free to
+  find the luckiest such result. The leaderboard API marks those rows and the
+  optimizer page shows a `floor` badge with that explanation. The finding is
+  *surfaced*, not removed — removing it means raising the floor, which is a
+  research decision (`M8`).
+
+### The remaining interpretation findings
+
+None of these is a code defect; each is a limit on what the numbers support.
+They are recorded here because the reports themselves did not say them.
+
+- `OPT-10` — `platform/backend/lean3y15m/configs/DEXEUSDT.json` (gitignored,
+  KNOWN-ABSENT from a clone): all 1,000 top-ranked configs
+  carry `qty_pct_equity: 100`. Under the old objective the leaderboard was
+  ranking **leverage**, not edge. The live tree is now pinned to fixed cash, but
+  the 3-year replay still runs that leverage-selected pool at fixed size, so it
+  answers a confounded question. Its `tree.json` says so.
+- `OPT-13` — the coin universe came from a 2026-08-10 screenshot, and six coins
+  were dropped **after** their results were seen (`ANALYSIS_1H_1Y.md`). Every
+  aggregate over that universe is survivorship-conditioned, and the survivors
+  skew to 2025-26 listings with large one-way trends. Fixing this means
+  declaring a universe rule before looking — an owner decision (`M8`).
+- `OPT-14` — the Wilson lower bounds are **maximised** over millions of
+  candidates, which is not what a lower confidence bound is for: taking a
+  maximum over many bounds reproduces the selection bias the bound was meant to
+  remove. The consensus z-test's null assumes uniform sampling, which is false
+  for GA output — a GA concentrates its draws where it is already winning — and
+  no multiplicity correction is applied over the number of parameters tested.
+  Treat both as descriptive, not inferential.
+- `OPT-18` — `range.end: "now"` makes every out-of-sample metric depend on when
+  it was computed, so two records for the same genome are not comparable across
+  days, while `platform/backend/scripts/indexed_results.py` de-duplicates by
+  `(coin, genome)`.
+  `evaluateClearance` refuses a holdout result scored against a different window
+  than the one now frozen, which is the same hazard caught at the deploy gate: a
+  holdout that moves is not a holdout.
+- `OPT-19`, `OPT-20`, `OPT-21`, `OPT-22` — grouped in the register as
+  metric-interpretation, cost-sensitivity, parity-harness and fill-realism
+  issues, with no individual descriptions published. What is verified and
+  addressed of that group is above and in [COST-MODELS.md](COST-MODELS.md): the
+  metric definitions (`OPT-04`), the per-tree cost models and their
+  incomparability (`OPT-03`), and the fill-realism gap between the backtest's
+  stop fill and the live path's next-bar-close exit, which is `BE-02` and is
+  gated on `BE-08`. Nothing further can be resolved without the individual
+  descriptions.
 
 ---
 

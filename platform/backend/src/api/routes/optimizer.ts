@@ -67,6 +67,32 @@ function baseParams(tree: OptimizerTree): Record<string, unknown> {
   return readJson<Record<string, unknown>>(path.join(tree.dir, "base_params.json")) ?? {};
 }
 
+/**
+ * The `min_trades` floor a tree's objective enforces, from its own params.json.
+ *
+ * `OPT-09`: GA winners cluster exactly on that floor. `ANALYSIS_1H_1Y.md`
+ * records SYNUSDT, KAITOUSDT and EIGENUSDT all winning with **31** trades
+ * against a floor of 30, reporting +2799 %, +494 % and +342 %. Maximising over
+ * ~1e19 candidates with a hard floor produces winners at the floor by
+ * construction: the fewer trades a result rests on, the more of its return can
+ * be luck, and the search is free to find the luckiest such result.
+ */
+function minTradesFloor(tree: OptimizerTree): number | null {
+  const space = readJson<{ objective?: { min_trades?: number } }>(
+    path.join(tree.dir, "params.json")
+  );
+  const floor = space?.objective?.min_trades;
+  return typeof floor === "number" && Number.isFinite(floor) ? floor : null;
+}
+
+/** Within two trades of the floor is "at the boundary" for reporting. */
+const FLOOR_MARGIN = 2;
+
+function atTradeFloor(trades: number | null | undefined, floor: number | null): boolean {
+  if (floor === null || typeof trades !== "number") return false;
+  return trades <= floor + FLOOR_MARGIN;
+}
+
 function treeSummary(tree: OptimizerTree) {
   return {
     id: tree.id,
@@ -162,6 +188,7 @@ export async function optimizerRoutes(app: FastifyInstance): Promise<void> {
     const cfg = loadConfig(tree);
     const { hasResults, bestDir } = treeResults(tree);
     const snapshot = countsFor(tree);
+    const floor = minTradesFloor(tree);
     const rows: unknown[] = [];
     if (hasResults) {
       for (const file of fs.readdirSync(bestDir)) {
@@ -169,7 +196,14 @@ export async function optimizerRoutes(app: FastifyInstance): Promise<void> {
         const rec = readJson<BestRec>(path.join(bestDir, file));
         if (!rec) continue;
         const symbol = file.slice(0, -5);
-        rows.push({ symbol, score: rec.score, metrics: rec.metrics ?? {}, tests: snapshot.counts[symbol] ?? 0 });
+        rows.push({
+          symbol, score: rec.score, metrics: rec.metrics ?? {},
+          tests: snapshot.counts[symbol] ?? 0,
+          // OPT-09: a winner sitting on the min_trades floor rests on the
+          // fewest trades the objective permits, which is where a maximum over
+          // a huge search lands by construction.
+          atTradeFloor: atTradeFloor(rec.metrics?.trades, floor),
+        });
       }
       rows.sort((a, b) =>
         (((b as { score: number }).score ?? -1e18) - ((a as { score: number }).score ?? -1e18)));
@@ -188,6 +222,7 @@ export async function optimizerRoutes(app: FastifyInstance): Promise<void> {
       // Distinguishes "this tree has produced nothing yet" from "no such tree",
       // which the previous empty-200 could not (`X-04`).
       resultsAvailable: hasResults,
+      minTrades: floor,
       leaderboard: rows,
     };
   });
