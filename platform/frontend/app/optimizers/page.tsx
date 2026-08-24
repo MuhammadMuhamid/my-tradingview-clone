@@ -132,7 +132,7 @@ export default function OptimizersPage() {
         {error ? <Empty>{error}</Empty> : !data ? <Empty>Loading optimizer results…</Empty> :
           rows.length === 0 ? <Empty>No completed results yet.</Empty> : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm tabular">
+            <table className="w-full min-w-[720px] text-sm tabular">
               <thead>
                 <tr className="border-b border-border text-xs text-ink-muted">
                   <th className="px-4 py-2 text-left">Rank</th>

@@ -31,8 +31,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <div className="flex h-[100dvh] flex-col">
+          {/* Visible only when focused; see .skip-link in globals.css. */}
+          <a href="#main" className="skip-link">Skip to content</a>
           <Nav />
-          <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+          <main id="main" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none">
+            {children}
+          </main>
         </div>
       </body>
     </html>
