@@ -82,7 +82,20 @@ for (const vp of VIEWPORTS) {
         const name = (el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || "").trim();
         if (!name) unnamed.push(el.outerHTML.slice(0, 90));
       }
+      // iOS Safari zooms any focused field whose text is under 16px. Measured
+      // rather than inferred from the stylesheet: the rule that was supposed to
+      // prevent this lost to a utility class and did nothing for months.
+      // Only where it can happen: the rule is a 640px media query and desktop
+      // browsers do not zoom on focus at all.
+      const zoomers = [];
+      for (const el of (innerWidth <= 640 ? document.querySelectorAll("input, select, textarea") : [])) {
+        if (el.type === "checkbox" || el.type === "radio" || el.type === "hidden") continue;
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (size < 16) zoomers.push(`${el.tagName}:${el.type || ""} ${size}px`);
+      }
+
       return {
+        zoomers: [...new Set(zoomers)].slice(0, 6),
         overflowX,
         offenders: [...new Set(offenders)].slice(0, 8),
         small: [...new Set(small)].slice(0, 12),

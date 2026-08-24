@@ -127,12 +127,29 @@ test("the viewport allows pinch-zoom", () => {
   assert.doesNotMatch(layout, /userScalable:\s*false/);
 });
 
-test("iOS does not zoom the page when a field is focused", () => {
-  // Safari zooms any focused input whose text is under 16px, and never zooms
-  // back out — the page is left scrolled sideways with the toolbar off-screen.
+test("THE iOS ZOOM RULE IS SPECIFIC ENOUGH TO ACTUALLY APPLY", () => {
+  // Safari zooms any focused input whose text is under 16px and never zooms
+  // back out, leaving the page scrolled sideways with the toolbar off-screen.
+  //
+  // This assertion is about SPECIFICITY, not presence, because the rule was
+  // present and did nothing: `input, select, textarea` is (0,0,1) and loses to
+  // Tailwind's `.text-sm` at (0,1,0) on every field in the application. It
+  // measured 14px on an iPhone 13 viewport while this file happily asserted the
+  // rule existed. Two `:not()` clauses raise it to (0,2,1), which wins.
+  //
+  // The real check is `qa/viewports.mjs`, which measures the computed size in a
+  // browser. This one exists so a future edit back to the weak form fails here
+  // rather than silently on someone's phone.
   const css = fs.readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
   const block = css.match(/@media \(max-width: 640px\)\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-  assert.match(block, /input, select, textarea \{ font-size: 16px; \}/);
+  assert.match(block, /font-size: 16px/, "the rule is gone");
+  const selector = block.slice(0, block.indexOf("font-size: 16px"));
+  const notCount = (selector.match(/:not\(/g) ?? []).length;
+  assert.ok(
+    notCount >= 2,
+    `the selector has ${notCount} :not() clauses; it needs at least two to outrank a utility class`
+  );
+  assert.match(selector, /input:not/, "inputs are what Safari zooms for");
 });
 
 // ── Names ───────────────────────────────────────────────────────────────────

@@ -17,9 +17,27 @@ body {
   overflow-x: hidden;
 }
 
-/* Touch: iOS zooms any focused input whose text is under 16px. */
+/*
+ * Touch: iOS Safari zooms any focused input whose text is under 16px, and
+ * never zooms back out — the page is left scrolled sideways with the toolbar
+ * off-screen.
+ *
+ * The `:not()` clauses are not decoration. Written as a bare `input, select,
+ * textarea` rule this LOST to Tailwind's `.text-sm` utility on every field in
+ * the application: a plain element selector is specificity (0,0,1) and a class
+ * is (0,1,0), so the rule looked right, passed a static check, and did nothing.
+ * Measured at 14px on an iPhone 13 viewport before this change. Two `:not()`
+ * clauses raise it to (0,2,1), which wins.
+ *
+ * Checkboxes and radios are excluded because their font size is meaningless and
+ * Safari does not zoom for them.
+ */
 @media (max-width: 640px) {
-  input, select, textarea { font-size: 16px; }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select:not([multiple]):not([size]),
+  textarea:not([readonly]):not([disabled]) {
+    font-size: 16px;
+  }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
 }
 
