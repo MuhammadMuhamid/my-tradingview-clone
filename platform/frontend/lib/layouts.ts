@@ -109,35 +109,42 @@ export async function createLayout(name: string, state: WorkspaceState): Promise
   return layout;
 }
 
-export async function saveLayout(id: string, state: WorkspaceState): Promise<Layout | null> {
-  try {
-    return fromServer(await api.updateLayout(id, {
-      symbol: state.symbol,
-      timeframe: state.interval,
-      bars: state.bars,
-      strategyKey: state.strategyKey,
-      params: state.params,
-      properties: state.properties,
-      movingAverages: state.movingAverages,
-    }));
-  } catch {
-    return null;
-  }
+/*
+ * FE-13: save, rename and delete each swallowed their failure and returned as
+ * though they had worked.
+ *
+ * A layout is a workspace a user has arranged deliberately — symbol, timeframe,
+ * strategy parameters, drawings, which moving averages are armed. Telling them
+ * "Layout saved" when the request failed means they close the tab believing the
+ * arrangement is safe. These now throw, and the caller decides what to say.
+ */
+export async function saveLayout(id: string, state: WorkspaceState): Promise<Layout> {
+  return fromServer(await api.updateLayout(id, {
+    symbol: state.symbol,
+    timeframe: state.interval,
+    bars: state.bars,
+    strategyKey: state.strategyKey,
+    params: state.params,
+    properties: state.properties,
+    movingAverages: state.movingAverages,
+  }));
 }
 
 export async function renameLayout(id: string, name: string): Promise<void> {
   const clean = name.trim();
   if (!clean) return;
-  try {
-    await api.updateLayout(id, { name: clean });
-  } catch { /* name conflict or missing layout — keep old name */ }
+  await api.updateLayout(id, { name: clean });
 }
 
 export async function deleteLayout(id: string): Promise<void> {
   try {
     await api.deleteLayout(id);
-  } catch { /* already gone */ }
-  if (getCurrentLayoutId() === id && canStore()) localStorage.removeItem(CUR);
+  } finally {
+    // The local pointer is cleared either way: a layout that could not be
+    // deleted server-side is still one the user asked to leave, and keeping it
+    // current would restore it on the next load.
+    if (getCurrentLayoutId() === id && canStore()) localStorage.removeItem(CUR);
+  }
 }
 
 /**

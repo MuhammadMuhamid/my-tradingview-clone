@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { StaleNotice } from "@/components/StaleNotice";
 import { api } from "@/lib/api";
+import { freshAt, type Freshness } from "@/lib/freshness";
 import type { Alert, Deployment } from "@/lib/types";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 import { StatusBadge } from "@/components/ui";
@@ -23,36 +25,60 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
   const [log, setLog] = useState<Alert[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Deployment | null>(null);
+  /**
+   * A swallowed poll failure left this panel showing a deployment as "active"
+   * for as long as the chart stayed open, which on the panel that says whether
+   * money is moving is the one place a frozen answer is unacceptable.
+   */
+  const [freshness, setFreshness] = useState<Freshness>({ lastOkAt: null, lastError: null });
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const [d, a] = await Promise.all([api.listDeployments(), api.listAlerts(100)]);
       setDeps(d);
       setLog(a);
-    } catch { /* backend transient */ }
+      setFreshness(freshAt(Date.now()));
+    } catch (e) {
+      setFreshness((f) => ({ ...f, lastError: (e as Error).message }));
+    }
   }, []);
 
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 10_000);
+    void refresh();
+    const t = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(t);
   }, [refresh]);
 
   const depSymbol = (id: string): string => deps.find((d) => d.id === id)?.symbol ?? "";
 
-  const toggle = async (d: Deployment) => {
+  /**
+   * FE-12: pausing or deleting had `finally { setBusy(null) }` and no catch, so
+   * a failure spun the button, restored it, and changed nothing — the user
+   * believing they had stopped a strategy that was still running.
+   */
+  const act = async (d: Deployment, what: string, fn: () => Promise<unknown>) => {
     setBusy(d.id);
+    setActionError(null);
     try {
-      if (d.status === "active") await api.pauseDeployment(d.id);
-      else await api.activateDeployment(d.id);
+      await fn();
+    } catch (e) {
+      setActionError(`Could not ${what} ${d.symbol}: ${(e as Error).message}`);
+    } finally {
+      // Always re-read: the row must show what the server holds, not what the
+      // click intended.
       await refresh();
-    } finally { setBusy(null); }
+      setBusy(null);
+    }
   };
 
-  const remove = async (d: Deployment) => {
-    if (!window.confirm(`Delete alert on ${d.symbol} ${d.timeframe}? The strategy stops running.`)) return;
-    setBusy(d.id);
-    try { await api.deleteDeployment(d.id); await refresh(); } finally { setBusy(null); }
+  const toggle = (d: Deployment) =>
+    act(d, d.status === "active" ? "pause" : "activate",
+      () => (d.status === "active" ? api.pauseDeployment(d.id) : api.activateDeployment(d.id)));
+
+  const remove = (d: Deployment) => {
+    if (!window.confirm(`Stop and delete the automation on ${d.symbol} ${d.timeframe}?`)) return;
+    void act(d, "delete", () => api.deleteDeployment(d.id));
   };
 
   return (
@@ -71,6 +97,16 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
           </button>
         ))}
       </div>
+      {(freshness.lastError || actionError) && (
+        <div className="space-y-1.5 border-b border-border px-2 py-2">
+          <StaleNotice state={freshness} />
+          {actionError && (
+            <div role="alert" className="rounded-md border border-down/40 bg-down/10 px-2.5 py-1.5 text-[11px] text-down">
+              {actionError}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <button onClick={onCreateAlert} className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink" title="Automate a strategy — sends live orders">
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2v11M2 7.5h11" stroke="currentColor" strokeWidth="1.5" /></svg>
@@ -120,7 +156,7 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
                       Edit
                     </button>
                     <button
-                      onClick={() => toggle(d)}
+                      onClick={() => void toggle(d)}
                       disabled={busy === d.id}
                       className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:bg-border hover:text-ink"
                     >

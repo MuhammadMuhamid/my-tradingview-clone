@@ -7,13 +7,22 @@ import type { Layout } from "@/lib/layouts";
  * Make a copy, Rename, Create new layout, recently-used list, delete.
  */
 export function LayoutMenu({
-  layouts, currentId, autosave, dirty,
+  layouts, currentId, autosave, dirty, autosaveError,
   onSelect, onSaveNow, onToggleAutosave, onCreate, onCopy, onRename, onDelete,
 }: {
   layouts: Layout[];
   currentId: string | null;
   autosave: boolean;
   dirty: boolean;
+  /**
+   * Last autosave failure, or null.
+   *
+   * Autosave writes without being asked, so a failure must not interrupt with a
+   * toast — but it must not be silent either. A user who believes autosave is
+   * on stops saving deliberately, so an autosave that has quietly stopped
+   * working loses more work than one that was never enabled.
+   */
+  autosaveError: string | null;
   onSelect: (id: string) => void;
   onSaveNow: () => void;
   onToggleAutosave: () => void;
@@ -48,6 +57,11 @@ export function LayoutMenu({
           <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h18M12 3v18" />
         </svg>
         <span className="max-w-[140px] truncate">{current?.name ?? "Unnamed"}{dirty && !autosave ? " •" : ""}</span>
+        {autosaveError && (
+          <span className="text-warn" title={`Autosave failed: ${autosaveError}`} aria-label="Autosave is failing">
+            ⚠
+          </span>
+        )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" /></svg>
       </button>
 
@@ -63,7 +77,14 @@ export function LayoutMenu({
               onClick={onToggleAutosave}
               className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink transition-colors hover:bg-surface-2"
             >
-              <span className="flex-1">Autosave</span>
+              <span className="flex-1">
+                Autosave
+                {autosaveError && (
+                  <span className="mt-0.5 block text-[11px] font-normal text-warn">
+                    Last autosave failed: {autosaveError}
+                  </span>
+                )}
+              </span>
               <span className={`relative h-4 w-8 rounded-full transition-colors ${autosave ? "bg-accent" : "bg-border"}`}>
                 <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${autosave ? "left-[18px]" : "left-0.5"}`} />
               </span>
