@@ -1,6 +1,7 @@
 import type { Interval } from "../types/market";
 import type { RuntimeState } from "../types/deployments";
 import { FeedStore } from "./mtf";
+import { isNetWin } from "./liveCosts";
 import { computeSignals } from "./strategies/srtrend_v10/signals";
 import type { SrTrendParams } from "./strategies/srtrend_v10/params";
 import type { LiveDecision } from "./liveEvaluator";
@@ -11,6 +12,8 @@ export function evaluateSrTrendBar(feeds: FeedStore, symbol: string, chartTf: In
   if (i < 0) throw new Error(`bar ${barTime} missing from ${symbol} ${chartTf}`);
   const sig = computeSignals(feeds, symbol, chartTf, p), next = { ...state };
   const c = chart.close[i]!, h = chart.high[i]!, l = chart.low[i]!, a = sig.atr[i]!;
+  // Needed for the broker's deterministic intrabar path (see BE-03 below).
+  const o = chart.open[i]!;
   const barMs = chart.closeTime[i]! - chart.time[i]! + 1;
   const choppyOk = !p.useChoppyFilter || next.choppyUntilBarTime === null || barTime > next.choppyUntilBarTime;
   const cooldownOk = p.cooldownBarsAfterExit <= 0 || next.lastExitBarTime === null ||
@@ -43,10 +46,38 @@ export function evaluateSrTrendBar(feeds: FeedStore, symbol: string, chartTf: In
     (sig.exitMa[i]! || sig.belowSt[i]! || sig.belowMa1[i]! || sig.belowLinReg[i]!);
   const structural = (p.hlBreakMinR <= 0 || unrealR >= p.hlBreakMinR) && sig.hlBreak[i]!;
   const stopHit = l <= stop, tpHit = next.savedLongTp !== null && h >= next.savedLongTp;
-  const reason: string | null = structural ? "HL Break" :
-    soft ? "Signal exit" : stopHit ? (next.trailAnchor !== null && stop === next.trailAnchor ? "Trail" : "SL") : tpHit ? "TP" : null;
+
+  /*
+   * BE-03: brackets resolve BEFORE signal exits, and along the broker's
+   * deterministic OHLC path — green bar open -> low -> high, so the stop is
+   * tested first; red bar open -> high -> low, so the target is.
+   *
+   * The previous order put `structural` and `soft` ahead of the stop, so a bar
+   * that filled the stop intrabar exited at the CLOSE instead, at a different
+   * price. The exit price decides the win/loss flag, which drives
+   * `consecLosses` and the choppy pause, so the divergence changed which later
+   * trades were taken at all.
+   */
+  const greenBar = c >= o;
+  let reason: string | null = null;
+  let exitPx = c;
+  for (const which of greenBar ? (["stop", "tp"] as const) : (["tp", "stop"] as const)) {
+    if (reason) break;
+    if (which === "stop" && stopHit) {
+      reason = next.trailAnchor !== null && stop === next.trailAnchor ? "Trail" : "SL";
+      exitPx = stop;
+    } else if (which === "tp" && tpHit) {
+      reason = "TP";
+      exitPx = next.savedLongTp!;
+    }
+  }
+  if (!reason) {
+    reason = structural ? "HL Break" : soft ? "Signal exit" : null;
+    if (reason) exitPx = c;
+  }
   if (!reason) return { next, decision: null };
-  const win = (tpHit ? next.savedLongTp! : stopHit ? stop : c) > entry;
+  // BE-15: net of both commissions, matching the backtest's `pnl > 0`.
+  const win = isNetWin(entry, exitPx);
   next.consecLosses = win ? 0 : next.consecLosses + 1;
   if (!win && next.consecLosses >= p.maxConsecLoss) { next.choppyUntilBarTime = barTime + p.choppyPauseBars * barMs; next.consecLosses = 0; }
   next.position = "flat"; next.entryPrice = null; next.entryBarTime = null; next.savedLongStop = null;

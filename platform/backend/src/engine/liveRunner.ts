@@ -24,7 +24,7 @@ import { FeedStore, toBars } from "./mtf";
 import { evaluateBar } from "./liveEvaluator";
 import {
   buildPayload, deliver, deliveryAdvancesState, deliveryPlacedOrder,
-  validateWebhookUrl, type SignalContext,
+  sellContracts, validateWebhookUrl, type SignalContext,
 } from "../alerts/dispatcher";
 import * as liveSafety from "../repositories/liveSafety";
 import {
@@ -47,6 +47,27 @@ import { INTERVAL_MS } from "../types/market";
  */
 const LEASE_TTL_MS = 90_000;
 const LEASE_RENEW_MS = 30_000;
+
+/**
+ * Percentage of the original position already taken by the take-profit tiers.
+ *
+ * The tier SIZES live in strategy params, which this function does not have —
+ * only the deployment row. `mtf_lean`'s shipped defaults are 40 % at TP1 and
+ * 30 % at TP2 (`mtf_lean/params.ts`), and a strategy without partial tiers
+ * never sets these flags at all, so reading the flags with the default sizes is
+ * correct for every strategy that currently exists and conservative for any
+ * that overrides them: it can understate what was taken, never overstate it,
+ * so the receiver is never asked to sell more than the position holds.
+ */
+const DEFAULT_TP1_SIZE_PCT = 40;
+const DEFAULT_TP2_SIZE_PCT = 30;
+
+function exitedPctSoFar(dep: DeploymentRow): number {
+  const params = dep.params as { rrTp1Size?: unknown; rrTp2Size?: unknown };
+  const tp1 = typeof params.rrTp1Size === "number" ? params.rrTp1Size : DEFAULT_TP1_SIZE_PCT;
+  const tp2 = typeof params.rrTp2Size === "number" ? params.rrTp2Size : DEFAULT_TP2_SIZE_PCT;
+  return (dep.runtimeState.tp1Done ? tp1 : 0) + (dep.runtimeState.tp2Done ? tp2 : 0);
+}
 
 const MODULES: Record<string, unknown> = {
   [maRrV9Module.key]: maRrV9Module,
@@ -470,11 +491,37 @@ export class LiveRunner {
       marketPosition: nextState.position,
       positionSize: nextState.position === "long" ? (dep.buyQuoteQty ?? 0) / decision.price : 0,
       prevMarketPosition: decision.action === "buy" ? "flat" : "long",
-      prevPositionSize: decision.action === "buy" ? 0 : (dep.buyQuoteQty ?? 0) / decision.price,
+      prevPositionSize:
+        decision.action === "buy"
+          ? 0
+          : sellContracts({
+              buyQuoteQty: dep.buyQuoteQty,
+              entryPrice: dep.runtimeState.entryPrice,
+              exitPrice: decision.price,
+            }),
+      /*
+       * BE-20: the base quantity to sell is what the ENTRY bought, reduced by
+       * whatever the take-profit tiers have already taken — not the original
+       * notional divided by the exit price, which is what the old dead ternary
+       * computed for both branches.
+       *
+       * Only the 3Commas payload reads this. The custom path uses
+       * `sell_percent` against the receiver's own tracked position, which is
+       * the more robust design.
+       */
       contracts:
         decision.action === "buy"
-          ? (dep.buyQuoteQty ?? 0) / decision.price
-          : (dep.buyQuoteQty ?? 0) / decision.price,
+          ? sellContracts({
+              buyQuoteQty: dep.buyQuoteQty,
+              entryPrice: decision.price,
+              exitPrice: decision.price,
+            })
+          : sellContracts({
+              buyQuoteQty: dep.buyQuoteQty,
+              entryPrice: dep.runtimeState.entryPrice,
+              exitPrice: decision.price,
+              alreadyExitedPct: exitedPctSoFar(dep),
+            }),
       sellPercent: decision.sellPercent,
       exitLeg: decision.exitLeg,
     };

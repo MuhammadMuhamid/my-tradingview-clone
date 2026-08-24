@@ -1,4 +1,5 @@
 import type { Interval } from "../types/market";
+import { isNetWin } from "./liveCosts";
 import type { RuntimeState } from "../types/deployments";
 import { FeedStore } from "./mtf";
 import { computeSignals } from "./strategies/mtf_lean/signals";
@@ -110,7 +111,11 @@ export function evaluateMtfLeanBar(
   }
 
   const finish = (reason: string, leg: "runner" | "stop" | "signal", price: number): void => {
-    const win = price > entry;
+    // BE-15: net of both commissions, matching the backtest's `pnl > 0` on
+    // `broker.closed`. Gross comparison made a +0.03 % exit a win here and a
+    // loss there, which flipped consecLosses and desynchronised the choppy
+    // pause — so the two took different trade sets from the same data.
+    const win = isNetWin(entry, price);
     if (win) {
       next.consecLosses = 0;
     } else {

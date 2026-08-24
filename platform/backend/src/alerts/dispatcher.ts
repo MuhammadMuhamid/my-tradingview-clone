@@ -286,3 +286,40 @@ export async function deliver(
   }
   return { status: "failed", httpStatus: lastStatus, responseBody: lastBody, attempts: maxAttempts };
 }
+
+/**
+ * Base-asset quantity for the `order.amount` field of a 3Commas SELL.
+ *
+ * BE-20: this was `buyQuoteQty / exitPrice`, with a ternary whose two branches
+ * were identical — dead code that looked like it handled the buy and sell cases
+ * differently. Two things were wrong with the value:
+ *
+ *  1. It divided by the EXIT price. The quantity held is what the entry bought,
+ *     `buyQuoteQty / entryPrice`. Dividing by a higher exit price understates
+ *     the position; by a lower one, overstates it.
+ *  2. It ignored partial exits. After TP1 has taken 40 %, only 60 % remains,
+ *     and a full-close instruction for the original size asks the receiver to
+ *     sell more base asset than the position holds.
+ *
+ * The custom-bot path is unaffected either way — it uses `sell_percent` against
+ * the receiver's own tracked position, which is the more robust design. This
+ * matters only for the 3Commas payload.
+ *
+ * `alreadyExitedPct` is the sum of the tiers taken so far. When the entry price
+ * is unknown the exit price is the only figure available, and using it is
+ * flagged rather than hidden.
+ */
+export function sellContracts(input: {
+  buyQuoteQty: number | null;
+  entryPrice: number | null;
+  exitPrice: number;
+  alreadyExitedPct?: number;
+}): number {
+  const quote = input.buyQuoteQty ?? 0;
+  if (quote <= 0) return 0;
+  const basisPrice = input.entryPrice && input.entryPrice > 0 ? input.entryPrice : input.exitPrice;
+  if (!Number.isFinite(basisPrice) || basisPrice <= 0) return 0;
+  const originalQty = quote / basisPrice;
+  const exited = Math.min(100, Math.max(0, input.alreadyExitedPct ?? 0));
+  return originalQty * (1 - exited / 100);
+}

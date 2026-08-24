@@ -19,6 +19,11 @@ is_allowed() {
     platform/deployment/aws/security_audit_*.mjs) return 0 ;;   # sha256 of the EXPECTED secret
     platform/deployment/aws/audit_live_lean15m_exact.mjs) return 0 ;; # config fingerprints
     */graphify-out/*) return 0 ;;                                # generated content hashes
+    # CONTRACT_FINGERPRINT is a sha256 digest of this file's own source, used to
+    # detect drift between the two repositories' vendored copies. The module is
+    # import-free and holds no configuration, so a credential there would be
+    # both pointless and obvious in review.
+    */contract/webhookContract.ts) return 0 ;;
     *.png|*.jpg|*.jpeg|*.pdf|*.zip|*.gz) return 0 ;;
   esac
   return 1
