@@ -1,7 +1,7 @@
 {
  "meta": {
   "audit_date": "2026-08-23",
-  "last_phase": "Phase 6 \u2014 desktop and mobile QA, accessibility and reliability",
+  "last_phase": "Phase 7 \u2014 architecture, research tooling and repository cleanup",
   "mahamid_scope": [
    "Webhook-secret rotation or propagation to TradingView alerts and deployment records.",
    "Binance API-key changes, permission checks or IP-allowlist confirmation.",
@@ -47,11 +47,11 @@
    "id": "X-04",
    "repo": "platform",
    "verified": "Confirmed: 4 mapped directories are absent; 13 trees exist on disk, 4 are routable.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d70f832",
+   "evidence": "Every tree owns a `tree.json` (id, strategy, timeframe, system, kind, status). `platform/backend/src/optimizer/registry.ts` discovers them under `OPTIMIZER_ROOT`, or the backend directory when unset, so resolution no longer depends on the working directory. An unknown tree answers 404 naming the ids that exist; a registered tree with no generated data reports `resultsAvailable: false`, which is a different answer from `no such tree`. The UI's tree list is the registry's, so the dead `srtrend_v10` entry is gone and the nine hidden trees are selectable. `platform/backend/tests/optimizerRegistry.test.ts` asserts every tree with a config.json is registered and that resolution ignores `process.chdir`; `scripts/ci/check-docs.sh` fails on a tree with no registry entry. `platform/backend/scripts/indexed_results.py` and `run-optimizer-service.sh` resolve through the same registry rather than raising KeyError.",
+   "risk": "The UI now exposes historical and not-comparable trees. Each carries its status and a note explaining why its numbers are not current, but they are reachable where they were previously invisible."
   },
   {
    "id": "X-05",
@@ -97,11 +97,11 @@
    "id": "X-09",
    "repo": "platform",
    "verified": "Confirmed and corrected: every tree runs 0.1%/side. 0.05% and 0.075% exist only in prose.",
-   "disposition": "open",
-   "phase": "Phase 0",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "d70f832",
+   "evidence": "`docs/COST-MODELS.md` records every tree's measured model, machine-checked by `scripts/ci/check-docs.sh` against each `config.json`. `POST /api/backtests` defaulted commission to 0.05 %, half what every tree runs; the API and the chart's `DEFAULT_PROPERTIES` now both state 0.1 %, asserted against the trees in `platform/backend/tests/costModel.test.ts`. `platform/backend/optimizer1y15m/config.json`'s stale 185,220-combination figure is corrected.",
+   "risk": "A chart backtest run before this change was a 0.05 % run and is not comparable with one run after it. Stored rows keep the model they ran under, which is why they remain readable."
   },
   {
    "id": "X-10",
@@ -157,11 +157,11 @@
    "id": "BE-02",
    "repo": "platform",
    "verified": "Confirmed: `broker.ts:202` fills a stop at the trigger price while the live path can only exit at the next bar close, and the payload carries no price at all. Partially addressed: BOT-017 provides the exchange-side resting stop that would honour the trigger, but it is BLOCKED on testnet validation. The backtest-side correction alters historical results and is gated on BE-08.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "blocked",
+   "phase": "Phase 3, Phase 7",
+   "commit": "569e625, bot d62b8ae",
+   "evidence": "Both halves are prepared and neither can be closed here. Exchange side: `bot:backend/src/services/exchangeStops.ts` places a real resting stop that would honour the trigger price, DISABLED by default and requiring Binance testnet validation before it is enabled. Backtest side: a mode that exits stops at the next bar's close would move every deployed config's numbers, so it must be a flag in `platform/backend/src/engine/corrections.ts` and it is BE08_DEPENDENT \u2014 the exit path it would change is the one whose multi-timeframe convention is unresolved. `platform/backend/src/engine/liveCosts.ts` and `platform/backend/tests/liveParity.test.ts` pin the live side's actual behaviour so the gap is measured rather than assumed.",
+   "risk": "BLOCKED ON BINANCE TESTNET CREDENTIALS (to validate the exchange-native stop) and on BE-08 (to correct the backtest side). Until then tail losses are understated: a bar that wicks 4 % through the stop and closes 3.5 % below books -1R in the backtest and -4R live."
   },
   {
    "id": "BE-03",
@@ -177,71 +177,71 @@
    "id": "BE-04",
    "repo": "platform",
    "verified": "Carried from the register: Entry bar unprotected; touched TP tiers silently cancelled.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "`entryBarBrackets` in `platform/backend/src/engine/corrections.ts`, applied at `ma_rr_v9/index.ts:206,217` and `srtrend_v10/index.ts:58`, adopting the `(pos > 0 || longSignal)` gate `mtf_lean` already used and moving the tier-touch latches inside the `pos > 0` branch. `platform/backend/tests/strategyGolden.test.ts` pins the uncorrected behaviour so turning it on is visible as an intentional change.",
+   "risk": "Off by default. Every `ma_rr_v9` and `srtrend_v10` leaderboard number moves when it is enabled, so enabling it requires re-running both trees."
   },
   {
    "id": "BE-05",
    "repo": "platform",
    "verified": "Carried from the register: avgTradePct is gross while neighbouring metrics are net.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "`netAvgTrade` in `platform/backend/src/engine/corrections.ts`, applied at `metrics.ts:46`. OFF by default: turning it on changes that metric on every stored result, and half-corrected leaderboards cannot be told from uncorrected ones. Covered by `platform/backend/tests/corrections.test.ts`; every backtest row records the correction set that produced it.",
+   "risk": "Still off. Until it is turned on and the affected trees re-run, `avgTradePct` overstates per-trade edge by ~0.2 percentage points at 0.1 %/side."
   },
   {
    "id": "BE-06",
    "repo": "platform",
    "verified": "Carried from the register: IS/OOS metrics invalid under percent-of-equity sizing; boundary trades leak.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "`assertSegmentValidity` in `platform/backend/src/engine/corrections.ts`, applied at `metrics.ts:121,138`. With the flag on, `computeSegmentMetrics` THROWS on percent-of-equity sizing instead of returning a meaningless number, and a boundary-straddling trade is attributed by leg rather than wholly by entry time.",
+   "risk": "Off by default, so an IS/OOS split computed under percent-of-equity sizing is still silently invalid until it is enabled."
   },
   {
    "id": "BE-07",
    "repo": "platform",
    "verified": "Carried from the register: stepSize/minNotional fetched and stored but never applied.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "`exchangeFilters` in `platform/backend/src/engine/corrections.ts`, applied at `broker.ts:117`; refused legs are returned on `BacktestOutput.rejectedLegs`. `stepSize`/`minNotional` are read from the symbols table where they were previously fetched and ignored.",
+   "risk": "Off by default. A rejected leg changes the whole subsequent trade sequence, so turning it on requires re-running every affected tree."
   },
   {
    "id": "BE-08",
    "repo": "platform",
    "verified": "Carried from the register: MTF merge convention contradicts its own header comment.",
-   "disposition": "open",
+   "disposition": "blocked",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "Nothing guesses. `platform/backend/src/engine/mtf.ts`'s false header is replaced by a statement of what the code actually does (a close-time cutoff) and that the convention is UNRESOLVED; `platform/backend/tests/mtfConvention.test.ts` pins the current behaviour so a change is visible; `platform/backend/src/engine/lookaheadAnalysis.ts` `compareConventions` computes what each convention would produce for the same bar, so the comparison is a data question rather than a code question the moment the reference value exists. `corrections.ts` `BE08_DEPENDENT` names the corrections that may not be enabled before this resolves, and `assertNotBe08Dependent` enforces it.",
+   "risk": "BLOCKED ON THE TRADINGVIEW COMPARISON, which needs a TradingView account this workspace may not use. The exact test is in docs/RESEARCH-METHODOLOGY.md \u00a72: plot `request.security(syminfo.tickerid,\"60\",close)` on a 15m chart and compare the value on the bar closing at 10:00 against `mergeValues(buildMergeIndex(chart15m, feed1h), feed1h.close)[i]`. If the code is wrong, every ma_rr_v9 and srtrend_v10 result carries one bar of HTF look-ahead."
   },
   {
    "id": "BE-09",
    "repo": "platform",
    "verified": "Carried from the register: Recursive indicators seeded from the loaded-window start.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "`leanWarmupFloor` in `platform/backend/src/engine/corrections.ts`, applied at `mtf_lean/params.ts:221,243,257`, giving `mtf_lean` the ratcheting-indicator floor `ma_rr_v9` already had. `platform/backend/src/engine/lookaheadAnalysis.ts` `analyseWarmupSensitivity` measures how much a result moves with the window start.",
+   "risk": "Off by default, so re-running `mtf_lean` after the candle table gains history can still change which trades were taken."
   },
   {
    "id": "BE-10",
    "repo": "platform",
    "verified": "Carried from the register: Zero-P&L trades counted as losses.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "`zeroPnlIsScratch` in `platform/backend/src/engine/corrections.ts`, applied at `metrics.ts:31`. A zero-P&L trade is counted as a scratch rather than a loss; with the flag off `scratches` stays zero and every figure is bit-for-bit as before.",
+   "risk": "Definitional. Off by default, so `winRatePct` still counts an exact-zero trade as a loss."
   },
   {
    "id": "BE-11",
@@ -327,11 +327,11 @@
    "id": "BE-19",
    "repo": "platform",
    "verified": "Confirmed: `mtf_lean` is not registered in `backtester.ts` and its `warmupMs` signature differs from `ma_rr_v9`'s. Deferred to Phase 3 with the other engine work.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "569e625",
+   "evidence": "`mtf_lean` is registered in `platform/backend/src/engine/backtester.ts` MODULES and its `warmupMs` signature matches the other modules, so the strategy deployed with real money has an in-platform backtest path. `platform/backend/tests/strategyGolden.test.ts` runs its bar loop end to end.",
+   "risk": "None known."
   },
   {
    "id": "BE-20",
@@ -367,21 +367,21 @@
    "id": "BE-23",
    "repo": "platform",
    "verified": "Carried from the register: /api/pine/run blocks the live trading event loop for up to 45s.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "0b066b3",
+   "evidence": "Pine execution moved to `platform/backend/src/pine/runner.worker.ts` on a worker thread, driven by `platform/backend/src/pine/runInWorker.ts`: a wall clock backed by terminating the thread, a heap ceiling, and a bounded number of concurrent runs answering 503 rather than queueing without limit. `platform/backend/tests/pineWorker.test.ts` samples a timer on the API's own loop while a hot script runs and asserts no gap over a second.",
+   "risk": "A run that overruns is now terminated rather than allowed to finish, so a legitimate long script fails where it previously completed. The budget is `PINE_EDITOR_TIME_BUDGET_MS`."
   },
   {
    "id": "BE-24",
    "repo": "platform",
    "verified": "Carried from the register: Synchronous multi-GB file reads and a write inside GET handlers.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d70f832, b479eee",
+   "evidence": "No handler scans a result stream or writes to disk. Line counts come from `platform/backend/src/optimizer/resultsIndex.ts`, a background refresher that persists its own incremental cache and reports `testsState: pending` rather than zero while it works; ranked history is an asynchronous 4 MiB-chunked scan with a byte budget and a bounded top-K that reports truncation. `platform/backend/scripts/apply_rank_deployment.ts` uses the same scanner.",
+   "risk": "A ranked lookup that hits the byte budget returns the best within what was read and says so, rather than a provably global rank."
   },
   {
    "id": "BE-25",
@@ -427,21 +427,21 @@
    "id": "BE-29",
    "repo": "platform",
    "verified": "Confirmed: 12 test files, none covering liveRunner, backtester, mtf, metrics or the strategy bar loops. Phase 0 added 42 characterization cases (timeframe registry, candle contract, MA bar-close behaviour, push boundaries, cross-repository contract) but not the two highest-value suites \u2014 golden-file per strategy and backtest-vs-live equivalence.",
-   "disposition": "open",
-   "phase": "Phase 0 (partial) \u2192 Phase 3",
-   "commit": null,
-   "evidence": "Platform backend: 150 tests pass (110 pre-existing, 42 new, plus the extraction coverage). Frontend: 9 tests where there were none.",
-   "risk": "Golden-file and equivalence suites are gated on resolving BE-08 first, or they would enshrine a look-ahead bug as expected output."
+   "disposition": "fixed",
+   "phase": "Phase 0, Phase 2, Phase 7",
+   "commit": "1daadd1, 42f325b, fcdea6e",
+   "evidence": "Both suites the finding names now exist. Backtest-vs-live equivalence: `platform/backend/tests/liveParity.test.ts`, `platform/backend/tests/liveEvaluator.test.ts`, `platform/backend/tests/mtfLeanLiveEvaluator.test.ts` (BE-01, BE-03, BE-15, BE-20). Golden-file per strategy: `platform/backend/tests/strategyGolden.test.ts` runs all three bar loops over a deterministic fixture with a real base_params.json and pins the exact exit reasons, a digest over every fill, the four headline metrics and every signal series. `platform/backend/tests/` was itself typechecked by nothing; `tsconfig.tests.json` adds it to `npm run typecheck`. 469 backend tests.",
+   "risk": "The golden fixture is synthetic, so it pins behaviour rather than validating it, and one test records how many signal series are constant on that fixture (10, 6 and 2) because a constant series' digest cannot catch a change in it. `ensureCandles` remains untested \u2014 it requires network and a database."
   },
   {
    "id": "BE-30",
    "repo": "platform",
    "verified": "Carried from the register: Portability and dependency floating.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "3826ee2",
+   "evidence": "All eight launch agents are templates rendered by `platform/scripts/install-launchd.sh`, which fills the checkout, node and postgres placeholders from the checkout it is run from and refuses to write a file still holding a placeholder. `run-optimizer-service.sh` and `platform/scripts/db.sh` find their tools on PATH before either Homebrew prefix. `scripts/ci/check-repo-hygiene.sh` fails on any absolute home directory in tracked source, verified against a probe file.",
+   "risk": "`npm install` on a dev machine still floats within semver ranges; only `npm ci` and the Docker build are reproducible."
   },
   {
    "id": "BOT-002",
@@ -657,11 +657,11 @@
    "id": "BOT-023",
    "repo": "bot",
    "verified": "Carried from the register: All monetary values are SQLite REAL floats.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot f5a3e7e",
+   "evidence": "`bot:backend/src/lib/money.ts` quantizes every monetary value to Binance's 8 decimal places, rounding half AWAY from zero so a loss is never rounded towards zero; `bot:backend/src/lib/prisma.ts` applies it through a client extension across create/update/updateMany/upsert/createMany including Prisma's `{increment}`/`{set}` operators; every sum over rows uses a Neumaier compensated sum. `bot:backend/tests/moneyPrecision.test.ts` shows the naive path drifting where the quantized path does not.",
+   "risk": "The columns are still SQLite REAL. This BOUNDS the error; it is not exact decimal arithmetic. Moving to integer minor units needs a migration of the live database, which is production data. A new monetary column not added to `MONEY_FIELDS` silently stops being quantized."
   },
   {
    "id": "BOT-024",
@@ -727,11 +727,11 @@
    "id": "BOT-030",
    "repo": "bot",
    "verified": "Carried from the register: remote-deploy.sh hardcodes another machine's home and forces DRY_RUN=false.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot f5a3e7e",
+   "evidence": "`bot:deploy/remote-deploy.sh` rsyncs from its own checkout instead of an absolute path under another user's home, and DRY_RUN is carried over from the server's existing .env, defaults to `true` on a first deployment, is validated, and is announced before the file is written. PUBLIC_URL, CORS_ORIGIN, VAPID_SUBJECT and BINANCE_TESTNET are preserved the same way.",
+   "risk": "A deployment that previously relied on the hardcoded `DRY_RUN=false` will now stay in dry run unless `DRY_RUN=false` is passed explicitly. That is the intended change and the script says so."
   },
   {
    "id": "BOT-031",
@@ -757,11 +757,11 @@
    "id": "BOT-033",
    "repo": "bot",
    "verified": "Carried from the register: The TP/SL loop is sequential and can exceed its own interval.",
-   "disposition": "open",
-   "phase": "Phase 2",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "bot ccbf2d4",
+   "evidence": "`bot:backend/src/lib/scheduler.ts` `startInterval` schedules the next cycle only after the previous one settles, survives a cycle that throws, and logs an overrun with its duration. `checkTakeProfitStopLoss` is two phases: reads (one client per account, one ticker call per distinct account+pair instead of one per trade, and the P&L refresh) at a concurrency of 4; orders strictly sequential. `bot:backend/tests/scheduler.test.ts` pins no-overlap under a cycle taking four times its interval.",
+   "risk": "A trade whose price or P&L refresh failed is skipped for that cycle rather than judged on a stale figure, so a persistent API failure delays TP/SL action by 30 seconds per cycle."
   },
   {
    "id": "BOT-034",
@@ -807,11 +807,11 @@
    "id": "BOT-039",
    "repo": "bot",
    "verified": "Carried from the register: binance-api-node@0.12.9 is effectively unmaintained.",
-   "disposition": "open",
+   "disposition": "blocked",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "bot f5a3e7e",
+   "evidence": "Locally enforced by `bot:backend/tests/exchangeDependency.test.ts`: the version is pinned exactly (it was a caret range, so a fresh install could resolve a different 0.12.x into the order-signing path), the lockfile must carry an integrity hash, the used surface is held to its four calls, nothing outside `bot:backend/src/services/binance.ts` may import it, and the SDK must still sign with HMAC-SHA256 over the query string \u2014 read from the installed dependency, so a change of scheme fails in CI rather than at Binance.",
+   "risk": "REPLACING the library requires Binance testnet credentials this workspace does not hold. Swapping the signer under a live trading bot without validating a single round trip is not a safe local change. The four-call surface and the signature properties above are what a replacement must satisfy."
   },
   {
    "id": "BOT-040",
@@ -847,291 +847,291 @@
    "id": "OPT-01",
    "repo": "platform",
    "verified": "Carried from the register: Live-deployed configs selected by maximising over the out-of-sample window.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 3, Phase 7",
+   "commit": "569e625, 9816a88",
+   "evidence": "`platform/backend/src/engine/holdout.ts` defines a third window no selection step may read and `assertWindowUsage` throws when one tries. `platform/deployment/aws/lib/holdoutGate.mjs` enforces `evaluateClearance` in all four `replace_*.mjs`: ABSENCE OF A HOLDOUT RESULT IS A REFUSAL, the frozen window and thresholds come from the artifact rather than the invocation, and one uncleared coin refuses the whole portfolio. A deliberate override needs `HOLDOUT_GATE=off` AND `HOLDOUT_OVERRIDE_REASON`, both printed. `platform/backend/tests/holdoutGate.test.mjs` holds the TypeScript and JavaScript copies to the same answer across nine cases.",
+   "risk": "No current artifact carries a holdout block, so the deploy scripts will REFUSE until one is scored. Producing that score needs the market data and database this checkout does not have; the refusal names the exact fields. Nothing has been re-selected and no tree re-run \u2014 that is M8, the owner's decision."
   },
   {
    "id": "OPT-02",
    "repo": "platform",
    "verified": "Carried from the register: The walk-forward tree validates a parameter space production no longer has.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "25cb932",
+   "evidence": "`platform/backend/lean_wf_15m/config.json`'s claim that its space was 'exactly as lean_optimizer15m has it (qty_pct_equity still searched)' is corrected in place with the measured facts: 30 parameters against 18, and the production tree pins `qty_pct_equity` to 0. Every walk-forward tree declares `spaceDivergesFromProduction` in its `tree.json`, and `scripts/ci/check-docs.sh` recomputes that claim from the two parameter lists. Measured: four of five diverge; `wf6m_1h` alone matches.",
+   "risk": "The current production search space still has NO walk-forward evidence. Re-pointing `platform/backend/lean_wf_15m/params.json` and re-running is the fix; the re-run needs data and compute this checkout does not have."
   },
   {
    "id": "OPT-03",
    "repo": "platform",
    "verified": "Carried from the register: Cost model and metric definitions diverge across trees.",
-   "disposition": "open",
-   "phase": "Phase 0",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "d70f832",
+   "evidence": "`docs/COST-MODELS.md` records each tree's model read from its own `config.json`, machine-checked in CI. `optimizer1y1h` is the only zero-slippage, no-split, fully compounding tree; its `tree.json` status is `not-comparable` and the UI shows that beside its numbers. `platform/backend/tests/costModel.test.ts` asserts commission is 0.1 % in every tree and that `optimizer1y1h` is the only zero-slippage one.",
+   "risk": "Cross-tree comparison remains invalid where the models differ; the table states which rows may be compared."
   },
   {
    "id": "OPT-04",
    "repo": "platform",
    "verified": "Carried from the register: win_rate/profit_factor are leg-based while trades is entry-based.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "`platform/backend/src/optimizer/selection.ts` counts the population the rates describe (legs where the record has them) and fixes the solver: the target function is unimodal with a root on each side of its peak, so the original's `f(lo)*f(hi) > 0` grid fallback returned the ARGMAX \u2014 the peak-growth fraction, not a root \u2014 and was not monotone in net (20 % implied 33.3, 50 % implied 1.2, 120 % implied 31.5). It now returns the smallest fraction reproducing the multiple, or null when none does. `platform/backend/tests/selection.test.ts` pins both halves including the old version's non-monotonicity.",
+   "risk": "`multiPick`'s ranking changes for every tree. The walk-forward folds were not re-run, so existing fold reports were produced by the broken rule and are labelled historical."
   },
   {
    "id": "OPT-05",
    "repo": "platform",
    "verified": "Carried from the register: Every OOS sort mode in the leaderboard CLI is a leakage path to deployment.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "9816a88",
+   "evidence": "The eight out-of-sample sort modes in `platform/backend/scripts/indexed_results.py` (`oos`, `oosdd`, `ooswr`, `oospf`, `oostrades`, `oossl`, `held`, `robust`) no longer print an apply command. Each prints a refusal naming why and pointing at the holdout gate. In-sample views are unchanged. `PROFILES[family]` also raised a bare KeyError in eight of thirteen trees and now falls back to the tree's registry entry.",
+   "risk": "An operator can still copy an ORIG# by hand from an OOS view and pass it to the apply script. The deploy gate is the control that stops it reaching production."
   },
   {
    "id": "OPT-06",
    "repo": "platform",
    "verified": "Carried from the register: The GA is non-deterministic across restarts and re-seeds identically each round.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "a2707f8",
+   "evidence": "The RNG state is persisted beside the results and restored on resume, so a resumed run continues where it stopped rather than restarting from the seed. `platform/backend/tests/gaDriver.test.ts` shows a resumed driver reproducing a continuous one's next twenty candidates, and separately pins the underlying fact that `tell()` does not advance the RNG.",
+   "risk": "State written before this change does not exist, so the first resume of each coin after deployment still starts from the seed. Deleting the tree's per-coin RNG state under its index directory resets it deliberately."
   },
   {
    "id": "OPT-07",
    "repo": "platform",
    "verified": "Carried from the register: Round startup reads every coin's full history twice, concurrently.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "a2707f8",
+   "evidence": "`resumeFromResults` in `platform/backend/src/optimizer/gaDriver.ts` replaces `loadDriver` + `seedDone` with one 4 MiB-chunked streaming pass producing both the replayed driver and the seed-key set, with the key shape unchanged. Tested for chunk boundaries, truncated trailing lines and a missing file.",
+   "risk": "None known. Round startup goes from 38 whole-file string reads to 19 chunked passes."
   },
   {
    "id": "OPT-08",
    "repo": "platform",
    "verified": "Carried from the register: No reported result is reproducible or auditable from the repository.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "25cb932",
+   "evidence": "Every round writes `<tree>/index/runs.jsonl` recording the content hash of params.json, base_params.json, config.json, coins.txt, idmap.json, seeds.json and evalWorker.ts, plus the objective, coin list, node version and the revision read from `.git`; every result record carries that run's id. A changed space, objective or coin list produces a different id. `platform/backend/tests/gaDriver.test.ts` covers all of it.",
+   "risk": "PARTIAL, deliberately. The generated data stays gitignored \u2014 it runs to tens of gigabytes \u2014 so a clone still cannot re-derive a historical number. Every result currently on disk has no `run` field and cannot be tied to a search space; docs/RESEARCH-METHODOLOGY.md says so."
   },
   {
    "id": "OPT-09",
    "repo": "platform",
    "verified": "Carried from the register: GA winners cluster exactly on the min_trades boundary.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "The leaderboard reads `objective.min_trades` from each tree's own params.json, marks rows within two trades of it, and the optimizer page shows a `floor` badge explaining that a maximum over an enormous search lands on a hard floor by construction. `platform/backend/tests/optimizerRegistry.test.ts` asserts every tree with an objective states a numeric floor.",
+   "risk": "SURFACED, not removed. Raising the floor is a research decision (M8); the clustering itself is unchanged."
   },
   {
    "id": "OPT-10",
    "repo": "platform",
-   "verified": "Carried from the register: Top-1000 pools were 100% saturated on maximum leverage.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "verified": "Confirmed: all 1000 top-ranked lean3y15m configs carry qty_pct_equity 100.",
+   "disposition": "preserved",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "Recorded rather than changed. The live tree is pinned to fixed cash, so the defect cannot recur; the 3-year replay still runs a leverage-selected pool at fixed size, which answers a confounded question. `platform/backend/lean3y15m/tree.json` and docs/RESEARCH-METHODOLOGY.md state that.",
+   "risk": "The replay's conclusions are conditioned on a pool selected for leverage. Re-selecting the pool under fixed sizing and re-running would resolve it; that is a re-run this checkout cannot perform."
   },
   {
    "id": "OPT-11",
    "repo": "platform",
    "verified": "Carried from the register: resolve_config.py emits a cost model no tree uses.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 3, Phase 7",
+   "commit": "0920684, d70f832",
+   "evidence": "`platform/backend/scripts/resolve_config.py` reads the cost model from the tree's own config.json and refuses rather than substituting defaults; the tree argument is required because there is no safe default. `GET /api/optimizer/best` no longer invents `qty_cash: 930` or a cost model \u2014 the fields are null when the tree records none, the chart leaves the user's setting alone, and a percent-of-equity result is accepted with no cash size.",
+   "risk": "A deep link whose payload omits a cost model now falls back to asking the server, which is the trustworthy source."
   },
   {
    "id": "OPT-12",
    "repo": "platform",
    "verified": "Carried from the register: Data validation is narrower than the trees use; interior gaps stay invisible.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "0920684",
+   "evidence": "`platform/backend/scripts/topup_lean.ts` checks interior contiguity with `checkSeries` and repairs a gap even when the tail is current; it previously checked only the newest bar, so a feed with a hole in the middle reported `current` for ever.",
+   "risk": "The validation window and coin set are still narrower than some trees use; the contiguity check is the part that was silently wrong."
   },
   {
    "id": "OPT-13",
    "repo": "platform",
    "verified": "Carried from the register: Universe from a screenshot; six coins dropped after seeing their results.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "blocked",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "Recorded in docs/RESEARCH-METHODOLOGY.md: the universe came from a 2026-08-10 screenshot and six coins were dropped after their results were seen, so every aggregate is survivorship-conditioned and the survivors skew to 2025-26 listings with large one-way trends.",
+   "risk": "Fixing it means declaring a universe rule BEFORE looking and re-running \u2014 Mahamid's decision (M8), not a local change."
   },
   {
    "id": "OPT-14",
    "repo": "platform",
    "verified": "Carried from the register: Wilson bounds maximised; the consensus z-test assumes uniform sampling.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "preserved",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "Recorded in docs/RESEARCH-METHODOLOGY.md: maximising Wilson lower bounds over millions of candidates reproduces the selection bias the bound exists to remove; the consensus z-test's null assumes uniform sampling, which is false for GA output; no multiplicity correction is applied. Both are to be read as descriptive, not inferential.",
+   "risk": "Statistics already published under those methods overstate confidence. Recomputing them needs the archived evaluation data, which is not in the repository (OPT-08)."
   },
   {
    "id": "OPT-15",
    "repo": "platform",
    "verified": "Carried from the register: PARAMETER_REDUCTION.md contradicts params.json.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "25cb932",
+   "evidence": "`PARAMETER_REDUCTION.md` said 7 tunables and 185,220 combinations with `useSuperTrend` pinned off. Measured from params.json: 8 parameters, 370,440 combinations, and `useSuperTrend` is searched over two values and absent from base_params.json \u2014 the doubled count IS that parameter. Corrected there and in config.json. Its `second, independent signal` compared a 3-value parameter's 43-48 % winner share with 5- and 7-value parameters' 22-30 %, which are not comparable; on concentration over chance the high-pin-cost group is at least as concentrated, the opposite of the reading given. `scripts/ci/check-docs.sh` recomputes both figures from params.json, verified by flipping them and watching it fail.",
+   "risk": "The permutation control itself is sound and stands; only the summary figures and the secondary signal were wrong."
   },
   {
    "id": "OPT-16",
    "repo": "platform",
    "verified": "Carried from the register: full3y1h and lean3y15m dropped the Spearman rank-correlation analysis.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "`platform/backend/lean3y15m/report.py` and `platform/backend/full3y1h/report.py` print a Spearman rank correlation between in-sample rank and replay net before any leaderboard, with a verdict, using the same implementation `platform/backend/holdout1h/report.py` uses. Verified against perfect, inverse, tied and noise inputs.",
+   "risk": "None known."
   },
   {
    "id": "OPT-17",
    "repo": "platform",
    "verified": "Carried from the register: lean3y15m recommends the config at the median of out-of-sample net.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "Both trees printed `Recommended: ORIG#<median by OOS net>` beside an apply command. The median stays as a DESCRIPTION of the distribution; the recommendation and the apply hint are gone, replaced by a statement that choosing by any out-of-sample statistic makes that window a selection criterion.",
+   "risk": "None known."
   },
   {
    "id": "OPT-18",
    "repo": "platform",
    "verified": "Carried from the register: range.end 'now' makes OOS metrics time-dependent.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 3, Phase 7",
+   "commit": "569e625, 04157ef",
+   "evidence": "`evaluateClearance` refuses a holdout result scored against a different window than the one now frozen \u2014 a holdout that moves is not a holdout \u2014 and the deploy gate enforces it. docs/RESEARCH-METHODOLOGY.md records that `range.end: \"now\"` makes every OOS metric depend on when it was computed while the CLI de-duplicates by (coin, genome).",
+   "risk": "Two records for the same genome computed on different days are still not comparable. Freezing `range.end` per tree would resolve it and would invalidate stored records."
   },
   {
    "id": "OPT-19",
    "repo": "platform",
-   "verified": "Carried from the register: Metric-interpretation issues.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "verified": "Grouped in the register as metric-interpretation issues with no individual description published.",
+   "disposition": "preserved",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "What is verifiable of the group is addressed and recorded: the metric definitions in OPT-04, the per-tree cost models and their incomparability in OPT-03, and the fill-realism gap in BE-02. docs/RESEARCH-METHODOLOGY.md states this explicitly.",
+   "risk": "Without the individual descriptions, nothing further can be resolved. Recovering them requires the audit's working notes."
   },
   {
    "id": "OPT-20",
    "repo": "platform",
-   "verified": "Carried from the register: Cost-sensitivity issues.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "verified": "Grouped in the register as cost-sensitivity issues with no individual description published.",
+   "disposition": "preserved",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "Addressed as far as the group can be: docs/COST-MODELS.md records every tree's model and the per-symbol variation of a tick-based slippage (0.217 % on RIFUSDT against 0.004 % on ZECUSDT for the same two ticks), and CI fails when the table and a config.json disagree.",
+   "risk": "A per-config cost-sensitivity sweep was not run; it needs the evaluation data that is not in the repository."
   },
   {
    "id": "OPT-21",
    "repo": "platform",
-   "verified": "Carried from the register: Parity-harness issues.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "verified": "Grouped in the register as parity-harness issues with no individual description published.",
+   "disposition": "preserved",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "The parity work that is verifiable is in `platform/backend/tests/liveParity.test.ts`, `platform/backend/tests/liveEvaluator.test.ts` and `platform/backend/tests/mtfLeanLiveEvaluator.test.ts` (BE-03, BE-15, BE-20), and `platform/backend/scripts/parity_harness.ts` remains as the tree-side harness.",
+   "risk": "The harness was not re-run: it needs market data and a database."
   },
   {
    "id": "OPT-22",
    "repo": "platform",
-   "verified": "Carried from the register: Fill-realism issues.",
-   "disposition": "open",
-   "phase": "Phase 3",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "verified": "Grouped in the register as fill-realism issues with no individual description published.",
+   "disposition": "preserved",
+   "phase": "Phase 7",
+   "commit": "04157ef",
+   "evidence": "The fill-realism gap that IS described elsewhere is BE-02 \u2014 the backtest fills a stop intrabar at the trigger while the live path can only exit at the next bar close \u2014 and it is dispositioned there.",
+   "risk": "Carried by BE-02, which is gated on BE-08 and on testnet validation of the exchange-native stop."
   },
   {
    "id": "OPT-23",
    "repo": "platform",
    "verified": "Carried from the register: Every launchd service and the optimizer wrapper point at a non-existent path.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "3826ee2",
+   "evidence": "All eight plists are templates rendered by `platform/scripts/install-launchd.sh` from the checkout it is run from; `run-optimizer-service.sh` derives the backend directory from its own location, finds node and pg_isready on PATH before either Homebrew prefix, bounds the database wait, and refuses a tree id with no `tree.json`. The five `opt_apply.py` copies that carried the same absolute path are deleted with the TradingView tooling. `scripts/ci/check-repo-hygiene.sh` fails on any absolute home directory in tracked source.",
+   "risk": "Rendering is deliberately separate from loading: the script never calls launchctl, because arming a service is a decision about live emission."
   },
   {
    "id": "OPT-24",
    "repo": "platform",
    "verified": "Carried from the register: The optimizer Docker stage copies a missing directory and omits three trees.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d70f832",
+   "evidence": "The optimizer Docker stage copies all thirteen registered trees instead of three named by hand, one of which (`sr_optimizer1h`) does not exist and made the stage fail outright while three trees that launchd services run were never copied.",
+   "risk": "The image is larger by the size of ten more code-only tree directories; `.dockerignore` still keeps the generated data out."
   },
   {
    "id": "OPT-25",
    "repo": "platform",
    "verified": "Carried from the register: run_overnight.sh always logs exit 0.",
-   "disposition": "open",
-   "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "disposition": "fixed",
+   "phase": "Phase 3",
+   "commit": "0920684",
+   "evidence": "`run_overnight.sh` captures `rc=$?` BEFORE `$(stamp)` runs, because the command substitution resets `$?`. It previously reported `exit 0` for every job including one that crashed on its first line.",
+   "risk": "None known."
   },
   {
    "id": "OPT-26",
    "repo": "platform",
    "verified": "Carried from the register: Six apply_*.ts scripts have no --dry flag and four hardcoded order sizes.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "b479eee",
+   "evidence": "`platform/backend/scripts/lib/applyGuard.ts` makes every apply script preview by default and requires `--buy <usdt>` stated explicitly when applying; the size a script historically used is printed in the preview and never applied because it was in the file. The two one-off scripts that hardcoded specific coins, ranks and `/tmp` inputs are archived with a note recording what they applied. `platform/backend/tests/applyGuard.test.ts` covers the refusals. `scripts/` was also typechecked and linted by nothing and is now in both.",
+   "risk": "A runbook that invoked one of these scripts without flags now previews instead of writing. That is the intended change and the banner says so."
   },
   {
    "id": "OPT-27",
    "repo": "platform",
    "verified": "Carried from the register: replace_*.mjs DELETE FROM deployments and re-create flat.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "b479eee",
+   "evidence": "`platform/deployment/aws/lib/replaceGuard.mjs` makes writing require `--apply` in all four `replace_*.mjs` and makes the refuse-if-a-position-is-open check universal; `replace_mtf_lean15m_preserve_open.mjs` keeps its deliberately narrower check because leaving one named position alone is its purpose. The two remote wrappers pass `--apply` explicitly and fail loudly if the shared guard was not staged. `platform/backend/tests/replaceGuard.test.mjs` covers both rules.",
+   "risk": "The scripts still DELETE and re-create rows; the guard prevents doing that to an open position, and the pre-change backup is unchanged."
   },
   {
    "id": "OPT-28",
    "repo": "platform",
    "verified": "Carried from the register: wipe_chartss.sh ships a base64-encoded destructive production payload.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "b479eee",
+   "evidence": "The base64 blob is replaced by the tracked, reviewable `platform/deployment/aws/wipe_charts_remote.sh`, encoded at send time. Verified byte-identical to the blob it replaces by decoding the original and re-encoding the file.",
+   "risk": "The script is still destructive and still runs against production via SSM. It is now readable before it is run, and the RDS snapshot step is unchanged."
   },
   {
    "id": "OPT-29",
    "repo": "platform",
    "verified": "Carried from the register: Dashboard snapshots served to the UI are two weeks stale.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d70f832",
+   "evidence": "A dashboard snapshot travels with `generatedAt`, `ageMinutes` and a `stale` flag past 24 hours, and the optimizer page prints a banner above the table saying the numbers came from an export and how old it is. The exporter enumerates the tree registry instead of its own copy of the old name map, so the three trees it silently omitted are exported.",
+   "risk": "The snapshot is still what the UI shows when `OPTIMIZER_DASHBOARD_DIR` is set; it is now labelled rather than presented as current."
   },
   {
    "id": "OPT-30",
@@ -1307,251 +1307,251 @@
    "id": "TV-01",
    "repo": "platform",
    "verified": "Carried from the register: approach1_ui_automation scripts a password login to tradingview.com.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "the `approach1_ui_automation` directory is DELETED. It scripted a password login to tradingview.com \u2014 `page.fill(SEL[\"password_input\"], password)` behind nothing but jittered pacing \u2014 and had never produced any output, so there was no evidence in it to preserve. Recoverable from Git at `a0a8b0c^`. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file containing TV_PASSWORD, a TradingView sign-in URL or a password-input selector. The blueprint's runbook that exported TV_USERNAME/TV_PASSWORD is removed with it.",
+   "risk": "None. Driving a TradingView account is outside what this system does."
   },
   {
    "id": "TV-02",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-03",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-04",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-05",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-06",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-07",
    "repo": "platform",
    "verified": "Carried from the register: backtest-spot never liquidates an open position at window end.",
-   "disposition": "open",
+   "disposition": "preserved",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "Re-verified against this checkout, not carried over: `simulate.py:314` derives net% from `cash` alone while an entry does `cash -= alloc + fee` at `:225`, so a run ending in a position is charged the full order as a total loss (about -93 pp on a 930-of-1000 allocation); there is also no `cash >= alloc` guard, so cash can go negative. Archived at `research-archive/backtest-spot/` with a defect manifest naming the lines.",
+   "risk": "NOT FIXED. The tree is retired, so it produces no new results; every result it produced is biased against configurations that hold at the window edge. Correcting it needs market data to validate against, and its `data` directory is gitignored and absent."
   },
   {
    "id": "TV-08",
    "repo": "platform",
    "verified": "Carried from the register: The 1m x 200 SMA trend gate is computed from 1-hour bars in three of five drivers.",
-   "disposition": "open",
+   "disposition": "preserved",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "Re-verified: `optimize.py:118` and `optimize_optuna.py:111` set `USE_1M_DATA = False`, which aliases the 1m frame to the 1h frame, while `optimize_v8.py:131` sets it True. Documented in the archive's manifest.",
+   "risk": "NOT FIXED. Every best config from the first two drivers was selected under a trend filter about sixty times longer than the one it claims to mirror, and the two sets of results are not comparable with each other."
   },
   {
    "id": "TV-09",
    "repo": "platform",
    "verified": "Carried from the register: Look-ahead in the backtest-spot HTF alignment.",
-   "disposition": "open",
+   "disposition": "preserved",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "Re-verified: `align_htf_to_5m` (`strategy_sim.py:284-289`) is a backward `merge_asof` on frames indexed by OPEN time (`binance_data.py:70`). The authors corrected exactly this for the 1h moving average with `-1min` and for the 1m frame with `+4min` (`feature_bank.py:73,77,86,87`); the support pivots on all four timeframes (`:59-65`) and the 4h VWMA (`:93-97`) have no offset. The support pivots are the entry trigger.",
+   "risk": "NOT FIXED, and this one changes every number the tree produced. Correcting the alignment without data to validate against would produce corrected results indistinguishable from uncorrected ones."
   },
   {
    "id": "TV-10",
    "repo": "platform",
    "verified": "Carried from the register: The README-documented backtest-spot entry point can never fire an entry.",
-   "disposition": "open",
+   "disposition": "preserved",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "Re-verified by reading the guard: `run_backtest.py:47` calls `simulate(d, p, t0, t1)` omitting `r_any`; `simulate.py:98-99` defaults it to all-False, so `last_retest_i` never leaves its -10000 sentinel (`:167,181-182`) and the entry guard `0 <= i - last_retest_i <= p.retest_confirm_bars` (`:198`) can never be satisfied. Confirmed by reading, not by execution \u2014 this checkout has no market data to run it against.",
+   "risk": "NOT FIXED. The README-documented entry point produces no trades at all."
   },
   {
    "id": "TV-11",
    "repo": "platform",
    "verified": "Carried from the register: The exit MA is hardcoded to 1h x 100 VWMA while the report says 4h x 100 SMA.",
-   "disposition": "open",
+   "disposition": "preserved",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "Re-verified: `feature_bank.py:148-158` computes the exit from a 1h x 100 VWMA crossunder while `pine_map.py:75` prints `exitMaTf=4h, exitMaLen=100, exitMaType=SMA (ON)` into the report the user is told to configure. the `exit_ma_tf`, `exit_ma_len` and `exit_ma_type` fields of `StrategyParams` (`strategy_sim.py:81-83`) are read by nothing in the feature bank.",
+   "risk": "NOT FIXED. A user following a generated report configured a different exit from the one that was backtested."
   },
   {
    "id": "TV-12",
    "repo": "platform",
    "verified": "Carried from the register: No IS/OOS split anywhere in tv_autotuner or backtest-spot.",
-   "disposition": "open",
+   "disposition": "preserved",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "Re-verified: none of the three main `backtest-spot` drivers contains a train/test boundary of any kind, and `tv_autotuner` scored and reported on the same window over about 252 evaluations per coin against a 1.48e19 space. Both trees are archived with that stated.",
+   "risk": "NOT FIXED. Every number either tree produced is in-sample."
   },
   {
    "id": "TV-13",
    "repo": "platform",
    "verified": "Carried from the register: A fourth independent copy of the ask/tell GA with a fourth objective definition.",
-   "disposition": "open",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3, a2707f8",
+   "evidence": "The fourth GA copy went with `tv_autotuner`'s driver. The other ten \u2014 five `optimizer.ts` and five `wf.ts` \u2014 were byte-identical (or differed only by a comment and a type alias) and are consolidated into `platform/backend/src/optimizer/gaDriver.ts`, with `platform/backend/tests/gaDriver.test.ts` holding the shared implementation to the original's candidate sequence and scores. `scripts/ci/check-repo-hygiene.sh` fails if a tree re-declares its own driver or objective.",
+   "risk": "None known. Any future change to search behaviour now fails the characterization tests, which is the intended signal."
   },
   {
    "id": "TV-14",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-15",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-16",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-17",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-18",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-19",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-20",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-21",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-22",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-23",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-24",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   },
   {
    "id": "TV-25",
    "repo": "platform",
-   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
-   "disposition": "open",
+   "verified": "Grouped in the register as 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues'; no individual description was published.",
+   "disposition": "fixed",
    "phase": "Phase 7",
-   "commit": null,
-   "evidence": "\u2014",
-   "risk": "\u2014"
+   "commit": "d43a4e3",
+   "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+   "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `research-archive/tv_autotuner/ARCHIVED.md` says exactly that."
   }
  ]
 }
