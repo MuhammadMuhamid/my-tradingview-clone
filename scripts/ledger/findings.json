@@ -1,0 +1,1557 @@
+{
+ "meta": {
+  "audit_date": "2026-08-23",
+  "last_phase": "Phase 0 \u2014 professional foundation",
+  "mahamid_scope": [
+   "Webhook-secret rotation or propagation to TradingView alerts and deployment records.",
+   "Binance API-key changes, permission checks or IP-allowlist confirmation.",
+   "Any AWS inspection or modification, and any production deployment.",
+   "Production database access, and confirmation of production runtime state.",
+   "Live exchange, wallet, webhook or order operations.",
+   "TradingView account operations, including the MTF parity comparison that gates BE-08.",
+   "Binance testnet operations, which need credentials this workspace does not hold."
+  ]
+ },
+ "findings": [
+  {
+   "id": "X-01",
+   "repo": "both",
+   "verified": "Confirmed by inspection: sender clamps to 100, receiver schema is `.lt(100)`.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-02",
+   "repo": "both",
+   "verified": "Confirmed: platform barIndex is floor(epoch/interval); Pine bar_index is chart-relative.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-03",
+   "repo": "both",
+   "verified": "Confirmed: liveRunner consumes only `flat` from a two-state report.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-04",
+   "repo": "platform",
+   "verified": "Confirmed: 4 mapped directories are absent; 13 trees exist on disk, 4 are routable.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-05",
+   "repo": "bot",
+   "verified": "Confirmed present in two tracked files at audit time.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-06",
+   "repo": "platform",
+   "verified": "Confirmed: `LIVE_RUNNER_ENABLED !== \"false\"`, and the plist sets no environment.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-07",
+   "repo": "bot",
+   "verified": "Confirmed: the `dev-insecure-key` fallback is reachable whenever DRY_RUN is true.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-08",
+   "repo": "bot",
+   "verified": "Confirmed: length-only salt validation; `Buffer.from(str,'hex')` truncates silently.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-09",
+   "repo": "platform",
+   "verified": "Confirmed and corrected: every tree runs 0.1%/side. 0.05% and 0.075% exist only in prose.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-10",
+   "repo": "platform",
+   "verified": "Confirmed: the frontend reads opt-in, the backend reads opt-out plus a hash check.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-11",
+   "repo": "platform",
+   "verified": "Confirmed: AWS account id, stack name, instance ids and hostnames in tracked docs and scripts.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-12",
+   "repo": "both",
+   "verified": "Confirmed: `ignored_stale_sell` returns HTTP 200 and the dispatcher treats any 2xx as sent.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "X-13",
+   "repo": "audit process",
+   "verified": "Incident record for X-05. No rotation, use or propagation performed in this programme.",
+   "disposition": "blocked",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "Nothing to fix in code; the required action is the owner's.",
+   "risk": "The credential must be treated as exposed until Mahamid rotates it."
+  },
+  {
+   "id": "BE-01",
+   "repo": "platform",
+   "verified": "Carried from the register: Live MTF feed is two bars staler than the backtest's.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-02",
+   "repo": "platform",
+   "verified": "Carried from the register: Backtest fills stops intrabar at the trigger; live cannot.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-03",
+   "repo": "platform",
+   "verified": "Carried from the register: Exit precedence inverted between backtest and live.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-04",
+   "repo": "platform",
+   "verified": "Carried from the register: Entry bar unprotected; touched TP tiers silently cancelled.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-05",
+   "repo": "platform",
+   "verified": "Carried from the register: avgTradePct is gross while neighbouring metrics are net.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-06",
+   "repo": "platform",
+   "verified": "Carried from the register: IS/OOS metrics invalid under percent-of-equity sizing; boundary trades leak.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-07",
+   "repo": "platform",
+   "verified": "Carried from the register: stepSize/minNotional fetched and stored but never applied.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-08",
+   "repo": "platform",
+   "verified": "Carried from the register: MTF merge convention contradicts its own header comment.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-09",
+   "repo": "platform",
+   "verified": "Carried from the register: Recursive indicators seeded from the loaded-window start.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-10",
+   "repo": "platform",
+   "verified": "Carried from the register: Zero-P&L trades counted as losses.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-11",
+   "repo": "platform",
+   "verified": "Carried from the register: No kill switch, daily-loss limit, exposure cap or order-rate cap.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-12",
+   "repo": "platform",
+   "verified": "Carried from the register: Webhook retries can duplicate real orders on the 3Commas path.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-13",
+   "repo": "platform",
+   "verified": "Carried from the register: Crash between delivery and persistence re-fires the order.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-14",
+   "repo": "platform",
+   "verified": "Carried from the register: 1.5% silent data-gap tolerance in the live path.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-15",
+   "repo": "platform",
+   "verified": "Carried from the register: Live win/loss ignores fees, desynchronising the circuit breaker.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-16",
+   "repo": "platform",
+   "verified": "Carried from the register: Dedupe-key skip reported to the caller as accepted.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-17",
+   "repo": "platform",
+   "verified": "Carried from the register: Position-sync POSTs the decrypted secret to a URL that is not re-validated.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-18",
+   "repo": "platform",
+   "verified": "Carried from the register: Single-emitter enforced only by an in-memory Set.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-19",
+   "repo": "platform",
+   "verified": "Carried from the register: mtf_lean cannot be backtested through the platform.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-20",
+   "repo": "platform",
+   "verified": "Carried from the register: Live SELL contracts computed from the original size, with a dead ternary.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-21",
+   "repo": "platform",
+   "verified": "Carried from the register: Platform authentication silently disables itself.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-22",
+   "repo": "platform",
+   "verified": "Carried from the register: Path traversal in the optimizer routes.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-23",
+   "repo": "platform",
+   "verified": "Carried from the register: /api/pine/run blocks the live trading event loop for up to 45s.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-24",
+   "repo": "platform",
+   "verified": "Carried from the register: Synchronous multi-GB file reads and a write inside GET handlers.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-25",
+   "repo": "platform",
+   "verified": "Carried from the register: No rate limiting anywhere, including sign-in; session identity unchecked.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-26",
+   "repo": "platform",
+   "verified": "Carried from the register: MA-alert symbols bypass assertSymbol and reach the WebSocket URL builder.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-27",
+   "repo": "platform",
+   "verified": "Carried from the register: Receiver response bodies stored and served verbatim.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-28",
+   "repo": "platform",
+   "verified": "Carried from the register: AWS account id and Secrets Manager ARN in a committed script.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-29",
+   "repo": "platform",
+   "verified": "Carried from the register: Test coverage inverted relative to risk.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BE-30",
+   "repo": "platform",
+   "verified": "Carried from the register: Portability and dependency floating.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-002",
+   "repo": "bot",
+   "verified": "Carried from the register: PASTE_IN_CLOUDSHELL.txt pipes an ephemeral third-party URL into bash.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-003",
+   "repo": "bot",
+   "verified": "Carried from the register: Default bot config is the maximum-risk one.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-004",
+   "repo": "bot",
+   "verified": "Carried from the register: .env.example ships DRY_RUN=false with placeholders that pass every check.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-005",
+   "repo": "bot",
+   "verified": "Carried from the register: Double-sell race: three of four close paths never take the lock.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-006",
+   "repo": "bot",
+   "verified": "Carried from the register: Recorded quantity is gross of commission.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-007",
+   "repo": "bot",
+   "verified": "Carried from the register: An order that succeeds then throws leaves an untracked live position.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-008",
+   "repo": "bot",
+   "verified": "Carried from the register: detectManualCloses fabricates P&L and closes partially drained trades.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-009",
+   "repo": "bot",
+   "verified": "Carried from the register: Registration is world-open until the first account exists; TOCTOU race.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-010",
+   "repo": "bot",
+   "verified": "Carried from the register: Express 4 does not catch async errors; requests hang forever.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-011",
+   "repo": "bot",
+   "verified": "Carried from the register: No kill switch, max exposure, daily-loss limit or concurrency cap.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-012",
+   "repo": "bot",
+   "verified": "Carried from the register: direction short/reversal is offered and stored but never affects order side.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-013",
+   "repo": "bot",
+   "verified": "Carried from the register: 'per Bot' and 'per SmartTrade' investment units compute identically.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-014",
+   "repo": "bot",
+   "verified": "Carried from the register: toFixed(2) rounds the quote up, so default-sized buys are rejected.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-015",
+   "repo": "bot",
+   "verified": "Carried from the register: exitEnabled defaults to false, so a default bot rejects every exit webhook.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-016",
+   "repo": "bot",
+   "verified": "Carried from the register: The webhook secret is served on every 15-second dashboard poll.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-017",
+   "repo": "bot",
+   "verified": "Carried from the register: No exchange-native stop-loss; protection dies with the process.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-018",
+   "repo": "bot",
+   "verified": "Carried from the register: Stale quantity in the TP/SL loop.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-019",
+   "repo": "bot",
+   "verified": "Carried from the register: Stale-sell guard is in-memory and evaporates on restart.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-020",
+   "repo": "bot",
+   "verified": "Carried from the register: No terminal Express error middleware; NODE_ENV unset in the image.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-021",
+   "repo": "bot",
+   "verified": "Carried from the register: nginx.conf omits X-Forwarded-For, collapsing every client into one bucket.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-022",
+   "repo": "bot",
+   "verified": "Carried from the register: frontend/nginx.conf sets no security headers on the HTML document.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-023",
+   "repo": "bot",
+   "verified": "Carried from the register: All monetary values are SQLite REAL floats.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-024",
+   "repo": "bot",
+   "verified": "Carried from the register: PartialClose index dropped and never recreated; no SmartTrade.status index.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-025",
+   "repo": "bot",
+   "verified": "Carried from the register: exchangeOrderId nullable and non-unique; no tenant scoping or audit trail.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-026",
+   "repo": "bot",
+   "verified": "Carried from the register: One 30/min limiter shared between order signals and a polling endpoint.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-027",
+   "repo": "bot",
+   "verified": "Carried from the register: Buy dedupe blocks legitimate scale-ins and returns HTTP 200.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-028",
+   "repo": "bot",
+   "verified": "Carried from the register: nginx-host-ssl.conf proxies port 80 to itself.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-029",
+   "repo": "bot",
+   "verified": "Carried from the register: Containers run as root, no healthcheck, no database backup.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-030",
+   "repo": "bot",
+   "verified": "Carried from the register: remote-deploy.sh hardcodes another machine's home and forces DRY_RUN=false.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-031",
+   "repo": "bot",
+   "verified": "Carried from the register: No MIN_NOTIONAL check; a zero-fill order creates an immortal trade.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-032",
+   "repo": "bot",
+   "verified": "Carried from the register: floorToStep float error leaves dust.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-033",
+   "repo": "bot",
+   "verified": "Carried from the register: The TP/SL loop is sequential and can exceed its own interval.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-034",
+   "repo": "bot",
+   "verified": "Carried from the register: Starting a bot has no confirmation; live-vs-dry-run is invisible.",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-035",
+   "repo": "bot",
+   "verified": "Carried from the register: DRY_RUN is not a simulation \u2014 simulated exits are capped by real balances.",
+   "disposition": "open",
+   "phase": "Phase 2",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-037",
+   "repo": "bot",
+   "verified": "Carried from the register: Zero tests, zero CI.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-038",
+   "repo": "bot",
+   "verified": "Carried from the register: Webhook secret comparison is a DB lookup rather than constant-time.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-039",
+   "repo": "bot",
+   "verified": "Carried from the register: binance-api-node@0.12.9 is effectively unmaintained.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-040",
+   "repo": "bot",
+   "verified": "Carried from the register: An anonymous /login visit spends from the shared refresh budget.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-041",
+   "repo": "bot",
+   "verified": "Carried from the register: Assorted minor items.",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "BOT-A",
+   "repo": "bot",
+   "verified": "Alias for BOT-017 in the register's priority table; not a separate finding.",
+   "disposition": "corrected",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "Tracked as `BOT-017`.",
+   "risk": "None \u2014 identifier bookkeeping only."
+  },
+  {
+   "id": "OPT-01",
+   "repo": "platform",
+   "verified": "Carried from the register: Live-deployed configs selected by maximising over the out-of-sample window.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-02",
+   "repo": "platform",
+   "verified": "Carried from the register: The walk-forward tree validates a parameter space production no longer has.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-03",
+   "repo": "platform",
+   "verified": "Carried from the register: Cost model and metric definitions diverge across trees.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-04",
+   "repo": "platform",
+   "verified": "Carried from the register: win_rate/profit_factor are leg-based while trades is entry-based.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-05",
+   "repo": "platform",
+   "verified": "Carried from the register: Every OOS sort mode in the leaderboard CLI is a leakage path to deployment.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-06",
+   "repo": "platform",
+   "verified": "Carried from the register: The GA is non-deterministic across restarts and re-seeds identically each round.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-07",
+   "repo": "platform",
+   "verified": "Carried from the register: Round startup reads every coin's full history twice, concurrently.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-08",
+   "repo": "platform",
+   "verified": "Carried from the register: No reported result is reproducible or auditable from the repository.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-09",
+   "repo": "platform",
+   "verified": "Carried from the register: GA winners cluster exactly on the min_trades boundary.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-10",
+   "repo": "platform",
+   "verified": "Carried from the register: Top-1000 pools were 100% saturated on maximum leverage.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-11",
+   "repo": "platform",
+   "verified": "Carried from the register: resolve_config.py emits a cost model no tree uses.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-12",
+   "repo": "platform",
+   "verified": "Carried from the register: Data validation is narrower than the trees use; interior gaps stay invisible.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-13",
+   "repo": "platform",
+   "verified": "Carried from the register: Universe from a screenshot; six coins dropped after seeing their results.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-14",
+   "repo": "platform",
+   "verified": "Carried from the register: Wilson bounds maximised; the consensus z-test assumes uniform sampling.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-15",
+   "repo": "platform",
+   "verified": "Carried from the register: PARAMETER_REDUCTION.md contradicts params.json.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-16",
+   "repo": "platform",
+   "verified": "Carried from the register: full3y1h and lean3y15m dropped the Spearman rank-correlation analysis.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-17",
+   "repo": "platform",
+   "verified": "Carried from the register: lean3y15m recommends the config at the median of out-of-sample net.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-18",
+   "repo": "platform",
+   "verified": "Carried from the register: range.end 'now' makes OOS metrics time-dependent.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-19",
+   "repo": "platform",
+   "verified": "Carried from the register: Metric-interpretation issues.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-20",
+   "repo": "platform",
+   "verified": "Carried from the register: Cost-sensitivity issues.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-21",
+   "repo": "platform",
+   "verified": "Carried from the register: Parity-harness issues.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-22",
+   "repo": "platform",
+   "verified": "Carried from the register: Fill-realism issues.",
+   "disposition": "open",
+   "phase": "Phase 3",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-23",
+   "repo": "platform",
+   "verified": "Carried from the register: Every launchd service and the optimizer wrapper point at a non-existent path.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-24",
+   "repo": "platform",
+   "verified": "Carried from the register: The optimizer Docker stage copies a missing directory and omits three trees.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-25",
+   "repo": "platform",
+   "verified": "Carried from the register: run_overnight.sh always logs exit 0.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-26",
+   "repo": "platform",
+   "verified": "Carried from the register: Six apply_*.ts scripts have no --dry flag and four hardcoded order sizes.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-27",
+   "repo": "platform",
+   "verified": "Carried from the register: replace_*.mjs DELETE FROM deployments and re-create flat.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-28",
+   "repo": "platform",
+   "verified": "Carried from the register: wipe_chartss.sh ships a base64-encoded destructive production payload.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-29",
+   "repo": "platform",
+   "verified": "Carried from the register: Dashboard snapshots served to the UI are two weeks stale.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "OPT-30",
+   "repo": "platform",
+   "verified": "Carried from the register: CLAUDE_HANDOFF.md describes a system that no longer exists.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-01",
+   "repo": "platform",
+   "verified": "Carried from the register: Chart Alert button creates a LIVE 800 USDT deployment and activates it.",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-02",
+   "repo": "platform",
+   "verified": "Carried from the register: Unvalidated open redirect immediately after authentication.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-03",
+   "repo": "platform",
+   "verified": "Carried from the register: Frontend auth gate fails open and is baked in at build time.",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-04",
+   "repo": "platform",
+   "verified": "Carried from the register: Cookie-presence-only gate (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-05",
+   "repo": "platform",
+   "verified": "Carried from the register: No CSP or frame-ancestors protection (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-06",
+   "repo": "platform",
+   "verified": "Carried from the register: A GET link writes server state and auto-runs a backtest (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-07",
+   "repo": "platform",
+   "verified": "Carried from the register: No AbortSignal on roughly 55 endpoints (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 4",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-08",
+   "repo": "platform",
+   "verified": "Carried from the register: No React error boundary (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-09",
+   "repo": "platform",
+   "verified": "Carried from the register: Binance WebSockets have no onerror/onclose/reconnect; prices freeze silently (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 4",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-10",
+   "repo": "platform",
+   "verified": "Carried from the register: Secrets rendered in type=\"text\" inputs (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 1",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-11",
+   "repo": "platform",
+   "verified": "Carried from the register: An undefined `warn` colour renders the OPEN TRADE banner invisible (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-12",
+   "repo": "platform",
+   "verified": "Carried from the register: No catch on activate/pause/delete of live deployments (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-13",
+   "repo": "platform",
+   "verified": "Carried from the register: Pervasive empty catch {} blocks (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-14",
+   "repo": "platform",
+   "verified": "Carried from the register: Frontend robustness item grouped in the register without an individual description (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-15",
+   "repo": "platform",
+   "verified": "Carried from the register: Frontend robustness item grouped in the register without an individual description (the register groups FE-04\u2013FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+   "disposition": "open",
+   "phase": "Phase 6",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "FE-18",
+   "repo": "platform",
+   "verified": "Carried from the register: ESLint is not installed, so six eslint-disable comments are inert.",
+   "disposition": "open",
+   "phase": "Phase 0",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-01",
+   "repo": "platform",
+   "verified": "Carried from the register: approach1_ui_automation scripts a password login to tradingview.com.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-02",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-03",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-04",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-05",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-06",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-07",
+   "repo": "platform",
+   "verified": "Carried from the register: backtest-spot never liquidates an open position at window end.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-08",
+   "repo": "platform",
+   "verified": "Carried from the register: The 1m x 200 SMA trend gate is computed from 1-hour bars in three of five drivers.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-09",
+   "repo": "platform",
+   "verified": "Carried from the register: Look-ahead in the backtest-spot HTF alignment.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-10",
+   "repo": "platform",
+   "verified": "Carried from the register: The README-documented backtest-spot entry point can never fire an entry.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-11",
+   "repo": "platform",
+   "verified": "Carried from the register: The exit MA is hardcoded to 1h x 100 VWMA while the report says 4h x 100 SMA.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-12",
+   "repo": "platform",
+   "verified": "Carried from the register: No IS/OOS split anywhere in tv_autotuner or backtest-spot.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-13",
+   "repo": "platform",
+   "verified": "Carried from the register: A fourth independent copy of the ask/tell GA with a fourth objective definition.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-14",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-15",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-16",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-17",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-18",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-19",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-20",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-21",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-22",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-23",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-24",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  },
+  {
+   "id": "TV-25",
+   "repo": "platform",
+   "verified": "Grouped in the register under 'TV-02\u2013TV-06, TV-13\u2013TV-25 experimental-tree issues' (an unauthenticated CDP debugging port, a tracked TradingView session cookie jar, and timeout handling that records the previous config's metrics against a new genome). No individual description was published.",
+   "disposition": "open",
+   "phase": "Phase 7",
+   "commit": null,
+   "evidence": "\u2014",
+   "risk": "\u2014"
+  }
+ ]
+}

@@ -1,0 +1,78 @@
+# Safe CI: install, lint, typecheck, test and build only.
+#
+# Deliberately absent — and it must stay that way:
+#   * no deployment, no AWS credentials, no production database
+#   * no exchange, webhook or TradingView network calls
+#   * no optimizer or backtest runs (they read multi-GB result files)
+# Every job runs offline apart from the npm registry.
+name: CI
+
+on:
+  push:
+    branches-ignore: []
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No secret has a real value here. The suites run against fixtures only.
+  CI: "true"
+
+jobs:
+  backend:
+    name: platform backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  frontend:
+    name: platform frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  hygiene:
+    name: repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no credential-shaped literals in tracked source
+        run: bash scripts/ci/scan-secrets.sh
+      - name: documented paths and cost-model figures match the source
+        run: bash scripts/ci/check-docs.sh
+      - name: remediation ledger is in sync with its source of truth
+        run: python3 scripts/ledger/render.py --check
