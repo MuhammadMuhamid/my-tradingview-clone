@@ -2,11 +2,16 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
-import { api, type MaAlert, type MaAlertMode, type MaType } from "@/lib/api";
+import { FrequencyField } from "@/components/tv/FrequencyField";
+import {
+  api, DEFAULT_ALERT_FREQUENCY,
+  type AlertFrequency, type MaAlert, type MaAlertMode, type MaType,
+} from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { maColor, maLabel } from "@/lib/movingAverages";
 
-const INTERVALS: Interval[] = ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d"];
+/** Every timeframe the backend supports, in the order the toolbar shows them. */
+const INTERVALS: Interval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"];
 
 const MODE_LABELS: Record<MaAlertMode, string> = {
   touch: "Price touches the line",
@@ -47,6 +52,7 @@ export function MaAlertModal({
   const [nearMinPct, setNearMinPct] = useState(0.2);
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
   const [cooldownMin, setCooldownMin] = useState(60);
+  const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -62,6 +68,7 @@ export function MaAlertModal({
       setNearMinPct(match.nearMinPct);
       setNearMaxPct(match.nearMaxPct);
       setCooldownMin(match.cooldownMin);
+      setFrequency(match.frequency);
     }
   }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -77,8 +84,8 @@ export function MaAlertModal({
     setErr(null);
     try {
       await api.createMaAlert({
-        symbol, timeframe, maType, maLength, mode,
-        nearMinPct, nearMaxPct, cooldownMin,
+        symbol, timeframe, conditionKind: "ma", maType, maLength, mode,
+        nearMinPct, nearMaxPct, cooldownMin, frequency,
       });
       onSaved(
         `${match ? "Updated" : "Alert set"} — ${symbol} ${timeframe} ${label} · ${MODE_LABELS[mode].toLowerCase()}`
@@ -179,20 +186,30 @@ export function MaAlertModal({
         )}
 
         <div className="my-1 border-t border-border" />
-        <Row label="Cooldown">
-          <div className="flex items-center gap-2">
-            <input type="number" min="0" step="5" value={cooldownMin}
-              onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))}
-              className={box} />
-            <span className="whitespace-nowrap text-sm text-ink-muted">minutes</span>
-          </div>
-        </Row>
-        <p className="pl-[122px] text-xs text-ink-faint">
-          Silence after a fire, so a slow approach is not re-announced on every closing bar. 0 = notify on every qualifying bar.
-        </p>
+        <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} />
+
+        {/* The cooldown throttles the bar-close mode only. The other three have
+            their own cap — a candle, a minute, or a single fire — and stacking a
+            60-minute silence on top of "once per bar" at 15m would quietly
+            defeat the mode the user just chose. */}
+        {frequency === "once_per_bar_close" && (
+          <>
+            <Row label="Cooldown">
+              <div className="flex items-center gap-2">
+                <input type="number" min="0" step="5" value={cooldownMin}
+                  onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))}
+                  className={box} />
+                <span className="whitespace-nowrap text-sm text-ink-muted">minutes</span>
+              </div>
+            </Row>
+            <p className="pl-[122px] text-xs text-ink-faint">
+              Silence after a fire, so a slow approach is not re-announced on every closing bar. 0 = notify on every qualifying bar.
+            </p>
+          </>
+        )}
 
         <p className="pt-1 text-xs text-ink-faint">
-          Evaluated server-side on closed {timeframe} candles and pushed to every device you have
+          Evaluated server-side on {timeframe} candles and pushed to every device you have
           enabled notifications on — the chart does not need to be open.
         </p>
         {match && (

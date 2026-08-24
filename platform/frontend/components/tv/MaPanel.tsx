@@ -5,6 +5,11 @@ import type { Interval } from "@/lib/types";
 import {
   MA_LENGTHS, maColor, maId, maLabel, type MaLine, type MaType,
 } from "@/lib/movingAverages";
+import {
+  alertColor, alertInactiveReason, alertLineLabel, describeAlert,
+  FREQUENCY_LABELS, isAlertActive,
+} from "@/lib/alerts";
+import { DEFAULT_ALERT_FREQUENCY } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
 /**
@@ -14,7 +19,8 @@ import { fmtPrice } from "@/lib/format";
  * a single "MA ribbon" indicator.
  */
 export function MaPanel({
-  lines, values, alerts, timeframe, onToggle, onToggleAll, onArm, onOpenAlert, push,
+  lines, values, alerts, timeframe, onToggle, onToggleAll, onArm, onArmPrice,
+  onOpenAlert, push,
 }: {
   lines: MaLine[];
   /** Latest value per line id, for the price column. */
@@ -24,13 +30,20 @@ export function MaPanel({
   onToggle: (type: MaType, length: number) => void;
   onToggleAll: (visible: boolean) => void;
   onArm: (type: MaType, length: number) => void;
+  /** Open the price-alert dialog with no level pre-filled. */
+  onArmPrice: () => void;
   onOpenAlert: (alert: MaAlert) => void;
   push: React.ReactNode;
 }) {
-  /** Alerts grouped by the line they watch, across all timeframes. */
+  /**
+   * Alerts grouped by the line they watch, across all timeframes. Only the `ma`
+   * kind belongs to a line — a price alert sits on no moving average, and a
+   * cross alert belongs to a pair rather than to either half.
+   */
   const byLine = useMemo(() => {
     const map = new Map<string, MaAlert[]>();
     for (const a of alerts) {
+      if (a.conditionKind !== "ma" || a.maType === null || a.maLength === null) continue;
       const key = maId(a.maType, a.maLength);
       const list = map.get(key) ?? [];
       list.push(a);
@@ -78,8 +91,14 @@ export function MaPanel({
     );
   };
 
-  const armedList = alerts.slice().sort(
-    (a, b) => b.maLength - a.maLength || a.maType.localeCompare(b.maType)
+  // Price alerts first — they are the ones a user arms in the middle of
+  // watching a move, and burying them under ten moving averages hides the ones
+  // most likely to matter right now.
+  const armedList = alerts.slice().sort((a, b) =>
+    (a.conditionKind === "price" ? 0 : 1) - (b.conditionKind === "price" ? 0 : 1) ||
+    (b.maLength ?? 0) - (a.maLength ?? 0) ||
+    (a.maType ?? "").localeCompare(b.maType ?? "") ||
+    (a.targetPrice ?? 0) - (b.targetPrice ?? 0)
   );
 
   return (
@@ -107,29 +126,47 @@ export function MaPanel({
           </div>
         ))}
 
-        <div className="border-y border-border bg-surface-2/40 px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">
-          Armed alerts
+        <div className="flex items-center justify-between border-y border-border bg-surface-2/40 px-3 py-1">
+          <span className="text-[10px] uppercase tracking-wide text-ink-faint">Armed alerts</span>
+          <button
+            onClick={onArmPrice}
+            title="Alert on a price level"
+            className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+          >
+            + Price
+          </button>
         </div>
         {armedList.length === 0 ? (
           <div className="px-4 py-6 text-center text-xs text-ink-faint">
             No alerts on this symbol yet.
             <br />
-            Click the 🔔 on a line to add one.
+            Click the 🔔 on a line, or + Price for a level.
           </div>
         ) : (
           armedList.map((a) => (
             <button
               key={a.id}
               onClick={() => onOpenAlert(a)}
+              title={`${describeAlert(a)} · ${FREQUENCY_LABELS[a.frequency]}`}
               className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-surface-2/60"
             >
               <span
                 className="inline-block h-[3px] w-3 shrink-0 rounded-full"
-                style={{ background: maColor(a.maLength), opacity: a.enabled ? 1 : 0.35 }}
+                style={{ background: alertColor(a), opacity: isAlertActive(a) ? 1 : 0.35 }}
               />
-              <span className={`flex-1 truncate ${a.enabled ? "text-ink" : "text-ink-faint line-through"}`}>
-                {maLabel(a.maType, a.maLength)} · {describe(a)}
+              <span className={`flex-1 truncate ${isAlertActive(a) ? "text-ink" : "text-ink-faint line-through"}`}>
+                {alertLineLabel(a)} · {describeAlert(a)}
               </span>
+              {/* Only a non-default cadence is worth the space; every alert
+                  being labelled "once per bar close" would be noise. */}
+              {a.frequency !== DEFAULT_ALERT_FREQUENCY && (
+                <span className="shrink-0 rounded bg-surface-2 px-1 text-[10px] text-ink-muted">
+                  {FREQUENCY_LABELS[a.frequency]}
+                </span>
+              )}
+              {alertInactiveReason(a) && (
+                <span className="shrink-0 text-[10px] text-ink-faint">{alertInactiveReason(a)}</span>
+              )}
               <span className={`shrink-0 text-[10px] ${a.timeframe === timeframe ? "text-accent" : "text-ink-faint"}`}>
                 {a.timeframe}
               </span>
@@ -141,14 +178,4 @@ export function MaPanel({
       <div className="shrink-0 border-t border-border p-3">{push}</div>
     </div>
   );
-}
-
-function describe(a: MaAlert): string {
-  switch (a.mode) {
-    case "touch": return "touch";
-    case "cross_up": return "cross up";
-    case "cross_down": return "cross down";
-    case "near_above": return `${a.nearMinPct}–${a.nearMaxPct}% above`;
-    case "near_below": return `${a.nearMinPct}–${a.nearMaxPct}% below`;
-  }
 }

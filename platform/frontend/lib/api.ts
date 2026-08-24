@@ -245,21 +245,58 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export type MaAlertMode = "touch" | "cross_up" | "cross_down" | "near_above" | "near_below";
 export type MaType = "sma" | "ema";
 
+/** What an alert watches. `ma` is the original family. */
+export type ConditionKind = "price" | "ma" | "ma_vs_ma";
+export type PriceDirection = "cross_up" | "cross_down" | "either";
+
+/**
+ * How often a true condition may notify.
+ *
+ * `once_per_bar` and `once_per_minute` evaluate the candle currently forming,
+ * which is a different promise to the user and must always be shown with the
+ * warning the server serves from `/api/ma-alerts/options`.
+ */
+export type AlertFrequency =
+  | "once_only"
+  | "once_per_bar"
+  | "once_per_bar_close"
+  | "once_per_minute";
+
+export const DEFAULT_ALERT_FREQUENCY: AlertFrequency = "once_per_bar_close";
+
+export const INTRABAR_FREQUENCIES: AlertFrequency[] = ["once_per_bar", "once_per_minute"];
+
+export const isIntrabarFrequency = (f: AlertFrequency): boolean =>
+  INTRABAR_FREQUENCIES.includes(f);
+
 export interface MaAlert {
   id: string;
   symbol: string;
   timeframe: Interval;
-  maType: MaType;
-  maLength: number;
-  mode: MaAlertMode;
+  conditionKind: ConditionKind;
+  /** Populated for `ma` and `ma_vs_ma`. */
+  maType: MaType | null;
+  maLength: number | null;
+  mode: MaAlertMode | null;
+  /** The slow line, for `ma_vs_ma`. */
+  ma2Type: MaType | null;
+  ma2Length: number | null;
+  /** Populated for `price`. */
+  targetPrice: number | null;
+  priceDirection: PriceDirection | null;
   /** Band edges in percent; only meaningful for the near_* modes. */
   nearMinPct: number;
   nearMaxPct: number;
   enabled: boolean;
+  frequency: AlertFrequency;
   cooldownMin: number;
   note: string | null;
   lastSide: "above" | "below" | null;
   lastFiredAt: string | null;
+  lastFiredBarTime: string | null;
+  lastBarTime: string | null;
+  /** Set once a `once_only` alert has delivered and retired itself. */
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -270,11 +307,35 @@ export interface MaAlertEvent {
   firedAt: string;
   barTime: string;
   price: number;
+  /** The value compared against: the MA, the slow MA, or the price target. */
   maValue: number;
   distancePct: number;
   title: string;
   body: string;
   pushedTo: number;
+  /** Whether this fired on a candle that had not closed yet. */
+  intrabar: boolean;
+  frequency: AlertFrequency | null;
+}
+
+export interface AlertFrequencyOption {
+  value: AlertFrequency;
+  label: string;
+  explanation: string;
+  intrabar: boolean;
+  /** The exact warning to display for an intrabar mode, or null. */
+  warning: string | null;
+}
+
+export interface MaAlertOptions {
+  maTypes: MaType[];
+  maLengths: number[];
+  modes: MaAlertMode[];
+  conditionKinds: ConditionKind[];
+  priceDirections: PriceDirection[];
+  defaultFrequency: AlertFrequency;
+  intrabarWarning: string;
+  frequencies: AlertFrequencyOption[];
 }
 
 export interface ServerWatchlist {
@@ -417,14 +478,21 @@ export const api = {
     const qs = q.toString();
     return req<MaAlert[]>(`/api/ma-alerts${qs ? `?${qs}` : ""}`);
   },
+  maAlertOptions: () => req<MaAlertOptions>("/api/ma-alerts/options"),
   createMaAlert: (body: {
-    symbol: string; timeframe: Interval; maType: MaType; maLength: number;
-    mode: MaAlertMode; nearMinPct?: number; nearMaxPct?: number;
+    symbol: string; timeframe: Interval;
+    conditionKind?: ConditionKind;
+    maType?: MaType; maLength?: number; mode?: MaAlertMode;
+    ma2Type?: MaType; ma2Length?: number;
+    targetPrice?: number; priceDirection?: PriceDirection;
+    frequency?: AlertFrequency;
+    nearMinPct?: number; nearMaxPct?: number;
     cooldownMin?: number; note?: string | null;
   }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
   updateMaAlert: (id: string, body: Partial<{
     enabled: boolean; cooldownMin: number; nearMinPct: number;
     nearMaxPct: number; mode: MaAlertMode; timeframe: Interval; note: string | null;
+    frequency: AlertFrequency; targetPrice: number; priceDirection: PriceDirection;
   }>) => req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
   maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),

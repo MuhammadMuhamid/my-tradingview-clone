@@ -81,6 +81,7 @@ export function CandleChart({
   live = true, fill = false,
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
   magnet = false, drawingsLocked = false, drawingsHidden = false,
+  onPriceSelect,
   compact = false,
 }: {
   symbol: string;
@@ -106,6 +107,16 @@ export function CandleChart({
   magnet?: boolean;
   drawingsLocked?: boolean;
   drawingsHidden?: boolean;
+  /**
+   * Pick a price by clicking the chart.
+   *
+   * Only subscribed while a handler is supplied, so the chart behaves exactly
+   * as it always has unless the caller has deliberately entered a
+   * pick-a-level mode. Arming a price alert is the one thing that needs this,
+   * and it needs it to be the price under the pointer rather than a number
+   * typed from memory.
+   */
+  onPriceSelect?: (price: number) => void;
   /**
    * Phone layout: drop the per-series price-axis badges and shorten the
    * legend. Ten moving averages each stamp a label on the scale, which on a
@@ -285,6 +296,24 @@ export function CandleChart({
       }));
     return () => { for (const line of drawn) series.removePriceLine(line); };
   }, [priceLines]);
+
+  // Pick a price level by clicking the chart. Subscribed only while a handler
+  // exists — see `onPriceSelect`.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series || !onPriceSelect) return;
+    const onClick = (param: MouseEventParams): void => {
+      if (!param.point) return;
+      const price = series.coordinateToPrice(param.point.y);
+      // A click outside the price range returns null rather than throwing, and
+      // reporting a null level would silently arm an alert at zero.
+      if (price === null || !Number.isFinite(price)) return;
+      onPriceSelect(Number(price));
+    };
+    chart.subscribeClick(onClick);
+    return () => chart.unsubscribeClick(onClick);
+  }, [onPriceSelect, chartReady]);
 
   // Line series plotted by a compiled Pine script. Series are reused across
   // recompiles by plot id so the chart doesn't flicker on every edit.
