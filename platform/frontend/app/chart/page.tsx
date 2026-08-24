@@ -13,6 +13,9 @@ import { StrategySettingsModal, StrategyProperties, DEFAULT_PROPERTIES } from "@
 import { AlertModal } from "@/components/tv/AlertModal";
 import { MaPanel } from "@/components/tv/MaPanel";
 import { alertColor, describeAlert, isAlertActive } from "@/lib/alerts";
+import {
+  describeApply, parseApplyLink, STRATEGY_LABELS, type ApplyRequest,
+} from "@/lib/deepLink";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { PushSetup } from "@/components/tv/PushSetup";
@@ -21,7 +24,7 @@ import { SymbolSearch } from "@/components/tv/SymbolSearch";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import * as drawStore from "@/lib/drawings";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
-import { api, type MaAlert, type OptimizerBest, type PineScript } from "@/lib/api";
+import { api, type MaAlert, type PineScript } from "@/lib/api";
 import { CancellableRequest, isAbortError, LatestRequest } from "@/lib/requestGuard";
 import {
   buildMaOverlays, currentMaValues, defaultMaLines, type MaLine, type MaType,
@@ -247,6 +250,10 @@ export default function TvWorkspace() {
   const [toast, setToast] = useState<string | null>(null);
   const [loadingBest, setLoadingBest] = useState(false);
   const [bestRange, setBestRange] = useState<{ start: string; end: string; nonce: number; run?: boolean } | null>(null);
+  /** An optimizer link's request, waiting for the user to accept it. See FE-06. */
+  const [pendingApply, setPendingApply] = useState<ApplyRequest | null>(null);
+  /** Last autosave failure. Shown quietly in the layout menu, not as a toast. */
+  const [autosaveError, setAutosaveError] = useState<string | null>(null);
 
   // ── layouts ──
   const [layouts, setLayouts] = useState<Layout[]>([]);
@@ -327,55 +334,60 @@ export default function TvWorkspace() {
     }
   }, [symbol, strategyKey, interval]);
 
-  // Optimizer deep link: load an exact ranked MA+RR or SRTrend result and,
-  // optionally, persist it as a named TradingView-style layout.
+  /*
+   * FE-06: an optimizer deep link used to act on page load. It saved a named
+   * layout to the server and started a backtest before the user had done
+   * anything, so a link in a message or a stale bookmark wrote server state on
+   * behalf of whoever opened it. Parsing now only DESCRIBES the request; the
+   * banner below asks, and `applyDeepLink` is the click.
+   */
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    const applyStrategy = q.get("applyStrategy");
-    if (applyStrategy !== "srtrend_v10" && applyStrategy !== "ma_rr_v9" && applyStrategy !== "mtf_lean") return;
-    const applySymbol = (q.get("applySymbol") ?? "").toUpperCase();
-    const applyTf = (q.get("applyTf") === "5m" ? "5m" : "15m") as Interval;
-    const applyRank = Math.max(1, Number(q.get("applyRank") ?? 1));
-    const layoutName = q.get("layoutName")?.trim() ?? "";
-    if (!applySymbol) return;
+    setPendingApply(parseApplyLink(window.location.search));
+  }, []);
+
+  const applyDeepLink = useCallback(async (request: ApplyRequest) => {
+    setPendingApply(null);
     setLoadingBest(true);
-    let frozen: OptimizerBest | null = null;
-    const encoded = q.get("applyPayload");
-    if (encoded) {
-      try {
-        const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-        frozen = JSON.parse(new TextDecoder().decode(bytes)) as OptimizerBest;
-      } catch { /* fall back to ranked lookup */ }
+    try {
+      // A payload that failed validation is not used at all; the ranked lookup
+      // asks the server instead, which is the trustworthy source.
+      const best = request.payload
+        ?? await api.optimizerBest(request.symbol, request.rank, request.strategy, request.timeframe);
+      const appliedProperties = { ...properties,
+        initialCapital: best.properties.initialCapital, commissionPct: best.properties.commissionPct,
+        slippageTicks: best.properties.slippageTicks, qtyCash: best.properties.qtyCash,
+        qtyType: best.properties.qtyType, qtyValue: best.properties.qtyValue,
+      };
+      setSymbol(request.symbol); setInterval(best.timeframe); setStrategyKey(best.strategyKey);
+      setParams(best.params); setProperties(appliedProperties);
+      setBestRange({ start: best.properties.rangeStart, end: best.properties.rangeEnd, nonce: Date.now(), run: true });
+      setTrades([]);
+      if (request.layoutName) {
+        // createLayout is an atomic name-based upsert, making this safe when
+        // React development Strict Mode invokes the handler twice.
+        const layout = await layoutStore.createLayout(request.layoutName, {
+          symbol: request.symbol, interval: best.timeframe, bars,
+          strategyKey: best.strategyKey, params: best.params, properties: appliedProperties,
+          movingAverages: maLines,
+        });
+        setCurrentLayoutId(layout.id);
+        await refreshLayouts();
+      }
+      setToast(
+        `${STRATEGY_LABELS[request.strategy]} ${request.timeframe} ${request.symbol} ` +
+        `rank #${request.rank} applied${request.layoutName ? " · layout saved" : ""}`
+      );
+      window.history.replaceState({}, "", "/chart");
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setLoadingBest(false);
     }
-    (frozen ? Promise.resolve(frozen) : api.optimizerBest(applySymbol, applyRank, applyStrategy, applyTf))
-      .then(async (best) => {
-        const appliedProperties = { ...properties,
-          initialCapital: best.properties.initialCapital, commissionPct: best.properties.commissionPct,
-          slippageTicks: best.properties.slippageTicks, qtyCash: best.properties.qtyCash,
-          qtyType: best.properties.qtyType, qtyValue: best.properties.qtyValue,
-        };
-        setSymbol(applySymbol); setInterval(best.timeframe); setStrategyKey(best.strategyKey);
-        setParams(best.params); setProperties(appliedProperties);
-        setBestRange({ start: best.properties.rangeStart, end: best.properties.rangeEnd, nonce: Date.now(), run: true });
-        setTrades([]);
-        if (layoutName) {
-          // createLayout is an atomic name-based upsert, making this safe when
-          // React development Strict Mode invokes the effect twice.
-          const layout = await layoutStore.createLayout(layoutName, {
-            symbol: applySymbol, interval: best.timeframe, bars,
-            strategyKey: best.strategyKey, params: best.params, properties: appliedProperties,
-            movingAverages: maLines,
-          });
-          setCurrentLayoutId(layout.id);
-          await refreshLayouts();
-        }
-        const strategyLabel = applyStrategy === "srtrend_v10" ? "SRTrend" : applyStrategy === "mtf_lean" ? "MTF Lean" : "MA+R:R";
-        setToast(`${strategyLabel} ${applyTf} ${applySymbol} rank #${applyRank} applied${layoutName ? " · layout saved" : ""}`);
-        window.history.replaceState({}, "", "/chart");
-      })
-      .catch((e) => setErr((e as Error).message))
-      .finally(() => setLoadingBest(false));
+  }, [properties, bars, maLines, refreshLayouts]);
+
+  const dismissDeepLink = useCallback(() => {
+    setPendingApply(null);
+    window.history.replaceState({}, "", "/chart");
   }, []);
 
   // Mount: symbols, strategies, layouts (+ restore last layout).
@@ -390,9 +402,11 @@ export default function TvWorkspace() {
       if (s.length > 0 && !s.some((x) => x.key === "ma_rr_v9")) setStrategyKey(s[0].key);
     }).catch(() => {});
     setAutosaveState(layoutStore.getAutosave());
-    // A deep link owns the workspace this load — don't fight it with the
-    // restored layout; still sync + list layouts for the menu.
-    const isDeepLink = new URLSearchParams(window.location.search).has("applyStrategy");
+    // A pending deep link may own the workspace this load — don't fight it with
+    // the restored layout; still sync + list layouts for the menu. The user may
+    // dismiss the link, in which case the layout they left is what they get on
+    // the next load rather than being silently replaced on this one.
+    const isDeepLink = parseApplyLink(window.location.search) !== null;
     (async () => {
       await layoutStore.migrateLegacyLayouts();
       await layoutStore.syncDeploymentLayouts();
@@ -417,24 +431,38 @@ export default function TvWorkspace() {
     if (!autosave || !currentLayoutId || !dirty) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
-      void layoutStore.saveLayout(currentLayoutId, workspaceState).then(refreshLayouts);
+      // Autosave is the one place a failure should not interrupt: the user did
+      // not ask for this write and is mid-work. It is still SAID, in the
+      // layout menu's own state, rather than discarded.
+      void layoutStore.saveLayout(currentLayoutId, workspaceState)
+        .then(refreshLayouts)
+        .then(() => setAutosaveError(null))
+        .catch((e: Error) => setAutosaveError(e.message));
     }, 800);
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current); };
   }, [autosave, currentLayoutId, dirty, workspaceState, refreshLayouts]);
 
   // ⌘S / Ctrl+S saves the current layout, like TV.
   const saveNow = useCallback(async () => {
-    if (currentLayoutId) {
-      await layoutStore.saveLayout(currentLayoutId, workspaceState);
-      await refreshLayouts();
-      setToast("Layout saved");
-    } else {
-      const name = window.prompt("Layout name:", `${symbol} ${interval}`);
-      if (name !== null) {
-        const l = await layoutStore.createLayout(name, workspaceState);
-        setCurrentLayoutId(l.id);
+    try {
+      if (currentLayoutId) {
+        await layoutStore.saveLayout(currentLayoutId, workspaceState);
         await refreshLayouts();
+        setAutosaveError(null);
+        setToast("Layout saved");
+      } else {
+        const name = window.prompt("Layout name:", `${symbol} ${interval}`);
+        if (name !== null) {
+          const l = await layoutStore.createLayout(name, workspaceState);
+          setCurrentLayoutId(l.id);
+          await refreshLayouts();
+          setToast("Layout saved");
+        }
       }
+    } catch (e) {
+      // Previously this reported "Layout saved" whether or not anything was
+      // saved, which is the one thing a save confirmation must never do.
+      setErr(`Layout not saved: ${(e as Error).message}`);
     }
   }, [currentLayoutId, workspaceState, symbol, interval, refreshLayouts]);
 
@@ -492,12 +520,17 @@ export default function TvWorkspace() {
       if (!currentLayoutId) return;
       const name = window.prompt("Rename layout:", currentLayout?.name ?? "");
       if (name === null) return;
-      void layoutStore.renameLayout(currentLayoutId, name).then(refreshLayouts);
+      void layoutStore.renameLayout(currentLayoutId, name)
+        .then(refreshLayouts)
+        .catch((e: Error) => setErr(`Layout not renamed: ${e.message}`));
     },
     onDelete: (id: string) => {
       if (!window.confirm("Delete this layout?")) return;
       void layoutStore.deleteLayout(id).then(async () => {
         if (id === currentLayoutId) setCurrentLayoutId(null);
+        await refreshLayouts();
+      }).catch(async (e: Error) => {
+        setErr(`Layout not deleted: ${e.message}`);
         await refreshLayouts();
       });
     },
@@ -754,7 +787,7 @@ export default function TvWorkspace() {
           </button>
           <button onClick={applyBestConfig} disabled={loadingBest}
             title={`Apply the local optimizer's best saved config for ${symbol}`}
-            className="flex items-center gap-1.5 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[13px] font-medium text-amber-300 transition-colors hover:bg-amber-400/20 disabled:cursor-wait disabled:opacity-60">
+            className="flex items-center gap-1.5 rounded border border-warn/30 bg-warn/10 px-2 py-1 text-[13px] font-medium text-warn transition-colors hover:bg-warn/20 disabled:cursor-wait disabled:opacity-60">
             <span aria-hidden>★</span>
             {loadingBest ? "Loading…" : "Best"}
           </button>
@@ -766,6 +799,7 @@ export default function TvWorkspace() {
               </span>
             </span>
             <LayoutMenu
+              autosaveError={autosaveError}
               layouts={layouts}
               currentId={currentLayoutId}
               autosave={autosave}
@@ -790,6 +824,44 @@ export default function TvWorkspace() {
         </div>
 
         {err && <div className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">{err}</div>}
+
+        {/*
+          FE-06: a link asked for something. It has not happened yet, and will
+          not until this is accepted. Naming the layout write and the backtest
+          explicitly is the point — a user who did not expect either should be
+          able to see that before agreeing.
+        */}
+        {pendingApply && (
+          <div
+            role="alertdialog"
+            aria-label="Apply an optimizer result from this link"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-accent/40 bg-accent/10 px-3 py-2 text-xs text-ink"
+          >
+            <span className="min-w-0 flex-1">
+              This link wants to apply <strong className="font-semibold">{describeApply(pendingApply)}</strong>.
+              {pendingApply.payloadRejected && (
+                <span className="text-warn">
+                  {" "}Its embedded result was malformed and will be ignored; the ranked result
+                  will be fetched from the server instead.
+                </span>
+              )}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={() => void applyDeepLink(pendingApply)}
+                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/90"
+              >
+                Apply
+              </button>
+              <button
+                onClick={dismissDeepLink}
+                className="rounded-md border border-border px-3 py-1 text-xs text-ink-muted hover:text-ink"
+              >
+                Dismiss
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* charts — one pane, or two side by side sharing the symbol */}
         <div className="flex min-h-0 flex-1">
