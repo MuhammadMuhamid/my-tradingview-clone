@@ -10,7 +10,7 @@ directory's README for the exact commands.
 **Exercised.** A real Chromium, driving a production build of the frontend
 served locally:
 
-- 7 routes × 5 viewports = **35 page loads**
+- 8 routes × 5 viewports = **40 page loads**
 - desktop 1440×900, laptop 1024×768, iPhone 13 portrait, iPhone 13 landscape,
   Pixel 7 — the last three with touch emulation and device pixel ratios
 - keyboard operation of the skip link, the focus ring and the shared dialog
@@ -34,12 +34,14 @@ served locally:
 
 | Check | Result |
 |---|---|
-| Document horizontal overflow | **0** across all 35 loads |
+| Document horizontal overflow | **0** across all 40 loads |
 | Elements past the viewport edge outside a scroller | **0** |
 | Uncaught page errors | **0** |
 | Controls with no accessible name | **0** |
 | Routes without a top-level heading | **0** |
-| `main`, `nav`, skip link present | every route |
+| iOS-zooming fields (< 16px text, ≤ 640px wide) | **0** |
+| `main`, skip link present | every route |
+| `nav` present | every route but `/login`, which has none by design |
 | Controls below 24×24 CSS px | **1**, third-party (below) |
 
 Console errors are present on every route and are the expected `500` from the
@@ -59,6 +61,44 @@ browser. Neither is a defect in the page.
 | Escape closes it | yes |
 | Body scroll restored on close | yes |
 | Focus returns to the control that opened it | yes |
+
+---
+
+## 2b. Re-run after Phase 7 and Phase 8 (2026-08-24)
+
+Phases 7 and 8 changed the shared navigation and four routes and added a fifth,
+so the harness was re-run in full rather than partially — the navigation is on
+every page, and a partial run would not have covered it. The route list gained
+`/operations`, taking the matrix from 35 loads to 40.
+
+**The result is identical to the Phase 6 record above**, including the single
+third-party control below 24×24. Every other counter is still zero.
+
+Two regressions were introduced by the Phase 8 work and caught here:
+
+- **`/operations` had no top-level heading while it was loading or failing.**
+  The heading was inside the success branch, so a page rendering only an error
+  had nothing for a screen reader to announce as its subject — and with no
+  backend available, that is the state the QA sees. The heading belongs to the
+  route and now renders in every state.
+- **Two new links on `/alerts` were 15 CSS pixels tall**, against a 24-pixel
+  minimum every other control in the app clears. They are `inline-block` with
+  vertical padding now, measured at 28.
+
+One harness defect was also fixed: `.skip-link` animates `top` over 150ms, and
+`keyboard.mjs` measured immediately after the Tab press, catching it mid-flight
+at −42px. That is a flaky measurement of a link that does become visible, not a
+finding. It waits for the transition now and measures 8px, matching the Phase 6
+record.
+
+Keyboard results are unchanged from the table above: skip link first and
+visible, a 2px focus ring, the dialog announced and named, focus trapped over 25
+presses, Escape closing it, body scroll restored, and focus returned to the
+control that opened it.
+
+**The limitation is unchanged.** PostgreSQL is still unavailable, so every one
+of those 40 loads still had its API returning 500. Still Chromium only, still no
+physical device, still no screen reader.
 
 ---
 

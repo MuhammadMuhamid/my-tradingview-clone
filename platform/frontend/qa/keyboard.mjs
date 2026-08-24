@@ -10,6 +10,11 @@ await page.waitForTimeout(800);
 
 // ── Skip link ──
 await page.keyboard.press("Tab");
+// `.skip-link` animates `top` over 150ms. Measuring immediately catches it
+// mid-flight and reports a negative offset for a link that does become
+// visible — which is a flaky measurement, not a finding. Wait for the
+// transition to settle and measure the state a user actually sees.
+await page.waitForTimeout(400);
 out.firstTabStop = await page.evaluate(() => {
   const a = document.activeElement;
   const r = a.getBoundingClientRect();

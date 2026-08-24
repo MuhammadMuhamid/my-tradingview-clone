@@ -125,8 +125,15 @@ export default function AlertsPage() {
           */}
           <p className="text-xs text-ink-faint">
             These notify only. Strategy automations that place orders live on{" "}
-            <a href="/deployments" className="underline hover:text-ink">Live trading</a>, and their
-            delivery health is on <a href="/operations" className="underline hover:text-ink">Operations</a>.
+            {/* inline-block with vertical padding, so these links clear the
+                24 CSS-pixel target minimum the Phase 6 QA measures everything
+                against. A 15px-tall link is a link only a mouse can hit. */}
+            <a href="/deployments" className="inline-block py-1.5 underline hover:text-ink">
+              Live trading
+            </a>, and their delivery health is on{" "}
+            <a href="/operations" className="inline-block py-1.5 underline hover:text-ink">
+              Operations
+            </a>.
           </p>
         </div>
         <div className="w-full sm:w-[320px]">

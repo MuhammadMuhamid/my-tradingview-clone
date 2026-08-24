@@ -119,17 +119,19 @@ export default function OperationsPage() {
     }
   };
 
-  if (error && !status) {
-    return (
-      <div className="mx-auto max-w-[1100px] px-4 py-6">
-        <Card><Empty>{error}</Empty></Card>
-      </div>
-    );
-  }
+  // The heading belongs to the ROUTE, not to a successful load: a page that
+  // renders only an error message has no heading for a screen reader to
+  // announce as the page's subject, and the Phase 6 QA measures exactly that.
   if (!status) {
     return (
-      <div className="mx-auto max-w-[1100px] px-4 py-6">
-        <Card><Empty>Loading operator status…</Empty></Card>
+      <div className="mx-auto max-w-[1100px] space-y-4 px-4 py-6">
+        <div>
+          <h1 className="text-lg font-semibold text-ink">Operations</h1>
+          <p className="text-xs text-ink-faint">
+            Trading mode, risk limits, feed freshness and signal delivery.
+          </p>
+        </div>
+        <Card><Empty>{error || "Loading operator status…"}</Empty></Card>
       </div>
     );
   }
