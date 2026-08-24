@@ -8,6 +8,24 @@
 > $10 000 initial capital, $1 000 fixed cash per trade. The design discussion
 > below remains useful; the friction figures do not. See
 > [docs/COST-MODELS.md](docs/COST-MODELS.md). (`X-09`)
+>
+> **Two of its three tiers no longer exist.**
+>
+> - **Tier 1**, `backtest-spot/`, is archived at
+>   [research-archive/backtest-spot](research-archive/backtest-spot/ARCHIVED.md)
+>   with six confirmed defects, including look-ahead in the higher-timeframe
+>   alignment and an entry point that can never fire. (`TV-07`–`TV-12`)
+> - **Tier 3**, `approach1_ui_automation/`, is **deleted**. It scripted a
+>   password login to tradingview.com and never produced any output. Driving,
+>   scraping or automating a TradingView account is outside what this system
+>   does, and the ToS paragraph in §0 below is not a mitigation for it.
+>   (`TV-01`)
+> - **Tier 2**, `pine_sweeper/rr_param_sweeper.pine`, survives unchanged.
+>
+> Configuration search now happens in the thirteen registered TypeScript trees
+> under `platform/backend/`, against stored Binance candles with a stated cost
+> model. Read the tier diagram as a record of what was considered in July 2026,
+> not as the pipeline.
 
 Strategy under test: `ma_riskreward_strategy.pine` (SR+Trend v9 lineage, Pine v6).
 Last updated: 2026-07-09.
@@ -119,19 +137,12 @@ File: `approach1_ui_automation/tv_optimizer_v2.py` (v1 kept as reference).
 | Resume | JSONL append per symbol (`results/runs_<sym>.jsonl`); drivers warm-start from cache |
 | Export | `results/best_<symbol>.json`: top-K configs + objective + `3commas_alert_message_template.json` merged in |
 
-### Runbook
-```bash
-cd approach1_ui_automation
-pip install -r requirements.txt && playwright install chromium
-export TV_USERNAME=... TV_PASSWORD=...
+### Runbook — REMOVED
 
-python tv_optimizer_v2.py \
-  --chart-url https://www.tradingview.com/chart/<YOUR_CHART_ID>/ \
-  --symbols BINANCE:BTCUSDT,BINANCE:ETHUSDT,BINANCE:SOLUSDT,BINANCE:APTUSDT \
-  --mode ga --budget 60 --max-tabs 2 --session tv_session.json
-```
-Prep per run: strategy loaded on the chart, 5m TF, desired date range, properties
-matching the tuning baseline ("Recalculate after order is filled" state included).
+The runbook that stood here exported `TV_USERNAME` and `TV_PASSWORD` and drove a
+browser through a TradingView login. Both the runbook and the tool it drove are
+deleted (`TV-01`). Nothing in this repository logs in to TradingView, and
+nothing should be added that does.
 
 ### Realistic throughput math
 ~15 s/eval × 60 budget × 4 symbols ÷ 2 tabs ≈ **2 h**. That is why Tier 1 does the

@@ -74,5 +74,7 @@ jobs:
         run: bash scripts/ci/scan-secrets.sh
       - name: documented paths and cost-model figures match the source
         run: bash scripts/ci/check-docs.sh
+      - name: no hardcoded home paths, TradingView automation or archive dependencies
+        run: bash scripts/ci/check-repo-hygiene.sh
       - name: remediation ledger is in sync with its source of truth
         run: python3 scripts/ledger/render.py --check
