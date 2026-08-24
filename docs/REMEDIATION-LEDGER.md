@@ -3,7 +3,7 @@
 **Status:** current. Generated from `scripts/ledger/findings.json` by
 `scripts/ledger/render.py`; CI fails if the two disagree. Do not hand-edit this file.
 
-Audit of 2026-08-23, 154 findings. Last updated after **Phase 8 — remaining internal features**.
+Audit of 2026-08-23, 154 findings. Last updated after **Phase 9 — final integration and proof**.
 
 Every finding identifier in the audit's findings register appears here exactly
 once. A finding is marked `fixed` only when code changed and a test or an
