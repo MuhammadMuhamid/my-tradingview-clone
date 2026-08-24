@@ -1,9 +1,14 @@
 /**
  * Pine editor API — save/compile/run user-authored Pine scripts.
  *
- * Running is synchronous rather than queued through the backtest worker: the
- * editor needs plot data and compile diagnostics back immediately, and a Pine
- * run is a single-feed bar loop that finishes in milliseconds.
+ * Running is interactive rather than queued through the backtest worker: the
+ * editor needs plot data and compile diagnostics back immediately.
+ *
+ * `BE-23`: it used to run on THIS event loop with a 45-second budget, so one
+ * heavy user script stalled every other request on the process — live alert
+ * evaluation and webhook dispatch included. Execution now happens on a bounded
+ * worker thread (`../../pine/runInWorker`): its own heap, a hard wall clock
+ * enforced by terminating the thread, and a fixed number of concurrent runs.
  */
 import type { FastifyInstance } from "fastify";
 import * as scripts from "../../repositories/pineScripts";
@@ -11,10 +16,9 @@ import * as candleRepo from "../../repositories/candles";
 import * as symbolRepo from "../../repositories/symbols";
 import { assertSymbol, ensureCandles, syncExchangeFilters } from "../../data/binanceRest";
 import { toBars } from "../../engine/mtf";
-import { Broker } from "../../engine/broker";
-import { computeMetrics, downsampleEquity, toTradeRecords } from "../../engine/metrics";
-import { PineInterpreter, PineRuntimeError } from "../../pine/interpreter";
-import { PineSyntaxError } from "../../pine/lexer";
+import { PineInterpreter } from "../../pine/interpreter";
+import { PineBusyError, runPineInWorker } from "../../pine/runInWorker";
+import type { BrokerOptions } from "../../engine/broker";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 
 /** Bars of history loaded before the requested start so indicators settle. */
@@ -36,17 +40,6 @@ const EDITOR_TIME_BUDGET_MS = Number(process.env.PINE_EDITOR_TIME_BUDGET_MS ?? 4
 
 /** UUID check so a malformed id 404s instead of erroring inside Postgres. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function errorsFrom(err: unknown): { line: number; col: number; message: string }[] | null {
-  if (err instanceof PineSyntaxError) return [{ line: err.line, col: err.col, message: err.message }];
-  if (err instanceof PineRuntimeError) return [{ line: err.line, col: 1, message: err.message }];
-  // A pathological script can still exhaust the JS stack before the parser's
-  // own depth guard trips. Report it as a script error, not a 500.
-  if (err instanceof RangeError) {
-    return [{ line: 1, col: 1, message: "script is too complex to compile (call stack exhausted)" }];
-  }
-  return null;
-}
 
 export async function pineRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/pine", async () => scripts.listScripts());
@@ -190,7 +183,7 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     const startIdx = Math.max(0, bars.time.findIndex((t) => t >= startMs));
 
     const isStrategy = compiled.meta.kind === "strategy";
-    let broker: Broker | undefined;
+    let brokerOptions: BrokerOptions | null = null;
     if (isStrategy) {
       let info = await symbolRepo.getSymbol(symbol);
       if (!info?.priceTick) {
@@ -201,53 +194,55 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
       if (!tickSize || tickSize <= 0) {
         return reply.code(400).send({ error: `no tick size available for ${symbol}` });
       }
-      broker = new Broker({
+      brokerOptions = {
         initialCapital: body.initialCapital ?? 1000,
         commissionPct: body.commissionPct ?? 0.1,
         slippageTicks: body.slippageTicks ?? 0,
         tickSize,
         qtyCash: body.qtyCash ?? 930,
         qtyPctEquity: body.qtyPctEquity ?? 0,
-      });
+      };
     }
 
+    let outcome;
     try {
-      const interp = new PineInterpreter(source);
-      const out = interp.run({
+      outcome = await runPineInWorker({
+        source,
         bars,
         startIdx,
         endIdx: bars.length - 1,
         params: body.params,
-        broker,
-        // A chart request has a user waiting on it and blocks nothing else,
-        // so it gets a longer budget than the live alert runner's default.
+        broker: brokerOptions,
+        // A chart request has a user waiting on it. It no longer blocks
+        // anything else either, because it runs off this thread — but it is
+        // still bounded, and the thread is terminated if it overruns.
         timeBudgetMs: EDITOR_TIME_BUDGET_MS,
       });
-
-      return {
-        ok: true,
-        errors: [],
-        meta: out.meta,
-        times: out.times,
-        plots: out.plots,
-        hlines: out.hlines,
-        shapes: out.shapes,
-        drawings: out.drawings,
-        ...(broker
-          ? {
-              trades: toTradeRecords(broker.closed),
-              metrics: computeMetrics(
-                broker.closed, out.equityCurve,
-                broker.opts.initialCapital, broker.commissionPaid
-              ),
-              equityCurve: downsampleEquity(out.equityCurve),
-            }
-          : {}),
-      };
     } catch (err) {
-      const errors = errorsFrom(err);
-      if (errors) return { ok: false, errors, meta: compiled.meta };
+      if (err instanceof PineBusyError) {
+        return reply.code(503).send({ error: err.message });
+      }
       throw err;
     }
+
+    if (outcome.kind === "ok") return { ok: true, errors: [], ...outcome.run };
+    if (outcome.kind === "script-error") {
+      return { ok: false, errors: outcome.errors, meta: compiled.meta };
+    }
+    if (outcome.kind === "timeout") {
+      return {
+        ok: false,
+        meta: compiled.meta,
+        errors: [{
+          line: 1, col: 1,
+          message: `the script did not finish within ${Math.round(outcome.budgetMs / 1000)}s and was stopped`,
+        }],
+      };
+    }
+    return {
+      ok: false,
+      meta: compiled.meta,
+      errors: [{ line: 1, col: 1, message: outcome.message }],
+    };
   });
 }
