@@ -1,6 +1,6 @@
 import { query } from "../db/pool";
 import type { AlertPayload, AlertRow, DeliveryStatus } from "../types/alerts";
-import { redactPayload } from "../security/secrets";
+import { redactPayload, redactResponseBody } from "../security/secrets";
 
 interface DbAlert {
   id: number;
@@ -78,7 +78,7 @@ export async function markDelivery(
     `UPDATE alerts SET delivery_status = $2, http_status = $3, response_body = $4,
        attempts = $5, sent_at = CASE WHEN $2 IN ('sent','skipped') THEN now() ELSE sent_at END
      WHERE id = $1`,
-    [id, result.status, result.httpStatus ?? null, result.responseBody ?? null, result.attempts]
+    [id, result.status, result.httpStatus ?? null, redactResponseBody(result.responseBody), result.attempts]
   );
 }
 

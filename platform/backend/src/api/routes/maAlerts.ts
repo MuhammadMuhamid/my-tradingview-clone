@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import * as maAlertRepo from "../../repositories/maAlerts";
+import { assertSymbol } from "../../data/binanceRest";
 import { isInterval } from "../../types/market";
 import { isMaType, isMaAlertMode, MA_ALERT_MODES, MA_LENGTHS, MA_TYPES } from "../../types/maAlerts";
 
@@ -19,7 +20,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/ma-alerts", async (req) => {
     const q = req.query as { symbol?: string; timeframe?: string; enabled?: string };
     return maAlertRepo.listAlerts({
-      symbol: q.symbol,
+      symbol: q.symbol ? assertSymbol(q.symbol) : undefined,
       timeframe: q.timeframe && isInterval(q.timeframe) ? q.timeframe : undefined,
       enabledOnly: q.enabled === "true",
     });
@@ -32,13 +33,20 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/ma-alerts", async (req, reply) => {
     const b = req.body as Record<string, unknown>;
-    const symbol = String(b?.symbol ?? "").toUpperCase();
+    // An armed alert's symbol is interpolated straight into the Binance
+    // websocket stream name, where a `/` would inject extra streams. This is
+    // the same choke point every market-data call already uses.
+    let symbol: string;
+    try {
+      symbol = assertSymbol(String(b?.symbol ?? ""));
+    } catch {
+      return reply.code(400).send({ error: "symbol must be 2-24 uppercase letters or digits" });
+    }
     const timeframe = String(b?.timeframe ?? "");
     const maType = String(b?.maType ?? "");
     const mode = String(b?.mode ?? "");
     const maLength = Number(b?.maLength);
 
-    if (!symbol) return reply.code(400).send({ error: "symbol is required" });
     if (!isInterval(timeframe)) return reply.code(400).send({ error: "timeframe is not a supported interval" });
     if (!isMaType(maType)) return reply.code(400).send({ error: "maType must be sma or ema" });
     if (!isMaAlertMode(mode)) return reply.code(400).send({ error: `mode must be one of ${MA_ALERT_MODES.join(", ")}` });

@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import { assertSymbol } from "../../data/binanceRest";
 
 type OptimizerSystem = "current" | "one-year";
 
@@ -208,7 +209,15 @@ export async function optimizerRoutes(app: FastifyInstance): Promise<void> {
   // Best (or rank-N) config for one coin, ready to load onto the chart.
   app.get("/api/optimizer/best/:symbol", async (req, reply) => {
     const { symbol } = req.params as { symbol: string };
-    const sym = symbol.toUpperCase();
+    // `.toUpperCase()` alone left `.` and `/` intact, and this value is
+    // concatenated into a filesystem path below. `assertSymbol` is the
+    // existing choke point and rejects anything that is not [A-Z0-9]{2,24}.
+    let sym: string;
+    try {
+      sym = assertSymbol(symbol);
+    } catch {
+      return reply.code(400).send({ error: "invalid symbol" });
+    }
     const q = req.query as { rank?: string; strategy?: string; timeframe?: string; system?: OptimizerSystem };
     const optDir = optimizerDir(q.strategy, q.timeframe, q.system);
     const bestDir = path.join(optDir, "best"), resultsDir = path.join(optDir, "results");

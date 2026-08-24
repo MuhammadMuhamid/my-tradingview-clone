@@ -22,7 +22,7 @@ import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, BarCloseEvent } from "../data/binanceWs";
 import { FeedStore, toBars } from "./mtf";
 import { evaluateBar } from "./liveEvaluator";
-import { buildPayload, deliver, SignalContext } from "../alerts/dispatcher";
+import { buildPayload, deliver, validateWebhookUrl, SignalContext } from "../alerts/dispatcher";
 import { maRrV9Module } from "./strategies/ma_rr_v9";
 import { srTrendV10Module } from "./strategies/srtrend_v10";
 import { evaluateSrTrendBar } from "./srTrendLiveEvaluator";
@@ -93,8 +93,16 @@ export class LiveRunner {
           const url = new URL(dep.row.webhookUrl);
           if (!/\/signal_bots\/?$/.test(url.pathname)) continue;
           url.pathname = url.pathname.replace(/\/signal_bots\/?$/, "/signal_bots/status");
-          statusUrl = url.toString();
-        } catch {
+          // This request carries the decrypted webhook secret and runs
+          // unattended every 30 seconds. `deliver` validates the host, scheme
+          // and port on every send; this path must apply the same rule, or a
+          // deployment row edited to point elsewhere would leak the credential.
+          statusUrl = validateWebhookUrl(url.toString());
+        } catch (err) {
+          this.log.warn(
+            { deploymentId: dep.row.id, err: (err as Error).message },
+            "receiver status URL rejected — position sync skipped for this deployment"
+          );
           continue;
         }
         const key = `${statusUrl}\u0000${dep.row.secret}`;

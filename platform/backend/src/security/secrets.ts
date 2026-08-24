@@ -30,3 +30,35 @@ export function redactPayload<T extends Record<string, unknown>>(payload: T): T 
   };
   return redact(payload) as T;
 }
+
+/**
+ * Scrub a receiver response body before it is stored or served.
+ *
+ * The outbound payload is redacted on the way in (`redactPayload`), but the
+ * response half was stored verbatim and served back through
+ * `GET /api/deployments/:id/alerts`. A receiver that echoes the request — or
+ * names a bot uuid, or includes an exchange error carrying account detail — put
+ * that straight into the alert feed.
+ *
+ * This is a defensive scrub over free text, not a parser: it redacts anything
+ * shaped like a secret, then truncates. Bodies are diagnostic, so losing a few
+ * characters of an unusual one is the right trade.
+ */
+export const MAX_RESPONSE_BODY_CHARS = 1000;
+
+const SECRET_SHAPES: RegExp[] = [
+  // JSON field named secret/token/key/password, quoted or not.
+  /("?(?:secret|webhook_secret|api_?secret|api_?key|token|password|passphrase|bot_uuid)"?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}&]+)/gi,
+  // A bare 32+ character hex or base64url run: the shape of every credential here.
+  /\b[0-9a-fA-F]{32,}\b/g,
+  /\b[A-Za-z0-9_-]{40,}\b/g,
+];
+
+export function redactResponseBody(body: string | null | undefined): string | null {
+  if (body == null) return null;
+  let out = body;
+  out = out.replace(SECRET_SHAPES[0]!, (_m, prefix: string) => `${prefix}"[REDACTED]"`);
+  out = out.replace(SECRET_SHAPES[1]!, "[REDACTED]");
+  out = out.replace(SECRET_SHAPES[2]!, "[REDACTED]");
+  return out.slice(0, MAX_RESPONSE_BODY_CHARS);
+}
