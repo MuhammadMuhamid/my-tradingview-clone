@@ -21,7 +21,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
-  themeColor: "#0d1117",
+  // Must match `bg` in tailwind.config.ts, or mobile Safari paints its chrome
+  // a different near-black and the page appears to start with a seam.
+  themeColor: "#0b0e14",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
