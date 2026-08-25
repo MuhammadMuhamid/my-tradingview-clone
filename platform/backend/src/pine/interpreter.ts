@@ -76,6 +76,13 @@ export interface PineMeta {
   shortTitle: string;
   overlay: boolean;
   inputs: PineInputDef[];
+  /**
+   * Timeframes the script asks for through `request.security`, other than the
+   * chart's own. Collected during the declaration pass so the caller knows
+   * which extra feeds to load BEFORE the run — the run itself cannot go and
+   * fetch data, it is synchronous and on the live runner's event loop.
+   */
+  securityTimeframes: string[];
 }
 
 /**
@@ -219,6 +226,12 @@ export interface RunOptions {
    * it. Never unbounded: a runaway script must still terminate.
    */
   timeBudgetMs?: number;
+  /**
+   * Higher-timeframe feeds for `request.security`, keyed exactly as the script
+   * spells the timeframe. Load the ones `meta.securityTimeframes` names; a
+   * request for a timeframe that is absent still errors, by name.
+   */
+  htf?: Record<string, Bars>;
 }
 
 export interface RunOutput {
@@ -261,11 +274,33 @@ export class PineInterpreter {
 
   private bars!: Bars;
   private i = 0;
+  /** The source, kept so a higher-timeframe pass can re-instantiate the program. */
+  private source: string;
+  /** Higher-timeframe feeds supplied by the caller, keyed by timeframe string. */
+  private htf: Record<string, Bars> = {};
+  /**
+   * `request.security` results for a higher timeframe, keyed by the line the
+   * call sits on and indexed by HTF bar. Filled by a capture pass before the
+   * main loop; read during it.
+   */
+  private htfValues = new Map<string, PineValue[]>();
+  /**
+   * Set while this instance is the capture pass for one timeframe. Security
+   * calls for any OTHER timeframe answer NaN rather than erroring, because a
+   * script may legitimately ask for two.
+   */
+  private captureTf: string | null = null;
+  private captureInto: Map<string, PineValue[]> | null = null;
+  /** Declaration pass: record requested timeframes instead of refusing. */
+  private declaring = false;
+  /** Timeframes seen during declaration. */
+  private needTf = new Set<string>();
   private broker: Broker | undefined;
   private inRange = false;
 
   private meta: PineMeta = {
     kind: "indicator", title: "Untitled", shortTitle: "", overlay: false, inputs: [],
+    securityTimeframes: [],
   };
   private inputsSeen = new Set<string>();
   private params: Record<string, number | string | boolean> = {};
@@ -304,6 +339,7 @@ export class PineInterpreter {
   }
 
   constructor(source: string) {
+    this.source = source;
     this.program = parse(source);
     for (const st of this.program) {
       if (st.k === "func") {
@@ -315,21 +351,35 @@ export class PineInterpreter {
   }
 
   /** Parse-and-declare only: metadata + input list, without touching data. */
-  static compile(source: string): { meta: PineMeta; errors: PineError[] } {
+  static compile(
+    source: string,
+    params?: Record<string, number | string | boolean>
+  ): { meta: PineMeta; errors: PineError[] } {
     try {
       const interp = new PineInterpreter(source);
+      // The user's input overrides matter here, not just at run time: a script
+      // that picks its `request.security` timeframe from an input reports a
+      // different feed once that input is changed, and the caller loads feeds
+      // from this result.
+      interp.params = params ?? {};
       const meta = interp.collectMeta();
       return { meta, errors: [] };
     } catch (err) {
       if (err instanceof PineSyntaxError) {
         return {
-          meta: { kind: "indicator", title: "", shortTitle: "", overlay: false, inputs: [] },
+          meta: {
+            kind: "indicator", title: "", shortTitle: "", overlay: false,
+            inputs: [], securityTimeframes: [],
+          },
           errors: [{ line: err.line, col: err.col, message: err.message }],
         };
       }
       if (err instanceof PineRuntimeError) {
         return {
-          meta: { kind: "indicator", title: "", shortTitle: "", overlay: false, inputs: [] },
+          meta: {
+            kind: "indicator", title: "", shortTitle: "", overlay: false,
+            inputs: [], securityTimeframes: [],
+          },
           errors: [{ line: err.line, col: 1, message: err.message }],
         };
       }
@@ -337,7 +387,10 @@ export class PineInterpreter {
       // server fault — every caller of compile() is an HTTP handler.
       if (err instanceof RangeError) {
         return {
-          meta: { kind: "indicator", title: "", shortTitle: "", overlay: false, inputs: [] },
+          meta: {
+            kind: "indicator", title: "", shortTitle: "", overlay: false,
+            inputs: [], securityTimeframes: [],
+          },
           errors: [{ line: 1, col: 1, message: "script is too complex to compile (call stack exhausted)" }],
         };
       }
@@ -357,11 +410,14 @@ export class PineInterpreter {
     };
     this.i = 0;
     this.inRange = false;
+    this.declaring = true;
     // The editor compiles on every keystroke, so the declaration pass gets a
     // much tighter budget than a full run.
     this.deadline = Date.now() + Math.min(2_000, LIMITS.timeMs);
     this.loopBudget = 1_000_000;
     this.execBar();
+    this.declaring = false;
+    this.meta.securityTimeframes = [...this.needTf];
     return this.meta;
   }
 
@@ -369,6 +425,7 @@ export class PineInterpreter {
     this.bars = opts.bars;
     this.broker = opts.broker;
     this.params = opts.params ?? {};
+    this.htf = opts.htf ?? {};
     const { startIdx, endIdx } = opts;
 
     const equityCurve: EquityPoint[] = [];
@@ -380,6 +437,9 @@ export class PineInterpreter {
     this.deadline = Date.now() + budget;
     this.budgetMs = budget;
     this.loopBudget = LIMITS.loopIterations;
+
+    // Higher-timeframe values must exist before the first chart bar reads one.
+    if (Object.keys(this.htf).length > 0) this.captureHtf();
 
     for (let i = 0; i <= endIdx && i < this.bars.length; i++) {
       // Cheap enough to check every bar; loops check it internally too.
@@ -660,6 +720,90 @@ export class PineInterpreter {
     const slot: VarSlot = { series: new Series(), declaredBar: this.i };
     slot.series.push(value);
     scope.set(name, slot);
+  }
+
+  // ── higher-timeframe feeds ───────────────────────────────────────────────
+
+  /**
+   * Identity of a `request.security` call site, shared between the capture
+   * pass and the main run.
+   *
+   * The line is the key rather than the AST node, because the two passes are
+   * separate interpreter instances over separately-parsed copies of the same
+   * source: node object identity cannot survive that, while the line does.
+   */
+  private securityKey(line: number): string {
+    return `sec@${line}`;
+  }
+
+  /**
+   * The HTF value in force at the current chart bar.
+   *
+   * Lookahead is OFF: only a higher-timeframe bar that has actually CLOSED at
+   * or before this chart bar's open is visible. Reading the forming HTF bar
+   * would leak the rest of the hour into a 15m decision, which is the classic
+   * multi-timeframe backtest lie — and this engine also drives live alerts,
+   * where that value simply does not exist yet.
+   *
+   * ── Deliberate deviation from TradingView ──
+   * TradingView returns the DEVELOPING higher-timeframe bar, which is why
+   * ported scripts say `close[1]` to reach the last completed one. Here the
+   * developing bar is never returned, so `request.security(s, "D", close)`
+   * already IS the previous completed day and a `[1]` steps back one period
+   * too far. The developing value cannot be reconstructed for an arbitrary
+   * expression — `ta.sma(close, 20)` part-way through a day is not derivable
+   * from completed daily bars — so the engine offers the definition it can
+   * compute honestly rather than one it would have to approximate.
+   */
+  private alignHtf(series: PineValue[], bars: Bars): PineValue {
+    const now = this.bars.time[this.i];
+    if (now === undefined) return NaN;
+    let lo = 0, hi = bars.length - 1, found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      // closeTime is the last millisecond of the bar, so <= now means closed.
+      if (bars.closeTime[mid]! <= now) { found = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    if (found < 0) return NaN;
+    const v = series[found];
+    return v === undefined ? NaN : v;
+  }
+
+  /**
+   * Run the program once per requested timeframe over that timeframe's bars,
+   * recording what each `request.security` expression evaluated to on each of
+   * its bars.
+   *
+   * A fresh interpreter is used rather than re-entering this one: every `ta.*`
+   * accumulator and node history in this instance belongs to the chart series,
+   * and stepping them through a second, coarser series would corrupt the run
+   * the user actually asked for.
+   */
+  private captureHtf(): void {
+    for (const [tf, bars] of Object.entries(this.htf)) {
+      if (!bars || bars.length === 0) continue;
+      const sub = new PineInterpreter(this.source);
+      sub.bars = bars;
+      sub.params = this.params;
+      sub.captureTf = tf;
+      sub.captureInto = new Map();
+      // The capture pass shares this run's budget: it is part of the same
+      // request, and must not be able to double the time it takes.
+      sub.deadline = this.deadline;
+      sub.budgetMs = this.budgetMs;
+      sub.loopBudget = this.loopBudget;
+      sub.meta = { ...this.meta, inputs: [] };
+      for (let j = 0; j < bars.length; j++) {
+        sub.checkDeadline(0);
+        sub.i = j;
+        sub.inRange = false;   // no plots, shapes or equity from this pass
+        sub.execBar();
+      }
+      for (const [key, values] of sub.captureInto) this.htfValues.set(key, values);
+      // Loop budget is a shared pool, so hand back what the pass did not use.
+      this.loopBudget = sub.loopBudget;
+    }
   }
 
   // ── node history ─────────────────────────────────────────────────────────
@@ -1526,14 +1670,50 @@ export class PineInterpreter {
         const [, tf, expr] = this.args(e, ["symbol", "timeframe", "expression"]);
         const want = S(tf, "").trim();
         const own = this.bars.interval;
-        if (want !== "" && want !== own && want.toLowerCase() !== "chart") {
-          throw new PineRuntimeError(
-            `request.${path.slice(8)} for a different timeframe ('${want}' vs the chart's ` +
-            `'${own}') is not supported by this engine — it needs a second data feed`,
-            line
-          );
+        const sameTf = want === "" || want === own || want.toLowerCase() === "chart";
+        /**
+         * During a capture pass this instance IS the requested timeframe, even
+         * though the two are spelled differently: Pine says "60", the platform
+         * calls the same feed "1h". Match on the raw string the pass was
+         * started with rather than on `bars.interval`.
+         */
+        const isCaptureTarget = this.captureTf !== null && want === this.captureTf;
+
+        if (!sameTf && !isCaptureTarget) {
+          // Declaration pass: note what the script needs so the caller can
+          // load it, and answer with a placeholder.
+          if (this.declaring) {
+            this.needTf.add(want);
+            return path === "request.security" ? NaN : new PineArray("float", [NaN]);
+          }
+          // A capture pass is running as ONE timeframe; a call for any other is
+          // not what it is collecting, so it answers empty rather than failing.
+          if (this.captureTf !== null) {
+            return path === "request.security" ? NaN : new PineArray("float", [NaN]);
+          }
+          const series = this.htfValues.get(this.securityKey(line));
+          if (!series) {
+            throw new PineRuntimeError(
+              `request.${path.slice(8)} for a different timeframe ('${want}' vs the chart's ` +
+              `'${own}') has no feed loaded — the caller must supply it in RunOptions.htf`,
+              line
+            );
+          }
+          const bars = this.htf[want];
+          const v = bars ? this.alignHtf(series, bars) : NaN;
+          if (path === "request.security") return v;
+          const wrapOne = (x: PineValue): PineValue => new PineArray("float", [x]);
+          return Array.isArray(v) ? v.map(wrapOne) : wrapOne(v);
         }
+
         const v = expr ? this.evalExpr(expr) : NaN;
+        // Capturing this timeframe: record the value this HTF bar produced.
+        if (this.captureInto && isCaptureTarget) {
+          const key = this.securityKey(line);
+          let arr = this.captureInto.get(key);
+          if (!arr) { arr = []; this.captureInto.set(key, arr); }
+          arr[this.i] = v;
+        }
         if (path === "request.security") return v;
         // The lower_tf form answers with one array per requested series; at the
         // chart's own resolution each bar contributes exactly one element.

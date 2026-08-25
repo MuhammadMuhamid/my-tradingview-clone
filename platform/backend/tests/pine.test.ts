@@ -221,11 +221,9 @@ plot(atr, "atr")
 
 test("unsupported constructs fail with a line-numbered error, never silently", () => {
   const cases: [string, RegExp][] = [
-    [`indicator("x")\nplot(request.security(syminfo.tickerid, "60", close))`, /request\.security/],
     [`indicator("x")\nplot(ta.notARealFunction(close, 5))`, /unknown function/],
     [`indicator("x")\nm = map.new<string, float>()`, /maps/],
     [`indicator("x")\na = array.notARealFunction(0)`, /array\.notARealFunction/],
-    [`indicator("x")\nplot(request.security(syminfo.tickerid, "1D", close))`, /second data feed/],
     [`indicator("x")\nplot(undefinedVariable)`, /unknown identifier/],
   ];
   for (const [src, pattern] of cases) {
@@ -671,19 +669,30 @@ if barstate.islast
 });
 
 test("request.security for the chart's own timeframe passes through", () => {
-  // The engine has one feed, so same-timeframe requests are exact and a
-  // different timeframe must error rather than quietly substitute.
   const p = plotsOf(`
 indicator("x")
 same = request.security(syminfo.tickerid, timeframe.period, close)
 plot(same, "same")
 `);
   assertMatches(p["same"]!, BARS.close, "same-timeframe security");
+});
 
-  const { errors } = PineInterpreter.compile(`indicator("x")
+test("a different timeframe compiles, declares its feed, and refuses to guess without it", () => {
+  // Compiling must succeed: the caller learns which feed to load FROM the
+  // compile result, so an error here would make the feed unloadable.
+  const { errors, meta } = PineInterpreter.compile(`indicator("x")
 plot(request.security(syminfo.tickerid, "1D", close))`);
-  assert.equal(errors.length, 1);
-  assert.match(errors[0]!.message, /second data feed/);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(meta.securityTimeframes, ["1D"]);
+
+  // Running it without that feed must still fail loudly rather than
+  // substituting chart-timeframe data, which would be a plausible wrong number.
+  const interp = new PineInterpreter(`indicator("x")
+plot(request.security(syminfo.tickerid, "1D", close))`);
+  assert.throws(
+    () => interp.run({ bars: BARS, startIdx: 0, endIdx: BARS.length - 1 }),
+    /no feed loaded/
+  );
 });
 
 test("input.source keeps the series name when the default is an identifier", () => {

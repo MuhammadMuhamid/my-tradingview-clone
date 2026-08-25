@@ -15,7 +15,7 @@ import * as scripts from "../../repositories/pineScripts";
 import * as candleRepo from "../../repositories/candles";
 import * as symbolRepo from "../../repositories/symbols";
 import { assertSymbol, ensureCandles, syncExchangeFilters } from "../../data/binanceRest";
-import { toBars } from "../../engine/mtf";
+import { toBars, type Bars } from "../../engine/mtf";
 import { PineInterpreter } from "../../pine/interpreter";
 import { PineBusyError, runPineInWorker } from "../../pine/runInWorker";
 import type { BrokerOptions } from "../../engine/broker";
@@ -99,11 +99,17 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
 
   /** Parse + declaration pass only: metadata, inputs and diagnostics. */
   app.post("/api/pine/compile", async (req, reply) => {
-    const { source } = req.body as { source?: string };
+    const { source, params } = req.body as {
+      source?: string;
+      params?: Record<string, number | string | boolean>;
+    };
     if (typeof source !== "string") {
       return reply.code(400).send({ error: "source is required" });
     }
-    const { meta, errors } = PineInterpreter.compile(source);
+    // Params matter to the declaration pass: `meta.securityTimeframes` can
+    // depend on an input, so the editor should report the feeds for the
+    // settings actually in force.
+    const { meta, errors } = PineInterpreter.compile(source, params);
     return { ok: errors.length === 0, meta, errors };
   });
 
@@ -163,7 +169,7 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Compile first so syntax errors never trigger a data fetch.
-    const compiled = PineInterpreter.compile(source);
+    const compiled = PineInterpreter.compile(source, body.params);
     if (compiled.errors.length > 0) {
       return { ok: false, errors: compiled.errors, meta: compiled.meta };
     }
@@ -181,6 +187,33 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     }
     const bars = toBars(candles);
     const startIdx = Math.max(0, bars.time.findIndex((t) => t >= startMs));
+
+    /**
+     * Extra feeds for `request.security`. The declaration pass reports which
+     * timeframes the script asks for, so they are fetched HERE — the run is
+     * synchronous and cannot go and get data itself.
+     *
+     * Each feed is loaded from the same start as the chart, so a coarse
+     * timeframe still has the warmup its own indicators need. A timeframe the
+     * platform does not support is skipped; the run then fails naming it,
+     * which is a better error than a silent wrong number.
+     */
+    const htf: Record<string, Bars> = {};
+    for (const raw of compiled.meta.securityTimeframes) {
+      const tf = normaliseTimeframe(raw);
+      if (!tf || tf === interval) continue;
+      if (INTERVAL_MS[tf] <= INTERVAL_MS[interval]) {
+        // Lower timeframes would need intrabar data this engine does not keep.
+        continue;
+      }
+      try {
+        await ensureCandles(symbol, tf, warmupFrom, endMs, () => {});
+      } catch {
+        continue;
+      }
+      const rows = await candleRepo.getCandles(symbol, tf, { from: warmupFrom, to: endMs });
+      if (rows.length > 0) htf[raw] = toBars(rows);
+    }
 
     const isStrategy = compiled.meta.kind === "strategy";
     let brokerOptions: BrokerOptions | null = null;
@@ -213,6 +246,7 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
         endIdx: bars.length - 1,
         params: body.params,
         broker: brokerOptions,
+        htf,
         // A chart request has a user waiting on it. It no longer blocks
         // anything else either, because it runs off this thread — but it is
         // still bounded, and the thread is terminated if it overruns.
@@ -245,4 +279,28 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
       errors: [{ line: 1, col: 1, message: outcome.message }],
     };
   });
+}
+
+/**
+ * Map the timeframe strings Pine scripts use onto the platform's intervals.
+ *
+ * Pine writes intraday minutes as a bare number ("60" is one hour) and days,
+ * weeks and months as "D"/"W"/"M". Returns null for anything this platform has
+ * no feed for, including weekly and monthly.
+ */
+export function normaliseTimeframe(raw: string): Interval | null {
+  const t = raw.trim();
+  if (t === "") return null;
+  const upper = t.toUpperCase();
+  if (upper === "D" || upper === "1D") return "1d";
+  // Bare digits are minutes in Pine.
+  if (/^\d+$/.test(t)) {
+    const mins = Number(t);
+    const byMinutes: Record<number, Interval> = {
+      1: "1m", 3: "3m", 5: "5m", 15: "15m", 30: "30m",
+      60: "1h", 120: "2h", 240: "4h", 360: "6h", 720: "12h", 1440: "1d",
+    };
+    return byMinutes[mins] ?? null;
+  }
+  return isInterval(t) ? t : null;
 }

@@ -26,6 +26,8 @@ export interface PineWorkerRequest {
   params?: Record<string, number | string | boolean>;
   broker: BrokerOptions | null;
   timeBudgetMs: number;
+  /** Extra feeds for cross-timeframe `request.security`, keyed by timeframe. */
+  htf?: Record<string, Bars>;
 }
 
 export type PineWorkerResponse =
@@ -56,6 +58,7 @@ export function executePine(req: PineWorkerRequest): PineWorkerResponse {
       params: req.params,
       broker,
       timeBudgetMs: req.timeBudgetMs,
+      htf: req.htf,
     });
     return {
       kind: "ok",

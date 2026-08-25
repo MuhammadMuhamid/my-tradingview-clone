@@ -41,6 +41,8 @@ export interface PineRunRequest {
   params?: Record<string, number | string | boolean>;
   broker: BrokerOptions | null;
   timeBudgetMs: number;
+  /** Extra feeds for cross-timeframe `request.security`, keyed by timeframe. */
+  htf?: Record<string, Bars>;
 }
 
 export type PineRunOutcome =
