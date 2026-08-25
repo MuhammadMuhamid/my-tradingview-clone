@@ -1,9 +1,10 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CandleChart, INTERVAL_MS } from "@/components/CandleChart";
 import { api } from "@/lib/api";
 import type { AppliedIndicator } from "@/lib/indicators";
 import { useMirroredIndicators } from "@/lib/useMirroredIndicators";
+import { buildMaOverlays, type MaLine } from "@/lib/movingAverages";
 import type { Candle, Interval } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
 
@@ -17,7 +18,8 @@ const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
  * with the indicators, which the backend computes from the same source.
  */
 export function SplitPane({
-  symbol, timeframe, onTimeframe, bars, indicators, startTime, endTime, onClose,
+  symbol, timeframe, onTimeframe, bars, indicators, maLines, startTime, endTime, onClose,
+  onCrosshairMove, crosshairTime, onVisibleRangeChange, visibleRange, followEdgeTime,
 }: {
   symbol: string;
   timeframe: Interval;
@@ -25,9 +27,20 @@ export function SplitPane({
   bars: number;
   /** the chart's applied studies, re-run here at this pane's timeframe */
   indicators: AppliedIndicator[];
+  /**
+   * The moving averages pane 1 draws. Recomputed here from THIS pane's own
+   * candles — a 200 EMA of 1h bars is a different line from a 200 EMA of 15m
+   * bars, so copying pane 1's values across would draw a lie.
+   */
+  maLines: MaLine[];
   startTime: string;
   endTime: string;
   onClose: () => void;
+  onCrosshairMove?: (time: number | null) => void;
+  crosshairTime?: number | null;
+  onVisibleRangeChange?: (range: { from: number; to: number }) => void;
+  visibleRange?: { from: number; to: number } | null;
+  followEdgeTime?: number | null;
 }) {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(false);
@@ -58,6 +71,13 @@ export function SplitPane({
 
   const mirrored = useMirroredIndicators(
     indicators, { symbol, timeframe, startTime, endTime }, indicators.length > 0
+  );
+
+  const maOverlays = useMemo(() => buildMaOverlays(candles, maLines), [candles, maLines]);
+  /** MAs beneath the Pine studies, matching pane 1's draw order. */
+  const overlays = useMemo(
+    () => [...maOverlays, ...mirrored.overlays],
+    [maOverlays, mirrored.overlays]
   );
 
   const last = candles[candles.length - 1];
@@ -108,11 +128,16 @@ export function SplitPane({
             symbol={symbol}
             interval={timeframe}
             candles={candles}
-            overlays={mirrored.overlays}
+            overlays={overlays}
             markers={mirrored.markers}
             pineDrawings={mirrored.drawings}
             live
             fill
+            onCrosshairMove={onCrosshairMove}
+            crosshairTime={crosshairTime}
+            onVisibleRangeChange={onVisibleRangeChange}
+            visibleRange={visibleRange}
+            followEdgeTime={followEdgeTime}
           />
         )}
       </div>

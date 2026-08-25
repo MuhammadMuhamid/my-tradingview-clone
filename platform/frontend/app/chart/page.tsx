@@ -20,6 +20,8 @@ import { MaAlertModal } from "@/components/tv/MaAlertModal";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { SyncMenu } from "@/components/tv/SyncMenu";
+import { DEFAULT_SYNC, loadSync, saveSync, type SyncOptions } from "@/lib/paneSync";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import * as drawStore from "@/lib/drawings";
@@ -141,6 +143,21 @@ export default function TvWorkspace() {
   const [moreOpen, setMoreOpen] = useState(false);
   /** Site navigation, which is hidden on the phone chart to reclaim a whole row. */
   const [navOpen, setNavOpen] = useState(false);
+
+  // ── split-pane synchronisation ──
+  const [sync, setSyncState] = useState<SyncOptions>(DEFAULT_SYNC);
+  useEffect(() => { setSyncState(loadSync()); }, []);
+  const setSync = useCallback((next: SyncOptions) => {
+    setSyncState(next);
+    saveSync(next);
+  }, []);
+
+  /**
+   * Which pane the pointer is in, and where. Held as one piece of state so a
+   * pane never mirrors its own crosshair back onto itself.
+   */
+  const [cross, setCross] = useState<{ pane: 1 | 2; time: number | null } | null>(null);
+  const [range, setRange] = useState<{ pane: 1 | 2; from: number; to: number } | null>(null);
 
   // On phones the side panel is an overlay drawer, so start it closed —
   // otherwise it covers the chart on first load.
@@ -780,6 +797,7 @@ export default function TvWorkspace() {
             </svg>
             Split
           </button>
+          <SyncMenu value={sync} onChange={setSync} disabled={!splitOpen} />
           {/*
             FE-01: this bell used to open the deployment dialog, which created
             AND activated a live 800 USDT strategy. A bell means "tell me when",
@@ -928,13 +946,22 @@ export default function TvWorkspace() {
           {splitOpen && (
             <SplitPane
               symbol={symbol}
-              timeframe={splitInterval}
-              onTimeframe={setSplitInterval}
+              timeframe={sync.interval ? interval : splitInterval}
+              onTimeframe={(i) => (sync.interval ? changeInterval(i) : setSplitInterval(i))}
               bars={bars}
               indicators={indicators.list}
+              maLines={maLines}
               startTime={BACKTEST_START}
               endTime={todayISO()}
               onClose={() => setSplitOpen(false)}
+              onCrosshairMove={(t) => sync.crosshair && setCross({ pane: 2, time: t })}
+              crosshairTime={sync.crosshair && cross?.pane === 1 ? cross.time : null}
+              onVisibleRangeChange={(r) =>
+                (sync.time || sync.dateRange) && setRange({ pane: 2, ...r })}
+              visibleRange={sync.dateRange && range?.pane === 1
+                ? { from: range.from, to: range.to } : null}
+              followEdgeTime={sync.time && !sync.dateRange && range?.pane === 1
+                ? range.to : null}
             />
           )}
         </div>

@@ -5,6 +5,7 @@ import {
   SeriesMarker, MouseEventParams, LineStyle,
 } from "lightweight-charts";
 import type { Candle, Interval, Trade } from "@/lib/types";
+import { snapToBarIndex } from "@/lib/paneSync";
 import { fmtPrice } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
@@ -83,6 +84,8 @@ export function CandleChart({
   magnet = false, drawingsLocked = false, drawingsHidden = false,
   onPriceSelect,
   compact = false,
+  onCrosshairMove, crosshairTime,
+  onVisibleRangeChange, visibleRange, followEdgeTime,
 }: {
   symbol: string;
   interval: Interval;
@@ -117,6 +120,24 @@ export function CandleChart({
    * typed from memory.
    */
   onPriceSelect?: (price: number) => void;
+  // ── pane synchronisation (split view) ──
+  /** Bar time under this chart's crosshair, or null when the pointer leaves. */
+  onCrosshairMove?: (time: number | null) => void;
+  /**
+   * Draw a crosshair at this bar time, sourced from the other pane. The panes
+   * can be on different resolutions, so the time is snapped to the newest bar
+   * at or before it rather than requiring an exact match.
+   */
+  crosshairTime?: number | null;
+  /** Visible time span, emitted on scroll and zoom. */
+  onVisibleRangeChange?: (range: { from: number; to: number }) => void;
+  /** Adopt this exact visible span (date-range sync). */
+  visibleRange?: { from: number; to: number } | null;
+  /**
+   * Align only the right edge to this time, keeping this pane's own zoom
+   * (time sync). Ignored when `visibleRange` is driving the whole span.
+   */
+  followEdgeTime?: number | null;
   /**
    * Phone layout: drop the per-series price-axis badges and shorten the
    * legend. Ten moving averages each stamp a label on the scale, which on a
@@ -132,6 +153,17 @@ export function CandleChart({
   const candlesRef = useRef<Candle[]>([]);
   const timeIndexRef = useRef<Map<number, number>>(new Map());
   const hoverTimeRef = useRef<number | null>(null);
+  /**
+   * Callback refs. The chart is created once in an effect that must not
+   * re-run when a parent re-renders with a new closure, so the subscriptions
+   * read through these instead of capturing the props directly.
+   */
+  const onCrosshairRef = useRef(onCrosshairMove);
+  onCrosshairRef.current = onCrosshairMove;
+  const onRangeRef = useRef(onVisibleRangeChange);
+  onRangeRef.current = onVisibleRangeChange;
+  /** Set while applying a range from the other pane, to break the feedback loop. */
+  const applyingRangeRef = useRef(false);
   const [legend, setLegend] = useState<LegendBar | null>(null);
   /** FE-09: what the live feed is actually doing, so the UI can say so. */
   const [feedState, setFeedState] = useState<ChartFeedState>("idle");
@@ -184,6 +216,9 @@ export function CandleChart({
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
       const t = param.time as number | undefined;
       hoverTimeRef.current = t ?? null;
+      // Tell the other pane where the pointer is. Guarded by a ref so the
+      // subscription does not have to be torn down when the callback changes.
+      onCrosshairRef.current?.(t ?? null);
       if (t != null) {
         const i = timeIndexRef.current.get(t);
         if (i !== undefined) {
@@ -193,6 +228,15 @@ export function CandleChart({
       }
       const n = candlesRef.current.length;
       setLegend(n > 0 ? legendFromIndex(n - 1) : null);
+    });
+
+    chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+      // A range we just applied ourselves would otherwise bounce back to the
+      // pane that sent it, and the two would chase each other.
+      if (applyingRangeRef.current || !range) return;
+      const from = range.from as number;
+      const to = range.to as number;
+      if (Number.isFinite(from) && Number.isFinite(to)) onRangeRef.current?.({ from, to });
     });
 
     chartRef.current = chart;
@@ -481,6 +525,79 @@ export function CandleChart({
       setFeedState("idle");
     };
   }, [symbol, interval, live]);
+
+  /**
+   * Mirror the other pane's crosshair.
+   *
+   * The panes are usually on different resolutions, so an exact time match is
+   * the exception: 14:07 on a 15m chart has to land on the 14:00 bar of a 1h
+   * one. We take the newest bar at or before the incoming time, which is the
+   * bar that was actually forming at that moment.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) return;
+
+    if (crosshairTime == null) {
+      chart.clearCrosshairPosition();
+      return;
+    }
+    const list = candlesRef.current;
+    if (list.length === 0) return;
+
+    const found = snapToBarIndex(
+      list.map((c) => Math.floor(c.openTime / 1000)), crosshairTime
+    );
+    if (found < 0) { chart.clearCrosshairPosition(); return; }
+
+    const bar = list[found]!;
+    chart.setCrosshairPosition(bar.close, Math.floor(bar.openTime / 1000) as UTCTimestamp, series);
+  }, [crosshairTime, chartReady]);
+
+  /** Adopt the other pane's exact visible span (date-range sync). */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !visibleRange) return;
+    applyingRangeRef.current = true;
+    try {
+      chart.timeScale().setVisibleRange({
+        from: visibleRange.from as UTCTimestamp,
+        to: visibleRange.to as UTCTimestamp,
+      });
+    } catch {
+      // Outside this pane's loaded history — leave the range where it is.
+    } finally {
+      // Cleared after the library has emitted its own change event.
+      setTimeout(() => { applyingRangeRef.current = false; }, 0);
+    }
+  }, [visibleRange, chartReady]);
+
+  /**
+   * Time sync: keep this pane's right edge at the other's latest visible bar
+   * while preserving its own zoom, so a 15m and a 1h chart stay on the same
+   * moment without being forced to show the same number of bars.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || followEdgeTime == null || visibleRange) return;
+    const ts = chart.timeScale();
+    const cur = ts.getVisibleRange();
+    if (!cur) return;
+    const span = (cur.to as number) - (cur.from as number);
+    if (!Number.isFinite(span) || span <= 0) return;
+    applyingRangeRef.current = true;
+    try {
+      ts.setVisibleRange({
+        from: (followEdgeTime - span) as UTCTimestamp,
+        to: followEdgeTime as UTCTimestamp,
+      });
+    } catch {
+      // Ignore ranges this pane cannot show.
+    } finally {
+      setTimeout(() => { applyingRangeRef.current = false; }, 0);
+    }
+  }, [followEdgeTime, visibleRange, chartReady]);
 
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
