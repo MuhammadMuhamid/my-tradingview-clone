@@ -3,12 +3,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+/*
+ * FE-01: "Alerts" and "Live & Alerts" were two entries for two unrelated
+ * things — notifications, and live automated trading. The second is now named
+ * for what it does. A user should never have to click a link to find out
+ * whether it spends money.
+ */
 const LINKS = [
   { href: "/chart", label: "Chart" },
   { href: "/alerts", label: "Alerts" },
   { href: "/optimizers", label: "Optimizers" },
   { href: "/backtests", label: "Backtests" },
-  { href: "/deployments", label: "Live & Alerts" },
+  { href: "/deployments", label: "Live trading" },
+  { href: "/operations", label: "Operations" },
 ];
 
 export function Nav() {

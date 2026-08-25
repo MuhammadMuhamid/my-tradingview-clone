@@ -85,9 +85,18 @@ export interface SessionClaims {
   expiresAt: number;
 }
 
+/**
+ * `expectedUsername` is not optional in spirit: a token is only valid for the
+ * account that is currently configured. Without that check a session signed for
+ * a username that has since been changed stays valid for the full 90-day TTL,
+ * because these tokens are stateless and there is no revocation list.
+ */
 export function verifySession(
-  token: string, secret: string, now = Date.now()
+  token: string,
+  secret: string,
+  opts: { expectedUsername?: string; now?: number } = {}
 ): SessionClaims | null {
+  const now = opts.now ?? Date.now();
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [userPart, expiryPart, mac] = parts as [string, string, string];
@@ -97,10 +106,16 @@ export function verifySession(
   if (!safeEqual(mac, expected)) return null;
   const expiresAt = Number(expiryPart);
   if (!Number.isFinite(expiresAt) || expiresAt <= now) return null;
-  return {
-    username: Buffer.from(userPart, "base64url").toString("utf8"),
-    expiresAt,
-  };
+  let username: string;
+  try {
+    username = Buffer.from(userPart, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  if (opts.expectedUsername !== undefined && !safeEqual(username, opts.expectedUsername)) {
+    return null;
+  }
+  return { username, expiresAt };
 }
 
 /** Minimal Cookie-header parser — avoids pulling in a cookie plugin. */

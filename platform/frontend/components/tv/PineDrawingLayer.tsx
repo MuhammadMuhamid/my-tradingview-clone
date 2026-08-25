@@ -235,7 +235,13 @@ export function PineTables({ drawings }: { drawings: PineDrawings | null }) {
         return (
           <div
             key={i}
-            className={`pointer-events-none absolute z-[6] rounded border border-border bg-surface/85 p-1 font-mono text-[10px] ${corner(t.position)}`}
+            /*
+             * A script chooses how many columns its table has, and the chart
+             * does not get a say. Capped so a wide one cannot cover the price
+             * action on a phone — clipping the far columns is recoverable by
+             * rotating or widening; hiding the chart is not.
+             */
+            className={`pointer-events-none absolute z-[6] max-w-[min(90%,32rem)] overflow-hidden rounded border border-border bg-surface/85 p-1 font-mono text-[10px] ${corner(t.position)}`}
           >
             <table className="border-collapse">
               <tbody>

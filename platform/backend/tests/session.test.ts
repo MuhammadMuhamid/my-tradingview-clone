@@ -37,7 +37,7 @@ test("a signed session verifies and carries the username", () => {
 
 test("the session lasts 90 days", () => {
   const now = Date.now();
-  const claims = verifySession(signSession("u", SECRET, now), SECRET, now);
+  const claims = verifySession(signSession("u", SECRET, now), SECRET, { now });
   assert.equal(claims!.expiresAt - now, SESSION_TTL_MS);
 });
 
@@ -67,4 +67,13 @@ test("safeEqual handles differing lengths without throwing", () => {
   assert.equal(safeEqual("abc", "abc"), true);
   assert.equal(safeEqual("abc", "abcd"), false);
   assert.equal(safeEqual("", ""), true);
+});
+
+test("a session signed for a different username is rejected", () => {
+  const token = signSession("muhamid", SECRET);
+  assert.equal(verifySession(token, SECRET, { expectedUsername: "muhamid" })?.username, "muhamid");
+  // Sessions are stateless with a 90-day TTL and no revocation list, so a token
+  // for a username that is no longer configured must stop working.
+  assert.equal(verifySession(token, SECRET, { expectedUsername: "admin" }), null);
+  assert.equal(verifySession(token, SECRET, { expectedUsername: "" }), null);
 });

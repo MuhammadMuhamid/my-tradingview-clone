@@ -1,4 +1,5 @@
 import type { Interval } from "../types/market";
+import { isNetWin } from "./liveCosts";
 import type { RuntimeState } from "../types/deployments";
 import { FeedStore } from "./mtf";
 import { computeSignals } from "./strategies/mtf_lean/signals";
@@ -47,7 +48,7 @@ export function evaluateMtfLeanBar(
   const i = chart.time.indexOf(barTime);
   if (i < 0) throw new Error(`bar ${barTime} not present in ${symbol} ${chartTf} feed`);
   const sig = computeSignals(feeds, symbol, chartTf, p);
-  let next = copy(state);
+  const next = copy(state);
   const steps: MtfLeanStep[] = [];
   const close = chart.close[i]!;
   const open = chart.open[i]!;
@@ -110,7 +111,11 @@ export function evaluateMtfLeanBar(
   }
 
   const finish = (reason: string, leg: "runner" | "stop" | "signal", price: number): void => {
-    const win = price > entry;
+    // BE-15: net of both commissions, matching the backtest's `pnl > 0` on
+    // `broker.closed`. Gross comparison made a +0.03 % exit a win here and a
+    // loss there, which flipped consecLosses and desynchronised the choppy
+    // pause — so the two took different trade sets from the same data.
+    const win = isNetWin(entry, price);
     if (win) {
       next.consecLosses = 0;
     } else {
@@ -126,19 +131,37 @@ export function evaluateMtfLeanBar(
     emit({ action: "sell", reason, price, barTime, barIndex: i, exitLeg: leg });
   };
 
-  const partial = (tier: "tp1" | "tp2", originalPct: number): void => {
+  /** Returns true when this tier closed the whole remaining position. */
+  const partial = (tier: "tp1" | "tp2", originalPct: number): boolean => {
     const already = (next.tp1Done ? p.rrTp1Size : 0) + (next.tp2Done ? p.rrTp2Size : 0);
     const currentPct = Math.min(100, originalPct / Math.max(0.000001, 100 - already) * 100);
     if (tier === "tp1") next.tp1Done = true; else next.tp2Done = true;
-    emit({ action: "sell", reason: tier.toUpperCase(), price: tier === "tp1" ? tp1 : tp2,
-      barTime, barIndex: i, sellPercent: currentPct, exitLeg: tier });
+    // "Sell 100% of the remainder" is not a partial exit — it is a full close,
+    // and expressing it as `sell_percent: 100` was rejected by the receiver as
+    // a terminal 400 while this evaluator still marked the tier done (X-01).
+    // The contract now accepts 100 as a fail-safe; the sender stops emitting it.
+    const isFullClose = currentPct >= 100;
+    if (isFullClose) resetPosition(next, barTime);
+    emit({
+      action: "sell",
+      reason: tier.toUpperCase(),
+      price: tier === "tp1" ? tp1 : tp2,
+      barTime,
+      barIndex: i,
+      ...(isFullClose ? {} : { sellPercent: currentPct }),
+      exitLeg: tier,
+    });
+    return isFullClose;
   };
 
   const stopHit = Number.isFinite(effStop) && low <= effStop;
   const limits = (): boolean => {
     if (p.rrUsePartialTp) {
-      if (!next.tp1Done && high >= tp1) partial("tp1", p.rrTp1Size);
-      if (!next.tp2Done && high >= tp2) partial("tp2", p.rrTp2Size);
+      // A tier that takes 100% of the remainder IS the exit. Stop here rather
+      // than falling through to the runner and emitting a second sell against
+      // a position that is already flat.
+      if (!next.tp1Done && high >= tp1 && partial("tp1", p.rrTp1Size)) return true;
+      if (!next.tp2Done && high >= tp2 && partial("tp2", p.rrTp2Size)) return true;
     }
     if (high >= runner) { finish("TP", "runner", runner); return true; }
     return false;

@@ -24,7 +24,7 @@ import * as ta from "../engine/ta";
 import { Broker } from "../engine/broker";
 import type { Bars } from "../engine/mtf";
 import type { EquityPoint } from "../types/backtest";
-import { parse, type Arg, type Expr, type Stmt, type TypeField } from "./parser";
+import { parse, type Expr, type Stmt, type TypeField } from "./parser";
 import { PineSyntaxError } from "./lexer";
 import { Atr, BarsSince, Cum, Ema, RecursiveMa, Rsi, TrueRange, ValueWhen, rmaState } from "./streamTa";
 import { callArray, callMatrix } from "./collections";

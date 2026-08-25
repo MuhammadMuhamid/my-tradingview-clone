@@ -5,10 +5,10 @@
  * delivery to "custom" is rejected unless a webhook URL is already stored or
  * supplied in the same patch.
  */
-import type { DeliveryMode, DeploymentRow } from "../types/deployments";
+import { deliversLiveOrders, type DeliveryMode, DeploymentRow } from "../types/deployments";
 import { validateWebhookUrl } from "../alerts/dispatcher";
 
-const DELIVERY_MODES: DeliveryMode[] = ["3commas", "custom", "off"];
+const DELIVERY_MODES: DeliveryMode[] = ["3commas", "custom", "off", "paper"];
 
 export interface DeploymentPatchInput {
   delivery?: string;
@@ -80,8 +80,12 @@ export function validateDeploymentPatch(
   if (delivery === "custom" && !webhookUrl) {
     return { ok: false, error: "custom delivery requires webhookUrl" };
   }
-  if (delivery !== "off" && !secret) {
+  // `off` and `paper` make no outbound call, so they need no credential.
+  if (deliversLiveOrders(delivery) && !secret) {
     return { ok: false, error: "a webhook secret of at least 32 characters is required" };
+  }
+  if (delivery === "paper" && (!Number.isFinite(buyQuoteQty ?? NaN) || (buyQuoteQty ?? 0) <= 0)) {
+    return { ok: false, error: "paper delivery requires buyQuoteQty, the size to simulate" };
   }
   if (delivery === "3commas" && !botUuid) {
     return { ok: false, error: "3commas delivery requires botUuid" };

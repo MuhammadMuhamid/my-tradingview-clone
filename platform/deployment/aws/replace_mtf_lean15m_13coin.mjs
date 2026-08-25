@@ -10,9 +10,15 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import pg from "pg";
+import { assertNoOpenPositions, parseWriteIntent } from "./lib/replaceGuard.mjs";
+import { assertHoldoutClearance } from "./lib/holdoutGate.mjs";
 
 const SOURCE = process.argv[2] || "/tmp/LEAN15M_DEPLOY_2026-08-22.json";
-const DRY = process.argv.includes("--dry");
+// OPT-27: writing is opt-in. `--dry` still previews; passing neither flag
+// also previews, so an invocation that forgets the flag cannot rewrite the
+// deployment table by accident.
+const INTENT = parseWriteIntent(process.argv, "replace_mtf_lean15m_13coin.mjs");
+const DRY = !INTENT.apply;
 const secret = process.env.WEBHOOK_SECRET ?? "";
 const encryptionKey = process.env.ALERT_ENCRYPTION_KEY ?? "";
 if (secret && secret.length < 32) throw new Error("WEBHOOK_SECRET must be at least 32 characters");
@@ -78,20 +84,20 @@ const entries = SELECTED.map((symbol) => {
   if (partial && coin.full_params.rrTp1Size + coin.full_params.rrTp2Size >= 100) {
     throw new Error(`TP1 + TP2 leaves no runner for ${symbol}`);
   }
-  return { symbol, params: coin.full_params, metrics: coin.metrics };
+  return { symbol, params: coin.full_params, metrics: coin.metrics, holdout: coin.holdout ?? null };
 });
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const activeLong = await pool.query(
-  "SELECT symbol FROM deployments WHERE runtime_state->>'position'='long' ORDER BY symbol"
-);
-if (activeLong.rows.length) {
-  throw new Error(`refusing replacement while locally tracked positions are open: ${activeLong.rows.map((r) => r.symbol).join(", ")}`);
-}
+await assertNoOpenPositions(pool, "replace_mtf_lean15m_13coin.mjs");
 console.log(`PLAN: ${entries.length} deployments; ${EXPECTED_PARTIAL.size} partial, ${entries.length - EXPECTED_PARTIAL.size} full-only`);
 for (const e of entries) {
   console.log(e.symbol, e.params.rrUsePartialTp ? "TP1/TP2/runner" : "full runner", e.metrics);
 }
+// OPT-01: refuse a portfolio whose configurations have not been scored on
+// data no selection step read. Absence of a holdout result is not a pass.
+assertHoldoutClearance(report, entries, "replace_mtf_lean15m_13coin.mjs");
+
+console.log(INTENT.explain());
 if (DRY) {
   await pool.end();
   process.exit(0);

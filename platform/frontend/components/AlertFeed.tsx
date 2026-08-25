@@ -9,7 +9,7 @@ export function AlertFeed({ alerts }: { alerts: Alert[] }) {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm tabular">
+      <table className="w-full min-w-[640px] text-sm tabular">
         <thead>
           <tr className="border-b border-border text-left text-xs text-ink-muted">
             <th className="px-4 py-2 font-medium">Action</th>

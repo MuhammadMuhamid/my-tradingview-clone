@@ -1,0 +1,1557 @@
+{
+  "meta": {
+    "audit_date": "2026-08-23",
+    "last_phase": "Phase 9 — final integration and proof",
+    "mahamid_scope": [
+      "Webhook-secret rotation or propagation to TradingView alerts and deployment records.",
+      "Binance API-key changes, permission checks or IP-allowlist confirmation.",
+      "Any AWS inspection or modification, and any production deployment.",
+      "Production database access, and confirmation of production runtime state.",
+      "Live exchange, wallet, webhook or order operations.",
+      "TradingView account operations, including the MTF parity comparison that gates BE-08.",
+      "Binance testnet operations, which need credentials this workspace does not hold."
+    ]
+  },
+  "findings": [
+    {
+      "id": "X-01",
+      "repo": "both",
+      "verified": "Confirmed by inspection: sender clamps to 100, receiver schema is `.lt(100)`.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "0780a4e, 080c0a9, bot 9074f1a",
+      "evidence": "Contract v1 accepts `<= 100`; the evaluator resets the position and omits `sell_percent` for a full-remainder tier, and `limits()` stops there rather than also emitting the runner leg. `emittablePayloads()` round-trips through the validator on BOTH sides. The Phase 0 test that asserted the rejection now asserts acceptance.",
+      "risk": "Exits that previously failed will start executing. Deploy at a flat-position window."
+    },
+    {
+      "id": "X-02",
+      "repo": "both",
+      "verified": "Confirmed: platform barIndex is floor(epoch/interval); Pine bar_index is chart-relative.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "0780a4e, 080c0a9",
+      "evidence": "`customDedupeKey` returns `<L|X>-<barOpenTimeMs>[-<leg>]`; a test asserts the platform's and Pine's bar indices differ while the keys now match. The false byte-identity comment is replaced with the reason it was false. Legacy keys still validate, so an un-updated sender is not locked out.",
+      "risk": "Old keys stop matching, so run the change at a flat-position window. The Pine template in the bot repository still emits the legacy form until Mahamid updates the TradingView alerts."
+    },
+    {
+      "id": "X-03",
+      "repo": "both",
+      "verified": "Confirmed: liveRunner consumes only `flat` from a two-state report.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "eb11ac1",
+      "evidence": "`pauseOnReceiverLong` pauses a locally-flat deployment when the receiver reports long, records the divergence in runtime state, and removes it from the runner so it cannot emit.",
+      "risk": "The position is NOT adopted — the platform does not know the entry price, stop or targets. An operator must reconcile before re-activating. That is deliberate: inventing an entry price would put real money behind a guess."
+    },
+    {
+      "id": "X-04",
+      "repo": "platform",
+      "verified": "Confirmed: 4 mapped directories are absent; 13 trees exist on disk, 4 are routable.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d70f832",
+      "evidence": "Every tree owns a `tree.json` (id, strategy, timeframe, system, kind, status). `platform/backend/src/optimizer/registry.ts` discovers them under `OPTIMIZER_ROOT`, or the backend directory when unset, so resolution no longer depends on the working directory. An unknown tree answers 404 naming the ids that exist; a registered tree with no generated data reports `resultsAvailable: false`, which is a different answer from `no such tree`. The UI's tree list is the registry's, so the dead `srtrend_v10` entry is gone and the nine hidden trees are selectable. `platform/backend/tests/optimizerRegistry.test.ts` asserts every tree with a config.json is registered and that resolution ignores `process.chdir`; `scripts/ci/check-docs.sh` fails on a tree with no registry entry. `backtesting:shared/indexed_results.py` and `run-optimizer-service.sh` resolve through the same registry rather than raising KeyError.",
+      "risk": "The UI now exposes historical and not-comparable trees. Each carries its status and a note explaining why its numbers are not current, but they are reachable where they were previously invisible."
+    },
+    {
+      "id": "X-05",
+      "repo": "bot",
+      "verified": "Confirmed present in two tracked files at audit time; both literals are now `PASTE_YOUR_BOT_SECRET_HERE`.",
+      "disposition": "fixed",
+      "phase": "Phase 0",
+      "commit": "bot a61fed3",
+      "evidence": "`scripts/ci/scan-secrets.sh` returns clean in both repositories and now fails CI on a 40+ hex literal (verified against a probe file). The old value was never printed, used or propagated.",
+      "risk": "**The credential itself is still exposed.** Rotation, and updating every TradingView alert input and platform deployment record, is Mahamid's action (M1) and must happen at a flat-position window."
+    },
+    {
+      "id": "X-06",
+      "repo": "platform",
+      "verified": "Confirmed: `LIVE_RUNNER_ENABLED !== \"false\"`, and the plist sets no environment.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "eb11ac1",
+      "evidence": "`config.liveRunnerEnabled` is `=== \"true\"`, so unset means disabled; the launch agent is a template that sets it to `false` explicitly and carries placeholders instead of another user's absolute paths. A boot with no variable logs that the runner is disabled.",
+      "risk": "**Production must set `LIVE_RUNNER_ENABLED=true` explicitly or live alerting stops.** Coordinate with the AWS deployment before shipping."
+    },
+    {
+      "id": "X-07",
+      "repo": "bot",
+      "verified": "Confirmed: the `dev-insecure-key` fallback is reachable whenever DRY_RUN is true.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot d157535",
+      "evidence": "`deriveKey` throws instead of substituting `dev-insecure-key`; `POST /api/exchange-accounts` returns 503 when `canStoreSecrets()` is false; `assertConfig()` exits non-zero on missing key material in dry run. Covered by `bot:backend/tests/security.test.ts`.",
+      "risk": "Rows already written under the published key remain in any existing `bot.db`. They must be deleted and the keys re-entered — that is an operator action on production data."
+    },
+    {
+      "id": "X-08",
+      "repo": "bot",
+      "verified": "Confirmed: length-only validation, and `Buffer.from(str,'hex')` truncates silently.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot d157535",
+      "evidence": "A non-hex salt now fails startup. Tested: `SCRYPT_SALT=my-trading-bot-salt-2026` exits non-zero.",
+      "risk": "Deliberate deviation from the audit's `^[0-9a-fA-F]{32}$`: any all-hex salt of 16-64 characters is still accepted with the original padEnd/slice normalisation, because exact-32 would make stored API keys undecryptable for a deployment that used a shorter hex salt. The derivation is unchanged."
+    },
+    {
+      "id": "X-09",
+      "repo": "platform",
+      "verified": "Confirmed and corrected: every tree runs 0.1%/side. 0.05% and 0.075% exist only in prose.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d70f832",
+      "evidence": "`backtesting:docs/COST-MODELS.md` records every tree's measured model, machine-checked by `scripts/ci/check-docs.sh` against each `config.json`. `POST /api/backtests` defaulted commission to 0.05 %, half what every tree runs; the API and the chart's `DEFAULT_PROPERTIES` now both state 0.1 %, asserted against the trees in `platform/backend/tests/costModel.test.ts`. `backtesting:trees/optimizer1y15m/config.json`'s stale 185,220-combination figure is corrected.",
+      "risk": "A chart backtest run before this change was a 0.05 % run and is not comparable with one run after it. Stored rows keep the model they ran under, which is why they remain readable."
+    },
+    {
+      "id": "X-10",
+      "repo": "platform",
+      "verified": "Confirmed: the frontend reads opt-in, the backend reads opt-out plus a hash check.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "f3c67a5, 2d0a86d",
+      "evidence": "One `parseAuthEnabled` rule, mirrored in `platform/frontend/lib/authFlag.ts` and asserted on both sides. `AUTH_ENABLED=1` now leaves the gate ON in both.",
+      "risk": "The frontend value is still inlined at build time by Next, so changing it in a container needs a rebuild. Documented in `platform/frontend/.env.local.example`."
+    },
+    {
+      "id": "X-11",
+      "repo": "platform",
+      "verified": "Confirmed: AWS account id, stack name, instance ids and hostnames in tracked docs and scripts.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "74fa882",
+      "evidence": "No AWS account id, instance id, public IP, bucket name, RDS identifier or Secrets Manager ARN remains in tracked source; every deployment script reads them through `platform/deployment/aws/env.sh` and fails with a named error when one is missing. Verified by grep across the whole tree.",
+      "risk": "The identifiers were previously distributed in loose archives; they should be treated as known. Nothing here changes the infrastructure."
+    },
+    {
+      "id": "X-12",
+      "repo": "both",
+      "verified": "Confirmed: `ignored_stale_sell` returns HTTP 200 and the dispatcher treats any 2xx as sent.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "0780a4e, 080c0a9, bot 41dffb9",
+      "evidence": "`deliveryAdvancesState` reads the receiver's `status` instead of `res.ok`; a 409 carrying a no-order outcome is terminal; `blocked` is a distinct `DeliveryStatus`. The receiver answers 409 for `ignored_stale_sell`, `halted` and `risk_blocked`. An invariant test asserts no 2xx is ever an outcome the sender may not act on.",
+      "risk": "The platform will stop silently flattening its own state on a skipped sell, so those deployments will now visibly stall instead of quietly diverging."
+    },
+    {
+      "id": "X-13",
+      "repo": "audit process",
+      "verified": "Incident record for X-05. No rotation, use or propagation performed in this programme.",
+      "disposition": "blocked",
+      "phase": "Phase 0",
+      "commit": null,
+      "evidence": "Nothing to fix in code; the required action is the owner's.",
+      "risk": "The credential must be treated as exposed until Mahamid rotates it."
+    },
+    {
+      "id": "BE-01",
+      "repo": "platform",
+      "verified": "Carried from the register: Live MTF feed is two bars staler than the backtest's.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "eb11ac1",
+      "evidence": "The feed read's upper bound is `barTime + INTERVAL_MS[chartTf] - 1`, matching the backtest's close-time cutoff. No backtest change — the backtest was the correct side.",
+      "risk": "Live entries will now be gated on fresher MTF values, so live signal timing changes deliberately."
+    },
+    {
+      "id": "BE-02",
+      "repo": "platform",
+      "verified": "Confirmed: `broker.ts:202` fills a stop at the trigger price while the live path can only exit at the next bar close, and the payload carries no price at all. Partially addressed: BOT-017 provides the exchange-side resting stop that would honour the trigger, but it is BLOCKED on testnet validation. The backtest-side correction alters historical results and is gated on BE-08.",
+      "disposition": "blocked",
+      "phase": "Phase 3, Phase 7",
+      "commit": "569e625, bot d62b8ae",
+      "evidence": "Both halves are prepared and neither can be closed here. Exchange side: `bot:backend/src/services/exchangeStops.ts` places a real resting stop that would honour the trigger price, DISABLED by default and requiring Binance testnet validation before it is enabled. Backtest side: a mode that exits stops at the next bar's close would move every deployed config's numbers, so it must be a flag in `platform/backend/src/engine/corrections.ts` and it is BE08_DEPENDENT — the exit path it would change is the one whose multi-timeframe convention is unresolved. `platform/backend/src/engine/liveCosts.ts` and `platform/backend/tests/liveParity.test.ts` pin the live side's actual behaviour so the gap is measured rather than assumed.",
+      "risk": "BLOCKED ON BINANCE TESTNET CREDENTIALS (to validate the exchange-native stop) and on BE-08 (to correct the backtest side). Until then tail losses are understated: a bar that wicks 4 % through the stop and closes 3.5 % below books -1R in the backtest and -4R live."
+    },
+    {
+      "id": "BE-03",
+      "repo": "platform",
+      "verified": "Carried from the register: Exit precedence inverted between backtest and live.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "42f325b",
+      "evidence": "`liveEvaluator` and `srTrendLiveEvaluator` resolve brackets before signal exits along the broker's OHLC path (green: stop first; red: target first). Six tests assert the ordering against a reproduction of the broker's path. `mtfLeanLiveEvaluator` already matched and is unchanged.",
+      "risk": "Live exit prices change deliberately, which changes the win/loss flag and therefore the choppy-pause schedule — that is the divergence being removed."
+    },
+    {
+      "id": "BE-04",
+      "repo": "platform",
+      "verified": "Carried from the register: Entry bar unprotected; touched TP tiers silently cancelled.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "`entryBarBrackets` in `platform/backend/src/engine/corrections.ts`, applied at `ma_rr_v9/index.ts:206,217` and `srtrend_v10/index.ts:58`, adopting the `(pos > 0 || longSignal)` gate `mtf_lean` already used and moving the tier-touch latches inside the `pos > 0` branch. `platform/backend/tests/strategyGolden.test.ts` pins the uncorrected behaviour so turning it on is visible as an intentional change.",
+      "risk": "Off by default. Every `ma_rr_v9` and `srtrend_v10` leaderboard number moves when it is enabled, so enabling it requires re-running both trees."
+    },
+    {
+      "id": "BE-05",
+      "repo": "platform",
+      "verified": "Carried from the register: avgTradePct is gross while neighbouring metrics are net.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "`netAvgTrade` in `platform/backend/src/engine/corrections.ts`, applied at `metrics.ts:46`. OFF by default: turning it on changes that metric on every stored result, and half-corrected leaderboards cannot be told from uncorrected ones. Covered by `platform/backend/tests/corrections.test.ts`; every backtest row records the correction set that produced it.",
+      "risk": "Still off. Until it is turned on and the affected trees re-run, `avgTradePct` overstates per-trade edge by ~0.2 percentage points at 0.1 %/side."
+    },
+    {
+      "id": "BE-06",
+      "repo": "platform",
+      "verified": "Carried from the register: IS/OOS metrics invalid under percent-of-equity sizing; boundary trades leak.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "`assertSegmentValidity` in `platform/backend/src/engine/corrections.ts`, applied at `metrics.ts:121,138`. With the flag on, `computeSegmentMetrics` THROWS on percent-of-equity sizing instead of returning a meaningless number, and a boundary-straddling trade is attributed by leg rather than wholly by entry time.",
+      "risk": "Off by default, so an IS/OOS split computed under percent-of-equity sizing is still silently invalid until it is enabled."
+    },
+    {
+      "id": "BE-07",
+      "repo": "platform",
+      "verified": "Carried from the register: stepSize/minNotional fetched and stored but never applied.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "`exchangeFilters` in `platform/backend/src/engine/corrections.ts`, applied at `broker.ts:117`; refused legs are returned on `BacktestOutput.rejectedLegs`. `stepSize`/`minNotional` are read from the symbols table where they were previously fetched and ignored.",
+      "risk": "Off by default. A rejected leg changes the whole subsequent trade sequence, so turning it on requires re-running every affected tree."
+    },
+    {
+      "id": "BE-08",
+      "repo": "platform",
+      "verified": "Carried from the register: MTF merge convention contradicts its own header comment.",
+      "disposition": "blocked",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "Nothing guesses. `platform/backend/src/engine/mtf.ts`'s false header is replaced by a statement of what the code actually does (a close-time cutoff) and that the convention is UNRESOLVED; `platform/backend/tests/mtfConvention.test.ts` pins the current behaviour so a change is visible; `platform/backend/src/engine/lookaheadAnalysis.ts` `compareConventions` computes what each convention would produce for the same bar, so the comparison is a data question rather than a code question the moment the reference value exists. `corrections.ts` `BE08_DEPENDENT` names the corrections that may not be enabled before this resolves, and `assertNotBe08Dependent` enforces it.",
+      "risk": "BLOCKED ON THE TRADINGVIEW COMPARISON, which needs a TradingView account this workspace may not use. The exact test is in backtesting:docs/RESEARCH-METHODOLOGY.md §2: plot `request.security(syminfo.tickerid,\"60\",close)` on a 15m chart and compare the value on the bar closing at 10:00 against `mergeValues(buildMergeIndex(chart15m, feed1h), feed1h.close)[i]`. If the code is wrong, every ma_rr_v9 and srtrend_v10 result carries one bar of HTF look-ahead."
+    },
+    {
+      "id": "BE-09",
+      "repo": "platform",
+      "verified": "Carried from the register: Recursive indicators seeded from the loaded-window start.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "`leanWarmupFloor` in `platform/backend/src/engine/corrections.ts`, applied at `mtf_lean/params.ts:221,243,257`, giving `mtf_lean` the ratcheting-indicator floor `ma_rr_v9` already had. `platform/backend/src/engine/lookaheadAnalysis.ts` `analyseWarmupSensitivity` measures how much a result moves with the window start.",
+      "risk": "Off by default, so re-running `mtf_lean` after the candle table gains history can still change which trades were taken."
+    },
+    {
+      "id": "BE-10",
+      "repo": "platform",
+      "verified": "Carried from the register: Zero-P&L trades counted as losses.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "`zeroPnlIsScratch` in `platform/backend/src/engine/corrections.ts`, applied at `metrics.ts:31`. A zero-P&L trade is counted as a scratch rather than a loss; with the flag off `scratches` stays zero and every figure is bit-for-bit as before.",
+      "risk": "Definitional. Off by default, so `winRatePct` still counts an exact-zero trade as a loss."
+    },
+    {
+      "id": "BE-11",
+      "repo": "platform",
+      "verified": "Carried from the register: No kill switch, daily-loss limit, exposure cap or order-rate cap.",
+      "disposition": "fixed",
+      "phase": "Phase 2, Phase 8",
+      "commit": "b314f60, 42f325b, bot 41dffb9",
+      "evidence": "The kill switch, the exposure cap, the concurrent-position cap and the rolling daily-loss limit are enforced in `platform/backend/src/engine/riskControls.ts` at the one point before anything is written or sent, with every limit opt-in and off by default. Phase 8 adds the operator surface: `/operations` renders the trading mode in four distinct states, halt and resume with the confirmation the API requires, each limit beside what is used against it, per-feed freshness and gaps, signal-delivery health, the emitter lease and the unresolved order intents. Before it, the controls could be reached only by curl — so in the situation they exist for, they did not exist.",
+      "risk": "Halting refuses emission; it does NOT close open positions, and a flatten-all control is deliberately absent — the platform holds no credentials and does not know the fill price of anything it did not open. Stated on the page and in docs/OPERATIONS.md."
+    },
+    {
+      "id": "BE-12",
+      "repo": "platform",
+      "verified": "Carried from the register: Webhook retries can duplicate real orders on the 3Commas path.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "080c0a9, eb11ac1",
+      "evidence": "`deliver` takes `idempotent`, and the runner passes `built.dedupeKey !== null` — so the 3Commas path, which carries no key, gets one attempt instead of four.",
+      "risk": "A genuine transient failure on the 3Commas path is no longer retried. That is the correct trade: a duplicate real order is worse than a missed one that can be re-sent deliberately."
+    },
+    {
+      "id": "BE-13",
+      "repo": "platform",
+      "verified": "Carried from the register: Crash between delivery and persistence re-fires the order.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "b314f60, eb11ac1",
+      "evidence": "`claimIntent` writes a UNIQUE `order_intents` row before delivery and resolves it after with the receiver's outcome. On startup any still-pending intent is marked `stale`, never retried, and logged with the deployments needing reconciliation.",
+      "risk": "After a crash the operator must verify the receiver's positions. The runner will not re-fire, which is the point, but it also cannot know what happened."
+    },
+    {
+      "id": "BE-14",
+      "repo": "platform",
+      "verified": "Carried from the register: 1.5% silent data-gap tolerance in the live path.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "d8efb51, eb11ac1",
+      "evidence": "`assessForEvaluation` refuses to evaluate on any gap; a test asserts the exact 2100-bar/31-missing window that passed the old 98.5% heuristic is now refused. Feed state is recorded per (symbol, interval) and only `live` is evaluable, asserted as an invariant across all six states.",
+      "risk": "A feed with a persistent gap will stop producing signals rather than producing wrong ones. The gap must be backfilled; `ensureCandles` retries on each bar close."
+    },
+    {
+      "id": "BE-15",
+      "repo": "platform",
+      "verified": "Carried from the register: Live win/loss ignores fees, desynchronising the circuit breaker.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "42f325b",
+      "evidence": "`isNetWin`/`netPnlPct` in `platform/backend/src/engine/liveCosts.ts`, used by all three live evaluators, charge 0.1% per side — the figure measured from every research tree. Six tests, including the +0.03% case from the finding and a break-even epsilon whose absence would have made the classification float-dependent.",
+      "risk": "Live win/loss now matches the backtest, so the choppy-pause schedule changes deliberately."
+    },
+    {
+      "id": "BE-16",
+      "repo": "platform",
+      "verified": "Carried from the register: Dedupe-key skip reported to the caller as accepted.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "b314f60, eb11ac1",
+      "evidence": "`dedupeKeyExists` is no longer on the emission path. `claimIntent` uses `INSERT … ON CONFLICT DO NOTHING RETURNING`, and a lost claim returns the existing row so `delivered`/`duplicate` and `blocked`/`rejected`/`failed` produce different answers.",
+      "risk": "None known. The unique index is now the authority rather than a read-then-write."
+    },
+    {
+      "id": "BE-17",
+      "repo": "platform",
+      "verified": "Carried from the register: Position-sync POSTs the decrypted secret to a URL that is not re-validated.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "d0ab9f2",
+      "evidence": "The 30-second position-sync path now calls the same `validateWebhookUrl` as `deliver`, and logs a per-deployment skip when the URL is rejected.",
+      "risk": "A deployment whose stored URL is outside `ALLOWED_WEBHOOK_HOSTS` stops being reconciled rather than silently POSTing its secret. That is the intended trade; the log line names the deployment."
+    },
+    {
+      "id": "BE-18",
+      "repo": "platform",
+      "verified": "Carried from the register: Single-emitter enforced only by an in-memory Set.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "b314f60, eb11ac1",
+      "evidence": "`emitter_lease` is one row with a 90-second TTL, renewed every 30 seconds. A process that cannot acquire it subscribes nothing and emits nothing; losing it mid-flight stops emission immediately.",
+      "risk": "Two emitters pointed at DIFFERENT databases are still not mutually exclusive — the lease is only as authoritative as the database it lives in. That is inherent, and X-06 is what prevents the second emitter starting at all."
+    },
+    {
+      "id": "BE-19",
+      "repo": "platform",
+      "verified": "Confirmed: `mtf_lean` is not registered in `backtester.ts` and its `warmupMs` signature differs from `ma_rr_v9`'s. Deferred to Phase 3 with the other engine work.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "569e625",
+      "evidence": "`mtf_lean` is registered in `platform/backend/src/engine/backtester.ts` MODULES and its `warmupMs` signature matches the other modules, so the strategy deployed with real money has an in-platform backtest path. `platform/backend/tests/strategyGolden.test.ts` runs its bar loop end to end.",
+      "risk": "None known."
+    },
+    {
+      "id": "BE-20",
+      "repo": "platform",
+      "verified": "Carried from the register: Live SELL contracts computed from the original size, with a dead ternary.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "42f325b",
+      "evidence": "`sellContracts` computes from the entry price and subtracts the tiers already taken; the dead ternary is gone. Six tests including clamping and the missing-entry-price fallback.",
+      "risk": "Only the 3Commas payload reads this value. The custom path uses `sell_percent`, which is unaffected."
+    },
+    {
+      "id": "BE-21",
+      "repo": "platform",
+      "verified": "Carried from the register: Platform authentication silently disables itself.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "f3c67a5",
+      "evidence": "Startup throws when auth is expected and `ADMIN_PASSWORD_HASH` is absent; all four auth variables are documented in `.env.example`. Nine child-process boot tests cover the fail-closed matrix, including that `AUTH_ENABLED=1|yes|TRUE|off` does NOT open the gate.",
+      "risk": "A production instance running without a hash will now refuse to start. Mahamid must confirm the variable is set before deploying this."
+    },
+    {
+      "id": "BE-22",
+      "repo": "platform",
+      "verified": "Carried from the register: Path traversal in the optimizer routes.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "d0ab9f2",
+      "evidence": "`GET /api/optimizer/best/:symbol` routes its path parameter through `assertSymbol`; nine traversal and injection probes are asserted to throw.",
+      "risk": "—"
+    },
+    {
+      "id": "BE-23",
+      "repo": "platform",
+      "verified": "Carried from the register: /api/pine/run blocks the live trading event loop for up to 45s.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "0b066b3",
+      "evidence": "Pine execution moved to `platform/backend/src/pine/runner.worker.ts` on a worker thread, driven by `platform/backend/src/pine/runInWorker.ts`: a wall clock backed by terminating the thread, a heap ceiling, and a bounded number of concurrent runs answering 503 rather than queueing without limit. `platform/backend/tests/pineWorker.test.ts` samples a timer on the API's own loop while a hot script runs and asserts no gap over a second.",
+      "risk": "A run that overruns is now terminated rather than allowed to finish, so a legitimate long script fails where it previously completed. The budget is `PINE_EDITOR_TIME_BUDGET_MS`."
+    },
+    {
+      "id": "BE-24",
+      "repo": "platform",
+      "verified": "Carried from the register: Synchronous multi-GB file reads and a write inside GET handlers.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d70f832, b479eee",
+      "evidence": "No handler scans a result stream or writes to disk. Line counts come from `platform/backend/src/optimizer/resultsIndex.ts`, a background refresher that persists its own incremental cache and reports `testsState: pending` rather than zero while it works; ranked history is an asynchronous 4 MiB-chunked scan with a byte budget and a bounded top-K that reports truncation. `platform/backend/scripts/apply_rank_deployment.ts` uses the same scanner.",
+      "risk": "A ranked lookup that hits the byte budget returns the best within what was read and says so, rather than a provably global rank."
+    },
+    {
+      "id": "BE-25",
+      "repo": "platform",
+      "verified": "Carried from the register: No rate limiting anywhere, including sign-in; session identity unchecked.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "f3c67a5",
+      "evidence": "Fixed-window limiter on `POST /api/auth/login` (5/min/client), cleared on a correct password, bounded key count, forwarded addresses honoured only under TRUST_PROXY. `verifySession` now checks `claims.username === config.adminUsername`. Seven limiter tests plus a session-identity test.",
+      "risk": "Single-process only. A multi-instance deployment needs a shared store; recorded in the module header rather than pretended away."
+    },
+    {
+      "id": "BE-26",
+      "repo": "platform",
+      "verified": "Carried from the register: MA-alert symbols bypass assertSymbol and reach the WebSocket URL builder.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "d0ab9f2",
+      "evidence": "MA alert create and list filter both call `assertSymbol` before the value can reach the websocket stream-name builder.",
+      "risk": "—"
+    },
+    {
+      "id": "BE-27",
+      "repo": "platform",
+      "verified": "Carried from the register: Receiver response bodies stored and served verbatim.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "d0ab9f2",
+      "evidence": "`redactResponseBody` scrubs secret-shaped fields and bare credential-shaped runs, then truncates at 1000 characters; `markDelivery` applies it. Five tests, including that ordinary diagnostic bodies pass through unchanged.",
+      "risk": "Historical rows written before this change are unaffected. Migration 003 retro-scrubbed the payload half only."
+    },
+    {
+      "id": "BE-28",
+      "repo": "platform",
+      "verified": "Not a credential — retrieval still needs IAM. Folded into X-11 by the register itself.",
+      "disposition": "corrected",
+      "phase": "Phase 1",
+      "commit": "74fa882",
+      "evidence": "Tracked as part of `X-11`; the ARN now comes from the untracked deployment env.",
+      "risk": "—"
+    },
+    {
+      "id": "BE-29",
+      "repo": "platform",
+      "verified": "Confirmed: 12 test files, none covering liveRunner, backtester, mtf, metrics or the strategy bar loops. Phase 0 added 42 characterization cases (timeframe registry, candle contract, MA bar-close behaviour, push boundaries, cross-repository contract) but not the two highest-value suites — golden-file per strategy and backtest-vs-live equivalence.",
+      "disposition": "fixed",
+      "phase": "Phase 0, Phase 2, Phase 7",
+      "commit": "1daadd1, 42f325b, fcdea6e",
+      "evidence": "Both suites the finding names now exist. Backtest-vs-live equivalence: `platform/backend/tests/liveParity.test.ts`, `platform/backend/tests/liveEvaluator.test.ts`, `platform/backend/tests/mtfLeanLiveEvaluator.test.ts` (BE-01, BE-03, BE-15, BE-20). Golden-file per strategy: `platform/backend/tests/strategyGolden.test.ts` runs all three bar loops over a deterministic fixture with a real base_params.json and pins the exact exit reasons, a digest over every fill, the four headline metrics and every signal series. `platform/backend/tests/` was itself typechecked by nothing; `tsconfig.tests.json` adds it to `npm run typecheck`. 469 backend tests.",
+      "risk": "The golden fixture is synthetic, so it pins behaviour rather than validating it, and one test records how many signal series are constant on that fixture (10, 6 and 2) because a constant series' digest cannot catch a change in it. `ensureCandles` remains untested — it requires network and a database."
+    },
+    {
+      "id": "BE-30",
+      "repo": "platform",
+      "verified": "Carried from the register: Portability and dependency floating.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "3826ee2",
+      "evidence": "All eight launch agents are templates rendered by `platform/scripts/install-launchd.sh`, which fills the checkout, node and postgres placeholders from the checkout it is run from and refuses to write a file still holding a placeholder. `run-optimizer-service.sh` and `platform/scripts/db.sh` find their tools on PATH before either Homebrew prefix. `scripts/ci/check-repo-hygiene.sh` fails on any absolute home directory in tracked source, verified against a probe file.",
+      "risk": "`npm install` on a dev machine still floats within semver ranges; only `npm ci` and the Docker build are reproducible."
+    },
+    {
+      "id": "BOT-002",
+      "repo": "bot",
+      "verified": "Confirmed: the file's entire content was one line that fetched a script from an ephemeral localtunnel subdomain and piped it into a shell.",
+      "disposition": "fixed",
+      "phase": "Phase 0",
+      "commit": "bot a61fed3",
+      "evidence": "File deleted; the reference in `bot:docs/BOT_COMPLETE_GUIDE.md` removed; `scan-secrets.sh` now fails on any remote script piped into a shell.",
+      "risk": "None locally. Operators must upload `bot:deploy/cloudshell-launch.sh` through CloudShell's Actions → Upload file instead."
+    },
+    {
+      "id": "BOT-003",
+      "repo": "bot",
+      "verified": "Carried from the register: Default bot config is the maximum-risk one.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 41dffb9, bot 328c823",
+      "evidence": "Defaults are 5% with a stop loss at 3% and exits enabled, in the schema, the API and the form. `assertSafeBotConfig` refuses >= 50% effective size with no stop, and PATCH checks the MERGED configuration so the old shape cannot be rebuilt one field at a time. Verified against a populated database: existing rows keep their values.",
+      "risk": "Existing bots keep their stored 100%/no-stop configuration. Changing those is an operator decision on live positions."
+    },
+    {
+      "id": "BOT-004",
+      "repo": "bot",
+      "verified": "Carried from the register: .env.example ships DRY_RUN=false with placeholders that pass every check.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot d157535",
+      "evidence": "`.env.example` ships `DRY_RUN=true` with every secret blank; placeholder values are refused by deny-list; every check runs unconditionally. Six child-process boot tests, including that a missing secret is fatal in dry run.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-005",
+      "repo": "bot",
+      "verified": "Carried from the register: Double-sell race: three of four close paths never take the lock.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot b4e4db0",
+      "evidence": "The lock moved to `bot:backend/src/lib/tradeCloseLock.ts`; all four close paths acquire it, each with a `finally` release. Four tests including that a throwing body still releases and that contention reports `{ran:false}` rather than silently doing nothing.",
+      "risk": "In-process only, as the previous lock was. A multi-process deployment would need a database lock; recorded in the module header."
+    },
+    {
+      "id": "BOT-006",
+      "repo": "bot",
+      "verified": "Carried from the register: Recorded quantity is gross of commission.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot c53c977, bot b4e4db0",
+      "evidence": "`netBaseQty` deducts only base-asset commission from `executedQty`; the average price still uses the gross quantity. Both close paths refuse to mark a trade closed when the fill did not cover it, reducing the trade and leaving it OPEN instead. Five tests.",
+      "risk": "Binance's base-asset commission semantics were not executable here, so this rests on documented behaviour. Existing rows still hold gross quantities — a full close of a pre-existing trade may still under-fill, and now says so instead of silently closing."
+    },
+    {
+      "id": "BOT-007",
+      "repo": "bot",
+      "verified": "Carried from the register: An order that succeeds then throws leaves an untracked live position.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot c53c977, bot 41dffb9",
+      "evidence": "Every order carries a deterministic `newClientOrderId` derived from the logical order's dedupe key, stored on the trade with a UNIQUE constraint. Two tests cover determinism and Binance's 36-character alphanumeric limit.",
+      "risk": "The lookup-by-id recovery path is not implemented — the id makes an orphan findable, and Binance rejects the duplicate, but nothing yet queries by it automatically."
+    },
+    {
+      "id": "BOT-008",
+      "repo": "bot",
+      "verified": "Carried from the register: detectManualCloses fabricates P&L and closes partially drained trades.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot b4e4db0",
+      "evidence": "`readSellFills` reads real `myTrades` fills; a partial external sell records a `PartialClose` and reduces the trade rather than closing it; unreadable fills leave the trade OPEN and flagged rather than recording an estimate as fact.",
+      "risk": "Not exercisable without exchange credentials. The pure fill-parsing is unit-testable; the `myTrades` call itself is not verified here."
+    },
+    {
+      "id": "BOT-009",
+      "repo": "bot",
+      "verified": "Carried from the register: Registration is world-open until the first account exists; TOCTOU race.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot d0fa625",
+      "evidence": "`SETUP_TOKEN` required and compared in constant time before the account count is consulted; `count` + `create` moved inside one transaction; a P2002 race resolves to the same 409. The login page collects the token and explains it.",
+      "risk": "Routes are still not tenant-scoped, so a second account would still be a co-admin. That is now unreachable, but the scoping itself is tracked as BOT-025."
+    },
+    {
+      "id": "BOT-010",
+      "repo": "bot",
+      "verified": "Carried from the register: Express 4 does not catch async errors; requests hang forever.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot ec14e70",
+      "evidence": "Terminal `errorHandler` plus `asyncHandler` and a JSON 404 for unmatched `/api` paths; Prisma P2025/P2002/P2003/P2000 map to 404/409/409/400. `NODE_ENV=production` set in the image.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-011",
+      "repo": "bot",
+      "verified": "Carried from the register: No kill switch, max exposure, daily-loss limit or concurrency cap.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 41dffb9",
+      "evidence": "See BE-11 — implemented on both sides. Bot-side gate is in `guardEntry`, with `/api/ops/halt|resume|risk-limits|status`.",
+      "risk": "Every limit ships disabled."
+    },
+    {
+      "id": "BOT-012",
+      "repo": "bot",
+      "verified": "Carried from the register: direction short/reversal is offered and stored but never affects order side.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 41dffb9, bot 328c823",
+      "evidence": "`direction` is `z.literal(\"long\")` in the API, the frontend type is the literal `\"long\"`, the picker offers only long and says why, and the trade row records `\"long\"` unconditionally.",
+      "risk": "An existing bot stored as `short` keeps that value in the column; it was already being ignored, and it is now visibly unselectable."
+    },
+    {
+      "id": "BOT-013",
+      "repo": "bot",
+      "verified": "Carried from the register: 'per Bot' and 'per SmartTrade' investment units compute identically.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot c53c977",
+      "evidence": "`calcOrderQuoteUsdt` subtracts the bot's committed `quoteSpent` for per-Bot units. Five tests including the exact three-position case from the finding, which now totals 100 rather than 400.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-014",
+      "repo": "bot",
+      "verified": "Carried from the register: toFixed(2) rounds the quote up, so default-sized buys are rejected.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot c53c977",
+      "evidence": "`floorQuote` floors to two decimals; a test contrasts it with `toFixed(2)` on the exact value from the finding. The Binance error code is preserved through a typed `ExchangeError` instead of being flattened to a 503.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-015",
+      "repo": "bot",
+      "verified": "Carried from the register: exitEnabled defaults to false, so a default bot rejects every exit webhook.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 41dffb9",
+      "evidence": "`exitEnabled` defaults true in the schema, the API and the form. The guide's contradicting statements are corrected in the Phase 9 documentation pass.",
+      "risk": "Existing bots keep `exitEnabled = false` if that is what they were created with."
+    },
+    {
+      "id": "BOT-016",
+      "repo": "bot",
+      "verified": "Carried from the register: The webhook secret is served on every 15-second dashboard poll.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot 9c5bff9",
+      "evidence": "`mapBot` masks the secret and omits the payloads that embed it; the plaintext is served only from the creation response and `GET /api/bots/:id?reveal=1`, which is logged. Three masking tests. The Edit page has a Reveal control.",
+      "risk": "Any secret already captured in a proxy log or browser cache from the previous behaviour is still out there."
+    },
+    {
+      "id": "BOT-017",
+      "repo": "bot",
+      "verified": "Confirmed: `binance.ts` places `type: \"MARKET\"` exclusively; no STOP_LOSS, STOP_LOSS_LIMIT, TAKE_PROFIT or OCO order exists anywhere.",
+      "disposition": "blocked",
+      "phase": "Phase 2",
+      "commit": "bot d62b8ae",
+      "evidence": "A complete adapter exists in `bot:backend/src/services/exchangeStops.ts` with a pure, unit-tested planner (quantity and both prices round DOWN; lot-minimum and notional refusals typed). `EXCHANGE_STOPS_ENABLED` defaults to false with `=== \"true\"` parsing, and nothing in the live path calls it while off.",
+      "risk": "**BLOCKED on Binance testnet credentials (M5).** Not production-ready and must not be described as such. The header records five checks Mahamid must complete, the most important being sequencing against BOT-006: a resting SELL LOCKS the base balance, and `resolveSellQuantity` caps against the FREE balance, so the resting order must be cancelled before any other exit path runs."
+    },
+    {
+      "id": "BOT-018",
+      "repo": "bot",
+      "verified": "Carried from the register: Stale quantity in the TP/SL loop.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot b4e4db0",
+      "evidence": "The TP/SL loop sells `fresh.quantity` and computes P&L against `fresh.quoteSpent`. The re-fetch was already present and simply unused.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-019",
+      "repo": "bot",
+      "verified": "Carried from the register: Stale-sell guard is in-memory and evaporates on restart.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot b4e4db0, bot 41dffb9",
+      "evidence": "`PairCloseMark` makes the guard durable, with an in-process cache in front and the database as the authority; expired rows are pruned daily.",
+      "risk": "A database read failure falls back to the in-process value rather than reporting no recent close, which is the fail-safe direction."
+    },
+    {
+      "id": "BOT-020",
+      "repo": "bot",
+      "verified": "Carried from the register: No terminal Express error middleware; NODE_ENV unset in the image.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot ec14e70",
+      "evidence": "`ENV NODE_ENV=production` in `bot:backend/Dockerfile`, plus the terminal error middleware that suppresses thrown detail on 5xx.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-021",
+      "repo": "bot",
+      "verified": "Carried from the register: nginx.conf omits X-Forwarded-For, collapsing every client into one bucket.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot 88bccaa",
+      "evidence": "`bot:frontend/nginx.conf` sets `X-Forwarded-For` and `X-Forwarded-Proto` on both proxy blocks.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-022",
+      "repo": "bot",
+      "verified": "Carried from the register: frontend/nginx.conf sets no security headers on the HTML document.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot 88bccaa",
+      "evidence": "All five security headers plus a CSP are set on the HTML document in the container nginx, with `always` so they survive error responses. `server_tokens off` added in all three configs.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-023",
+      "repo": "bot",
+      "verified": "Carried from the register: All monetary values are SQLite REAL floats.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "bot f5a3e7e",
+      "evidence": "`bot:backend/src/lib/money.ts` quantizes every monetary value to Binance's 8 decimal places, rounding half AWAY from zero so a loss is never rounded towards zero; `bot:backend/src/lib/prisma.ts` applies it through a client extension across create/update/updateMany/upsert/createMany including Prisma's `{increment}`/`{set}` operators; every sum over rows uses a Neumaier compensated sum. `bot:backend/tests/moneyPrecision.test.ts` shows the naive path drifting where the quantized path does not.",
+      "risk": "The columns are still SQLite REAL. This BOUNDS the error; it is not exact decimal arithmetic. Moving to integer minor units needs a migration of the live database, which is production data. A new monetary column not added to `MONEY_FIELDS` silently stops being quantized."
+    },
+    {
+      "id": "BOT-024",
+      "repo": "bot",
+      "verified": "Carried from the register: PartialClose index dropped and never recreated; no SmartTrade.status index.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 41dffb9",
+      "evidence": "`PartialClose_tradeId_idx` recreated, plus SmartTrade indexes on status, (botId,status), (pair,status), closedAt and exchangeOrderId. Migration applied to a scratch and a populated database; `integrity_check` ok.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-025",
+      "repo": "bot",
+      "verified": "Carried from the register: exchangeOrderId nullable and non-unique; no tenant scoping or audit trail.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 41dffb9",
+      "evidence": "`clientOrderId` is UNIQUE, which is the real idempotency guarantee; `exchangeOrderId` gains a plain index.",
+      "risk": "Deliberate deviation: `exchangeOrderId` is NOT made unique, because a unique index could fail to build against a live database that already holds a duplicate, and a migration that refuses to apply blocks startup. Tenant scoping and an append-only audit log remain open (Phase 7)."
+    },
+    {
+      "id": "BOT-026",
+      "repo": "bot",
+      "verified": "Carried from the register: One 30/min limiter shared between order signals and a polling endpoint.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot ec14e70",
+      "evidence": "`/api/webhooks/signal_bots/status` gets its own 120/min limiter so the 30-second position poll cannot exhaust the 30/min order-signal budget.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-027",
+      "repo": "bot",
+      "verified": "Carried from the register: Buy dedupe blocks legitimate scale-ins and returns HTTP 200.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 41dffb9",
+      "evidence": "The 45-second trade-event guard applies to exits only. Entries rely on the caller's own durable dedupe key; `assertCanOpenTrade` and the risk gate bound how many positions can exist.",
+      "risk": "An entry with no `dedupe_key` from a sender that retries blindly is no longer deduplicated by this layer. The exchange-side `newClientOrderId` is what collapses that case."
+    },
+    {
+      "id": "BOT-028",
+      "repo": "bot",
+      "verified": "Carried from the register: nginx-host-ssl.conf proxies port 80 to itself.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot 88bccaa",
+      "evidence": "`bot:deploy/nginx-host-ssl.conf` proxies to 127.0.0.1:8080, and `docker-compose.yml` publishes the frontend there, matching `bot:deploy/nginx-production.conf`.",
+      "risk": "The published frontend port changes from 80 to 127.0.0.1:8080. The host nginx config must be in place before this compose file is rolled out — flagged for Mahamid in the commit message."
+    },
+    {
+      "id": "BOT-029",
+      "repo": "bot",
+      "verified": "Carried from the register: Containers run as root, no healthcheck, no database backup.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot ec14e70, bot 3f195ce",
+      "evidence": "Non-root container, healthcheck, and verified backup/restore tooling. See the Phase 1 entry.",
+      "risk": "Backups are as sensitive as the keys they contain. Scheduling them is an operator task."
+    },
+    {
+      "id": "BOT-030",
+      "repo": "bot",
+      "verified": "Carried from the register: remote-deploy.sh hardcodes another machine's home and forces DRY_RUN=false.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "bot f5a3e7e",
+      "evidence": "`bot:deploy/remote-deploy.sh` rsyncs from its own checkout instead of an absolute path under another user's home, and DRY_RUN is carried over from the server's existing .env, defaults to `true` on a first deployment, is validated, and is announced before the file is written. PUBLIC_URL, CORS_ORIGIN, VAPID_SUBJECT and BINANCE_TESTNET are preserved the same way.",
+      "risk": "A deployment that previously relied on the hardcoded `DRY_RUN=false` will now stay in dry run unless `DRY_RUN=false` is passed explicitly. That is the intended change and the script says so."
+    },
+    {
+      "id": "BOT-031",
+      "repo": "bot",
+      "verified": "Carried from the register: No MIN_NOTIONAL check; a zero-fill order creates an immortal trade.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot c53c977",
+      "evidence": "`getMinNotional` reads the NOTIONAL/MIN_NOTIONAL filter and `marketBuyQuote` throws a typed `MinNotionalError` with the required and requested figures before sending the order.",
+      "risk": "The zero-fill immortal-trade half is addressed by the coverage assertion in BOT-006 rather than separately."
+    },
+    {
+      "id": "BOT-032",
+      "repo": "bot",
+      "verified": "Carried from the register: floorToStep float error leaves dust.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot c53c977",
+      "evidence": "`floorToStep` works in integer step units with a magnitude-scaled tolerance. Tests cover `0.29 @ 0.01` and `2.9999999999999996 @ 0.1`, and assert the result never meaningfully exceeds the input across six step sizes.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-033",
+      "repo": "bot",
+      "verified": "Carried from the register: The TP/SL loop is sequential and can exceed its own interval.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "bot ccbf2d4",
+      "evidence": "`bot:backend/src/lib/scheduler.ts` `startInterval` schedules the next cycle only after the previous one settles, survives a cycle that throws, and logs an overrun with its duration. `checkTakeProfitStopLoss` is two phases: reads (one client per account, one ticker call per distinct account+pair instead of one per trade, and the P&L refresh) at a concurrency of 4; orders strictly sequential. `bot:backend/tests/scheduler.test.ts` pins no-overlap under a cycle taking four times its interval.",
+      "risk": "A trade whose price or P&L refresh failed is skipped for that cycle rather than judged on a stale figure, so a persistent API failure delays TP/SL action by 30 seconds per cycle."
+    },
+    {
+      "id": "BOT-034",
+      "repo": "bot",
+      "verified": "Carried from the register: Starting a bot has no confirmation; live-vs-dry-run is invisible.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot 328c823",
+      "evidence": "Starting a bot requires a confirmation that states the pairs, size and which guards are actually configured. The dashboard badge has four states including `MODE UNKNOWN`, and the halt/resume controls sit beside it.",
+      "risk": "None. Further QA of the surface is Phase 6."
+    },
+    {
+      "id": "BOT-035",
+      "repo": "bot",
+      "verified": "Carried from the register: DRY_RUN is not a simulation — simulated exits are capped by real balances.",
+      "disposition": "fixed",
+      "phase": "Phase 2",
+      "commit": "bot c53c977, bot b4e4db0",
+      "evidence": "The dry-run branch is FIRST in both `marketBuyQuote` and `marketSellBase`, so a simulated exit is no longer capped by real balances; `detectManualCloses` returns immediately in dry run, so a simulated position is not auto-closed within 60 seconds with a fabricated P&L.",
+      "risk": "Dry run still reads real balances for sizing (`getUsdtBalance`) and real prices. It simulates the exchange's ORDER path, not the account."
+    },
+    {
+      "id": "BOT-037",
+      "repo": "bot",
+      "verified": "Confirmed: no test file and no CI workflow existed.",
+      "disposition": "fixed",
+      "phase": "Phase 0",
+      "commit": "bot 1daadd1, 8fc5ae4, 3f32844",
+      "evidence": "38 tests across three files pass; `npm run verify` runs lint (0 warnings), typecheck, tests and build; CI runs all four plus the secret scan with DRY_RUN forced true.",
+      "risk": "Coverage is at the pure-logic layer. Route- and Prisma-level tests still need a database harness."
+    },
+    {
+      "id": "BOT-038",
+      "repo": "bot",
+      "verified": "Confirmed: the secret is looked up by unique index rather than compared in constant time.",
+      "disposition": "preserved",
+      "phase": "Phase 1",
+      "commit": null,
+      "evidence": "Left as-is deliberately. The secret is two concatenated `uuidv4()` values (~192 bits); a timing oracle over an indexed database lookup does not reduce that to anything searchable. The alternative — fetching every bot and comparing in constant time — makes the hot order path O(bots) and adds a worse failure mode.",
+      "risk": "Accepted. Revisit only if secrets ever become low-entropy or operator-chosen."
+    },
+    {
+      "id": "BOT-039",
+      "repo": "bot",
+      "verified": "Carried from the register: binance-api-node@0.12.9 is effectively unmaintained.",
+      "disposition": "blocked",
+      "phase": "Phase 7",
+      "commit": "bot f5a3e7e",
+      "evidence": "Locally enforced by `bot:backend/tests/exchangeDependency.test.ts`: the version is pinned exactly (it was a caret range, so a fresh install could resolve a different 0.12.x into the order-signing path), the lockfile must carry an integrity hash, the used surface is held to its four calls, nothing outside `bot:backend/src/services/binance.ts` may import it, and the SDK must still sign with HMAC-SHA256 over the query string — read from the installed dependency, so a change of scheme fails in CI rather than at Binance.",
+      "risk": "REPLACING the library requires Binance testnet credentials this workspace does not hold. Swapping the signer under a live trading bot without validating a single round trip is not a safe local change. The four-call surface and the signature properties above are what a replacement must satisfy."
+    },
+    {
+      "id": "BOT-040",
+      "repo": "bot",
+      "verified": "Carried from the register: An anonymous /login visit spends from the shared refresh budget.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "bot ec14e70",
+      "evidence": "The refresh limiter skips a request with no `refresh_token` cookie; the route already rejects those before touching the database, so an anonymous login-page visit can no longer spend a signed-in user's budget.",
+      "risk": "—"
+    },
+    {
+      "id": "BOT-041",
+      "repo": "bot",
+      "verified": "The register lists BOT-041 as 'assorted minor items' without enumerating them. Browser QA of the bot's dashboard across 5 viewports found four concrete defects of the class the platform's FE-08/FE-11/FE-13 group describes, none of which the register names individually.",
+      "disposition": "fixed",
+      "phase": "Phase 6",
+      "commit": "bot 243a688, bot 90b81e4, bot fc4ea90, bot dad50ff",
+      "evidence": "(1) No error boundary anywhere: a render fault blanked the interface that shows whether bots are running and holds the only controls for closing a position. Added, wrapping `AuthProvider` so an auth-bootstrap throw is caught too. (2) The Partial Close overlay — which sells part of a real position — was a bare `fixed inset-0` div with no role, no Escape, no focus management and an unlabelled close button; it now uses a `Dialog` with the same contract as the platform's `Modal`. (3) Every sign-in field was unlabelled: the `<label>` had no `htmlFor` and did not wrap its input, so a screen reader announced 'edit text, blank' for the username, password, setup token and authenticator code. (4) The password reveal was 13x13, unnamed, and `tabIndex={-1}` — unreachable by keyboard. Verified in Chromium: 15 loads with 0 overflow, 0 page errors, 0 unnamed controls, 0 text fields below 16px; both sign-in fields report their names and the toggle is 28x28 and focusable.",
+      "risk": "The Partial Close dialog itself has NOT been driven in a browser — reaching it needs a bot with an open trade, and therefore a backend with data. Its keyboard contract is the same code as the platform's, which was verified, but this instance is unexercised. The register's 'assorted minor items' may also cover things not found here; nothing in the audit enumerates them."
+    },
+    {
+      "id": "BOT-A",
+      "repo": "bot",
+      "verified": "Alias for BOT-017 in the register's priority table; not a separate finding.",
+      "disposition": "corrected",
+      "phase": "Phase 0",
+      "commit": null,
+      "evidence": "Tracked as `BOT-017`.",
+      "risk": "None — identifier bookkeeping only."
+    },
+    {
+      "id": "OPT-01",
+      "repo": "platform",
+      "verified": "Carried from the register: Live-deployed configs selected by maximising over the out-of-sample window.",
+      "disposition": "fixed",
+      "phase": "Phase 3, Phase 7, Phase 8",
+      "commit": "569e625, 9816a88, b2e0a45",
+      "evidence": "`platform/backend/src/engine/holdout.ts` defines a third window no selection step may read and `assertWindowUsage` throws when one tries. `platform/deployment/aws/lib/holdoutGate.mjs` enforces `evaluateClearance` in all four `replace_*.mjs`: ABSENCE OF A HOLDOUT RESULT IS A REFUSAL, the frozen window and thresholds come from the artifact rather than the invocation, and one uncleared coin refuses the whole portfolio. A deliberate override needs `HOLDOUT_GATE=off` AND `HOLDOUT_OVERRIDE_REASON`, both printed. `platform/backend/tests/holdoutGate.test.mjs` holds the TypeScript and JavaScript copies to the same answer across nine cases. Phase 8 adds the forward validation the artifact's own metadata demands: `delivery: \"paper\"` runs a deployment on live bars and simulates the fill at the live cost model, structurally unable to place an order (`platform/backend/tests/paperIsolation.test.ts`).",
+      "risk": "No current artifact carries a holdout block, so the deploy scripts will REFUSE until one is scored. Producing that score needs the market data and database this checkout does not have; the refusal names the exact fields. Nothing has been re-selected and no tree re-run — that is M8, the owner's decision."
+    },
+    {
+      "id": "OPT-02",
+      "repo": "platform",
+      "verified": "Carried from the register: The walk-forward tree validates a parameter space production no longer has.",
+      "disposition": "fixed",
+      "phase": "Phase 7, Phase 8",
+      "commit": "25cb932, 089387f",
+      "evidence": "`backtesting:trees/lean_wf_15m/config.json`'s claim that its space was 'exactly as lean_optimizer15m has it (qty_pct_equity still searched)' is corrected in place with the measured facts: 30 parameters against 18, and the production tree pins `qty_pct_equity` to 0. Every walk-forward tree declares `spaceDivergesFromProduction` in its `tree.json`, and `scripts/ci/check-docs.sh` recomputes that claim from the two parameter lists — four of five diverge; `wf6m_1h` alone matches. Phase 8 adds `backtesting:trees/lean_wf_15m_current`, whose params and base params are COPIES of the production tree's and whose fold schedule, cost model and eval budget are `lean_wf_15m`'s unchanged, so the only difference between the two trees is the space searched.",
+      "risk": "`lean_wf_15m_current` has produced NO folds: running it needs the market data and compute this checkout does not have. Until it runs, the current production space still has no walk-forward evidence. `lean_wf_15m` is kept as historical evidence of the procedure that was replaced, not relabelled."
+    },
+    {
+      "id": "OPT-03",
+      "repo": "platform",
+      "verified": "Carried from the register: Cost model and metric definitions diverge across trees.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d70f832",
+      "evidence": "`backtesting:docs/COST-MODELS.md` records each tree's model read from its own `config.json`, machine-checked in CI. `optimizer1y1h` is the only zero-slippage, no-split, fully compounding tree; its `tree.json` status is `not-comparable` and the UI shows that beside its numbers. `platform/backend/tests/costModel.test.ts` asserts commission is 0.1 % in every tree and that `optimizer1y1h` is the only zero-slippage one.",
+      "risk": "Cross-tree comparison remains invalid where the models differ; the table states which rows may be compared."
+    },
+    {
+      "id": "OPT-04",
+      "repo": "platform",
+      "verified": "Carried from the register: win_rate/profit_factor are leg-based while trades is entry-based.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "`platform/backend/src/optimizer/selection.ts` counts the population the rates describe (legs where the record has them) and fixes the solver: the target function is unimodal with a root on each side of its peak, so the original's `f(lo)*f(hi) > 0` grid fallback returned the ARGMAX — the peak-growth fraction, not a root — and was not monotone in net (20 % implied 33.3, 50 % implied 1.2, 120 % implied 31.5). It now returns the smallest fraction reproducing the multiple, or null when none does. `platform/backend/tests/selection.test.ts` pins both halves including the old version's non-monotonicity.",
+      "risk": "`multiPick`'s ranking changes for every tree. The walk-forward folds were not re-run, so existing fold reports were produced by the broken rule and are labelled historical."
+    },
+    {
+      "id": "OPT-05",
+      "repo": "platform",
+      "verified": "Carried from the register: Every OOS sort mode in the leaderboard CLI is a leakage path to deployment.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "9816a88",
+      "evidence": "The eight out-of-sample sort modes in `backtesting:shared/indexed_results.py` (`oos`, `oosdd`, `ooswr`, `oospf`, `oostrades`, `oossl`, `held`, `robust`) no longer print an apply command. Each prints a refusal naming why and pointing at the holdout gate. In-sample views are unchanged. `PROFILES[family]` also raised a bare KeyError in eight of thirteen trees and now falls back to the tree's registry entry.",
+      "risk": "An operator can still copy an ORIG# by hand from an OOS view and pass it to the apply script. The deploy gate is the control that stops it reaching production."
+    },
+    {
+      "id": "OPT-06",
+      "repo": "platform",
+      "verified": "Carried from the register: The GA is non-deterministic across restarts and re-seeds identically each round.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "a2707f8",
+      "evidence": "The RNG state is persisted beside the results and restored on resume, so a resumed run continues where it stopped rather than restarting from the seed. `platform/backend/tests/gaDriver.test.ts` shows a resumed driver reproducing a continuous one's next twenty candidates, and separately pins the underlying fact that `tell()` does not advance the RNG.",
+      "risk": "State written before this change does not exist, so the first resume of each coin after deployment still starts from the seed. Deleting the tree's per-coin RNG state under its index directory resets it deliberately."
+    },
+    {
+      "id": "OPT-07",
+      "repo": "platform",
+      "verified": "Carried from the register: Round startup reads every coin's full history twice, concurrently.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "a2707f8",
+      "evidence": "`resumeFromResults` in `platform/backend/src/optimizer/gaDriver.ts` replaces `loadDriver` + `seedDone` with one 4 MiB-chunked streaming pass producing both the replayed driver and the seed-key set, with the key shape unchanged. Tested for chunk boundaries, truncated trailing lines and a missing file.",
+      "risk": "None known. Round startup goes from 38 whole-file string reads to 19 chunked passes."
+    },
+    {
+      "id": "OPT-08",
+      "repo": "platform",
+      "verified": "Carried from the register: No reported result is reproducible or auditable from the repository.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "25cb932",
+      "evidence": "Every round writes `<tree>/index/runs.jsonl` recording the content hash of params.json, base_params.json, config.json, coins.txt, idmap.json, seeds.json and evalWorker.ts, plus the objective, coin list, node version and the revision read from `.git`; every result record carries that run's id. A changed space, objective or coin list produces a different id. `platform/backend/tests/gaDriver.test.ts` covers all of it.",
+      "risk": "PARTIAL, deliberately. The generated data stays gitignored — it runs to tens of gigabytes — so a clone still cannot re-derive a historical number. Every result currently on disk has no `run` field and cannot be tied to a search space; backtesting:docs/RESEARCH-METHODOLOGY.md says so."
+    },
+    {
+      "id": "OPT-09",
+      "repo": "platform",
+      "verified": "Carried from the register: GA winners cluster exactly on the min_trades boundary.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "The leaderboard reads `objective.min_trades` from each tree's own params.json, marks rows within two trades of it, and the optimizer page shows a `floor` badge explaining that a maximum over an enormous search lands on a hard floor by construction. `platform/backend/tests/optimizerRegistry.test.ts` asserts every tree with an objective states a numeric floor.",
+      "risk": "SURFACED, not removed. Raising the floor is a research decision (M8); the clustering itself is unchanged."
+    },
+    {
+      "id": "OPT-10",
+      "repo": "platform",
+      "verified": "Confirmed: all 1000 top-ranked lean3y15m configs carry qty_pct_equity 100.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "Recorded rather than changed. The live tree is pinned to fixed cash, so the defect cannot recur; the 3-year replay still runs a leverage-selected pool at fixed size, which answers a confounded question. `backtesting:trees/lean3y15m/tree.json` and backtesting:docs/RESEARCH-METHODOLOGY.md state that.",
+      "risk": "The replay's conclusions are conditioned on a pool selected for leverage. Re-selecting the pool under fixed sizing and re-running would resolve it; that is a re-run this checkout cannot perform."
+    },
+    {
+      "id": "OPT-11",
+      "repo": "platform",
+      "verified": "Carried from the register: resolve_config.py emits a cost model no tree uses.",
+      "disposition": "fixed",
+      "phase": "Phase 3, Phase 7",
+      "commit": "0920684, d70f832",
+      "evidence": "`backtesting:shared/resolve_config.py` reads the cost model from the tree's own config.json and refuses rather than substituting defaults; the tree argument is required because there is no safe default. `GET /api/optimizer/best` no longer invents `qty_cash: 930` or a cost model — the fields are null when the tree records none, the chart leaves the user's setting alone, and a percent-of-equity result is accepted with no cash size.",
+      "risk": "A deep link whose payload omits a cost model now falls back to asking the server, which is the trustworthy source."
+    },
+    {
+      "id": "OPT-12",
+      "repo": "platform",
+      "verified": "Carried from the register: Data validation is narrower than the trees use; interior gaps stay invisible.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "0920684",
+      "evidence": "`backtesting:shared/topup_lean.ts` checks interior contiguity with `checkSeries` and repairs a gap even when the tail is current; it previously checked only the newest bar, so a feed with a hole in the middle reported `current` for ever.",
+      "risk": "The validation window and coin set are still narrower than some trees use; the contiguity check is the part that was silently wrong."
+    },
+    {
+      "id": "OPT-13",
+      "repo": "platform",
+      "verified": "Carried from the register: Universe from a screenshot; six coins dropped after seeing their results.",
+      "disposition": "blocked",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "Recorded in backtesting:docs/RESEARCH-METHODOLOGY.md: the universe came from a 2026-08-10 screenshot and six coins were dropped after their results were seen, so every aggregate is survivorship-conditioned and the survivors skew to 2025-26 listings with large one-way trends.",
+      "risk": "Fixing it means declaring a universe rule BEFORE looking and re-running — Mahamid's decision (M8), not a local change."
+    },
+    {
+      "id": "OPT-14",
+      "repo": "platform",
+      "verified": "Carried from the register: Wilson bounds maximised; the consensus z-test assumes uniform sampling.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "Recorded in backtesting:docs/RESEARCH-METHODOLOGY.md: maximising Wilson lower bounds over millions of candidates reproduces the selection bias the bound exists to remove; the consensus z-test's null assumes uniform sampling, which is false for GA output; no multiplicity correction is applied. Both are to be read as descriptive, not inferential.",
+      "risk": "Statistics already published under those methods overstate confidence. Recomputing them needs the archived evaluation data, which is not in the repository (OPT-08)."
+    },
+    {
+      "id": "OPT-15",
+      "repo": "platform",
+      "verified": "Carried from the register: PARAMETER_REDUCTION.md contradicts params.json.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "25cb932",
+      "evidence": "`PARAMETER_REDUCTION.md` said 7 tunables and 185,220 combinations with `useSuperTrend` pinned off. Measured from params.json: 8 parameters, 370,440 combinations, and `useSuperTrend` is searched over two values and absent from base_params.json — the doubled count IS that parameter. Corrected there and in config.json. Its `second, independent signal` compared a 3-value parameter's 43-48 % winner share with 5- and 7-value parameters' 22-30 %, which are not comparable; on concentration over chance the high-pin-cost group is at least as concentrated, the opposite of the reading given. `scripts/ci/check-docs.sh` recomputes both figures from params.json, verified by flipping them and watching it fail.",
+      "risk": "The permutation control itself is sound and stands; only the summary figures and the secondary signal were wrong."
+    },
+    {
+      "id": "OPT-16",
+      "repo": "platform",
+      "verified": "Carried from the register: full3y1h and lean3y15m dropped the Spearman rank-correlation analysis.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "`backtesting:trees/lean3y15m/report.py` and `backtesting:trees/full3y1h/report.py` print a Spearman rank correlation between in-sample rank and replay net before any leaderboard, with a verdict, using the same implementation `backtesting:trees/holdout1h/report.py` uses. Verified against perfect, inverse, tied and noise inputs.",
+      "risk": "None known."
+    },
+    {
+      "id": "OPT-17",
+      "repo": "platform",
+      "verified": "Carried from the register: lean3y15m recommends the config at the median of out-of-sample net.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "Both trees printed `Recommended: ORIG#<median by OOS net>` beside an apply command. The median stays as a DESCRIPTION of the distribution; the recommendation and the apply hint are gone, replaced by a statement that choosing by any out-of-sample statistic makes that window a selection criterion.",
+      "risk": "None known."
+    },
+    {
+      "id": "OPT-18",
+      "repo": "platform",
+      "verified": "Carried from the register: range.end 'now' makes OOS metrics time-dependent.",
+      "disposition": "fixed",
+      "phase": "Phase 3, Phase 7",
+      "commit": "569e625, 04157ef",
+      "evidence": "`evaluateClearance` refuses a holdout result scored against a different window than the one now frozen — a holdout that moves is not a holdout — and the deploy gate enforces it. backtesting:docs/RESEARCH-METHODOLOGY.md records that `range.end: \"now\"` makes every OOS metric depend on when it was computed while the CLI de-duplicates by (coin, genome).",
+      "risk": "Two records for the same genome computed on different days are still not comparable. Freezing `range.end` per tree would resolve it and would invalidate stored records."
+    },
+    {
+      "id": "OPT-19",
+      "repo": "platform",
+      "verified": "Grouped in the register as metric-interpretation issues with no individual description published.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "What is verifiable of the group is addressed and recorded: the metric definitions in OPT-04, the per-tree cost models and their incomparability in OPT-03, and the fill-realism gap in BE-02. backtesting:docs/RESEARCH-METHODOLOGY.md states this explicitly.",
+      "risk": "Without the individual descriptions, nothing further can be resolved. Recovering them requires the audit's working notes."
+    },
+    {
+      "id": "OPT-20",
+      "repo": "platform",
+      "verified": "Grouped in the register as cost-sensitivity issues with no individual description published.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "Addressed as far as the group can be: backtesting:docs/COST-MODELS.md records every tree's model and the per-symbol variation of a tick-based slippage (0.217 % on RIFUSDT against 0.004 % on ZECUSDT for the same two ticks), and CI fails when the table and a config.json disagree.",
+      "risk": "A per-config cost-sensitivity sweep was not run; it needs the evaluation data that is not in the repository."
+    },
+    {
+      "id": "OPT-21",
+      "repo": "platform",
+      "verified": "Grouped in the register as parity-harness issues with no individual description published.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "04157ef",
+      "evidence": "The parity work that is verifiable is in `platform/backend/tests/liveParity.test.ts`, `platform/backend/tests/liveEvaluator.test.ts` and `platform/backend/tests/mtfLeanLiveEvaluator.test.ts` (BE-03, BE-15, BE-20), and `platform/backend/scripts/parity_harness.ts` remains as the tree-side harness.",
+      "risk": "The harness was not re-run: it needs market data and a database."
+    },
+    {
+      "id": "OPT-22",
+      "repo": "platform",
+      "verified": "Grouped in the register as fill-realism issues with no individual description published.",
+      "disposition": "fixed",
+      "phase": "Phase 7, Phase 8",
+      "commit": "04157ef, 089387f",
+      "evidence": "The fill-realism gap that IS described elsewhere is `BE-02` and is dispositioned there. The one addressable here is the same-bar ambiguity: when a bar's range contains both a stop and a target, which filled first is unknowable from OHLC and the broker guessed from the bar's colour — two bars with an identical high and low give opposite answers. `ENGINE_CORRECTIONS=barMagnifier` walks the actual sub-bar path from a feed the run already loads. `platform/backend/tests/barMagnifier.test.ts` pins the semantics, determinism, and that the default path is unchanged bit for bit with the flag off, with no finer feed, with an empty slice and with a null slice.",
+      "risk": "Off by default; enabling it changes every result on a bar that touched both levels. The ambiguity is reduced to one sub-bar rather than removed, and what remains inside that sub-bar is still resolved by the colour heuristic. `BE-02`'s half — the backtest filling at the trigger while the live path exits at the next bar close — remains gated on testnet validation and BE-08."
+    },
+    {
+      "id": "OPT-23",
+      "repo": "platform",
+      "verified": "Carried from the register: Every launchd service and the optimizer wrapper point at a non-existent path.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "3826ee2",
+      "evidence": "All eight plists are templates rendered by `platform/scripts/install-launchd.sh` from the checkout it is run from; `run-optimizer-service.sh` derives the backend directory from its own location, finds node and pg_isready on PATH before either Homebrew prefix, bounds the database wait, and refuses a tree id with no `tree.json`. The five `opt_apply.py` copies that carried the same absolute path are deleted with the TradingView tooling. `scripts/ci/check-repo-hygiene.sh` fails on any absolute home directory in tracked source.",
+      "risk": "Rendering is deliberately separate from loading: the script never calls launchctl, because arming a service is a decision about live emission."
+    },
+    {
+      "id": "OPT-24",
+      "repo": "platform",
+      "verified": "Carried from the register: The optimizer Docker stage copies a missing directory and omits three trees.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d70f832",
+      "evidence": "The optimizer Docker stage copies all thirteen registered trees instead of three named by hand, one of which (`sr_optimizer1h`) does not exist and made the stage fail outright while three trees that launchd services run were never copied.",
+      "risk": "The image is larger by the size of ten more code-only tree directories; `.dockerignore` still keeps the generated data out."
+    },
+    {
+      "id": "OPT-25",
+      "repo": "platform",
+      "verified": "Carried from the register: run_overnight.sh always logs exit 0.",
+      "disposition": "fixed",
+      "phase": "Phase 3",
+      "commit": "0920684",
+      "evidence": "`run_overnight.sh` captures `rc=$?` BEFORE `$(stamp)` runs, because the command substitution resets `$?`. It previously reported `exit 0` for every job including one that crashed on its first line.",
+      "risk": "None known."
+    },
+    {
+      "id": "OPT-26",
+      "repo": "platform",
+      "verified": "Carried from the register: Six apply_*.ts scripts have no --dry flag and four hardcoded order sizes.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "b479eee",
+      "evidence": "`platform/backend/scripts/lib/applyGuard.ts` makes every apply script preview by default and requires `--buy <usdt>` stated explicitly when applying; the size a script historically used is printed in the preview and never applied because it was in the file. The two one-off scripts that hardcoded specific coins, ranks and `/tmp` inputs are archived with a note recording what they applied. `platform/backend/tests/applyGuard.test.ts` covers the refusals. `scripts/` was also typechecked and linted by nothing and is now in both.",
+      "risk": "A runbook that invoked one of these scripts without flags now previews instead of writing. That is the intended change and the banner says so."
+    },
+    {
+      "id": "OPT-27",
+      "repo": "platform",
+      "verified": "Carried from the register: replace_*.mjs DELETE FROM deployments and re-create flat.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "b479eee",
+      "evidence": "`platform/deployment/aws/lib/replaceGuard.mjs` makes writing require `--apply` in all four `replace_*.mjs` and makes the refuse-if-a-position-is-open check universal; `replace_mtf_lean15m_preserve_open.mjs` keeps its deliberately narrower check because leaving one named position alone is its purpose. The two remote wrappers pass `--apply` explicitly and fail loudly if the shared guard was not staged. `platform/backend/tests/replaceGuard.test.mjs` covers both rules.",
+      "risk": "The scripts still DELETE and re-create rows; the guard prevents doing that to an open position, and the pre-change backup is unchanged."
+    },
+    {
+      "id": "OPT-28",
+      "repo": "platform",
+      "verified": "Carried from the register: wipe_chartss.sh ships a base64-encoded destructive production payload.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "b479eee",
+      "evidence": "The base64 blob is replaced by the tracked, reviewable `platform/deployment/aws/wipe_charts_remote.sh`, encoded at send time. Verified byte-identical to the blob it replaces by decoding the original and re-encoding the file.",
+      "risk": "The script is still destructive and still runs against production via SSM. It is now readable before it is run, and the RDS snapshot step is unchanged."
+    },
+    {
+      "id": "OPT-29",
+      "repo": "platform",
+      "verified": "Carried from the register: Dashboard snapshots served to the UI are two weeks stale.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d70f832",
+      "evidence": "A dashboard snapshot travels with `generatedAt`, `ageMinutes` and a `stale` flag past 24 hours, and the optimizer page prints a banner above the table saying the numbers came from an export and how old it is. The exporter enumerates the tree registry instead of its own copy of the old name map, so the three trees it silently omitted are exported.",
+      "risk": "The snapshot is still what the UI shows when `OPTIMIZER_DASHBOARD_DIR` is set; it is now labelled rather than presented as current."
+    },
+    {
+      "id": "OPT-30",
+      "repo": "platform",
+      "verified": "Confirmed: §2/§8 name four optimizer trees that are absent; §7 states a cost model no tree runs and points at a gitignored, absent parity directory.",
+      "disposition": "fixed",
+      "phase": "Phase 0",
+      "commit": "213fe3c, 3ed8d79",
+      "evidence": "`CLAUDE_HANDOFF.md` carries a banner naming each contradiction; `docs/` is declared authoritative; `scripts/ci/check-docs.sh` now fails when a document names a directory that does not exist or a cost figure that disagrees with its config.json.",
+      "risk": "The document is retained as history. Its production claims about the AWS stack remain unverifiable from here."
+    },
+    {
+      "id": "FE-01",
+      "repo": "platform",
+      "verified": "Confirmed in current source: the chart toolbar's bell, labelled \"Alert\", called setAlertOpen, and AlertModal.create() called createDeployment followed immediately by activateDeployment with a default buyQuoteQty of 800. One click on a bell started live trading.",
+      "disposition": "fixed",
+      "phase": "Phase 5",
+      "commit": "ffd8678",
+      "evidence": "The bell now opens the price-alert dialog. Automation has a separate 'Automate' button and a dialog titled 'Automate trading on <symbol>' whose first line states it is not a notification; Create is disabled until an acknowledgement naming the buy size (or naming delivery=off as a dry run) is ticked, and that acknowledgement is reset by `useEffect` on open, delivery and buyQuoteQty so it cannot carry from a dry run into a live one. The 'Live & Alerts' nav entry, which sat beside a separate 'Alerts' entry, is now 'Live trading'. The AlertsPanel tabs are 'Running' and 'Order log'. No deployment route, payload or activation semantics changed. Frontend typecheck, lint (0 errors), 47 tests and `next build` all pass.",
+      "risk": "The word 'alert' still names both concepts in the API surface (/api/ma-alerts for notifications, /api/alerts for deployment signal log). The UI no longer conflates them; the route names are a Phase 7 rename."
+    },
+    {
+      "id": "FE-02",
+      "repo": "platform",
+      "verified": "Carried from the register: Unvalidated open redirect immediately after authentication.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "2d0a86d",
+      "evidence": "`safeNextPath` allow-lists same-origin absolute paths only. Seven tests cover script schemes, protocol-relative and backslash forms, embedded control characters, percent-encoded payloads, malformed encoding and a login loop.",
+      "risk": "—"
+    },
+    {
+      "id": "FE-03",
+      "repo": "platform",
+      "verified": "Carried from the register: Frontend auth gate fails open and is baked in at build time.",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "2d0a86d",
+      "evidence": "Shared opt-out parse rule; three tests assert that only the literal `false` disables the gate.",
+      "risk": "Build-time inlining remains a property of Next's edge runtime and is documented, not removed."
+    },
+    {
+      "id": "FE-04",
+      "repo": "platform",
+      "verified": "Confirmed: the page gate checks cookie presence, not the signature.",
+      "disposition": "preserved",
+      "phase": "Phase 1",
+      "commit": "2d0a86d",
+      "evidence": "Intentional and now documented in `proxy.ts` and `.env.local.example`: the signing secret must not reach the edge runtime, the backend is the real gate, and every protected byte comes from the authenticated API. A forged cookie buys a redirect and nothing more.",
+      "risk": "None beyond the flash-of-app the gate exists to avoid."
+    },
+    {
+      "id": "FE-05",
+      "repo": "platform",
+      "verified": "Carried from the register: No CSP or frame-ancestors protection (the register groups FE-04–FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "2d0a86d",
+      "evidence": "CSP with `frame-ancestors 'none'`, plus frame/sniffing/referrer/permissions headers on the frontend and a stricter `default-src 'none'` policy on the API. API headers asserted in `platform/backend/tests/security.test.ts`.",
+      "risk": "`'unsafe-inline'` is required on script-src and style-src by Next's inline bootstrap, so this CSP does not stop injected inline script. The compensating control is that the tree has no HTML or script sink at all, enforced by `platform/frontend/tests/noUnsafeSinks.test.ts`."
+    },
+    {
+      "id": "FE-06",
+      "repo": "platform",
+      "verified": "Confirmed in current source before the change: a `useEffect` with an empty dependency array read `applyStrategy` from `window.location.search` on mount and, with no user gesture, called `layoutStore.createLayout` (POST /api/layouts) when `layoutName` was present and set `bestRange.run = true`, which starts a backtest. `applyPayload` was base64-decoded and cast to `OptimizerBest` with no validation at all.",
+      "disposition": "fixed",
+      "phase": "Phase 6",
+      "commit": "44b895a",
+      "evidence": "`platform/frontend/lib/deepLink.ts` parses without acting and returns a description; a banner names every effect — including the layout write and the backtest — and `applyDeepLink` runs only on click. `validateOptimizerBest` checks strategy, timeframe, symbol shape and every numeric property (capital > 0, commission 0..100, non-negative slippage and size, a known sizing mode, parseable range dates) before a payload can reach a backtest or a saved layout; a rejected payload falls back to the server lookup and the rejection is shown rather than swallowed. `platform/frontend/tests/deepLink.test.ts`: 10 tests, including 17 malformed payload shapes and a positive case proving the validator still accepts what the server returns.",
+      "risk": "Existing optimizer links keep working but now cost one click. Links are produced outside this repository (dashboards, by hand), so nothing here can be updated to skip the confirmation — which is the intended outcome."
+    },
+    {
+      "id": "FE-07",
+      "repo": "platform",
+      "verified": "Confirmed: no `AbortSignal` reached any fetch, `setCandles(data)` was unconditional so a slow first response overwrote a fast second one, and React strict mode plus a fast double-click issued the same request twice.",
+      "disposition": "fixed",
+      "phase": "Phase 4",
+      "commit": "b017861",
+      "evidence": "`platform/frontend/lib/requestGuard.ts` provides `CancellableRequest`, `LatestRequest` (token comparison, not parameter comparison — a user who switches away and back lands on identical parameters) and `RequestCoalescer`, which drops its entry as soon as the promise settles so it is never a cache. `api.candles`, `candlesVerbose` and the backtest endpoints take a signal; the chart's load path aborts the previous request and discards any response whose token is no longer current. Covered by `platform/frontend/tests/requestGuard.test.ts`.",
+      "risk": "Endpoints outside the chart's load path still have no signal; they are short GETs whose responses are not written into shared state, so a stale one cannot overwrite a newer one."
+    },
+    {
+      "id": "FE-08",
+      "repo": "platform",
+      "verified": "Confirmed: no `error.tsx`, `global-error.tsx` or `not-found.tsx` existed anywhere under `platform/frontend/app`.",
+      "disposition": "fixed",
+      "phase": "Phase 6",
+      "commit": "57fa8c6",
+      "evidence": "All three now exist. `error.tsx` offers `reset()` so a route re-renders without a full reload; `global-error.tsx` supplies its own document and inline styles because it replaces the root layout it would otherwise inherit; `not-found.tsx` offers routes. Each states that the failure is a display failure and that nothing reached the bot. `platform/frontend/tests/a11y.test.ts` fails the build if any is removed or if `error.tsx` loses its recovery path.",
+      "risk": "There is no error-reporting service in this deployment, so errors go to the browser console only. Adding one would be a production change."
+    },
+    {
+      "id": "FE-09",
+      "repo": "platform",
+      "verified": "Confirmed: `CandleChart` had `ws.onmessage` and nothing else — no `onerror`, no `onclose`, no reconnect, no watchdog. A dropped socket froze the last price on screen while it continued to be displayed as current.",
+      "disposition": "fixed",
+      "phase": "Phase 4",
+      "commit": "b017861",
+      "evidence": "Capped exponential-backoff reconnect, plus a 45-second silence watchdog — a socket can sit in `readyState === OPEN` and deliver nothing, which is exactly what a connectivity check misses. `ChartFeedState` renders `connecting…` / `reconnecting…` / `feed stalled — price is not current`. The `live` state is deliberately not rendered: the states worth interrupting for are the ones where the number on screen is not current.",
+      "risk": "The reconnect has not been exercised against a real dropped Binance socket in this workspace; the logic is unit-covered, the transport is not."
+    },
+    {
+      "id": "FE-10",
+      "repo": "platform",
+      "verified": "Carried from the register: Secrets rendered in type=\"text\" inputs (the register groups FE-04–FE-15 as one 'frontend robustness' band; numbering here follows the roadmap's own anchors where it names them).",
+      "disposition": "fixed",
+      "phase": "Phase 1",
+      "commit": "2d0a86d",
+      "evidence": "All three webhook-secret inputs are `type=\"password\"` with autofill, autocorrect and spellcheck disabled.",
+      "risk": "—"
+    },
+    {
+      "id": "FE-11",
+      "repo": "platform",
+      "verified": "Confirmed: `warn` was absent from `platform/frontend/tailwind.config.ts` while `text-warn`, the `bg-warn` background at 10% and the `border-warn` border at 40% were used in `platform/frontend/app/backtests/[id]/page.tsx`, `platform/frontend/components/TradeList.tsx` and `platform/frontend/components/tv/StrategyTester.tsx`. Tailwind emits no rule for an unknown token, so the OPEN TRADE badge rendered as plain body text.",
+      "disposition": "fixed",
+      "phase": "Phase 6",
+      "commit": "45ae312",
+      "evidence": "`warn: \"#f0b90b\"` added — amber, 9.7:1 against the surface, and distinct from both `up` and `down` because a position still holding risk is neither. `platform/frontend/tests/theme.test.ts` scans the class names components actually use and fails on any colour the theme does not define; it caught one hand-rolled `amber-400` on the chart, now on the same token. It also pins the manifest `themeColor` to the page background, which differed.",
+      "risk": "None known. The check is static; it cannot see a token composed at runtime, and the codebase does not compose any."
+    },
+    {
+      "id": "FE-12",
+      "repo": "platform",
+      "verified": "Confirmed: `platform/frontend/app/deployments/page.tsx` `toggle`/`remove` had no try/catch at all, and `platform/frontend/components/tv/AlertsPanel.tsx` had `finally { setBusy(null) }` with no catch. A failure left the row reading 'active' with the rejection in the console.",
+      "disposition": "fixed",
+      "phase": "Phase 6",
+      "commit": "4df6bd0",
+      "evidence": "Both paths report the failure in a `role=\"alert\"` banner and re-read from the server afterwards, so the row shows what the server holds rather than what the click implied. Controls are disabled while an action is in flight.",
+      "risk": "Not exercised against a real failing backend here — no database is available to run the API. The catch paths are straightforward; the reporting has not been seen rendered."
+    },
+    {
+      "id": "FE-13",
+      "repo": "platform",
+      "verified": "Confirmed: 19 catch blocks discarded their error. Triaged rather than treated as one defect — most are correct (parse-failure fallbacks, localStorage quota, closing an already-closed socket) and now carry the reason. Four hid a user-visible failure.",
+      "disposition": "fixed",
+      "phase": "Phase 6",
+      "commit": "4df6bd0",
+      "evidence": "The polling `refresh().catch(() => {})` on the deployments page and the chart's automation panel now record the failure; `platform/frontend/lib/freshness.ts` decides when it is worth saying (one failed poll is not; thirty seconds of failure is, with the age of the data; never having loaded gets a stronger message). `platform/frontend/lib/layouts.ts` save/rename/delete now throw instead of returning as though they worked, and ⌘S no longer reports 'Layout saved' when nothing was saved. Autosave is the exception — it writes unasked, so its failure appears in the layout menu rather than as a toast. `platform/frontend/tests/freshness.test.ts`, 6 tests.",
+      "risk": "The remaining swallowed catches are documented in place but not test-enforced; a future one could be added without failing a gate."
+    },
+    {
+      "id": "FE-14",
+      "repo": "platform",
+      "verified": "The register allocates twelve identifiers, `FE-04`–`FE-15`, to a single grouped sentence that enumerates ten distinct defects. Each of those ten maps to FE-04 through FE-13. No eleventh or twelfth defect is described anywhere in the audit.",
+      "disposition": "corrected",
+      "phase": "Phase 6",
+      "commit": "—",
+      "evidence": "FE-14 has no finding behind it. It is numbering slack in the register, not an outstanding item, and it is recorded here rather than dropped so the identifier cannot be mistaken later for something that was missed.",
+      "risk": "If the auditor intended two further frontend defects that were omitted from the register text, they are not addressed. Nothing in the six audit documents describes them."
+    },
+    {
+      "id": "FE-15",
+      "repo": "platform",
+      "verified": "As FE-14: the grouped register sentence for `FE-04`–`FE-15` describes ten defects across twelve identifiers.",
+      "disposition": "corrected",
+      "phase": "Phase 6",
+      "commit": "—",
+      "evidence": "FE-15 has no finding behind it. Recorded rather than dropped.",
+      "risk": "As FE-14."
+    },
+    {
+      "id": "FE-18",
+      "repo": "platform",
+      "verified": "Confirmed: ESLint was absent from `platform/frontend`, so its six `eslint-disable` comments were inert.",
+      "disposition": "fixed",
+      "phase": "Phase 0",
+      "commit": "711ebda",
+      "evidence": "`npm run lint` runs a flat config with typescript-eslint and react-hooks; four real unused-binding errors were found and fixed; the suite now reports 0 errors.",
+      "risk": "Seven `exhaustive-deps` warnings are left visible rather than silenced. Changing a dependency array in the charting surface changes runtime behaviour and is handled in the QA phase, not by a lint fix."
+    },
+    {
+      "id": "TV-01",
+      "repo": "platform",
+      "verified": "Carried from the register: approach1_ui_automation scripts a password login to tradingview.com.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "the `approach1_ui_automation` directory is DELETED. It scripted a password login to tradingview.com — `page.fill(SEL[\"password_input\"], password)` behind nothing but jittered pacing — and had never produced any output, so there was no evidence in it to preserve. Recoverable from Git at `a0a8b0c^`. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file containing TV_PASSWORD, a TradingView sign-in URL or a password-input selector. The blueprint's runbook that exported TV_USERNAME/TV_PASSWORD is removed with it.",
+      "risk": "None. Driving a TradingView account is outside what this system does."
+    },
+    {
+      "id": "TV-02",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-03",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-04",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-05",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-06",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-07",
+      "repo": "platform",
+      "verified": "Carried from the register: backtest-spot never liquidates an open position at window end.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "Re-verified against this checkout, not carried over: `simulate.py:314` derives net% from `cash` alone while an entry does `cash -= alloc + fee` at `:225`, so a run ending in a position is charged the full order as a total loss (about -93 pp on a 930-of-1000 allocation); there is also no `cash >= alloc` guard, so cash can go negative. Archived at `backtesting:legacy/backtest-spot/` with a defect manifest naming the lines.",
+      "risk": "NOT FIXED. The tree is retired, so it produces no new results; every result it produced is biased against configurations that hold at the window edge. Correcting it needs market data to validate against, and its `data` directory is gitignored and absent."
+    },
+    {
+      "id": "TV-08",
+      "repo": "platform",
+      "verified": "Carried from the register: The 1m x 200 SMA trend gate is computed from 1-hour bars in three of five drivers.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "Re-verified: `optimize.py:118` and `optimize_optuna.py:111` set `USE_1M_DATA = False`, which aliases the 1m frame to the 1h frame, while `optimize_v8.py:131` sets it True. Documented in the archive's manifest.",
+      "risk": "NOT FIXED. Every best config from the first two drivers was selected under a trend filter about sixty times longer than the one it claims to mirror, and the two sets of results are not comparable with each other."
+    },
+    {
+      "id": "TV-09",
+      "repo": "platform",
+      "verified": "Carried from the register: Look-ahead in the backtest-spot HTF alignment.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "Re-verified: `align_htf_to_5m` (`strategy_sim.py:284-289`) is a backward `merge_asof` on frames indexed by OPEN time (`binance_data.py:70`). The authors corrected exactly this for the 1h moving average with `-1min` and for the 1m frame with `+4min` (`feature_bank.py:73,77,86,87`); the support pivots on all four timeframes (`:59-65`) and the 4h VWMA (`:93-97`) have no offset. The support pivots are the entry trigger.",
+      "risk": "NOT FIXED, and this one changes every number the tree produced. Correcting the alignment without data to validate against would produce corrected results indistinguishable from uncorrected ones."
+    },
+    {
+      "id": "TV-10",
+      "repo": "platform",
+      "verified": "Carried from the register: The README-documented backtest-spot entry point can never fire an entry.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "Re-verified by reading the guard: `run_backtest.py:47` calls `simulate(d, p, t0, t1)` omitting `r_any`; `simulate.py:98-99` defaults it to all-False, so `last_retest_i` never leaves its -10000 sentinel (`:167,181-182`) and the entry guard `0 <= i - last_retest_i <= p.retest_confirm_bars` (`:198`) can never be satisfied. Confirmed by reading, not by execution — this checkout has no market data to run it against.",
+      "risk": "NOT FIXED. The README-documented entry point produces no trades at all."
+    },
+    {
+      "id": "TV-11",
+      "repo": "platform",
+      "verified": "Carried from the register: The exit MA is hardcoded to 1h x 100 VWMA while the report says 4h x 100 SMA.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "Re-verified: `feature_bank.py:148-158` computes the exit from a 1h x 100 VWMA crossunder while `pine_map.py:75` prints `exitMaTf=4h, exitMaLen=100, exitMaType=SMA (ON)` into the report the user is told to configure. the `exit_ma_tf`, `exit_ma_len` and `exit_ma_type` fields of `StrategyParams` (`strategy_sim.py:81-83`) are read by nothing in the feature bank.",
+      "risk": "NOT FIXED. A user following a generated report configured a different exit from the one that was backtested."
+    },
+    {
+      "id": "TV-12",
+      "repo": "platform",
+      "verified": "Carried from the register: No IS/OOS split anywhere in tv_autotuner or backtest-spot.",
+      "disposition": "preserved",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "Re-verified: none of the three main `backtest-spot` drivers contains a train/test boundary of any kind, and `tv_autotuner` scored and reported on the same window over about 252 evaluations per coin against a 1.48e19 space. Both trees are archived with that stated.",
+      "risk": "NOT FIXED. Every number either tree produced is in-sample."
+    },
+    {
+      "id": "TV-13",
+      "repo": "platform",
+      "verified": "Carried from the register: A fourth independent copy of the ask/tell GA with a fourth objective definition.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3, a2707f8",
+      "evidence": "The fourth GA copy went with `tv_autotuner`'s driver. The other ten — five `optimizer.ts` and five `wf.ts` — were byte-identical (or differed only by a comment and a type alias) and are consolidated into `platform/backend/src/optimizer/gaDriver.ts`, with `platform/backend/tests/gaDriver.test.ts` holding the shared implementation to the original's candidate sequence and scores. `scripts/ci/check-repo-hygiene.sh` fails if a tree re-declares its own driver or objective.",
+      "risk": "None known. Any future change to search behaviour now fails the characterization tests, which is the intended signal."
+    },
+    {
+      "id": "TV-14",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-15",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-16",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-17",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-18",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-19",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-20",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-21",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-22",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-23",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-24",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    },
+    {
+      "id": "TV-25",
+      "repo": "platform",
+      "verified": "Grouped in the register as 'TV-02–TV-06, TV-13–TV-25 experimental-tree issues'; no individual description was published.",
+      "disposition": "fixed",
+      "phase": "Phase 7",
+      "commit": "d43a4e3",
+      "evidence": "`tv_autotuner`'s driver (`autotuner.py`, `show.py`) is removed and the tree archived. That retires the named issues at once: the unauthenticated DevTools port (the driver started TradingView with `--remote-debugging-port=9222` and connected to `http://localhost:9222/json`, so any local process could drive the logged-in application); the session cookie jar written inside the tracked tree (`.gitignore` now refuses a `tv_session` directory, `cookies.json`, `*_cookies.json`, `storageState.json` and `*.har` anywhere); the timeout path in `evaluate()` that logged 'accepting current read' and returned a scrape that could still hold the PREVIOUS configuration's metrics against the NEW genome; and the fourth independent GA with a fourth objective. `scripts/ci/check-repo-hygiene.sh` fails on any tracked file opening or connecting to a remote-debugging port. the `best` and `results` directories, `SUMMARY.json`, `seeds.json` and the search space are kept as the only record of the experiment.",
+      "risk": "The retained result files cannot be trusted row by row: nothing marks which rows the timeout path poisoned. `backtesting:legacy/tv_autotuner/ARCHIVED.md` says exactly that."
+    }
+  ]
+}

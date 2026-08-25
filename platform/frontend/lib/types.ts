@@ -123,7 +123,23 @@ export interface Trade {
   cumProfit: number | null;
 }
 
-export type DeliveryMode = "3commas" | "custom" | "off";
+/**
+ * How a deployment's signals leave the platform. Mirrors the backend's
+ * `types/deployments.ts`.
+ *
+ *   `custom` / `3commas` — real orders.
+ *   `off`                — evaluate and record; send nothing, simulate nothing.
+ *   `paper`              — evaluate, record, and SIMULATE the fill at the live
+ *                          cost model. Sends nothing.
+ */
+export type DeliveryMode = "3commas" | "custom" | "off" | "paper";
+
+/** The two modes that reach an external system. */
+export const LIVE_DELIVERY_MODES: readonly DeliveryMode[] = ["3commas", "custom"];
+
+export function deliversLiveOrders(mode: DeliveryMode): boolean {
+  return LIVE_DELIVERY_MODES.includes(mode);
+}
 export type DeploymentStatus = "active" | "paused" | "stopped";
 
 export interface Deployment {

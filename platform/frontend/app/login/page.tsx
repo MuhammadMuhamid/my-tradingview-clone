@@ -1,12 +1,14 @@
 "use client";
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { safeNextPath } from "@/lib/safeRedirect";
 import { Suspense } from "react";
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/chart";
+  // Never assign an unvalidated `next` to window.location: it is an open
+  // redirect and a `javascript:` sink on the origin holding the session cookie.
+  const next = safeNextPath(params.get("next"));
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);

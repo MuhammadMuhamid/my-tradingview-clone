@@ -50,6 +50,18 @@ export async function getVapidKeys(): Promise<VapidKeys> {
   return cached;
 }
 
+/**
+ * 404/410 mean the push service has permanently discarded this endpoint
+ * (permission revoked, app uninstalled, subscription rotated). Retrying is
+ * pointless, so the row is pruned; every other status is a transient failure.
+ */
+export function isDiscardedSubscription(status: number | undefined): boolean {
+  return status === 404 || status === 410;
+}
+
+/** Push services reject payloads over 4 KB after encryption padding. */
+export const MAX_PUSH_PAYLOAD_BYTES = 4096;
+
 export interface PushResult {
   sent: number;
   pruned: number;
@@ -78,7 +90,7 @@ export async function sendPush(
         await pushRepo.markDelivered(sub.endpoint);
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410) {
+        if (isDiscardedSubscription(status)) {
           await pushRepo.deleteByEndpoint(sub.endpoint);
           result.pruned++;
         } else {

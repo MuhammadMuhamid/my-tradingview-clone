@@ -19,6 +19,7 @@
 import type { Interval } from "../types/market";
 import type { RuntimeState } from "../types/deployments";
 import { FeedStore } from "./mtf";
+import { isNetWin, netPnlPct } from "./liveCosts";
 import { computeSignals } from "./strategies/ma_rr_v9/signals";
 import type { MaRrParams } from "./strategies/ma_rr_v9/params";
 
@@ -52,6 +53,8 @@ export function evaluateBar(
   const close = chart.close[i]!;
   const high = chart.high[i]!;
   const low = chart.low[i]!;
+  // Needed for the broker's deterministic intrabar path (see BE-03 below).
+  const open = chart.open[i]!;
   const a = sig.atrRisk[i]!;
 
   // ── Streak gates (evaluated from persisted counters; updated on our own exits) ──
@@ -123,26 +126,60 @@ export function evaluateBar(
   const stopHit = p.useRR && next.savedLongStop !== null && low <= effStop;
   const tpHit = p.useRR && next.savedLongTp !== null && high >= next.savedLongTp;
 
+  /*
+   * BE-03: brackets resolve BEFORE signal exits, and along the broker's
+   * deterministic OHLC path.
+   *
+   * The backtest runs `processOpen` then `processIntrabar` and gates its
+   * close-signal block on `pos > 0`, so a stop or target that filled intrabar
+   * wins. This evaluator checked signals first and the stop LAST, so the same
+   * bar produced a different exit price — and because the exit price decides
+   * the win/loss flag, which drives `consecLosses` and the choppy pause, the
+   * divergence changed which later trades were taken at all.
+   *
+   * The path mirrors `broker.ts` and `mtfLeanLiveEvaluator`: on a green bar
+   * price is assumed to travel open -> low -> high, so the stop is tested
+   * first; on a red bar open -> high -> low, so the target is tested first.
+   */
+  const greenBar = close >= open;
+  const bracketFirst: ("stop" | "tp")[] = greenBar ? ["stop", "tp"] : ["tp", "stop"];
+
   let exitReason: string | null = null;
-  if (softExit) {
-    exitReason =
-      sig.exitMaTrig[i] ? "MTF MA exit" :
-      sig.belowSt[i] ? "Below ST" :
-      sig.belowMa1[i] ? "Below TF1 MA" :
-      sig.rsiExit[i] ? "RSI rollover" : "Below LinReg";
-  } else if (hlExit) exitReason = "HL Break";
-  else if (indExit) {
-    exitReason = sig.rfSell[i] ? "RF Sell" : sig.atSell[i] ? "AlphaTrend Sell" : sig.hacSell[i] ? "HACOLT Sell" : "UT Bot Sell";
-  } else if (stopHit) {
-    exitReason = next.trailAnchor !== null && effStop === next.trailAnchor ? "Trail" : "SL";
-  } else if (tpHit) exitReason = "TP";
+  let exitPx = close;
+
+  for (const which of bracketFirst) {
+    if (exitReason) break;
+    if (which === "stop" && stopHit) {
+      exitReason = next.trailAnchor !== null && effStop === next.trailAnchor ? "Trail" : "SL";
+      exitPx = effStop;
+    } else if (which === "tp" && tpHit) {
+      exitReason = "TP";
+      exitPx = next.savedLongTp!;
+    }
+  }
+
+  if (!exitReason) {
+    // Only once no bracket filled does a bar-close signal get to exit.
+    if (softExit) {
+      exitReason =
+        sig.exitMaTrig[i] ? "MTF MA exit" :
+        sig.belowSt[i] ? "Below ST" :
+        sig.belowMa1[i] ? "Below TF1 MA" :
+        sig.rsiExit[i] ? "RSI rollover" : "Below LinReg";
+    } else if (hlExit) {
+      exitReason = "HL Break";
+    } else if (indExit) {
+      exitReason = sig.rfSell[i] ? "RF Sell" : sig.atSell[i] ? "AlphaTrend Sell" : sig.hacSell[i] ? "HACOLT Sell" : "UT Bot Sell";
+    }
+    if (exitReason) exitPx = close;
+  }
 
   if (exitReason) {
-    // Update streak counters using this trade's outcome (close-based proxy).
-    const exitPx = tpHit && !softExit && !hlExit && !indExit && !stopHit ? next.savedLongTp! :
-      stopHit && !softExit && !hlExit && !indExit ? effStop : close;
-    const win = exitPx > entryPx;
-    const pnlPct = entryPx !== 0 ? ((exitPx - entryPx) / entryPx) * 100 : 0;
+    // BE-15: net of both commissions, matching the backtest's `pnl > 0` on
+    // `broker.closed`. A gross comparison made a +0.03 % exit a win here and a
+    // loss there, desynchronising the circuit breaker.
+    const win = isNetWin(entryPx, exitPx);
+    const pnlPct = netPnlPct(entryPx, exitPx);
     const barMs = chart.closeTime[i]! - chart.time[i]! + 1;
     if (win) {
       next.consecLosses = 0;

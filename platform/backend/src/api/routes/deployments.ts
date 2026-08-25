@@ -4,14 +4,16 @@ import * as alertRepo from "../../repositories/alerts";
 import * as strategyRepo from "../../repositories/strategies";
 import * as symbolRepo from "../../repositories/symbols";
 import { isInterval } from "../../types/market";
-import type { DeliveryMode } from "../../types/deployments";
+import { deliversLiveOrders, type DeliveryMode } from "../../types/deployments";
 import type { StrategyParams } from "../../types/strategy";
 import type { LiveRunner } from "../../engine/liveRunner";
 import { buildPayload, deliver, validateWebhookUrl, type SignalContext } from "../../alerts/dispatcher";
 import { validateDeploymentPatch, type DeploymentPatchInput } from "../deploymentPatch";
 import { config as appConfig } from "../../config";
+import * as paperRepo from "../../repositories/paperFills";
+import { PAPER_COMMISSION_PCT, summarisePaper } from "../../engine/paperBroker";
 
-const DELIVERY_MODES: DeliveryMode[] = ["3commas", "custom", "off"];
+const DELIVERY_MODES: DeliveryMode[] = ["3commas", "custom", "off", "paper"];
 const publicDeployment = <T extends { secret: string | null; botUuid: string | null }>(d: T) => ({
   ...d,
   secret: d.secret ? "[CONFIGURED]" : null,
@@ -66,8 +68,16 @@ export function deploymentRoutes(getRunner: () => LiveRunner) {
         try { body.webhookUrl = validateWebhookUrl(body.webhookUrl); }
         catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
       }
-      if (delivery !== "off" && (!body.secret || body.secret.length < 32)) {
+      // A secret is a credential for an outbound call. `off` and `paper` make
+      // no outbound call, so requiring one would mean holding a credential for
+      // a deployment that cannot use it.
+      if (deliversLiveOrders(delivery) && (!body.secret || body.secret.length < 32)) {
         return reply.code(400).send({ error: "a webhook secret of at least 32 characters is required" });
+      }
+      // Paper needs an order size for the same reason a live deployment does:
+      // a simulated fill of an unstated size is not a simulation of anything.
+      if (delivery === "paper" && (!Number.isFinite(body.buyQuoteQty) || (body.buyQuoteQty ?? 0) <= 0)) {
+        return reply.code(400).send({ error: "paper delivery requires buyQuoteQty, the size to simulate" });
       }
       if (delivery === "custom" && (!Number.isFinite(body.buyQuoteQty) || (body.buyQuoteQty ?? 0) <= 0 || (body.buyQuoteQty ?? 0) > 10_000)) {
         return reply.code(400).send({ error: "buyQuoteQty must be greater than 0 and at most 10000" });
@@ -240,5 +250,64 @@ export function deploymentRoutes(getRunner: () => LiveRunner) {
       const q = req.query as { limit?: string };
       return alertRepo.listAlerts({ limit: q.limit !== undefined ? Number(q.limit) : undefined });
     });
+
+    /**
+     * A paper deployment's simulated fills and their running result.
+     *
+     * Separate from `/api/deployments/:id/alerts`, which is the signal log: an
+     * alert is what the strategy decided, a paper fill is what the simulation did
+     * with it, and conflating them is how a refused simulation would read as a
+     * successful one.
+     */
+    app.get("/api/deployments/:id/paper", async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const dep = await deploymentRepo.getDeployment(id);
+      if (!dep) return reply.code(404).send({ error: "deployment not found" });
+      if (dep.delivery !== "paper") {
+        return reply.code(409).send({
+          error: `deployment ${id} has delivery "${dep.delivery}", not "paper" — it has no simulated fills`,
+          delivery: dep.delivery,
+        });
+      }
+      const fills = await paperRepo.listFills(id);
+      // Newest-first from the database; the summary needs them in fill order.
+      const ordered = [...fills].reverse();
+      const summary = summarisePaper(
+        ordered.map((f) => ({
+          action: f.action, barTime: f.barTime, price: f.price, qty: f.qty,
+          quote: f.quote, commission: f.commission, realisedPnl: f.realisedPnl,
+          positionAfter: {
+            qty: f.positionQty, costBasis: f.costBasis,
+            entryPrice: f.entryPrice, entryBarTime: null,
+          },
+        })),
+        { markPrice: null }
+      );
+      return {
+        deploymentId: id,
+        symbol: dep.symbol,
+        timeframe: dep.timeframe,
+        buyQuoteQty: dep.buyQuoteQty,
+        commissionPctPerSide: PAPER_COMMISSION_PCT,
+        /*
+         * Said plainly, because a paper result reads like a backtest result and
+         * is a weaker claim than one: it is forward-simulated on live bars at the
+         * live cost model, and it assumes every market order fills at the signal
+         * bar's close with no slippage and no partial fill.
+         */
+        caveat:
+          "Simulated. Fills are assumed at the signal bar's close with no slippage and no "
+          + "partial fill, at 0.1 % commission per side. A live order is a market order and "
+          + "will differ.",
+        summary,
+        fills: fills.map((f) => ({
+          ...f,
+          barTime: new Date(f.barTime).toISOString(),
+          filledAt: new Date(f.filledAt).toISOString(),
+        })),
+      };
+    });
+
   };
+
 }

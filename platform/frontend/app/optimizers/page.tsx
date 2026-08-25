@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api, type OptimizerLeaderboard, type OptimizerSystem } from "@/lib/api";
+import { api, type OptimizerLeaderboard, type OptimizerTree } from "@/lib/api";
 import { Card, CardHeader, Empty, Select } from "@/components/ui";
 
 type Metric = "score" | "net" | "dd" | "wr" | "pf" | "trades"
@@ -21,41 +21,151 @@ function verdict(net?: number | null, oos?: number | null):
 }
 
 /**
- * The three optimizer systems that exist. The former "current" (Nov 1, 2025)
- * MA trees and the SRTrend 15m/5m trees were removed on 2026-07-30.
+ * The tree list is no longer hardcoded here.
+ *
+ * It used to name five systems, one of which (`srtrend_v10`) resolved to a
+ * directory that does not exist and rendered as a successful empty table, while
+ * nine trees that DO exist had no entry at all (`X-04`). The backend registry
+ * is now the single source of truth and this page renders whatever it reports.
  */
-const SYSTEMS: Array<{
-  system: OptimizerSystem; timeframe: "15m" | "1h" | "5m"; strategy: string; label: string;
-}> = [
-  { system: "one-year", timeframe: "5m", strategy: "mtf_lean", label: "MTF Confluence Lean · 5m · Aug 10, 2025 → now" },
-  { system: "one-year", timeframe: "15m", strategy: "mtf_lean", label: "MTF Confluence Lean · 15m · Aug 11, 2025 → now" },
-  { system: "one-year", timeframe: "1h", strategy: "ma_rr_v9", label: "MA + R:R · 1h · Jul 20, 2025 → now" },
-  { system: "one-year", timeframe: "15m", strategy: "ma_rr_v9", label: "MA + R:R · 15m · Jul 20, 2025 → now" },
-  { system: "one-year", timeframe: "1h", strategy: "srtrend_v10", label: "SR+Trend v10 · 1h · Jul 20, 2025 → now" },
-];
+const STATUS_NOTE: Record<OptimizerTree["status"], string> = {
+  current: "",
+  historical: "Historical run — kept for reference. It does not describe the current parameter space.",
+  "not-comparable": "Cost model differs from every other tree. Do not rank this beside them.",
+};
 
 const n = (v: number | null | undefined, digits = 1) =>
   v === null || v === undefined ? "—" : v.toFixed(digits);
 
+/**
+ * What these numbers are, above the numbers themselves.
+ *
+ * `OPT-01` is the audit's most consequential research finding and it is not a
+ * bug in the engine: the way winning configurations were chosen re-used the
+ * data meant to check them, and nothing on this page said so. A leaderboard
+ * rendered without that context reads as measured performance. It is not.
+ *
+ * Collapsed by default so it does not shout on every visit, and open on first
+ * load for a viewer who has not dismissed it before — the choice is remembered
+ * per browser, and a browser that refuses storage simply shows it collapsed.
+ */
+function Methodology() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      setOpen(window.localStorage.getItem("optimizer-methodology-seen") !== "1");
+    } catch {
+      // Private windows and blocked site data throw on access. Not a reason to
+      // fail; just start collapsed.
+    }
+  }, []);
+
+  const toggle = () => {
+    setOpen((wasOpen) => {
+      if (wasOpen) {
+        try { window.localStorage.setItem("optimizer-methodology-seen", "1"); } catch { /* fine */ }
+      }
+      return !wasOpen;
+    });
+  };
+
+  return (
+    <Card>
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-sm font-medium text-ink">
+          How these numbers were produced — read before trusting one
+        </span>
+        <span aria-hidden="true" className="text-xs text-ink-faint">{open ? "hide" : "show"}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-border px-4 py-3 text-xs leading-relaxed text-ink-muted">
+          <p className="text-ink">
+            <strong>Out-of-sample is not a validation set for anything deployed.</strong> The
+            selection rule gates on the out-of-sample window and maximises over it, so IS/OOS
+            agreement is a selection artefact rather than evidence of robustness. The analysis
+            script that produces the deploy artifact says so itself: <em>&ldquo;OOS is optimized
+            here and is consumed; forward/paper validation is mandatory.&rdquo;</em>
+          </p>
+          <p>
+            Corroborating, from inside this repository: the 1-hour hold-out report measured a mean
+            rank correlation of <strong>+0.03</strong> between in-sample leaderboard rank and
+            out-of-sample net, where 1.0 would be perfect. In-sample rank has essentially no
+            predictive power.
+          </p>
+          <p>
+            <strong>A maximum over an enormous search lands on its constraints.</strong> Rows
+            marked <span className="rounded bg-warn/20 px-1 text-[10px] font-medium">floor</span>{" "}
+            won with the fewest trades the objective allows — the fewer trades a result rests on,
+            the more of its return can be luck.
+          </p>
+          <p>
+            <strong>Trees are not comparable unless their cost models agree.</strong> Each tree
+            states its own, and one tree runs zero slippage with full compounding and no IS/OOS
+            split at all; it is labelled <em>not comparable</em> and its numbers must not be
+            ranked beside the others&rsquo;.
+          </p>
+          <p>
+            <strong>Historical trees describe a parameter space that was replaced.</strong> Four of
+            the five walk-forward trees search a different set of parameters from the production
+            tree they are cited for, so the current production space has no walk-forward evidence.
+          </p>
+          <p>
+            <strong>Before deploying:</strong> choose on the in-sample views, then score the chosen
+            configuration once on the frozen holdout. The deploy scripts refuse a configuration
+            with no holdout record — absence of a result is not a pass.
+          </p>
+          <p className="text-ink-faint">
+            The long form, with the evidence for each statement, is in
+            {" "}<code>docs/RESEARCH-METHODOLOGY.md</code> and <code>docs/COST-MODELS.md</code>.
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function OptimizersPage() {
-  const [selected, setSelected] = useState(0);
+  const [trees, setTrees] = useState<OptimizerTree[] | null>(null);
+  const [treesError, setTreesError] = useState("");
+  const [selected, setSelected] = useState("");
   const [metric, setMetric] = useState<Metric>("score");
   const [data, setData] = useState<OptimizerLeaderboard | null>(null);
   const [error, setError] = useState("");
-  const current = SYSTEMS[selected]!;
-
-  const refresh = () => {
-    setError("");
-    api.optimizerLeaderboard(current.system, current.timeframe, current.strategy)
-      .then(setData)
-      .catch((e: Error) => setError(e.message));
-  };
+  const current = trees?.find((t) => t.id === selected) ?? null;
 
   useEffect(() => {
+    let live = true;
+    api.optimizerTrees()
+      .then((res) => {
+        if (!live) return;
+        setTrees(res.trees);
+        // Default to a tree that is actually current, not simply the first one.
+        const first = res.trees.find((t) => t.kind === "search" && t.status === "current")
+          ?? res.trees[0];
+        setSelected(first?.id ?? "");
+      })
+      .catch((e: Error) => { if (live) setTreesError(e.message); });
+    return () => { live = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    let live = true;
+    const refresh = () => {
+      api.optimizerLeaderboardByTree(selected)
+        .then((res) => { if (live) { setData(res); setError(""); } })
+        .catch((e: Error) => { if (live) { setData(null); setError(e.message); } });
+    };
     setData(null);
+    setError("");
     refresh();
     const timer = setInterval(refresh, 30_000);
-    return () => clearInterval(timer);
+    return () => { live = false; clearInterval(timer); };
   }, [selected]);
 
   const rows = useMemo(() => {
@@ -89,11 +199,25 @@ export default function OptimizersPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
+      <div>
+        <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
+        <p className="text-xs text-ink-faint">
+          In-sample leaderboards beside the out-of-sample window each row was never fitted on.
+        </p>
+      </div>
+
+      <Methodology />
       <div className="grid gap-3 md:grid-cols-2">
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-ink-muted">Optimizer system</span>
-          <Select value={selected} onChange={(e) => setSelected(Number(e.target.value))}>
-            {SYSTEMS.map((s, i) => <option value={i} key={s.label}>{s.label}</option>)}
+          <span className="text-xs font-medium text-ink-muted">Optimizer tree</span>
+          <Select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            disabled={!trees || trees.length === 0}
+          >
+            {!trees && <option value="">Loading trees…</option>}
+            {trees?.length === 0 && <option value="">No optimizer tree is registered</option>}
+            {trees?.map((t) => <option value={t.id} key={t.id}>{t.label}</option>)}
           </Select>
         </label>
         <label className="flex flex-col gap-1">
@@ -118,21 +242,52 @@ export default function OptimizersPage() {
 
       <Card>
         <CardHeader
-          title={current.label}
+          title={current?.label ?? "Optimizer results"}
           right={<span className="text-xs text-ink-faint">
-            Total backtests: {(data?.totalBacktests ?? 0).toLocaleString()}
+            Total backtests: {data?.testsState === "pending"
+              ? "counting…"
+              : (data?.totalBacktests ?? 0).toLocaleString()}
           </span>}
         />
+        {current && STATUS_NOTE[current.status] && (
+          <p className="mx-4 mb-2 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink">
+            {STATUS_NOTE[current.status]}
+          </p>
+        )}
+        {current?.note && <p className="px-4 pb-2 text-xs text-ink-faint">{current.note}</p>}
+        {rows.some((r) => r.atTradeFloor) && (
+          <p className="mx-4 mb-2 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink">
+            Rows marked <span className="rounded bg-warn/20 px-1 text-[10px] font-medium">floor</span> won
+            with the fewest trades this tree&apos;s objective allows
+            {data?.minTrades ? ` (${data.minTrades})` : ""}. A maximum taken over an enormous search space
+            lands on that floor by construction — the fewer trades a result rests on, the more of its
+            return can be luck.
+          </p>
+        )}
+        {data?.stale && (
+          <p className="mx-4 mb-2 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink">
+            These numbers come from an exported snapshot
+            {typeof data.ageMinutes === "number"
+              ? ` taken ${Math.floor(data.ageMinutes / 60)}h ago`
+              : " with no recorded export time"}
+            , not from the tree itself. They may not reflect the current run.
+          </p>
+        )}
         <p className="px-4 pb-2 text-xs text-ink-faint">
           Left of the divider is <strong>in-sample</strong> — the window the optimiser searched.
           Right is <strong>out-of-sample</strong>, which it never saw. Only trust a row where both
           halves are green: <span className="text-down">FAILED</span> means the edge did not survive
           on unseen data.
         </p>
-        {error ? <Empty>{error}</Empty> : !data ? <Empty>Loading optimizer results…</Empty> :
+        {treesError ? <Empty>{treesError}</Empty> :
+          error ? <Empty>{error}</Empty> :
+          trees?.length === 0 ? <Empty>No optimizer tree is registered on this server.</Empty> :
+          !data ? <Empty>Loading optimizer results…</Empty> :
+          data.resultsAvailable === false
+            ? <Empty>{`${data.tree.id} is registered but has not produced any results on this machine yet.`}</Empty> :
           rows.length === 0 ? <Empty>No completed results yet.</Empty> : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm tabular">
+            <table className="w-full min-w-[720px] text-sm tabular">
               <thead>
                 <tr className="border-b border-border text-xs text-ink-muted">
                   <th className="px-4 py-2 text-left">Rank</th>
@@ -162,7 +317,23 @@ export default function OptimizersPage() {
                     </td>
                     <td className="px-4 py-2 text-right">{n(row.metrics.dd_pct)}%</td>
                     <td className="px-4 py-2 text-right">{n(row.metrics.win_rate)}%</td>
-                    <td className="px-4 py-2 text-right">{row.metrics.trades ?? "—"}</td>
+                    <td className="px-4 py-2 text-right">
+                      {row.metrics.trades ?? "—"}
+                      {row.atTradeFloor && (
+                        <span
+                          className="ml-1 rounded bg-warn/20 px-1 text-[10px] font-medium text-ink"
+                          title={
+                            `This winner sits on the objective's minimum-trade floor` +
+                            (data?.minTrades ? ` of ${data.minTrades}` : "") +
+                            `. Maximising over an enormous search space with a hard floor produces ` +
+                            `winners at the floor by construction: the fewer trades a result rests ` +
+                            `on, the more of its return can be luck.`
+                          }
+                        >
+                          floor
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-right">{n(row.metrics.profit_factor, 2)}</td>
                     <td className="px-4 py-2 text-right">{row.metrics.sl_loss_rate === null || row.metrics.sl_loss_rate === undefined ? "—" : `${n(row.metrics.sl_loss_rate)}%`}</td>
                     <td className={`px-2 py-2 text-right border-l border-border ${(row.metrics.oos_net_pct ?? 0) >= 0 ? "text-up" : "text-down"}`}>

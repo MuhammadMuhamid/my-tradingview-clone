@@ -18,7 +18,8 @@ export function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[]
 ): Promise<QueryResult<T>> {
-  return pool.query<T>(text, params as any[]);
+  // pg types `values` as `any[]`; the public signature stays `unknown[]`.
+  return pool.query<T>(text, params as unknown[] as never[]);
 }
 
 export async function closePool(): Promise<void> {

@@ -202,12 +202,19 @@ export function DrawingToolbar({
               <Icon name={current.icon} />
             </button>
             {group.tools.length > 1 && (
+              // The corner triangle stays a 10px marker, as it is in
+              // TradingView, but the thing you press is 24px. Measured at
+              // 10x10, it was the smallest control in the application and the
+              // only route to two thirds of the drawing tools.
               <button
                 onClick={() => setFlyout((f) => (f === group.id ? null : group.id))}
                 title="More tools"
-                className="absolute bottom-0 right-0 h-2.5 w-2.5 text-ink-faint hover:text-ink"
+                aria-label={`More ${group.id} tools`}
+                className="absolute bottom-0 right-0 flex h-6 w-6 items-end justify-end p-[3px] text-ink-faint hover:text-ink"
               >
-                <svg viewBox="0 0 10 10" fill="currentColor"><path d="M10 10L0 10L10 0z" /></svg>
+                <svg viewBox="0 0 10 10" width="10" height="10" fill="currentColor" aria-hidden="true">
+                  <path d="M10 10L0 10L10 0z" />
+                </svg>
               </button>
             )}
             {flyout === group.id && (

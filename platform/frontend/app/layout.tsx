@@ -21,7 +21,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
-  themeColor: "#0d1117",
+  // Must match `bg` in tailwind.config.ts, or mobile Safari paints its chrome
+  // a different near-black and the page appears to start with a seam.
+  themeColor: "#0b0e14",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -29,8 +31,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <div className="flex h-[100dvh] flex-col">
+          {/* Visible only when focused; see .skip-link in globals.css. */}
+          <a href="#main" className="skip-link">Skip to content</a>
           <Nav />
-          <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+          <main id="main" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none">
+            {children}
+          </main>
         </div>
       </body>
     </html>

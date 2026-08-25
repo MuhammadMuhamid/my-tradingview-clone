@@ -9,16 +9,22 @@
  *
  * All local (localhost:4000 + local DB). Nothing here touches AWS.
  *
- *   npx tsx scripts/apply_coin_local.ts SYNUSDT 453
+ *   npx tsx scripts/apply_coin_local.ts SYNUSDT 453                     # preview
+ *   npx tsx scripts/apply_coin_local.ts SYNUSDT 453 --apply --buy 340.01
  *   npx tsx scripts/apply_coin_local.ts SYNUSDT 453 --template KAITOUSDT
+ *
+ * OPT-26: preview by default, and the order size must be stated. It used to
+ * create or reconfigure a LIVE alert at a size hardcoded in this file.
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { query } from "../src/db/pool";
 import { initialRuntimeState } from "../src/types/deployments";
+import { parseApplyIntent } from "./lib/applyGuard";
 
 const API = "http://127.0.0.1:4000";
-const BUY = 340.01;
+/** What this script hardcoded. Kept only so the preview can suggest it. */
+const HISTORICAL_BUY = 340.01;
 
 /** Resolve full params by the SAME ORIG# the opt-results leaderboard shows
  *  (frozen sqlite index, drift-proof). */
@@ -34,13 +40,20 @@ function resolveByOrig(symbol: string, orig: number): {
 }
 
 async function main(): Promise<void> {
-  const [symbolArg, rankArg] = process.argv.slice(2);
+  const intent = parseApplyIntent(process.argv.slice(2), {
+    script: "apply_coin_local.ts", historicalBuy: HISTORICAL_BUY,
+  });
+  const BUY = intent.buyQuoteQty;
   const tplIdx = process.argv.indexOf("--template");
-  const template = (tplIdx > 0 ? process.argv[tplIdx + 1] : "KAITOUSDT").toUpperCase();
-  if (!symbolArg || !rankArg) throw new Error("usage: apply_coin_local.ts SYMBOL RANK [--template COIN]");
+  const template = (tplIdx > 0 ? process.argv[tplIdx + 1] ?? "KAITOUSDT" : "KAITOUSDT").toUpperCase();
+  const [symbolArg, rankArg] = intent.rest.filter((a) => a !== "--force" && a !== "--template" && a !== template);
+  if (!symbolArg || !rankArg) {
+    throw new Error("usage: apply_coin_local.ts SYMBOL RANK [--template COIN] [--apply --buy <usdt>]");
+  }
   const symbol = symbolArg.toUpperCase();
   const rank = Number(rankArg);
   const force = process.argv.includes("--force"); // override a stale local "long" state
+  console.log(intent.banner());
 
   // 1. Verified full params by ORIG# from the frozen optimizer index (drift-proof).
   const best = resolveByOrig(symbol, rank);
@@ -48,6 +61,19 @@ async function main(): Promise<void> {
   const params = best.params;
   const m = best.metrics;
   console.log(`${symbol} ORIG#${rank}: net ${m.net_pct}% dd ${m.dd_pct}% wr ${m.win_rate}% trades ${m.trades} pf ${m.profit_factor} (${Object.keys(params).length} params)`);
+
+  if (!intent.apply) {
+    const existing = await query<{ id: string; status: string; position: string }>(
+      "SELECT id, status, runtime_state->>'position' AS position FROM deployments WHERE symbol=$1",
+      [symbol]
+    );
+    console.log(`  would upsert layout ${symbol} and ` +
+      (existing.rows.length
+        ? `update alert ${existing.rows[0]!.id.slice(0, 8)} (status ${existing.rows[0]!.status}, ` +
+          `position ${existing.rows[0]!.position}) with buy ${BUY} and a reset runtime state`
+        : `CREATE an ACTIVE alert copying credentials from ${template}, buy ${BUY}`));
+    process.exit(0);
+  }
 
   // 2. Upsert layout.
   const layout = await fetch(`${API}/api/layouts`, {

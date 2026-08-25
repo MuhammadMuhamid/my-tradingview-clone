@@ -1,5 +1,25 @@
 # MyTradingView Clone — Claude Handoff
 
+<!-- doc-status -->
+> **HISTORICAL — superseded in part.** Written 2026-07-17 as a handover, and
+> parts of it no longer describe this checkout. Verified contradictions:
+>
+> - §2 and §8 named four
+>   optimizer trees (`optimizer/`, `optimizer5m/`, `sr_optimizer15m/`,
+>   `sr_optimizer5m/`) **that do not exist**. Thirteen different trees do; see
+>   [docs/COST-MODELS.md](docs/COST-MODELS.md). (`OPT-30`, `X-04`)
+> - §7 states commission 0.1 % and slippage 0 ticks as the common model. Every
+>   tree runs 0.1 % **per side with 2 ticks**, except `optimizer1y1h` which runs
+>   0 ticks. (`X-09`, `OPT-03`)
+> - §7 names parity artifacts in `platform/backend/parity/`. That directory is
+>   gitignored and absent from every clone, so the release gate it describes
+>   cannot be run here. (`BE-08` blocker)
+> - §3–§4 describe the live AWS stack. Nothing in this programme connected to
+>   AWS, so every production statement here is an unverified documentation
+>   claim, not an observation.
+>
+> Where this document and `docs/` disagree, `docs/` is authoritative.
+
 Last updated: 2026-07-17 (Asia/Karachi)
 
 ## 1. Objective
@@ -23,11 +43,11 @@ deployments, secrets, position state, or AWS as production-sensitive.
 
 Repository root:
 
-`/Users/muhammadmuhamid/Projects/supportandresistance strategy`
+`<checkout>`
 
 Main platform:
 
-`/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform`
+`<checkout>/platform`
 
 Important paths:
 
@@ -60,51 +80,42 @@ secrets, or optimizer databases/results that contain private data.
 
 ## 3. Current AWS production deployment
 
-AWS account ID: `683444362522`
+**Identifiers removed (finding `X-11`).** The AWS account id, region,
+CloudFormation stack name, both EC2 instance ids, the public IP, the RDS
+identifier, the S3 bucket and the Secrets Manager ARN were written out here in
+plain text. None is a credential, but together they pin the exact hosts that
+terminate the money path, and this repository has been copied around.
 
-Region: `ap-south-1` (Mumbai)
+They now live in `platform/deployment/aws/.env`, which is untracked. Every
+script in that directory reads them through `platform/deployment/aws/env.sh` and
+refuses to run with a named, actionable error if one is missing. The template is
+`platform/deployment/aws/.env.example`; it lists what each value is and carries
+no values of its own.
 
-CloudFormation stack: `srtrend-production`
+Shape of the deployment, without the identifiers:
 
-Public domain:
-
-`https://mytradingview.alphawebstudioz.com/`
-
-DNS A record:
-
-`mytradingview.alphawebstudioz.com -> 13.201.244.214`
-
-App EC2:
-
-- instance ID: `i-09888f3320763000f`
-- public IP: `13.201.244.214`
-- hosts Caddy, frontend, backend/API, backtest worker, and live alert runner.
-
-Compute EC2:
-
-- instance ID: `i-03b12ed8de9a10efe`
-- intended for continuous optimizers, isolated from live-alert latency.
-
-Database:
-
-- private encrypted RDS PostgreSQL 16;
-- endpoint and credentials are obtained from CloudFormation/Secrets Manager;
-- do not hardcode or expose them in prompts or source files.
+- one CloudFormation stack in a single region;
+- an **app** EC2 instance hosting Caddy, the frontend, the backend/API, the
+  backtest worker and the live alert runner;
+- a **compute** EC2 instance intended for the continuous optimizers, isolated
+  from live-alert latency;
+- a private, encrypted RDS PostgreSQL 16 instance whose endpoint and credentials
+  are read at runtime from CloudFormation and Secrets Manager, never hardcoded;
+- an S3 bucket created by the stack, used for deploy bundles and `backend.env`.
 
 Administration:
 
-- use AWS Systems Manager / CloudShell;
-- port 22 is intentionally closed;
-- runtime files are under `/opt/srtrend` on the app server;
-- deployment Compose files are under `/opt/srtrend/deployment`;
-- generated dashboard password is stored server-side at
+- via AWS Systems Manager / CloudShell; port 22 is intentionally closed;
+- runtime files under `/opt/srtrend`, compose files under
+  `/opt/srtrend/deployment`;
+- the generated dashboard password is stored server-side at
   `/opt/srtrend/admin-password.txt` with restricted permissions;
-- do not paste passwords, webhook secrets, Binance credentials, database
-  passwords, or `ALERT_ENCRYPTION_KEY` into this document or chat.
+- passwords, webhook secrets, Binance credentials, database passwords and
+  `ALERT_ENCRYPTION_KEY` must never be pasted into this document or a chat.
 
-The website is protected by Caddy HTTPS and HTTP Basic Authentication. The
-username is `admin`; retrieve/reset the password securely on the server when
-needed rather than storing it here.
+The site is fronted by Caddy over HTTPS. The dashboard now authenticates through
+the backend's own cookie session rather than Caddy basic auth; see
+`platform/backend/.env.example` for the variables that gate it.
 
 ## 4. Production runtime status and cutover
 
@@ -272,7 +283,7 @@ Local database runs on port 5433. See `platform/README.md` for complete steps.
 Backend:
 
 ```bash
-cd "/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend"
+cd "<checkout>/platform/backend"
 npm install
 npm run typecheck
 npm test
@@ -282,7 +293,7 @@ npm run build
 Frontend:
 
 ```bash
-cd "/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/frontend"
+cd "<checkout>/platform/frontend"
 npm install
 npm run typecheck
 npm run build
@@ -362,7 +373,7 @@ first unless the user explicitly requests an emergency production repair.
 ```text
 You are continuing development of my production MyTradingView clone. The
 repository is at:
-/Users/muhammadmuhamid/Projects/supportandresistance strategy
+<checkout>
 
 First read CLAUDE_HANDOFF.md completely, then read platform/README.md and
 platform/deployment/aws/README.md. Treat the AWS PostgreSQL database as the

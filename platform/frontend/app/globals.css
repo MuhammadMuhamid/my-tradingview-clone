@@ -17,9 +17,27 @@ body {
   overflow-x: hidden;
 }
 
-/* Touch: iOS zooms any focused input whose text is under 16px. */
+/*
+ * Touch: iOS Safari zooms any focused input whose text is under 16px, and
+ * never zooms back out — the page is left scrolled sideways with the toolbar
+ * off-screen.
+ *
+ * The `:not()` clauses are not decoration. Written as a bare `input, select,
+ * textarea` rule this LOST to Tailwind's `.text-sm` utility on every field in
+ * the application: a plain element selector is specificity (0,0,1) and a class
+ * is (0,1,0), so the rule looked right, passed a static check, and did nothing.
+ * Measured at 14px on an iPhone 13 viewport before this change. Two `:not()`
+ * clauses raise it to (0,2,1), which wins.
+ *
+ * Checkboxes and radios are excluded because their font size is meaningless and
+ * Safari does not zoom for them.
+ */
 @media (max-width: 640px) {
-  input, select, textarea { font-size: 16px; }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select:not([multiple]):not([size]),
+  textarea:not([readonly]):not([disabled]) {
+    font-size: 16px;
+  }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
 }
 
@@ -29,8 +47,55 @@ body {
 ::-webkit-scrollbar-thumb { background: #232b3a; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #2c3548; }
 
+/*
+ * Keyboard focus must be visible.
+ *
+ * Almost nothing in this application declared a focus style, and Tailwind's
+ * preflight removes the browser's default outline. Tabbing through the chart
+ * toolbar, the alert dialogs or the deployment controls therefore moved an
+ * invisible cursor: a keyboard user could not tell which control they were
+ * about to activate, on a page where one of those controls starts live trading.
+ *
+ * `:focus-visible` rather than `:focus`, so a mouse click does not leave a ring
+ * behind — that is the reason the outlines were removed in the first place, and
+ * the reason they can safely come back.
+ */
+:focus-visible {
+  outline: 2px solid theme("colors.accent");
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/*
+ * Respect a reduced-motion preference. The transitions here are decorative —
+ * hover tints and a toggle knob — so there is nothing to preserve, and vestibular
+ * disorders are not a niche concern among people who watch charts all day.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Jump past the navigation, which is the first thing in tab order everywhere. */
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  z-index: 100;
+  transition: top 0.15s;
+  @apply rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink shadow-lg;
+}
+.skip-link:focus {
+  top: 0.5rem;
+}
+
 .tabular { font-variant-numeric: tabular-nums; }
 
 /* Scrollable rows (nav, chart toolbar) without a visible scrollbar. */
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
+

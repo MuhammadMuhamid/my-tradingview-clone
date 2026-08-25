@@ -4,12 +4,11 @@
 # + roll on the app EC2 → poll the command → verify public health endpoint.
 set -euo pipefail
 
+# Production identifiers come from the untracked .env in this directory (X-11).
+. "$(dirname "$0")/env.sh"
+aws_env_require APP_INSTANCE BUCKET DB_ID DOMAIN REGION
+
 TAG="${1:?usage: cloud-deploy.sh <tag> (expects ./src-<tag>.tar.gz)}"
-REGION=ap-south-1
-BUCKET=srtrend-production-backupbucket-qawhaukynxzt
-APP_INSTANCE=i-09888f3320763000f
-DB_ID=srtrend-production-database-xwpbny18v09d
-DOMAIN=mytradingview.alphawebstudioz.com
 BUNDLE="src-$TAG.tar.gz"
 
 [ -f "$BUNDLE" ] || { echo "missing $BUNDLE in current directory"; exit 1; }

@@ -2,11 +2,16 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
-import { api, type MaAlert, type MaAlertMode, type MaType, type TriggerMode } from "@/lib/api";
+import { FrequencyField } from "@/components/tv/FrequencyField";
+import {
+  api, DEFAULT_ALERT_FREQUENCY,
+  type AlertFrequency, type MaAlert, type MaAlertMode, type MaType,
+} from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { maColor, maLabel } from "@/lib/movingAverages";
 
-const INTERVALS: Interval[] = ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d"];
+/** Every timeframe the backend supports, in the order the toolbar shows them. */
+const INTERVALS: Interval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"];
 
 const MODE_LABELS: Record<MaAlertMode, string> = {
   touch: "Price touches the line",
@@ -23,29 +28,6 @@ const MODE_HELP: Record<MaAlertMode, string> = {
   near_above: "Fires while the close sits inside the band above the line, without reaching it — the approach warning.",
   near_below: "Fires while the close sits inside the band below the line, without reaching it.",
 };
-
-/** TradingView's three trigger frequencies, in its own order and wording. */
-const TRIGGERS: { id: TriggerMode; label: string; help: string; icon: JSX.Element }[] = [
-  {
-    id: "once",
-    label: "Once only",
-    help: "Triggers once when condition is met",
-    icon: <><circle cx="12" cy="13" r="8" /><path d="M12 9v4" /></>,
-  },
-  {
-    id: "once_per_bar",
-    label: "Once per bar",
-    help: "Triggers once per bar when condition is met",
-    icon: <><rect x="9" y="7" width="6" height="10" rx="1" /><path d="M12 4v3M12 17v3" /></>,
-  },
-  {
-    id: "once_per_bar_close",
-    label: "Once per bar close",
-    help: "Triggers every time condition is met at bar close",
-    icon: <><rect x="5" y="8" width="4" height="8" rx="1" /><path d="M7 5v3M7 16v3" />
-           <rect x="15" y="7" width="4" height="10" rx="1" /><path d="M17 4v3M17 17v3" /></>,
-  },
-];
 
 /**
  * Arm one moving-average line. Deliberately one MA per alert: that is what
@@ -70,7 +52,7 @@ export function MaAlertModal({
   const [nearMinPct, setNearMinPct] = useState(0.2);
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
   const [cooldownMin, setCooldownMin] = useState(60);
-  const [trigger, setTrigger] = useState<TriggerMode>("once_per_bar_close");
+  const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -86,7 +68,7 @@ export function MaAlertModal({
       setNearMinPct(match.nearMinPct);
       setNearMaxPct(match.nearMaxPct);
       setCooldownMin(match.cooldownMin);
-      setTrigger(match.trigger);
+      setFrequency(match.frequency);
     }
   }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -102,8 +84,8 @@ export function MaAlertModal({
     setErr(null);
     try {
       await api.createMaAlert({
-        symbol, timeframe, maType, maLength, mode,
-        nearMinPct, nearMaxPct, cooldownMin, trigger,
+        symbol, timeframe, conditionKind: "ma", maType, maLength, mode,
+        nearMinPct, nearMaxPct, cooldownMin, frequency,
       });
       onSaved(
         `${match ? "Updated" : "Alert set"} — ${symbol} ${timeframe} ${label} · ${MODE_LABELS[mode].toLowerCase()}`
@@ -204,62 +186,31 @@ export function MaAlertModal({
         )}
 
         <div className="my-1 border-t border-border" />
-        <div className="text-sm text-ink-muted">Trigger</div>
-        <div className="space-y-1">
-          {TRIGGERS.map((t) => {
-            const on = trigger === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTrigger(t.id)}
-                className={`flex w-full items-start gap-3 rounded-md border px-3 py-2 text-left transition-colors ${
-                  on ? "border-accent bg-surface-2" : "border-transparent hover:bg-surface-2/60"
-                }`}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.6" strokeLinecap="round"
-                  className={`mt-0.5 shrink-0 ${on ? "text-accent" : "text-ink-faint"}`}>
-                  {t.icon}
-                </svg>
-                <span className="min-w-0">
-                  <span className={`block text-sm ${on ? "font-medium text-ink" : "text-ink"}`}>
-                    {t.label}
-                  </span>
-                  <span className="block text-xs text-ink-faint">{t.help}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {trigger !== "once_per_bar_close" && (
-          <p className="text-xs text-ink-faint">
-            Checked on live ticks, so it fires the moment the condition is met rather than waiting
-            for the candle to close. A wick that retraces before the close still counts.
-          </p>
-        )}
-        {trigger === "once" && (
-          <p className="text-xs text-amber-300/80">
-            The alert switches itself off after it fires. Re-enable it from the Alerts page.
-          </p>
-        )}
+        <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} />
 
-        <div className="my-1 border-t border-border" />
-        <Row label="Cooldown">
-          <div className="flex items-center gap-2">
-            <input type="number" min="0" step="5" value={cooldownMin}
-              onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))}
-              className={box} />
-            <span className="whitespace-nowrap text-sm text-ink-muted">minutes</span>
-          </div>
-        </Row>
-        <p className="pl-[122px] text-xs text-ink-faint">
-          Silence after a fire, so a slow approach is not re-announced on every closing bar. 0 = notify on every qualifying bar.
-        </p>
+        {/* The cooldown throttles the bar-close mode only. The other three have
+            their own cap — a candle, a minute, or a single fire — and stacking a
+            60-minute silence on top of "once per bar" at 15m would quietly
+            defeat the mode the user just chose. */}
+        {frequency === "once_per_bar_close" && (
+          <>
+            <Row label="Cooldown">
+              <div className="flex items-center gap-2">
+                <input type="number" min="0" step="5" value={cooldownMin}
+                  onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))}
+                  className={box} />
+                <span className="whitespace-nowrap text-sm text-ink-muted">minutes</span>
+              </div>
+            </Row>
+            <p className="pl-[122px] text-xs text-ink-faint">
+              Silence after a fire, so a slow approach is not re-announced on every closing bar. 0 = notify on every qualifying bar.
+            </p>
+          </>
+        )}
 
         <p className="pt-1 text-xs text-ink-faint">
-          Evaluated server-side on the {timeframe} feed and pushed to every device you have enabled
-          notifications on — the chart does not need to be open.
+          Evaluated server-side on {timeframe} candles and pushed to every device you have
+          enabled notifications on — the chart does not need to be open.
         </p>
         {match && (
           <p className="text-xs text-accent">

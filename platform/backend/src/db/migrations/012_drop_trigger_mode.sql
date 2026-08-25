@@ -1,0 +1,23 @@
+-- ── Retire `trigger_mode`, superseded by `frequency` ────────────────────────
+--
+-- `009_alert_trigger_mode.sql` added a three-value `trigger_mode` column
+-- ('once', 'once_per_bar', 'once_per_bar_close'). `010_alert_frequencies.sql`
+-- replaced that design with a four-value `frequency` column, adding
+-- `once_per_minute` and the persisted `completed_at` retirement `once_only`
+-- needs. Both migrations were authored independently, so a database that ran
+-- 009 now carries two columns describing the same fact.
+--
+-- Only `frequency` is read or written by the application. `trigger_mode` would
+-- sit at its NOT NULL DEFAULT 'once_per_bar_close' forever, contradicting an
+-- alert whose frequency is anything else — and it is exactly the column an
+-- operator would query to answer "how often does this alert fire?". Two
+-- disagreeing sources of truth for one fact is the failure mode X-09 records.
+--
+-- 009 is deleted from the migration set rather than edited, so a fresh database
+-- never grows the column at all. This migration exists for the databases where
+-- 009 already ran. It is a no-op everywhere else.
+--
+-- No alert changes behaviour: `frequency` already carries the migrated value,
+-- defaulted to 'once_per_bar_close' by 010, which is what every pre-existing
+-- alert already did.
+ALTER TABLE ma_alerts DROP COLUMN IF EXISTS trigger_mode;

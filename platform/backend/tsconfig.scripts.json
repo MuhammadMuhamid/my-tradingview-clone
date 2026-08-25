@@ -1,0 +1,11 @@
+{
+  "//": "The scripts/ directory runs under tsx as ES modules (import.meta), while src/ compiles to CommonJS. It was previously typechecked by nothing at all — six of these write live deployment rows. This config covers it.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["scripts"]
+}

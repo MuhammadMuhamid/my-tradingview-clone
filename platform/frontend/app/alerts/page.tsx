@@ -2,12 +2,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, Button, Empty } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
-import { api, type MaAlert, type MaAlertEvent, type TriggerMode } from "@/lib/api";
-import { maColor, maLabel } from "@/lib/movingAverages";
+import { api, DEFAULT_ALERT_FREQUENCY, type MaAlert, type MaAlertEvent } from "@/lib/api";
+import {
+  alertColor, alertInactiveReason, alertLineLabel, describeAlert,
+  FREQUENCY_LABELS, isAlertActive,
+} from "@/lib/alerts";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 
 /**
- * Every moving-average alert across every coin, in one place.
+ * Every alert across every coin, in one place.
  *
  * The chart's MA panel only ever shows the symbol you are looking at, which
  * stops being useful past a handful of coins. This page is the inventory: what
@@ -54,12 +57,20 @@ export default function AlertsPage() {
       map.set(a.symbol, list);
     }
     for (const list of map.values()) {
-      list.sort((x, y) => y.maLength - x.maLength || x.maType.localeCompare(y.maType));
+      list.sort((x, y) =>
+        (x.conditionKind === "price" ? 0 : 1) - (y.conditionKind === "price" ? 0 : 1) ||
+        (y.maLength ?? 0) - (x.maLength ?? 0) ||
+        (x.maType ?? "").localeCompare(y.maType ?? "") ||
+        (x.targetPrice ?? 0) - (y.targetPrice ?? 0)
+      );
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [alerts]);
 
-  const enabledCount = (alerts ?? []).filter((a) => a.enabled).length;
+  // "Active" rather than "enabled": a spent once_only alert is still enabled
+  // but will never fire again, and counting it as armed would overstate what is
+  // actually being watched.
+  const activeCount = (alerts ?? []).filter(isAlertActive).length;
 
   const act = async (id: string, fn: () => Promise<unknown>, message: string) => {
     setBusy(id);
@@ -78,7 +89,7 @@ export default function AlertsPage() {
     const list = alerts ?? [];
     if (list.length === 0) return;
     if (!window.confirm(
-      `Delete all ${list.length} moving-average alerts?\n\n` +
+      `Delete all ${list.length} alerts?\n\n` +
       `This cannot be undone. Fired-alert history is kept.`
     )) return;
     setBusy("all");
@@ -96,31 +107,33 @@ export default function AlertsPage() {
     }
   };
 
-  /** Short badge text; the default bar-close mode is left unlabelled as noise. */
-  const TRIGGER_BADGE: Record<TriggerMode, string | null> = {
-    once: "once only",
-    once_per_bar: "intrabar",
-    once_per_bar_close: null,
-  };
-
-  const describe = (a: MaAlert): string => {
-    switch (a.mode) {
-      case "touch": return "touches";
-      case "cross_up": return "crosses above";
-      case "cross_down": return "crosses below";
-      case "near_above": return `${a.nearMinPct}–${a.nearMaxPct}% above`;
-      case "near_below": return `${a.nearMinPct}–${a.nearMaxPct}% below`;
-    }
-  };
-
   return (
     <div className="mx-auto max-w-[1100px] space-y-4 px-3 py-4 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-ink">Moving-average alerts</h1>
+          <h1 className="text-lg font-semibold text-ink">Alerts</h1>
           <p className="text-xs text-ink-faint">
-            Evaluated server-side on closed candles and pushed to your devices — the chart does not
-            need to be open.
+            Price levels and moving averages, evaluated server-side and pushed to your devices —
+            the chart does not need to be open.
+          </p>
+          {/*
+            These alerts NOTIFY. They cannot reach a deployment, a broker or an
+            order, and that separation is asserted over the alert runner's whole
+            transitive import graph in tests/alertIsolation.test.ts. Saying so
+            here is what stops the two surfaces being "unified" later by someone
+            who reasonably assumes an alert is an alert.
+          */}
+          <p className="text-xs text-ink-faint">
+            These notify only. Strategy automations that place orders live on{" "}
+            {/* inline-block with vertical padding, so these links clear the
+                24 CSS-pixel target minimum the Phase 6 QA measures everything
+                against. A 15px-tall link is a link only a mouse can hit. */}
+            <a href="/deployments" className="inline-block py-1.5 underline hover:text-ink">
+              Live trading
+            </a>, and their delivery health is on{" "}
+            <a href="/operations" className="inline-block py-1.5 underline hover:text-ink">
+              Operations
+            </a>.
           </p>
         </div>
         <div className="w-full sm:w-[320px]">
@@ -139,7 +152,7 @@ export default function AlertsPage() {
           title={
             alerts === null
               ? "Active alerts"
-              : `Active alerts · ${enabledCount} of ${alerts.length} enabled · ${bySymbol.length} coin${bySymbol.length === 1 ? "" : "s"}`
+              : `Active alerts · ${activeCount} of ${alerts.length} armed · ${bySymbol.length} coin${bySymbol.length === 1 ? "" : "s"}`
           }
           right={
             <Button variant="danger" onClick={deleteAll}
@@ -152,8 +165,8 @@ export default function AlertsPage() {
           <Empty>Loading…</Empty>
         ) : alerts.length === 0 ? (
           <Empty>
-            No moving-average alerts yet. Open a chart, click the 🔔 next to any SMA or EMA in the
-            moving-averages panel, and it will appear here.
+            No alerts yet. Open a chart, click a price on the scale or the 🔔 next to any SMA or
+            EMA, and it will appear here.
           </Empty>
         ) : (
           <div className="divide-y divide-border">
@@ -169,44 +182,50 @@ export default function AlertsPage() {
                   <div key={a.id}
                     className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[13px] hover:bg-surface-2/40">
                     <span className="inline-block h-[3px] w-4 shrink-0 rounded-full"
-                      style={{ background: maColor(a.maLength), opacity: a.enabled ? 1 : 0.3 }} />
-                    <span className={`w-[68px] shrink-0 font-medium ${a.enabled ? "text-ink" : "text-ink-faint"}`}>
-                      {maLabel(a.maType, a.maLength)}
+                      style={{ background: alertColor(a), opacity: isAlertActive(a) ? 1 : 0.3 }} />
+                    <span className={`w-[88px] shrink-0 truncate font-medium ${isAlertActive(a) ? "text-ink" : "text-ink-faint"}`}>
+                      {alertLineLabel(a)}
                     </span>
-                    <span className={a.enabled ? "text-ink-muted" : "text-ink-faint"}>
-                      price {describe(a)}
+                    <span className={isAlertActive(a) ? "text-ink-muted" : "text-ink-faint"}>
+                      {describeAlert(a)}
                     </span>
                     <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">
                       {a.timeframe}
                     </span>
-                    {TRIGGER_BADGE[a.trigger] && (
+                    {a.frequency !== DEFAULT_ALERT_FREQUENCY && (
                       <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
-                        {TRIGGER_BADGE[a.trigger]}
+                        {FREQUENCY_LABELS[a.frequency]}
                       </span>
                     )}
                     <span className="text-[11px] text-ink-faint">
-                      cooldown {a.cooldownMin}m
-                      {a.lastFiredAt && ` · last fired ${fmtAgo(a.lastFiredAt)}`}
+                      {/* The cooldown only throttles the bar-close mode; showing
+                          it beside an intrabar alert would describe a rule that
+                          is not applied to it. */}
+                      {a.frequency === DEFAULT_ALERT_FREQUENCY && `cooldown ${a.cooldownMin}m`}
+                      {a.lastFiredAt && `${a.frequency === DEFAULT_ALERT_FREQUENCY ? " · " : ""}last fired ${fmtAgo(a.lastFiredAt)}`}
                     </span>
                     <div className="ml-auto flex shrink-0 items-center gap-1">
                       <button
                         disabled={busy !== null}
+                        // Re-enabling also re-arms a spent once_only alert, which
+                        // is why "Fired once — done" is offered as a button and
+                        // not merely as a label.
                         onClick={() => void act(a.id,
                           () => api.updateMaAlert(a.id, { enabled: !a.enabled }),
-                          `${a.symbol} ${maLabel(a.maType, a.maLength)} ${a.enabled ? "paused" : "enabled"}`)}
+                          `${a.symbol} ${alertLineLabel(a)} ${a.enabled ? "paused" : "re-armed"}`)}
                         className={`rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40 ${
-                          a.enabled
+                          isAlertActive(a)
                             ? "bg-up/15 text-up hover:bg-up/25"
                             : "bg-surface-2 text-ink-muted hover:text-ink"
                         }`}
                       >
-                        {a.enabled ? "Active" : "Paused"}
+                        {alertInactiveReason(a) ?? "Active"}
                       </button>
                       <button
                         disabled={busy !== null}
                         onClick={() => void act(a.id,
                           () => api.deleteMaAlert(a.id),
-                          `Deleted ${a.symbol} ${maLabel(a.maType, a.maLength)}`)}
+                          `Deleted ${a.symbol} ${alertLineLabel(a)}`)}
                         aria-label="Delete alert"
                         className="rounded px-2 py-1 text-[11px] text-ink-faint hover:bg-down/15 hover:text-down disabled:opacity-40"
                       >
@@ -225,7 +244,8 @@ export default function AlertsPage() {
         <CardHeader title={`Recently fired · ${events.length}`} />
         {events.length === 0 ? (
           <Empty>
-            Nothing has fired yet. Alerts are checked when each candle closes on their timeframe.
+            Nothing has fired yet. Alerts are checked as each candle closes — or during the candle,
+            for alerts set to an intrabar frequency.
           </Empty>
         ) : (
           <div className="divide-y divide-border">
@@ -240,6 +260,14 @@ export default function AlertsPage() {
                 <span className={e.distancePct >= 0 ? "text-up" : "text-down"}>
                   {e.distancePct >= 0 ? "+" : ""}{e.distancePct.toFixed(2)}%
                 </span>
+                {/* An alert that fired mid-candle may have fired at a price the
+                    finished candle never closed at. Saying so here is the honest
+                    half of offering intrabar modes at all. */}
+                {e.intrabar && (
+                  <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
+                    bar still forming
+                  </span>
+                )}
                 <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px]">
                   {/* Whether it actually reached a phone is the thing worth
                       surfacing — a fired alert nobody saw is a silent failure. */}

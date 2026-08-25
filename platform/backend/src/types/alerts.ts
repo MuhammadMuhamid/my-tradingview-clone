@@ -50,7 +50,17 @@ export interface CustomBotAlertPayload {
 
 export type AlertPayload = ThreeCommasAlertPayload | CustomBotAlertPayload;
 
-export type DeliveryStatus = "pending" | "sent" | "failed" | "skipped";
+/**
+ * Delivery outcome as recorded on the alert row.
+ *
+ * `blocked` is distinct from `failed` and from `skipped`: delivery succeeded at
+ * the transport level, the receiver answered, and it explicitly did NOT place
+ * an order while remaining in a different state from the one requested — a
+ * stale-sell skip, an operator halt, or a risk refusal. Collapsing that into
+ * `sent` is finding X-12; collapsing it into `failed` would hide that the
+ * receiver is holding a position.
+ */
+export type DeliveryStatus = "pending" | "sent" | "failed" | "skipped" | "blocked";
 
 export interface AlertRow {
   id: number;

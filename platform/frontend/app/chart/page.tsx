@@ -12,7 +12,12 @@ import { StrategyTester } from "@/components/tv/StrategyTester";
 import { StrategySettingsModal, StrategyProperties, DEFAULT_PROPERTIES } from "@/components/tv/StrategySettingsModal";
 import { AlertModal } from "@/components/tv/AlertModal";
 import { MaPanel } from "@/components/tv/MaPanel";
+import { alertColor, describeAlert, isAlertActive } from "@/lib/alerts";
+import {
+  describeApply, parseApplyLink, STRATEGY_LABELS, type ApplyRequest,
+} from "@/lib/deepLink";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
+import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
@@ -20,6 +25,7 @@ import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import * as drawStore from "@/lib/drawings";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import { api, type MaAlert, type OptimizerBest, type PineScript } from "@/lib/api";
+import { CancellableRequest, isAbortError, LatestRequest } from "@/lib/requestGuard";
 import {
   buildMaOverlays, currentMaValues, defaultMaLines, type MaLine, type MaType,
 } from "@/lib/movingAverages";
@@ -61,6 +67,38 @@ function stableStringify(v: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(v);
+}
+
+/**
+ * Apply only the properties the optimizer tree actually states.
+ *
+ * `OPT-11`: the API used to invent an order size (930) and a cost model for a
+ * tree that never recorded one. Those fields are now `null` when unknown, and
+ * an unknown field must leave the user's current setting alone rather than
+ * silently resetting it to a fabricated number.
+ */
+function withOptimizerProperties(
+  prev: StrategyProperties,
+  p: OptimizerBest["properties"]
+): StrategyProperties {
+  return {
+    ...prev,
+    ...(p.initialCapital !== null ? { initialCapital: p.initialCapital } : {}),
+    ...(p.commissionPct !== null ? { commissionPct: p.commissionPct } : {}),
+    ...(p.slippageTicks !== null ? { slippageTicks: p.slippageTicks } : {}),
+    ...(p.qtyCash !== null ? { qtyCash: p.qtyCash } : {}),
+    qtyType: p.qtyType,
+    ...(p.qtyValue !== null ? { qtyValue: p.qtyValue } : {}),
+  };
+}
+
+/** The optimizer's window, or null when the tree does not record one. */
+function optimizerRange(
+  p: OptimizerBest["properties"],
+  extra: { run?: boolean } = {}
+): { start: string; end: string; nonce: number; run?: boolean } | null {
+  if (!p.rangeStart || !p.rangeEnd) return null;
+  return { start: p.rangeStart, end: p.rangeEnd, nonce: Date.now(), ...extra };
 }
 
 export default function TvWorkspace() {
@@ -177,6 +215,17 @@ export default function TvWorkspace() {
   const [maLines, setMaLines] = useState<MaLine[]>(defaultMaLines);
   const [maAlerts, setMaAlerts] = useState<MaAlert[]>([]);
   const [armLine, setArmLine] = useState<{ type: MaType; length: number } | null>(null);
+  /**
+   * The price-alert dialog, and the level it opened with.
+   *
+   * `pickingLevel` is the intermediate state: the user asked to place a level
+   * and the next chart click supplies it. Keeping it separate from the dialog
+   * means the chart is only click-armed while that mode is on, and behaves
+   * exactly as before at every other moment.
+   */
+  const [priceAlertOpen, setPriceAlertOpen] = useState(false);
+  const [priceAlertLevel, setPriceAlertLevel] = useState<number | null>(null);
+  const [pickingLevel, setPickingLevel] = useState(false);
 
   const refreshMaAlerts = useCallback(async () => {
     try {
@@ -185,6 +234,24 @@ export default function TvWorkspace() {
   }, [symbol]);
 
   useEffect(() => { void refreshMaAlerts(); }, [refreshMaAlerts]);
+
+  /**
+   * Ask for a level off the chart, then open the dialog with it.
+   *
+   * Two steps rather than one because the price a user means is the one they
+   * can see, and a dialog opening first would cover it.
+   */
+  const pickLevel = useCallback((price: number) => {
+    setPickingLevel(false);
+    setPriceAlertLevel(price);
+    setPriceAlertOpen(true);
+  }, []);
+
+  /** Open the dialog with no level picked; it falls back to the last price. */
+  const openPriceAlert = useCallback(() => {
+    setPriceAlertLevel(null);
+    setPriceAlertOpen(true);
+  }, []);
 
   const toggleMa = useCallback((type: MaType, length: number) => {
     setMaLines((prev) => prev.map((l) =>
@@ -215,6 +282,10 @@ export default function TvWorkspace() {
   const [toast, setToast] = useState<string | null>(null);
   const [loadingBest, setLoadingBest] = useState(false);
   const [bestRange, setBestRange] = useState<{ start: string; end: string; nonce: number; run?: boolean } | null>(null);
+  /** An optimizer link's request, waiting for the user to accept it. See FE-06. */
+  const [pendingApply, setPendingApply] = useState<ApplyRequest | null>(null);
+  /** Last autosave failure. Shown quietly in the layout menu, not as a toast. */
+  const [autosaveError, setAutosaveError] = useState<string | null>(null);
 
   // ── layouts ──
   const [layouts, setLayouts] = useState<Layout[]>([]);
@@ -267,21 +338,9 @@ export default function TvWorkspace() {
       const best = await api.optimizerBest(symbol, 1, strategyKey, interval);
       setStrategyKey(best.strategyKey);
       setParams(best.params);
-      setProperties((prev) => ({
-        ...prev,
-        initialCapital: best.properties.initialCapital,
-        commissionPct: best.properties.commissionPct,
-        slippageTicks: best.properties.slippageTicks,
-        qtyCash: best.properties.qtyCash,
-        qtyType: best.properties.qtyType,
-        qtyValue: best.properties.qtyValue,
-      }));
+      setProperties((prev) => withOptimizerProperties(prev, best.properties));
       setInterval(best.timeframe);
-      setBestRange({
-        start: best.properties.rangeStart,
-        end: best.properties.rangeEnd,
-        nonce: Date.now(),
-      });
+      setBestRange(optimizerRange(best.properties));
       setTrades([]);
       const net = best.metrics.net_pct;
       const dd = best.metrics.dd_pct;
@@ -295,55 +354,56 @@ export default function TvWorkspace() {
     }
   }, [symbol, strategyKey, interval]);
 
-  // Optimizer deep link: load an exact ranked MA+RR or SRTrend result and,
-  // optionally, persist it as a named TradingView-style layout.
+  /*
+   * FE-06: an optimizer deep link used to act on page load. It saved a named
+   * layout to the server and started a backtest before the user had done
+   * anything, so a link in a message or a stale bookmark wrote server state on
+   * behalf of whoever opened it. Parsing now only DESCRIBES the request; the
+   * banner below asks, and `applyDeepLink` is the click.
+   */
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    const applyStrategy = q.get("applyStrategy");
-    if (applyStrategy !== "srtrend_v10" && applyStrategy !== "ma_rr_v9" && applyStrategy !== "mtf_lean") return;
-    const applySymbol = (q.get("applySymbol") ?? "").toUpperCase();
-    const applyTf = (q.get("applyTf") === "5m" ? "5m" : "15m") as Interval;
-    const applyRank = Math.max(1, Number(q.get("applyRank") ?? 1));
-    const layoutName = q.get("layoutName")?.trim() ?? "";
-    if (!applySymbol) return;
+    setPendingApply(parseApplyLink(window.location.search));
+  }, []);
+
+  const applyDeepLink = useCallback(async (request: ApplyRequest) => {
+    setPendingApply(null);
     setLoadingBest(true);
-    let frozen: OptimizerBest | null = null;
-    const encoded = q.get("applyPayload");
-    if (encoded) {
-      try {
-        const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-        frozen = JSON.parse(new TextDecoder().decode(bytes)) as OptimizerBest;
-      } catch { /* fall back to ranked lookup */ }
+    try {
+      // A payload that failed validation is not used at all; the ranked lookup
+      // asks the server instead, which is the trustworthy source.
+      const best = request.payload
+        ?? await api.optimizerBest(request.symbol, request.rank, request.strategy, request.timeframe);
+      const appliedProperties = withOptimizerProperties(properties, best.properties);
+      setSymbol(request.symbol); setInterval(best.timeframe); setStrategyKey(best.strategyKey);
+      setParams(best.params); setProperties(appliedProperties);
+      setBestRange(optimizerRange(best.properties, { run: true }));
+      setTrades([]);
+      if (request.layoutName) {
+        // createLayout is an atomic name-based upsert, making this safe when
+        // React development Strict Mode invokes the handler twice.
+        const layout = await layoutStore.createLayout(request.layoutName, {
+          symbol: request.symbol, interval: best.timeframe, bars,
+          strategyKey: best.strategyKey, params: best.params, properties: appliedProperties,
+          movingAverages: maLines,
+        });
+        setCurrentLayoutId(layout.id);
+        await refreshLayouts();
+      }
+      setToast(
+        `${STRATEGY_LABELS[request.strategy]} ${request.timeframe} ${request.symbol} ` +
+        `rank #${request.rank} applied${request.layoutName ? " · layout saved" : ""}`
+      );
+      window.history.replaceState({}, "", "/chart");
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setLoadingBest(false);
     }
-    (frozen ? Promise.resolve(frozen) : api.optimizerBest(applySymbol, applyRank, applyStrategy, applyTf))
-      .then(async (best) => {
-        const appliedProperties = { ...properties,
-          initialCapital: best.properties.initialCapital, commissionPct: best.properties.commissionPct,
-          slippageTicks: best.properties.slippageTicks, qtyCash: best.properties.qtyCash,
-          qtyType: best.properties.qtyType, qtyValue: best.properties.qtyValue,
-        };
-        setSymbol(applySymbol); setInterval(best.timeframe); setStrategyKey(best.strategyKey);
-        setParams(best.params); setProperties(appliedProperties);
-        setBestRange({ start: best.properties.rangeStart, end: best.properties.rangeEnd, nonce: Date.now(), run: true });
-        setTrades([]);
-        if (layoutName) {
-          // createLayout is an atomic name-based upsert, making this safe when
-          // React development Strict Mode invokes the effect twice.
-          const layout = await layoutStore.createLayout(layoutName, {
-            symbol: applySymbol, interval: best.timeframe, bars,
-            strategyKey: best.strategyKey, params: best.params, properties: appliedProperties,
-            movingAverages: maLines,
-          });
-          setCurrentLayoutId(layout.id);
-          await refreshLayouts();
-        }
-        const strategyLabel = applyStrategy === "srtrend_v10" ? "SRTrend" : applyStrategy === "mtf_lean" ? "MTF Lean" : "MA+R:R";
-        setToast(`${strategyLabel} ${applyTf} ${applySymbol} rank #${applyRank} applied${layoutName ? " · layout saved" : ""}`);
-        window.history.replaceState({}, "", "/chart");
-      })
-      .catch((e) => setErr((e as Error).message))
-      .finally(() => setLoadingBest(false));
+  }, [properties, bars, maLines, refreshLayouts]);
+
+  const dismissDeepLink = useCallback(() => {
+    setPendingApply(null);
+    window.history.replaceState({}, "", "/chart");
   }, []);
 
   // Mount: symbols, strategies, layouts (+ restore last layout).
@@ -358,9 +418,11 @@ export default function TvWorkspace() {
       if (s.length > 0 && !s.some((x) => x.key === "ma_rr_v9")) setStrategyKey(s[0].key);
     }).catch(() => {});
     setAutosaveState(layoutStore.getAutosave());
-    // A deep link owns the workspace this load — don't fight it with the
-    // restored layout; still sync + list layouts for the menu.
-    const isDeepLink = new URLSearchParams(window.location.search).has("applyStrategy");
+    // A pending deep link may own the workspace this load — don't fight it with
+    // the restored layout; still sync + list layouts for the menu. The user may
+    // dismiss the link, in which case the layout they left is what they get on
+    // the next load rather than being silently replaced on this one.
+    const isDeepLink = parseApplyLink(window.location.search) !== null;
     (async () => {
       await layoutStore.migrateLegacyLayouts();
       await layoutStore.syncDeploymentLayouts();
@@ -385,24 +447,38 @@ export default function TvWorkspace() {
     if (!autosave || !currentLayoutId || !dirty) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
-      void layoutStore.saveLayout(currentLayoutId, workspaceState).then(refreshLayouts);
+      // Autosave is the one place a failure should not interrupt: the user did
+      // not ask for this write and is mid-work. It is still SAID, in the
+      // layout menu's own state, rather than discarded.
+      void layoutStore.saveLayout(currentLayoutId, workspaceState)
+        .then(refreshLayouts)
+        .then(() => setAutosaveError(null))
+        .catch((e: Error) => setAutosaveError(e.message));
     }, 800);
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current); };
   }, [autosave, currentLayoutId, dirty, workspaceState, refreshLayouts]);
 
   // ⌘S / Ctrl+S saves the current layout, like TV.
   const saveNow = useCallback(async () => {
-    if (currentLayoutId) {
-      await layoutStore.saveLayout(currentLayoutId, workspaceState);
-      await refreshLayouts();
-      setToast("Layout saved");
-    } else {
-      const name = window.prompt("Layout name:", `${symbol} ${interval}`);
-      if (name !== null) {
-        const l = await layoutStore.createLayout(name, workspaceState);
-        setCurrentLayoutId(l.id);
+    try {
+      if (currentLayoutId) {
+        await layoutStore.saveLayout(currentLayoutId, workspaceState);
         await refreshLayouts();
+        setAutosaveError(null);
+        setToast("Layout saved");
+      } else {
+        const name = window.prompt("Layout name:", `${symbol} ${interval}`);
+        if (name !== null) {
+          const l = await layoutStore.createLayout(name, workspaceState);
+          setCurrentLayoutId(l.id);
+          await refreshLayouts();
+          setToast("Layout saved");
+        }
       }
+    } catch (e) {
+      // Previously this reported "Layout saved" whether or not anything was
+      // saved, which is the one thing a save confirmation must never do.
+      setErr(`Layout not saved: ${(e as Error).message}`);
     }
   }, [currentLayoutId, workspaceState, symbol, interval, refreshLayouts]);
 
@@ -460,41 +536,115 @@ export default function TvWorkspace() {
       if (!currentLayoutId) return;
       const name = window.prompt("Rename layout:", currentLayout?.name ?? "");
       if (name === null) return;
-      void layoutStore.renameLayout(currentLayoutId, name).then(refreshLayouts);
+      void layoutStore.renameLayout(currentLayoutId, name)
+        .then(refreshLayouts)
+        .catch((e: Error) => setErr(`Layout not renamed: ${e.message}`));
     },
     onDelete: (id: string) => {
       if (!window.confirm("Delete this layout?")) return;
       void layoutStore.deleteLayout(id).then(async () => {
         if (id === currentLayoutId) setCurrentLayoutId(null);
         await refreshLayouts();
+      }).catch(async (e: Error) => {
+        setErr(`Layout not deleted: ${e.message}`);
+        await refreshLayouts();
       });
     },
   };
 
   // ── candles ──
+  /*
+   * Three things this load path did not do, all of which the audit found:
+   *
+   *  FE-07  no AbortSignal, so switching symbol left a 2.5 MB request running.
+   *  ——     `setCandles(data)` was unconditional, so a slow FIRST response
+   *         could land after a fast second one and paint the previous symbol's
+   *         candles under the new symbol's label, with no error.
+   *  ——     the backfill path re-requested the FULL window a second time.
+   *
+   * `LatestRequest` compares tokens rather than parameters, which matters: a
+   * user who switches away and back lands on the same parameters, and a
+   * parameter comparison would then wrongly accept the first, slower response.
+   */
+  const requestSeq = useRef(new LatestRequest());
+  const inFlight = useRef(new CancellableRequest());
+
   const load = useCallback(async () => {
+    const token = requestSeq.current.next();
+    const signal = inFlight.current.start();
     setLoading(true);
     setErr(null);
     try {
-      let data = await api.candles(symbol, interval, bars);
+      let data = await api.candles(symbol, interval, bars, signal);
+
+      // Not enough history stored: backfill, then fetch only what is missing
+      // rather than the whole window again.
       if (data.length < Math.min(bars, 500) * 0.98) {
+        if (!requestSeq.current.isCurrent(token)) return;
         const lookbackMs = Math.ceil(bars * 1.1) * INTERVAL_MS[interval];
-        await api.backfill(symbol, interval, new Date(Date.now() - lookbackMs).toISOString(), new Date().toISOString());
-        data = await api.candles(symbol, interval, bars);
+        await api.backfill(
+          symbol, interval,
+          new Date(Date.now() - lookbackMs).toISOString(),
+          new Date().toISOString()
+        );
+        if (!requestSeq.current.isCurrent(token)) return;
+        const haveFrom = data.length > 0 ? data[0]!.openTime : Date.now();
+        const missing = await api.candlesRange(
+          symbol, interval, Date.now() - lookbackMs, haveFrom - 1, bars, signal
+        );
+        data = missing.length > 0 ? [...missing, ...data] : await api.candles(symbol, interval, bars, signal);
       }
+
+      // The response is applied ONLY if it is still the one being waited for.
+      if (!requestSeq.current.isCurrent(token)) return;
       setCandles(data);
     } catch (e) {
+      // An abort is this component superseding itself, not a failure to report.
+      if (isAbortError(e)) return;
+      if (!requestSeq.current.isCurrent(token)) return;
       setErr((e as Error).message);
     } finally {
-      setLoading(false);
+      if (requestSeq.current.isCurrent(token)) setLoading(false);
     }
   }, [symbol, interval, bars]);
 
   useEffect(() => { load(); }, [load]);
 
+  // Unmounting must not leave a request running against a dead component.
+  useEffect(() => {
+    const controller = inFlight.current;
+    const seq = requestSeq.current;
+    return () => { controller.cancel(); seq.invalidate(); };
+  }, []);
+
   const changeSymbol = (s: string) => { setSymbol(s); setTrades([]); };
   const changeInterval = (i: Interval) => { setInterval(i); setTrades([]); };
   const last = candles[candles.length - 1];
+
+  /**
+   * Armed price alerts, drawn as horizontal levels on the chart.
+   *
+   * Only the ones for the timeframe being looked at: an alert armed on the 1d
+   * chart is not a level the 5m chart is watching, and drawing it there would
+   * imply a line that will fire from what is on screen.
+   */
+  const alertPriceLines = useMemo<ChartPriceLine[]>(
+    () => maAlerts
+      .filter((a) => a.conditionKind === "price" && a.targetPrice !== null &&
+                     a.timeframe === interval && isAlertActive(a))
+      .map((a) => ({
+        price: a.targetPrice!,
+        color: alertColor(a),
+        title: `🔔 ${describeAlert(a).replace("price ", "")}`,
+        dashed: true,
+      })),
+    [maAlerts, interval]
+  );
+
+  const allPriceLines = useMemo(
+    () => [...priceLines, ...alertPriceLines],
+    [priceLines, alertPriceLines]
+  );
 
   /** MA lines drawn beneath any Pine overlays, so scripts stay on top. */
   const maOverlays = useMemo(() => buildMaOverlays(candles, maLines), [candles, maLines]);
@@ -548,6 +698,14 @@ export default function TvWorkspace() {
 
       {/* ── main column ── */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/*
+          The chart's title is the symbol and timeframe already shown in the
+          toolbar, so a visible heading would repeat it and cost a row of a
+          screen this page spends its whole design reclaiming. It is announced
+          instead: a screen-reader user navigating by headings otherwise lands
+          on a page with no top-level heading at all.
+        */}
+        <h1 className="sr-only">{symbol} {interval} chart</h1>
         {/* top toolbar */}
         <div className="flex flex-nowrap items-center gap-2 border-b border-border bg-surface px-2 py-1.5 sm:flex-wrap sm:overflow-x-visible sm:px-3">
           {/* Phone-only: site nav lives here, so the global bar can be hidden. */}
@@ -622,12 +780,27 @@ export default function TvWorkspace() {
             </svg>
             Split
           </button>
-          <button onClick={() => setAlertOpen(true)}
+          {/*
+            FE-01: this bell used to open the deployment dialog, which created
+            AND activated a live 800 USDT strategy. A bell means "tell me when",
+            in this product and in every other one; automation now has its own
+            button, below, that says what it does.
+          */}
+          <button onClick={openPriceAlert}
+            title="Notify me when price reaches a level"
             className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
             </svg>
             Alert
+          </button>
+          <button onClick={() => setAlertOpen(true)}
+            title="Run this strategy server-side and send live orders to your bot"
+            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
+            </svg>
+            Automate
           </button>
           <button onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
@@ -638,7 +811,7 @@ export default function TvWorkspace() {
           </button>
           <button onClick={applyBestConfig} disabled={loadingBest}
             title={`Apply the local optimizer's best saved config for ${symbol}`}
-            className="flex items-center gap-1.5 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[13px] font-medium text-amber-300 transition-colors hover:bg-amber-400/20 disabled:cursor-wait disabled:opacity-60">
+            className="flex items-center gap-1.5 rounded border border-warn/30 bg-warn/10 px-2 py-1 text-[13px] font-medium text-warn transition-colors hover:bg-warn/20 disabled:cursor-wait disabled:opacity-60">
             <span aria-hidden>★</span>
             {loadingBest ? "Loading…" : "Best"}
           </button>
@@ -650,6 +823,7 @@ export default function TvWorkspace() {
               </span>
             </span>
             <LayoutMenu
+              autosaveError={autosaveError}
               layouts={layouts}
               currentId={currentLayoutId}
               autosave={autosave}
@@ -675,6 +849,44 @@ export default function TvWorkspace() {
 
         {err && <div className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">{err}</div>}
 
+        {/*
+          FE-06: a link asked for something. It has not happened yet, and will
+          not until this is accepted. Naming the layout write and the backtest
+          explicitly is the point — a user who did not expect either should be
+          able to see that before agreeing.
+        */}
+        {pendingApply && (
+          <div
+            role="alertdialog"
+            aria-label="Apply an optimizer result from this link"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-accent/40 bg-accent/10 px-3 py-2 text-xs text-ink"
+          >
+            <span className="min-w-0 flex-1">
+              This link wants to apply <strong className="font-semibold">{describeApply(pendingApply)}</strong>.
+              {pendingApply.payloadRejected && (
+                <span className="text-warn">
+                  {" "}Its embedded result was malformed and will be ignored; the ranked result
+                  will be fetched from the server instead.
+                </span>
+              )}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={() => void applyDeepLink(pendingApply)}
+                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/90"
+              >
+                Apply
+              </button>
+              <button
+                onClick={dismissDeepLink}
+                className="rounded-md border border-border px-3 py-1 text-xs text-ink-muted hover:text-ink"
+              >
+                Dismiss
+              </button>
+            </span>
+          </div>
+        )}
+
         {/* charts — one pane, or two side by side sharing the symbol */}
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
@@ -683,12 +895,25 @@ export default function TvWorkspace() {
               Loading {symbol} {interval}…
             </div>
           ) : (
+            <>
+            {pickingLevel && (
+              <div className="flex items-center justify-between gap-3 border-b border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent">
+                <span>Click the chart at the price you want the alert on.</span>
+                <button
+                  onClick={() => { setPickingLevel(false); setPriceAlertOpen(true); }}
+                  className="rounded px-2 py-0.5 hover:bg-accent/20"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             <CandleChart symbol={symbol} interval={interval} candles={candles}
               trades={indicators.trades ?? trades}
               overlays={chartOverlays}
               markers={indicators.markers}
               pineDrawings={indicators.drawings}
-              priceLines={priceLines} live fill compact={isMobile}
+              priceLines={allPriceLines} live fill compact={isMobile}
+              onPriceSelect={pickingLevel ? pickLevel : undefined}
               drawingTool={tool}
               onDrawingToolDone={() => setTool("cursor")}
               drawings={drawings}
@@ -697,6 +922,7 @@ export default function TvWorkspace() {
               drawingsLocked={drawLocked}
               drawingsHidden={drawHidden}
             />
+            </>
           )}
           </div>
           {splitOpen && (
@@ -729,7 +955,10 @@ export default function TvWorkspace() {
                     window.localStorage.setItem(bottomKey(), "0");
                   }
                 }}
-                className={`border-b-2 pb-1 text-xs font-medium ${
+                // 22px measured on a phone. The tab strip is also the handle
+                // that brings a collapsed panel back, so it has to be pressable
+                // with a thumb, not only clickable with a pointer.
+                className={`flex min-h-[32px] items-end border-b-2 pb-1.5 text-xs font-medium ${
                   bottomTab === id && !bottomCollapsed
                     ? "border-accent text-ink"
                     : "border-transparent text-ink-muted hover:text-ink"
@@ -752,7 +981,10 @@ export default function TvWorkspace() {
                 onClick={toggleBottom}
                 title={bottomCollapsed ? "Expand panel" : "Minimize panel"}
                 aria-label={bottomCollapsed ? "Expand panel" : "Minimize panel"}
-                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
+                // 20x20 measured below the 24x24 minimum a pointer target
+                // needs, and it is the control that hides the panel covering
+                // the chart — the one a phone user reaches for most.
+                className="flex h-7 w-7 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
                   {bottomCollapsed ? <path d="M6 15l6-6 6 6" /> : <path d="M6 9l6 6 6-6" />}
@@ -821,7 +1053,15 @@ export default function TvWorkspace() {
                   onToggle={toggleMa}
                   onToggleAll={toggleAllMa}
                   onArm={(type, length) => setArmLine({ type, length })}
-                  onOpenAlert={(a) => setArmLine({ type: a.maType, length: a.maLength })}
+                  onArmPrice={openPriceAlert}
+                  onOpenAlert={(a) => {
+                    if (a.conditionKind === "price") {
+                      setPriceAlertLevel(a.targetPrice);
+                      setPriceAlertOpen(true);
+                    } else if (a.maType !== null && a.maLength !== null) {
+                      setArmLine({ type: a.maType, length: a.maLength });
+                    }
+                  }}
                   push={<PushSetup onMessage={setToast} />}
                 />
               </aside>
@@ -858,7 +1098,7 @@ export default function TvWorkspace() {
         <button
           onClick={() => setPanel((p) => (p === "ma" ? null : "ma"))}
           className={railBtn(panel === "ma")}
-          title="Moving averages & price alerts"
+          title="Moving averages and the alerts armed on them"
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
@@ -872,7 +1112,7 @@ export default function TvWorkspace() {
         <button
           onClick={() => setPanel((p) => (p === "alerts" ? null : "alerts"))}
           className={railBtn(panel === "alerts")}
-          title="Alerts"
+          title="Automations — running strategies and their order log"
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
@@ -891,8 +1131,8 @@ export default function TvWorkspace() {
             <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />],
           ["indicators", "Studies", panel === "indicators", () => togglePanel("indicators"),
             <><path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" /></>],
-          ["alerts", "Alerts", panel === "alerts", () => togglePanel("alerts"),
-            <><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" /></>],
+          ["alerts", "Automate", panel === "alerts", () => togglePanel("alerts"),
+            <path d="M13 2L4 14h7l-1 8 9-12h-7z" />],
         ] as const).map(([id, label, active, onClick, icon]) => (
           <button
             key={id}
@@ -933,7 +1173,7 @@ export default function TvWorkspace() {
               </button>
             </div>
             {[["/chart", "Chart"], ["/alerts", "Alerts"], ["/optimizers", "Optimizers"],
-              ["/backtests", "Backtests"], ["/deployments", "Live & Alerts"]].map(([href, label]) => (
+              ["/backtests", "Backtests"], ["/deployments", "Live trading"]].map(([href, label]) => (
               <a key={href} href={href}
                 className="rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">
                 {label}
@@ -969,6 +1209,17 @@ export default function TvWorkspace() {
         onSelect={changeSymbol}
         onSymbolAdded={refreshSymbols}
       />
+      <PriceAlertModal
+        open={priceAlertOpen}
+        onClose={() => setPriceAlertOpen(false)}
+        symbol={symbol}
+        chartTimeframe={interval}
+        initialPrice={priceAlertLevel}
+        lastPrice={last?.close ?? null}
+        existing={maAlerts.filter((a) => a.conditionKind === "price")}
+        onPickFromChart={() => { setPriceAlertOpen(false); setPickingLevel(true); }}
+        onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
+      />
       <MaAlertModal
         open={armLine !== null}
         onClose={() => setArmLine(null)}
@@ -977,7 +1228,8 @@ export default function TvWorkspace() {
         maType={armLine?.type ?? "sma"}
         maLength={armLine?.length ?? 200}
         existing={maAlerts.filter(
-          (a) => a.maType === armLine?.type && a.maLength === armLine?.length
+          (a) => a.conditionKind === "ma" &&
+                 a.maType === armLine?.type && a.maLength === armLine?.length
         )}
         onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
       />
@@ -989,7 +1241,7 @@ export default function TvWorkspace() {
         strategy={strategy}
         strategies={strategies}
         params={params}
-        onCreated={(name) => { setToast(`Alert created — ${name} live on ${symbol} ${interval}`); setPanel("alerts"); }}
+        onCreated={(name) => { setToast(`Automation live — ${name} on ${symbol} ${interval}, sending real orders`); setPanel("alerts"); }}
       />
       {toast && (
         <div className="fixed bottom-4 right-16 z-50 flex items-center gap-3 rounded-md border border-up/30 bg-surface px-4 py-2.5 text-sm shadow-xl">

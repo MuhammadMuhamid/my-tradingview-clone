@@ -2,7 +2,7 @@ import type { StrategyParams } from "../../../types/strategy";
 import type { Interval } from "../../../types/market";
 import { INTERVAL_MS } from "../../../types/market";
 import { pineTfToInterval } from "../../mtf";
-import { MA_RR_V9_DEFAULTS, requiredFeeds as maFeeds, resolveParams as resolveMa } from "../ma_rr_v9/params";
+import { requiredFeeds as maFeeds, resolveParams as resolveMa } from "../ma_rr_v9/params";
 
 export const SRTREND_V10_DEFAULTS = {
   useBarConfirm: true, ordersOnConfirmedBar: true, cooldownBarsAfterExit: 0,

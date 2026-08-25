@@ -20,6 +20,12 @@ __pycache__/
 # ── local database ──
 .pgdata/
 
+# ── optimizer result data (tens of GB of generated JSON) ──
+# The TREES themselves are tracked (code, config, coins.txt, README) — only the
+# generated data underneath them is excluded. Do not re-add a blanket
+# `optimizer*/` rule: git will not descend into an excluded directory, so the
+# per-tree documentation would silently vanish from the repo.
+# one-off analysis scratch files
 
 # ── build/deploy bundles (one is 426 MB; GitHub caps files at 100 MB) ──
 *.tar.gz
@@ -31,12 +37,14 @@ __pycache__/
 .DS_Store
 platform/backend/regime_wf/
 platform/backend/parity/
-platform/backend/backups/
 platform/backend/dist/
 
 # ── deploy bundles (rebuilt on demand; may embed config) ──
 platform/deployment/aws/src-*.tar.gz
 platform/deployment/aws/configs-*.tar.gz
+# Production identifiers for the deployment scripts (finding X-11). The
+# template `.env.example` beside it IS tracked and holds no values.
+platform/deployment/aws/.env
 
 # ── logs and scratch ──
 *.log
@@ -63,12 +71,41 @@ graphify-out/cache/
 
 # ── generated result streams (every optimizer writes these) ──
 *.jsonl
-backtestingsystems/trees/*/folds/
-backtestingsystems/trees/*/*.pid
 
+# ── browser / session state ──
+# A saved browser profile, cookie jar or HAR is a live credential. The
+# TradingView experiment trees write session jars beside their sources.
+.playwright/
+playwright-report/
+test-results/
+.auth/
+cookies.json
+cookies.txt
+storageState.json
+*.har
+tv_session/
+*_cookies.json
+chrome-profile/
+user-data-dir/
 
+# ── caches ──
+.cache/
+.npm/
+.eslintcache
+coverage/
+.pytest_cache/
+.ruff_cache/
 
-# ── backtesting systems live in their own repository ──
+# ── local backups ──
+backups/
+
+# ── local agent settings ──
+# `.local` means machine-specific by convention. The tracked copy carried
+# another machine's absolute paths and a TradingView-automation permission set
+# that has no place in this repository (OPT-23, BE-30, TV-01).
+.claude/settings.local.json
+
+# ── the backtesting systems are their own repository ──
 # Separated 2026-08-22. platform/ (this repo) is the TradingView clone only;
 # every optimizer, its results and the legacy systems moved to
 # backtestingsystems/, which has its own .git and pushes to

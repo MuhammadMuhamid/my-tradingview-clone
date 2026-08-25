@@ -52,7 +52,10 @@ function FieldInput({
 }) {
   if (field.type === "bool") {
     return (
-      <label className="flex items-center gap-2 text-sm">
+      // The box stays 16px so the form still reads as a form; the label
+      // carries a 32px hit area, which is where a user aims anyway and is what
+      // makes this reachable with a thumb.
+      <label className="flex min-h-[32px] cursor-pointer items-center gap-2 py-1 text-sm">
         <input
           type="checkbox"
           checked={Boolean(value ?? field.default)}

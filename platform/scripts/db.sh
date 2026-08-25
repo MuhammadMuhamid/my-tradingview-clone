@@ -8,7 +8,22 @@ set -euo pipefail
 # ("postmaster became multithreaded during startup") without a valid LC_ALL.
 export LC_ALL="en_US.UTF-8"
 
-PG_BIN="/opt/homebrew/opt/postgresql@16/bin"
+# BE-30: this was a single Apple-Silicon Homebrew prefix, so the script could
+# not run on an Intel Mac or on a machine where postgres lives anywhere else.
+# PATH first, then both Homebrew prefixes, then a named failure.
+if [ -z "${PG_BIN:-}" ]; then
+  if command -v pg_ctl >/dev/null 2>&1; then
+    PG_BIN="$(dirname "$(command -v pg_ctl)")"
+  else
+    for candidate in /opt/homebrew/opt/postgresql@16/bin /usr/local/opt/postgresql@16/bin; do
+      [ -x "$candidate/pg_ctl" ] && PG_BIN="$candidate" && break
+    done
+  fi
+fi
+if [ -z "${PG_BIN:-}" ] || [ ! -x "$PG_BIN/pg_ctl" ]; then
+  echo "db.sh: no PostgreSQL 16 found. Install it, or set PG_BIN to its bin directory." >&2
+  exit 1
+fi
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="$DIR/.pgdata"
 LOG="$DATA/postgres.log"

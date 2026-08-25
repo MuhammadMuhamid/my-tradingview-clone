@@ -18,17 +18,23 @@ export interface OptimizerBest {
   params: StrategyParams;
   tunedParams: StrategyParams;
   properties: {
-    initialCapital: number;
-    commissionPct: number;
-    slippageTicks: number;
-    qtyCash: number;
+    // Null where the tree's own config.json does not state the figure. There is
+    // no invented default: a fabricated order size silently mis-sizes every
+    // reproduction of the leaderboard number (`OPT-11`).
+    initialCapital: number | null;
+    commissionPct: number | null;
+    slippageTicks: number | null;
+    qtyCash: number | null;
     qtyType: "percent_of_equity" | "cash";
-    qtyValue: number;
-    rangeStart: string;
-    rangeEnd: string;
+    qtyValue: number | null;
+    rangeStart: string | null;
+    rangeEnd: string | null;
   };
   timeframe: Interval;
   strategyKey: string;
+  tree?: OptimizerTree;
+  /** The ranked scan hit its byte budget, so the rank is best-within-scanned. */
+  rankTruncated?: boolean;
 }
 
 export interface SymbolSearchResult {
@@ -122,17 +128,50 @@ export interface PineRunResult {
   equityCurve?: { t: number; equity: number; drawdownPct: number }[];
 }
 
-export type OptimizerSystem = "current" | "one-year";
+export type OptimizerSystem = "current" | "one-year" | "three-year";
+
+/** One optimizer tree, as the backend registry (`<tree>/tree.json`) reports it. */
+export interface OptimizerTree {
+  id: string;
+  label: string;
+  strategy: string;
+  timeframe: Interval;
+  system: string;
+  kind: "search" | "walk-forward" | "holdout" | "replay";
+  status: "current" | "historical" | "not-comparable";
+  note?: string;
+  cost: {
+    initialCapital: number | null;
+    commissionPct: number | null;
+    slippageTicks: number | null;
+    range: { start?: string; end?: string; split?: string } | null;
+    hasSplit: boolean;
+  };
+}
 
 export interface OptimizerLeaderboard {
-  system: OptimizerSystem;
+  tree: OptimizerTree;
+  system: string;
   timeframe: Interval;
-  range: { start: string; end: string };
+  range: { start?: string; end?: string; split?: string } | null;
+  /** `snapshot` was exported elsewhere and may be old; `tree` is read live. */
+  source: "snapshot" | "tree";
   totalBacktests: number;
+  /** `pending` means the background line count has not finished — not zero. */
+  testsState?: "ready" | "pending" | "unavailable";
+  /** False when the tree exists but has produced no results yet (`X-04`). */
+  resultsAvailable?: boolean;
+  generatedAt?: string | null;
+  ageMinutes?: number | null;
+  stale?: boolean;
+  /** The objective's `min_trades` floor, from the tree's own params.json. */
+  minTrades?: number | null;
   leaderboard: Array<{
     symbol: string;
     score: number | null;
     tests: number;
+    /** OPT-09: this winner sits on the objective's min_trades floor. */
+    atTradeFloor?: boolean;
     metrics: {
       net_pct?: number | null;
       dd_pct?: number | null;
@@ -177,6 +216,144 @@ export interface ServerLayout {
   updatedAt: string;
 }
 
+/**
+ * FE-07: every call accepts an `AbortSignal`.
+ *
+ * Without one, switching symbol while a 2.5 MB candle request is in flight
+ * leaves that request running — still holding a connection, still parsed in
+ * full by the browser — and its response can land after the newer one and
+ * overwrite it. `lib/requestGuard.ts` carries the pieces that use this.
+ */
+// ── Compact candle wire format ──────────────────────────────────────────────
+
+/** `[openTime, open, high, low, close, volume]`. Mirrors
+ *  `platform/backend/src/data/candleWire.ts`. */
+export type CompactBar = [number, number, number, number, number, number];
+
+export interface CompactCandles {
+  format: "compact-v1";
+  symbol: string;
+  interval: Interval;
+  stepMs: number;
+  count: number;
+  bars: CompactBar[];
+}
+
+/**
+ * Expand the compact response into the `Candle` shape the chart uses.
+ *
+ * `closeTime` is derived rather than transmitted — it is
+ * `openTime + stepMs - 1` by definition, and sending it per bar was a
+ * meaningful share of the payload.
+ */
+export function expandCompact(payload: CompactCandles): Candle[] {
+  const { symbol, interval, stepMs } = payload;
+  return payload.bars.map(([openTime, open, high, low, close, volume]) => ({
+    symbol,
+    interval,
+    openTime,
+    open,
+    high,
+    low,
+    close,
+    volume,
+    closeTime: openTime + stepMs - 1,
+  }));
+}
+
+// ── Operator console ────────────────────────────────────────────────────────
+
+/**
+ * `mode` has four states and none of them is a guess. A process that does not
+ * hold the emitter lease cannot report on emission, and `DISABLED` means the
+ * live runner is off by configuration rather than by an operator's decision.
+ */
+export type OpsMode = "LIVE" | "STANDBY" | "HALTED" | "DISABLED";
+export type FeedState = "live" | "lagging" | "stale" | "gapped" | "unknown";
+export type DeliveryState = "failing" | "stalled" | "degraded" | "idle" | "healthy";
+
+export interface OpsStatus {
+  mode: OpsMode;
+  emitter: {
+    thisProcess: string;
+    liveRunnerEnabled: boolean;
+    holdsLease: boolean;
+    lease: {
+      holder: string; hostname: string | null; pid: number | null;
+      acquiredAt: string; expiresAt: string; isThisProcess: boolean;
+    } | null;
+  };
+  risk: {
+    tradingHalted: boolean;
+    haltedReason: string | null;
+    haltedBy: string | null;
+    haltedAt: string | null;
+    maxTotalExposureQuote: number | null;
+    maxConcurrentPositions: number | null;
+    maxDailyLossQuote: number | null;
+    dailyLossWindowHours: number;
+    snapshot: {
+      currentExposureQuote: number;
+      openPositions: number;
+      realisedPnlInWindow: number;
+    };
+    summary: string;
+  };
+  deployments: { total: number; active: number; long: number; paused: number };
+  delivery: {
+    state: DeliveryState;
+    summary: string;
+    windowHours: number;
+    counts: Record<"pending" | "sent" | "failed" | "skipped" | "blocked", number>;
+    total: number;
+    lastSentAt: string | null;
+    lastFailureAt: string | null;
+    stuckPending: number;
+    retried: number;
+  };
+  exchange: { testnetConfigured: boolean; note: string };
+  feeds: {
+    worst: FeedState;
+    rows: Array<{
+      symbol: string; interval: string; state: string;
+      lastBarTime: string | null; lastCheckedAt: string;
+      barsBehind: number | null; gapCount?: number | null; detail?: string | null;
+    }>;
+  };
+  time: string;
+}
+
+export interface UnresolvedIntents {
+  count: number;
+  intents: Array<{
+    id: number; deploymentId: string; state: string; action: string;
+    barTime: string; createdAt: string; resolvedAt: string | null;
+    dedupeKey?: string | null;
+  }>;
+}
+
+/** A paper deployment's simulated fills and their running result. */
+export interface PaperResult {
+  deploymentId: string;
+  symbol: string;
+  timeframe: Interval;
+  buyQuoteQty: number | null;
+  commissionPctPerSide: number;
+  caveat: string;
+  summary: {
+    fills: number; buys: number; sells: number;
+    realisedPnl: number; commissionPaid: number;
+    wins: number; losses: number; winRatePct: number | null;
+    openPosition: { qty: number; costBasis: number; entryPrice: number | null };
+    unrealisedPnl: number | null;
+  };
+  fills: Array<{
+    id: number; action: "buy" | "sell"; barTime: string; filledAt: string;
+    price: number; qty: number; quote: number; commission: number;
+    realisedPnl: number | null; positionQty: number; reason: string | null;
+  }>;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
@@ -200,26 +377,58 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export type MaAlertMode = "touch" | "cross_up" | "cross_down" | "near_above" | "near_below";
 export type MaType = "sma" | "ema";
 
-/** How often an alert may fire; mirrors TradingView's three options. */
-export type TriggerMode = "once" | "once_per_bar" | "once_per_bar_close";
+/** What an alert watches. `ma` is the original family. */
+export type ConditionKind = "price" | "ma" | "ma_vs_ma";
+export type PriceDirection = "cross_up" | "cross_down" | "either";
+
+/**
+ * How often a true condition may notify.
+ *
+ * `once_per_bar` and `once_per_minute` evaluate the candle currently forming,
+ * which is a different promise to the user and must always be shown with the
+ * warning the server serves from `/api/ma-alerts/options`.
+ */
+export type AlertFrequency =
+  | "once_only"
+  | "once_per_bar"
+  | "once_per_bar_close"
+  | "once_per_minute";
+
+export const DEFAULT_ALERT_FREQUENCY: AlertFrequency = "once_per_bar_close";
+
+export const INTRABAR_FREQUENCIES: AlertFrequency[] = ["once_per_bar", "once_per_minute"];
+
+export const isIntrabarFrequency = (f: AlertFrequency): boolean =>
+  INTRABAR_FREQUENCIES.includes(f);
 
 export interface MaAlert {
   id: string;
   symbol: string;
   timeframe: Interval;
-  maType: MaType;
-  maLength: number;
-  mode: MaAlertMode;
+  conditionKind: ConditionKind;
+  /** Populated for `ma` and `ma_vs_ma`. */
+  maType: MaType | null;
+  maLength: number | null;
+  mode: MaAlertMode | null;
+  /** The slow line, for `ma_vs_ma`. */
+  ma2Type: MaType | null;
+  ma2Length: number | null;
+  /** Populated for `price`. */
+  targetPrice: number | null;
+  priceDirection: PriceDirection | null;
   /** Band edges in percent; only meaningful for the near_* modes. */
   nearMinPct: number;
   nearMaxPct: number;
   enabled: boolean;
+  frequency: AlertFrequency;
   cooldownMin: number;
   note: string | null;
-  trigger: TriggerMode;
   lastSide: "above" | "below" | null;
   lastFiredAt: string | null;
   lastFiredBarTime: string | null;
+  lastBarTime: string | null;
+  /** Set once a `once_only` alert has delivered and retired itself. */
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -230,11 +439,35 @@ export interface MaAlertEvent {
   firedAt: string;
   barTime: string;
   price: number;
+  /** The value compared against: the MA, the slow MA, or the price target. */
   maValue: number;
   distancePct: number;
   title: string;
   body: string;
   pushedTo: number;
+  /** Whether this fired on a candle that had not closed yet. */
+  intrabar: boolean;
+  frequency: AlertFrequency | null;
+}
+
+export interface AlertFrequencyOption {
+  value: AlertFrequency;
+  label: string;
+  explanation: string;
+  intrabar: boolean;
+  /** The exact warning to display for an intrabar mode, or null. */
+  warning: string | null;
+}
+
+export interface MaAlertOptions {
+  maTypes: MaType[];
+  maLengths: number[];
+  modes: MaAlertMode[];
+  conditionKinds: ConditionKind[];
+  priceDirections: PriceDirection[];
+  defaultFrequency: AlertFrequency;
+  intrabarWarning: string;
+  frequencies: AlertFrequencyOption[];
 }
 
 export interface ServerWatchlist {
@@ -255,11 +488,36 @@ export const api = {
     req<SymbolSearchResponse>(
       `/api/symbols/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}&limit=${limit}`
     ),
-  candles: (symbol: string, interval: Interval, limit = 1000) =>
-    req<Candle[]>(`/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}`),
+  /**
+   * Candles in the COMPACT wire format.
+   *
+   * Measured on the chart's default 10,000-bar 15m request
+   * (`platform/backend/scripts/bench_candles.ts`): 2,487,844 -> 674,250 bytes
+   * (249 -> 67 per bar) and 11.1 -> 4.2 ms to `JSON.parse`. That parse is on
+   * the main thread before anything can be drawn, and it happens again on every
+   * symbol and timeframe switch.
+   */
+  candles: (symbol: string, interval: Interval, limit = 1000, signal?: AbortSignal) =>
+    req<CompactCandles>(
+      `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}&format=compact`,
+      signal ? { signal } : undefined
+    ).then(expandCompact),
+
+  /** The verbose shape, for consumers that need quoteVolume or tradeCount. */
+  candlesVerbose: (symbol: string, interval: Interval, limit = 1000, signal?: AbortSignal) =>
+    req<Candle[]>(
+      `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}`,
+      signal ? { signal } : undefined
+    ),
   /** Candles covering an explicit window — used to frame a backtest's own range. */
-  candlesRange: (symbol: string, interval: Interval, fromMs: number, toMs: number, limit = 200000) =>
-    req<Candle[]>(`/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}`),
+  candlesRange: (
+    symbol: string, interval: Interval, fromMs: number, toMs: number,
+    limit = 200000, signal?: AbortSignal
+  ) =>
+    req<CompactCandles>(
+      `/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`,
+      signal ? { signal } : undefined
+    ).then(expandCompact),
   backfill: (symbol: string, interval: Interval, start: string, end: string) =>
     req<{ fetched: number }>("/api/data/backfill", { method: "POST", body: JSON.stringify({ symbol, interval, start, end }) }),
 
@@ -275,8 +533,33 @@ export const api = {
   // local optimizer winners
   optimizerBest: (symbol: string, rank = 1, strategy = "ma_rr_v9", timeframe: Interval = "15m") =>
     req<OptimizerBest>(`/api/optimizer/best/${symbol.toUpperCase()}?rank=${rank}&strategy=${strategy}&timeframe=${timeframe}`),
-  optimizerLeaderboard: (system: OptimizerSystem, timeframe: "15m" | "1h" | "5m", strategy = "ma_rr_v9") =>
-    req<OptimizerLeaderboard>(`/api/optimizer/leaderboard?strategy=${strategy}&system=${system}&timeframe=${timeframe}`),
+  /** Simulated fills for a `paper` deployment. 409 when it is not one. */
+  paperResult: (deploymentId: string) =>
+    req<PaperResult>(`/api/deployments/${deploymentId}/paper`),
+
+  // operator console
+  opsStatus: () => req<OpsStatus>(`/api/ops/status`),
+  opsUnresolvedIntents: () => req<UnresolvedIntents>(`/api/ops/unresolved-intents`),
+  opsHalt: (reason: string) =>
+    req<{ halted: true; reason: string }>(`/api/ops/halt`, {
+      method: "POST",
+      body: JSON.stringify({ confirmation: "HALT_TRADING", reason }),
+    }),
+  opsResume: () =>
+    req<{ halted: false; previousReason?: string | null; note?: string }>(`/api/ops/resume`, {
+      method: "POST",
+      body: JSON.stringify({ confirmation: "RESUME_TRADING" }),
+    }),
+  opsSetRiskLimits: (patch: Record<string, number | null>) =>
+    req<OpsStatus["risk"]>(`/api/ops/risk-limits`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /** Every tree the backend can actually reach, from its own registry. */
+  optimizerTrees: () => req<{ root: string; trees: OptimizerTree[] }>(`/api/optimizer/trees`),
+  optimizerLeaderboardByTree: (tree: string) =>
+    req<OptimizerLeaderboard>(`/api/optimizer/leaderboard?tree=${encodeURIComponent(tree)}`),
 
   // backtests
   listBacktests: (symbol?: string) =>
@@ -352,15 +635,21 @@ export const api = {
     const qs = q.toString();
     return req<MaAlert[]>(`/api/ma-alerts${qs ? `?${qs}` : ""}`);
   },
+  maAlertOptions: () => req<MaAlertOptions>("/api/ma-alerts/options"),
   createMaAlert: (body: {
-    symbol: string; timeframe: Interval; maType: MaType; maLength: number;
-    mode: MaAlertMode; nearMinPct?: number; nearMaxPct?: number;
-    cooldownMin?: number; note?: string | null; trigger?: TriggerMode;
+    symbol: string; timeframe: Interval;
+    conditionKind?: ConditionKind;
+    maType?: MaType; maLength?: number; mode?: MaAlertMode;
+    ma2Type?: MaType; ma2Length?: number;
+    targetPrice?: number; priceDirection?: PriceDirection;
+    frequency?: AlertFrequency;
+    nearMinPct?: number; nearMaxPct?: number;
+    cooldownMin?: number; note?: string | null;
   }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
   updateMaAlert: (id: string, body: Partial<{
     enabled: boolean; cooldownMin: number; nearMinPct: number;
     nearMaxPct: number; mode: MaAlertMode; timeframe: Interval; note: string | null;
-    trigger: TriggerMode;
+    frequency: AlertFrequency; targetPrice: number; priceDirection: PriceDirection;
   }>) => req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
   maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),

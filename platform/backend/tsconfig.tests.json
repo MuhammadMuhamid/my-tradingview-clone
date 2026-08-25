@@ -1,0 +1,6 @@
+{
+  "//": "The test suite was typechecked by nothing: `tsc --noEmit` covers src/ only. Tests run under tsx as CommonJS, like src/, so they extend the base config.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "." },
+  "include": ["src", "tests"]
+}

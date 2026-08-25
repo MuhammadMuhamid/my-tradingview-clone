@@ -29,6 +29,12 @@ export default function BacktestsPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-6">
+      <div>
+        <h1 className="text-lg font-semibold text-ink">Backtests</h1>
+        <p className="text-xs text-ink-faint">
+          Run a strategy over history and inspect every trade it took.
+        </p>
+      </div>
       <BacktestForm symbols={symbols} onQueued={() => refresh()} />
 
       <Card>
@@ -37,7 +43,7 @@ export default function BacktestsPage() {
           <Empty>No backtests yet. Configure one above and hit “Run backtest”.</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm tabular">
+            <table className="w-full min-w-[720px] text-sm tabular">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-ink-muted">
                   <th className="px-4 py-2 font-medium">Symbol</th>

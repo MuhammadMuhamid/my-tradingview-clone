@@ -8,10 +8,13 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p tsconfig.tests.json",
     "migrate": "tsx src/db/migrate.ts",
-    "test": "tsx --test tests/*.test.ts",
-    "hash-password": "tsx src/security/session.ts"
+    "test": "node --env-file=tests/test.env --import tsx --test tests/*.test.ts tests/*.test.mjs",
+    "hash-password": "tsx src/security/session.ts",
+    "lint": "eslint src tests scripts --max-warnings=0",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
+    "bench:candles": "node --env-file=tests/test.env --import tsx scripts/bench_candles.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -24,10 +27,13 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^20.14.0",
     "@types/pg": "^8.11.6",
     "@types/ws": "^8.18.1",
+    "eslint": "^9.39.5",
     "tsx": "^4.16.0",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.67.0"
   }
 }

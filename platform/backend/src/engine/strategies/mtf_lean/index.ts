@@ -12,6 +12,7 @@
  * Long only: there is no short path anywhere in this module.
  */
 import type { Interval } from "../../../types/market";
+import { INTERVAL_MS } from "../../../types/market";
 import type { StrategyParams } from "../../../types/strategy";
 import { Broker, BrokerOptions } from "../../broker";
 import { FeedStore } from "../../mtf";
@@ -236,13 +237,30 @@ export function runBars(
   return { broker, equityCurve, barsProcessed };
 }
 
+/**
+ * BE-19: `mtf_lean` was not registered in `backtester.ts`, so the strategy
+ * actually deployed with real money had NO in-platform backtest path — which
+ * meant BE-01 and BE-02 could not be checked through the supported route.
+ *
+ * The blocker was a signature mismatch: `ma_rr_v9.warmupMs` takes a `FeedNeed`
+ * and `mtf_lean.warmupMs` took `(params, chartTf)`. The registry needs one
+ * shape, and `FeedNeed` is the right one — the backtester asks per feed, and a
+ * whole-strategy maximum forces every feed to load the longest warmup.
+ *
+ * `warmupMsForParams` keeps the old whole-strategy form for the callers that
+ * genuinely want it (the live runner's feed sizing).
+ */
 export const mtfLeanModule = {
   key: "mtf_lean",
   name: "MTF Confluence Lean",
   defaultParams: MTF_LEAN_DEFAULTS as unknown as StrategyParams,
   resolveParams,
   requiredFeeds,
-  warmupMs,
+  /** Per-feed warmup, matching the other modules' registry contract. */
+  warmupMs: (need: { interval: Interval; warmupBars: number }): number =>
+    need.warmupBars * INTERVAL_MS[need.interval],
+  /** Whole-strategy warmup — the previous `warmupMs`, under a clearer name. */
+  warmupMsForParams: warmupMs,
   runBars,
 };
 

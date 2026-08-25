@@ -17,6 +17,7 @@
  */
 import type { TradeRecord } from "../types/backtest";
 import type { Bars } from "./mtf";
+import { ACTIVE_CORRECTIONS, type CorrectionSet } from "./corrections";
 
 export interface BrokerOptions {
   initialCapital: number;
@@ -29,6 +30,38 @@ export interface BrokerOptions {
   /** TV "Process orders on bar Close": market orders fill at the signal bar's
    *  close instead of the next bar's open. */
   fillOnBarClose?: boolean;
+
+  /**
+   * Exchange LOT_SIZE step. When `exchangeFilters` is on, an exit leg's
+   * quantity is floored to this — `BE-07`: `stepSize` is fetched from
+   * exchangeInfo and stored in the symbols table, and read by nothing, so the
+   * broker books partial-take-profit legs the exchange would reject outright.
+   */
+  qtyStep?: number;
+  /** Exchange NOTIONAL minimum. See `qtyStep`. */
+  minNotional?: number;
+
+  /** Which engine corrections this broker applies. Default: the process-wide set. */
+  corrections?: CorrectionSet;
+
+  /**
+   * Finer-resolution path through a chart bar, for the `barMagnifier`
+   * correction. Returns the sub-bars covering chart bar `i` in chronological
+   * order, or null when no finer feed covers it.
+   *
+   * A function rather than a feed, so the broker never has to know how the
+   * finer series is stored or aligned — and so a caller with no finer data
+   * simply does not pass one.
+   */
+  magnifier?: (bars: Bars, i: number) => readonly SubBar[] | null;
+}
+
+/** One finer-resolution step inside a chart bar. */
+export interface SubBar {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 interface ExitLeg {
@@ -57,6 +90,9 @@ export interface ClosedLeg extends TradeRecord {
 export class Broker {
   readonly opts: BrokerOptions;
   private slip: number;
+  private readonly corrections: CorrectionSet;
+  /** Legs the exchange would have rejected, for the report. */
+  readonly rejectedLegs: { bar: number; id: string; qty: number; reason: string }[] = [];
 
   positionQty = 0;
   avgPrice = NaN;
@@ -78,6 +114,52 @@ export class Broker {
   constructor(opts: BrokerOptions) {
     this.opts = opts;
     this.slip = opts.slippageTicks * opts.tickSize;
+    this.corrections = opts.corrections ?? ACTIVE_CORRECTIONS;
+  }
+
+  /**
+   * Round a quantity down to the exchange lot step, or return null when the
+   * result would be rejected.
+   *
+   * `BE-07`: `stepSize` and `minNotional` are fetched and stored and read by
+   * nothing, so a partial take-profit leg for a quantity the exchange will not
+   * accept was booked as if it had filled. Behind the `exchangeFilters` flag
+   * because applying it changes the whole subsequent trade sequence: a rejected
+   * leg means the position is still open when the next bar arrives.
+   */
+  private applyExchangeFilters(
+    qty: number,
+    price: number,
+    bar: number,
+    id: string
+  ): number | null {
+    if (!this.corrections.exchangeFilters) return qty;
+
+    const step = this.opts.qtyStep ?? 0;
+    let out = qty;
+    if (step > 0) {
+      // Integer step units, so the flooring does not accumulate float error.
+      const decimals = Math.max(0, Math.ceil(-Math.log10(step)));
+      const units = out / step;
+      const tolerance = Math.max(1e-9, Math.abs(units) * 1e-12);
+      const snapped = Math.abs(units - Math.round(units)) < tolerance
+        ? Math.round(units)
+        : Math.floor(units);
+      out = parseFloat((snapped * step).toFixed(decimals));
+    }
+    if (out <= 0) {
+      this.rejectedLegs.push({ bar, id, qty, reason: "below one lot step" });
+      return null;
+    }
+    const minNotional = this.opts.minNotional ?? 0;
+    if (minNotional > 0 && out * price < minNotional) {
+      this.rejectedLegs.push({
+        bar, id, qty: out,
+        reason: `notional ${(out * price).toFixed(2)} below minimum ${minNotional.toFixed(2)}`,
+      });
+      return null;
+    }
+    return out;
   }
 
   get isFlat(): boolean {
@@ -180,8 +262,23 @@ export class Broker {
 
     const fillLeg = (leg: ExitLeg, px: number, reason: string): void => {
       if (this.positionQty <= 0) return;
-      const qty = Math.min(leg.qty ?? this.positionQty, this.positionQty);
-      if (qty <= 0) return;
+      const requested = Math.min(leg.qty ?? this.positionQty, this.positionQty);
+      if (requested <= 0) return;
+
+      /*
+       * BE-07: the exchange would reject a leg below the lot step or the
+       * notional minimum, and the old code booked it as filled regardless.
+       *
+       * A rejected leg is DROPPED, not retried, and the position stays open —
+       * which is what the exchange would have produced. It is recorded in
+       * `rejectedLegs` so a report can say how often this happens rather than
+       * leaving the difference unexplained.
+       */
+      const qty = this.applyExchangeFilters(requested, px, i, leg.id);
+      if (qty === null) {
+        this.legs = this.legs.filter((l) => l.id !== leg.id);
+        return;
+      }
       this.fillExit(qty, px, t, i, reason);
       this.legs = this.legs.filter((l) => l.id !== leg.id);
     };
@@ -210,7 +307,45 @@ export class Broker {
         if (high >= leg.limit) fillLeg(leg, leg.limit, exitReasons.tp[leg.id] ?? "TP");
       }
     };
-    if (green) {
+    /*
+     * Which of a stop and a target filled first, when the bar touched both, is
+     * unknowable from OHLC alone. TradingView's heuristic — green bar walked
+     * open → low → high, red bar open → high → low — is what runs by default,
+     * and on a partial-TP configuration it decides whether the trade booked
+     * +2R or −1R.
+     *
+     * `barMagnifier`: walk the ACTUAL finer path when one is available. The
+     * ambiguity shrinks to a single sub-bar rather than disappearing, and what
+     * remains inside that sub-bar is resolved by the same heuristic — now over
+     * a minute instead of an hour. With no finer feed the behaviour is
+     * bit-for-bit the old one.
+     */
+    const walk = (h: number, l: number, rising: boolean): void => {
+      const stops = (): void => {
+        for (const leg of remaining()) {
+          if (this.positionQty <= 0) break;
+          if (l <= leg.stop) fillLeg(leg, leg.stop - this.slip, exitReasons.sl);
+        }
+      };
+      const limits = (): void => {
+        const legsAsc = remaining().sort((a, b) => a.limit - b.limit);
+        for (const leg of legsAsc) {
+          if (this.positionQty <= 0) break;
+          if (h >= leg.limit) fillLeg(leg, leg.limit, exitReasons.tp[leg.id] ?? "TP");
+        }
+      };
+      if (rising) { stops(); limits(); } else { limits(); stops(); }
+    };
+
+    const subBars = this.corrections.barMagnifier
+      ? this.opts.magnifier?.(bars, i) ?? null
+      : null;
+    if (subBars && subBars.length > 0) {
+      for (const sub of subBars) {
+        if (this.positionQty <= 0) break;
+        walk(sub.high, sub.low, sub.close >= sub.open);
+      }
+    } else if (green) {
       runStops();   // open → low first
       runLimits();  // then low → high
     } else {

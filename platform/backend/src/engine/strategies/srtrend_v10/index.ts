@@ -2,6 +2,7 @@ import type { Interval } from "../../../types/market";
 import type { StrategyParams } from "../../../types/strategy";
 import type { EquityPoint } from "../../../types/backtest";
 import { Broker, type BrokerOptions } from "../../broker";
+import { ACTIVE_CORRECTIONS } from "../../corrections";
 import { FeedStore } from "../../mtf";
 import { SRTREND_V10_DEFAULTS, resolveParams, requiredFeeds, warmupMs, type SrTrendParams } from "./params";
 import { computeSignals } from "./signals";
@@ -10,6 +11,7 @@ export function runBars(feeds: FeedStore, symbol: string, chartTf: Interval, p: 
   opts: BrokerOptions, range: { startMs: number; endMs: number }) {
   const chart = feeds.get(symbol, chartTf), sig = computeSignals(feeds, symbol, chartTf, p);
   const broker = new Broker(opts); const equityCurve: EquityPoint[] = [];
+  const corrections = opts.corrections ?? ACTIVE_CORRECTIONS;
   let peak = opts.initialCapital, prevPos = 0, prevClosed = 0, consec = 0, choppyUntil = -1, lastExit = -1;
   let stop = NaN, target = NaN, trail = NaN, trailHi = NaN, trailOn = false, breakEven = NaN;
   let savedTrailR = p.trailTriggerR, htfMode = false;
@@ -49,7 +51,12 @@ export function runBars(feeds: FeedStore, symbol: string, chartTf: Interval, p: 
     if (closeNow) broker.queueClose(sig.hlBreak[i] ? "HL Break" : "Signal exit");
     if (pos > 0 && sig.htfBreak[i]!) { if (!htfMode && p.htfResetTrailAnchorOnBreak) { trail = NaN; trailHi = NaN; } htfMode = true; }
     if (p.useBreakEven && pos > 0 && Number.isNaN(breakEven) && risk > 0 && h >= broker.avgPrice + risk * p.breakEvenTriggerR) breakEven = broker.avgPrice;
-    if (pos > 0 && !closeNow && !Number.isNaN(stop) && !Number.isNaN(target)) {
+    /*
+     * BE-04: same defect as `ma_rr_v9`. `pos` is read before the fill, so the
+     * fill bar issues no bracket and is unprotected. See the note there.
+     */
+    const bracketsGate = corrections.entryBarBrackets ? (pos > 0 || longSignal) : pos > 0;
+    if (bracketsGate && !closeNow && !Number.isNaN(stop) && !Number.isNaN(target)) {
       const effectiveTrigger = htfMode ? p.htfTrailTriggerR : savedTrailR;
       const effectiveMult = htfMode ? p.htfTrailAtrMult : p.trailAtrMult;
       if ((p.useTrail || htfMode) && ((htfMode && p.htfTrailImmediate) || (risk > 0 && h >= broker.avgPrice + risk * effectiveTrigger))) trailOn = true;

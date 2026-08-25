@@ -1,74 +1,96 @@
 /**
- * MA alert runner — the always-on half of the notification system.
+ * Alert runner — the always-on half of the notification system.
  *
- *   enabled ma_alerts ─▶ subscribe every distinct (symbol, timeframe) stream
- *   barClose           ─▶ backfill any gap ─▶ recompute the MA baselines
- *                        ─▶ evaluate the `once_per_bar_close` alerts
- *   barUpdate (tick)   ─▶ roll each MA forward one provisional bar in O(1)
- *                        ─▶ evaluate the `once` / `once_per_bar` alerts
- *   fire               ─▶ Web Push to every registered device
+ *   active alerts ─▶ subscribe every distinct (symbol, timeframe) stream
+ *   barClose      ─▶ backfill any gap ─▶ compute the needed SMA/EMAs
+ *                   ─▶ evaluate every alert on that feed
+ *                   ─▶ Web Push to every registered device
+ *   barUpdate     ─▶ same evaluation against the FORMING candle, but only for
+ *                   the alerts whose frequency asked for it
  *
- * It runs in the backend process, independent of any open browser tab, which
- * is the whole point: the phone must buzz while the chart is closed.
+ * It runs in the backend process, independent of any open browser tab, which is
+ * the whole point: the phone must buzz while the chart is closed.
  *
- * ── why the baselines exist ──
- * A forming candle ticks several times a second. Recomputing a 200-period MA
- * over 1200 bars on every tick, across 39 feeds, would burn CPU for no reason.
- * Instead each closed bar leaves behind two numbers per MA — the closed value,
- * and (for SMA) the sum of the closes still inside the window — from which the
- * provisional value of the forming bar is one arithmetic step:
+ * ── What this runner does not do ───────────────────────────────────────────
  *
- *   SMA = (sum of the last len-1 closed closes + forming close) / len
- *   EMA = alpha x forming close + (1 - alpha) x last closed EMA
+ * It notifies. It has no path to a deployment, a webhook, an order or an
+ * exchange, and `tests/alertIsolation.test.ts` fails the build if one is ever
+ * introduced. Alerts and automated trading are two different promises to the
+ * user, and an alert that could place an order would be the worst possible way
+ * to discover they had been merged.
  *
- * Both are exact, not approximations: they are the definitions, evaluated with
- * the forming bar as the newest sample.
+ * ── Bar close versus intrabar ──────────────────────────────────────────────
+ *
+ * The decision logic lives in `alerts/alertPlan.ts` and is pure. This file is
+ * the IO shell: subscriptions, history, push delivery, persistence. The one
+ * rule it enforces structurally is that a `once_per_bar_close` alert is never
+ * shown a forming candle — see `shouldEvaluate`.
  */
 import type { FastifyBaseLogger } from "fastify";
 import type { Candle, Interval } from "../types/market";
 import { INTERVAL_MS } from "../types/market";
-import { isIntrabar, maLabel, describeMode, type MaType } from "../types/maAlerts";
-import type { MaAlertRow } from "../types/maAlerts";
+import type { MaAlertRow, MaType } from "../types/maAlerts";
 import * as maAlertRepo from "../repositories/maAlerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
-import { BinanceWsManager, type BarCloseEvent } from "../data/binanceWs";
+import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
 import { sma, ema } from "./ta";
+import { conditionFromRow, type AlertCondition, type Side } from "../alerts/alertConditions";
+import { acceptsIntrabarSample } from "../alerts/alertFrequency";
 import {
-  cooldownElapsed, evaluateMaAlert, provisionalEma, provisionalSma, type Side,
-} from "../alerts/maEvaluator";
+  planAlert, stateAfterPlan, type AlertSpec, type FeedSample,
+} from "../alerts/alertPlan";
+import { formatAlertPush } from "../alerts/alertMessage";
 import { sendPush } from "../alerts/webPush";
 
-/** Bars of history pulled per rebuild: enough to seed the longest MA. */
+/** Bars of history pulled per evaluation: enough to seed the longest MA. */
 const HISTORY_BARS = 1200;
 /** How often the runner re-reads the alert table to pick up UI edits. */
 const REFRESH_MS = 30_000;
 /**
- * Floor on intrabar work per feed. Binance sends roughly a tick a second per
- * stream; anything faster than this adds latency no human perceives while
- * multiplying database writes on a fire.
+ * Floor between two intrabar evaluations of the same feed.
+ *
+ * Binance sends a kline update roughly every second. Evaluating every one of
+ * them would recompute the moving averages of a 1 200-bar window per second per
+ * feed for no benefit: the fastest frequency mode caps at one notification a
+ * minute, and `once_per_bar` at one a candle. Two seconds is far below either
+ * cap and far above the cost.
  */
-const INTRABAR_THROTTLE_MS = 1_000;
+const INTRABAR_MIN_MS = 2_000;
 
 const feedKey = (symbol: string, interval: Interval): string => `${symbol}|${interval}`;
-const maKey = (type: MaType, length: number): string => `${type}${length}`;
 
-/** Everything needed to advance this feed's MAs by one provisional bar. */
-interface FeedState {
-  /** Value of each MA at the most recent CLOSED bar. */
-  closedMa: Map<string, number>;
-  /** SMA only: sum of the closes that stay in the window (the last len-1). */
-  smaTailSum: Map<string, number>;
-  /** Open time of the most recent closed bar, to detect a stale baseline. */
-  closedOpenTime: number;
-  lastIntrabarAt: number;
+/** One alert, resolved into the pure planner's view of it. */
+function toSpec(alert: MaAlertRow, condition: AlertCondition): AlertSpec {
+  return {
+    id: alert.id,
+    symbol: alert.symbol,
+    timeframe: alert.timeframe,
+    enabled: alert.enabled && alert.completedAt === null,
+    condition,
+    frequency: alert.frequency,
+    lastSide: alert.lastSide as Side | null,
+    fireState: {
+      lastFiredAt: alert.lastFiredAt === null ? null : Date.parse(alert.lastFiredAt),
+      lastFiredBarTime: alert.lastFiredBarTime === null ? null : Date.parse(alert.lastFiredBarTime),
+      completed: alert.completedAt !== null,
+      cooldownMin: alert.cooldownMin,
+    },
+    lastBarTime: alert.lastBarTime === null ? null : Date.parse(alert.lastBarTime),
+  };
 }
 
 export class MaAlertRunner {
   private ws = new BinanceWsManager();
   private feeds = new Set<string>();
-  private state = new Map<string, FeedState>();
   private processing = new Set<string>();
+  /**
+   * Closed-bar history per feed, so an intrabar evaluation costs a moving
+   * average over an array already in memory rather than a database read.
+   * Refreshed on every bar close, which is also the only time it can change.
+   */
+  private history = new Map<string, Candle[]>();
+  private lastIntrabarAt = new Map<string, number>();
   private refreshTimer: ReturnType<typeof setInterval> | undefined;
   private log: FastifyBaseLogger;
 
@@ -76,13 +98,13 @@ export class MaAlertRunner {
     this.log = log;
     this.ws.on("barClose", (e) => void this.onBarClose(e));
     this.ws.on("barUpdate", (e) => void this.onBarUpdate(e));
-    this.ws.on("error", (err) => this.log.error({ err: err.message }, "ma alert ws error"));
+    this.ws.on("error", (err) => this.log.error({ err: err.message }, "alert ws error"));
   }
 
   async start(): Promise<void> {
     await this.syncFeeds();
     this.refreshTimer = setInterval(() => void this.syncFeeds(), REFRESH_MS);
-    this.log.info({ feeds: this.feeds.size }, "ma alert runner started");
+    this.log.info({ feeds: this.feeds.size }, "alert runner started");
   }
 
   stop(): void {
@@ -93,20 +115,21 @@ export class MaAlertRunner {
       this.ws.unsubscribe(symbol, interval);
     }
     this.feeds.clear();
-    this.state.clear();
+    this.history.clear();
+    this.lastIntrabarAt.clear();
     this.ws.close();
   }
 
   /**
-   * Reconcile live subscriptions with the enabled alerts. Called on a timer so
+   * Reconcile live subscriptions with the active alerts. Called on a timer so
    * an alert armed in the UI starts being watched without a server restart.
    */
   async syncFeeds(): Promise<void> {
     let alerts: MaAlertRow[];
     try {
-      alerts = await maAlertRepo.listAlerts({ enabledOnly: true });
+      alerts = await maAlertRepo.listAlerts({ activeOnly: true });
     } catch (err) {
-      this.log.error({ err: (err as Error).message }, "ma alert feed sync failed");
+      this.log.error({ err: (err as Error).message }, "alert feed sync failed");
       return;
     }
     const wanted = new Set(alerts.map((a) => feedKey(a.symbol, a.timeframe)));
@@ -118,7 +141,7 @@ export class MaAlertRunner {
         this.ws.subscribe(symbol, interval);
         this.feeds.add(key);
       } catch (err) {
-        this.log.error({ key, err: (err as Error).message }, "ma alert subscribe failed");
+        this.log.error({ key, err: (err as Error).message }, "alert subscribe failed");
       }
     }
     for (const key of [...this.feeds]) {
@@ -126,11 +149,10 @@ export class MaAlertRunner {
       const [symbol, interval] = key.split("|") as [string, Interval];
       this.ws.unsubscribe(symbol, interval);
       this.feeds.delete(key);
-      this.state.delete(key);
+      this.history.delete(key);
+      this.lastIntrabarAt.delete(key);
     }
   }
-
-  // ── closed bars ────────────────────────────────────────────────────────────
 
   private async onBarClose(e: BarCloseEvent): Promise<void> {
     const key = feedKey(e.symbol, e.interval);
@@ -139,149 +161,122 @@ export class MaAlertRunner {
     if (this.processing.has(key)) return;
     this.processing.add(key);
     try {
-      const alerts = await maAlertRepo.listAlerts({
-        symbol: e.symbol, timeframe: e.interval, enabledOnly: true,
-      });
-      if (alerts.length === 0) return;
-
       const bars = await this.loadHistory(e.symbol, e.interval, e.candle);
-      const values = this.rebuildBaseline(key, bars, alerts);
-
-      for (const alert of alerts) {
-        const value = values.get(maKey(alert.maType, alert.maLength));
-        if (value === undefined || !Number.isFinite(value)) continue;
-
-        const result = evaluateMaAlert(alert, e.candle, value, alert.lastSide as Side | null);
-        // Only the bar-close trigger fires here; the intrabar modes have
-        // already had their chance on the ticks that made up this candle.
-        const fire =
-          alert.trigger === "once_per_bar_close" &&
-          result.triggered &&
-          cooldownElapsed(alert.lastFiredAt, alert.cooldownMin);
-
-        if (fire) await this.fire(alert, e.candle, value, result.distancePct);
-
-        // The side is a property of a CLOSED bar, so it is recorded only here.
-        // Intrabar cross checks compare against this last confirmed side.
-        await maAlertRepo.recordEvaluation(alert.id, {
-          side: result.side,
-          fired: fire,
-          barTime: fire ? e.candle.openTime : null,
-          disable: fire && alert.trigger === "once",
-        });
-      }
+      this.history.set(key, bars);
+      await this.evaluate(e.symbol, e.interval, bars, e.candle, true);
     } catch (err) {
-      this.log.error({ key, err: (err as Error).message }, "ma alert evaluation failed");
-    } finally {
-      this.processing.delete(key);
-    }
-  }
-
-  // ── forming bars ───────────────────────────────────────────────────────────
-
-  private async onBarUpdate(e: BarCloseEvent): Promise<void> {
-    const key = feedKey(e.symbol, e.interval);
-    if (!this.feeds.has(key) || this.processing.has(key)) return;
-
-    const st = this.state.get(key);
-    // No baseline yet (first tick after boot): the next bar close builds it.
-    if (!st) return;
-    const now = Date.now();
-    if (now - st.lastIntrabarAt < INTRABAR_THROTTLE_MS) return;
-    st.lastIntrabarAt = now;
-
-    this.processing.add(key);
-    try {
-      const alerts = (await maAlertRepo.listAlerts({
-        symbol: e.symbol, timeframe: e.interval, enabledOnly: true,
-      })).filter((a) => isIntrabar(a.trigger));
-      if (alerts.length === 0) return;
-
-      // A baseline built from an older bar would roll the MA forward from the
-      // wrong anchor. Wait for the close that refreshes it.
-      if (st.closedOpenTime + INTERVAL_MS[e.interval] !== e.candle.openTime) return;
-
-      for (const alert of alerts) {
-        const value = this.provisionalMa(st, alert.maType, alert.maLength, e.candle.close);
-        if (value === null) continue;
-
-        const result = evaluateMaAlert(alert, e.candle, value, alert.lastSide as Side | null);
-        if (!result.triggered) continue;
-        if (!cooldownElapsed(alert.lastFiredAt, alert.cooldownMin)) continue;
-        // "Once per bar": stay silent for the rest of a candle already announced.
-        if (
-          alert.trigger === "once_per_bar" &&
-          alert.lastFiredBarTime !== null &&
-          Date.parse(alert.lastFiredBarTime) === e.candle.openTime
-        ) continue;
-
-        await this.fire(alert, e.candle, value, result.distancePct, true);
-        await maAlertRepo.recordEvaluation(alert.id, {
-          fired: true,
-          barTime: e.candle.openTime,
-          disable: alert.trigger === "once",
-        });
-      }
-    } catch (err) {
-      this.log.error({ key, err: (err as Error).message }, "ma alert intrabar evaluation failed");
+      this.log.error({ key, err: (err as Error).message }, "alert evaluation failed");
     } finally {
       this.processing.delete(key);
     }
   }
 
   /**
-   * The MA including the forming bar, in constant time. Returns null when this
-   * feed has no baseline for that MA yet (not enough history).
+   * A forming candle. Cheap by construction: it reuses the cached closed-bar
+   * history and never touches the database or the REST API, so the per-second
+   * websocket cadence costs an array copy and a few moving averages.
    */
-  private provisionalMa(
-    st: FeedState, type: MaType, length: number, formingClose: number
-  ): number | null {
-    const k = maKey(type, length);
-    if (type === "sma") {
-      const tail = st.smaTailSum.get(k);
-      return tail === undefined ? null : provisionalSma(tail, formingClose, length);
+  private async onBarUpdate(e: BarUpdateEvent): Promise<void> {
+    const key = feedKey(e.symbol, e.interval);
+    if (this.processing.has(key)) return;
+
+    const now = Date.now();
+    const last = this.lastIntrabarAt.get(key) ?? 0;
+    if (now - last < INTRABAR_MIN_MS) return;
+
+    // Only closed bars are cached, and they are cached by the bar-close path.
+    // Until the first close arrives there is no history to compute an MA over,
+    // so intrabar evaluation simply has not started yet for this feed.
+    const closedBars = this.history.get(key);
+    if (!closedBars || closedBars.length === 0) return;
+
+    this.processing.add(key);
+    this.lastIntrabarAt.set(key, now);
+    try {
+      // The forming bar replaces its own slot if the cache already holds it —
+      // it never accumulates a growing tail of provisional candles.
+      const bars = [...closedBars];
+      const tail = bars[bars.length - 1]!;
+      if (tail.openTime === e.candle.openTime) bars[bars.length - 1] = e.candle;
+      else if (e.candle.openTime > tail.openTime) bars.push(e.candle);
+      else return; // a frame for an older bar than the cache: ignore it
+
+      await this.evaluate(e.symbol, e.interval, bars, e.candle, false);
+    } catch (err) {
+      this.log.error({ key, err: (err as Error).message }, "intrabar alert evaluation failed");
+    } finally {
+      this.processing.delete(key);
     }
-    const prev = st.closedMa.get(k);
-    return prev === undefined ? null : provisionalEma(prev, formingClose, length);
   }
 
-  /** Recompute every MA this feed needs, and cache what the ticks will need. */
-  private rebuildBaseline(
-    key: string, bars: Candle[], alerts: MaAlertRow[]
-  ): Map<string, number> {
+  /**
+   * Evaluate every alert on one feed against one sample.
+   *
+   * `isClosedBar` is passed through rather than inferred, because it is the
+   * single fact that separates the two cadences and inferring it from, say, a
+   * timestamp comparison would be a guess in the place a guess is least
+   * affordable.
+   */
+  private async evaluate(
+    symbol: string, interval: Interval, bars: Candle[], sampleBar: Candle, isClosedBar: boolean
+  ): Promise<void> {
+    const alerts = await maAlertRepo.listAlerts({
+      symbol, timeframe: interval, activeOnly: true,
+    });
+    const relevant = isClosedBar
+      ? alerts
+      : alerts.filter((a) => acceptsIntrabarSample(a.frequency));
+    if (relevant.length === 0) return;
+
     const closes = bars.map((b) => b.close);
-    const last = bars[bars.length - 1]!;
-    const closedMa = new Map<string, number>();
-    const smaTailSum = new Map<string, number>();
-    const values = new Map<string, number>();
 
     // One series per distinct (type, length) across this feed's alerts — the
     // 15 SMA shared by a touch alert and a near alert is computed once.
-    const seen = new Set<string>();
-    for (const a of alerts) {
-      const k = maKey(a.maType, a.maLength);
-      if (seen.has(k)) continue;
-      seen.add(k);
+    const cache = new Map<string, number[]>();
+    const seriesFor = (type: MaType, length: number): number | undefined => {
+      const k = `${type}${length}`;
+      let s = cache.get(k);
+      if (!s) { s = type === "sma" ? sma(closes, length) : ema(closes, length); cache.set(k, s); }
+      const v = s[closes.length - 1];
+      return v === undefined || !Number.isFinite(v) ? undefined : v;
+    };
 
-      const series = a.maType === "sma" ? sma(closes, a.maLength) : ema(closes, a.maLength);
-      const value = series[closes.length - 1];
-      if (value === undefined || !Number.isFinite(value)) continue;
-      values.set(k, value);
-      closedMa.set(k, value);
+    const sample: FeedSample = {
+      symbol, timeframe: interval,
+      barTime: sampleBar.openTime,
+      isClosedBar,
+      high: sampleBar.high,
+      low: sampleBar.low,
+      close: sampleBar.close,
+      series: seriesFor,
+    };
+    const now = Date.now();
 
-      if (a.maType === "sma") {
-        // The closes that remain in the window once the forming bar joins it.
-        const tail = closes.slice(closes.length - (a.maLength - 1));
-        if (tail.length === a.maLength - 1) {
-          smaTailSum.set(k, tail.reduce((x, y) => x + y, 0));
-        }
+    for (const alert of relevant) {
+      const condition = conditionFromRow(alert);
+      if (!condition) {
+        this.log.warn({ alertId: alert.id, kind: alert.conditionKind }, "alert row is not evaluable");
+        continue;
       }
-    }
+      const spec = toSpec(alert, condition);
+      const plan = planAlert(spec, sample, now);
+      if (!plan.act) continue;
 
-    this.state.set(key, {
-      closedMa, smaTailSum, closedOpenTime: last.openTime, lastIntrabarAt: 0,
-    });
-    return values;
+      let delivered = false;
+      if (plan.fire) {
+        delivered = await this.fire(alert, condition, sampleBar, plan.reference, plan.distancePct, !isClosedBar);
+      }
+      const next = stateAfterPlan(spec, plan, {
+        barTime: sampleBar.openTime, now, delivered,
+      });
+      await maAlertRepo.recordEvaluation({
+        id: alert.id,
+        side: next.lastSide,
+        barTime: next.lastBarTime,
+        fired: plan.fire,
+        complete: next.fireState.completed && !spec.fireState.completed,
+      });
+    }
   }
 
   /**
@@ -294,7 +289,7 @@ export class MaAlertRunner {
     try {
       await ensureCandles(symbol, interval, endMs - span, endMs);
     } catch (err) {
-      this.log.warn({ symbol, interval, err: (err as Error).message }, "ma alert backfill failed");
+      this.log.warn({ symbol, interval, err: (err as Error).message }, "alert backfill failed");
     }
     const bars = await candleRepo.getCandles(symbol, interval, { limit: HISTORY_BARS });
     const lastStored = bars[bars.length - 1];
@@ -303,25 +298,21 @@ export class MaAlertRunner {
     return bars;
   }
 
+  /** Deliver one notification. Returns whether it reached at least one device. */
   private async fire(
-    alert: MaAlertRow, bar: Candle, maValue: number, distancePct: number, intrabar = false
-  ): Promise<void> {
-    const line = maLabel(alert.maType, alert.maLength);
-    const title = `${alert.symbol} ${alert.timeframe} — ${line}`;
-    const body =
-      `Price ${describeMode(alert)} the ${line} ` +
-      `(${intrabar ? "now" : "close"} ${fmt(bar.close)}, ${line} ${fmt(maValue)}, ` +
-      `${distancePct >= 0 ? "+" : ""}${distancePct.toFixed(2)}%)`;
+    alert: MaAlertRow, condition: AlertCondition, bar: Candle,
+    reference: number, distancePct: number, intrabar: boolean
+  ): Promise<boolean> {
+    const { title, body, tag, url } = formatAlertPush(
+      alert, condition, bar, reference, distancePct, intrabar
+    );
 
     let pushedTo = 0;
     try {
-      const res = await sendPush(
-        { title, body, tag: `ma-${alert.id}`, url: `/chart?symbol=${alert.symbol}&interval=${alert.timeframe}` },
-        this.log
-      );
+      const res = await sendPush({ title, body, tag, url }, this.log);
       pushedTo = res.sent;
     } catch (err) {
-      this.log.error({ alertId: alert.id, err: (err as Error).message }, "ma alert push failed");
+      this.log.error({ alertId: alert.id, err: (err as Error).message }, "alert push failed");
     }
 
     // The event row is written whether or not a device was reachable, so the
@@ -330,22 +321,18 @@ export class MaAlertRunner {
       alertId: alert.id,
       barTime: bar.openTime,
       price: bar.close,
-      maValue,
+      maValue: reference,
       distancePct,
       title,
       body,
       pushedTo,
+      intrabar,
+      frequency: alert.frequency,
     });
     this.log.info(
-      { alertId: alert.id, symbol: alert.symbol, mode: alert.mode, trigger: alert.trigger, intrabar, pushedTo },
-      "ma alert fired"
+      { alertId: alert.id, symbol: alert.symbol, kind: alert.conditionKind, intrabar, pushedTo },
+      "alert fired"
     );
+    return pushedTo > 0;
   }
-}
-
-/** Price formatting that keeps sub-cent alt pairs readable. */
-function fmt(n: number): string {
-  const abs = Math.abs(n);
-  const d = abs >= 1000 ? 2 : abs >= 1 ? 4 : abs >= 0.01 ? 6 : 8;
-  return n.toFixed(d).replace(/\.?0+$/, "");
 }

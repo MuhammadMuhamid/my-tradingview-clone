@@ -34,8 +34,10 @@ test("custom BUY payload matches f_bot_json_buy shape exactly", () => {
   assert.equal(p.action, "buy");
   assert.equal(p.symbol, "APTUSDT");
   assert.equal(p.quote_order_qty, 800);
-  assert.equal(p.dedupe_key, "L-42-1700000000000");
-  assert.equal(dedupeKey, "L-42-1700000000000");
+  // Contract v1: the key is derived from bar OPEN TIME only. The bar index is
+  // gone because the two senders computed it differently (X-02).
+  assert.equal(p.dedupe_key, "L-1700000000000");
+  assert.equal(dedupeKey, "L-1700000000000");
   assert.equal(p.secret, "s".repeat(40));
 });
 
@@ -43,7 +45,7 @@ test("custom SELL payload omits quote_order_qty and uses X- prefix", () => {
   const { payload } = buildPayload(dep({ delivery: "custom" }), { ...ctx, action: "sell", marketPosition: "flat" });
   const p = payload as CustomBotAlertPayload;
   assert.equal(p.action, "sell");
-  assert.equal(p.dedupe_key, "X-42-1700000000000");
+  assert.equal(p.dedupe_key, "X-1700000000000");
   assert.ok(!("quote_order_qty" in p));
 });
 
@@ -58,7 +60,7 @@ test("custom partial SELL carries current-position percentage and tier-scoped de
   const p = payload as CustomBotAlertPayload;
   assert.equal(p.sell_percent, 50);
   assert.equal(p.exit_leg, "tp2");
-  assert.equal(p.dedupe_key, "X-42-1700000000000-tp2");
+  assert.equal(p.dedupe_key, "X-1700000000000-tp2");
   assert.equal(dedupeKey, p.dedupe_key);
   assert.ok(!("quote_order_qty" in p));
 });
@@ -86,10 +88,14 @@ test("delivery=off builds a payload but no url", () => {
   assert.equal(url, null);
 });
 
-test("customDedupeKey prefixes", () => {
-  assert.equal(customDedupeKey("buy", 5, 1000), "L-5-1000");
-  assert.equal(customDedupeKey("sell", 5, 1000), "X-5-1000");
-  assert.equal(customDedupeKey("sell", 5, 1000, "tp1"), "X-5-1000-tp1");
+test("customDedupeKey prefixes, and the bar index is ignored", () => {
+  assert.equal(customDedupeKey("buy", 5, 1000), "L-1000");
+  assert.equal(customDedupeKey("sell", 5, 1000), "X-1000");
+  assert.equal(customDedupeKey("sell", 5, 1000, "tp1"), "X-1000-tp1");
+  // Contract v1 drops the bar index: the two senders computed it differently,
+  // so the same bar produced different keys (X-02). The parameter is kept so
+  // callers do not have to change shape, and is deliberately not used.
+  assert.equal(customDedupeKey("buy", 5, 1000), customDedupeKey("buy", 999_999, 1000));
 });
 
 test("deliver returns skipped when url is null", async () => {
@@ -111,11 +117,20 @@ test("deliver posts JSON and returns sent on 200", async () => {
   });
   await new Promise<void>((r) => server.listen(0, r));
   const port = (server.address() as { port: number }).port;
-  const res = await deliver(`http://localhost:${port}/hook`, buildPayload(dep({}), ctx).payload, { allowUnsafeTestUrl: true });
-  assert.equal(res.status, "sent");
-  assert.equal(res.httpStatus, 200);
-  assert.equal((received[0] as CustomBotAlertPayload).dedupe_key, "L-42-1700000000000");
-  server.close();
+  try {
+    const res = await deliver(
+      `http://localhost:${port}/hook`,
+      buildPayload(dep({}), ctx).payload,
+      { allowUnsafeTestUrl: true }
+    );
+    assert.equal(res.status, "sent");
+    assert.equal(res.httpStatus, 200);
+    assert.equal((received[0] as CustomBotAlertPayload).dedupe_key, "L-1700000000000");
+  } finally {
+    // Without the finally, a failed assertion leaves this server listening and
+    // the test FILE never exits — the failure becomes a hang.
+    server.close();
+  }
 });
 
 test("deliver stops early on 4xx (no retry storm)", async () => {

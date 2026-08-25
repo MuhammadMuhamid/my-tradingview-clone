@@ -1,14 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE, not a ready-to-load file (findings OPT-23, BE-30).
+
+  Every path in the shipped version was an absolute path under a different
+  username, so none of these agents could run on any other checkout — and they
+  mixed `/usr/local/bin/node` (Intel Homebrew) with `/opt/homebrew/...`
+  (Apple Silicon), which cannot both be right on one machine.
+
+  Render with:
+
+      platform/scripts/install-launchd.sh <target-dir>
+
+  which fills the checkout, node and postgres placeholders below from this
+  checkout and the tools actually on PATH. Loading a rendered agent is a
+  separate, explicit step; the script never calls launchctl for you.
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>com.alphaweb.clone-db</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/opt/postgresql@16/bin/postgres</string>
+    <string>__PG_BIN__/postgres</string>
     <string>-D</string>
-    <string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/.pgdata</string>
+    <string>__CHECKOUT__/platform/.pgdata</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -22,8 +38,8 @@
   <key>ThrottleInterval</key>
   <integer>5</integer>
   <key>StandardOutPath</key>
-  <string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/.pgdata/launchd.log</string>
+  <string>__CHECKOUT__/platform/.pgdata/launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/.pgdata/launchd-error.log</string>
+  <string>__CHECKOUT__/platform/.pgdata/launchd-error.log</string>
 </dict>
 </plist>

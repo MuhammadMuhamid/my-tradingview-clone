@@ -7,7 +7,8 @@
  * precisely to catch that wick case.
  */
 import type { Candle } from "../types/market";
-import type { MaAlertMode } from "../types/maAlerts";
+import type { MaAlertMode, MaType } from "../types/maAlerts";
+import { describeMode, maLabel } from "../types/maAlerts";
 
 export type Side = "above" | "below";
 
@@ -87,4 +88,37 @@ export function cooldownElapsed(
 ): boolean {
   if (!lastFiredAt || cooldownMin <= 0) return true;
   return now - Date.parse(lastFiredAt) >= cooldownMin * 60_000;
+}
+
+/** Price formatting that keeps sub-cent alt pairs readable. */
+export function formatAlertPrice(n: number): string {
+  const abs = Math.abs(n);
+  const d = abs >= 1000 ? 2 : abs >= 1 ? 4 : abs >= 0.01 ? 6 : 8;
+  return n.toFixed(d).replace(/\.?0+$/, "");
+}
+
+/**
+ * The notification text for a fired MA alert. Pure so the wording — and its
+ * size against the Web Push payload limit — can be tested without a database.
+ */
+export function formatMaAlertPush(
+  alert: {
+    id: string; symbol: string; timeframe: string;
+    maType: MaType; maLength: number;
+    mode: MaAlertMode; nearMinPct: number; nearMaxPct: number;
+  },
+  bar: { close: number },
+  maValue: number,
+  distancePct: number
+): { title: string; body: string; tag: string; url: string } {
+  const line = maLabel(alert.maType, alert.maLength);
+  return {
+    title: `${alert.symbol} ${alert.timeframe} \u2014 ${line}`,
+    body:
+      `Price ${describeMode(alert)} the ${line} ` +
+      `(close ${formatAlertPrice(bar.close)}, ${line} ${formatAlertPrice(maValue)}, ` +
+      `${distancePct >= 0 ? "+" : ""}${distancePct.toFixed(2)}%)`,
+    tag: `ma-${alert.id}`,
+    url: `/chart?symbol=${alert.symbol}&interval=${alert.timeframe}`,
+  };
 }

@@ -7,7 +7,13 @@ export function TradeList({ trades }: { trades: Trade[] }) {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm tabular">
+      {/*
+        Nine columns of dates and numbers cannot fit a phone. `w-full` alone
+        makes the table shrink to the viewport and wrap every cell; the minimum
+        width is what actually engages the scroll container it sits in, so the
+        columns stay readable and the page itself never scrolls sideways.
+      */}
+      <table className="w-full min-w-[760px] text-sm tabular">
         <thead>
           <tr className="border-b border-border text-left text-xs text-ink-muted">
             <th className="px-3 py-2 font-medium">#</th>

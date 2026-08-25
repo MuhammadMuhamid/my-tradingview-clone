@@ -1,15 +1,57 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Local backend launch agent — TEMPLATE, not a ready-to-load file.
+
+  Two things were wrong with the previous version, and both are why it is now a
+  template (finding X-06, OPT-23, BE-30):
+
+  1. It set NO environment at all. `LIVE_RUNNER_ENABLED` was therefore unset,
+     and the runner treated unset as ENABLED — so loading this agent started a
+     second live signal emitter against the same production bot, with
+     RunAtLoad and KeepAlive, and with its runtime state in a DIFFERENT database
+     from the cloud emitter's. The handoff document records that the local
+     backend was stopped and this agent disabled for exactly that reason.
+
+     The runner is now opt-in, so an unset variable means disabled. The explicit
+     `false` below is belt and braces: this agent must never be the thing that
+     starts emitting.
+
+  2. Every path was an absolute path under a different username
+     (`/Users/muhammadmuhamid/…`), so the file could not work as shipped
+     anywhere else, and it mixed `/usr/local/bin/node` (Intel Homebrew) with
+     Apple-Silicon paths elsewhere in the tree — an impossible combination on
+     one machine.
+
+  To install:
+
+      platform/scripts/install-launchd.sh   # fills the placeholders in
+
+  It renders and stops. Review the result, write it to ~/Library/LaunchAgents/
+  and `launchctl load` it yourself. Do not load this file as-is.
+-->
 <plist version="1.0"><dict>
   <key>Label</key><string>com.alphaweb.clone-backend</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/local/bin/node</string>
-    <string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend/dist/index.js</string>
+    <string>__NODE_BIN__</string>
+    <string>__CHECKOUT__/platform/backend/dist/index.js</string>
   </array>
-  <key>WorkingDirectory</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend</string>
+  <key>WorkingDirectory</key><string>__CHECKOUT__/platform/backend</string>
+
+  <!--
+    The local backend serves the chart and runs backtests. It does NOT emit live
+    signals: that is the cloud deployment's job, and two emitters against one
+    bot issue conflicting BUY/SELL because their state lives in separate
+    databases. Changing this to "true" arms real order flow.
+  -->
+  <key>EnvironmentVariables</key><dict>
+    <key>LIVE_RUNNER_ENABLED</key><string>false</string>
+    <key>NODE_ENV</key><string>production</string>
+  </dict>
+
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
-  <key>StandardOutPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend/backend-service.log</string>
-  <key>StandardErrorPath</key><string>/Users/muhammadmuhamid/Projects/supportandresistance strategy/platform/backend/backend-service-error.log</string>
+  <key>StandardOutPath</key><string>__CHECKOUT__/platform/backend/backend-service.log</string>
+  <key>StandardErrorPath</key><string>__CHECKOUT__/platform/backend/backend-service-error.log</string>
 </dict></plist>

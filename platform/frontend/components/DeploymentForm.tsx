@@ -4,6 +4,7 @@ import { Card, CardHeader, Button, Field, TextInput, Select } from "@/components
 import { ParamForm } from "@/components/ParamForm";
 import { api } from "@/lib/api";
 import { defaultParams } from "@/lib/paramSchema";
+import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Interval, StrategyParams, SymbolInfo } from "@/lib/types";
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h"];
@@ -33,8 +34,8 @@ export function DeploymentForm({
       await api.createDeployment({
         strategyKey: "ma_rr_v9",
         symbol, timeframe, params, delivery,
-        webhookUrl: delivery === "off" ? undefined : webhookUrl || undefined,
-        secret: secret || undefined,
+        webhookUrl: deliversLiveOrders(delivery) ? webhookUrl || undefined : undefined,
+        secret: deliversLiveOrders(delivery) ? secret || undefined : undefined,
         botUuid: delivery === "3commas" ? botUuid || undefined : undefined,
         buyQuoteQty,
       });
@@ -65,7 +66,8 @@ export function DeploymentForm({
             <Select value={delivery} onChange={(e) => setDelivery(e.target.value as DeliveryMode)}>
               <option value="custom">Custom bot (FastAPI)</option>
               <option value="3commas">3Commas Signal bot</option>
-              <option value="off">Off (dry run — log only)</option>
+              <option value="paper">Paper (simulate fills — no orders)</option>
+              <option value="off">Off (log only — no orders, no simulation)</option>
             </Select>
           </Field>
           <Field label="Buy size (quote USDT)">
@@ -73,13 +75,14 @@ export function DeploymentForm({
           </Field>
         </div>
 
-        {delivery !== "off" && (
+        {deliversLiveOrders(delivery) && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={delivery === "3commas" ? "3Commas webhook URL" : "Bot webhook URL"} help={delivery === "3commas" ? "leave blank for the default 3Commas signal endpoint" : "your FastAPI bot endpoint"}>
               <TextInput value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder={delivery === "3commas" ? "https://api.3commas.io/signal_bots/webhooks" : "http://your-bot/webhook"} />
             </Field>
             <Field label="Secret">
-              <TextInput value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="bot webhook secret" />
+              <TextInput value={secret} onChange={(e) => setSecret(e.target.value)}
+                placeholder="bot webhook secret" type="password" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore />
             </Field>
             {delivery === "3commas" && (
               <Field label="Bot UUID">

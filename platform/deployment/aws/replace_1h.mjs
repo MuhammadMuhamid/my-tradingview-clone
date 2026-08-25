@@ -3,15 +3,24 @@
  * the 14 fresh 1h alerts (@ their buy amount, encrypted secret carried over —
  * decryptable because AWS shares ALERT_ENCRYPTION_KEY) and their "<COIN> 1h"
  * charts. Runs inside the AWS backend container. A pre-change backup is written
- * to /tmp first. Pass --dry to report without writing.
+ * to /tmp first.
  *
- *   node replace_1h.mjs /tmp/deploy_1h_manifest.json [--dry]
+ * WRITING IS OPT-IN (OPT-27). Without --apply this reports and exits.
+ *
+ *   node replace_1h.mjs /tmp/deploy_1h_manifest.json            # preview
+ *   node replace_1h.mjs /tmp/deploy_1h_manifest.json --apply    # write
  */
 import fs from "node:fs";
 import pg from "pg";
+import { assertNoOpenPositions, parseWriteIntent } from "./lib/replaceGuard.mjs";
+import { assertHoldoutClearance } from "./lib/holdoutGate.mjs";
 
 const MANIFEST = process.argv[2] || "/tmp/deploy_1h_manifest.json";
-const DRY = process.argv.includes("--dry");
+// OPT-27: writing is opt-in. `--dry` still previews; passing neither flag
+// also previews, so an invocation that forgets the flag cannot rewrite the
+// deployment table by accident.
+const INTENT = parseWriteIntent(process.argv, "replace_1h.mjs");
+const DRY = !INTENT.apply;
 const FRESH = {
   position: "flat", entryPrice: null, entryBarTime: null, savedLongStop: null,
   savedLongTp: null, trailAnchor: null, trailArmed: false, tp1Done: false,
@@ -27,8 +36,28 @@ const before = await pool.query("SELECT symbol,status FROM deployments ORDER BY 
 const lay = await pool.query("SELECT count(*)::int c FROM chart_layouts");
 console.log("BEFORE — deployments:", before.rows.length, "layouts:", lay.rows[0].c);
 
+// OPT-27: this script deletes every deployment row and re-creates it flat.
+// Doing that to an open position discards the entry price, stop and target the
+// platform needs in order to sell it. The lean scripts already refused; this
+// one did not.
+await assertNoOpenPositions(pool, "replace_1h.mjs");
+
+// OPT-01: the manifest must carry the same holdout evidence as the lean
+// artifacts. A 1h portfolio is deployed the same way and is chosen the same
+// way, so it is gated the same way.
+// The 1h manifest is historically a bare array; a newer one may be an object
+// carrying the window beside its coins. Both are accepted, and a bare array
+// simply has no holdout evidence, which is a refusal.
+const manifestCoins = Array.isArray(manifest) ? manifest : (manifest.coins ?? []);
+assertHoldoutClearance(
+  Array.isArray(manifest) ? {} : manifest,
+  manifestCoins.map((m) => ({ symbol: m.symbol, holdout: m.holdout ?? null })),
+  "replace_1h.mjs"
+);
+
+console.log(INTENT.explain());
 if (DRY) {
-  console.log("DRY: would delete all, then insert", manifest.length, "coins:",
+  console.log("would delete all, then insert", manifest.length, "coins:",
     manifest.map((m) => `${m.symbol}(${m.buyQuoteQty})`).join(", "));
   await pool.end();
 } else {
