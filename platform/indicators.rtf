@@ -1,0 +1,902 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fnil\fcharset0 Menlo-Regular;\f2\fnil\fcharset0 Menlo-Bold;
+}
+{\colortbl;\red255\green255\blue255;\red109\green109\blue109;\red13\green13\blue13;\red255\green255\blue255;
+\red74\green135\blue243;\red46\green126\blue46;\red56\green178\blue151;\red211\green211\blue211;\red242\green100\blue109;
+\red240\green106\blue20;\red38\green95\blue242;}
+{\*\expandedcolortbl;;\cssrgb\c50196\c50196\c50196;\cssrgb\c5882\c5882\c5882;\cssrgb\c100000\c100000\c100000;
+\cssrgb\c35686\c61176\c96471;\cssrgb\c21961\c55686\c23529;\cssrgb\c25882\c74118\c65882;\cssrgb\c85882\c85882\c85882;\cssrgb\c96863\c48627\c50196;
+\cssrgb\c96078\c49804\c9020;\cssrgb\c19216\c47451\c96078;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs26 \cf2 \cb3 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 //
+\f2\b @version=
+\f1\b0 4\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 study\cf4 \strokec4 (\cf6 \strokec6 "Supertrend"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 overlay\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 true,\cf4 \strokec4  \cf8 \strokec8 format\cf7 \strokec7 =\cf9 \strokec9 format.price\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 precision\cf7 \strokec7 =\cf10 \strokec10 2\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 resolution\cf7 \strokec7 =\cf6 \strokec6 ""\cf4 \strokec4 )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 Periods\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "ATR Period"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.integer\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf7 \strokec7 =\cf10 \strokec10 10\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf9 \strokec9 hl2\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Source"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 Multiplier\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "ATR Multiplier"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.float\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 step\cf7 \strokec7 =\cf10 \strokec10 0.1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf7 \strokec7 =\cf10 \strokec10 3.0\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 changeATR\cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Change ATR Calculation Method ?"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.bool\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf7 \strokec7 =true\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 showsignals\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Show Buy/Sell Signals ?"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.bool\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf7 \strokec7 =true\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 highlighting\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Highlighter On/Off ?"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.bool\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf7 \strokec7 =true\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 atr2\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 sma\cf4 \strokec4 (\cf9 \strokec9 tr\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 Periods\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 atr\cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 changeATR\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 atr\cf4 \strokec4 (\cf8 \strokec8 Periods\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 atr2\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 up\cf7 \strokec7 =\cf8 \strokec8 src\cf7 \strokec7 -\cf4 \strokec4 (\cf8 \strokec8 Multiplier\cf7 \strokec7 *\cf8 \strokec8 atr\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 up1\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 up\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf8 \strokec8 up\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf9 \strokec9 close\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 up1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 max\cf4 \strokec4 (\cf8 \strokec8 up\cf7 \strokec7 ,\cf8 \strokec8 up1\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 up\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 dn\cf7 \strokec7 =\cf8 \strokec8 src\cf7 \strokec7 +\cf4 \strokec4 (\cf8 \strokec8 Multiplier\cf7 \strokec7 *\cf8 \strokec8 atr\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 dn1\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 dn\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 dn\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 dn\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf9 \strokec9 close\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 dn1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 min\cf4 \strokec4 (\cf8 \strokec8 dn\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 dn1\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 dn\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 1\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 trend\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf9 \strokec9 close\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 dn1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf9 \strokec9 close\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 up1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 upPlot\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Up Trend"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 plot.style_linebr\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 linewidth\cf7 \strokec7 =\cf10 \strokec10 2\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.green\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 buySignal\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cf8 \strokec8 buySignal\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "UpTrend Begins"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 location\cf7 \strokec7 =\cf9 \strokec9 location.absolute\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 shape.circle\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 size\cf7 \strokec7 =\cf9 \strokec9 size.tiny\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cf8 \strokec8 buySignal\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 showsignals\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Buy"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 text\cf7 \strokec7 =\cf6 \strokec6 "Buy"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 location\cf7 \strokec7 =\cf9 \strokec9 location.absolute\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 shape.labelup\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 size\cf7 \strokec7 =\cf9 \strokec9 size.tiny\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 textcolor\cf7 \strokec7 =\cf9 \strokec9 color.white\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 dnPlot\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 na\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 dn\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Down Trend"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 plot.style_linebr\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 linewidth\cf7 \strokec7 =\cf10 \strokec10 2\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.red\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 sellSignal\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 1\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cf8 \strokec8 sellSignal\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 dn\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "DownTrend Begins"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 location\cf7 \strokec7 =\cf9 \strokec9 location.absolute\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 shape.circle\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 size\cf7 \strokec7 =\cf9 \strokec9 size.tiny\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cf8 \strokec8 sellSignal\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 showsignals\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 dn\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Sell"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 text\cf7 \strokec7 =\cf6 \strokec6 "Sell"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 location\cf7 \strokec7 =\cf9 \strokec9 location.absolute\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 shape.labeldown\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 size\cf7 \strokec7 =\cf9 \strokec9 size.tiny\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 textcolor\cf7 \strokec7 =\cf9 \strokec9 color.white\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 mPlot\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf9 \strokec9 ohlc4\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 plot.style_circles\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 linewidth\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 longFillColor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 highlighting\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  (\cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 color.green\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 color.white\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 color.white\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 shortFillColor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 highlighting\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  (\cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 color.red\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 color.white\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 color.white\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 fill\cf4 \strokec4 (\cf8 \strokec8 mPlot\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 upPlot\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "UpTrend Highligter"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf8 \strokec8 longFillColor\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 fill\cf4 \strokec4 (\cf8 \strokec8 mPlot\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 dnPlot\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "DownTrend Highligter"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf8 \strokec8 shortFillColor\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 buySignal\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "SuperTrend Buy"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 message\cf7 \strokec7 =\cf6 \strokec6 "SuperTrend Buy!"\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 sellSignal\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "SuperTrend Sell"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 message\cf7 \strokec7 =\cf6 \strokec6 "SuperTrend Sell!"\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 changeCond\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf8 \strokec8 trend\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 changeCond\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "SuperTrend Direction Change"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 message\cf7 \strokec7 =\cf6 \strokec6 "SuperTrend has changed direction!"\cf4 \strokec4 )\cb1 \
+\
+\
+\
+\
+\
+\pard\pardeftab720\partightenfactor0
+\cf4 \
+\cf2 \cb3 \strokec2 //
+\f2\b @version=
+\f1\b0 6\cf4 \cb1 \strokec4 \
+\cf5 \cb3 \strokec5 indicator\cf4 \strokec4 (\cf6 \strokec6 "Pivot Points Standard"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Pivots"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 overlay\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 max_lines_count\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 500\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 max_labels_count\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 500\cf4 \strokec4 )\cb1 \
+\
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 TT_DB\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  (\cb1 \
+\cb3     \cf6 \strokec6 "When not selected, the indicator uses intraday data instead of EOD data on intraday charts. If the chart includes "\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 +\cf4 \strokec4  \cf6 \strokec6 "data from extended hours, the pivot level calculation takes that data into account. If intraday OHLC values "\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 +\cf4 \strokec4  \cf6 \strokec6 "differ from EOD values (normal for stocks), the calculated pivot levels will also differ."\cf4 \cb1 \strokec4 \
+\cb3 )\cb1 \
+\cf8 \cb3 \strokec8 DW\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.data_window\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4            \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.string\cf4 \strokec4 (\cf6 \strokec6 "Traditional"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Type"\cf7 \strokec7 ,\cf4 \strokec4                    \cf8 \strokec8 options\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  [\cf6 \strokec6 "Traditional"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Fibonacci"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Woodie"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Classic"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "DM"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Camarilla"\cf4 \strokec4 ])\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotAnchorInput\cf4 \strokec4          \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.string\cf4 \strokec4 (\cf6 \strokec6 "Auto"\cf7 \strokec7 ,\cf4 \strokec4         \cf6 \strokec6 "Pivots timeframe"\cf7 \strokec7 ,\cf4 \strokec4        \cf8 \strokec8 options\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  [\cf6 \strokec6 "Auto"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Daily"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Weekly"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Monthly"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Quarterly"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Yearly"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Biyearly"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Triyearly"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Quinquennially"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Decennially"\cf4 \strokec4 ])\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4     \cf8 \strokec8 maxHistoricalPivotsInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 15\cf7 \strokec7 ,\cf4 \strokec4                \cf6 \strokec6 "Number of pivots back"\cf7 \strokec7 ,\cf4 \strokec4   \cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 200\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 isDailyBasedInput\cf4 \strokec4         \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4             \cf6 \strokec6 "Use daily-based values"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 TT_DB\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+\
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 GRP01\cf4 \strokec4                     \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Labels"\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 showLabelsInput\cf4 \strokec4           \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4             \cf6 \strokec6 "Show labels"\cf7 \strokec7 ,\cf4 \strokec4             \cf8 \strokec8 group\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP01\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 showPricesInput\cf4 \strokec4           \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4             \cf6 \strokec6 "Show prices"\cf7 \strokec7 ,\cf4 \strokec4             \cf8 \strokec8 group\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP01\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 positionLabelsInput\cf4 \strokec4       \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.string\cf4 \strokec4 (\cf6 \strokec6 "Left"\cf7 \strokec7 ,\cf4 \strokec4         \cf6 \strokec6 "Labels position"\cf7 \strokec7 ,\cf4 \strokec4         \cf8 \strokec8 options\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  [\cf6 \strokec6 "Left"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Right"\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP01\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLabelsInput\cf4 \strokec4  \cf7 \strokec7 or\cf4 \strokec4  \cf8 \strokec8 showPricesInput\cf4 \strokec4 )\cb1 \
+\
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 DEFAULT_COLOR\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 #fb8c00\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 showLevel2and3\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "DM"\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 showLevel4\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "DM"\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "Fibonacci"\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 showLevel5\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf6 \strokec6 "Traditional"\cf4 \strokec4  \cf7 \strokec7 or\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf6 \strokec6 "Camarilla"\cf4 \cb1 \strokec4 \
+\
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 GRP02\cf4 \strokec4           \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Levels"\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4     \cf8 \strokec8 linewidthInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4                \cf6 \strokec6 "Line width"\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 100\cf7 \strokec7 ,\cf4 \strokec4         \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 pColorInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "P\uc0\u8199 "\cf7 \strokec7 ,\cf4 \strokec4          \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "10"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 pShowInput\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "10"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 s1ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "S1"\cf7 \strokec7 ,\cf4 \strokec4          \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "02"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 s1ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "02"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 r1ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "\uc0\u8199 \u8199 \u8199 R1"\cf7 \strokec7 ,\cf4 \strokec4       \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "02"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 r1ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "02"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 s2ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "S2"\cf7 \strokec7 ,\cf4 \strokec4          \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "03"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 s2ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "03"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 r2ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "\uc0\u8199 \u8199 \u8199 R2"\cf7 \strokec7 ,\cf4 \strokec4       \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "03"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 r2ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "03"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 s3ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "S3"\cf7 \strokec7 ,\cf4 \strokec4          \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "04"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 s3ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "04"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 r3ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "\uc0\u8199 \u8199 \u8199 R3"\cf7 \strokec7 ,\cf4 \strokec4       \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "04"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 r3ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "04"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel2and3\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 s4ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "S4"\cf7 \strokec7 ,\cf4 \strokec4          \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "05"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel4\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 s4ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "05"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel4\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 r4ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "\uc0\u8199 \u8199 \u8199 R4"\cf7 \strokec7 ,\cf4 \strokec4       \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "05"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel4\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 r4ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "05"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel4\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 s5ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "S5"\cf7 \strokec7 ,\cf4 \strokec4          \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "06"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel5\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 s5ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "06"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel5\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 r5ColorInput\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.color\cf4 \strokec4 (\cf8 \strokec8 DEFAULT_COLOR\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "\uc0\u8199 \u8199 \u8199 R5"\cf7 \strokec7 ,\cf4 \strokec4       \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "06"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel5\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 r5ShowInput\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4            \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4            \cf8 \strokec8 inline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "06"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP02\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 DW\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 showLevel5\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @type
+\f1\b0  A custom type for creating objects containing the name, color, and visibility settings for pivot levels.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 type\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 graphicSettings
+\f1\b0 \cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 levelName\cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 levelColor\cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4    \cf8 \strokec8 showLevel\cf4 \cb1 \strokec4 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @type
+\f1\b0  A custom type for creating objects that reference the line and label of a single pivot level.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 type\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 line
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 pivotLine\cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 label
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotLabel\cf4 \cb1 \strokec4 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @variable
+\f1\b0  References an array of `graphicSettings` IDs for all pivot levels.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 array
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 graphicSettings
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 graphicSettingsArray\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 array.from\cf4 \strokec4 (\cb1 \
+\cb3     \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 " P"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pColorInput\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 pShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3     \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "R1"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r1ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r1ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "S1"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s1ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s1ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3     \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "R2"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r2ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r2ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "S2"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s2ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s2ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3     \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "R3"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r3ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r3ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "S3"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s3ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s3ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3     \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "R4"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r4ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r4ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "S4"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s4ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s4ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3     \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "R5"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r5ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r5ShowInput\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf11 \cb3 \strokec11 graphicSettings.new\cf4 \cb3 \strokec4 (\cf6 \strokec6 "S5"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s5ColorInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 s5ShowInput\cf4 \strokec4 )\cb1 \
+\cb3 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @variable
+\f1\b0  An automatic timeframe string based on the chart's timeframe and the "daily-based" input.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 autoAnchor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 switch\cf4 \cb1 \strokec4 \
+\cb3     \cf9 \strokec9 timeframe.isintraday\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf9 \strokec9 timeframe.multiplier\cf4 \strokec4  \cf7 \strokec7 <=\cf4 \strokec4  \cf10 \strokec10 15\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 isDailyBasedInput\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf6 \strokec6 "1D"\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf6 \strokec6 "1440"\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf6 \strokec6 "1W"\cf4 \cb1 \strokec4 \
+\cb3     \cf9 \strokec9 timeframe.isdaily\cf4 \strokec4     \cf7 \strokec7 =>\cf4 \strokec4  \cf6 \strokec6 "1M"\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 =>\cf4 \strokec4  \cf6 \strokec6 "12M"\cf4 \cb1 \strokec4 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @variable
+\f1\b0  The final timeframe string for the calculation based on the "Pivots timeframe" input.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotTimeframe\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 switch\cf4 \strokec4  \cf8 \strokec8 pivotAnchorInput\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Auto"\cf4 \strokec4       \cf7 \strokec7 =>\cf4 \strokec4  \cf8 \strokec8 autoAnchor\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Daily"\cf4 \strokec4      \cf7 \strokec7 =>\cf4 \strokec4  \cf8 \strokec8 isDailyBasedInput\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf6 \strokec6 "1D"\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf6 \strokec6 "1440"\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Weekly"\cf4 \strokec4     \cf7 \strokec7 =>\cf4 \strokec4  \cf6 \strokec6 "1W"\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Monthly"\cf4 \strokec4    \cf7 \strokec7 =>\cf4 \strokec4  \cf6 \strokec6 "1M"\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Quarterly"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf6 \strokec6 "3M"\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 =>\cf4 \strokec4  \cf6 \strokec6 "12M"\cf4 \cb1 \strokec4 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @variable
+\f1\b0  The number of years in the selected Pivot period.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotYearMultiplier\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 switch\cf4 \strokec4  \cf8 \strokec8 pivotAnchorInput\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Biyearly"\cf4 \strokec4        \cf7 \strokec7 =>\cf4 \strokec4  \cf10 \strokec10 2\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Triyearly"\cf4 \strokec4       \cf7 \strokec7 =>\cf4 \strokec4  \cf10 \strokec10 3\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Quinquennially"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf10 \strokec10 5\cf4 \cb1 \strokec4 \
+\cb3     \cf6 \strokec6 "Decennially"\cf4 \strokec4     \cf7 \strokec7 =>\cf4 \strokec4  \cf10 \strokec10 10\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 =>\cf4 \strokec4  \cf10 \strokec10 1\cf4 \cb1 \strokec4 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @variable
+\f1\b0  References a matrix of `pivotGraphic` IDs for all displayed pivot levels.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 matrix
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 drawnGraphics\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 matrix.new\cf4 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb3 \strokec4 >()\cb1 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @function
+\f1\b0  Returns a running total of pivot periods based on a specified condition.\cf4 \cb1 \strokec4 \
+\cf11 \cb3 \strokec11 pivotTimeframeChangeCounter\cf4 \cb3 \strokec4 (
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 condition\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 count\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 condition\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf9 \strokec9 bar_index\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf10 \strokec10 0\cf4 \cb1 \strokec4 \
+\cb3         \cf8 \strokec8 count\cf4 \strokec4  \cf7 \strokec7 +=\cf4 \strokec4  \cf10 \strokec10 1\cf4 \cb1 \strokec4 \
+\cb3     \cf8 \strokec8 count\cf4 \cb1 \strokec4 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @function
+\f1\b0  Deletes the line and label associated with the `pivotGraphic` object for a pivot level.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 method\cf4 \strokec4  \cf11 \cb3 \strokec11 delete\cf4 \cb3 \strokec4 (
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 graphic\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     \cf8 \strokec8 graphic\cf4 \strokec4 .\cf8 \strokec8 pivotLine\cf4 \strokec4 .\cf11 \cb3 \strokec11 delete\cf4 \cb3 \strokec4 ()\cb1 \
+\cb3     \cf8 \strokec8 graphic\cf4 \strokec4 .\cf8 \strokec8 pivotLabel\cf4 \strokec4 .\cf11 \cb3 \strokec11 delete\cf4 \cb3 \strokec4 ()\cb1 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @function
+\f1\b0  Calculates pivot points using chart data (when not using EOD values) or data requested from the selected\cf4 \cb1 \strokec4 \
+\cf2 \cb3 \strokec2 //           pivot timeframe. Returns IDs of arrays containing static and developing pivot levels, and a counter\cf4 \cb1 \strokec4 \
+\cf2 \cb3 \strokec2 //           indicating pivot period changes.\cf4 \cb1 \strokec4 \
+\cf11 \cb3 \strokec11 calculatePivots\cf4 \cb3 \strokec4 (
+\f2\b \cf7 \cb3 \strokec7 simple
+\f1\b0 \cf4 \cb3 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 isDailyBased\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 isDailyBased\cf4 \cb1 \strokec4 \
+\cb3         
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotTimeframeChange\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  (\cb1 \
+\cb3             \cf5 \strokec5 timeframe.change\cf4 \strokec4 (\cf9 \strokec9 timeframe.period\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf5 \strokec5 year\cf4 \strokec4 (\cf9 \strokec9 time_tradingday\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 syminfo.timezone\cf4 \strokec4 ) \cf7 \strokec7 %\cf4 \strokec4  \cf8 \strokec8 pivotYearMultiplier\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 0\cf4 \cb1 \strokec4 \
+\cb3         )\cb1 \
+\cb3         [\cf8 \strokec8 pivotPointsArrayStatic\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotPointsArrayDeveloping\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotCounter\cf4 \strokec4 ] \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 request.security\cf4 \strokec4 (\cb1 \
+\cb3             \cf5 \strokec5 ticker.modify\cf4 \strokec4 (\cf9 \strokec9 syminfo.tickerid\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 settlement_as_close\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 settlement_as_close.on\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3             \cf8 \strokec8 pivotTimeframe\cf7 \strokec7 ,\cf4 \strokec4  [\cb1 \
+\cb3                 \cf5 \strokec5 ta.pivot_point_levels\cf4 \strokec4 (\cf8 \strokec8 pivotTypeInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotTimeframeChange\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3                 \cf5 \strokec5 ta.pivot_point_levels\cf4 \strokec4 (\cf8 \strokec8 pivotTypeInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotTimeframeChange\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 developing\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "Woodie"\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3                 \cf11 \cb3 \strokec11 pivotTimeframeChangeCounter\cf4 \cb3 \strokec4 (\cf8 \strokec8 pivotTimeframeChange\cf4 \strokec4 )\cb1 \
+\cb3             ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 lookahead\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 barmerge.lookahead_on\cf4 \cb1 \strokec4 \
+\cb3         )\cb1 \
+\cb3     \cf7 \strokec7 else\cf4 \cb1 \strokec4 \
+\cb3         
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotTimeframeChange\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  (\cb1 \
+\cb3             \cf5 \strokec5 timeframe.change\cf4 \strokec4 (\cf8 \strokec8 pivotTimeframe\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf5 \strokec5 year\cf4 \strokec4 (\cf9 \strokec9 time_tradingday\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 syminfo.timezone\cf4 \strokec4 ) \cf7 \strokec7 %\cf4 \strokec4  \cf8 \strokec8 pivotYearMultiplier\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 0\cf4 \cb1 \strokec4 \
+\cb3         )\cb1 \
+\cb3         
+\f2\b \cf7 \cb3 \strokec7 array
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 pivotPointsArrayStatic\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ta.pivot_point_levels\cf4 \strokec4 (\cf8 \strokec8 pivotTypeInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotTimeframeChange\cf4 \strokec4 )\cb1 \
+\cb3         
+\f2\b \cf7 \cb3 \strokec7 array
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 pivotPointsArrayDeveloping\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ta.pivot_point_levels\cf4 \strokec4 (\cb1 \
+\cb3             \cf8 \strokec8 pivotTypeInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotTimeframeChange\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 developing\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "Woodie"\cf4 \cb1 \strokec4 \
+\cb3         )\cb1 \
+\cb3         
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotCounter\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf11 \cb3 \strokec11 pivotTimeframeChangeCounter\cf4 \cb3 \strokec4 (\cf8 \strokec8 pivotTimeframeChange\cf4 \strokec4 )\cb1 \
+\cb3         [\cf8 \strokec8 pivotPointsArrayStatic\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotPointsArrayDeveloping\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotCounter\cf4 \strokec4 ]\cb1 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @function
+\f1\b0  Moves the ending points of the last drawn pivot line and label to a specified end time.\cf4 \cb1 \strokec4 \
+\cf11 \cb3 \strokec11 affixOldPivots\cf4 \cb3 \strokec4 (
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 endTime\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 rows\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 rows\cf4 \cb3 \strokec4 ()\cb1 \
+\cb3     \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 rows\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf10 \strokec10 0\cf4 \cb1 \strokec4 \
+\cb3         
+\f2\b \cf7 \cb3 \strokec7 array
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 lastGraphics\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 row\cf4 \cb3 \strokec4 (\cf8 \strokec8 rows\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+\cb3         \cf7 \strokec7 for\cf4 \strokec4  \cf8 \strokec8 graphic\cf4 \strokec4  \cf7 \strokec7 in\cf4 \strokec4  \cf8 \strokec8 lastGraphics\cf4 \cb1 \strokec4 \
+\cb3             \cf8 \strokec8 graphic\cf4 \strokec4 .\cf8 \strokec8 pivotLine\cf4 \strokec4 .\cf11 \cb3 \strokec11 set_x2\cf4 \cb3 \strokec4 (\cf8 \strokec8 endTime\cf4 \strokec4 )\cb1 \
+\cb3             \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 positionLabelsInput\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf6 \strokec6 "Right"\cf4 \cb1 \strokec4 \
+\cb3                 \cf8 \strokec8 graphic\cf4 \strokec4 .\cf8 \strokec8 pivotLabel\cf4 \strokec4 .\cf11 \cb3 \strokec11 set_x\cf4 \cb3 \strokec4 (\cf8 \strokec8 endTime\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 //
+\f2\b @function
+\f1\b0  Creates pivot drawings from a specified start time to the approximate end of the pivot period.\cf4 \cb1 \strokec4 \
+\cf11 \cb3 \strokec11 drawNewPivots\cf4 \cb3 \strokec4 (
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 startTime\cf7 \strokec7 ,\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 array
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 pivotPointsArray\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 array
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 newGraphics\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 array.new\cf4 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb3 \strokec4 >()\cb1 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 endTime\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 startTime\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf5 \strokec5 timeframe.in_seconds\cf4 \strokec4 (\cf8 \strokec8 pivotTimeframe\cf4 \strokec4 ) \cf7 \strokec7 *\cf4 \strokec4  \cf10 \strokec10 1000\cf4 \strokec4  \cf7 \strokec7 *\cf4 \strokec4  \cf8 \strokec8 pivotYearMultiplier\cf4 \cb1 \strokec4 \
+\cb3     [\cf8 \strokec8 labelPosition\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 labelStyle\cf4 \strokec4 ] \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 switch\cf4 \strokec4  \cf8 \strokec8 positionLabelsInput\cf4 \cb1 \strokec4 \
+\cb3         \cf6 \strokec6 "Left"\cf4 \strokec4   \cf7 \strokec7 =>\cf4 \strokec4  [\cf8 \strokec8 startTime\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 label.style_label_right\cf4 \strokec4 ]\cb1 \
+\cb3         \cf6 \strokec6 "Right"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  [\cf8 \strokec8 endTime\cf7 \strokec7 ,\cf4 \strokec4    \cf9 \strokec9 label.style_label_left\cf4 \strokec4 ]\cb1 \
+\cb3     \cf7 \strokec7 for\cf4 \strokec4  [\cf8 \strokec8 index\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 level\cf4 \strokec4 ] \cf7 \strokec7 in\cf4 \strokec4  \cf8 \strokec8 pivotPointsArray\cf4 \cb1 \strokec4 \
+\cb3         
+\f2\b \cf7 \cb3 \strokec7 graphicSettings
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 levelSettings\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 graphicSettingsArray\cf4 \strokec4 .\cf11 \cb3 \strokec11 get\cf4 \cb3 \strokec4 (\cf8 \strokec8 index\cf4 \strokec4 )\cb1 \
+\cb3         \cf7 \strokec7 if\cf4 \strokec4  \cf7 \strokec7 not\cf4 \strokec4  \cf5 \strokec5 na\cf4 \strokec4 (\cf8 \strokec8 level\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 levelSettings\cf4 \strokec4 .\cf8 \strokec8 showLevel\cf4 \cb1 \strokec4 \
+\cb3             
+\f2\b \cf7 \cb3 \strokec7 line
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotLine\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 line.new\cf4 \strokec4 (\cb1 \
+\cb3                 \cf8 \strokec8 startTime\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 level\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 endTime\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 level\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 xloc\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 xloc.bar_time\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 levelSettings\cf4 \strokec4 .\cf8 \strokec8 levelColor\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3                 \cf8 \strokec8 width\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 linewidthInput\cf4 \cb1 \strokec4 \
+\cb3             )\cb1 \
+\cb3             
+\f2\b \cf7 \cb3 \strokec7 label
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 pivotLabel\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 label.new\cf4 \strokec4 (\cb1 \
+\cb3                 \cf8 \strokec8 labelPosition\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 level\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3                 (\cf8 \strokec8 showLabelsInput\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 levelSettings\cf4 \strokec4 .\cf8 \strokec8 levelName\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf6 \strokec6 " "\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf6 \strokec6 ""\cf4 \strokec4 )\cb1 \
+\cb3                 \cf7 \strokec7 +\cf4 \strokec4  (\cf8 \strokec8 showPricesInput\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf6 \strokec6 "("\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf5 \strokec5 str.tostring\cf4 \strokec4 (\cf8 \strokec8 level\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 format.mintick\cf4 \strokec4 ) \cf7 \strokec7 +\cf4 \strokec4  \cf6 \strokec6 ")"\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf6 \strokec6 ""\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3                 \cf8 \strokec8 style\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 labelStyle\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 textcolor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 levelSettings\cf4 \strokec4 .\cf8 \strokec8 levelColor\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 #00000000\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 xloc\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 xloc.bar_time\cf4 \cb1 \strokec4 \
+\cb3             )\cb1 \
+\cb3             \cf8 \strokec8 newGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 push\cf4 \cb3 \strokec4 (\cf11 \cb3 \strokec11 pivotGraphic.new\cf4 \cb3 \strokec4 (\cf8 \strokec8 pivotLine\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotLabel\cf4 \strokec4 ))\cb1 \
+\cb3     \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 newGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 size\cf4 \cb3 \strokec4 () \cf7 \strokec7 >\cf4 \strokec4  \cf10 \strokec10 0\cf4 \cb1 \strokec4 \
+\cb3         \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 add_row\cf4 \cb3 \strokec4 (\cf8 \strokec8 array_id\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 newGraphics\cf4 \strokec4 )\cb1 \
+\cb3         \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 rows\cf4 \cb3 \strokec4 () \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 maxHistoricalPivotsInput\cf4 \cb1 \strokec4 \
+\cb3             
+\f2\b \cf7 \cb3 \strokec7 array
+\f1\b0 \cf4 \cb3 \strokec4 <
+\f2\b \cf7 \cb3 \strokec7 pivotGraphic
+\f1\b0 \cf4 \cb3 \strokec4 > \cf8 \strokec8 oldGraphics\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 remove_row\cf4 \cb3 \strokec4 (\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\cb3             \cf7 \strokec7 for\cf4 \strokec4  \cf8 \strokec8 graphic\cf4 \strokec4  \cf7 \strokec7 in\cf4 \strokec4  \cf8 \strokec8 oldGraphics\cf4 \cb1 \strokec4 \
+\cb3                 \cf8 \strokec8 graphic\cf4 \strokec4 .\cf11 \cb3 \strokec11 delete\cf4 \cb3 \strokec4 ()\cb1 \
+\
+\cf2 \cb3 \strokec2 // Calculate pivot levels and count the number of pivot periods.\cf4 \cb1 \strokec4 \
+\cb3 [\cf8 \strokec8 pivotPointsArrayStatic\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotPointsArrayDeveloping\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotCount\cf4 \strokec4 ] \cf7 \strokec7 =\cf4 \strokec4  \cf11 \cb3 \strokec11 calculatePivots\cf4 \cb3 \strokec4 (\cf8 \strokec8 isDailyBasedInput\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // If the session is open at the end of the last pivot point period, draw next pivots without waiting for the next bar.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 skipNextPivots\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 false\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 if\cf4 \strokec4  \cf9 \strokec9 barstate.islast\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf9 \strokec9 barstate.isconfirmed\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 pivotTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "Woodie"\cf4 \cb1 \strokec4 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 nextBarOpenTime\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 time\cf4 \strokec4 (\cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 bars_back\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \strokec4 )\cb1 \
+\cb3     
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 nextPivotStartTime\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 time\cf4 \strokec4 (\cf8 \strokec8 pivotTimeframe\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 timeframe_bars_back\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \strokec4 )\cb1 \
+\cb3     \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 nextBarOpenTime\cf4 \strokec4  \cf7 \strokec7 >=\cf4 \strokec4  \cf8 \strokec8 nextPivotStartTime\cf4 \cb1 \strokec4 \
+\cb3         \cf11 \cb3 \strokec11 affixOldPivots\cf4 \cb3 \strokec4 (\cf8 \strokec8 nextPivotStartTime\cf4 \strokec4 )\cb1 \
+\cb3         \cf11 \cb3 \strokec11 drawNewPivots\cf4 \cb3 \strokec4 (\cf8 \strokec8 nextPivotStartTime\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotPointsArrayDeveloping\cf4 \strokec4 )\cb1 \
+\cb3         \cf8 \strokec8 skipNextPivots\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf9 \strokec9 true\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 pivotCount\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf8 \strokec8 pivotCount\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cb1 \
+\cb3     \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 skipNextPivots\cf4 \cb1 \strokec4 \
+\cb3         \cf8 \strokec8 skipNextPivots\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf9 \strokec9 false\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 else\cf4 \cb1 \strokec4 \
+\cb3         \cf11 \cb3 \strokec11 affixOldPivots\cf4 \cb3 \strokec4 (\cf9 \strokec9 time\cf4 \strokec4 )\cb1 \
+\cb3         \cf11 \cb3 \strokec11 drawNewPivots\cf4 \cb3 \strokec4 (\cf9 \strokec9 time\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotPointsArrayStatic\cf4 \strokec4 )\cb1 \
+\cf2 \cb3 \strokec2 // Move the last drawn pivots if there are no pivots on the current line.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 else\cf4 \strokec4  \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 rows\cf4 \cb3 \strokec4 () \cf7 \strokec7 >\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 row\cf4 \cb3 \strokec4 (\cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 rows\cf4 \cb3 \strokec4 () \cf7 \strokec7 -\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4 ).\cf11 \cb3 \strokec11 last\cf4 \cb3 \strokec4 ().\cf8 \strokec8 pivotLine\cf4 \strokec4 .\cf11 \cb3 \strokec11 get_x2\cf4 \cb3 \strokec4 () \cf7 \strokec7 <=\cf4 \strokec4  \cf9 \strokec9 time\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cb1 \
+\cb3     \cf11 \cb3 \strokec11 affixOldPivots\cf4 \cb3 \strokec4 (\cf9 \strokec9 time\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // If no pivots are displayed by the last historical bar, draw pivots across all the current history if possible,\cf4 \cb1 \strokec4 \
+\cf2 \cb3 \strokec2 // or raise an error if not enough data is available.\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 firstBarTime\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 time\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7 if\cf4 \strokec4  \cf9 \strokec9 barstate.islastconfirmedhistory\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 drawnGraphics\cf4 \strokec4 .\cf11 \cb3 \strokec11 rows\cf4 \cb3 \strokec4 () \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 0\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 pivotCount\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf7 \strokec7 not\cf4 \strokec4  \cf5 \strokec5 na\cf4 \strokec4 (\cf8 \strokec8 pivotPointsArrayStatic\cf4 \strokec4 )\cb1 \
+\cb3         \cf11 \cb3 \strokec11 drawNewPivots\cf4 \cb3 \strokec4 (\cf8 \strokec8 firstBarTime\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 pivotPointsArrayStatic\cf4 \strokec4 )\cb1 \
+\cb3     \cf7 \strokec7 else\cf4 \strokec4  \cf7 \strokec7 if\cf4 \strokec4  \cf9 \strokec9 timeframe.isintraday\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf7 \strokec7 not\cf4 \strokec4  \cf8 \strokec8 isDailyBasedInput\cf4 \cb1 \strokec4 \
+\cb3         \cf5 \strokec5 runtime.error\cf4 \strokec4 (\cb1 \
+\cb3             \cf6 \strokec6 "Not enough intraday data available for pivot point calculation. "\cf4 \cb1 \strokec4 \
+\cb3             \cf7 \strokec7 +\cf4 \strokec4  \cf6 \strokec6 "Select a lower timeframe from the options in the 'Pivots timeframe' input, or try selecting the "\cf4 \cb1 \strokec4 \
+\cb3             \cf7 \strokec7 +\cf4 \strokec4  \cf6 \strokec6 "'Use daily-based values' checkbox to request EOD data."\cf4 \cb1 \strokec4 \
+\cb3         )\cb1 \
+\cb3     \cf7 \strokec7 else\cf4 \cb1 \strokec4 \
+\cb3         \cf5 \strokec5 runtime.error\cf4 \strokec4 (\cb1 \
+\cb3             \cf6 \strokec6 "Not enough data available for pivot point calculation. "\cf4 \cb1 \strokec4 \
+\cb3             \cf7 \strokec7 +\cf4 \strokec4  \cf6 \strokec6 "Select a lower timeframe from the options in the 'Pivots timeframe' input."\cf4 \cb1 \strokec4 \
+\cb3         )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf4 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //
+\f2\b @version=
+\f1\b0 4\cf4 \cb1 \strokec4 \
+\cf5 \cb3 \strokec5 study\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "UT Bot Alerts"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 overlay\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 true\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // Inputs\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 a\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4      \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Key Vaule. 'This changes the sensitivity'"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 c\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 10\cf7 \strokec7 ,\cf4 \strokec4     \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "ATR Period"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 h\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf7 \strokec7 false,\cf4 \strokec4  \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Signals from Heikin Ashi Candles"\cf4 \strokec4 )\cb1 \
+\
+\cf8 \cb3 \strokec8 xATR\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 atr\cf4 \strokec4 (\cf8 \strokec8 c\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 nLoss\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 a\cf4 \strokec4  \cf7 \strokec7 *\cf4 \strokec4  \cf8 \strokec8 xATR\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 h\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 security\cf4 \strokec4 (\cf5 \strokec5 heikinashi\cf4 \strokec4 (\cf9 \strokec9 syminfo.tickerid\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 timeframe.period\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 close\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 lookahead\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 false\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 close\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 xATRTrailingStop\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0.0\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 xATRTrailingStop\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf5 \strokec5 iff\cf4 \strokec4 (\cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 >\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf5 \strokec5 max\cf4 \strokec4 (\cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ])\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 nLoss\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3    \cf5 \strokec5 iff\cf4 \strokec4 (\cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 <\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf5 \strokec5 min\cf4 \strokec4 (\cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ])\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf8 \strokec8 nLoss\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cb1 \
+\cb3    \cf5 \strokec5 iff\cf4 \strokec4 (\cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 nLoss\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf8 \strokec8 nLoss\cf4 \strokec4 )))\cb1 \
+\cb3  \cb1 \
+\cf8 \cb3 \strokec8 pos\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4    \cb1 \
+\cf8 \cb3 \strokec8 pos\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4   \cf5 \strokec5 iff\cf4 \strokec4 (\cf8 \strokec8 src\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 <\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3    \cf5 \strokec5 iff\cf4 \strokec4 (\cf8 \strokec8 src\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 >\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 -1\cf7 \strokec7 ,\cf4 \strokec4  \cf5 \strokec5 nz\cf4 \strokec4 (\cf8 \strokec8 pos\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ))) \cb1 \
+\cb3    \cb1 \
+\cf8 \cb3 \strokec8 xcolor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 pos\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 -1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 color.red\cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 pos\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 color.green\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 color.blue\cf4 \strokec4  \cb1 \
+\
+\cf8 \cb3 \strokec8 ema\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ema\cf4 \strokec4 (\cf8 \strokec8 src\cf7 \strokec7 ,\cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 above\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 crossover\cf4 \strokec4 (\cf8 \strokec8 ema\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 xATRTrailingStop\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 below\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 crossover\cf4 \strokec4 (\cf8 \strokec8 xATRTrailingStop\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 ema\cf4 \strokec4 )\cb1 \
+\
+\cf8 \cb3 \strokec8 buy\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 xATRTrailingStop\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 above\cf4 \strokec4  \cb1 \
+\cf8 \cb3 \strokec8 sell\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 xATRTrailingStop\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 below\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 barbuy\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 xATRTrailingStop\cf4 \strokec4  \cb1 \
+\cf8 \cb3 \strokec8 barsell\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 xATRTrailingStop\cf4 \strokec4  \cb1 \
+\
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cf8 \strokec8 buy\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Buy"\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 text\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 'Buy'\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 style\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 shape.labelup\cf7 \strokec7 ,\cf4 \strokec4    \cf8 \strokec8 location\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 location.belowbar\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 textcolor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.white\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 transp\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 size\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 size.tiny\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cf8 \strokec8 sell\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Sell"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 text\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 'Sell'\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 shape.labeldown\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 location\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 location.abovebar\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4    \cf8 \strokec8 textcolor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.white\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 transp\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 size\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 size.tiny\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 barcolor\cf4 \strokec4 (\cf8 \strokec8 barbuy\cf4 \strokec4   \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 color.green\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 barcolor\cf4 \strokec4 (\cf8 \strokec8 barsell\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 color.red\cf4 \strokec4    \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 buy\cf7 \strokec7 ,\cf4 \strokec4   \cf6 \strokec6 "UT Long"\cf7 \strokec7 ,\cf4 \strokec4   \cf6 \strokec6 "UT Long"\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 sell\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "UT Short"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "UT Short"\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf4 \
+\
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //
+\f2\b @version=
+\f1\b0 4\cf4 \cb1 \strokec4 \
+\cf5 \cb3 \strokec5 study\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Humble LinReg Candles"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 shorttitle\cf7 \strokec7 =\cf6 \strokec6 "LinReg Candles"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 format\cf7 \strokec7 =\cf9 \strokec9 format.price\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 precision\cf7 \strokec7 =\cf10 \strokec10 4\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 overlay\cf7 \strokec7 =true\cf4 \strokec4 )\cb1 \
+\
+\cf8 \cb3 \strokec8 signal_length\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Signal Smoothing"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.integer\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 minval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maxval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 200\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 11\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 sma_signal\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Simple MA (Signal Line)"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.bool\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf7 \strokec7 =true\cf4 \strokec4 )\cb1 \
+\
+\cf8 \cb3 \strokec8 lin_reg\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Lin Reg"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.bool\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf7 \strokec7 =true\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 linreg_length\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Linear Regression Length"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 input.integer\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 minval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maxval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 200\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 defval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 11\cf4 \strokec4 )\cb1 \
+\
+\cf8 \cb3 \strokec8 bopen\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 lin_reg\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 linreg\cf4 \strokec4 (\cf9 \strokec9 open\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 linreg_length\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 open\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 bhigh\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 lin_reg\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 linreg\cf4 \strokec4 (\cf9 \strokec9 high\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 linreg_length\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 high\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 blow\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 lin_reg\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 linreg\cf4 \strokec4 (\cf9 \strokec9 low\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 linreg_length\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 low\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 bclose\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 lin_reg\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 linreg\cf4 \strokec4 (\cf9 \strokec9 close\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 linreg_length\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 close\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 bopen\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 bclose\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 signal\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 sma_signal\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 sma\cf4 \strokec4 (\cf8 \strokec8 bclose\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 signal_length\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf5 \strokec5 ema\cf4 \strokec4 (\cf8 \strokec8 bclose\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 signal_length\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 plotcandle\cf4 \strokec4 (\cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 bopen\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 bhigh\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 blow\cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 bclose\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "LinReg Candles"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 wickcolor\cf7 \strokec7 =\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 bordercolor\cf7 \strokec7 =\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 editable\cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 true\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plotcandle\cf4 \strokec4 (\cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 na\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 bopen\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 na\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 bhigh\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 na\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 blow\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 r\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 na\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 bclose\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "LinReg Candles"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 wickcolor\cf7 \strokec7 =\cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 bordercolor\cf7 \strokec7 =\cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 editable\cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 true\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 signal\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.white\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf4 \
+\
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //
+\f2\b @version=
+\f1\b0 6\cf4 \cb1 \strokec4 \
+\cf5 \cb3 \strokec5 indicator\cf4 \strokec4 (\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Relative Strength Index"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 shorttitle\cf7 \strokec7 =\cf6 \strokec6 "RSI"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 format\cf7 \strokec7 =\cf9 \strokec9 format.price\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 precision\cf7 \strokec7 =\cf10 \strokec10 2\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 timeframe\cf7 \strokec7 =\cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 timeframe_gaps\cf7 \strokec7 =\cf9 \strokec9 true\cf4 \strokec4 )\cb1 \
+\
+\cf8 \cb3 \strokec8 rsiLengthInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 14\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 minval\cf7 \strokec7 =\cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "RSI Length"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf7 \strokec7 =\cf6 \strokec6 "RSI Settings"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 rsiSourceInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.source\cf4 \strokec4 (\cf9 \strokec9 close\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Source"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf7 \strokec7 =\cf6 \strokec6 "RSI Settings"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 calculateDivergence\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.bool\cf4 \strokec4 (\cf9 \strokec9 false\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Calculate Divergence"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf7 \strokec7 =\cf6 \strokec6 "RSI Settings"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Calculating divergences is needed in order for divergence alerts to fire."\cf4 \strokec4 )\cb1 \
+\
+\cf8 \cb3 \strokec8 change\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ta.change\cf4 \strokec4 (\cf8 \strokec8 rsiSourceInput\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ta.rma\cf4 \strokec4 (\cf5 \strokec5 math.max\cf4 \strokec4 (\cf8 \strokec8 change\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 rsiLengthInput\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 down\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ta.rma\cf4 \strokec4 (\cf7 \strokec7 -\cf5 \strokec5 math.min\cf4 \strokec4 (\cf8 \strokec8 change\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 rsiLengthInput\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 rsi\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 down\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf10 \strokec10 100\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf10 \strokec10 100\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  (\cf10 \strokec10 100\cf4 \strokec4  \cf7 \strokec7 /\cf4 \strokec4  (\cf10 \strokec10 1\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 /\cf4 \strokec4  \cf8 \strokec8 down\cf4 \strokec4 ))\cb1 \
+\
+\cf8 \cb3 \strokec8 rsiPlot\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 rsi\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "RSI"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 #7E57C2\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 rsiUpperBand\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 hline\cf4 \strokec4 (\cf10 \strokec10 70\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "RSI Upper Band"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 #787B86\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 midline\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 hline\cf4 \strokec4 (\cf10 \strokec10 50\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "RSI Middle Band"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf5 \strokec5 color.new\cf4 \strokec4 (\cf9 \strokec9 #787B86\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 50\cf4 \strokec4 ))\cb1 \
+\cf8 \cb3 \strokec8 rsiLowerBand\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 hline\cf4 \strokec4 (\cf10 \strokec10 30\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "RSI Lower Band"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 #787B86\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 fill\cf4 \strokec4 (\cf8 \strokec8 rsiUpperBand\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 rsiLowerBand\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf5 \strokec5 color.rgb\cf4 \strokec4 (\cf10 \strokec10 126\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 87\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 194\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 90\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "RSI Background Fill"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 midLinePlot\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf10 \strokec10 50\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 editable\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 false\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 fill\cf4 \strokec4 (\cf8 \strokec8 rsiPlot\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 midLinePlot\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 100\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 70\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 top_color\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 color.new\cf4 \strokec4 (\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 bottom_color\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 color.new\cf4 \strokec4 (\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 100\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Overbought Gradient Fill"\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 fill\cf4 \strokec4 (\cf8 \strokec8 rsiPlot\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 midLinePlot\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 30\cf7 \strokec7 ,\cf4 \strokec4   \cf10 \strokec10 0\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 top_color\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 color.new\cf4 \strokec4 (\cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 100\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 bottom_color\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 color.new\cf4 \strokec4 (\cf9 \strokec9 color.red\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \strokec4       \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Oversold Gradient Fill"\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // Smoothing MA inputs\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 GRP\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Smoothing"\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 TT_BB\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Only applies when 'SMA + Bollinger Bands' is selected. Determines the distance between the SMA and the bands."\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 maTypeInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.string\cf4 \strokec4 (\cf6 \strokec6 "SMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Type"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 options\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  [\cf6 \strokec6 "None"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "SMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "SMA + Bollinger Bands"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "EMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "SMMA (RMA)"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "WMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "VWMA"\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf4 \strokec4 )\cb1 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 maTypeInput\cf4 \strokec4  \cf7 \strokec7 ==\cf4 \strokec4  \cf6 \strokec6 "SMA + Bollinger Bands"\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 maLengthInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 14\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Length"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 maTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "None"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 bbMultInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.float\cf4 \strokec4 (\cf10 \strokec10 2.0\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "BB StdDev"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 minval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0.001\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maxval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 50\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 step\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0.5\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 TT_BB\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 group\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 GRP\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 active\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4 )\cb1 \
+\cf7 \cb3 \strokec7 var\cf4 \strokec4  \cf8 \strokec8 enableMA\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 maTypeInput\cf4 \strokec4  \cf7 \strokec7 !=\cf4 \strokec4  \cf6 \strokec6 "None"\cf4 \cb1 \strokec4 \
+\
+\cf2 \cb3 \strokec2 // Smoothing MA Calculation\cf4 \cb1 \strokec4 \
+\cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 MAtype\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 switch\cf4 \strokec4  \cf8 \strokec8 MAtype\cf4 \cb1 \strokec4 \
+\cb3         \cf6 \strokec6 "SMA"\cf4 \strokec4                    \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.sma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "SMA + Bollinger Bands"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.sma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "EMA"\cf4 \strokec4                    \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.ema\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "SMMA (RMA)"\cf4 \strokec4             \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.rma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "WMA"\cf4 \strokec4                    \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.wma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "VWMA"\cf4 \strokec4                   \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.vwma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // Smoothing MA plots\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 smoothingMA\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 enableMA\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (\cf8 \strokec8 rsi\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maLengthInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maTypeInput\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 smoothingStDev\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 ta.stdev\cf4 \strokec4 (\cf8 \strokec8 rsi\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maLengthInput\cf4 \strokec4 ) \cf7 \strokec7 *\cf4 \strokec4  \cf8 \strokec8 bbMultInput\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf4 \cb1 \strokec4 \
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 smoothingMA\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "RSI-based MA"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.yellow\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 enableMA\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 display.all\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 display.none\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 editable\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 enableMA\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 bbUpperBand\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 smoothingMA\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf8 \strokec8 smoothingStDev\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Upper Bollinger Band"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 display.all\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 display.none\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 editable\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 bbLowerBand\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 smoothingMA\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 smoothingStDev\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Lower Bollinger Band"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 display.all\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 display.none\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 editable\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 fill\cf4 \strokec4 (\cf8 \strokec8 bbUpperBand\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 bbLowerBand\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 color.new\cf4 \strokec4 (\cf9 \strokec9 color.green\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 90\cf4 \strokec4 ) \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Bollinger Bands Background Fill"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 display.all\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 display.none\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 editable\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 isBB\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // Divergence\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 lookbackRight\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 5\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 lookbackLeft\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 5\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 rangeUpper\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 60\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 rangeLower\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 5\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 bearColor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.red\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 bullColor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.green\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 textColor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 color.white\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 noneColor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 color.new\cf4 \strokec4 (\cf9 \strokec9 color.white\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 100\cf4 \strokec4 )\cb1 \
+\
+\cf11 \cb3 \strokec11 _inRange\cf4 \cb3 \strokec4 (
+\f2\b \cf7 \cb3 \strokec7 bool
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 cond\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     \cf8 \strokec8 bars\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ta.barssince\cf4 \strokec4 (\cf8 \strokec8 cond\cf4 \strokec4 )\cb1 \
+\cb3     \cf8 \strokec8 rangeLower\cf4 \strokec4  \cf7 \strokec7 <=\cf4 \strokec4  \cf8 \strokec8 bars\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 bars\cf4 \strokec4  \cf7 \strokec7 <=\cf4 \strokec4  \cf8 \strokec8 rangeUpper\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 plFound\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 false\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 phFound\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 false\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 bullCond\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 false\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 bearCond\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 false\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 rsiLBR\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 rsi\cf4 \strokec4 [\cf8 \strokec8 lookbackRight\cf4 \strokec4 ]\cb1 \
+\
+\cf7 \cb3 \strokec7 if\cf4 \strokec4  \cf8 \strokec8 calculateDivergence\cf4 \cb1 \strokec4 \
+\cb3     \cf2 \strokec2 //------------------------------------------------------------------------------\cf4 \cb1 \strokec4 \
+\cb3     \cf2 \strokec2 // Regular Bullish\cf4 \cb1 \strokec4 \
+\cb3     \cf2 \strokec2 // rsi: Higher Low\cf4 \cb1 \strokec4 \
+\cb3     \cf8 \strokec8 plFound\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf7 \strokec7 not\cf4 \strokec4  \cf5 \strokec5 na\cf4 \strokec4 (\cf5 \strokec5 ta.pivotlow\cf4 \strokec4 (\cf8 \strokec8 rsi\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 lookbackLeft\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 lookbackRight\cf4 \strokec4 ))    \cb1 \
+\cb3     \cf8 \strokec8 rsiHL\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf5 \strokec5 ta.valuewhen\cf4 \strokec4 (\cf8 \strokec8 plFound\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf11 \cb3 \strokec11 _inRange\cf4 \cb3 \strokec4 (\cf8 \strokec8 plFound\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ])\cb1 \
+\cb3     \cf2 \strokec2 // Price: Lower Low\cf4 \cb1 \strokec4 \
+\cb3     \cf8 \strokec8 lowLBR\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 low\cf4 \strokec4 [\cf8 \strokec8 lookbackRight\cf4 \strokec4 ]\cb1 \
+\cb3     \cf8 \strokec8 priceLL\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 lowLBR\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf5 \strokec5 ta.valuewhen\cf4 \strokec4 (\cf8 \strokec8 plFound\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 lowLBR\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+\cb3     \cf8 \strokec8 bullCond\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf8 \strokec8 priceLL\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 rsiHL\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 plFound\cf4 \cb1 \strokec4 \
+\
+\cb3     \cf2 \strokec2 //------------------------------------------------------------------------------\cf4 \cb1 \strokec4 \
+\cb3     \cf2 \strokec2 // Regular Bearish\cf4 \cb1 \strokec4 \
+\cb3     \cf2 \strokec2 // rsi: Lower High\cf4 \cb1 \strokec4 \
+\cb3     \cf8 \strokec8 phFound\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf7 \strokec7 not\cf4 \strokec4  \cf5 \strokec5 na\cf4 \strokec4 (\cf5 \strokec5 ta.pivothigh\cf4 \strokec4 (\cf8 \strokec8 rsi\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 lookbackLeft\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 lookbackRight\cf4 \strokec4 ))\cb1 \
+\cb3     \cf8 \strokec8 rsiLH\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf5 \strokec5 ta.valuewhen\cf4 \strokec4 (\cf8 \strokec8 phFound\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4 ) \cf7 \strokec7 and\cf4 \strokec4  \cf11 \cb3 \strokec11 _inRange\cf4 \cb3 \strokec4 (\cf8 \strokec8 phFound\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ])\cb1 \
+\cb3     \cf2 \strokec2 // Price: Higher High\cf4 \cb1 \strokec4 \
+\cb3     \cf8 \strokec8 highLBR\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 high\cf4 \strokec4 [\cf8 \strokec8 lookbackRight\cf4 \strokec4 ]\cb1 \
+\cb3     \cf8 \strokec8 priceHH\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 highLBR\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf5 \strokec5 ta.valuewhen\cf4 \strokec4 (\cf8 \strokec8 phFound\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 highLBR\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+\cb3     \cf8 \strokec8 bearCond\cf4 \strokec4  \cf7 \strokec7 :=\cf4 \strokec4  \cf8 \strokec8 priceHH\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 rsiLH\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 phFound\cf4 \cb1 \strokec4 \
+\
+\
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cb1 \
+\cb3      \cf8 \strokec8 plFound\cf4 \strokec4    \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 offset\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 -\cf8 \strokec8 lookbackRight\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 title\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Regular Bullish"\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 linewidth\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 2\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  (\cf8 \strokec8 bullCond\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 bullColor\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 noneColor\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 display\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.pane\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 editable\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 calculateDivergence\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cb1 \
+\cb3      \cf8 \strokec8 bullCond\cf4 \strokec4   \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 offset\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 -\cf8 \strokec8 lookbackRight\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 title\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Regular Bullish Label"\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 text\cf4 \strokec4       \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 " Bull "\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 style\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 shape.labelup\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 location\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 location.absolute\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 bullColor\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 textcolor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 textColor\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 display\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.pane\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 editable\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 calculateDivergence\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cb1 \
+\cb3      \cf8 \strokec8 phFound\cf4 \strokec4    \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 offset\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 -\cf8 \strokec8 lookbackRight\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 title\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Regular Bearish"\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 linewidth\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 2\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  (\cf8 \strokec8 bearCond\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 bearColor\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 noneColor\cf4 \strokec4 )\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 display\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.pane\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 editable\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 calculateDivergence\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 plotshape\cf4 \strokec4 (\cb1 \
+\cb3      \cf8 \strokec8 bearCond\cf4 \strokec4   \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 rsiLBR\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 na\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 offset\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf7 \strokec7 -\cf8 \strokec8 lookbackRight\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 title\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Regular Bearish Label"\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 text\cf4 \strokec4       \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 " Bear "\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 style\cf4 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 shape.labeldown\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 location\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 location.absolute\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4      \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 bearColor\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 textcolor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 textColor\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 display\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.pane\cf7 \strokec7 ,\cf4 \cb1 \strokec4 \
+\cb3      \cf8 \strokec8 editable\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 calculateDivergence\cf4 \strokec4 )\cb1 \
+\
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 bullCond\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 'Regular Bullish Divergence'\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 message\cf7 \strokec7 =\cf6 \strokec6 "Found a new Regular Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar."\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 bearCond\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 'Regular Bearish Divergence'\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 message\cf7 \strokec7 =\cf6 \strokec6 'Found a new Regular Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.'\cf4 \strokec4 )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf4 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //
+\f2\b @version=
+\f1\b0 6\cf4 \cb1 \strokec4 \
+\cf5 \cb3 \strokec5 indicator\cf4 \strokec4 (\cf6 \strokec6 "Moving Average Convergence Divergence"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "MACD"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 timeframe\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 timeframe_gaps\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 true\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // Inputs\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4   \cf8 \strokec8 sourceInput\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.source\cf4 \strokec4 (\cf9 \strokec9 close\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Source"\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4     \cf8 \strokec8 fastLenInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 12\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Fast length"\cf7 \strokec7 ,\cf4 \strokec4    \cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4     \cf8 \strokec8 slowLenInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 26\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Slow length"\cf7 \strokec7 ,\cf4 \strokec4    \cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4     \cf8 \strokec8 sigLenInput\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 9\cf7 \strokec7 ,\cf4 \strokec4   \cf6 \strokec6 "Signal length"\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 oscTypeInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.string\cf4 \strokec4 (\cf6 \strokec6 "EMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Oscillator MA type"\cf7 \strokec7 ,\cf4 \strokec4  [\cf6 \strokec6 "EMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "SMA"\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 sigTypeInput\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.string\cf4 \strokec4 (\cf6 \strokec6 "EMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Signal MA type"\cf7 \strokec7 ,\cf4 \strokec4      [\cf6 \strokec6 "EMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "SMA"\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // 
+\f2\b @function
+\f1\b0     Calculates an EMA or SMA of a `source` series.\cf4 \cb1 \strokec4 \
+\cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 int
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 length\cf7 \strokec7 ,\cf4 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 simple
+\f1\b0 \cf4 \cb3 \strokec4  
+\f2\b \cf7 \cb3 \strokec7 string
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 maType\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\cb3     \cf7 \strokec7 switch\cf4 \strokec4  \cf8 \strokec8 maType\cf4 \cb1 \strokec4 \
+\cb3         \cf6 \strokec6 "EMA"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.ema\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "SMA"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.sma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // Calculate and plot the MACD, signal, and histogram values.\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 maFast\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (\cf8 \strokec8 sourceInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 fastLenInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 oscTypeInput\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 maSlow\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (\cf8 \strokec8 sourceInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 slowLenInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 oscTypeInput\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 macd\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 maFast\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 maSlow\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 signal\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (\cf8 \strokec8 macd\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 sigLenInput\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 sigTypeInput\cf4 \strokec4 )\cb1 \
+
+\f2\b \cf7 \cb3 \strokec7 float
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4    \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 macd\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 signal\cf4 \cb1 \strokec4 \
+
+\f2\b \cf7 \cb3 \strokec7 color
+\f1\b0 \cf4 \cb3 \strokec4  \cf8 \strokec8 hColor\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4  \cf7 \strokec7 >=\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 #26a69a\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 #b2dfdb\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 #ffcdd2\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf9 \strokec9 #ff5252\cf4 \cb1 \strokec4 \
+\
+\cf5 \cb3 \strokec5 hline\cf4 \strokec4 (\cf10 \strokec10 0\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Zero"\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 #787b8680\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 hist\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Histogram"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 hColor\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 style\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 plot.style_columns\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 macd\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "MACD"\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 signal\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Signal line"\cf7 \strokec7 ,\cf4 \strokec4  \cf9 \strokec9 #ff6d00\cf4 \strokec4 )\cb1 \
+\
+\cf2 \cb3 \strokec2 // Create alert conditions.\cf4 \cb1 \strokec4 \
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 hist\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 >=\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf10 \strokec10 0\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Rising to falling"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "MACD histogram switched from a rising to falling state"\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 alertcondition\cf4 \strokec4 (\cf8 \strokec8 hist\cf4 \strokec4 [\cf10 \strokec10 1\cf4 \strokec4 ] \cf7 \strokec7 <=\cf4 \strokec4  \cf10 \strokec10 0\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 hist\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf10 \strokec10 0\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Falling to rising"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "MACD histogram switched from a falling to rising state"\cf4 \strokec4 )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf4 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 study\cf4 \strokec4 (\cf6 \strokec6 "Matrix Series"\cf7 \strokec7 ,\cf8 \strokec8 shorttitle\cf7 \strokec7 =\cf6 \strokec6 "MS"\cf7 \strokec7 ,\cf8 \strokec8 precision\cf7 \strokec7 =\cf10 \strokec10 1\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 Smoother\cf7 \strokec7 =\cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 5\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 nn\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Smoother\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //--Sup/Res Detail\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 SupResPeriod\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 50\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 SupResPercentage\cf4 \strokec4  \cf7 \strokec7 =\cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 100\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 PricePeriod\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 16\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 ob\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 200\cf7 \strokec7 ,\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Overbought"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 os\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf10 \strokec10 -200\cf7 \strokec7 ,\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Oversold"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 OBOS\cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 type\cf7 \strokec7 =\cf9 \strokec9 bool\cf7 \strokec7 ,\cf8 \strokec8 defval\cf7 \strokec7 =\cf8 \strokec8 false\cf7 \strokec7 ,\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Show OB/OS"\cf4 \strokec4 ) \cb1 \
+\cf8 \cb3 \strokec8 dynamic\cf7 \strokec7 =\cf5 \strokec5 input\cf4 \strokec4 (\cf8 \strokec8 true\cf7 \strokec7 ,\cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Dynamic zones"\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 ys1\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  ( \cf9 \strokec9 high\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf9 \strokec9 low\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf9 \strokec9 close\cf4 \strokec4  \cf7 \strokec7 *\cf4 \strokec4  \cf10 \strokec10 2\cf4 \strokec4  ) \cf7 \strokec7 /\cf4 \strokec4  \cf10 \strokec10 4\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 rk3\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ema\cf4 \strokec4 ( \cf8 \strokec8 ys1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 nn\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 rk4\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 stdev\cf4 \strokec4 (\cf8 \strokec8 ys1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 nn\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 rk5\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  (\cf8 \strokec8 ys1\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 rk3\cf4 \strokec4  ) \cf7 \strokec7 *\cf4 \strokec4  \cf10 \strokec10 200\cf4 \strokec4  \cf7 \strokec7 /\cf4 \strokec4  \cf8 \strokec8 rk4\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 rk6\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ema\cf4 \strokec4 ( \cf8 \strokec8 rk5\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 nn\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ema\cf4 \strokec4 (\cf8 \strokec8 rk6\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 nn\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 down\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 ema\cf4 \strokec4 ( \cf8 \strokec8 up\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 nn\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 Oo\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 iff\cf4 \strokec4 ( \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 down\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 up\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 down\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 Hh\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Oo\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 Ll\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 iff\cf4 \strokec4 ( \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 down\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 down\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 Cc\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Ll\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 vcolor\cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Oo\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 Cc\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 red\cf4 \strokec4  \cf7 \strokec7 :\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 down\cf7 \strokec7 ?\cf4 \strokec4  \cf9 \strokec9 green\cf7 \strokec7 :\cf9 \strokec9 red\cf4 \strokec4  \cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 plotcandle\cf4 \strokec4 (\cf8 \strokec8 Oo\cf7 \strokec7 ,\cf8 \strokec8 Hh\cf7 \strokec7 ,\cf8 \strokec8 Ll\cf7 \strokec7 ,\cf8 \strokec8 Cc\cf7 \strokec7 ,\cf8 \strokec8 color\cf7 \strokec7 =\cf8 \strokec8 vcolor\cf4 \strokec4 )\cb1 \
+\
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //-------S/R Zones------\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 Lookback\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 SupResPeriod\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 PerCent\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 SupResPercentage\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 Pds\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 PricePeriod\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 C3\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 cci\cf4 \strokec4 (\cf9 \strokec9 close\cf7 \strokec7 ,\cf8 \strokec8 Pds\cf4 \strokec4  )\cb1 \
+\
+\cf8 \cb3 \strokec8 Osc\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 C3\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 Value1\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Osc\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 Value2\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 highest\cf4 \strokec4 ( \cf8 \strokec8 Value1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 Lookback\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 Value3\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 lowest\cf4 \strokec4 ( \cf8 \strokec8 Value1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 Lookback\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 Value4\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Value2\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 Value3\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 Value5\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Value4\cf4 \strokec4  \cf7 \strokec7 *\cf4 \strokec4  ( \cf8 \strokec8 PerCent\cf4 \strokec4  \cf7 \strokec7 /\cf4 \strokec4  \cf10 \strokec10 100\cf4 \strokec4  )\cb1 \
+\cf8 \cb3 \strokec8 ResistanceLine\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Value3\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf8 \strokec8 Value5\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 SupportLine\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 Value2\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 Value5\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 dynamic\cf7 \strokec7 ?\cf8 \strokec8 ResistanceLine\cf7 \strokec7 :\cf9 \strokec9 na\cf7 \strokec7 ,\cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 green\cf7 \strokec7 ,\cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 dynamic\cf7 \strokec7 ?\cf8 \strokec8 SupportLine\cf7 \strokec7 :\cf9 \strokec9 na\cf7 \strokec7 ,\cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 red\cf7 \strokec7 ,\cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //--Overbought/Oversold/Warning Detail\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 UPshape\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 ob\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 up\cf7 \strokec7 >\cf8 \strokec8 down\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 highest\cf4 \strokec4 (\cf8 \strokec8 up\cf7 \strokec7 ,\cf10 \strokec10 1\cf4 \strokec4 ) \cf7 \strokec7 +\cf4 \strokec4  \cf10 \strokec10 20\cf7 \strokec7 :\cf8 \strokec8 up\cf4 \strokec4  \cf7 \strokec7 >\cf4 \strokec4  \cf8 \strokec8 ob\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 up\cf7 \strokec7 <\cf8 \strokec8 down\cf7 \strokec7 ?\cf5 \strokec5 highest\cf4 \strokec4 (\cf8 \strokec8 down\cf7 \strokec7 ,\cf10 \strokec10 1\cf4 \strokec4 ) \cf7 \strokec7 +\cf4 \strokec4  \cf10 \strokec10 20\cf7 \strokec7 :\cf9 \strokec9 na\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 DOWNshape\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 down\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 os\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 up\cf7 \strokec7 >\cf8 \strokec8 down\cf4 \strokec4  \cf7 \strokec7 ?\cf4 \strokec4  \cf5 \strokec5 lowest\cf4 \strokec4 (\cf8 \strokec8 down\cf7 \strokec7 ,\cf10 \strokec10 1\cf4 \strokec4 ) \cf7 \strokec7 -\cf4 \strokec4  \cf10 \strokec10 20\cf7 \strokec7 :\cf8 \strokec8 down\cf4 \strokec4  \cf7 \strokec7 <\cf4 \strokec4  \cf8 \strokec8 os\cf4 \strokec4  \cf7 \strokec7 and\cf4 \strokec4  \cf8 \strokec8 up\cf7 \strokec7 <\cf8 \strokec8 down\cf7 \strokec7 ?\cf5 \strokec5 lowest\cf4 \strokec4 (\cf8 \strokec8 up\cf7 \strokec7 ,\cf10 \strokec10 1\cf4 \strokec4 ) \cf7 \strokec7 -\cf4 \strokec4  \cf10 \strokec10 20\cf4 \strokec4  \cf7 \strokec7 :\cf9 \strokec9 na\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 UPshape\cf7 \strokec7 ,\cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 cross\cf7 \strokec7 ,\cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 aqua\cf7 \strokec7 ,\cf8 \strokec8 linewidth\cf7 \strokec7 =\cf10 \strokec10 2\cf7 \strokec7 ,\cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 DOWNshape\cf7 \strokec7 ,\cf8 \strokec8 style\cf7 \strokec7 =\cf9 \strokec9 cross\cf7 \strokec7 ,\cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 aqua\cf7 \strokec7 ,\cf8 \strokec8 linewidth\cf7 \strokec7 =\cf10 \strokec10 2\cf7 \strokec7 ,\cf8 \strokec8 transp\cf7 \strokec7 =\cf10 \strokec10 0\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 x1\cf7 \strokec7 =\cf8 \strokec8 OBOS\cf7 \strokec7 ?\cf8 \strokec8 ob\cf7 \strokec7 :\cf8 \strokec8 false\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 x2\cf7 \strokec7 =\cf8 \strokec8 OBOS\cf7 \strokec7 ?\cf8 \strokec8 os\cf7 \strokec7 :\cf8 \strokec8 false\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 hline\cf4 \strokec4 (\cf8 \strokec8 x1\cf4 \strokec4 )\cb1 \
+\cf5 \cb3 \strokec5 hline\cf4 \strokec4 (\cf8 \strokec8 x2\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 //http://www.wisestocktrader.com/indicators/2739-flower-indicator\cf4 \cb1 \strokec4 \
+\
+\
+\
+\cf2 \cb3 \strokec2 //
+\f2\b @version=
+\f1\b0 6\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 indicator\cf4 \strokec4 (\cf8 \strokec8 shorttitle\cf7 \strokec7 =\cf6 \strokec6 "BB"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf7 \strokec7 =\cf6 \strokec6 "Bollinger Bands"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 overlay\cf7 \strokec7 =\cf9 \strokec9 true\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 timeframe\cf7 \strokec7 =\cf6 \strokec6 ""\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 timeframe_gaps\cf7 \strokec7 =\cf9 \strokec9 true\cf4 \strokec4 )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 TT_LENGTH\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "The time period to be used in calculating the MA which creates the base for the Upper and Lower Bands."\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 TT_MA_TYPE\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Determines the type of Moving Average that is applied to the basis plot line."\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 TT_SOURCE\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Determines what data from each bar will be used in calculations."\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 TT_MULT\cf4 \strokec4     \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "The number of Standard Deviations away from the MA that the Upper and Lower Bands should be."\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 TT_OFFSET\cf4 \strokec4   \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Changing this number will move the Bollinger Bands either Forwards or Backwards relative to the current market."\cf4 \cb1 \strokec4 \
+\
+\cf8 \cb3 \strokec8 length\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 20\cf7 \strokec7 ,\cf4 \strokec4        \cf6 \strokec6 "Length"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 minval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4   \cf8 \strokec8 TT_LENGTH\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 maType\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.string\cf4 \strokec4 (\cf6 \strokec6 "SMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Basis MA Type"\cf7 \strokec7 ,\cf4 \strokec4       \cf8 \strokec8 options\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  [\cf6 \strokec6 "SMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "EMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "SMMA (RMA)"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "WMA"\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "VWMA"\cf4 \strokec4 ]\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 TT_MA_TYPE\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 src\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4     \cf5 \strokec5 input\cf4 \strokec4 (\cf9 \strokec9 close\cf7 \strokec7 ,\cf4 \strokec4         \cf6 \strokec6 "Source"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 TT_SOURCE\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 mult\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4    \cf5 \strokec5 input.float\cf4 \strokec4 (\cf10 \strokec10 2.0\cf7 \strokec7 ,\cf4 \strokec4     \cf6 \strokec6 "StdDev"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 minval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 0.001\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maxval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 50\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 TT_MULT\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 offset\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 input.int\cf4 \strokec4 (\cf10 \strokec10 0\cf7 \strokec7 ,\cf4 \strokec4         \cf6 \strokec6 "Offset"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 minval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 -500\cf7 \strokec7 ,\cf4 \strokec4   \cf8 \strokec8 maxval\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf10 \strokec10 500\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 tooltip\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4   \cf8 \strokec8 TT_OFFSET\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 display\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf9 \strokec9 display.none\cf4 \strokec4 )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 _type\cf4 \strokec4 ) \cf7 \strokec7 =>\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf4 \cb3     \cf7 \strokec7 switch\cf4 \strokec4  \cf8 \strokec8 _type\cf4 \cb1 \strokec4 \
+\cb3         \cf6 \strokec6 "SMA"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.sma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "EMA"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.ema\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "SMMA (RMA)"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.rma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "WMA"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.wma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cb3         \cf6 \strokec6 "VWMA"\cf4 \strokec4  \cf7 \strokec7 =>\cf4 \strokec4  \cf5 \strokec5 ta.vwma\cf4 \strokec4 (\cf8 \strokec8 source\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 basis\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf11 \cb3 \strokec11 ma\cf4 \cb3 \strokec4 (\cf8 \strokec8 src\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 maType\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 dev\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 mult\cf4 \strokec4  \cf7 \strokec7 *\cf4 \strokec4  \cf5 \strokec5 ta.stdev\cf4 \strokec4 (\cf8 \strokec8 src\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 length\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 upper\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 basis\cf4 \strokec4  \cf7 \strokec7 +\cf4 \strokec4  \cf8 \strokec8 dev\cf4 \cb1 \strokec4 \
+\cf8 \cb3 \strokec8 lower\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 basis\cf4 \strokec4  \cf7 \strokec7 -\cf4 \strokec4  \cf8 \strokec8 dev\cf4 \cb1 \strokec4 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 basis\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Basis"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 #2962FF\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 offset\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 offset\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf8 \cb3 \strokec8 p1\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 upper\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Upper"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 #F23645\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 offset\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 offset\cf4 \strokec4 )\cb1 \
+\cf8 \cb3 \strokec8 p2\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf5 \strokec5 plot\cf4 \strokec4 (\cf8 \strokec8 lower\cf7 \strokec7 ,\cf4 \strokec4  \cf6 \strokec6 "Lower"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf9 \strokec9 #089981\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 offset\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf8 \strokec8 offset\cf4 \strokec4 )\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 fill\cf4 \strokec4 (\cf8 \strokec8 p1\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 p2\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 title\cf4 \strokec4  \cf7 \strokec7 =\cf4 \strokec4  \cf6 \strokec6 "Background"\cf7 \strokec7 ,\cf4 \strokec4  \cf8 \strokec8 color\cf7 \strokec7 =\cf5 \strokec5 color.rgb\cf4 \strokec4 (\cf10 \strokec10 33\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 150\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 243\cf7 \strokec7 ,\cf4 \strokec4  \cf10 \strokec10 95\cf4 \strokec4 ))\cb1 \
+}
