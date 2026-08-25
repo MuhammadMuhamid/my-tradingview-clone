@@ -64,14 +64,28 @@ async function main(): Promise<void> {
   }
   if (timeframeArg !== "5m" && timeframeArg !== "15m") throw new Error("timeframe must be 5m or 15m");
 
+  // The trees moved out of this repository into the backtesting repository, so
+  // look there first and fall back to the old in-backend location. Override with
+  // BACKTEST_TREES when the two checkouts are not siblings.
   const backend = path.resolve(import.meta.dirname, "..");
-  const optimizerDir = path.join(backend, optimizerArg);
-  if (!fs.existsSync(path.join(optimizerDir, "tree.json"))) {
-    const available = fs.readdirSync(backend, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && fs.existsSync(path.join(backend, e.name, "tree.json")))
-      .map((e) => e.name).sort();
-    throw new Error(`no optimizer tree '${optimizerArg}'. Registered trees: ${available.join(", ")}`);
+  const treeRoots = [
+    process.env.BACKTEST_TREES,
+    path.resolve(backend, "..", "..", "backtestingsystems", "trees"),
+    backend,
+  ].filter((d): d is string => Boolean(d) && fs.existsSync(d as string));
+
+  const root = treeRoots.find((d) => fs.existsSync(path.join(d, optimizerArg, "tree.json")));
+  if (!root) {
+    const available = treeRoots.flatMap((d) =>
+      fs.readdirSync(d, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && fs.existsSync(path.join(d, e.name, "tree.json")))
+        .map((e) => e.name)).sort();
+    throw new Error(
+      `no optimizer tree '${optimizerArg}'. Searched: ${treeRoots.join(", ")}. ` +
+      `Registered trees: ${available.join(", ") || "(none found)"}`
+    );
   }
+  const optimizerDir = path.join(root, optimizerArg);
   const selected = lineSelection === null
     ? await rankedResult(optimizerDir, symbol, rank!)
     : resultAtLine(optimizerDir, symbol, lineSelection);
