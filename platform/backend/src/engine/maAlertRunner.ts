@@ -30,12 +30,14 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Candle, Interval } from "../types/market";
 import { INTERVAL_MS, isInterval } from "../types/market";
 import { PIVOT_LEVEL_ANY } from "../types/maAlerts";
-import type { MaAlertRow, MaType, SrSide } from "../types/maAlerts";
+import type {
+  MaAlertRow, MaType, SrSide, RsiTarget, MacdTarget,
+} from "../types/maAlerts";
 import * as maAlertRepo from "../repositories/maAlerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
-import { sma, ema } from "./ta";
+import { sma, ema, rsi, macd } from "./ta";
 import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
 import {
   levelByName, nearestLevel, pivotLevels, type PivotType, type Period,
@@ -357,6 +359,50 @@ export class MaAlertRunner {
       return { price: match.price, label: match.name };
     };
 
+    /**
+     * RSI, and whatever it is compared against.
+     *
+     * Cached per length because the SMA target needs the same RSI series the
+     * level target does, and an alert on the level plus one on the MA is the
+     * normal pairing rather than an unusual one.
+     */
+    const rsiCache = new Map<number, number[]>();
+    const rsiSeries = (length: number): number[] => {
+      let s = rsiCache.get(length);
+      if (!s) { s = rsi(closes, length); rsiCache.set(length, s); }
+      return s;
+    };
+    const rsiFor = (
+      length: number, target: RsiTarget, level: number, maLength: number
+    ): { value: number; reference: number } | undefined => {
+      const series = rsiSeries(length);
+      const value = series[series.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      if (target === "level") return { value, reference: level };
+      // The RSI-based MA is smoothed from the RSI series including its leading
+      // NaNs, so it appears at the bar the indicator would show it, not earlier.
+      const ma = sma(series, maLength);
+      const reference = ma[ma.length - 1];
+      if (reference === undefined || !Number.isFinite(reference)) return undefined;
+      return { value, reference };
+    };
+
+    /** MACD line against its signal, or against zero. */
+    const macdCache = new Map<string, ReturnType<typeof macd>>();
+    const macdFor = (
+      fast: number, slow: number, signal: number, target: MacdTarget
+    ): { value: number; reference: number } | undefined => {
+      const key = `${fast}|${slow}|${signal}`;
+      let m = macdCache.get(key);
+      if (!m) { m = macd(closes, fast, slow, signal); macdCache.set(key, m); }
+      const value = m.macd[m.macd.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      if (target === "zero") return { value, reference: 0 };
+      const reference = m.signal[m.signal.length - 1];
+      if (reference === undefined || !Number.isFinite(reference)) return undefined;
+      return { value, reference };
+    };
+
     const sample: FeedSample = {
       symbol, timeframe: interval,
       barTime: sampleBar.openTime,
@@ -367,6 +413,8 @@ export class MaAlertRunner {
       series: seriesFor,
       srZone: srFor,
       pivotLevel: pivotFor,
+      rsi: rsiFor,
+      macd: macdFor,
     };
     const now = Date.now();
 

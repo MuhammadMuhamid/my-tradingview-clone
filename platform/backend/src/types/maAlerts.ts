@@ -26,9 +26,28 @@ export const isMaAlertMode = (v: string): v is MaAlertMode =>
  * were added alongside it, on the same table and the same runner.
  */
 export const CONDITION_KINDS = [
-  "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level",
+  "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level", "rsi", "macd",
 ] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
+
+/**
+ * What an RSI alert compares the oscillator against: a fixed level (the 50
+ * midline by default) or its own moving average.
+ */
+export const RSI_TARGETS = ["level", "sma"] as const;
+export type RsiTarget = (typeof RSI_TARGETS)[number];
+export const isRsiTarget = (v: string): v is RsiTarget =>
+  (RSI_TARGETS as readonly string[]).includes(v);
+
+/** What a MACD alert compares the MACD line against: its signal, or zero. */
+export const MACD_TARGETS = ["signal", "zero"] as const;
+export type MacdTarget = (typeof MACD_TARGETS)[number];
+export const isMacdTarget = (v: string): v is MacdTarget =>
+  (MACD_TARGETS as readonly string[]).includes(v);
+
+/** Defaults, matching the request these families were added for. */
+export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
+export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
 
 export const PRICE_DIRECTIONS = ["cross_up", "cross_down", "either"] as const;
 
@@ -85,6 +104,21 @@ export interface MaAlertRow {
   pivotLevelName: string | null;
   /** The period the levels come from — NOT the evaluation timeframe. */
   pivotAnchor: string | null;
+
+  // ── rsi ──
+  rsiLength: number | null;
+  /** The level crossed when `indicatorTarget` is "level". */
+  rsiLevel: number | null;
+  /** Length of the RSI-based MA crossed when `indicatorTarget` is "sma". */
+  rsiMaLength: number | null;
+
+  // ── macd ──
+  macdFast: number | null;
+  macdSlow: number | null;
+  macdSignal: number | null;
+
+  /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`; null otherwise. */
+  indicatorTarget: string | null;
   /** Band edges in percent; only read for the near_* modes. */
   nearMinPct: number;
   nearMaxPct: number;

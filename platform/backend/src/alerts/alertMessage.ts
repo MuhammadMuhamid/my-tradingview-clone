@@ -9,7 +9,9 @@
  * Pure, so the wording — and its size against the 4 KB Web Push payload limit —
  * is testable without a push service.
  */
-import { describeCondition, type AlertCondition } from "./alertConditions";
+import {
+  describeCondition, macdLabel, rsiLabel, type AlertCondition,
+} from "./alertConditions";
 import { formatAlertPrice, formatMaAlertPush } from "./maEvaluator";
 import { INTRABAR_WARNING, isIntrabar, type AlertFrequency } from "./alertFrequency";
 import { maLabel } from "../types/maAlerts";
@@ -120,7 +122,53 @@ function buildBase(
         tag, url,
       };
     }
+
+    /*
+     * Oscillator families report the READING, not a price distance. "RSI 52.31
+     * vs 50" is the fact a trader checks; a percentage would be read as a move
+     * in the market. `distancePct` carries RSI points here (see
+     * `evaluateSeriesCross`), so it is not printed with a % sign.
+     */
+    case "rsi": {
+      const what = rsiLabel(condition);
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — ${what}`,
+        body:
+          `${describeCondition(condition)} ` +
+          `(${what} ${formatIndicator(reference + distancePct)} vs ` +
+          `${formatIndicator(reference)})`,
+        tag, url,
+      };
+    }
+
+    case "macd": {
+      const what = macdLabel(condition);
+      const against = condition.target === "signal" ? "signal" : "zero";
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — ${what}`,
+        body:
+          `${describeCondition(condition)} ` +
+          `(${what} ${formatIndicator(reference + distancePct)} vs ` +
+          `${against} ${formatIndicator(reference)})`,
+        tag, url,
+      };
+    }
   }
+}
+
+/**
+ * Oscillator readings, not prices.
+ *
+ * MACD on a low-priced pair lives in the third decimal place while RSI needs
+ * two, so this keeps enough significant digits for both rather than rounding a
+ * MACD crossover to "0.00 vs 0.00".
+ */
+function formatIndicator(value: number): string {
+  if (!Number.isFinite(value)) return "n/a";
+  const abs = Math.abs(value);
+  if (abs >= 10) return value.toFixed(2);
+  if (abs >= 0.1) return value.toFixed(3);
+  return value.toFixed(5);
 }
 
 /**

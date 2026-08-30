@@ -11,10 +11,22 @@ import {
   isMaAlertMode, isMaType, isPriceDirection,
   type ConditionKind, type MaAlertMode, type MaType, type PriceDirection,
   SR_SIDES, PIVOT_LEVEL_ANY, isSrSide, type SrSide,
+  RSI_TARGETS, MACD_TARGETS, RSI_DEFAULTS, MACD_DEFAULTS,
+  isRsiTarget, isMacdTarget,
 } from "../types/maAlerts";
 import type { AlertCondition } from "./alertConditions";
 import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
+
+/**
+ * An indicator length that can actually be computed.
+ *
+ * The upper bound is not arbitrary politeness: a length is an allocation and a
+ * warm-up requirement, and one larger than the history the runner keeps would
+ * leave the series permanently NaN — an alert that is armed, looks healthy in
+ * the list, and can never fire.
+ */
+const isLength = (v: number): boolean => Number.isInteger(v) && v >= 1 && v <= 1000;
 
 /** Shared 400 shape, so every rejection reads the same way in the UI. */
 export type Rejection = { error: string };
@@ -76,6 +88,60 @@ export function readCondition(
     };
   }
 
+  if (kind === "rsi") {
+    const rsiLength = Number(b.rsiLength ?? RSI_DEFAULTS.length);
+    const target = String(b.target ?? "level");
+    // `rsiLevel`, matching the column, the row field and what the client
+    // sends. Reading a differently-named key here made the level silently
+    // default: a request for 70 was stored, and armed, as 50.
+    const level = Number(b.rsiLevel ?? RSI_DEFAULTS.level);
+    const rsiMaLength = Number(b.rsiMaLength ?? RSI_DEFAULTS.maLength);
+    const rMode = String(b.mode ?? "cross_up");
+    if (!isRsiTarget(target)) return bad(`target must be one of ${RSI_TARGETS.join(", ")}`);
+    if (!isLength(rsiLength)) return bad("rsiLength must be an integer 1..1000");
+    if (target === "sma" && !isLength(rsiMaLength)) {
+      return bad("rsiMaLength must be an integer 1..1000");
+    }
+    // RSI is bounded 0..100 by construction, so a level outside it can never be
+    // crossed — accepting one would arm an alert that is silently dead.
+    if (target === "level" && !(Number.isFinite(level) && level > 0 && level < 100)) {
+      return bad("level must be a number between 0 and 100 (exclusive)");
+    }
+    if (rMode !== "cross_up" && rMode !== "cross_down") {
+      return bad("mode must be cross_up or cross_down for an RSI alert");
+    }
+    return {
+      condition: {
+        kind: "rsi", rsiLength, target, level, maLength: rsiMaLength, mode: rMode,
+      },
+    };
+  }
+
+  if (kind === "macd") {
+    const fastLength = Number(b.macdFast ?? MACD_DEFAULTS.fast);
+    const slowLength = Number(b.macdSlow ?? MACD_DEFAULTS.slow);
+    const signalLength = Number(b.macdSignal ?? MACD_DEFAULTS.signal);
+    const target = String(b.target ?? "signal");
+    const mMode = String(b.mode ?? "cross_up");
+    if (!isMacdTarget(target)) return bad(`target must be one of ${MACD_TARGETS.join(", ")}`);
+    for (const [name, v] of [
+      ["macdFast", fastLength], ["macdSlow", slowLength], ["macdSignal", signalLength],
+    ] as const) {
+      if (!isLength(v)) return bad(`${name} must be an integer 1..1000`);
+    }
+    // A fast length at or above the slow one inverts the oscillator's meaning:
+    // every "crosses above" would report what the user reads as a downturn.
+    if (fastLength >= slowLength) {
+      return bad("macdFast must be less than macdSlow");
+    }
+    if (mMode !== "cross_up" && mMode !== "cross_down") {
+      return bad("mode must be cross_up or cross_down for a MACD alert");
+    }
+    return {
+      condition: { kind: "macd", fastLength, slowLength, signalLength, target, mode: mMode },
+    };
+  }
+
   const maType = String(b.maType ?? "");
   const maLength = Number(b.maLength);
   const mode = String(b.mode ?? "");
@@ -106,12 +172,18 @@ export function toColumns(condition: AlertCondition): {
   nearMinPct: number; nearMaxPct: number;
   srSide: SrSide | null; srPivotLength: number | null; srInvalidation: string | null;
   pivotType: string | null; pivotLevelName: string | null; pivotAnchor: string | null;
+  rsiLength: number | null; rsiLevel: number | null; rsiMaLength: number | null;
+  macdFast: number | null; macdSlow: number | null; macdSignal: number | null;
+  indicatorTarget: string | null;
 } {
   // Columns that belong to no kind are null, so a row never carries another
   // kind's settings for an operator to misread.
   const empty = {
     srSide: null, srPivotLength: null, srInvalidation: null,
     pivotType: null, pivotLevelName: null, pivotAnchor: null,
+    rsiLength: null, rsiLevel: null, rsiMaLength: null,
+    macdFast: null, macdSlow: null, macdSignal: null,
+    indicatorTarget: null,
   };
   switch (condition.kind) {
     case "price":
@@ -157,6 +229,30 @@ export function toColumns(condition: AlertCondition): {
         pivotType: condition.pivotType,
         pivotLevelName: condition.levelName,
         pivotAnchor: condition.anchor,
+      };
+    case "rsi":
+      return {
+        conditionKind: "rsi",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: 0.2, nearMaxPct: 0.5,
+        ...empty,
+        rsiLength: condition.rsiLength,
+        rsiLevel: condition.level,
+        rsiMaLength: condition.maLength,
+        indicatorTarget: condition.target,
+      };
+    case "macd":
+      return {
+        conditionKind: "macd",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: 0.2, nearMaxPct: 0.5,
+        ...empty,
+        macdFast: condition.fastLength,
+        macdSlow: condition.slowLength,
+        macdSignal: condition.signalLength,
+        indicatorTarget: condition.target,
       };
   }
 }

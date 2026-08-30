@@ -177,6 +177,53 @@ export function rsi(src: number[], len: number): number[] {
   });
 }
 
+/** The two oscillator/signal smoothings TradingView's built-in MACD offers. */
+export type MacdMaType = "ema" | "sma";
+
+export interface Macd {
+  /** Fast MA minus slow MA. */
+  macd: number[];
+  /** The smoothing of `macd`. */
+  signal: number[];
+  /** `macd - signal`. */
+  histogram: number[];
+}
+
+/**
+ * ta.macd, with the MA type separable for the oscillator and the signal
+ * exactly as the built-in indicator exposes it.
+ *
+ * The signal is smoothed from the MACD line **including its leading NaNs**:
+ * `ema`/`sma` here seed the same way they do for price, so the first signal
+ * value appears at the same bar TradingView produces one. Computing it from a
+ * NaN-stripped array instead would shift every signal value earlier and quietly
+ * change where a crossover lands.
+ */
+export function macd(
+  src: number[],
+  fastLen: number,
+  slowLen: number,
+  signalLen: number,
+  oscType: MacdMaType = "ema",
+  signalType: MacdMaType = "ema"
+): Macd {
+  const smooth = (s: number[], len: number, t: MacdMaType): number[] =>
+    t === "ema" ? ema(s, len) : sma(s, len);
+
+  const fast = smooth(src, fastLen, oscType);
+  const slow = smooth(src, slowLen, oscType);
+  const line = fast.map((f, i) => {
+    const s = slow[i]!;
+    return Number.isNaN(f) || Number.isNaN(s) ? NaN : f - s;
+  });
+  const signal = smooth(line, signalLen, signalType);
+  const histogram = line.map((m, i) => {
+    const s = signal[i]!;
+    return Number.isNaN(m) || Number.isNaN(s) ? NaN : m - s;
+  });
+  return { macd: line, signal, histogram };
+}
+
 /** ta.mfi exactly as Pine defines it (src is typically hlc3). */
 export function mfi(src: number[], volume: number[], len: number): number[] {
   const n = src.length;

@@ -7,7 +7,7 @@
  * a user two different things about one alert.
  */
 import {
-  isIntrabarFrequency, type AlertFrequency, type MaAlert,
+  isIntrabarFrequency, MACD_DEFAULTS, type AlertFrequency, type MaAlert,
 } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { fmtPrice } from "@/lib/format";
@@ -55,6 +55,10 @@ export function alertLineLabel(a: MaAlert): string {
         : a.srSide === "support" ? "Support" : "S/R";
     case "pivot_level":
       return a.pivotLevelName === "any" ? "Pivot" : `Pivot ${a.pivotLevelName}`;
+    case "rsi":
+      return `RSI ${a.rsiLength ?? ""}`.trim();
+    case "macd":
+      return macdLabel(a);
     case "ma":
     default:
       return maLabel(a.maType ?? "sma", a.maLength ?? 0);
@@ -73,6 +77,10 @@ export function alertColor(a: MaAlert): string {
     return a.srSide === "resistance" ? "#f23645" : "#089981";
   }
   if (a.conditionKind === "pivot_level") return "#fb8c00";
+  // The two oscillators get the hues their own indicator panes use, so a row
+  // in this list matches what the chart draws.
+  if (a.conditionKind === "rsi") return "#7e57c2";
+  if (a.conditionKind === "macd") return "#2962ff";
   return maColor(a.maLength ?? 0);
 }
 
@@ -99,6 +107,20 @@ export function describeAlert(a: MaAlert): string {
       const level = a.pivotLevelName === "any" ? "nearest level" : a.pivotLevelName;
       return `${nearPhrase(a)} ${a.pivotType} ${level} (${a.pivotAnchor})`;
     }
+    case "rsi": {
+      // The subject is the OSCILLATOR, so these read "RSI 50 crosses above",
+      // never "price crosses above" — the distinction is the whole point.
+      const against = a.indicatorTarget === "sma"
+        ? `its SMA ${a.rsiMaLength ?? ""}`.trim()
+        : `${a.rsiLevel ?? ""}`.trim();
+      return `RSI ${a.rsiLength ?? ""} crosses ` +
+        `${a.mode === "cross_down" ? "below" : "above"} ${against}`;
+    }
+    case "macd": {
+      const against = a.indicatorTarget === "zero" ? "zero" : "the signal line";
+      return `${macdLabel(a)} crosses ` +
+        `${a.mode === "cross_down" ? "below" : "above"} ${against}`;
+    }
     case "ma":
     default:
       switch (a.mode) {
@@ -110,6 +132,20 @@ export function describeAlert(a: MaAlert): string {
         default: return "condition met";
       }
   }
+}
+
+/**
+ * "MACD" for the standard 12/26/9, "MACD 8/21/5" otherwise.
+ *
+ * Spelling out default lengths on every row is noise; spelling out non-default
+ * ones is the only thing distinguishing two MACD alerts in the list.
+ */
+export function macdLabel(a: MaAlert): string {
+  const isDefault =
+    a.macdFast === MACD_DEFAULTS.fast &&
+    a.macdSlow === MACD_DEFAULTS.slow &&
+    a.macdSignal === MACD_DEFAULTS.signal;
+  return isDefault ? "MACD" : `MACD ${a.macdFast}/${a.macdSlow}/${a.macdSignal}`;
 }
 
 /** The mode phrase shared by every kind that compares against a level. */

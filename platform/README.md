@@ -141,6 +141,8 @@ one evaluator and one push path:
 | `price` | a fixed price level | **+ Price** in the MA rail |
 | `sr_zone` | nearest swing support / resistance | **Levels → Support / resistance** |
 | `pivot_level` | one pivot level of a chosen family | **Levels → Pivot points** |
+| `rsi` | RSI against a level, or against its own SMA | **Oscillators → RSI** |
+| `macd` | MACD line against its signal, or zero | **Oscillators → MACD** |
 
 Every family takes a mode (`near_above`, `near_below`, `touch`, `cross_up`,
 `cross_down`), a percentage band for the "near" modes (default 0.2–0.5 %), a
@@ -155,6 +157,18 @@ never sees a level before the chart could have. **Pivot levels**
 (`engine/pivotLevels.ts`) are computed from the last *completed* anchor period,
 not the forming one, and are shared with the Pine indicator so the alert and
 the drawn line can never disagree.
+
+**Oscillators cross a reading, not a price.** `rsi` and `macd` compare the
+indicator against its reference, so they offer only `cross_up`/`cross_down` —
+there is no percentage band to offer, and MACD's zero reference makes a
+percentage undefined outright. Distance is therefore reported in indicator
+units: an RSI of 55 against the midline is *5 points* away, and printing that
+as "5%" would read as a move in the market. RSI defaults to length 50 against
+the 50 line, with an RSI-based SMA 14 as the alternative reference; MACD
+defaults to 12/26/9. `macdFast` must stay below `macdSlow` — inverting them
+flips the oscillator's sign, so every "crosses above" would report what a
+reader sees as a downturn. The API, the domain validator and a database CHECK
+each refuse it.
 
 Delivery is Web Push (VAPID, service worker, installable PWA). Notification
 text names the timeframe, the level and the distance, e.g.

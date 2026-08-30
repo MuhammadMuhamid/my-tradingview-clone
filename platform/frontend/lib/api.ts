@@ -378,7 +378,17 @@ export type MaAlertMode = "touch" | "cross_up" | "cross_down" | "near_above" | "
 export type MaType = "sma" | "ema";
 
 /** What an alert watches. `ma` is the original family. */
-export type ConditionKind = "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level";
+export type ConditionKind =
+  | "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level" | "rsi" | "macd";
+
+/** What an RSI alert crosses: a fixed level, or its own moving average. */
+export type RsiTarget = "level" | "sma";
+/** What a MACD alert crosses: its signal line, or zero. */
+export type MacdTarget = "signal" | "zero";
+
+/** Mirrors the backend's `RSI_DEFAULTS` / `MACD_DEFAULTS`. */
+export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
+export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
 
 /** Which side of the market a support/resistance alert watches. */
 export type SrSide = "support" | "resistance" | "either";
@@ -418,6 +428,16 @@ export interface MaAlert {
   pivotType: PivotType | null;
   pivotLevelName: string | null;
   pivotAnchor: string | null;
+  /** Populated for `rsi`. */
+  rsiLength: number | null;
+  rsiLevel: number | null;
+  rsiMaLength: number | null;
+  /** Populated for `macd`. */
+  macdFast: number | null;
+  macdSlow: number | null;
+  macdSignal: number | null;
+  /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`. */
+  indicatorTarget: string | null;
   /** Populated for `ma` and `ma_vs_ma`. */
   maType: MaType | null;
   maLength: number | null;
@@ -655,6 +675,10 @@ export const api = {
     pivotType?: PivotType;
     levelName?: string;
     anchor?: string;
+    rsiLength?: number; rsiLevel?: number; rsiMaLength?: number;
+    macdFast?: number; macdSlow?: number; macdSignal?: number;
+    /** `RsiTarget` or `MacdTarget`, depending on `conditionKind`. */
+    target?: RsiTarget | MacdTarget;
     maType?: MaType; maLength?: number; mode?: MaAlertMode;
     ma2Type?: MaType; ma2Length?: number;
     targetPrice?: number; priceDirection?: PriceDirection;

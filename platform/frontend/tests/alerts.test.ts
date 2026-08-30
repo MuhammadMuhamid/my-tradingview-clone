@@ -19,6 +19,8 @@ const base: MaAlert = {
   targetPrice: null, priceDirection: null,
   srSide: null, srPivotLength: null, srInvalidation: null,
   pivotType: null, pivotLevelName: null, pivotAnchor: null,
+  rsiLength: null, rsiLevel: null, rsiMaLength: null,
+  macdFast: null, macdSlow: null, macdSignal: null, indicatorTarget: null,
   nearMinPct: 0.2, nearMaxPct: 0.5,
   enabled: true, frequency: "once_per_bar_close", cooldownMin: 60, note: null,
   lastSide: null, lastFiredAt: null, lastFiredBarTime: null, lastBarTime: null,
@@ -128,4 +130,67 @@ test("a level alert is not labelled as a moving average", () => {
   };
   assert.equal(alertLineLabel(pivot), "Pivot S1");
   assert.match(describeAlert(pivot), /Fibonacci S1/);
+});
+
+// ── RSI and MACD rows ───────────────────────────────────────────────────────
+
+test("an oscillator alert never describes itself as a price move", () => {
+  const rsiLevel = alert({
+    conditionKind: "rsi", maType: null, maLength: null, mode: "cross_up",
+    rsiLength: 50, rsiLevel: 50, indicatorTarget: "level",
+  });
+  assert.equal(describeAlert(rsiLevel), "RSI 50 crosses above 50");
+  // The subject must be the oscillator; "price crosses above 50" would be a
+  // different — and wrong — statement about a $100 coin.
+  assert.doesNotMatch(describeAlert(rsiLevel), /price/i);
+
+  const rsiSma = alert({
+    conditionKind: "rsi", maType: null, maLength: null, mode: "cross_down",
+    rsiLength: 50, rsiMaLength: 14, indicatorTarget: "sma",
+  });
+  assert.equal(describeAlert(rsiSma), "RSI 50 crosses below its SMA 14");
+});
+
+test("MACD rows name what is crossed, and hide default lengths only", () => {
+  const signal = alert({
+    conditionKind: "macd", maType: null, maLength: null, mode: "cross_up",
+    macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal",
+  });
+  assert.equal(describeAlert(signal), "MACD crosses above the signal line");
+  assert.equal(alertLineLabel(signal), "MACD");
+
+  const zero = alert({
+    conditionKind: "macd", maType: null, maLength: null, mode: "cross_down",
+    macdFast: 8, macdSlow: 21, macdSignal: 5, indicatorTarget: "zero",
+  });
+  assert.equal(describeAlert(zero), "MACD 8/21/5 crosses below zero");
+  assert.equal(alertLineLabel(zero), "MACD 8/21/5");
+});
+
+test("oscillator rows are not labelled as a moving average", () => {
+  // The bug this pins: a kind with null maType/maLength falling through to the
+  // MA branch and rendering "SMA 0" — which happened to the level families.
+  for (const a of [
+    alert({ conditionKind: "rsi", maType: null, maLength: null, rsiLength: 50 }),
+    alert({
+      conditionKind: "macd", maType: null, maLength: null,
+      macdFast: 12, macdSlow: 26, macdSignal: 9,
+    }),
+  ]) {
+    assert.doesNotMatch(alertLineLabel(a), /SMA 0|EMA 0/, alertLineLabel(a));
+  }
+  assert.equal(
+    alertLineLabel(alert({ conditionKind: "rsi", maType: null, maLength: null, rsiLength: 50 })),
+    "RSI 50"
+  );
+});
+
+test("each oscillator gets its own swatch, not a moving average's hue", () => {
+  const rsiColor = alertColor(alert({ conditionKind: "rsi", maLength: null }));
+  const macdColor = alertColor(alert({ conditionKind: "macd", maLength: null }));
+  assert.notEqual(rsiColor, macdColor);
+  for (const c of [rsiColor, macdColor]) {
+    assert.match(c, /^#[0-9a-f]{6}$/i);
+    assert.notEqual(c, alertColor(alert({ conditionKind: "ma", maLength: 200 })));
+  }
 });

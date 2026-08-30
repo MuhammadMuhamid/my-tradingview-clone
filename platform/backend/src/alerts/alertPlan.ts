@@ -24,7 +24,7 @@ import {
   acceptsIntrabarSample, decideFire, stateAfterFire,
   type AlertFrequency, type FireState, type SuppressionReason,
 } from "./alertFrequency";
-import type { MaType, SrSide } from "../types/maAlerts";
+import type { MaType, SrSide, RsiTarget, MacdTarget } from "../types/maAlerts";
 import type { PivotType } from "../engine/pivotLevels";
 
 /** Everything the decision needs about one armed alert. */
@@ -72,6 +72,18 @@ export interface FeedSample {
   pivotLevel?: (
     type: PivotType, anchor: string, levelName: string
   ) => { price: number; label: string } | undefined;
+  /**
+   * RSI at this bar, and the reference it is compared against — the fixed
+   * level, or the RSI-based SMA. Both come from the runner because only it
+   * holds the bar history the oscillator needs.
+   */
+  rsi?: (
+    length: number, target: RsiTarget, level: number, maLength: number
+  ) => { value: number; reference: number } | undefined;
+  /** MACD line and its reference: the signal line, or zero. */
+  macd?: (
+    fast: number, slow: number, signal: number, target: MacdTarget
+  ) => { value: number; reference: number } | undefined;
 }
 
 export type SkipReason =
@@ -174,6 +186,19 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
         condition.pivotType, condition.anchor, condition.levelName
       );
       return { ...base, refValue: level?.price, refLabel: level?.label };
+    }
+    case "rsi": {
+      const r = sample.rsi?.(
+        condition.rsiLength, condition.target, condition.level, condition.maLength
+      );
+      return { ...base, indicatorValue: r?.value, indicatorReference: r?.reference };
+    }
+    case "macd": {
+      const m = sample.macd?.(
+        condition.fastLength, condition.slowLength, condition.signalLength,
+        condition.target
+      );
+      return { ...base, indicatorValue: m?.value, indicatorReference: m?.reference };
     }
   }
 }

@@ -13,6 +13,21 @@ import { DEFAULT_ALERT_FREQUENCY } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
 type LevelKind = "sr_zone" | "pivot_level";
+type OscillatorKind = "rsi" | "macd";
+
+/**
+ * Oscillators, given rows for the same reason the level families have them:
+ * arming RSI for the coin on screen should be one click here, not a trip to
+ * another page. Like the level rows they show an armed count rather than a
+ * value — RSI has a reading, but MACD's is a price-scale number that would
+ * mean nothing in a column of prices.
+ */
+const OSCILLATOR_ROWS: {
+  kind: OscillatorKind; label: string; hint: string; color: string;
+}[] = [
+  { kind: "rsi", label: "RSI", hint: "Alert on an RSI cross", color: "#7e57c2" },
+  { kind: "macd", label: "MACD", hint: "Alert on a MACD cross", color: "#2962ff" },
+];
 
 /**
  * The two level families get rows of their own rather than a single "+ Level"
@@ -37,6 +52,46 @@ const LEVEL_ROWS: { kind: LevelKind; label: string; hint: string; color: string 
 ];
 
 /**
+ * One non-MA family row: swatch, name, armed count, bell.
+ *
+ * Shared by the Levels and Oscillators sections so the two cannot drift into
+ * looking like different kinds of control — they are the same affordance.
+ */
+function FamilyRow({
+  label, hint, color, count, onArm,
+}: {
+  label: string;
+  hint: string;
+  color: string;
+  count: number;
+  onArm: () => void;
+}) {
+  return (
+    <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-surface-2/60">
+      <span className="flex h-4 w-4 items-center justify-center">
+        <span
+          className="inline-block h-[3px] w-4 rounded-full"
+          style={{ background: color, opacity: count ? 1 : 0.5 }}
+        />
+      </span>
+      <span className="truncate text-ink">{label}</span>
+      <span className="text-right text-[11px] text-ink-faint">
+        {count ? `${count} armed` : "—"}
+      </span>
+      <button
+        onClick={onArm}
+        title={count ? `${count} alert(s) — click to add another` : hint}
+        className={`w-6 text-center ${
+          count ? "text-accent" : "invisible text-ink-faint group-hover:visible hover:text-ink"
+        }`}
+      >
+        {count > 1 ? `🔔${count}` : "🔔"}
+      </button>
+    </div>
+  );
+}
+
+/**
  * The moving-average rail: every SMA/EMA the chart can draw, one row each,
  * with its own visibility toggle and its own alert bell. One row = one line =
  * one thing you can arm, which is the whole reason these are not bundled into
@@ -44,7 +99,7 @@ const LEVEL_ROWS: { kind: LevelKind; label: string; hint: string; color: string 
  */
 export function MaPanel({
   lines, values, alerts, timeframe, onToggle, onToggleAll, onArm, onArmPrice,
-  onArmLevel, onOpenAlert, push,
+  onArmLevel, onArmOscillator, onOpenAlert, push,
 }: {
   lines: MaLine[];
   /** Latest value per line id, for the price column. */
@@ -58,6 +113,8 @@ export function MaPanel({
   onArmPrice: () => void;
   /** Open the level dialog on one of the two families. */
   onArmLevel: (kind: LevelKind) => void;
+  /** Open the oscillator dialog on RSI or MACD. */
+  onArmOscillator: (kind: OscillatorKind) => void;
   onOpenAlert: (alert: MaAlert) => void;
   push: React.ReactNode;
 }) {
@@ -78,11 +135,13 @@ export function MaPanel({
     return map;
   }, [alerts]);
 
-  /** How many alerts each level family currently has, across all timeframes. */
-  const byLevelKind = useMemo(() => {
-    const map = new Map<LevelKind, number>();
+  /**
+   * How many alerts each non-MA family currently has, across all timeframes.
+   * One pass for both sections: the rows differ only in what they are named.
+   */
+  const byKind = useMemo(() => {
+    const map = new Map<string, number>();
     for (const a of alerts) {
-      if (a.conditionKind !== "sr_zone" && a.conditionKind !== "pivot_level") continue;
       map.set(a.conditionKind, (map.get(a.conditionKind) ?? 0) + 1);
     }
     return map;
@@ -165,33 +224,30 @@ export function MaPanel({
         <div className="border-y border-border/60 bg-surface-2/40 px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">
           Levels
         </div>
-        {LEVEL_ROWS.map((row) => {
-          const count = byLevelKind.get(row.kind) ?? 0;
-          return (
-            <div
-              key={row.kind}
-              className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-surface-2/60"
-            >
-              <span className="flex h-4 w-4 items-center justify-center">
-                <span
-                  className="inline-block h-[3px] w-4 rounded-full"
-                  style={{ background: row.color, opacity: count ? 1 : 0.5 }}
-                />
-              </span>
-              <span className="truncate text-ink">{row.label}</span>
-              <span className="text-right text-[11px] text-ink-faint">
-                {count ? `${count} armed` : "—"}
-              </span>
-              <button
-                onClick={() => onArmLevel(row.kind)}
-                title={count ? `${count} alert(s) — click to add another` : row.hint}
-                className={`w-6 text-center ${count ? "text-accent" : "invisible text-ink-faint group-hover:visible hover:text-ink"}`}
-              >
-                {count > 1 ? `🔔${count}` : "🔔"}
-              </button>
-            </div>
-          );
-        })}
+        {LEVEL_ROWS.map((row) => (
+          <FamilyRow
+            key={row.kind}
+            label={row.label}
+            hint={row.hint}
+            color={row.color}
+            count={byKind.get(row.kind) ?? 0}
+            onArm={() => onArmLevel(row.kind)}
+          />
+        ))}
+
+        <div className="border-y border-border/60 bg-surface-2/40 px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">
+          Oscillators
+        </div>
+        {OSCILLATOR_ROWS.map((row) => (
+          <FamilyRow
+            key={row.kind}
+            label={row.label}
+            hint={row.hint}
+            color={row.color}
+            count={byKind.get(row.kind) ?? 0}
+            onArm={() => onArmOscillator(row.kind)}
+          />
+        ))}
 
         <div className="flex items-center justify-between border-y border-border bg-surface-2/40 px-3 py-1">
           <span className="text-[10px] uppercase tracking-wide text-ink-faint">Armed alerts</span>

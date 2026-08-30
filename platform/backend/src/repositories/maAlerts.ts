@@ -24,6 +24,13 @@ interface DbAlert {
   pivot_type: string | null;
   pivot_level_name: string | null;
   pivot_anchor: string | null;
+  rsi_length: number | null;
+  rsi_level: string | number | null;
+  rsi_ma_length: number | null;
+  macd_fast: number | null;
+  macd_slow: number | null;
+  macd_signal: number | null;
+  indicator_target: string | null;
   near_min_pct: string | number;
   near_max_pct: string | number;
   enabled: boolean;
@@ -57,6 +64,13 @@ function toRow(r: DbAlert): MaAlertRow {
     ma2Length: r.ma2_length,
     targetPrice: r.target_price === null ? null : num(r.target_price),
     priceDirection: r.price_direction,
+    rsiLength: r.rsi_length,
+    rsiLevel: r.rsi_level === null ? null : num(r.rsi_level),
+    rsiMaLength: r.rsi_ma_length,
+    macdFast: r.macd_fast,
+    macdSlow: r.macd_slow,
+    macdSignal: r.macd_signal,
+    indicatorTarget: r.indicator_target,
     srSide: r.sr_side,
     srPivotLength: r.sr_pivot_length,
     srInvalidation: r.sr_invalidation,
@@ -102,6 +116,13 @@ export interface MaAlertInput {
   pivotType?: string | null;
   pivotLevelName?: string | null;
   pivotAnchor?: string | null;
+  rsiLength?: number | null;
+  rsiLevel?: number | null;
+  rsiMaLength?: number | null;
+  macdFast?: number | null;
+  macdSlow?: number | null;
+  macdSignal?: number | null;
+  indicatorTarget?: string | null;
 }
 
 /** The unique index that governs "the same alert" for each condition kind. */
@@ -115,6 +136,12 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
   pivot_level:
     "(symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode)" +
     " WHERE condition_kind = 'pivot_level'",
+  rsi:
+    "(symbol, timeframe, rsi_length, indicator_target, rsi_level, rsi_ma_length, mode)" +
+    " WHERE condition_kind = 'rsi'",
+  macd:
+    "(symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target, mode)" +
+    " WHERE condition_kind = 'macd'",
 };
 
 /**
@@ -134,9 +161,11 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         ma2_type, ma2_length, target_price, price_direction,
         near_min_pct, near_max_pct, enabled, frequency, cooldown_min, note,
         sr_side, sr_pivot_length, sr_invalidation,
-        pivot_type, pivot_level_name, pivot_anchor)
+        pivot_type, pivot_level_name, pivot_anchor,
+        rsi_length, rsi_level, rsi_ma_length,
+        macd_fast, macd_slow, macd_signal, indicator_target)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             $17,$18,$19,$20,$21,$22)
+             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -152,6 +181,13 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        pivot_type          = EXCLUDED.pivot_type,
        pivot_level_name    = EXCLUDED.pivot_level_name,
        pivot_anchor        = EXCLUDED.pivot_anchor,
+       rsi_length          = EXCLUDED.rsi_length,
+       rsi_level           = EXCLUDED.rsi_level,
+       rsi_ma_length       = EXCLUDED.rsi_ma_length,
+       macd_fast           = EXCLUDED.macd_fast,
+       macd_slow           = EXCLUDED.macd_slow,
+       macd_signal         = EXCLUDED.macd_signal,
+       indicator_target    = EXCLUDED.indicator_target,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -167,6 +203,9 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.cooldownMin ?? 60, input.note ?? null,
       input.srSide ?? null, input.srPivotLength ?? null, input.srInvalidation ?? null,
       input.pivotType ?? null, input.pivotLevelName ?? null, input.pivotAnchor ?? null,
+      input.rsiLength ?? null, input.rsiLevel ?? null, input.rsiMaLength ?? null,
+      input.macdFast ?? null, input.macdSlow ?? null, input.macdSignal ?? null,
+      input.indicatorTarget ?? null,
     ]
   );
   return toRow(rows[0]!);

@@ -19,6 +19,7 @@ import {
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
+import { IndicatorAlertModal, type IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { SyncMenu } from "@/components/tv/SyncMenu";
@@ -244,6 +245,8 @@ export default function TvWorkspace() {
   const [priceAlertOpen, setPriceAlertOpen] = useState(false);
   /** Which level family the dialog is open on, or null when it is closed. */
   const [levelKind, setLevelKind] = useState<"sr_zone" | "pivot_level" | null>(null);
+  /** Which oscillator family the dialog is open on, or null when closed. */
+  const [oscillatorKind, setOscillatorKind] = useState<IndicatorKind | null>(null);
   const [priceAlertLevel, setPriceAlertLevel] = useState<number | null>(null);
   const [pickingLevel, setPickingLevel] = useState(false);
 
@@ -1085,12 +1088,15 @@ export default function TvWorkspace() {
                   onArm={(type, length) => setArmLine({ type, length })}
                   onArmPrice={openPriceAlert}
                   onArmLevel={setLevelKind}
+                  onArmOscillator={setOscillatorKind}
                   onOpenAlert={(a) => {
                     if (a.conditionKind === "price") {
                       setPriceAlertLevel(a.targetPrice);
                       setPriceAlertOpen(true);
                     } else if (a.conditionKind === "sr_zone" || a.conditionKind === "pivot_level") {
                       setLevelKind(a.conditionKind);
+                    } else if (a.conditionKind === "rsi" || a.conditionKind === "macd") {
+                      setOscillatorKind(a.conditionKind);
                     } else if (a.maType !== null && a.maLength !== null) {
                       setArmLine({ type: a.maType, length: a.maLength });
                     }
@@ -1259,6 +1265,14 @@ export default function TvWorkspace() {
         symbol={symbol}
         defaultTimeframe={interval}
         initialKind={levelKind ?? "sr_zone"}
+        onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
+      />
+      <IndicatorAlertModal
+        open={oscillatorKind !== null}
+        onClose={() => setOscillatorKind(null)}
+        symbol={symbol}
+        defaultTimeframe={interval}
+        kind={oscillatorKind ?? "rsi"}
         onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
       />
       <MaAlertModal

@@ -24,9 +24,9 @@ import {
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
-  PIVOT_LEVEL_ANY,
+  PIVOT_LEVEL_ANY, MACD_DEFAULTS, RSI_DEFAULTS, isRsiTarget, isMacdTarget,
   type ConditionKind, type MaAlertMode, type MaType, type PriceDirection,
-  type SrSide,
+  type SrSide, type RsiTarget, type MacdTarget,
 } from "../types/maAlerts";
 
 export type Side = "above" | "below";
@@ -113,9 +113,44 @@ export interface PivotLevelCondition {
   nearMaxPct: number;
 }
 
+/**
+ * RSI against either a fixed level or its own moving average.
+ *
+ * The quantity that crosses is the OSCILLATOR, not price — an RSI of 48 with
+ * price making a new high has still not crossed 50. Both targets are on the
+ * 0..100 RSI scale, so distance is reported in RSI points rather than as a
+ * percentage of price, which would be meaningless here.
+ */
+export interface RsiCondition {
+  kind: "rsi";
+  rsiLength: number;
+  target: RsiTarget;
+  /** Read when `target` is "level". */
+  level: number;
+  /** Read when `target` is "sma": the length of the RSI-based SMA. */
+  maLength: number;
+  mode: MaCrossMode;
+}
+
+/**
+ * MACD line against its signal, or against zero.
+ *
+ * Zero-cross and signal-cross are the same comparison with a different
+ * reference, so they share one condition rather than becoming two kinds.
+ */
+export interface MacdCondition {
+  kind: "macd";
+  fastLength: number;
+  slowLength: number;
+  signalLength: number;
+  target: MacdTarget;
+  mode: MaCrossMode;
+}
+
 export type AlertCondition =
   | PriceCondition | MaCondition | MaVsMaCondition
-  | SrZoneCondition | PivotLevelCondition;
+  | SrZoneCondition | PivotLevelCondition
+  | RsiCondition | MacdCondition;
 
 // ── Evaluation ──────────────────────────────────────────────────────────────
 
@@ -138,6 +173,13 @@ export interface Sample {
   refValue?: number;
   /** What that reference is called, for the notification: "S1", "1h support". */
   refLabel?: string;
+  /**
+   * Oscillator families resolve two numbers rather than a price: the value
+   * that crosses, and what it crosses. Kept separate from `maValue` so a
+   * reader can never mistake an RSI reading for a price.
+   */
+  indicatorValue?: number;
+  indicatorReference?: number;
 }
 
 export interface Evaluation {
@@ -200,6 +242,10 @@ export function evaluateCondition(
       return evaluateSrZone(condition, sample, prevSide);
     case "pivot_level":
       return evaluatePivotLevel(condition, sample, prevSide);
+    case "rsi":
+      return evaluateRsi(condition, sample, prevSide);
+    case "macd":
+      return evaluateMacd(condition, sample, prevSide);
   }
 }
 
@@ -323,28 +369,68 @@ function evaluateMa(
   );
 }
 
+/**
+ * One series crossing another.
+ *
+ * Shared by `ma_vs_ma`, `rsi` and `macd`: in all three the thing that crosses
+ * is an indicator value rather than the close, and the "side" is that value's
+ * position relative to its reference. Using `sample.close` here would answer a
+ * different question entirely.
+ *
+ * `absoluteDistance` is for references that are not prices. An RSI of 55
+ * against the 50 line is 5 RSI POINTS away; expressing that as a percentage of
+ * 50 would read as a price move to anyone glancing at the notification. MACD
+ * goes further — its zero reference makes a percentage undefined outright.
+ */
+function evaluateSeriesCross(
+  value: number,
+  reference: number,
+  mode: MaCrossMode,
+  prevSide: Side | null,
+  absoluteDistance = false
+): Evaluation {
+  if (!Number.isFinite(value) || !Number.isFinite(reference)) {
+    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+  }
+  const side: Side = value >= reference ? "above" : "below";
+  const distancePct = absoluteDistance ? value - reference : distance(value, reference);
+  const triggered =
+    mode === "cross_up"
+      ? crossed(prevSide, side, "up") && value > reference
+      : crossed(prevSide, side, "down") && value < reference;
+  return { side, distancePct, triggered, reference };
+}
+
 function evaluateMaVsMa(
   condition: MaVsMaCondition,
   sample: Sample,
   prevSide: Side | null
 ): Evaluation {
-  const fast = sample.maValue ?? NaN;
-  const slow = sample.ma2Value ?? NaN;
-  if (!Number.isFinite(fast) || !Number.isFinite(slow)) {
-    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference: slow };
-  }
+  return evaluateSeriesCross(
+    sample.maValue ?? NaN, sample.ma2Value ?? NaN, condition.mode, prevSide
+  );
+}
 
-  // The "side" is the FAST line's position relative to the SLOW one — the
-  // quantity that crosses. Using the close here would answer a different
-  // question entirely.
-  const side: Side = fast >= slow ? "above" : "below";
-  const distancePct = distance(fast, slow);
-  const triggered =
-    condition.mode === "cross_up"
-      ? crossed(prevSide, side, "up") && fast > slow
-      : crossed(prevSide, side, "down") && fast < slow;
+function evaluateRsi(
+  condition: RsiCondition,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  return evaluateSeriesCross(
+    sample.indicatorValue ?? NaN, sample.indicatorReference ?? NaN,
+    condition.mode, prevSide, true
+  );
+}
 
-  return { side, distancePct, triggered, reference: slow };
+function evaluateMacd(
+  condition: MacdCondition,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  return evaluateSeriesCross(
+    sample.indicatorValue ?? NaN, sample.indicatorReference ?? NaN,
+    condition.mode, prevSide, true
+  );
 }
 
 // ── Description ─────────────────────────────────────────────────────────────
@@ -381,8 +467,45 @@ export function describeCondition(condition: AlertCondition): string {
         ? `${fast} crosses above the ${slow}`
         : `${fast} crosses below the ${slow}`;
     }
+    case "rsi": {
+      const what = rsiLabel(condition);
+      const against = condition.target === "level"
+        ? `${condition.level}`
+        : `its SMA ${condition.maLength}`;
+      return condition.mode === "cross_up"
+        ? `${what} crosses above ${against}`
+        : `${what} crosses below ${against}`;
+    }
+    case "macd": {
+      const against = condition.target === "signal" ? "the signal line" : "zero";
+      return condition.mode === "cross_up"
+        ? `${macdLabel(condition)} crosses above ${against}`
+        : `${macdLabel(condition)} crosses below ${against}`;
+    }
   }
   return "condition met";
+}
+
+/** "RSI 50" — the oscillator, named by its length. */
+export const rsiLabel = (c: Pick<RsiCondition, "rsiLength">): string => `RSI ${c.rsiLength}`;
+
+/**
+ * "MACD" for the standard 12/26/9, "MACD 8/21/5" otherwise.
+ *
+ * Spelling out default lengths on every notification is noise; spelling out
+ * non-default ones is the difference between two alerts a user cannot
+ * otherwise tell apart in the list.
+ */
+export function macdLabel(
+  c: Pick<MacdCondition, "fastLength" | "slowLength" | "signalLength">
+): string {
+  const isDefault =
+    c.fastLength === MACD_DEFAULTS.fast &&
+    c.slowLength === MACD_DEFAULTS.slow &&
+    c.signalLength === MACD_DEFAULTS.signal;
+  return isDefault
+    ? "MACD"
+    : `MACD ${c.fastLength}/${c.slowLength}/${c.signalLength}`;
 }
 
 /**
@@ -401,9 +524,12 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
         { type: condition.maType, length: condition.maLength },
         { type: condition.ma2Type, length: condition.ma2Length },
       ];
-    // These resolve their reference from zones or a pivot period, not an MA.
+    // These resolve their reference from zones, a pivot period or an
+    // oscillator the runner computes directly — never from a chart MA.
     case "sr_zone": return [];
     case "pivot_level": return [];
+    case "rsi": return [];
+    case "macd": return [];
   }
 }
 
@@ -473,6 +599,33 @@ export function validateCondition(condition: AlertCondition): string | null {
       }
       if (!condition.anchor.trim()) return "anchor timeframe is required";
       return nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
+
+    case "rsi":
+      if (!Number.isInteger(condition.rsiLength) || condition.rsiLength < 1) {
+        return "rsiLength must be a positive integer";
+      }
+      if (condition.target === "level") {
+        // Bounded oscillator: a level outside 0..100 can never be crossed.
+        if (!Number.isFinite(condition.level) || condition.level <= 0 || condition.level >= 100) {
+          return "level must be between 0 and 100 (exclusive)";
+        }
+      } else if (!Number.isInteger(condition.maLength) || condition.maLength < 1) {
+        return "rsiMaLength must be a positive integer";
+      }
+      return null;
+
+    case "macd":
+      for (const [name, v] of [
+        ["macdFast", condition.fastLength],
+        ["macdSlow", condition.slowLength],
+        ["macdSignal", condition.signalLength],
+      ] as const) {
+        if (!Number.isInteger(v) || v < 1) return `${name} must be a positive integer`;
+      }
+      if (condition.fastLength >= condition.slowLength) {
+        return "macdFast must be less than macdSlow";
+      }
+      return null;
   }
 }
 
@@ -509,6 +662,13 @@ export function conditionFromRow(row: {
   pivotType?: string | null;
   pivotLevelName?: string | null;
   pivotAnchor?: string | null;
+  rsiLength?: number | null;
+  rsiLevel?: number | null;
+  rsiMaLength?: number | null;
+  macdFast?: number | null;
+  macdSlow?: number | null;
+  macdSignal?: number | null;
+  indicatorTarget?: string | null;
 }): AlertCondition | null {
   switch (row.conditionKind) {
     case "price":
@@ -568,6 +728,41 @@ export function conditionFromRow(row: {
         mode: row.mode,
         nearMinPct: row.nearMinPct,
         nearMaxPct: row.nearMaxPct,
+      };
+    }
+
+    case "rsi": {
+      const target = row.indicatorTarget ?? "";
+      if (
+        !isRsiTarget(target) || row.rsiLength === null || row.rsiLength === undefined ||
+        (row.mode !== "cross_up" && row.mode !== "cross_down")
+      ) return null;
+      return {
+        kind: "rsi",
+        rsiLength: row.rsiLength,
+        target,
+        level: row.rsiLevel ?? RSI_DEFAULTS.level,
+        maLength: row.rsiMaLength ?? RSI_DEFAULTS.maLength,
+        mode: row.mode,
+      };
+    }
+
+    case "macd": {
+      const target = row.indicatorTarget ?? "";
+      if (
+        !isMacdTarget(target) ||
+        row.macdFast === null || row.macdFast === undefined ||
+        row.macdSlow === null || row.macdSlow === undefined ||
+        row.macdSignal === null || row.macdSignal === undefined ||
+        (row.mode !== "cross_up" && row.mode !== "cross_down")
+      ) return null;
+      return {
+        kind: "macd",
+        fastLength: row.macdFast,
+        slowLength: row.macdSlow,
+        signalLength: row.macdSignal,
+        target,
+        mode: row.mode,
       };
     }
   }
