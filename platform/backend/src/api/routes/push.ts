@@ -5,7 +5,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import * as pushRepo from "../../repositories/pushSubscriptions";
-import { getVapidKeys, sendPush } from "../../alerts/webPush";
+import { getVapidKeys, sendPush, validatePushEndpoint } from "../../alerts/webPush";
 
 export async function pushRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/push/vapid", async () => {
@@ -27,9 +27,12 @@ export async function pushRoutes(app: FastifyInstance): Promise<void> {
         .send({ error: "endpoint and keys.p256dh / keys.auth are required" });
     }
     try {
-      new URL(endpoint);
-    } catch {
-      return reply.code(400).send({ error: "endpoint must be a URL" });
+      // Validated, but the row keeps the browser's exact string: unsubscribe
+      // matches on the endpoint the client sends back, and storing a
+      // normalised variant would leave rows that can never be deleted.
+      validatePushEndpoint(endpoint);
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
     }
     const row = await pushRepo.saveSubscription({
       endpoint,

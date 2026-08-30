@@ -22,6 +22,15 @@ docker build --build-arg BACKEND_URL=http://backend:4000 -t "srtrend-frontend:$T
 echo "== updating deployment config (env backup: .env.bak-$TAG) =="
 cp "$DEPLOY/.env" "$DEPLOY/.env.bak-$TAG"
 chmod 600 "$DEPLOY/.env.bak-$TAG"
+
+# Each backup is a full copy of the live DATABASE_URL, ALERT_ENCRYPTION_KEY,
+# SESSION_SECRET and admin hash. One deploy ago is what a rollback needs; the
+# twenty before it are only extra copies of the credentials to steal, so keep a
+# short tail and delete the rest. Newest-first by name works because TAG is a
+# UTC timestamp.
+ls -1 "$DEPLOY"/.env.bak-* 2>/dev/null | sort -r | tail -n +6 | while read -r old; do
+  rm -f -- "$old"
+done
 sed -i "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=srtrend-backend:$TAG|" "$DEPLOY/.env"
 sed -i "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=srtrend-frontend:$TAG|" "$DEPLOY/.env"
 cp "$SRC/deployment/aws/compose.app.yml" "$DEPLOY/compose.app.yml"

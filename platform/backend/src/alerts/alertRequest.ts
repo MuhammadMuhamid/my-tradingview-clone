@@ -13,9 +13,7 @@ import {
   SR_SIDES, PIVOT_LEVEL_ANY, isSrSide, type SrSide,
 } from "../types/maAlerts";
 import type { AlertCondition } from "./alertConditions";
-import {
-  PIVOT_TYPES, isPivotType, type PivotType,
-} from "../engine/pivotLevels";
+import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 
 /** Shared 400 shape, so every rejection reads the same way in the UI. */

@@ -86,10 +86,29 @@ functions (single-line and indented, with per-call-site series state like
 Pine), `ta.*`, `math.*`, `str.*`, `plot`/`plotshape`/`hline`, colours, and
 `strategy.entry`/`close`/`exit` with `position_size`/`position_avg_price`.
 
+`request.security` is supported for a **constant** timeframe argument. A
+capture pass runs the script once per referenced higher timeframe on that
+timeframe's own bars, then aligns each result onto the chart's bars by
+`closeTime <= now` (binary search), so no value is ever visible before the bar
+that produced it had closed.
+
+> **Deliberate deviation from TradingView.** TradingView's `request.security`
+> returns the *developing* higher-timeframe bar; this returns the last
+> **closed** one. That is the no-lookahead choice, and it means `[1]` steps
+> back one full period further than it would on TradingView. The built-in
+> Pivot Points indicator is written against this behaviour — see
+> `src/pine/interpreter.ts`.
+
 Not supported, and reported as a compile error naming the line rather than
-silently ignored: `request.security` and any multi-timeframe access, arrays /
+silently ignored: a non-constant `request.security` timeframe, arrays /
 matrices / maps, labels / lines / boxes / tables, user-defined types and
 methods, libraries, and `switch`.
+
+**Indicator library** (`backend/src/pine/library.ts`). Ships built-in scripts —
+Supertrend, Pivot Points (Traditional / Fibonacci / Woodie / Classic /
+Camarilla), and the community set — addable per chart with editable inputs,
+exactly like a user script. Sources are embedded in the module rather than read
+from disk because `tsc` copies only TypeScript into `dist/`.
 
 **Execution limits.** A Pine script is untrusted input that runs synchronously
 on the same event loop as the live alert runner, so every limit below aborts
@@ -109,6 +128,37 @@ signals (`src/pine/interpreter.ts`, `LIMITS`):
 
 The declaration pass used by the editor's compile-on-keystroke gets a tighter
 budget still (2 s, 1 M iterations).
+
+### Chart alerts and mobile notifications
+
+Separate from the live *trading* pipeline below: these fire notifications to a
+phone, never orders. Four condition families share one table (`ma_alerts`),
+one evaluator and one push path:
+
+| Family | Watches | Armed from |
+|---|---|---|
+| `ma` | one SMA/EMA line (200/100/50/21/15) | 🔔 on the line, in the MA rail |
+| `price` | a fixed price level | **+ Price** in the MA rail |
+| `sr_zone` | nearest swing support / resistance | **Levels → Support / resistance** |
+| `pivot_level` | one pivot level of a chosen family | **Levels → Pivot points** |
+
+Every family takes a mode (`near_above`, `near_below`, `touch`, `cross_up`,
+`cross_down`), a percentage band for the "near" modes (default 0.2–0.5 %), a
+trigger frequency (once / once per bar / once per bar close) and a cooldown.
+Level alerts can be armed across 5m/15m/1h/4h in one action, creating one alert
+per timeframe. `/alerts` is the cross-coin inventory: what is armed, what
+fired, and whether it reached a device.
+
+**Support/resistance zones** (`engine/srZones.ts`) come from confirmed swing
+pivots, so a pivot at bar `i` is only knowable at `i + length` — the detector
+never sees a level before the chart could have. **Pivot levels**
+(`engine/pivotLevels.ts`) are computed from the last *completed* anchor period,
+not the forming one, and are shared with the Pine indicator so the alert and
+the drawn line can never disagree.
+
+Delivery is Web Push (VAPID, service worker, installable PWA). Notification
+text names the timeframe, the level and the distance, e.g.
+`Price is 0.26% below Fibonacci R2 at 106.6013 (1d pivots, last 106.32)`.
 
 ### Live pipeline (Stage 3)
 
@@ -201,3 +251,32 @@ Open http://localhost:3000 — three pages: **Chart** (live Binance candles),
 - **Alert formats are frozen contracts** copied from the Pine source
   (`f_bot_json_buy` / `f_bot_json_sell_exit`) and
   `3commas_alert_message_template.json` — see `src/types/alerts.ts`.
+
+## Security
+
+The controls this codebase relies on, and where they live. Each is asserted by
+a test, so a regression fails the suite rather than being noticed in
+production.
+
+| Control | Where | Note |
+|---|---|---|
+| Session auth | `security/session.ts` | HMAC-signed HttpOnly cookie, 90-day sliding. A token is only valid for the *currently configured* username — these are stateless, so there is no revocation list. |
+| Default-deny gate | `api/server.ts` | One `onRequest` hook guards every route; a new endpoint is protected by omission, not by remembering. `PUBLIC_PATHS` is the whole exception list. |
+| Fail-closed config | `config.ts` | Refuses to boot on a missing password hash, a short or placeholder session secret, a weak encryption key, or an empty webhook allowlist. An app that only *looks* protected is worse than one that will not start. |
+| Sign-in rate limit | `security/rateLimit.ts` | Only `POST /api/auth/login` is throttled: each attempt costs ~100 ms of scrypt on the live runner's event loop. |
+| Secrets at rest | `security/secrets.ts` | AES-256-GCM for webhook secrets and bot uuids; payloads and receiver response bodies redacted before storage. |
+| Outbound allowlists | `alerts/dispatcher.ts`, `alerts/webPush.ts` | Both webhook URLs and push endpoints are HTTPS-only, port 443, no embedded credentials, host on an allowlist. Push endpoints are re-checked at send time, not only at subscribe time — stored rows predate the rule. |
+| Untrusted Pine | `pine/runInWorker.ts` | A real interpreter (no `eval`, no `new Function`), run in a worker thread under a wall-clock budget and a heap cap, terminated when either is exceeded. |
+| No XSS sinks | `frontend/tests/noUnsafeSinks.test.ts` | The frontend CSP needs `'unsafe-inline'` for Next's bootstrap, so the *actual* control is having no `dangerouslySetInnerHTML` / `innerHTML` / `eval`. That is asserted, not assumed. |
+| Open-redirect guard | `frontend/lib/safeRedirect.ts` | `?next=` is decoded before judgement and must be a same-origin absolute path. |
+| Live-order test | `api/routes/deployments.ts` | `LIVE_TEST_ENABLED` (default off) + confirmation phrase + paused deployment + custom delivery + $20 ceiling. |
+
+**Known and accepted.** Sessions cannot be revoked before expiry (single-admin
+app, no session store); only sign-in is rate-limited, so an authenticated
+operator can still make expensive requests; the CSP cannot forbid inline script
+without giving up static prerendering.
+
+**Operational.** `deployment/aws/update-app.sh` keeps only the five most recent
+`.env.bak-*` files — each is a full copy of the live database URL, encryption
+key, session secret and admin hash, so an unbounded pile of them is just more
+copies of the credentials to steal.

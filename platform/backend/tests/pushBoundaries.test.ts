@@ -8,7 +8,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isDiscardedSubscription, MAX_PUSH_PAYLOAD_BYTES } from "../src/alerts/webPush";
+import {
+  isAllowedPushHost, isDiscardedSubscription, MAX_PUSH_PAYLOAD_BYTES, validatePushEndpoint,
+} from "../src/alerts/webPush";
 import { formatAlertPrice, formatMaAlertPush } from "../src/alerts/maEvaluator";
 
 const alert = {
@@ -69,4 +71,53 @@ test("a realistic notification stays far inside the 4 KB Web Push payload limit"
 test("the notification is JSON round-trippable — it is serialized before encryption", () => {
   const msg = formatMaAlertPush(alert, { close: 12.3456 }, 12.0, 2.88);
   assert.deepEqual(JSON.parse(JSON.stringify(msg)), msg);
+});
+
+// ── push endpoint host allowlist (SSRF) ────────────────────────────────────
+
+/**
+ * A subscription endpoint becomes an outbound POST from this server, so the
+ * host rule is a server-side request forgery control, not input tidiness.
+ */
+test("push endpoints on the real push services are accepted", () => {
+  for (const url of [
+    "https://web.push.apple.com/QDoAc0nJ...",
+    "https://fcm.googleapis.com/fcm/send/abc123",
+    "https://android.googleapis.com/gcm/send/abc123",
+    "https://updates.push.services.mozilla.com/wpush/v2/abc",
+    "https://sg2p.notify.windows.com/w/?token=abc",
+  ]) {
+    assert.equal(validatePushEndpoint(url), new URL(url).toString(), url);
+  }
+});
+
+test("endpoints pointing inside the network are refused", () => {
+  for (const url of [
+    "https://169.254.169.254/latest/meta-data/",
+    "https://localhost/push",
+    "https://10.0.0.5/push",
+    "https://internal.srtrend.local/push",
+    // Suffix matching must not be fooled by a lookalike registrable domain.
+    "https://evil-push.apple.com.attacker.test/x",
+    "https://notfcm.googleapis.com.evil.test/x",
+  ]) {
+    assert.throws(() => validatePushEndpoint(url), /host is not allowed/, url);
+  }
+});
+
+test("push endpoints must be HTTPS on 443, with no embedded credentials", () => {
+  assert.throws(() => validatePushEndpoint("http://fcm.googleapis.com/x"), /HTTPS/);
+  assert.throws(() => validatePushEndpoint("https://fcm.googleapis.com:8443/x"), /port 443/);
+  assert.throws(
+    () => validatePushEndpoint("https://u:p@fcm.googleapis.com/x"),
+    /credentials are forbidden/
+  );
+  assert.throws(() => validatePushEndpoint("not-a-url"), /must be a URL/);
+});
+
+test("a bare push-service domain is not itself an endpoint host match", () => {
+  // ".push.apple.com" is a suffix rule; the apex must not slip through a
+  // careless endsWith on a string without the leading dot.
+  assert.equal(isAllowedPushHost("web.push.apple.com"), true);
+  assert.equal(isAllowedPushHost("xpush.apple.com"), false);
 });

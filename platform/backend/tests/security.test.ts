@@ -22,7 +22,15 @@ const VALID_HASH = "scrypt$00112233445566778899aabbccddeeff$" + "0".repeat(64);
 
 /** Import `src/config.ts` in a clean child process; returns its stderr on failure. */
 function bootConfig(env: Record<string, string | undefined>): { ok: boolean; message: string } {
-  const clean: Record<string, string> = { PATH: process.env.PATH ?? "", NODE_ENV: "test" };
+  // `config.ts` imports `dotenv/config`, which would read the developer's real
+  // backend/.env from cwd and quietly satisfy the very variables these cases
+  // are asserting are absent. Point dotenv at a path that cannot exist so the
+  // child sees exactly the environment this helper passes it, and no more.
+  const clean: Record<string, string> = {
+    PATH: process.env.PATH ?? "",
+    NODE_ENV: "test",
+    DOTENV_CONFIG_PATH: path.join(ROOT, "does-not-exist.env"),
+  };
   for (const [k, v] of Object.entries(env)) if (v !== undefined) clean[k] = v;
   try {
     execFileSync(

@@ -39,3 +39,72 @@ export DOMAIN_NAME=chart.example.com
 ```
 
 The scripts intentionally do not contain credentials. Runtime `.env` files belong only on the EC2 hosts with mode `0600`; never commit them or upload them in the source bundle.
+
+## Rolling a new release onto the running app EC2
+
+`update-app.sh` builds both images **on the app instance** from an extracted
+source bundle. It does not fetch that bundle itself — `cloud-deploy.sh` does
+the S3 download and extraction first, and running `update-app.sh` against a tag
+that was never extracted exits with `source bundle missing at ...` before
+touching anything.
+
+```bash
+TAG=$(date -u +%Y%m%d%H%M%S)
+# from the repo root: bundle only what the images need
+git archive --format=tar.gz --prefix=platform/ HEAD:platform \
+  backend frontend deployment > "src-$TAG.tar.gz"
+```
+
+Upload it to `s3://<backup-bucket>/deploy/`, then, on the instance:
+
+```bash
+aws s3 cp "s3://<bucket>/deploy/src-$TAG.tar.gz" /tmp/b.tar.gz
+mkdir -p "/opt/srtrend-src-$TAG"
+tar -xzf /tmp/b.tar.gz -C "/opt/srtrend-src-$TAG"
+nohup bash "/opt/srtrend-src-$TAG/platform/deployment/aws/update-app.sh" "$TAG" \
+  > "/var/log/deploy-$TAG.log" 2>&1 &
+```
+
+Bundle only `backend frontend deployment`. A whole-tree archive pulls in
+`Mystrategy/` (~20 MB of research data) that no image builds from.
+
+Run it detached with a log. An in-place build takes many minutes and will
+outlive a foreground SSM invocation.
+
+### The app instance needs swap
+
+**The `t3.micro` has 916 MB of RAM and cannot build the Next.js image without
+swap.** Without it the OOM killer takes the SSM agent with it, and the instance
+wedges: `describe-instance-status` still reports `running ok ok` while every
+`send-command` returns `Undeliverable` / `ResponseCode -1`, and the only way
+back is an EC2-level stop/start. Sustained high CPU during such a build is
+thrashing, not progress.
+
+Verify before deploying — `free -m` must show a non-zero `Swap` row:
+
+```bash
+if [ ! -e /swapfile ]; then fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048; fi
+chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+grep -q swapfile /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+free -m
+```
+
+Note the `-e` test rather than `-f`: a `/swapfile` can exist on disk while
+being neither enabled nor listed in `/etc/fstab`, and a guard that skips the
+whole block when the file is present will silently leave swap at zero. Trust
+the `free -m` output, not the exit status.
+
+The durable fix is to stop building on the instance at all: build the images
+in CI, push to ECR, and have the box only pull. That removes the memory
+ceiling from the deploy path entirely.
+
+### If the site is down mid-deploy
+
+1. `aws rds describe-db-instances` — check `DBInstanceStatus` first. The app
+   serves `/healthz` (Caddy) and `/login` long after the database is gone, so a
+   200 there is not evidence the stack is healthy.
+2. `docker ps -a` — a compose roll that aborts on an unhealthy backend leaves
+   the frontend in `Created` and never started. `docker compose --env-file .env
+   -f compose.app.yml up -d` finishes it.
+3. Roll back with the env backup the script wrote: `cp .env.bak-<TAG> .env`
+   then bring the containers up again.

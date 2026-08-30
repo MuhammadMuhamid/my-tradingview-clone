@@ -29,6 +29,56 @@ export interface PushMessage {
   url?: string;
 }
 
+/**
+ * Hosts the browser push services actually use.
+ *
+ * A subscription endpoint is a URL this server will later POST to, so an
+ * unrestricted one is a server-side request forgery primitive: anything that
+ * can reach /api/push/subscribe could point deliveries at 169.254.169.254 or
+ * at a service inside the VPC and use the push fan-out as a proxy. The
+ * webhook sender already refuses hosts outside an allowlist
+ * (`validateWebhookUrl`); this is the same rule for the same reason.
+ *
+ * Unlike webhook hosts these are not deployment-specific — they are fixed by
+ * the browser vendors — so the list is in code rather than in the environment.
+ */
+const PUSH_HOSTS_EXACT = new Set([
+  "fcm.googleapis.com",
+  "android.googleapis.com",
+  "updates.push.services.mozilla.com",
+]);
+const PUSH_HOST_SUFFIXES = [".push.apple.com", ".notify.windows.com"];
+
+/** Hostname of a stored endpoint, or "" when the row is not even a URL. */
+function safeHostname(endpoint: string): string {
+  try { return new URL(endpoint).hostname; } catch { return ""; }
+}
+
+export function isAllowedPushHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (PUSH_HOSTS_EXACT.has(host)) return true;
+  return PUSH_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
+/**
+ * Throws unless `value` is a push endpoint this server is willing to call.
+ * Mirrors `validateWebhookUrl`: HTTPS only, no embedded credentials, no
+ * non-default port, and a known host.
+ */
+export function validatePushEndpoint(value: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("endpoint must be a URL"); }
+  if (url.protocol !== "https:") throw new Error("push endpoint must use HTTPS");
+  if (url.username || url.password) {
+    throw new Error("push endpoint credentials are forbidden");
+  }
+  if (url.port && url.port !== "443") throw new Error("push endpoint must use port 443");
+  if (!isAllowedPushHost(url.hostname)) {
+    throw new Error(`push endpoint host is not allowed: ${url.hostname}`);
+  }
+  return url.toString();
+}
+
 let cached: VapidKeys | null = null;
 
 export async function getVapidKeys(): Promise<VapidKeys> {
@@ -80,6 +130,17 @@ export async function sendPush(
 
   await Promise.all(
     subs.map(async (sub) => {
+      // Checked again at send time, not only at subscribe time: rows written
+      // before the host rule existed are still in the table, and this is the
+      // last point before an outbound request is actually made.
+      if (!isAllowedPushHost(safeHostname(sub.endpoint))) {
+        result.failed++;
+        log?.warn(
+          { endpoint: sub.endpoint.slice(0, 60) },
+          "refusing to deliver to a push endpoint outside the allowed hosts"
+        );
+        return;
+      }
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: sub.keys },
