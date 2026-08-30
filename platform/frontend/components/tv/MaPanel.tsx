@@ -12,6 +12,30 @@ import {
 import { DEFAULT_ALERT_FREQUENCY } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
+type LevelKind = "sr_zone" | "pivot_level";
+
+/**
+ * The two level families get rows of their own rather than a single "+ Level"
+ * button, so arming one reads the same as arming an SMA: find the row, click
+ * its bell. Unlike a moving average these have no single current value — a
+ * symbol has many zones and eleven pivots at once — so the value column shows
+ * how many alerts are armed instead of a price.
+ */
+const LEVEL_ROWS: { kind: LevelKind; label: string; hint: string; color: string }[] = [
+  {
+    kind: "sr_zone",
+    label: "Support / resistance",
+    hint: "Alert when price nears a swing zone",
+    color: "#22c55e",
+  },
+  {
+    kind: "pivot_level",
+    label: "Pivot points",
+    hint: "Alert when price nears a pivot level",
+    color: "#f59e0b",
+  },
+];
+
 /**
  * The moving-average rail: every SMA/EMA the chart can draw, one row each,
  * with its own visibility toggle and its own alert bell. One row = one line =
@@ -20,7 +44,7 @@ import { fmtPrice } from "@/lib/format";
  */
 export function MaPanel({
   lines, values, alerts, timeframe, onToggle, onToggleAll, onArm, onArmPrice,
-  onOpenAlert, push,
+  onArmLevel, onOpenAlert, push,
 }: {
   lines: MaLine[];
   /** Latest value per line id, for the price column. */
@@ -32,6 +56,8 @@ export function MaPanel({
   onArm: (type: MaType, length: number) => void;
   /** Open the price-alert dialog with no level pre-filled. */
   onArmPrice: () => void;
+  /** Open the level dialog on one of the two families. */
+  onArmLevel: (kind: LevelKind) => void;
   onOpenAlert: (alert: MaAlert) => void;
   push: React.ReactNode;
 }) {
@@ -48,6 +74,16 @@ export function MaPanel({
       const list = map.get(key) ?? [];
       list.push(a);
       map.set(key, list);
+    }
+    return map;
+  }, [alerts]);
+
+  /** How many alerts each level family currently has, across all timeframes. */
+  const byLevelKind = useMemo(() => {
+    const map = new Map<LevelKind, number>();
+    for (const a of alerts) {
+      if (a.conditionKind !== "sr_zone" && a.conditionKind !== "pivot_level") continue;
+      map.set(a.conditionKind, (map.get(a.conditionKind) ?? 0) + 1);
     }
     return map;
   }, [alerts]);
@@ -126,6 +162,37 @@ export function MaPanel({
           </div>
         ))}
 
+        <div className="border-y border-border/60 bg-surface-2/40 px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">
+          Levels
+        </div>
+        {LEVEL_ROWS.map((row) => {
+          const count = byLevelKind.get(row.kind) ?? 0;
+          return (
+            <div
+              key={row.kind}
+              className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-surface-2/60"
+            >
+              <span className="flex h-4 w-4 items-center justify-center">
+                <span
+                  className="inline-block h-[3px] w-4 rounded-full"
+                  style={{ background: row.color, opacity: count ? 1 : 0.5 }}
+                />
+              </span>
+              <span className="truncate text-ink">{row.label}</span>
+              <span className="text-right text-[11px] text-ink-faint">
+                {count ? `${count} armed` : "—"}
+              </span>
+              <button
+                onClick={() => onArmLevel(row.kind)}
+                title={count ? `${count} alert(s) — click to add another` : row.hint}
+                className={`w-6 text-center ${count ? "text-accent" : "invisible text-ink-faint group-hover:visible hover:text-ink"}`}
+              >
+                {count > 1 ? `🔔${count}` : "🔔"}
+              </button>
+            </div>
+          );
+        })}
+
         <div className="flex items-center justify-between border-y border-border bg-surface-2/40 px-3 py-1">
           <span className="text-[10px] uppercase tracking-wide text-ink-faint">Armed alerts</span>
           <button
@@ -140,7 +207,7 @@ export function MaPanel({
           <div className="px-4 py-6 text-center text-xs text-ink-faint">
             No alerts on this symbol yet.
             <br />
-            Click the 🔔 on a line, or + Price for a level.
+            Click the 🔔 on a line or a level, or + Price.
           </div>
         ) : (
           armedList.map((a) => (

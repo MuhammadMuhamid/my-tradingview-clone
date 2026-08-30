@@ -18,6 +18,7 @@ import {
 } from "@/lib/deepLink";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
+import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { SyncMenu } from "@/components/tv/SyncMenu";
@@ -241,6 +242,8 @@ export default function TvWorkspace() {
    * exactly as before at every other moment.
    */
   const [priceAlertOpen, setPriceAlertOpen] = useState(false);
+  /** Which level family the dialog is open on, or null when it is closed. */
+  const [levelKind, setLevelKind] = useState<"sr_zone" | "pivot_level" | null>(null);
   const [priceAlertLevel, setPriceAlertLevel] = useState<number | null>(null);
   const [pickingLevel, setPickingLevel] = useState(false);
 
@@ -1081,10 +1084,13 @@ export default function TvWorkspace() {
                   onToggleAll={toggleAllMa}
                   onArm={(type, length) => setArmLine({ type, length })}
                   onArmPrice={openPriceAlert}
+                  onArmLevel={setLevelKind}
                   onOpenAlert={(a) => {
                     if (a.conditionKind === "price") {
                       setPriceAlertLevel(a.targetPrice);
                       setPriceAlertOpen(true);
+                    } else if (a.conditionKind === "sr_zone" || a.conditionKind === "pivot_level") {
+                      setLevelKind(a.conditionKind);
                     } else if (a.maType !== null && a.maLength !== null) {
                       setArmLine({ type: a.maType, length: a.maLength });
                     }
@@ -1245,6 +1251,14 @@ export default function TvWorkspace() {
         lastPrice={last?.close ?? null}
         existing={maAlerts.filter((a) => a.conditionKind === "price")}
         onPickFromChart={() => { setPriceAlertOpen(false); setPickingLevel(true); }}
+        onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
+      />
+      <LevelAlertModal
+        open={levelKind !== null}
+        onClose={() => setLevelKind(null)}
+        symbol={symbol}
+        defaultTimeframe={interval}
+        initialKind={levelKind ?? "sr_zone"}
         onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
       />
       <MaAlertModal

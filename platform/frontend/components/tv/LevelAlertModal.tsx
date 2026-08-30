@@ -40,15 +40,17 @@ const MODES: { id: MaAlertMode; label: string }[] = [
 ];
 
 export function LevelAlertModal({
-  open, onClose, symbol, defaultTimeframe, onSaved,
+  open, onClose, symbol, defaultTimeframe, initialKind = "sr_zone", onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   symbol: string;
   defaultTimeframe: Interval;
+  /** Which of the two level families to open on, when the caller already knows. */
+  initialKind?: "sr_zone" | "pivot_level";
   onSaved: (message: string) => void;
 }) {
-  const [kind, setKind] = useState<"sr_zone" | "pivot_level">("sr_zone");
+  const [kind, setKind] = useState<"sr_zone" | "pivot_level">(initialKind);
   const [timeframes, setTimeframes] = useState<Interval[]>([defaultTimeframe]);
   const [srSide, setSrSide] = useState<SrSide>("support");
   const [pivotType, setPivotType] = useState<PivotType>("Fibonacci");
@@ -63,8 +65,10 @@ export function LevelAlertModal({
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) { setTimeframes([defaultTimeframe]); setErr(null); }
-  }, [open, defaultTimeframe]);
+    // Reopening from a specific rail row should land on that family, not on
+    // whatever the previous visit happened to leave selected.
+    if (open) { setTimeframes([defaultTimeframe]); setKind(initialKind); setErr(null); }
+  }, [open, defaultTimeframe, initialKind]);
 
   const isNear = mode === "near_above" || mode === "near_below";
   const toggleTf = (tf: Interval): void =>
