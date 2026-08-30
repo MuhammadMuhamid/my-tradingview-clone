@@ -378,7 +378,13 @@ export type MaAlertMode = "touch" | "cross_up" | "cross_down" | "near_above" | "
 export type MaType = "sma" | "ema";
 
 /** What an alert watches. `ma` is the original family. */
-export type ConditionKind = "price" | "ma" | "ma_vs_ma";
+export type ConditionKind = "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level";
+
+/** Which side of the market a support/resistance alert watches. */
+export type SrSide = "support" | "resistance" | "either";
+
+/** Pivot families the engine computes. Fibonacci is the default. */
+export type PivotType = "Traditional" | "Fibonacci" | "Woodie" | "Classic" | "Camarilla";
 export type PriceDirection = "cross_up" | "cross_down" | "either";
 
 /**
@@ -406,6 +412,12 @@ export interface MaAlert {
   symbol: string;
   timeframe: Interval;
   conditionKind: ConditionKind;
+  srSide: SrSide | null;
+  srPivotLength: number | null;
+  srInvalidation: string | null;
+  pivotType: PivotType | null;
+  pivotLevelName: string | null;
+  pivotAnchor: string | null;
   /** Populated for `ma` and `ma_vs_ma`. */
   maType: MaType | null;
   maLength: number | null;
@@ -639,6 +651,10 @@ export const api = {
   createMaAlert: (body: {
     symbol: string; timeframe: Interval;
     conditionKind?: ConditionKind;
+    srSide?: SrSide;
+    pivotType?: PivotType;
+    levelName?: string;
+    anchor?: string;
     maType?: MaType; maLength?: number; mode?: MaAlertMode;
     ma2Type?: MaType; ma2Length?: number;
     targetPrice?: number; priceDirection?: PriceDirection;

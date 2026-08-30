@@ -1,0 +1,1271 @@
+//@version=6
+// =====================================================================================
+// MTF OVERLAY SUITE                                        Script A of 2  —  overlay
+// -------------------------------------------------------------------------------------
+// Modules: 4x SMA, 4x EMA, 3x Supertrend, VWAP, Bollinger Bands, Pivot Points Standard,
+//          Support & Resistance (Flux Charts), Trendlines, Auto Fib Retracement.
+//
+// This is a DERIVATIVE WORK assembled from published scripts. Keep it private /
+// invite-only. Do not publish it as original work.
+//
+//   Support & Resistance module:
+//     This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+//     at https://mozilla.org/MPL/2.0/
+//     © fluxchart
+//
+//   Trendlines module:
+//     © Copyright 2019 to present, Joris Duyck (JD)
+//
+//   Supertrend, Pivot Points Standard, Bollinger Bands, VWAP, moving averages, Auto Fib:
+//     ported / adapted from the TradingView built-in scripts.
+//
+// It is a visualisation tool. It is not a trading system and confers no edge.
+//
+// ---------------------------- REPAINT WARNING ----------------------------------------
+//   * "Confirm HTF values on close" = true (default): the engine requests the last
+//     CLOSED higher-timeframe value. Historical bars never change. Values appear up to
+//     one HTF bar late.
+//   * = false: live HTF values are used. They WILL change intrabar.
+// The shift is applied ONLY to modules whose timeframe is above the chart's — see
+// engConfirm(). A module running on the chart timeframe is never lagged.
+// The only lookahead_on in this file is the Pivot Points request (documented at the
+// module). It does not leak future data.
+// =====================================================================================
+indicator("MTF Overlay Suite", "MTF-O", overlay = true,
+     max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500,
+     dynamic_requests = true)
+
+// =====================================================================================
+// ENGINE INPUTS
+// =====================================================================================
+const string GRP_ENG = "Engine"
+
+bool engConfirmHTF = input.bool(true, "Confirm HTF values on close", group = GRP_ENG,
+     tooltip = "ON (recommended): use the last CLOSED higher-timeframe value. Historical " +
+       "values never change.\n\nOFF: use live higher-timeframe values. They WILL change " +
+       "intrabar — signals can appear and then disappear before the HTF bar closes.\n\n" +
+       "Modules running on the chart timeframe are unaffected either way.")
+
+string engLowerTFMode = input.string("Fall back to chart timeframe", "If a module timeframe is below the chart timeframe",
+     options = ["Suppress + warn", "Fall back to chart timeframe"], group = GRP_ENG,
+     tooltip = "Requesting a timeframe lower than the chart returns the last value of that " +
+       "lower timeframe, which is misleading rather than useful.")
+
+bool engShowDebug = input.bool(false, "Show drawing-object debug table", group = GRP_ENG,
+     tooltip = "Live per-module line / label / box counts against each module's cap.")
+
+// =====================================================================================
+// TIMEFRAME RESOLUTION AND GUARD
+// =====================================================================================
+engTfSeconds(simple string tf) =>
+    timeframe.in_seconds(tf == "" ? timeframe.period : tf)
+
+engIsLower(simple string tf) =>
+    engTfSeconds(tf) < timeframe.in_seconds(timeframe.period)
+
+engResolve(simple string tf) =>
+    engIsLower(tf) and engLowerTFMode == "Fall back to chart timeframe" ? "" : tf
+
+engSuppressed(simple string tf) =>
+    engIsLower(tf) and engLowerTFMode == "Suppress + warn"
+
+var array<string> engWarnings = array.new<string>()
+
+engWarn(string moduleName, simple string tf) =>
+    if barstate.islast and engSuppressed(tf)
+        string msg = moduleName + " (" + (tf == "" ? "chart" : tf) + ")"
+        if not engWarnings.includes(msg)
+            engWarnings.push(msg)
+    engSuppressed(tf)
+
+// @function true when the confirm-on-close shift should actually be applied.
+//           The shift exists to stop a FORMING higher-timeframe bar from mutating
+//           values already drawn. When a module's timeframe resolves to the chart
+//           timeframe there is no higher bar to wait for, and shifting would just lag
+//           the module by one chart bar for nothing.
+engConfirm(simple string tf) =>
+    engConfirmHTF and engTfSeconds(engResolve(tf)) > timeframe.in_seconds(timeframe.period)
+
+// =====================================================================================
+// MTF REQUEST HELPERS
+// =====================================================================================
+// Pine cannot pass a tuple expression through a user function, so tuple requests call
+// request.security() directly with this exact argument set.
+// VERIFIED 2026-08-27 on BINANCE:ZECUSDT 1H: a calculation passed through this wrapper
+// is evaluated in the REQUESTED context. 4H SMA20 via engHtfF = 805.3895, identical to
+// the direct idiom; the wrong "pull the HTF close down and average it here" form gave
+// 790.149.
+engHtfF(simple string tf, float expr) =>
+    request.security(syminfo.tickerid, engResolve(tf), engConfirm(tf) ? expr[1] : expr,
+         gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+engHtfI(simple string tf, int expr) =>
+    request.security(syminfo.tickerid, engResolve(tf), engConfirm(tf) ? expr[1] : expr,
+         gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+engHtfB(simple string tf, bool expr) =>
+    request.security(syminfo.tickerid, engResolve(tf), engConfirm(tf) ? expr[1] : expr,
+         gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// =====================================================================================
+// DRAWING-OBJECT CAP MANAGER
+// =====================================================================================
+type engPool
+    string       name
+    array<line>  lines
+    array<label> labels
+    array<box>   boxes
+    int          maxLines
+    int          maxLabels
+    int          maxBoxes
+
+var array<engPool> engPools = array.new<engPool>()
+
+engNewPool(string name, int maxLines, int maxLabels, int maxBoxes) =>
+    engPool p = engPool.new(name, array.new<line>(), array.new<label>(), array.new<box>(),
+         maxLines, maxLabels, maxBoxes)
+    engPools.push(p)
+    p
+
+method own(engPool p, line ln) =>
+    if not na(ln)
+        p.lines.push(ln)
+        while p.lines.size() > p.maxLines
+            line.delete(p.lines.shift())
+    ln
+
+method own(engPool p, label lb) =>
+    if not na(lb)
+        p.labels.push(lb)
+        while p.labels.size() > p.maxLabels
+            label.delete(p.labels.shift())
+    lb
+
+method own(engPool p, box bx) =>
+    if not na(bx)
+        p.boxes.push(bx)
+        while p.boxes.size() > p.maxBoxes
+            box.delete(p.boxes.shift())
+    bx
+
+// @function Releases one object from the pool WITHOUT deleting it again. A module that
+//           deletes its own drawings must call this, or the pool keeps dead handles:
+//           its counts drift high and eviction starts freeing handles that are already
+//           gone instead of live ones.
+method release(engPool p, line ln) =>
+    int i = p.lines.indexof(ln)
+    if i >= 0
+        p.lines.remove(i)
+
+method release(engPool p, label lb) =>
+    int i = p.labels.indexof(lb)
+    if i >= 0
+        p.labels.remove(i)
+
+method release(engPool p, box bx) =>
+    int i = p.boxes.indexof(bx)
+    if i >= 0
+        p.boxes.remove(i)
+
+method clear(engPool p) =>
+    while p.lines.size() > 0
+        line.delete(p.lines.shift())
+    while p.labels.size() > 0
+        label.delete(p.labels.shift())
+    while p.boxes.size() > 0
+        box.delete(p.boxes.shift())
+
+method recap(engPool p, int maxLines, int maxLabels, int maxBoxes) =>
+    p.maxLines  := maxLines
+    p.maxLabels := maxLabels
+    p.maxBoxes  := maxBoxes
+    while p.lines.size()  > p.maxLines
+        line.delete(p.lines.shift())
+    while p.labels.size() > p.maxLabels
+        label.delete(p.labels.shift())
+    while p.boxes.size()  > p.maxBoxes
+        box.delete(p.boxes.shift())
+
+// =====================================================================================
+// DEBUG TABLE  (off by default)
+// =====================================================================================
+const int ENG_HARD_CAP = 500
+
+var table engTable = table.new(position.top_right, 5, 12, border_width = 1)
+
+engDrawDebug() =>
+    if engShowDebug and barstate.islast
+        table.clear(engTable, 0, 0, 4, 11)
+        table.cell(engTable, 0, 0, "Module", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 1, 0, "lines", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 2, 0, "labels", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 3, 0, "boxes", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 4, 0, "cap", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        int totL = 0
+        int totB = 0
+        int totX = 0
+        int row = 1
+        for p in engPools
+            if row < 11
+                table.cell(engTable, 0, row, p.name, text_color = color.white, text_size = size.small)
+                table.cell(engTable, 1, row, str.tostring(p.lines.size()), text_color = color.white, text_size = size.small)
+                table.cell(engTable, 2, row, str.tostring(p.labels.size()), text_color = color.white, text_size = size.small)
+                table.cell(engTable, 3, row, str.tostring(p.boxes.size()), text_color = color.white, text_size = size.small)
+                table.cell(engTable, 4, row, str.tostring(p.maxLines) + "/" + str.tostring(p.maxLabels) + "/" + str.tostring(p.maxBoxes), text_color = color.gray, text_size = size.small)
+                row += 1
+            totL += p.lines.size()
+            totB += p.labels.size()
+            totX += p.boxes.size()
+        color warnCol = math.max(totL, math.max(totB, totX)) > ENG_HARD_CAP * 4 / 5 ? color.red : color.white
+        table.cell(engTable, 0, row, "TOTAL", text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 1, row, str.tostring(totL), text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 2, row, str.tostring(totB), text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 3, row, str.tostring(totX), text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 4, row, str.tostring(ENG_HARD_CAP) + " each", text_color = color.gray, text_size = size.small)
+
+var label engWarnLabel = na
+
+// =====================================================================================
+// MODULE — MOVING AVERAGES  (4 SMA + 4 EMA, independent timeframe per slot)
+// =====================================================================================
+const string GRP_MA = "Moving averages"
+
+bool maOn = input.bool(true, "Enable moving averages", group = GRP_MA)
+
+maCalc(simple int len, float src, simple bool isEma) =>
+    isEma ? ta.ema(src, len) : ta.sma(src, len)
+
+bool          sma1On  = input.bool(false,       "SMA 1", inline = "sma1", group = GRP_MA)
+int           sma1Len = input.int(20,           "",      inline = "sma1", group = GRP_MA, minval = 1, display = display.none)
+float         sma1Src = input.source(close,     "",      inline = "sma1", group = GRP_MA, display = display.none)
+simple string sma1Tf  = input.timeframe("",     "",      inline = "sma1", group = GRP_MA, display = display.none)
+int           sma1Off = input.int(0,            "",      inline = "sma1", group = GRP_MA, display = display.none)
+int           sma1Wid = input.int(1,            "",      inline = "sma1", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         sma1Col = input.color(#2962ff,    "",      inline = "sma1", group = GRP_MA, display = display.none)
+
+bool          sma2On  = input.bool(false,       "SMA 2", inline = "sma2", group = GRP_MA)
+int           sma2Len = input.int(50,           "",      inline = "sma2", group = GRP_MA, minval = 1, display = display.none)
+float         sma2Src = input.source(close,     "",      inline = "sma2", group = GRP_MA, display = display.none)
+simple string sma2Tf  = input.timeframe("",     "",      inline = "sma2", group = GRP_MA, display = display.none)
+int           sma2Off = input.int(0,            "",      inline = "sma2", group = GRP_MA, display = display.none)
+int           sma2Wid = input.int(1,            "",      inline = "sma2", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         sma2Col = input.color(#f57c00,    "",      inline = "sma2", group = GRP_MA, display = display.none)
+
+bool          sma3On  = input.bool(false,       "SMA 3", inline = "sma3", group = GRP_MA)
+int           sma3Len = input.int(100,          "",      inline = "sma3", group = GRP_MA, minval = 1, display = display.none)
+float         sma3Src = input.source(close,     "",      inline = "sma3", group = GRP_MA, display = display.none)
+simple string sma3Tf  = input.timeframe("",     "",      inline = "sma3", group = GRP_MA, display = display.none)
+int           sma3Off = input.int(0,            "",      inline = "sma3", group = GRP_MA, display = display.none)
+int           sma3Wid = input.int(1,            "",      inline = "sma3", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         sma3Col = input.color(#7e57c2,    "",      inline = "sma3", group = GRP_MA, display = display.none)
+
+bool          sma4On  = input.bool(false,       "SMA 4", inline = "sma4", group = GRP_MA)
+int           sma4Len = input.int(200,          "",      inline = "sma4", group = GRP_MA, minval = 1, display = display.none)
+float         sma4Src = input.source(close,     "",      inline = "sma4", group = GRP_MA, display = display.none)
+simple string sma4Tf  = input.timeframe("",     "",      inline = "sma4", group = GRP_MA, display = display.none)
+int           sma4Off = input.int(0,            "",      inline = "sma4", group = GRP_MA, display = display.none)
+int           sma4Wid = input.int(2,            "",      inline = "sma4", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         sma4Col = input.color(#787b86,    "",      inline = "sma4", group = GRP_MA, display = display.none)
+
+bool          ema1On  = input.bool(true,        "EMA 1", inline = "ema1", group = GRP_MA)
+int           ema1Len = input.int(21,           "",      inline = "ema1", group = GRP_MA, minval = 1, display = display.none)
+float         ema1Src = input.source(close,     "",      inline = "ema1", group = GRP_MA, display = display.none)
+simple string ema1Tf  = input.timeframe("",     "",      inline = "ema1", group = GRP_MA, display = display.none)
+int           ema1Off = input.int(0,            "",      inline = "ema1", group = GRP_MA, display = display.none)
+int           ema1Wid = input.int(1,            "",      inline = "ema1", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         ema1Col = input.color(#ffffff,    "",      inline = "ema1", group = GRP_MA, display = display.none)
+
+bool          ema2On  = input.bool(true,        "EMA 2", inline = "ema2", group = GRP_MA)
+int           ema2Len = input.int(50,           "",      inline = "ema2", group = GRP_MA, minval = 1, display = display.none)
+float         ema2Src = input.source(close,     "",      inline = "ema2", group = GRP_MA, display = display.none)
+simple string ema2Tf  = input.timeframe("",     "",      inline = "ema2", group = GRP_MA, display = display.none)
+int           ema2Off = input.int(0,            "",      inline = "ema2", group = GRP_MA, display = display.none)
+int           ema2Wid = input.int(2,            "",      inline = "ema2", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         ema2Col = input.color(#ffeb3b,    "",      inline = "ema2", group = GRP_MA, display = display.none)
+
+bool          ema3On  = input.bool(true,        "EMA 3", inline = "ema3", group = GRP_MA)
+int           ema3Len = input.int(100,          "",      inline = "ema3", group = GRP_MA, minval = 1, display = display.none)
+float         ema3Src = input.source(close,     "",      inline = "ema3", group = GRP_MA, display = display.none)
+simple string ema3Tf  = input.timeframe("",     "",      inline = "ema3", group = GRP_MA, display = display.none)
+int           ema3Off = input.int(0,            "",      inline = "ema3", group = GRP_MA, display = display.none)
+int           ema3Wid = input.int(1,            "",      inline = "ema3", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         ema3Col = input.color(#4caf50,    "",      inline = "ema3", group = GRP_MA, display = display.none)
+
+bool          ema4On  = input.bool(true,        "EMA 4", inline = "ema4", group = GRP_MA)
+int           ema4Len = input.int(200,          "",      inline = "ema4", group = GRP_MA, minval = 1, display = display.none)
+float         ema4Src = input.source(close,     "",      inline = "ema4", group = GRP_MA, display = display.none)
+simple string ema4Tf  = input.timeframe("",     "",      inline = "ema4", group = GRP_MA, display = display.none)
+int           ema4Off = input.int(0,            "",      inline = "ema4", group = GRP_MA, display = display.none)
+int           ema4Wid = input.int(2,            "",      inline = "ema4", group = GRP_MA, minval = 1, maxval = 4, display = display.none)
+color         ema4Col = input.color(#f23645,    "",      inline = "ema4", group = GRP_MA, display = display.none)
+
+float sma1 = maOn and sma1On and not engWarn("SMA 1", sma1Tf) ? engHtfF(sma1Tf, maCalc(sma1Len, sma1Src, false)) : na
+float sma2 = maOn and sma2On and not engWarn("SMA 2", sma2Tf) ? engHtfF(sma2Tf, maCalc(sma2Len, sma2Src, false)) : na
+float sma3 = maOn and sma3On and not engWarn("SMA 3", sma3Tf) ? engHtfF(sma3Tf, maCalc(sma3Len, sma3Src, false)) : na
+float sma4 = maOn and sma4On and not engWarn("SMA 4", sma4Tf) ? engHtfF(sma4Tf, maCalc(sma4Len, sma4Src, false)) : na
+float ema1 = maOn and ema1On and not engWarn("EMA 1", ema1Tf) ? engHtfF(ema1Tf, maCalc(ema1Len, ema1Src, true))  : na
+float ema2 = maOn and ema2On and not engWarn("EMA 2", ema2Tf) ? engHtfF(ema2Tf, maCalc(ema2Len, ema2Src, true))  : na
+float ema3 = maOn and ema3On and not engWarn("EMA 3", ema3Tf) ? engHtfF(ema3Tf, maCalc(ema3Len, ema3Src, true))  : na
+float ema4 = maOn and ema4On and not engWarn("EMA 4", ema4Tf) ? engHtfF(ema4Tf, maCalc(ema4Len, ema4Src, true))  : na
+
+plot(sma1, "SMA 1", sma1Col, sma1Wid, offset = sma1Off)
+plot(sma2, "SMA 2", sma2Col, sma2Wid, offset = sma2Off)
+plot(sma3, "SMA 3", sma3Col, sma3Wid, offset = sma3Off)
+plot(sma4, "SMA 4", sma4Col, sma4Wid, offset = sma4Off)
+plot(ema1, "EMA 1", ema1Col, ema1Wid, offset = ema1Off)
+plot(ema2, "EMA 2", ema2Col, ema2Wid, offset = ema2Off)
+plot(ema3, "EMA 3", ema3Col, ema3Wid, offset = ema3Off)
+plot(ema4, "EMA 4", ema4Col, ema4Wid, offset = ema4Off)
+
+// =====================================================================================
+// MODULE — SUPERTREND x3  (ported from v4)
+// -------------------------------------------------------------------------------------
+// VERIFIED 2026-08-27 against an independent reimplementation of the v4 source on
+// ZECUSDT 1H: up 776.4634 / down 861.4195 / direction 1 — exact match.
+// =====================================================================================
+const string GRP_ST = "Supertrend"
+
+bool stOn = input.bool(true, "Enable Supertrend", group = GRP_ST)
+
+stCalc(simple int per, simple float mult, float src, simple bool useAtr, simple bool confirm) =>
+    float atrv = useAtr ? ta.atr(per) : ta.sma(ta.tr, per)
+    float up  = src - mult * atrv
+    float up1 = nz(up[1], up)
+    up := close[1] > up1 ? math.max(up, up1) : up
+    float dn  = src + mult * atrv
+    float dn1 = nz(dn[1], dn)
+    dn := close[1] < dn1 ? math.min(dn, dn1) : dn
+    int trend = 1
+    trend := nz(trend[1], trend)
+    trend := trend == -1 and close > dn1 ? 1 : trend == 1 and close < up1 ? -1 : trend
+    [confirm ? up[1] : up, confirm ? dn[1] : dn, confirm ? trend[1] : trend]
+
+bool          st1On   = input.bool(true,      "ST 1", inline = "st1", group = GRP_ST)
+simple int    st1Per  = input.int(10,         "",     inline = "st1", group = GRP_ST, minval = 1, display = display.none)
+simple float  st1Mult = input.float(3.0,      "",     inline = "st1", group = GRP_ST, step = 0.1, display = display.none)
+simple string st1Tf   = input.timeframe("",   "",     inline = "st1", group = GRP_ST, display = display.none)
+color         st1Up   = input.color(#26a69a,  "",     inline = "st1", group = GRP_ST, display = display.none)
+color         st1Dn   = input.color(#ef5350,  "",     inline = "st1", group = GRP_ST, display = display.none)
+
+bool          st2On   = input.bool(false,     "ST 2", inline = "st2", group = GRP_ST)
+simple int    st2Per  = input.int(10,         "",     inline = "st2", group = GRP_ST, minval = 1, display = display.none)
+simple float  st2Mult = input.float(2.0,      "",     inline = "st2", group = GRP_ST, step = 0.1, display = display.none)
+simple string st2Tf   = input.timeframe("240","",     inline = "st2", group = GRP_ST, display = display.none)
+color         st2Up   = input.color(#00897b,  "",     inline = "st2", group = GRP_ST, display = display.none)
+color         st2Dn   = input.color(#d32f2f,  "",     inline = "st2", group = GRP_ST, display = display.none)
+
+bool          st3On   = input.bool(false,     "ST 3", inline = "st3", group = GRP_ST)
+simple int    st3Per  = input.int(10,         "",     inline = "st3", group = GRP_ST, minval = 1, display = display.none)
+simple float  st3Mult = input.float(4.0,      "",     inline = "st3", group = GRP_ST, step = 0.1, display = display.none)
+simple string st3Tf   = input.timeframe("D",  "",     inline = "st3", group = GRP_ST, display = display.none)
+color         st3Up   = input.color(#004d40,  "",     inline = "st3", group = GRP_ST, display = display.none)
+color         st3Dn   = input.color(#b71c1c,  "",     inline = "st3", group = GRP_ST, display = display.none)
+
+float        stSrc      = input.source(hl2,   "Source",                    group = GRP_ST, display = display.none)
+simple bool  stUseAtr   = input.bool(true,    "Use ta.atr (off = SMA of true range)", group = GRP_ST, display = display.none)
+bool         stShowFlip = input.bool(true,    "Show flip markers",         group = GRP_ST, display = display.none)
+bool         stShowFill = input.bool(true,    "Highlight trend fill (ST 1 only)", group = GRP_ST, display = display.none,
+     tooltip = "Applies to Supertrend 1. Fills for instances 2 and 3 were cut to stay inside the 64-output plot cap.")
+
+midPlot = plot(ohlc4, "", color = na, display = display.none, editable = false)
+
+bool st1Blk = engWarn("Supertrend 1", st1Tf)
+bool st2Blk = engWarn("Supertrend 2", st2Tf)
+bool st3Blk = engWarn("Supertrend 3", st3Tf)
+
+[st1u, st1d, st1t] = request.security(syminfo.tickerid, engResolve(st1Tf),
+     stCalc(st1Per, st1Mult, stSrc, stUseAtr, engConfirm(st1Tf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[st2u, st2d, st2t] = request.security(syminfo.tickerid, engResolve(st2Tf),
+     stCalc(st2Per, st2Mult, stSrc, stUseAtr, engConfirm(st2Tf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[st3u, st3d, st3t] = request.security(syminfo.tickerid, engResolve(st3Tf),
+     stCalc(st3Per, st3Mult, stSrc, stUseAtr, engConfirm(st3Tf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+bool st1Live = stOn and st1On and not st1Blk
+bool st2Live = stOn and st2On and not st2Blk
+bool st3Live = stOn and st3On and not st3Blk
+
+bool st1Buy = st1Live and st1t == 1 and st1t[1] == -1
+bool st1Sel = st1Live and st1t == -1 and st1t[1] == 1
+bool st2Buy = st2Live and st2t == 1 and st2t[1] == -1
+bool st2Sel = st2Live and st2t == -1 and st2t[1] == 1
+bool st3Buy = st3Live and st3t == 1 and st3t[1] == -1
+bool st3Sel = st3Live and st3t == -1 and st3t[1] == 1
+
+st1UpPlot = plot(st1Live and st1t ==  1 ? st1u : na, "ST 1 up",   st1Up, 2, plot.style_linebr)
+st1DnPlot = plot(st1Live and st1t == -1 ? st1d : na, "ST 1 down", st1Dn, 2, plot.style_linebr)
+st2UpPlot = plot(st2Live and st2t ==  1 ? st2u : na, "ST 2 up",   st2Up, 2, plot.style_linebr)
+st2DnPlot = plot(st2Live and st2t == -1 ? st2d : na, "ST 2 down", st2Dn, 2, plot.style_linebr)
+st3UpPlot = plot(st3Live and st3t ==  1 ? st3u : na, "ST 3 up",   st3Up, 2, plot.style_linebr)
+st3DnPlot = plot(st3Live and st3t == -1 ? st3d : na, "ST 3 down", st3Dn, 2, plot.style_linebr)
+
+plotshape(stShowFlip and st1Buy ? st1u : na, "ST 1 flip up",   shape.circle, location.absolute, st1Up, size = size.tiny)
+plotshape(stShowFlip and st1Sel ? st1d : na, "ST 1 flip down", shape.circle, location.absolute, st1Dn, size = size.tiny)
+plotshape(stShowFlip and st2Buy ? st2u : na, "ST 2 flip up",   shape.circle, location.absolute, st2Up, size = size.tiny)
+plotshape(stShowFlip and st2Sel ? st2d : na, "ST 2 flip down", shape.circle, location.absolute, st2Dn, size = size.tiny)
+plotshape(stShowFlip and st3Buy ? st3u : na, "ST 3 flip up",   shape.circle, location.absolute, st3Up, size = size.tiny)
+plotshape(stShowFlip and st3Sel ? st3d : na, "ST 3 flip down", shape.circle, location.absolute, st3Dn, size = size.tiny)
+
+fill(midPlot, st1UpPlot, stShowFill ? color.new(st1Up, 90) : na, "ST 1 up fill")
+fill(midPlot, st1DnPlot, stShowFill ? color.new(st1Dn, 90) : na, "ST 1 down fill")
+// CUT FOR THE PLOT BUDGET: only Supertrend 1 gets a trend fill. Four more fills for
+// instances 2 and 3 cost eight of the 64 outputs, and instances 2 and 3 are off by
+// default anyway.
+
+// =====================================================================================
+// MODULE — VWAP  (ported from the TradingView built-in "Volume Weighted Average Price")
+// -------------------------------------------------------------------------------------
+// ta.vwap is anchored and cumulative, so the whole calculation runs inside the request
+// expression: the anchor resets on the REQUESTED timeframe's period boundaries.
+//
+// TWO DELIBERATE CHANGES FROM THE BUILT-IN:
+//   1. The "Earnings", "Dividends" and "Splits" anchors are dropped. Each one costs an
+//      extra request.*() call (request.earnings / request.dividends / request.splits),
+//      three more against the 40-call budget, and none of them fire on a crypto symbol.
+//      Time-based anchors are kept in full.
+//   2. The built-in raises runtime.error when the feed reports no volume. That would
+//      kill every other module in this script, so this module draws nothing instead.
+// =====================================================================================
+const string GRP_VW = "VWAP"
+
+bool          vwOn      = input.bool(true, "Enable VWAP", group = GRP_VW)
+string        vwAnchor  = input.string("Session", "Anchor period", group = GRP_VW,
+     options = ["Session", "Week", "Month", "Quarter", "Year", "Decade", "Century"], display = display.none)
+float         vwSrc     = input.source(hlc3, "Source", inline = "vw1", group = GRP_VW, display = display.none)
+simple string vwTf      = input.timeframe("", "Timeframe", inline = "vw1", group = GRP_VW, display = display.none)
+int           vwOffset  = input.int(0, "Offset", inline = "vw1", group = GRP_VW, display = display.none)
+bool          vwHideDwm = input.bool(false, "Hide VWAP on 1D or above", group = GRP_VW, display = display.none)
+color         vwCol     = input.color(#2962ff, "VWAP colour", group = GRP_VW, display = display.none)
+
+string vwBandMode = input.string("Standard Deviation", "Bands calculation mode",
+     options = ["Standard Deviation", "Percentage"], group = GRP_VW,
+     tooltip = "With 'Percentage', a multiplier of 1 means 1%.", display = display.none)
+bool          vwShow1 = input.bool(true,  "Band 1", inline = "vwb1", group = GRP_VW, display = display.none)
+simple float  vwMult1 = input.float(1.0, "", minval = 0, step = 0.5, inline = "vwb1", group = GRP_VW, display = display.none)
+color         vwCol1  = input.color(color.green, "", inline = "vwb1", group = GRP_VW, display = display.none)
+// CUT FOR THE PLOT BUDGET: the built-in offers three band pairs. Two of them cost 4
+// plots + 2 fills, and every plot with a non-constant colour costs TWO of the 64
+// outputs, so they were the cheapest thing to give up when VWAP pushed this script to
+// 71 outputs. One configurable band pair remains.
+
+// @function The anchored VWAP and the absolute standard deviation of one band unit,
+//           both evaluated in the requested context so the anchor resets on that
+//           timeframe's periods. Bands are built from these two series at chart level,
+//           which is arithmetically identical to building them inside the request.
+vwCalc(float src, simple string anchorSel, simple bool confirm) =>
+    bool isNew = switch anchorSel
+        "Session" => timeframe.change("D")
+        "Week"    => timeframe.change("W")
+        "Month"   => timeframe.change("M")
+        "Quarter" => timeframe.change("3M")
+        "Year"    => timeframe.change("12M")
+        "Decade"  => timeframe.change("12M") and year % 10 == 0
+        "Century" => timeframe.change("12M") and year % 100 == 0
+        => false
+    if na(src[1])
+        isNew := true
+    [v, upper, _lower] = ta.vwap(src, isNew, 1)
+    float sd = upper - v
+    [confirm ? v[1] : v, confirm ? sd[1] : sd]
+
+bool vwBlk = engWarn("VWAP", vwTf)
+
+[vwVal, vwSd] = request.security(syminfo.tickerid, engResolve(vwTf),
+     vwCalc(vwSrc, vwAnchor, engConfirm(vwTf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+bool  vwLive  = vwOn and not vwBlk and not (vwHideDwm and timeframe.isdwm) and not na(vwVal)
+float vwBasis = vwBandMode == "Standard Deviation" ? vwSd : vwVal * 0.01
+
+plot(vwLive ? vwVal : na, "VWAP", vwCol, offset = vwOffset)
+
+vwU1 = plot(vwLive and vwShow1 ? vwVal + vwBasis * vwMult1 : na, "VWAP upper 1", vwCol1, offset = vwOffset)
+vwL1 = plot(vwLive and vwShow1 ? vwVal - vwBasis * vwMult1 : na, "VWAP lower 1", vwCol1, offset = vwOffset)
+fill(vwU1, vwL1, vwLive and vwShow1 ? color.new(vwCol1, 95) : na, "VWAP band 1 fill")
+
+
+// =====================================================================================
+// MODULE — PIVOT POINTS STANDARD
+// -------------------------------------------------------------------------------------
+// Adapted from the TradingView built-in. Levels are line + label objects owned by a
+// capped pool (built-in keeps up to 200 sets; default here is current + 2).
+//
+// REPAINT: the ONE request in the suite using lookahead_on, inherited from the built-in
+// and confirmed with the user. It does not leak future data: ta.pivot_point_levels()
+// derives the current period's levels solely from the COMPLETED previous period.
+// =====================================================================================
+const string GRP_PV = "Pivot points"
+
+bool   pvOn        = input.bool(true,  "Enable pivot points", group = GRP_PV)
+string pvType      = input.string("Fibonacci", "Type", group = GRP_PV,
+     options = ["Traditional", "Fibonacci", "Woodie", "Classic", "DM", "Camarilla"], display = display.none)
+string pvAnchor    = input.string("Auto", "Pivots timeframe", group = GRP_PV,
+     options = ["Auto", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly"], display = display.none)
+int    pvMaxSets   = input.int(3, "Max pivot sets", minval = 1, maxval = 20, group = GRP_PV,
+     tooltip = "Each set is up to 11 lines and 11 labels. The default of 3 costs 33 of each.", display = display.none)
+bool   pvShowNames = input.bool(true, "Show level names", inline = "pvlab", group = GRP_PV, display = display.none)
+bool   pvShowPrice = input.bool(true, "Show prices",      inline = "pvlab", group = GRP_PV, display = display.none)
+int    pvWidth     = input.int(1, "Line width", minval = 1, maxval = 4, group = GRP_PV, display = display.none)
+color  pvColor     = input.color(#fb8c00, "Colour", group = GRP_PV, display = display.none)
+
+var string pvTf = switch pvAnchor
+    "Auto"      => timeframe.isintraday ? (timeframe.multiplier <= 15 ? "1D" : "1W") : timeframe.isdaily ? "1M" : "12M"
+    "Daily"     => "1D"
+    "Weekly"    => "1W"
+    "Monthly"   => "1M"
+    "Quarterly" => "3M"
+    => "12M"
+
+var array<string> PV_NAMES = array.from(" P", "R1", "S1", "R2", "S2", "R3", "S3", "R4", "S4", "R5", "S5")
+
+pvCounter(bool isNewPeriod) =>
+    var int c = 0
+    if isNewPeriod and bar_index > 0
+        c += 1
+    c
+
+var engPool pvPool = engNewPool("Pivots", pvMaxSets * 11, pvMaxSets * 11, 0)
+pvPool.recap(pvMaxSets * 11, pvMaxSets * 11, 0)
+
+[pvLevels, pvCount] = request.security(syminfo.tickerid, pvTf,
+     [ta.pivot_point_levels(pvType, timeframe.change(timeframe.period)),
+      pvCounter(timeframe.change(timeframe.period))],
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+
+var array<line> pvOpenLines = array.new<line>()
+
+if pvOn and pvCount != nz(pvCount[1], pvCount) and not na(pvLevels)
+    for ln in pvOpenLines
+        ln.set_x2(time)
+    pvOpenLines.clear()
+    int pvEnd = time + timeframe.in_seconds(pvTf) * 1000
+    for [i, lvl] in pvLevels
+        if not na(lvl)
+            line pvLn = line.new(time, lvl, pvEnd, lvl, xloc = xloc.bar_time, color = pvColor, width = pvWidth)
+            string pvTxt = (pvShowNames ? PV_NAMES.get(i) + " " : "") +
+                 (pvShowPrice ? "(" + str.tostring(lvl, format.mintick) + ")" : "")
+            label pvLb = label.new(time, lvl, pvTxt, xloc = xloc.bar_time, style = label.style_label_right,
+                 textcolor = pvColor, color = #00000000, size = size.small)
+            pvPool.own(pvLn)
+            pvPool.own(pvLb)
+            pvOpenLines.push(pvLn)
+else if pvOn and pvOpenLines.size() > 0 and barstate.islast
+    for ln in pvOpenLines
+        if ln.get_x2() < time
+            ln.set_x2(time)
+
+if not pvOn and pvPool.lines.size() > 0
+    pvPool.clear()
+    pvOpenLines.clear()
+
+// =====================================================================================
+// MODULE — SUPPORT & RESISTANCE (MTF)
+// -------------------------------------------------------------------------------------
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// at https://mozilla.org/MPL/2.0/
+// © fluxchart
+//
+// Adapted from "Support & Resistance (MTF) | Flux Charts" V2.12. Algorithm unchanged.
+// Changes: identifiers namespaced; drawings owned by a capped pool; the level list
+// pruned to a maximum (the source never prunes, so a level that drops out of the HTF
+// list lingers forever); retest labels capped per level (the source's retestTimes array
+// is unbounded); alertcondition() replaced by alert() to protect the plot budget.
+//
+// REPAINT: this module ignores "Confirm HTF values on close" because it is already
+// confirmation-only — every level needs srPivotLength bars to confirm and all state
+// updates are gated on barstate.isconfirmed.
+// =====================================================================================
+const string GRP_SR = "Support & resistance"
+
+const int   SR_MAX_INFO      = 10
+const int   SR_MAX_BARINFO   = 3000
+const int   SR_MAX_DISTANCE  = 500
+const int   SR_MIN_SIZE      = 5
+const int   SR_RETEST_COOL   = 3
+const float SR_TOO_CLOSE_ATR = 0.125
+const int   SR_LABEL_OFFSET  = 20
+const int   SR_ATR_LEN       = 20
+
+bool   srOn          = input.bool(true,  "Enable support & resistance", group = GRP_SR)
+int    srPivotLength = input.int(15, "Pivot length", minval = 3, maxval = 50, group = GRP_SR, display = display.none)
+int    srStrength    = input.int(1, "Strength", options = [1, 2, 3], group = GRP_SR, display = display.none)
+string srInvalidation = input.string("Close", "Invalidation", options = ["Wick", "Close"], group = GRP_SR, display = display.none)
+string srExpand      = input.string("Only Valid", "Expand lines & zones", options = ["All", "Only Valid", "None"], group = GRP_SR, display = display.none)
+bool   srShowInvalid = input.bool(true, "Show invalidated", group = GRP_SR, display = display.none)
+
+int    srMaxZones    = input.int(8, "Max zones", minval = 1, maxval = 30, group = GRP_SR,
+     tooltip = "Hard cap on levels kept alive across all timeframes. The OLDEST level is evicted first, so every enabled timeframe competes on equal terms.", display = display.none)
+int    srMaxRetests  = input.int(3, "Max retest labels per zone", minval = 0, maxval = 20, group = GRP_SR, display = display.none)
+
+bool          sr1On = input.bool(true,  "TF 1", inline = "sr1", group = GRP_SR)
+simple string sr1Tf = input.timeframe("", "",   inline = "sr1", group = GRP_SR, display = display.none)
+bool          sr2On = input.bool(false, "TF 2", inline = "sr2", group = GRP_SR)
+simple string sr2Tf = input.timeframe("D", "",  inline = "sr2", group = GRP_SR, display = display.none)
+bool          sr3On = input.bool(false, "TF 3", inline = "sr3", group = GRP_SR)
+simple string sr3Tf = input.timeframe("W", "",  inline = "sr3", group = GRP_SR, display = display.none)
+
+bool   srShowBreaks   = input.bool(true, "Show breaks",  inline = "srbr", group = GRP_SR, display = display.none)
+bool   srShowRetests  = input.bool(true, "Show retests", inline = "srbr", group = GRP_SR, display = display.none)
+bool   srAvoidFalse   = input.bool(false, "Avoid false breaks", group = GRP_SR, display = display.none)
+float  srBreakVolTh   = input.float(0.3, "Break volume threshold", minval = 0.1, maxval = 2.0, step = 0.1, group = GRP_SR, display = display.none)
+bool   srInverseCol   = input.bool(false, "Inverse colour after broken", group = GRP_SR, display = display.none)
+
+string srStyleMode    = input.string("Zones", "Style", options = ["Lines", "Zones"], group = GRP_SR, display = display.none)
+string srLineStyle    = input.string("____", "Line style", options = ["____", "----", "...."], group = GRP_SR, display = display.none)
+int    srLineWidth    = input.int(2, "Line width", minval = 1, maxval = 4, group = GRP_SR, display = display.none)
+float  srZoneSize     = input.float(2.0, "Zone width", minval = 0.1, maxval = 10, step = 0.1, group = GRP_SR, display = display.none)
+color  srSupCol       = input.color(#08998180, "Support", inline = "srcol", group = GRP_SR, display = display.none)
+color  srResCol       = input.color(#f2364580, "Resistance", inline = "srcol", group = GRP_SR, display = display.none)
+color  srBreakCol     = input.color(color.blue, "Break", inline = "srcol2", group = GRP_SR, display = display.none)
+color  srTextCol      = input.color(#ffffff80, "Text", inline = "srcol2", group = GRP_SR, display = display.none)
+bool   srAlertRetest  = input.bool(true, "Retest alerts", inline = "sral", group = GRP_SR, display = display.none)
+bool   srAlertBreak   = input.bool(true, "Break alerts",  inline = "sral", group = GRP_SR, display = display.none)
+
+// Evaluated unconditionally at global scope: engWarn() only records on the last bar,
+// and srHandleTf() runs behind barstate.isconfirmed, so calling it from inside there
+// suppressed the module correctly but never named it in the warning label.
+bool sr1Blk = engWarn("S&R TF1", sr1Tf)
+bool sr2Blk = engWarn("S&R TF2", sr2Tf)
+bool sr3Blk = engWarn("S&R TF3", sr3Tf)
+
+float srAtr       = ta.atr(SR_ATR_LEN)
+float srAvgVolume = ta.sma(volume, SR_ATR_LEN)
+float srZoneAtr   = srZoneSize * 0.075
+
+var int srCurTfMs = timeframe.in_seconds(timeframe.period) * 1000
+// Alert flags are plain bar-local globals: a function cannot assign to a global, so
+// srRender() returns its firings and the call site ORs them in.
+bool srAlertRetestFired = false
+bool srAlertBreakFired  = false
+
+type srInfo
+    int          startTime
+    float        price
+    string       srType
+    int          strength
+    string       timeframeStr
+    int          tfSec
+    bool         ephemeral = false
+    int          breakTime
+    array<int>   retestTimes
+
+type srBar
+    int   t
+    float c
+    float h
+    float l
+
+type srObj
+    srInfo        info
+    bool          startFixed
+    bool          breakFixed
+    bool          rendered
+    string        combinedTf
+    line          srLine
+    box           srBox
+    label         srLabel
+    label         breakLabel
+    array<label>  retestLabels
+
+var array<srObj>  srAllList     = array.new<srObj>()
+var array<srInfo> srInfoList    = array.new<srInfo>()
+var array<srBar>  srBarList     = array.new<srBar>()
+var engPool       srPool        = engNewPool("S&R", srMaxZones, srMaxZones * (2 + srMaxRetests), srMaxZones)
+srPool.recap(srMaxZones, srMaxZones * (2 + srMaxRetests), srMaxZones)
+
+srFindTime(array<srBar> bars, float valToFind, string toSearch, string searchMode, int minTime, int maxTime, int defVal) =>
+    int   rtnTime = defVal
+    float minDiff = na
+    if bars.size() > 0
+        for i = bars.size() - 1 to 0
+            srBar b = bars.get(i)
+            if b.t >= minTime and b.t <= maxTime
+                float v = toSearch == "High" ? b.h : toSearch == "Low" ? b.l : b.c
+                bool ok = searchMode == "Nearest" ? true : searchMode == "Higher" ? v >= valToFind : v <= valToFind
+                if ok
+                    float d = math.abs(v - valToFind)
+                    if na(minDiff) or d < minDiff
+                        minDiff := d
+                        rtnTime := b.t
+    rtnTime
+
+// @function Timeframe label built from SECONDS, not from the timeframe string:
+//           timeframe.in_seconds() takes a simple string, and a level's timeframe
+//           arrives here as a series string from the requested context.
+srFormatTf(int s) =>
+    s >= 604800 ? str.tostring(s / 604800) + "W" : s >= 86400 ? str.tostring(s / 86400) + "D" :
+     s >= 3600 ? str.tostring(s / 3600) + "H" : str.tostring(s / 60) + "m"
+
+srDelete(srObj sr) =>
+    if sr.rendered
+        srPool.release(sr.srLine)
+        srPool.release(sr.srBox)
+        srPool.release(sr.srLabel)
+        srPool.release(sr.breakLabel)
+        line.delete(sr.srLine)
+        box.delete(sr.srBox)
+        label.delete(sr.srLabel)
+        label.delete(sr.breakLabel)
+        if sr.retestLabels.size() > 0
+            for i = 0 to sr.retestLabels.size() - 1
+                label lb = sr.retestLabels.get(i)
+                srPool.release(lb)
+                label.delete(lb)
+            sr.retestLabels.clear()
+        sr.rendered := false
+
+// @function Draws one level. Returns [breakFired, retestFired] so the caller can raise
+//           the alert flags — Pine forbids assigning to a global from inside a function.
+srRender(srObj sr) =>
+    bool bFired = false
+    bool rFired = false
+    if na(sr.info.breakTime) or srShowInvalid
+        sr.rendered := true
+        int endTime = nz(sr.info.breakTime, time + srCurTfMs * SR_LABEL_OFFSET)
+        string extendType = na(sr.info.breakTime) ? extend.right : extend.none
+        if srExpand == "Only Valid" and na(sr.info.breakTime)
+            extendType := extend.both
+        else if srExpand == "All"
+            extendType := extend.both
+            endTime := time + srCurTfMs * SR_LABEL_OFFSET
+        string title = (na(sr.combinedTf) ? srFormatTf(sr.info.tfSec) : sr.combinedTf) +
+             " | " + str.tostring(sr.info.price, format.mintick)
+        color mainCol = sr.info.srType == "Resistance" ? srResCol : srSupCol
+        if srStyleMode == "Lines"
+            sr.srLine := srPool.own(line.new(sr.info.startTime, sr.info.price, endTime, sr.info.price,
+                 xloc = xloc.bar_time, color = mainCol, width = srLineWidth, extend = extendType,
+                 style = srLineStyle == "----" ? line.style_dashed : srLineStyle == "...." ? line.style_dotted : line.style_solid))
+            sr.srLabel := srPool.own(label.new(extendType == extend.none ? (sr.info.startTime + endTime) / 2 : endTime,
+                 sr.info.price, title, xloc = xloc.bar_time, textcolor = srTextCol, style = label.style_none))
+        else
+            sr.srBox := srPool.own(box.new(sr.info.startTime, sr.info.price + srAtr * srZoneAtr, endTime,
+                 sr.info.price - srAtr * srZoneAtr, xloc = xloc.bar_time, bgcolor = mainCol, border_color = na,
+                 text = title, text_color = srTextCol, extend = extendType,
+                 text_halign = extendType != extend.none ? text.align_right : text.align_center))
+        if srShowBreaks and not na(sr.info.breakTime)
+            sr.breakLabel := srPool.own(label.new(sr.info.breakTime, sr.info.price, "B", xloc = xloc.bar_time,
+                 yloc = sr.info.srType == "Resistance" ? yloc.belowbar : yloc.abovebar,
+                 style = sr.info.srType == "Resistance" ? label.style_label_up : label.style_label_down,
+                 color = srBreakCol, textcolor = color.new(srTextCol, 0), size = size.small))
+            if time - srCurTfMs <= sr.info.breakTime and time + srCurTfMs >= sr.info.breakTime
+                bFired := true
+        if srShowRetests and sr.info.retestTimes.size() > 0
+            for i = sr.info.retestTimes.size() - 1 to 0
+                if sr.retestLabels.size() >= srMaxRetests
+                    break
+                int rt = sr.info.retestTimes.get(i)
+                bool cooldownOk = true
+                if sr.retestLabels.size() > 0
+                    if math.abs(sr.retestLabels.get(0).get_x() - rt) < srCurTfMs * SR_RETEST_COOL
+                        cooldownOk := false
+                if cooldownOk and rt >= sr.info.startTime and (na(sr.info.breakTime) or rt < sr.info.breakTime)
+                    if time - srCurTfMs <= rt and time >= rt
+                        rFired := true
+                    sr.retestLabels.unshift(srPool.own(label.new(rt, sr.info.price, "R", xloc = xloc.bar_time,
+                         yloc = sr.info.srType == "Resistance" ? yloc.abovebar : yloc.belowbar,
+                         style = sr.info.srType == "Resistance" ? label.style_label_down : label.style_label_up,
+                         color = mainCol, textcolor = color.new(srTextCol, 0), size = size.small)))
+    [bFired, rFired]
+
+// --- level detection. This block also executes inside each requested context: that is
+// --- how a higher timeframe produces its own levels, since srHandleTf() requests
+// --- srInfoList and Pine evaluates the whole dependency chain on that timeframe.
+bool  srInside   = bar_index > last_bar_index - SR_MAX_DISTANCE
+float srPivotHi  = ta.pivothigh(srPivotLength, srPivotLength)
+float srPivotLo  = ta.pivotlow(srPivotLength, srPivotLength)
+
+srBarList.unshift(srBar.new(time, close, high, low))
+if srBarList.size() > SR_MAX_BARINFO
+    srBarList.pop()
+
+if srInside and barstate.isconfirmed
+    if not na(srPivotLo)
+        bool valid = true
+        if srInfoList.size() > 0
+            for i = 0 to srInfoList.size() - 1
+                srInfo cur = srInfoList.get(i)
+                if math.abs(cur.price - srPivotLo) < srAtr * SR_TOO_CLOSE_ATR and na(cur.breakTime)
+                    valid := false
+                    break
+        if valid and srBarList.size() > srPivotLength
+            srInfo ni = srInfo.new(srBarList.get(srPivotLength).t, srPivotLo, "Support", 1, timeframe.period)
+            ni.tfSec := timeframe.in_seconds(timeframe.period)
+            ni.retestTimes := array.new<int>()
+            srInfoList.unshift(ni)
+            while srInfoList.size() > SR_MAX_INFO
+                srInfoList.pop()
+    if not na(srPivotHi)
+        bool valid = true
+        if srInfoList.size() > 0
+            for i = 0 to srInfoList.size() - 1
+                srInfo cur = srInfoList.get(i)
+                if math.abs(cur.price - srPivotHi) < srAtr * SR_TOO_CLOSE_ATR and na(cur.breakTime)
+                    valid := false
+                    break
+        if valid and srBarList.size() > srPivotLength
+            srInfo ni = srInfo.new(srBarList.get(srPivotLength).t, srPivotHi, "Resistance", 1, timeframe.period)
+            ni.tfSec := timeframe.in_seconds(timeframe.period)
+            ni.retestTimes := array.new<int>()
+            srInfoList.unshift(ni)
+            while srInfoList.size() > SR_MAX_INFO
+                srInfoList.pop()
+
+if srInside and (srInvalidation == "Wick" or barstate.isconfirmed) and srInfoList.size() > 0
+    for i = 0 to srInfoList.size() - 1
+        srInfo cur = srInfoList.get(i)
+        float invHigh = srInvalidation == "Close" ? close : high
+        float invLow  = srInvalidation == "Close" ? close : low
+        if na(cur.breakTime)
+            if cur.srType == "Resistance" and invHigh > cur.price
+                if not srAvoidFalse or volume > srAvgVolume * srBreakVolTh
+                    cur.breakTime := time
+                    if srInverseCol and not cur.ephemeral and cur.strength >= srStrength
+                        srInfo eph = srInfo.new(time, cur.price, "Support", cur.strength, cur.timeframeStr, cur.tfSec, true)
+                        eph.retestTimes := array.new<int>()
+                        srInfoList.unshift(eph)
+            else if cur.srType == "Support" and invLow < cur.price
+                if not srAvoidFalse or volume > srAvgVolume * srBreakVolTh
+                    cur.breakTime := time
+                    if srInverseCol and not cur.ephemeral and cur.strength >= srStrength
+                        srInfo eph = srInfo.new(time, cur.price, "Resistance", cur.strength, cur.timeframeStr, cur.tfSec, true)
+                        eph.retestTimes := array.new<int>()
+                        srInfoList.unshift(eph)
+        if na(cur.breakTime) and time > cur.startTime and barstate.isconfirmed
+            bool isRetest = cur.srType == "Resistance" ? (high >= cur.price and close <= cur.price)
+                 : (low <= cur.price and close >= cur.price)
+            if isRetest
+                int lastRt = cur.retestTimes.size() > 0 ? cur.retestTimes.get(0) : 0
+                if lastRt != time
+                    if not cur.ephemeral
+                        cur.strength += 1
+                    cur.retestTimes.unshift(time)
+                    while cur.retestTimes.size() > srMaxRetests * 2
+                        cur.retestTimes.pop()
+
+srFixToTf(srObj sr) =>
+    int srMs = math.max(nz(sr.info.tfSec, timeframe.in_seconds(timeframe.period)),
+         timeframe.in_seconds(timeframe.period)) * 1000
+    if not sr.startFixed and not sr.info.ephemeral
+        sr.info.startTime := srFindTime(srBarList, sr.info.price, sr.info.srType == "Resistance" ? "High" : "Low",
+             "Nearest", sr.info.startTime - srMs, sr.info.startTime + srMs, sr.info.startTime)
+        sr.startFixed := true
+    if not na(sr.info.breakTime) and not sr.breakFixed
+        sr.info.breakTime := srFindTime(srBarList, sr.info.price,
+             srInvalidation == "Wick" ? (sr.info.srType == "Resistance" ? "High" : "Low") : "Close",
+             sr.info.srType == "Resistance" ? "Higher" : "Lower",
+             sr.info.breakTime - srMs, sr.info.breakTime + srMs, sr.info.breakTime)
+        sr.breakFixed := true
+
+srFind(float price, bool eph, string srType, string tfStr) =>
+    srObj rtn = na
+    if srAllList.size() > 0
+        for i = 0 to srAllList.size() - 1
+            srObj cur = srAllList.get(i)
+            if cur.info.price == price and cur.info.ephemeral == eph and cur.info.srType == srType and cur.info.timeframeStr == tfStr
+                rtn := cur
+                break
+    rtn
+
+// @function Pulls one timeframe's level list down and merges it. ONE request per
+//           enabled timeframe; three enabled = 3 of the 40 unique executed requests.
+srHandleTf(simple string tfStr, bool enabled, bool blocked) =>
+    // S&R honours the lower-timeframe guard like every other module: without this it
+    // silently pulls levels from a timeframe below the chart's, which returns the last
+    // value of that lower timeframe rather than anything meaningful.
+    if enabled and not blocked
+        array<srInfo> tfList = request.security(syminfo.tickerid, engResolve(tfStr), srInfoList,
+             gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+        if not na(tfList) and tfList.size() > 0
+            for i = 0 to tfList.size() - 1
+                srInfo cur = tfList.get(i)
+                srObj same = srFind(cur.price, cur.ephemeral, cur.srType, cur.timeframeStr)
+                if not na(same)
+                    if same.startFixed
+                        cur.startTime := same.info.startTime
+                    if same.breakFixed
+                        cur.breakTime := same.info.breakTime
+                    cur.retestTimes := same.info.retestTimes
+                    same.info := cur
+                    if not same.breakFixed
+                        srFixToTf(same)
+                else
+                    srObj n = srObj.new(cur)
+                    n.info.retestTimes := array.new<int>()
+                    n.retestLabels := array.new<label>()
+                    srFixToTf(n)
+                    srAllList.unshift(n)
+    true
+
+if srOn and bar_index > last_bar_index - SR_MAX_DISTANCE * 8 and barstate.isconfirmed
+    srHandleTf(sr1Tf, sr1On, sr1Blk)
+    srHandleTf(sr2Tf, sr2On, sr2Blk)
+    srHandleTf(sr3Tf, sr3On, sr3Blk)
+
+    // Evict the OLDEST level, not the last one in the list. Levels are unshifted per
+    // timeframe in handling order, so popping from the back systematically culled
+    // whichever timeframe was processed first — the chart timeframe always lost.
+    while srAllList.size() > srMaxZones
+        int oldestIdx = 0
+        int oldestT   = srAllList.get(0).info.startTime
+        for i = 1 to srAllList.size() - 1
+            int t = srAllList.get(i).info.startTime
+            if not na(t) and (na(oldestT) or t < oldestT)
+                oldestT := t
+                oldestIdx := i
+        srDelete(srAllList.get(oldestIdx))
+        srAllList.remove(oldestIdx)
+
+    if srAllList.size() > 0
+        for i = 0 to srAllList.size() - 1
+            srObj cur = srAllList.get(i)
+            srDelete(cur)
+            bool tooClose = false
+            for j = 0 to srAllList.size() - 1
+                srObj other = srAllList.get(j)
+                if other.rendered and math.abs(other.info.price - cur.info.price) <= SR_TOO_CLOSE_ATR * srAtr and
+                     other.info.srType == cur.info.srType and other.info.ephemeral == cur.info.ephemeral
+                    tooClose := true
+                    string curLbl = srFormatTf(cur.info.tfSec)
+                    string otherLbl = na(other.combinedTf) ? srFormatTf(other.info.tfSec) : other.combinedTf
+                    if not str.contains(otherLbl, curLbl)
+                        other.combinedTf := otherLbl + " & " + curLbl
+                    break
+            if cur.info.strength >= srStrength and
+                 (na(cur.info.breakTime) or cur.info.breakTime - cur.info.startTime >= SR_MIN_SIZE * srCurTfMs) and not tooClose
+                [bFired, rFired] = srRender(cur)
+                srAlertBreakFired  := srAlertBreakFired or bFired
+                srAlertRetestFired := srAlertRetestFired or rFired
+
+if not srOn and srAllList.size() > 0
+    for i = 0 to srAllList.size() - 1
+        srDelete(srAllList.get(i))
+    srAllList.clear()
+    srPool.clear()
+
+if srOn and srAlertRetest and srAlertRetestFired
+    alert("S&R: new retest.", alert.freq_once_per_bar_close)
+if srOn and srAlertBreak and srAlertBreakFired
+    alert("S&R: new break.", alert.freq_once_per_bar_close)
+
+// =====================================================================================
+// MODULE — BOLLINGER BANDS  (added at the user's request; not in the original scope)
+// =====================================================================================
+const string GRP_BB = "Bollinger bands"
+
+bool          bbOn   = input.bool(false, "Enable Bollinger bands", group = GRP_BB)
+simple int    bbLen  = input.int(20, "Length", minval = 1, inline = "bb1", group = GRP_BB, display = display.none)
+simple float  bbMult = input.float(2.0, "StdDev", minval = 0.001, maxval = 50, step = 0.1, inline = "bb1", group = GRP_BB, display = display.none)
+float         bbSrc  = input.source(close, "Source", inline = "bb2", group = GRP_BB, display = display.none)
+simple string bbTf   = input.timeframe("", "Timeframe", inline = "bb2", group = GRP_BB, display = display.none)
+color         bbBCol = input.color(#2962ff, "Basis", inline = "bb3", group = GRP_BB, display = display.none)
+color         bbUCol = input.color(#f23645, "Upper", inline = "bb3", group = GRP_BB, display = display.none)
+color         bbLCol = input.color(#089981, "Lower", inline = "bb3", group = GRP_BB, display = display.none)
+bool          bbFill = input.bool(true, "Background fill", group = GRP_BB, display = display.none)
+
+bbCalc(simple int len, float src, simple float mult, simple bool confirm) =>
+    float basis = ta.sma(src, len)
+    float dev   = mult * ta.stdev(src, len)
+    float up    = basis + dev
+    float lo    = basis - dev
+    [confirm ? basis[1] : basis, confirm ? up[1] : up, confirm ? lo[1] : lo]
+
+bool bbBlk = engWarn("Bollinger bands", bbTf)
+
+[bbBasis, bbUpper, bbLower] = request.security(syminfo.tickerid, engResolve(bbTf),
+     bbCalc(bbLen, bbSrc, bbMult, engConfirm(bbTf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+bool bbLive = bbOn and not bbBlk
+
+plot(bbLive ? bbBasis : na, "BB basis", bbBCol)
+bbUpPlot = plot(bbLive ? bbUpper : na, "BB upper", bbUCol)
+bbLoPlot = plot(bbLive ? bbLower : na, "BB lower", bbLCol)
+fill(bbUpPlot, bbLoPlot, bbLive and bbFill ? color.new(bbBCol, 95) : na, "BB fill")
+
+// =====================================================================================
+// MODULE — TRENDLINES  (rewritten from "Trendlines - JD", © Joris Duyck)
+// -------------------------------------------------------------------------------------
+// The source is v4 and stores pivots in a hand-rolled 3D dataframe of float arrays; that
+// machinery exists only because v4 had no user types, and is replaced by a typed record.
+// Two notes carried over from the source's own header:
+//   * A trendline cannot be drawn until its second pivot CONFIRMS, `len` bars after the
+//     pivot happened. On a higher timeframe that lateness is `len` HTF bars. Inherent to
+//     pivot detection, not a bug.
+//   * The source deletes trendline_low in BOTH eviction branches, so its high-side lines
+//     are never freed. Not reproduced: every line here is pool-owned and evicted in order.
+//
+// MTF placement: all drawing uses xloc.bar_time, so an HTF pivot's timestamp is already a
+// valid x-coordinate on the chart timeframe. No HTF-bar-index mapping is needed.
+// =====================================================================================
+const string GRP_TL = "Trendlines"
+
+bool tlOn      = input.bool(true,  "Enable trendlines", group = GRP_TL)
+simple int tlLen = input.int(30, "Pivot lookback", minval = 2, maxval = 100, group = GRP_TL, display = display.none)
+simple bool tlWicks = input.bool(true, "Use wicks (off = candle bodies)", group = GRP_TL, display = display.none)
+bool tlSelect  = input.bool(true, "Only falling-high and rising-low lines", group = GRP_TL, display = display.none)
+bool tlExtend  = input.bool(true, "Extend to the right", group = GRP_TL, display = display.none)
+int  tlMaxPer  = input.int(10, "Max lines per timeframe", minval = 1, maxval = 40, group = GRP_TL,
+     tooltip = "Total line cap is this value x 3 timeframe slots.", display = display.none)
+color tlUpCol  = input.color(#089981, "Rising lows", inline = "tlc", group = GRP_TL, display = display.none)
+color tlDnCol  = input.color(#f23645, "Falling highs", inline = "tlc", group = GRP_TL, display = display.none)
+
+bool          tl1On = input.bool(true,  "TF 1", inline = "tl1", group = GRP_TL)
+simple string tl1Tf = input.timeframe("", "",   inline = "tl1", group = GRP_TL, display = display.none)
+bool          tl2On = input.bool(false, "TF 2", inline = "tl2", group = GRP_TL)
+simple string tl2Tf = input.timeframe("240", "", inline = "tl2", group = GRP_TL, display = display.none)
+bool          tl3On = input.bool(false, "TF 3", inline = "tl3", group = GRP_TL)
+simple string tl3Tf = input.timeframe("D", "",  inline = "tl3", group = GRP_TL, display = display.none)
+
+type tlPivot
+    int   t
+    float p
+
+tlCalc(simple int len, simple bool wicks) =>
+    float ph = ta.pivothigh(wicks ? high : math.max(open, close), len, len)
+    float pl = ta.pivotlow( wicks ? low  : math.min(open, close), len, len)
+    int phT = na(ph) ? na : time[len]
+    int plT = na(pl) ? na : time[len]
+    [ph, phT, pl, plT]
+
+var engPool tlPool = engNewPool("Trendlines", tlMaxPer * 3, 0, 0)
+tlPool.recap(tlMaxPer * 3, 0, 0)
+
+var array<tlPivot> tlLastHigh = array.from(tlPivot.new(na, na), tlPivot.new(na, na), tlPivot.new(na, na))
+var array<tlPivot> tlLastLow  = array.from(tlPivot.new(na, na), tlPivot.new(na, na), tlPivot.new(na, na))
+
+tlDraw(int t1, float p1, int t2, float p2, bool isHigh, int tfSec) =>
+    bool wanted = not tlSelect or (isHigh ? p2 < p1 : p2 > p1)
+    if wanted and not na(t1) and not na(t2) and t2 > t1
+        float slope = (p2 - p1) / (t2 - t1)
+        int   xEnd  = tlExtend ? t2 + (time - t2) + tfSec * 1000 * 10 : t2
+        float yEnd  = p1 + slope * (xEnd - t1)
+        tlPool.own(line.new(t1, p1, xEnd, yEnd, xloc = xloc.bar_time,
+             color = isHigh ? tlDnCol : tlUpCol, width = 1,
+             style = tlExtend ? line.style_dotted : line.style_solid))
+    true
+
+// Requests run unconditionally on every bar. ta.pivothigh/ta.pivotlow are stateful, so
+// calling them only on some bars would desynchronise their history — the reason Pine
+// warns about function calls inside conditional scopes.
+[tl1ph, tl1phT, tl1pl, tl1plT] = request.security(syminfo.tickerid, engResolve(tl1Tf), tlCalc(tlLen, tlWicks),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[tl2ph, tl2phT, tl2pl, tl2plT] = request.security(syminfo.tickerid, engResolve(tl2Tf), tlCalc(tlLen, tlWicks),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[tl3ph, tl3phT, tl3pl, tl3plT] = request.security(syminfo.tickerid, engResolve(tl3Tf), tlCalc(tlLen, tlWicks),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// @function Joins each new pivot to the previous one of the same side. Contains no
+//           stateful ta.* calls, so it is safe to gate on `live`.
+tlUpdate(int slot, float ph, int phT, float pl, int plT, int tfSec, bool live) =>
+    if live and barstate.isconfirmed
+        tlPivot lastH = tlLastHigh.get(slot)
+        tlPivot lastL = tlLastLow.get(slot)
+        if not na(phT) and phT != nz(lastH.t, 0)
+            tlDraw(lastH.t, lastH.p, phT, ph, true, tfSec)
+            lastH.t := phT
+            lastH.p := ph
+        if not na(plT) and plT != nz(lastL.t, 0)
+            tlDraw(lastL.t, lastL.p, plT, pl, false, tfSec)
+            lastL.t := plT
+            lastL.p := pl
+    true
+
+tlUpdate(0, tl1ph, tl1phT, tl1pl, tl1plT, engTfSeconds(tl1Tf), tlOn and tl1On and not engWarn("Trendlines TF1", tl1Tf))
+tlUpdate(1, tl2ph, tl2phT, tl2pl, tl2plT, engTfSeconds(tl2Tf), tlOn and tl2On and not engWarn("Trendlines TF2", tl2Tf))
+tlUpdate(2, tl3ph, tl3phT, tl3pl, tl3plT, engTfSeconds(tl3Tf), tlOn and tl3On and not engWarn("Trendlines TF3", tl3Tf))
+
+if not tlOn and tlPool.lines.size() > 0
+    tlPool.clear()
+
+// =====================================================================================
+// MODULE — AUTO FIB RETRACEMENT  (added at the user's request; not in original scope)
+// -------------------------------------------------------------------------------------
+// The anchor is a ZigZag, ported from the algorithm the TradingView built-in uses via
+// `import TradingView/ZigZag/7`. The library is NOT imported here, for one reason: its
+// ZigZag instance is stateful and drawing-aware, and this suite needs the anchor
+// computed INSIDE request.security() so the fib can be pinned to a higher timeframe's
+// swing. A reimplementation can run in the requested context; a library instance that
+// owns chart drawings cannot.
+//
+// The algorithm is the standard Depth + Deviation ZigZag, matching the built-in:
+//   * candidate pivots are ta.pivothigh/ta.pivotlow with `depth` bars on each side,
+//   * a candidate in the SAME direction as the current pivot replaces it when it is
+//     more extreme (the leg extends),
+//   * a candidate in the OPPOSITE direction is only accepted when the move from the
+//     current pivot exceeds the deviation threshold, which is
+//     ta.atr(10) / close * 100 * multiplier — exactly the built-in's expression.
+//
+// The fib is drawn across the LAST COMPLETED LEG: level 0 sits on the most recent
+// pivot and level 1 on the pivot before it, which is the built-in's orientation.
+// "Reverse" swaps them.
+//
+// DEVIATION FROM THE BUILT-IN, STATED PLAINLY: the built-in raises a runtime.error when
+// fewer than two pivots exist. That would kill every other module in this script, so
+// this module simply draws nothing until two pivots exist.
+//
+// The built-in exposes 22 levels with per-level value and colour inputs (66 inputs).
+// This port ships the 11 that are ON by default, at the built-in's values and colours,
+// without per-level overrides — the settings pane already carries eight other modules.
+// =====================================================================================
+const string GRP_AF = "Auto fib retracement"
+
+bool          afOn      = input.bool(false, "Enable auto fib", group = GRP_AF)
+simple float  afDev     = input.float(3.0, "Deviation", minval = 0, step = 0.5, inline = "af1", group = GRP_AF,
+     tooltip = "Multiplier on how far price must move from the previous pivot, as a share of ATR(10), before a new pivot is accepted.", display = display.none)
+simple int    afDepth   = input.int(10, "Depth", minval = 2, inline = "af1", group = GRP_AF,
+     tooltip = "Bars required on each side of a candidate pivot.", display = display.none)
+simple string afTf      = input.timeframe("", "Timeframe", inline = "af1", group = GRP_AF, display = display.none)
+bool          afReverse = input.bool(false, "Reverse", inline = "af2", group = GRP_AF, display = display.none)
+bool          afExtLeft = input.bool(false, "Extend left", inline = "af2", group = GRP_AF, display = display.none)
+bool          afExtRight = input.bool(true, "Extend right", inline = "af2", group = GRP_AF, display = display.none)
+bool          afShowLvls = input.bool(true, "Show levels", inline = "af3", group = GRP_AF, display = display.none)
+string        afLvlFmt  = input.string("Values", "", options = ["Values", "Percent"], inline = "af3", group = GRP_AF, display = display.none)
+bool          afShowPx  = input.bool(true, "Show prices", inline = "af3", group = GRP_AF, display = display.none)
+string        afLabelPos = input.string("Left", "Labels position", options = ["Left", "Right"], inline = "af4", group = GRP_AF, display = display.none)
+bool          afShowLeg = input.bool(true, "Show the zigzag leg", inline = "af4", group = GRP_AF, display = display.none)
+bool          afShowFill = input.bool(true, "Fill between levels", inline = "af5", group = GRP_AF, display = display.none)
+int           afBgTransp = input.int(85, "Fill transparency", minval = 0, maxval = 100, inline = "af5", group = GRP_AF, display = display.none)
+bool          afAlerts   = input.bool(false, "Alert on level crossings", group = GRP_AF,
+     tooltip = "One consolidated alert naming the level that was crossed. Off by default: eleven levels on a fast chart is a lot of alerts.", display = display.none)
+
+// The 11 levels the built-in enables by default, at its values and colours.
+var array<float> AF_LEVELS = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.618, 2.618, 3.618, 4.236)
+var array<color> AF_COLS   = array.from(#787b86, #f44336, #81c784, #4caf50, #009688, #64b5f6, #787b86, #2962ff, #f44336, #9c27b0, #e91e63)
+
+// @function The ZigZag anchor. Returns the last completed leg as
+//           [previousPivotTime, previousPivotPrice, lastPivotTime, lastPivotPrice].
+//           Runs in the requested context, so an HTF fib is anchored to an HTF swing.
+afZigZag(simple int depth, simple float devMult) =>
+    float ph = ta.pivothigh(depth, depth)
+    float pl = ta.pivotlow(depth, depth)
+    float devThreshold = ta.atr(10) / close * 100 * devMult
+
+    var float lastPx = na
+    var int   lastT  = na
+    var bool  lastIsHigh = false
+    var float prevPx = na
+    var int   prevT  = na
+    var bool  seeded = false
+
+    // A high candidate. time[depth] is the timestamp of the pivot bar itself, not of
+    // the bar on which it confirmed.
+    if not na(ph)
+        int t = time[depth]
+        if not seeded
+            lastPx := ph
+            lastT := t
+            lastIsHigh := true
+            seeded := true
+        else if lastIsHigh
+            if ph > lastPx
+                lastPx := ph
+                lastT := t
+        else
+            float dev = 100 * (ph - lastPx) / lastPx
+            if math.abs(dev) > devThreshold
+                prevPx := lastPx
+                prevT := lastT
+                lastPx := ph
+                lastT := t
+                lastIsHigh := true
+
+    // A low candidate, same rules mirrored.
+    if not na(pl)
+        int t = time[depth]
+        if not seeded
+            lastPx := pl
+            lastT := t
+            lastIsHigh := false
+            seeded := true
+        else if not lastIsHigh
+            if pl < lastPx
+                lastPx := pl
+                lastT := t
+        else
+            float dev = 100 * (pl - lastPx) / lastPx
+            if math.abs(dev) > devThreshold
+                prevPx := lastPx
+                prevT := lastT
+                lastPx := pl
+                lastT := t
+                lastIsHigh := false
+
+    [prevT, prevPx, lastT, lastPx]
+
+var engPool afPool = engNewPool("Auto fib", 12, 11, 0)
+
+// linefills are not part of the drawing pools (they are tied to their lines), so the
+// module tracks and frees them itself on every redraw.
+var array<linefill> afFills = array.new<linefill>()
+
+bool afBlk = engWarn("Auto fib", afTf)
+
+// No confirm-on-close shift: a ZigZag pivot is already `depth` bars old by the time it
+// exists, so shifting it one more HTF bar would add lag and change nothing.
+[afPrevT, afPrevPx, afLastT, afLastPx] = request.security(syminfo.tickerid, engResolve(afTf),
+     afZigZag(afDepth, afDev),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+bool  afReady = afOn and not afBlk and not na(afPrevPx) and not na(afLastPx) and afPrevT != afLastT
+float afStart = afReverse ? afPrevPx : afLastPx
+float afEnd   = afReverse ? afLastPx : afPrevPx
+float afSpan  = afEnd - afStart
+
+var string afExtend = extend.none
+afExtend := afExtLeft and afExtRight ? extend.both : afExtLeft ? extend.left : afExtRight ? extend.right : extend.none
+
+// @function The label text for one level, following the built-in's format options.
+afLabelTxt(float lvl, float price) =>
+    string l = afLvlFmt == "Values" ? str.tostring(lvl) : str.tostring(lvl * 100) + "%"
+    (afShowLvls ? l : "") + (afShowPx ? " (" + str.tostring(price, format.mintick) + ")" : "")
+
+// Crossing detection runs on every bar, because the level prices exist on every bar
+// even though the drawing is rebuilt only on the last one.
+string afCrossed = na
+if afReady and afAlerts and barstate.isconfirmed
+    for [i, lv] in AF_LEVELS
+        float r = afStart + afSpan * lv
+        if (close > r and close[1] < r) or (close < r and close[1] > r)
+            afCrossed := str.tostring(lv)
+if not na(afCrossed)
+    alert("Auto fib: " + syminfo.ticker + " crossed level " + afCrossed, alert.freq_once_per_bar_close)
+
+if barstate.islast
+    afPool.clear()
+    if afFills.size() > 0
+        for i = 0 to afFills.size() - 1
+            linefill.delete(afFills.get(i))
+        afFills.clear()
+    if afReady
+        if afShowLeg
+            afPool.own(line.new(afPrevT, afPrevPx, afLastT, afLastPx, xloc = xloc.bar_time,
+                 color = color.gray, width = 1, style = line.style_dashed))
+        line afPrevLine = na
+        for [i, lv] in AF_LEVELS
+            float price = afStart + afSpan * lv
+            color col   = AF_COLS.get(i)
+            line lvlLine = afPool.own(line.new(afPrevT, price, afLastT, price, xloc = xloc.bar_time,
+                 color = col, width = 1, extend = afExtend))
+            int   lx = afLabelPos == "Left" ? afPrevT : afExtRight ? time : afLastT
+            afPool.own(label.new(lx, price, afLabelTxt(lv, price), xloc = xloc.bar_time,
+                 style = afLabelPos == "Left" ? label.style_label_right : label.style_label_left,
+                 textcolor = col, color = #00000000, size = size.small))
+            if afShowFill and not na(afPrevLine)
+                afFills.push(linefill.new(afPrevLine, lvlLine, color.new(col, afBgTransp)))
+            afPrevLine := lvlLine
+
+// =====================================================================================
+// ENGINE OUTPUT — debug table and guard warnings (last, so every module has registered
+// its pools and warnings by the time these run).
+// =====================================================================================
+engDrawDebug()
+
+if barstate.islast
+    label.delete(engWarnLabel)
+    if engWarnings.size() > 0
+        engWarnLabel := label.new(bar_index, high,
+             "timeframe below chart - suppressed:\n" + array.join(engWarnings, "\n"),
+             style = label.style_label_down, color = color.new(color.orange, 20),
+             textcolor = color.white, size = size.small)

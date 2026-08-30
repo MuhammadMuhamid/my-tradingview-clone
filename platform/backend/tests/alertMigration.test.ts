@@ -54,10 +54,25 @@ test("the MA columns become nullable, because a price alert names no moving aver
 });
 
 test("the CHECK vocabularies match the code exactly", () => {
+  // The EFFECTIVE vocabulary, not 010's. A later migration may widen a CHECK —
+  // `condition_kind` gained two kinds in 015 — so the last definition across
+  // the whole migration set is what the database actually enforces.
   const quoted = (v: readonly string[]): string => v.map((s) => `'${s}'`).join(",");
-  assert.match(flat.replace(/,\s+/g, ","), new RegExp(`frequency IN \\(${quoted(ALERT_FREQUENCIES)}\\)`));
-  assert.match(flat.replace(/,\s+/g, ","), new RegExp(`condition_kind IN \\(${quoted(CONDITION_KINDS)}\\)`));
-  assert.match(flat.replace(/,\s+/g, ","), new RegExp(`price_direction IN \\(${quoted(PRICE_DIRECTIONS)}\\)`));
+  const allSql = fs.readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith(".sql")).sort()
+    .map((f) => fs.readFileSync(path.join(MIGRATIONS, f), "utf8"))
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .replace(/,\s+/g, ",");
+
+  const lastVocabulary = (column: string): string | null => {
+    const hits = [...allSql.matchAll(new RegExp(`${column} IN \\(([^)]*)\\)`, "g"))];
+    return hits.length ? hits[hits.length - 1]![1]!.trim() : null;
+  };
+
+  assert.equal(lastVocabulary("frequency"), quoted(ALERT_FREQUENCIES));
+  assert.equal(lastVocabulary("condition_kind"), quoted(CONDITION_KINDS));
+  assert.equal(lastVocabulary("price_direction"), quoted(PRICE_DIRECTIONS));
 });
 
 test("a half-specified row cannot be stored for any kind", () => {

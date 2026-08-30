@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, Button, Empty } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
+import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { api, DEFAULT_ALERT_FREQUENCY, type MaAlert, type MaAlertEvent } from "@/lib/api";
 import {
   alertColor, alertInactiveReason, alertLineLabel, describeAlert,
@@ -22,6 +23,9 @@ export default function AlertsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  /** Support/resistance and pivot alerts are armed from here, not the chart. */
+  const [levelOpen, setLevelOpen] = useState(false);
+  const [newSymbol, setNewSymbol] = useState("SOLUSDT");
 
   const refresh = useCallback(async () => {
     try {
@@ -155,10 +159,22 @@ export default function AlertsPage() {
               : `Active alerts · ${activeCount} of ${alerts.length} armed · ${bySymbol.length} coin${bySymbol.length === 1 ? "" : "s"}`
           }
           right={
-            <Button variant="danger" onClick={deleteAll}
-              disabled={busy !== null || (alerts?.length ?? 0) === 0}>
-              {busy === "all" ? "Deleting…" : "Delete all"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <input
+                value={newSymbol}
+                onChange={(e) => setNewSymbol(e.target.value.toUpperCase())}
+                placeholder="SYMBOL"
+                aria-label="Symbol for a new level alert"
+                className="w-[110px] rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
+              />
+              <Button variant="primary" onClick={() => setLevelOpen(true)} disabled={!newSymbol.trim()}>
+                Add level alert
+              </Button>
+              <Button variant="danger" onClick={deleteAll}
+                disabled={busy !== null || (alerts?.length ?? 0) === 0}>
+                {busy === "all" ? "Deleting…" : "Delete all"}
+              </Button>
+            </div>
           }
         />
         {alerts === null ? (
@@ -283,6 +299,14 @@ export default function AlertsPage() {
           </div>
         )}
       </Card>
+
+      <LevelAlertModal
+        open={levelOpen}
+        onClose={() => setLevelOpen(false)}
+        symbol={newSymbol.trim().toUpperCase()}
+        defaultTimeframe="1h"
+        onSaved={(m) => { setToast(m); void refresh(); }}
+      />
 
       {toast && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 text-sm text-ink shadow-xl">

@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #0b0f14;
+  --color-surface-2: #111820;
+  --color-surface-3: #17212b;
+  --color-line: #22303c;
+  --color-ink: #e6edf3;
+  --color-ink-dim: #8b9aa8;
+  --color-pos: #0d9488;
+  --color-neg: #be123c;
+}
+
+html, body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-feature-settings: "tnum" 1, "cv01" 1;
+}
+
+/* Dense grid: every numeric cell is tabular so columns align on the decimal. */
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-surface-2);
+  box-shadow: 1px 0 0 var(--color-line);
+}
+
+thead .sticky-col { z-index: 4; }
+
+/* A cell whose source bar is older than 2x its own timeframe. Greyed, not hidden
+   — the value is still real, it is just not current. */
+.stale { opacity: 0.42; font-style: italic; }
+
+table.dense th, table.dense td {
+  padding: 2px 8px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-line);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+/* The expanded-row panel is prose, not grid cells. Without this it inherits the
+   nowrap above and its paragraphs overflow into the neighbouring column. */
+table.dense td.row-detail,
+table.dense td.row-detail * {
+  white-space: normal;
+}

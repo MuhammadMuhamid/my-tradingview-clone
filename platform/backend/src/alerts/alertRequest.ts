@@ -10,8 +10,13 @@ import {
   MA_ALERT_MODES, PRICE_DIRECTIONS,
   isMaAlertMode, isMaType, isPriceDirection,
   type ConditionKind, type MaAlertMode, type MaType, type PriceDirection,
+  SR_SIDES, PIVOT_LEVEL_ANY, isSrSide, type SrSide,
 } from "../types/maAlerts";
 import type { AlertCondition } from "./alertConditions";
+import {
+  PIVOT_TYPES, isPivotType, type PivotType,
+} from "../engine/pivotLevels";
+import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 
 /** Shared 400 shape, so every rejection reads the same way in the UI. */
 export type Rejection = { error: string };
@@ -42,6 +47,37 @@ export function readCondition(
     return { condition: { kind: "price", targetPrice, direction } };
   }
 
+  if (kind === "sr_zone") {
+    const srSide = String(b.srSide ?? "either");
+    const srMode = String(b.mode ?? "near_above");
+    if (!isSrSide(srSide)) return bad(`srSide must be one of ${SR_SIDES.join(", ")}`);
+    if (!isMaAlertMode(srMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
+    const pivotLength = b.pivotLength === undefined
+      ? DEFAULT_SR_OPTIONS.pivotLength : Number(b.pivotLength);
+    const invalidation = String(b.invalidation ?? "close") === "wick" ? "wick" : "close";
+    return {
+      condition: {
+        kind: "sr_zone", srSide, mode: srMode, nearMinPct, nearMaxPct,
+        pivotLength, invalidation,
+      },
+    };
+  }
+
+  if (kind === "pivot_level") {
+    const pivotType = String(b.pivotType ?? "Fibonacci");
+    const levelName = String(b.levelName ?? PIVOT_LEVEL_ANY);
+    const anchor = String(b.anchor ?? "1d");
+    const pMode = String(b.mode ?? "near_above");
+    if (!isPivotType(pivotType)) return bad(`pivotType must be one of ${PIVOT_TYPES.join(", ")}`);
+    if (!isMaAlertMode(pMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
+    return {
+      condition: {
+        kind: "pivot_level", pivotType, levelName, anchor,
+        mode: pMode, nearMinPct, nearMaxPct,
+      },
+    };
+  }
+
   const maType = String(b.maType ?? "");
   const maLength = Number(b.maLength);
   const mode = String(b.mode ?? "");
@@ -70,21 +106,29 @@ export function toColumns(condition: AlertCondition): {
   ma2Type: MaType | null; ma2Length: number | null;
   targetPrice: number | null; priceDirection: PriceDirection | null;
   nearMinPct: number; nearMaxPct: number;
+  srSide: SrSide | null; srPivotLength: number | null; srInvalidation: string | null;
+  pivotType: string | null; pivotLevelName: string | null; pivotAnchor: string | null;
 } {
+  // Columns that belong to no kind are null, so a row never carries another
+  // kind's settings for an operator to misread.
+  const empty = {
+    srSide: null, srPivotLength: null, srInvalidation: null,
+    pivotType: null, pivotLevelName: null, pivotAnchor: null,
+  };
   switch (condition.kind) {
     case "price":
       return {
         conditionKind: "price",
         maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,
         targetPrice: condition.targetPrice, priceDirection: condition.direction,
-        nearMinPct: 0.2, nearMaxPct: 0.5,
+        nearMinPct: 0.2, nearMaxPct: 0.5, ...empty,
       };
     case "ma":
       return {
         conditionKind: "ma",
         maType: condition.maType, maLength: condition.maLength, mode: condition.mode,
         ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
-        nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct,
+        nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct, ...empty,
       };
     case "ma_vs_ma":
       return {
@@ -92,7 +136,29 @@ export function toColumns(condition: AlertCondition): {
         maType: condition.maType, maLength: condition.maLength, mode: condition.mode,
         ma2Type: condition.ma2Type, ma2Length: condition.ma2Length,
         targetPrice: null, priceDirection: null,
-        nearMinPct: 0.2, nearMaxPct: 0.5,
+        nearMinPct: 0.2, nearMaxPct: 0.5, ...empty,
+      };
+    case "sr_zone":
+      return {
+        conditionKind: "sr_zone",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct,
+        ...empty,
+        srSide: condition.srSide,
+        srPivotLength: condition.pivotLength,
+        srInvalidation: condition.invalidation,
+      };
+    case "pivot_level":
+      return {
+        conditionKind: "pivot_level",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct,
+        ...empty,
+        pivotType: condition.pivotType,
+        pivotLevelName: condition.levelName,
+        pivotAnchor: condition.anchor,
       };
   }
 }

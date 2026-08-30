@@ -1,0 +1,532 @@
+//@version=6
+// =====================================================================================
+// MTF OSCILLATOR SUITE                                Script B of 2  —  separate pane
+// -------------------------------------------------------------------------------------
+// Modules: RSI, ADX, Volume Flow Indicator, MACD.
+//
+// This is a DERIVATIVE WORK. Keep it private / invite-only.
+//
+//   Volume Flow Indicator:
+//     © LazyBear — "Volume Flow Indicator [LazyBear]". Rewritten from Pine v2 to v6.
+//     If you use this code in its original or modified form, do drop the author a note.
+//
+//   RSI, ADX and MACD: ported / adapted from the TradingView built-in scripts.
+//
+// ONE PANE PER OSCILLATOR: a Pine script draws into exactly one pane, so the only way to
+// give MACD its own pane is to run a SECOND copy of this indicator. Add it twice and set
+// "Show" to a different module on each copy — TradingView stacks them as separate panes.
+//
+// SCALE COLLISION: RSI and ADX are 0-100; VFI is volume-scaled and MACD is in price
+// units. Both carry a "Normalise to 0-100" toggle that is applied ONLY when the pane is
+// shared. In a single-module mode each plots in its native units.
+//
+// ---------------------------- REPAINT WARNING ----------------------------------------
+//   * "Confirm HTF values on close" = true (default): the engine requests the last
+//     CLOSED higher-timeframe value. Historical bars never change.
+//   * = false: live HTF values are used. They WILL change intrabar.
+// The shift is applied ONLY to modules whose timeframe is above the chart's — see
+// engConfirm(). A module running on the chart timeframe is never lagged.
+// No lookahead_on anywhere in this file.
+//
+// VERIFIED 2026-08-27 on BINANCE:ZECUSDT 1H against independent references:
+//   RSI 59.86 = TradingView built-in RSI 59.86 (exact)
+//   ADX 19.8701 = independent Wilder reimplementation 19.8701 (exact)
+//   VFI 9.0766 / signal 7.3588 = independent v2-source reimplementation 9.0765 / 7.3586
+//
+// It is a visualisation tool. It is not a trading system and confers no edge.
+// =====================================================================================
+indicator("MTF Oscillator Suite", "MTF-OSC", overlay = false,
+     max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500,
+     dynamic_requests = true)
+
+// =====================================================================================
+// ENGINE INPUTS
+// =====================================================================================
+const string GRP_ENG = "Engine"
+
+bool engConfirmHTF = input.bool(true, "Confirm HTF values on close", group = GRP_ENG,
+     tooltip = "ON (recommended): use the last CLOSED higher-timeframe value. Historical " +
+       "values never change.\n\nOFF: use live higher-timeframe values. They WILL change " +
+       "intrabar — signals can appear and then disappear before the HTF bar closes.\n\n" +
+       "Modules running on the chart timeframe are unaffected either way.")
+
+string engLowerTFMode = input.string("Fall back to chart timeframe", "If a module timeframe is below the chart timeframe",
+     options = ["Suppress + warn", "Fall back to chart timeframe"], group = GRP_ENG,
+     tooltip = "Requesting a timeframe lower than the chart returns the last value of that " +
+       "lower timeframe, which is misleading rather than useful.")
+
+bool engShowDebug = input.bool(false, "Show drawing-object debug table", group = GRP_ENG,
+     tooltip = "Live per-module line / label / box counts against each module's cap.")
+
+// One Pine script draws into exactly one pane, so the only way to give MACD its own
+// pane is to run a SECOND copy of this script and set each copy to show one module.
+// Add the indicator twice, set copy 1 to "MACD only" and copy 2 to "RSI only", and
+// TradingView stacks them as separate panes.
+string oscShow = input.string("All in one pane", "Show",
+     options = ["All in one pane", "RSI only", "ADX only", "VFI only", "MACD only"], group = GRP_ENG,
+     tooltip = "Add this indicator more than once and give each copy a different module to " +
+       "get one pane per oscillator.\n\nIn a single-module mode the scale belongs to that " +
+       "module alone, so VFI and MACD are shown in their NATIVE units and their normalise " +
+       "toggles are ignored.")
+
+bool oscAll   = oscShow == "All in one pane"
+bool showRsi  = oscAll or oscShow == "RSI only"
+bool showAdx  = oscAll or oscShow == "ADX only"
+bool showVfi  = oscAll or oscShow == "VFI only"
+bool showMacd = oscAll or oscShow == "MACD only"
+
+// =====================================================================================
+// TIMEFRAME RESOLUTION AND GUARD
+// =====================================================================================
+engTfSeconds(simple string tf) =>
+    timeframe.in_seconds(tf == "" ? timeframe.period : tf)
+
+engIsLower(simple string tf) =>
+    engTfSeconds(tf) < timeframe.in_seconds(timeframe.period)
+
+engResolve(simple string tf) =>
+    engIsLower(tf) and engLowerTFMode == "Fall back to chart timeframe" ? "" : tf
+
+engSuppressed(simple string tf) =>
+    engIsLower(tf) and engLowerTFMode == "Suppress + warn"
+
+var array<string> engWarnings = array.new<string>()
+
+engWarn(string moduleName, simple string tf) =>
+    if barstate.islast and engSuppressed(tf)
+        string msg = moduleName + " (" + (tf == "" ? "chart" : tf) + ")"
+        if not engWarnings.includes(msg)
+            engWarnings.push(msg)
+    engSuppressed(tf)
+
+// @function true when the confirm-on-close shift should actually be applied.
+//           The shift exists to stop a FORMING higher-timeframe bar from mutating
+//           values already drawn. When a module's timeframe resolves to the chart
+//           timeframe there is no higher bar to wait for, and shifting would just lag
+//           the module by one chart bar for nothing.
+engConfirm(simple string tf) =>
+    engConfirmHTF and engTfSeconds(engResolve(tf)) > timeframe.in_seconds(timeframe.period)
+
+// =====================================================================================
+// MTF REQUEST HELPERS
+// =====================================================================================
+// Pine cannot pass a tuple expression through a user function, so tuple requests call
+// request.security() directly with this exact argument set.
+// VERIFIED 2026-08-27 on BINANCE:ZECUSDT 1H: a calculation passed through this wrapper
+// is evaluated in the REQUESTED context. 4H SMA20 via engHtfF = 805.3895, identical to
+// the direct idiom; the wrong "pull the HTF close down and average it here" form gave
+// 790.149.
+engHtfF(simple string tf, float expr) =>
+    request.security(syminfo.tickerid, engResolve(tf), engConfirm(tf) ? expr[1] : expr,
+         gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+engHtfI(simple string tf, int expr) =>
+    request.security(syminfo.tickerid, engResolve(tf), engConfirm(tf) ? expr[1] : expr,
+         gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+engHtfB(simple string tf, bool expr) =>
+    request.security(syminfo.tickerid, engResolve(tf), engConfirm(tf) ? expr[1] : expr,
+         gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// =====================================================================================
+// DRAWING-OBJECT CAP MANAGER
+// =====================================================================================
+type engPool
+    string       name
+    array<line>  lines
+    array<label> labels
+    array<box>   boxes
+    int          maxLines
+    int          maxLabels
+    int          maxBoxes
+
+var array<engPool> engPools = array.new<engPool>()
+
+engNewPool(string name, int maxLines, int maxLabels, int maxBoxes) =>
+    engPool p = engPool.new(name, array.new<line>(), array.new<label>(), array.new<box>(),
+         maxLines, maxLabels, maxBoxes)
+    engPools.push(p)
+    p
+
+method own(engPool p, line ln) =>
+    if not na(ln)
+        p.lines.push(ln)
+        while p.lines.size() > p.maxLines
+            line.delete(p.lines.shift())
+    ln
+
+method own(engPool p, label lb) =>
+    if not na(lb)
+        p.labels.push(lb)
+        while p.labels.size() > p.maxLabels
+            label.delete(p.labels.shift())
+    lb
+
+method own(engPool p, box bx) =>
+    if not na(bx)
+        p.boxes.push(bx)
+        while p.boxes.size() > p.maxBoxes
+            box.delete(p.boxes.shift())
+    bx
+
+// @function Releases one object from the pool WITHOUT deleting it again. A module that
+//           deletes its own drawings must call this, or the pool keeps dead handles.
+method release(engPool p, line ln) =>
+    int i = p.lines.indexof(ln)
+    if i >= 0
+        p.lines.remove(i)
+
+method release(engPool p, label lb) =>
+    int i = p.labels.indexof(lb)
+    if i >= 0
+        p.labels.remove(i)
+
+method release(engPool p, box bx) =>
+    int i = p.boxes.indexof(bx)
+    if i >= 0
+        p.boxes.remove(i)
+
+method clear(engPool p) =>
+    while p.lines.size() > 0
+        line.delete(p.lines.shift())
+    while p.labels.size() > 0
+        label.delete(p.labels.shift())
+    while p.boxes.size() > 0
+        box.delete(p.boxes.shift())
+
+method recap(engPool p, int maxLines, int maxLabels, int maxBoxes) =>
+    p.maxLines  := maxLines
+    p.maxLabels := maxLabels
+    p.maxBoxes  := maxBoxes
+    while p.lines.size()  > p.maxLines
+        line.delete(p.lines.shift())
+    while p.labels.size() > p.maxLabels
+        label.delete(p.labels.shift())
+    while p.boxes.size()  > p.maxBoxes
+        box.delete(p.boxes.shift())
+
+// =====================================================================================
+// DEBUG TABLE  (off by default)
+// =====================================================================================
+const int ENG_HARD_CAP = 500
+
+var table engTable = table.new(position.top_right, 5, 12, border_width = 1)
+
+engDrawDebug() =>
+    if engShowDebug and barstate.islast
+        table.clear(engTable, 0, 0, 4, 11)
+        table.cell(engTable, 0, 0, "Module", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 1, 0, "lines", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 2, 0, "labels", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 3, 0, "boxes", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        table.cell(engTable, 4, 0, "cap", bgcolor = color.new(color.gray, 30), text_color = color.white, text_size = size.small)
+        int totL = 0
+        int totB = 0
+        int totX = 0
+        int row = 1
+        for p in engPools
+            if row < 11
+                table.cell(engTable, 0, row, p.name, text_color = color.white, text_size = size.small)
+                table.cell(engTable, 1, row, str.tostring(p.lines.size()), text_color = color.white, text_size = size.small)
+                table.cell(engTable, 2, row, str.tostring(p.labels.size()), text_color = color.white, text_size = size.small)
+                table.cell(engTable, 3, row, str.tostring(p.boxes.size()), text_color = color.white, text_size = size.small)
+                table.cell(engTable, 4, row, str.tostring(p.maxLines) + "/" + str.tostring(p.maxLabels) + "/" + str.tostring(p.maxBoxes), text_color = color.gray, text_size = size.small)
+                row += 1
+            totL += p.lines.size()
+            totB += p.labels.size()
+            totX += p.boxes.size()
+        color warnCol = math.max(totL, math.max(totB, totX)) > ENG_HARD_CAP * 4 / 5 ? color.red : color.white
+        table.cell(engTable, 0, row, "TOTAL", text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 1, row, str.tostring(totL), text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 2, row, str.tostring(totB), text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 3, row, str.tostring(totX), text_color = warnCol, text_size = size.small)
+        table.cell(engTable, 4, row, str.tostring(ENG_HARD_CAP) + " each", text_color = color.gray, text_size = size.small)
+
+var label engWarnLabel = na
+
+// =====================================================================================
+// MODULE — RSI
+// -------------------------------------------------------------------------------------
+// One request returns the RSI, its optional smoothing MA and the optional band width,
+// so the whole module costs a single entry in the request budget.
+// =====================================================================================
+const string GRP_RSI = "RSI"
+
+bool          rsiOn    = input.bool(true, "Enable RSI", group = GRP_RSI)
+simple int    rsiLen   = input.int(50, "Length", minval = 1, inline = "rsi1", group = GRP_RSI, display = display.none)
+float         rsiSrc   = input.source(close, "Source", inline = "rsi1", group = GRP_RSI, display = display.none)
+simple string rsiTf    = input.timeframe("", "Timeframe", inline = "rsi1", group = GRP_RSI, display = display.none)
+color         rsiCol   = input.color(#7e57c2, "Colour", inline = "rsi2", group = GRP_RSI, display = display.none)
+bool          rsiBands = input.bool(true, "Show 70 / 50 / 30 bands", inline = "rsi2", group = GRP_RSI, display = display.none)
+
+simple string rsiMaType = input.string("EMA", "Smoothing MA", group = GRP_RSI,
+     options = ["None", "SMA", "SMA + Bollinger Bands", "EMA", "SMMA (RMA)", "WMA", "VWMA"],
+     tooltip = "The MA and band plots cost 3 of the 64 outputs.", display = display.none)
+simple int    rsiMaLen  = input.int(14, "MA length", minval = 1, inline = "rsi3", group = GRP_RSI, display = display.none)
+simple float  rsiBbMult = input.float(2.0, "BB StdDev", minval = 0.001, maxval = 50, step = 0.1, inline = "rsi3", group = GRP_RSI, display = display.none)
+
+// @function The smoothing MA of the source, by type name.
+rsiMa(float src, simple int len, simple string maType) =>
+    switch maType
+        "SMA"                    => ta.sma(src, len)
+        "SMA + Bollinger Bands"  => ta.sma(src, len)
+        "EMA"                    => ta.ema(src, len)
+        "SMMA (RMA)"             => ta.rma(src, len)
+        "WMA"                    => ta.wma(src, len)
+        "VWMA"                   => ta.vwma(src, len)
+        => na
+
+// @function RSI, its smoothing MA and the band half-width, all on the requested
+//           timeframe. ta.rsi is stateful, so it must run there, not on chart bars.
+rsiCalc(float src, simple int len, simple int maLen, simple string maType, simple float bbMult, simple bool confirm) =>
+    float r   = ta.rsi(src, len)
+    float m   = rsiMa(r, maLen, maType)
+    float dev = maType == "SMA + Bollinger Bands" ? bbMult * ta.stdev(r, maLen) : na
+    [confirm ? r[1] : r, confirm ? m[1] : m, confirm ? dev[1] : dev]
+
+bool rsiBlk  = engWarn("RSI", rsiTf)
+bool rsiLive = rsiOn and showRsi and not rsiBlk
+
+[rsiVal, rsiMaVal, rsiDev] = request.security(syminfo.tickerid, engResolve(rsiTf),
+     rsiCalc(rsiSrc, rsiLen, rsiMaLen, rsiMaType, rsiBbMult, engConfirm(rsiTf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+bool rsiIsBb = rsiMaType == "SMA + Bollinger Bands"
+
+plot(rsiLive ? rsiVal : na, "RSI", rsiCol, 2)
+rsiUpper = hline(70, "RSI upper band", color.new(#787b86, 50))
+rsiMid   = hline(50, "RSI middle band", color.new(#787b86, 70))
+rsiLower = hline(30, "RSI lower band", color.new(#787b86, 50))
+fill(rsiUpper, rsiLower, rsiBands and rsiLive ? color.new(rsiCol, 94) : na, "RSI band fill")
+
+plot(rsiLive and rsiMaType != "None" ? rsiMaVal : na, "RSI MA", color.yellow)
+rsiBbUp = plot(rsiLive and rsiIsBb ? rsiMaVal + rsiDev : na, "RSI BB upper", color.green)
+rsiBbLo = plot(rsiLive and rsiIsBb ? rsiMaVal - rsiDev : na, "RSI BB lower", color.green)
+fill(rsiBbUp, rsiBbLo, rsiLive and rsiIsBb ? color.new(color.green, 90) : na, "RSI BB fill")
+
+// =====================================================================================
+// MODULE — ADX
+// -------------------------------------------------------------------------------------
+// ta.rma smoothing is stateful and recursive, so dirmov() and the ADX average both run
+// inside the request expression. Computing ADX from a pulled-down HTF close would give
+// plausible, wrong numbers.
+// =====================================================================================
+const string GRP_ADX = "ADX"
+
+bool          adxOn   = input.bool(true, "Enable ADX", group = GRP_ADX)
+simple int    adxLen  = input.int(14, "ADX smoothing", minval = 1, inline = "adx1", group = GRP_ADX, display = display.none)
+simple int    adxDiLen = input.int(14, "DI length", minval = 1, inline = "adx1", group = GRP_ADX, display = display.none)
+simple string adxTf   = input.timeframe("", "Timeframe", inline = "adx1", group = GRP_ADX, display = display.none)
+color         adxCol  = input.color(#f23645, "ADX", inline = "adx2", group = GRP_ADX, display = display.none)
+color         adxPCol = input.color(#089981, "+DI", inline = "adx2", group = GRP_ADX, display = display.none)
+color         adxMCol = input.color(#2962ff, "-DI", inline = "adx2", group = GRP_ADX, display = display.none)
+bool          adxShowDi = input.bool(false, "Show +DI / -DI", group = GRP_ADX, display = display.none)
+
+// @function Directional movement, ported from the built-in with `len` namespaced.
+adxDirmov(simple int len) =>
+    float up      = ta.change(high)
+    float down    = -ta.change(low)
+    float plusDM  = na(up) ? na : (up > down and up > 0 ? up : 0)
+    float minusDM = na(down) ? na : (down > up and down > 0 ? down : 0)
+    float trueRng = ta.rma(ta.tr, len)
+    float plus    = fixnan(100 * ta.rma(plusDM, len) / trueRng)
+    float minus   = fixnan(100 * ta.rma(minusDM, len) / trueRng)
+    [plus, minus]
+
+// @function ADX with both directional indicators, in one tuple.
+adxCalc(simple int diLen, simple int adxSmooth, simple bool confirm) =>
+    [plus, minus] = adxDirmov(diLen)
+    float sum = plus + minus
+    float adx = 100 * ta.rma(math.abs(plus - minus) / (sum == 0 ? 1 : sum), adxSmooth)
+    [confirm ? adx[1] : adx, confirm ? plus[1] : plus, confirm ? minus[1] : minus]
+
+bool adxBlk  = engWarn("ADX", adxTf)
+bool adxLive = adxOn and showAdx and not adxBlk
+
+[adxVal, adxPlus, adxMinus] = request.security(syminfo.tickerid, engResolve(adxTf),
+     adxCalc(adxDiLen, adxLen, engConfirm(adxTf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+plot(adxLive ? adxVal : na, "ADX", adxCol, 2)
+plot(adxLive and adxShowDi ? adxPlus : na, "+DI", adxPCol)
+plot(adxLive and adxShowDi ? adxMinus : na, "-DI", adxMCol)
+
+// =====================================================================================
+// MODULE — VOLUME FLOW INDICATOR  (© LazyBear)
+// -------------------------------------------------------------------------------------
+// Full Pine v2 -> v6 rewrite of "Volume Flow Indicator [LazyBear]":
+//   study()            -> indicator()
+//   iff(a, b, c)       -> a ? b : c
+//   sma/stdev/ema      -> ta.sma / ta.stdev / ta.ema
+//   sum()              -> math.sum()
+//   log()              -> math.log()
+//   input(type=bool)   -> input.bool()
+//   gray/green/orange  -> color.gray / color.green / color.orange
+//   style=histogram    -> plot.style_histogram
+//   transp=            -> color.new()
+// The maths is unchanged, including the source's `sma(volume, length)[1]` — the volume
+// average is deliberately taken one bar back.
+//
+// The cumulative math.sum() is stateful, so the whole calculation runs on the requested
+// timeframe.
+// =====================================================================================
+const string GRP_VFI = "Volume flow indicator"
+
+bool          vfiOn      = input.bool(true, "Enable VFI", group = GRP_VFI)
+simple int    vfiLen     = input.int(130, "VFI length", minval = 1, inline = "vfi1", group = GRP_VFI, display = display.none)
+simple string vfiTf      = input.timeframe("", "Timeframe", inline = "vfi1", group = GRP_VFI, display = display.none)
+simple float  vfiCoef    = input.float(0.2, "Cutoff coefficient", step = 0.05, inline = "vfi2", group = GRP_VFI, display = display.none)
+simple float  vfiVCoef   = input.float(2.5, "Max volume cutoff", step = 0.1, inline = "vfi2", group = GRP_VFI, display = display.none)
+simple int    vfiSigLen  = input.int(5, "Signal length", minval = 1, inline = "vfi2", group = GRP_VFI, display = display.none)
+simple bool   vfiSmooth  = input.bool(false, "Smooth VFI", group = GRP_VFI, display = display.none)
+bool          vfiHisto   = input.bool(false, "Show VFI - signal histogram", group = GRP_VFI, display = display.none)
+color         vfiCol     = input.color(color.green, "VFI", inline = "vfi3", group = GRP_VFI, display = display.none)
+color         vfiSigCol  = input.color(color.orange, "Signal", inline = "vfi3", group = GRP_VFI, display = display.none)
+
+bool       vfiNorm    = input.bool(true, "Normalise to 0-100", group = GRP_VFI,
+     tooltip = "ON (default): VFI is rescaled against its own recent range so it shares the pane with RSI and ADX. " +
+       "This is a DISPLAY TRANSFORM ONLY — it moves no crossover and creates no signal.\n\n" +
+       "Ignored when this copy shows VFI on its own: a private pane keeps native units.")
+simple int vfiNormLen = input.int(500, "Normalisation window (bars)", minval = 50, maxval = 5000, group = GRP_VFI, display = display.none)
+
+// @function VFI and its signal line, ported from the v2 source.
+vfiCalc(simple int len, simple float coef, simple float vcoef, simple int sigLen, simple bool smooth, simple bool confirm) =>
+    float typical = hlc3
+    float inter   = math.log(typical) - math.log(typical[1])
+    float vinter  = ta.stdev(inter, 30)
+    float cutoff  = coef * vinter * close
+    float vave    = ta.sma(volume, len)[1]
+    float vmax    = vave * vcoef
+    float vc      = volume < vmax ? volume : vmax
+    float mf      = typical - typical[1]
+    float vcp     = mf > cutoff ? vc : (mf < -cutoff ? -vc : 0)
+    float raw     = math.sum(vcp, len) / vave
+    float vfi     = smooth ? ta.sma(raw, 3) : raw
+    float vfima   = ta.ema(vfi, sigLen)
+    [confirm ? vfi[1] : vfi, confirm ? vfima[1] : vfima]
+
+bool vfiBlk  = engWarn("VFI", vfiTf)
+bool vfiLive = vfiOn and showVfi and not vfiBlk
+
+[vfiRaw, vfiSigRaw] = request.security(syminfo.tickerid, engResolve(vfiTf),
+     vfiCalc(vfiLen, vfiCoef, vfiVCoef, vfiSigLen, vfiSmooth, engConfirm(vfiTf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// Normalisation is only meaningful when the pane is shared. On its own, VFI keeps its
+// native volume-scaled units. Both series are scaled by the SAME window so their
+// crossovers and their sign relative to each other are preserved exactly.
+bool  vfiUseNorm = vfiNorm and oscAll
+float vfiHi    = ta.highest(vfiRaw, vfiNormLen)
+float vfiLo    = ta.lowest(vfiRaw, vfiNormLen)
+float vfiRange = vfiHi - vfiLo
+float vfiVal   = vfiUseNorm and vfiRange > 0 ? 100 * (vfiRaw - vfiLo) / vfiRange : vfiRaw
+float vfiSig   = vfiUseNorm and vfiRange > 0 ? 100 * (vfiSigRaw - vfiLo) / vfiRange : vfiSigRaw
+float vfiHist  = vfiVal - vfiSig
+
+// The zero reference moves with the transform: in normalised mode, native zero sits at
+// 100 * (0 - lo) / range, which is where VFI's sign actually changes.
+float vfiZero = vfiUseNorm and vfiRange > 0 ? 100 * (0 - vfiLo) / vfiRange : 0
+
+plot(vfiLive ? vfiZero : na, "VFI zero", color.new(color.gray, 40), 1)
+plot(vfiLive and vfiHisto ? vfiHist : na, "VFI histogram", color.new(color.gray, 50), 3, plot.style_histogram)
+plot(vfiLive ? vfiSig : na, "VFI signal", vfiSigCol)
+plot(vfiLive ? vfiVal : na, "VFI", vfiCol, 2)
+
+// =====================================================================================
+// MODULE — MACD
+// -------------------------------------------------------------------------------------
+// Ported from the TradingView built-in "Moving Average Convergence Divergence". The
+// oscillator and signal MA types are kept selectable exactly as the built-in has them.
+// Both MAs and the signal smoothing are stateful, so the whole calculation runs inside
+// the request expression rather than on a pulled-down HTF close.
+//
+// SCALE: MACD is in PRICE units, not 0-100. On a shared pane it dwarfs RSI and ADX, so
+// it carries the same "Normalise to 0-100" treatment as VFI, and that normalisation is
+// applied ONLY when the pane is shared. Give MACD its own pane ("Show" = "MACD only" on
+// a second copy of this indicator) and it plots in native units with a true zero line.
+//
+// The built-in's two alertcondition() calls are replaced by one alert() with a composed
+// message: alertcondition competes with the 64-output plot budget.
+// =====================================================================================
+const string GRP_MACD = "MACD"
+
+bool          macdOn      = input.bool(true, "Enable MACD", group = GRP_MACD)
+float         macdSrc     = input.source(close, "Source", inline = "mac1", group = GRP_MACD, display = display.none)
+simple string macdTf      = input.timeframe("", "Timeframe", inline = "mac1", group = GRP_MACD, display = display.none)
+simple int    macdFast    = input.int(12, "Fast length", minval = 1, inline = "mac2", group = GRP_MACD, display = display.none)
+simple int    macdSlow    = input.int(26, "Slow length", minval = 1, inline = "mac2", group = GRP_MACD, display = display.none)
+simple int    macdSigLen  = input.int(9, "Signal length", minval = 1, inline = "mac2", group = GRP_MACD, display = display.none)
+simple string macdOscType = input.string("EMA", "Oscillator MA type", options = ["EMA", "SMA"], inline = "mac3", group = GRP_MACD, display = display.none)
+simple string macdSigType = input.string("EMA", "Signal MA type", options = ["EMA", "SMA"], inline = "mac3", group = GRP_MACD, display = display.none)
+color         macdCol     = input.color(#2962ff, "MACD", inline = "mac4", group = GRP_MACD, display = display.none)
+color         macdSigCol  = input.color(#ff6d00, "Signal", inline = "mac4", group = GRP_MACD, display = display.none)
+bool          macdHist    = input.bool(true, "Show histogram", inline = "mac4", group = GRP_MACD, display = display.none)
+bool          macdNorm    = input.bool(true, "Normalise to 0-100", group = GRP_MACD,
+     tooltip = "Only applied when the pane is shared. A MACD-only pane always plots native units.")
+simple int    macdNormLen = input.int(500, "Normalisation window (bars)", minval = 50, maxval = 5000, group = GRP_MACD, display = display.none)
+bool          macdAlerts  = input.bool(false, "Alert on histogram flips", group = GRP_MACD, display = display.none)
+
+// @function EMA or SMA, matching the built-in's ma() helper.
+macdMa(float src, simple int len, simple string maType) =>
+    switch maType
+        "EMA" => ta.ema(src, len)
+        "SMA" => ta.sma(src, len)
+        => na
+
+// @function MACD, signal and histogram on the requested timeframe, in one tuple.
+macdCalc(float src, simple int fast, simple int slow, simple int sigLen,
+     simple string oscType, simple string sigType, simple bool confirm) =>
+    float maFast = macdMa(src, fast, oscType)
+    float maSlow = macdMa(src, slow, oscType)
+    float m      = maFast - maSlow
+    float sg     = macdMa(m, sigLen, sigType)
+    float h      = m - sg
+    [confirm ? m[1] : m, confirm ? sg[1] : sg, confirm ? h[1] : h]
+
+bool macdBlk  = engWarn("MACD", macdTf)
+bool macdLive = macdOn and showMacd and not macdBlk
+
+[macdRaw, macdSigRaw, macdHistRaw] = request.security(syminfo.tickerid, engResolve(macdTf),
+     macdCalc(macdSrc, macdFast, macdSlow, macdSigLen, macdOscType, macdSigType, engConfirm(macdTf)),
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// Same display transform as VFI: one window scales all three series, so crossovers and
+// the sign of the histogram are preserved exactly.
+bool  macdUseNorm = macdNorm and oscAll
+float macdHi      = ta.highest(macdRaw, macdNormLen)
+float macdLo      = ta.lowest(macdRaw, macdNormLen)
+float macdRange   = macdHi - macdLo
+float macdVal     = macdUseNorm and macdRange > 0 ? 100 * (macdRaw - macdLo) / macdRange : macdRaw
+float macdSigVal  = macdUseNorm and macdRange > 0 ? 100 * (macdSigRaw - macdLo) / macdRange : macdSigRaw
+float macdZero    = macdUseNorm and macdRange > 0 ? 100 * (0 - macdLo) / macdRange : 0
+float macdHistVal = macdUseNorm and macdRange > 0 ? 100 * macdHistRaw / macdRange : macdHistRaw
+
+// The built-in's four-state histogram colouring: rising/falling above and below zero.
+color macdHCol = macdHistRaw >= 0 ?
+     (macdHistRaw > macdHistRaw[1] ? #26a69a : #b2dfdb) :
+     (macdHistRaw > macdHistRaw[1] ? #ffcdd2 : #ff5252)
+
+plot(macdLive and macdHist ? macdHistVal + macdZero : na, "MACD histogram", macdHCol, 1, plot.style_columns)
+plot(macdLive ? macdZero : na, "MACD zero", color.new(color.gray, 40), 1)
+plot(macdLive ? macdVal : na, "MACD", macdCol, 2)
+plot(macdLive ? macdSigVal : na, "MACD signal", macdSigCol)
+
+if macdLive and macdAlerts and barstate.isconfirmed
+    if macdHistRaw[1] >= 0 and macdHistRaw < 0
+        alert("MACD: " + syminfo.ticker + " histogram turned negative.", alert.freq_once_per_bar_close)
+    else if macdHistRaw[1] <= 0 and macdHistRaw > 0
+        alert("MACD: " + syminfo.ticker + " histogram turned positive.", alert.freq_once_per_bar_close)
+
+// =====================================================================================
+// ENGINE OUTPUT — guard warnings. This script draws no lines, labels or boxes, so the
+// debug table has no pools to report; it is still called for parity with Script A.
+// =====================================================================================
+engDrawDebug()
+
+if barstate.islast
+    label.delete(engWarnLabel)
+    if engWarnings.size() > 0
+        engWarnLabel := label.new(bar_index, 50,
+             "timeframe below chart - suppressed:\n" + array.join(engWarnings, "\n"),
+             style = label.style_label_down, color = color.new(color.orange, 20),
+             textcolor = color.white, size = size.small)

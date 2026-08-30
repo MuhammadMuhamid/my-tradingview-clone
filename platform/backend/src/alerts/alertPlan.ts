@@ -24,7 +24,8 @@ import {
   acceptsIntrabarSample, decideFire, stateAfterFire,
   type AlertFrequency, type FireState, type SuppressionReason,
 } from "./alertFrequency";
-import type { MaType } from "../types/maAlerts";
+import type { MaType, SrSide } from "../types/maAlerts";
+import type { PivotType } from "../engine/pivotLevels";
 
 /** Everything the decision needs about one armed alert. */
 export interface AlertSpec {
@@ -56,6 +57,21 @@ export interface FeedSample {
   close: number;
   /** Resolved value of an MA series at this bar, or undefined when unseeded. */
   series: (type: MaType, length: number) => number | undefined;
+  /**
+   * The nearest live support/resistance for this feed, or undefined when none
+   * is knowable yet. Resolved by the runner, which owns the bar history the
+   * zones are derived from.
+   */
+  srZone?: (
+    side: SrSide, pivotLength: number, invalidation: "close" | "wick"
+  ) => { price: number; label: string } | undefined;
+  /**
+   * A pivot level from the anchor period. Returns the matched level's name as
+   * well as its price, so an `any` alert can say which line it fired on.
+   */
+  pivotLevel?: (
+    type: PivotType, anchor: string, levelName: string
+  ) => { price: number; label: string } | undefined;
 }
 
 export type SkipReason =
@@ -78,6 +94,8 @@ export type AlertPlan =
       distancePct: number;
       reference: number;
       triggered: boolean;
+      /** What the reference turned out to be: "S1", "1h support". */
+      label: string | null;
     };
 
 /**
@@ -104,11 +122,8 @@ export function planAlert(spec: AlertSpec, sample: FeedSample, now: number): Ale
   const skip = shouldEvaluate(spec, sample);
   if (skip) return { act: false, reason: skip };
 
-  const evaluation = evaluateCondition(
-    spec.condition,
-    withSeries(spec.condition, sample),
-    spec.lastSide
-  );
+  const resolved = withSeries(spec.condition, sample);
+  const evaluation = evaluateCondition(spec.condition, resolved, spec.lastSide);
 
   let fire = false;
   let suppressed: SuppressionReason | null = null;
@@ -130,6 +145,7 @@ export function planAlert(spec: AlertSpec, sample: FeedSample, now: number): Ale
     distancePct: evaluation.distancePct,
     reference: evaluation.reference,
     triggered: evaluation.triggered,
+    label: resolved.refLabel ?? null,
   };
 }
 
@@ -147,6 +163,18 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
         maValue: sample.series(condition.maType, condition.maLength),
         ma2Value: sample.series(condition.ma2Type, condition.ma2Length),
       };
+    case "sr_zone": {
+      const zone = sample.srZone?.(
+        condition.srSide, condition.pivotLength, condition.invalidation
+      );
+      return { ...base, refValue: zone?.price, refLabel: zone?.label };
+    }
+    case "pivot_level": {
+      const level = sample.pivotLevel?.(
+        condition.pivotType, condition.anchor, condition.levelName
+      );
+      return { ...base, refValue: level?.price, refLabel: level?.label };
+    }
   }
 }
 

@@ -28,13 +28,18 @@
  */
 import type { FastifyBaseLogger } from "fastify";
 import type { Candle, Interval } from "../types/market";
-import { INTERVAL_MS } from "../types/market";
-import type { MaAlertRow, MaType } from "../types/maAlerts";
+import { INTERVAL_MS, isInterval } from "../types/market";
+import { PIVOT_LEVEL_ANY } from "../types/maAlerts";
+import type { MaAlertRow, MaType, SrSide } from "../types/maAlerts";
 import * as maAlertRepo from "../repositories/maAlerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
 import { sma, ema } from "./ta";
+import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
+import {
+  levelByName, nearestLevel, pivotLevels, type PivotType, type Period,
+} from "./pivotLevels";
 import { conditionFromRow, type AlertCondition, type Side } from "../alerts/alertConditions";
 import { acceptsIntrabarSample } from "../alerts/alertFrequency";
 import {
@@ -92,6 +97,15 @@ export class MaAlertRunner {
   private history = new Map<string, Candle[]>();
   private lastIntrabarAt = new Map<string, number>();
   private refreshTimer: ReturnType<typeof setInterval> | undefined;
+  /**
+   * The last COMPLETED period per `symbol|anchor`, for pivot alerts.
+   *
+   * Held separately from the alert feeds because the anchor is not the
+   * evaluation cadence: daily pivots watched on a 5m chart need daily bars that
+   * no 5m feed carries. Refreshed on the same timer as the alert list, which is
+   * far more often than a daily period can change.
+   */
+  private anchorPeriods = new Map<string, Period>();
   private log: FastifyBaseLogger;
 
   constructor(log: FastifyBaseLogger) {
@@ -133,6 +147,7 @@ export class MaAlertRunner {
       return;
     }
     const wanted = new Set(alerts.map((a) => feedKey(a.symbol, a.timeframe)));
+    await this.refreshAnchorPeriods(alerts);
 
     for (const key of wanted) {
       if (this.feeds.has(key)) continue;
@@ -151,6 +166,53 @@ export class MaAlertRunner {
       this.feeds.delete(key);
       this.history.delete(key);
       this.lastIntrabarAt.delete(key);
+    }
+  }
+
+  /**
+   * Load the last COMPLETED period for every anchor a pivot alert names.
+   *
+   * "Completed" is the point: a pivot level derived from the period still
+   * forming would move under the alert during the day, and would be a level the
+   * chart never drew. The newest bar of the anchor feed is dropped for exactly
+   * that reason.
+   */
+  private async refreshAnchorPeriods(alerts: MaAlertRow[]): Promise<void> {
+    const wanted = new Set<string>();
+    for (const a of alerts) {
+      if (a.conditionKind !== "pivot_level" || !a.pivotAnchor) continue;
+      wanted.add(`${a.symbol}|${a.pivotAnchor}`);
+    }
+    for (const key of [...this.anchorPeriods.keys()]) {
+      if (!wanted.has(key)) this.anchorPeriods.delete(key);
+    }
+
+    for (const key of wanted) {
+      const [symbol, rawAnchor] = key.split("|") as [string, string];
+      if (!isInterval(rawAnchor)) {
+        this.log.warn({ symbol, anchor: rawAnchor }, "pivot anchor is not a supported interval");
+        continue;
+      }
+      const anchor = rawAnchor;
+      try {
+        const endMs = Date.now();
+        const startMs = endMs - INTERVAL_MS[anchor] * 5;
+        await ensureCandles(symbol, anchor, startMs, endMs);
+        const rows = await candleRepo.getCandles(symbol, anchor, { limit: 3 });
+        // The last row is the period currently forming; the one before it is
+        // the most recent completed period.
+        const completed = rows.length >= 2 ? rows[rows.length - 2] : undefined;
+        if (!completed) continue;
+        this.anchorPeriods.set(key, {
+          open: completed.open, high: completed.high,
+          low: completed.low, close: completed.close,
+        });
+      } catch (err) {
+        this.log.warn(
+          { symbol, anchor, err: (err as Error).message },
+          "pivot anchor period unavailable"
+        );
+      }
     }
   }
 
@@ -241,6 +303,60 @@ export class MaAlertRunner {
       return v === undefined || !Number.isFinite(v) ? undefined : v;
     };
 
+    /**
+     * Support/resistance zones for this feed.
+     *
+     * Cached per (pivotLength, invalidation) because the detection is a scan of
+     * the whole history, and several alerts on one symbol normally share the
+     * same settings. `zonesAsOf` then answers each alert from the same scan.
+     */
+    const srCache = new Map<string, ReturnType<typeof buildZones>>();
+    const srFor = (
+      side: SrSide, pivotLength: number, invalidation: "close" | "wick"
+    ): { price: number; label: string } | undefined => {
+      const key = `${pivotLength}|${invalidation}`;
+      let zones = srCache.get(key);
+      if (!zones) {
+        zones = buildZones(
+          { high: bars.map((b) => b.high), low: bars.map((b) => b.low), close: closes },
+          { ...DEFAULT_SR_OPTIONS, pivotLength, invalidation }
+        );
+        srCache.set(key, zones);
+      }
+      const last = bars.length - 1;
+      const { support, resistance } = nearestZones(zones, last, sampleBar.close, {
+        ...DEFAULT_SR_OPTIONS, pivotLength, invalidation,
+      });
+      // `either` reports whichever of the two price is closer to, which is what
+      // "the nearest zone" means when the alert does not name a side.
+      const pick = side === "support" ? support
+        : side === "resistance" ? resistance
+        : (() => {
+            if (!support) return resistance;
+            if (!resistance) return support;
+            const ds = Math.abs(sampleBar.close - support.price);
+            const dr = Math.abs(sampleBar.close - resistance.price);
+            return ds <= dr ? support : resistance;
+          })();
+      if (!pick) return undefined;
+      return { price: pick.price, label: `${interval} ${pick.kind}` };
+    };
+
+    /** Pivot levels from the completed anchor period, cached per anchor+type. */
+    const pivotFor = (
+      type: PivotType, anchor: string, levelName: string
+    ): { price: number; label: string } | undefined => {
+      const period = this.anchorPeriods.get(`${symbol}|${anchor}`);
+      if (!period) return undefined;
+      const levels = pivotLevels(period, type);
+      if (levels.length === 0) return undefined;
+      const match = levelName === PIVOT_LEVEL_ANY
+        ? nearestLevel(levels, sampleBar.close)
+        : levelByName(levels, levelName);
+      if (!match || !Number.isFinite(match.price)) return undefined;
+      return { price: match.price, label: match.name };
+    };
+
     const sample: FeedSample = {
       symbol, timeframe: interval,
       barTime: sampleBar.openTime,
@@ -249,6 +365,8 @@ export class MaAlertRunner {
       low: sampleBar.low,
       close: sampleBar.close,
       series: seriesFor,
+      srZone: srFor,
+      pivotLevel: pivotFor,
     };
     const now = Date.now();
 
@@ -264,7 +382,10 @@ export class MaAlertRunner {
 
       let delivered = false;
       if (plan.fire) {
-        delivered = await this.fire(alert, condition, sampleBar, plan.reference, plan.distancePct, !isClosedBar);
+        delivered = await this.fire(
+          alert, condition, sampleBar, plan.reference, plan.distancePct,
+          !isClosedBar, plan.label
+        );
       }
       const next = stateAfterPlan(spec, plan, {
         barTime: sampleBar.openTime, now, delivered,
@@ -301,10 +422,12 @@ export class MaAlertRunner {
   /** Deliver one notification. Returns whether it reached at least one device. */
   private async fire(
     alert: MaAlertRow, condition: AlertCondition, bar: Candle,
-    reference: number, distancePct: number, intrabar: boolean
+    reference: number, distancePct: number, intrabar: boolean,
+    /** What the reference resolved to — the zone's side, or the pivot level. */
+    label: string | null
   ): Promise<boolean> {
     const { title, body, tag, url } = formatAlertPush(
-      alert, condition, bar, reference, distancePct, intrabar
+      alert, condition, bar, reference, distancePct, intrabar, label ?? undefined
     );
 
     let pushedTo = 0;

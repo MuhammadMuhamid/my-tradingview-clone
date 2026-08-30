@@ -2,6 +2,7 @@ import { query } from "../db/pool";
 import type { Interval } from "../types/market";
 import type {
   ConditionKind, MaAlertEventRow, MaAlertMode, MaAlertRow, MaType, PriceDirection,
+  SrSide,
 } from "../types/maAlerts";
 import type { AlertFrequency } from "../alerts/alertFrequency";
 
@@ -17,6 +18,12 @@ interface DbAlert {
   ma2_length: number | null;
   target_price: string | number | null;
   price_direction: PriceDirection | null;
+  sr_side: SrSide | null;
+  sr_pivot_length: number | null;
+  sr_invalidation: string | null;
+  pivot_type: string | null;
+  pivot_level_name: string | null;
+  pivot_anchor: string | null;
   near_min_pct: string | number;
   near_max_pct: string | number;
   enabled: boolean;
@@ -50,6 +57,12 @@ function toRow(r: DbAlert): MaAlertRow {
     ma2Length: r.ma2_length,
     targetPrice: r.target_price === null ? null : num(r.target_price),
     priceDirection: r.price_direction,
+    srSide: r.sr_side,
+    srPivotLength: r.sr_pivot_length,
+    srInvalidation: r.sr_invalidation,
+    pivotType: r.pivot_type,
+    pivotLevelName: r.pivot_level_name,
+    pivotAnchor: r.pivot_anchor,
     nearMinPct: num(r.near_min_pct),
     nearMaxPct: num(r.near_max_pct),
     enabled: r.enabled,
@@ -83,6 +96,12 @@ export interface MaAlertInput {
   frequency?: AlertFrequency;
   cooldownMin?: number;
   note?: string | null;
+  srSide?: SrSide | null;
+  srPivotLength?: number | null;
+  srInvalidation?: string | null;
+  pivotType?: string | null;
+  pivotLevelName?: string | null;
+  pivotAnchor?: string | null;
 }
 
 /** The unique index that governs "the same alert" for each condition kind. */
@@ -92,6 +111,10 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
   ma_vs_ma:
     "(symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode)" +
     " WHERE condition_kind = 'ma_vs_ma'",
+  sr_zone: "(symbol, timeframe, sr_side, mode) WHERE condition_kind = 'sr_zone'",
+  pivot_level:
+    "(symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode)" +
+    " WHERE condition_kind = 'pivot_level'",
 };
 
 /**
@@ -109,8 +132,11 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
     `INSERT INTO ma_alerts
        (symbol, timeframe, condition_kind, ma_type, ma_length, mode,
         ma2_type, ma2_length, target_price, price_direction,
-        near_min_pct, near_max_pct, enabled, frequency, cooldown_min, note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        near_min_pct, near_max_pct, enabled, frequency, cooldown_min, note,
+        sr_side, sr_pivot_length, sr_invalidation,
+        pivot_type, pivot_level_name, pivot_anchor)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+             $17,$18,$19,$20,$21,$22)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -120,6 +146,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        note                = EXCLUDED.note,
        ma2_type            = EXCLUDED.ma2_type,
        ma2_length          = EXCLUDED.ma2_length,
+       sr_side             = EXCLUDED.sr_side,
+       sr_pivot_length     = EXCLUDED.sr_pivot_length,
+       sr_invalidation     = EXCLUDED.sr_invalidation,
+       pivot_type          = EXCLUDED.pivot_type,
+       pivot_level_name    = EXCLUDED.pivot_level_name,
+       pivot_anchor        = EXCLUDED.pivot_anchor,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -133,6 +165,8 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.nearMinPct ?? 0.2, input.nearMaxPct ?? 0.5,
       input.enabled ?? true, input.frequency ?? "once_per_bar_close",
       input.cooldownMin ?? 60, input.note ?? null,
+      input.srSide ?? null, input.srPivotLength ?? null, input.srInvalidation ?? null,
+      input.pivotType ?? null, input.pivotLevelName ?? null, input.pivotAnchor ?? null,
     ]
   );
   return toRow(rows[0]!);

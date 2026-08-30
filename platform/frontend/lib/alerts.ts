@@ -49,6 +49,12 @@ export function alertLineLabel(a: MaAlert): string {
       return fmtPrice(a.targetPrice);
     case "ma_vs_ma":
       return `${maLabel(a.maType ?? "sma", a.maLength ?? 0)}/${maLabel(a.ma2Type ?? "sma", a.ma2Length ?? 0)}`;
+    case "sr_zone":
+      // These sit on no moving average, so an "SMA 0" label would be a lie.
+      return a.srSide === "resistance" ? "Resistance"
+        : a.srSide === "support" ? "Support" : "S/R";
+    case "pivot_level":
+      return a.pivotLevelName === "any" ? "Pivot" : `Pivot ${a.pivotLevelName}`;
     case "ma":
     default:
       return maLabel(a.maType ?? "sma", a.maLength ?? 0);
@@ -60,7 +66,14 @@ export function alertColor(a: MaAlert): string {
   // A price alert is not on any line, so it borrows the neutral accent rather
   // than a moving average's hue — colouring it like the 200 SMA would suggest a
   // relationship that does not exist.
-  return a.conditionKind === "price" ? "#7d8590" : maColor(a.maLength ?? 0);
+  // Kinds that sit on no moving average borrow their own hue rather than a
+  // line's, so the swatch never implies a relationship that does not exist.
+  if (a.conditionKind === "price") return "#7d8590";
+  if (a.conditionKind === "sr_zone") {
+    return a.srSide === "resistance" ? "#f23645" : "#089981";
+  }
+  if (a.conditionKind === "pivot_level") return "#fb8c00";
+  return maColor(a.maLength ?? 0);
 }
 
 /** What the alert is waiting for, phrased as the notification phrases it. */
@@ -77,6 +90,15 @@ export function describeAlert(a: MaAlert): string {
       const slow = maLabel(a.ma2Type ?? "sma", a.ma2Length ?? 0);
       return `${fast} crosses ${a.mode === "cross_down" ? "below" : "above"} ${slow}`;
     }
+    case "sr_zone": {
+      const what = a.srSide === "resistance" ? "resistance"
+        : a.srSide === "support" ? "support" : "nearest S/R";
+      return `${nearPhrase(a)} the ${a.timeframe} ${what}`;
+    }
+    case "pivot_level": {
+      const level = a.pivotLevelName === "any" ? "nearest level" : a.pivotLevelName;
+      return `${nearPhrase(a)} ${a.pivotType} ${level} (${a.pivotAnchor})`;
+    }
     case "ma":
     default:
       switch (a.mode) {
@@ -87,6 +109,18 @@ export function describeAlert(a: MaAlert): string {
         case "near_below": return `price ${a.nearMinPct}–${a.nearMaxPct}% below`;
         default: return "condition met";
       }
+  }
+}
+
+/** The mode phrase shared by every kind that compares against a level. */
+function nearPhrase(a: MaAlert): string {
+  switch (a.mode) {
+    case "touch": return "price touches";
+    case "cross_up": return "price crosses above";
+    case "cross_down": return "price crosses below";
+    case "near_above": return `price ${a.nearMinPct}–${a.nearMaxPct}% above`;
+    case "near_below": return `price ${a.nearMinPct}–${a.nearMaxPct}% below`;
+    default: return "price reaches";
   }
 }
 

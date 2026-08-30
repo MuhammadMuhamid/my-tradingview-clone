@@ -36,9 +36,11 @@ export function formatAlertPush(
   bar: { close: number },
   reference: number,
   distancePct: number,
-  intrabar: boolean
+  intrabar: boolean,
+  /** What the runner matched: "S1", "1h support". Names an `any` pivot alert. */
+  label?: string
 ): PushMessage {
-  const base = buildBase(alert, condition, bar, reference, distancePct);
+  const base = buildBase(alert, condition, bar, reference, distancePct, label);
   // Only when this particular notification came from an unfinished candle. The
   // marker is short because the body competes for a phone's two visible lines.
   return intrabar ? { ...base, body: `${base.body} · bar still forming` } : base;
@@ -52,7 +54,8 @@ function buildBase(
   condition: AlertCondition,
   bar: { close: number },
   reference: number,
-  distancePct: number
+  distancePct: number,
+  label?: string
 ): PushMessage {
   const url = `/chart?symbol=${alert.symbol}&interval=${alert.timeframe}`;
   const tag = `ma-${alert.id}`;
@@ -89,7 +92,46 @@ function buildBase(
         tag, url,
       };
     }
+
+    case "sr_zone": {
+      // `label` already reads "1h support" — it carries the timeframe, so the
+      // body must not prefix it again.
+      const what = label ?? (condition.srSide === "resistance" ? "resistance" : "support");
+      const side = condition.srSide === "resistance" ? "resistance" : "support";
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — ${side}`,
+        body:
+          `Price is ${formatDistance(distancePct)} the ${what} ` +
+          `at ${formatAlertPrice(reference)} (last ${formatAlertPrice(bar.close)})`,
+        tag, url,
+      };
+    }
+
+    case "pivot_level": {
+      // `label` is the level the runner actually matched, which for an "any"
+      // alert is the one price approached — naming it is the whole point.
+      const level = label ?? condition.levelName;
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — pivot ${level}`,
+        body:
+          `Price is ${formatDistance(distancePct)} ${condition.pivotType} ${level} ` +
+          `at ${formatAlertPrice(reference)} ` +
+          `(${condition.anchor} pivots, last ${formatAlertPrice(bar.close)})`,
+        tag, url,
+      };
+    }
   }
+}
+
+/**
+ * "0.34% above" / "0.12% below".
+ *
+ * Absolute value plus a direction word, because a signed percentage in a
+ * notification reads as a price change rather than a distance from a level.
+ */
+function formatDistance(distancePct: number): string {
+  const side = distancePct >= 0 ? "above" : "below";
+  return `${Math.abs(distancePct).toFixed(2)}% ${side}`;
 }
 
 /**

@@ -17,6 +17,8 @@ const base: MaAlert = {
   maType: "ema", maLength: 200, mode: "cross_up",
   ma2Type: null, ma2Length: null,
   targetPrice: null, priceDirection: null,
+  srSide: null, srPivotLength: null, srInvalidation: null,
+  pivotType: null, pivotLevelName: null, pivotAnchor: null,
   nearMinPct: 0.2, nearMaxPct: 0.5,
   enabled: true, frequency: "once_per_bar_close", cooldownMin: 60, note: null,
   lastSide: null, lastFiredAt: null, lastFiredBarTime: null, lastBarTime: null,
@@ -107,4 +109,23 @@ test("a paused alert reports pausing even when it has also completed", () => {
   const both = alert({ enabled: false, completedAt: "2026-08-24T10:00:00.000Z" });
   assert.equal(isAlertActive(both), false);
   assert.equal(alertInactiveReason(both), "Fired once — done");
+});
+
+test("a level alert is not labelled as a moving average", () => {
+  // "SMA 0" appeared on the alerts page for these kinds, because the label
+  // fell through to the MA branch with null length.
+  const sr: MaAlert = {
+    ...base, conditionKind: "sr_zone", maType: null, maLength: null,
+    mode: "near_above", srSide: "support",
+  };
+  assert.equal(alertLineLabel(sr), "Support");
+  assert.doesNotMatch(alertLineLabel(sr), /SMA|EMA/);
+  assert.match(describeAlert(sr), /support/);
+
+  const pivot: MaAlert = {
+    ...base, conditionKind: "pivot_level", maType: null, maLength: null,
+    mode: "near_below", pivotType: "Fibonacci", pivotLevelName: "S1", pivotAnchor: "1d",
+  };
+  assert.equal(alertLineLabel(pivot), "Pivot S1");
+  assert.match(describeAlert(pivot), /Fibonacci S1/);
 });

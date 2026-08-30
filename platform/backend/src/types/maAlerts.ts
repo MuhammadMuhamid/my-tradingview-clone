@@ -25,10 +25,25 @@ export const isMaAlertMode = (v: string): v is MaAlertMode =>
  * What an alert watches. `ma` is the original family; `price` and `ma_vs_ma`
  * were added alongside it, on the same table and the same runner.
  */
-export const CONDITION_KINDS = ["price", "ma", "ma_vs_ma"] as const;
+export const CONDITION_KINDS = [
+  "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level",
+] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
 
 export const PRICE_DIRECTIONS = ["cross_up", "cross_down", "either"] as const;
+
+/** Which side of the market a support/resistance alert watches. */
+export const SR_SIDES = ["support", "resistance", "either"] as const;
+export type SrSide = (typeof SR_SIDES)[number];
+export const isSrSide = (v: string): v is SrSide =>
+  (SR_SIDES as readonly string[]).includes(v);
+
+/**
+ * `any` watches every level of the chosen pivot type and reports whichever is
+ * nearest, which is what "tell me when price approaches a pivot" means in
+ * practice. A specific name watches only that line.
+ */
+export const PIVOT_LEVEL_ANY = "any";
 export type PriceDirection = (typeof PRICE_DIRECTIONS)[number];
 
 export const isConditionKind = (v: string): v is ConditionKind =>
@@ -59,6 +74,17 @@ export interface MaAlertRow {
   /** Populated for `price`. */
   targetPrice: number | null;
   priceDirection: PriceDirection | null;
+
+  // ── sr_zone ──
+  srSide: SrSide | null;
+  srPivotLength: number | null;
+  srInvalidation: string | null;
+
+  // ── pivot_level ──
+  pivotType: string | null;
+  pivotLevelName: string | null;
+  /** The period the levels come from — NOT the evaluation timeframe. */
+  pivotAnchor: string | null;
   /** Band edges in percent; only read for the near_* modes. */
   nearMinPct: number;
   nearMaxPct: number;

@@ -19,8 +19,14 @@
  * verdict comes out. No database, no clock, no delivery.
  */
 import {
+  PIVOT_TYPES, isPivotType, pivotLevels, type PivotType,
+} from "../engine/pivotLevels";
+import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
+import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
+  PIVOT_LEVEL_ANY,
   type ConditionKind, type MaAlertMode, type MaType, type PriceDirection,
+  type SrSide,
 } from "../types/maAlerts";
 
 export type Side = "above" | "below";
@@ -42,6 +48,7 @@ export type Side = "above" | "below";
  *              line onto the price scale almost always means
  */
 export { CONDITION_KINDS, PRICE_DIRECTIONS };
+export type { SrSide };
 export type { ConditionKind, PriceDirection };
 
 export type MaMode = MaAlertMode;
@@ -76,7 +83,39 @@ export interface MaVsMaCondition {
   mode: MaCrossMode;
 }
 
-export type AlertCondition = PriceCondition | MaCondition | MaVsMaCondition;
+/**
+ * The nearest live support or resistance on the alert's own timeframe.
+ *
+ * There is no length or level to name: the reference is whichever zone price
+ * is currently approaching, which is the question a trader actually asks.
+ */
+export interface SrZoneCondition {
+  kind: "sr_zone";
+  srSide: SrSide;
+  mode: MaMode;
+  nearMinPct: number;
+  nearMaxPct: number;
+  /** Swing length used to detect the zones. */
+  pivotLength: number;
+  invalidation: "close" | "wick";
+}
+
+/** A named pivot level computed from a completed anchor period. */
+export interface PivotLevelCondition {
+  kind: "pivot_level";
+  pivotType: PivotType;
+  /** "P", "S1"… or `PIVOT_LEVEL_ANY` for whichever level is nearest. */
+  levelName: string;
+  /** The period the levels come from, e.g. "1d". Not the evaluation cadence. */
+  anchor: string;
+  mode: MaMode;
+  nearMinPct: number;
+  nearMaxPct: number;
+}
+
+export type AlertCondition =
+  | PriceCondition | MaCondition | MaVsMaCondition
+  | SrZoneCondition | PivotLevelCondition;
 
 // ── Evaluation ──────────────────────────────────────────────────────────────
 
@@ -92,6 +131,13 @@ export interface Sample {
   maValue?: number;
   /** The second series, for `ma_vs_ma`. */
   ma2Value?: number;
+  /**
+   * Reference price resolved by the runner for kinds whose level is not a
+   * moving average — the nearest S/R zone, or a pivot level.
+   */
+  refValue?: number;
+  /** What that reference is called, for the notification: "S1", "1h support". */
+  refLabel?: string;
 }
 
 export interface Evaluation {
@@ -150,6 +196,10 @@ export function evaluateCondition(
       return evaluateMa(condition, sample, prevSide);
     case "ma_vs_ma":
       return evaluateMaVsMa(condition, sample, prevSide);
+    case "sr_zone":
+      return evaluateSrZone(condition, sample, prevSide);
+    case "pivot_level":
+      return evaluatePivotLevel(condition, sample, prevSide);
   }
 }
 
@@ -188,6 +238,73 @@ function evaluatePrice(
   return { side, distancePct, triggered, reference };
 }
 
+/**
+ * near / touch / cross against a reference price.
+ *
+ * Shared by `ma`, `sr_zone` and `pivot_level`: those kinds differ only in where
+ * the reference comes from, and three copies of this would be three chances for
+ * "0.3% above" to mean something slightly different depending on the line.
+ */
+function evaluateAgainstReference(
+  mode: MaMode,
+  nearMinPct: number,
+  nearMaxPct: number,
+  reference: number,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  // No reference resolved (unseeded MA, no live zone, no completed period):
+  // report untriggered and leave the side alone, so a NaN comparison cannot
+  // corrupt the stored cross state.
+  if (!Number.isFinite(reference)) {
+    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+  }
+  const side: Side = sample.close >= reference ? "above" : "below";
+  const distancePct = distance(sample.close, reference);
+
+  let triggered = false;
+  switch (mode) {
+    case "touch":
+      triggered = rangeContains(sample, reference);
+      break;
+    case "cross_up":
+      triggered = crossed(prevSide, side, "up") && sample.close > reference;
+      break;
+    case "cross_down":
+      triggered = crossed(prevSide, side, "down") && sample.close < reference;
+      break;
+    case "near_above":
+      triggered = distancePct >= nearMinPct && distancePct <= nearMaxPct;
+      break;
+    case "near_below":
+      triggered = -distancePct >= nearMinPct && -distancePct <= nearMaxPct;
+      break;
+  }
+  return { side, distancePct, triggered, reference };
+}
+
+function evaluateSrZone(
+  condition: SrZoneCondition,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  return evaluateAgainstReference(
+    condition.mode, condition.nearMinPct, condition.nearMaxPct,
+    sample.refValue ?? NaN, sample, prevSide
+  );
+}
+
+function evaluatePivotLevel(
+  condition: PivotLevelCondition,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  return evaluateAgainstReference(
+    condition.mode, condition.nearMinPct, condition.nearMaxPct,
+    sample.refValue ?? NaN, sample, prevSide
+  );
+}
+
 function evaluateMa(
   condition: MaCondition,
   sample: Sample,
@@ -200,29 +317,10 @@ function evaluateMa(
     return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
   }
 
-  const side: Side = sample.close >= reference ? "above" : "below";
-  const distancePct = distance(sample.close, reference);
-
-  let triggered = false;
-  switch (condition.mode) {
-    case "touch":
-      triggered = rangeContains(sample, reference);
-      break;
-    case "cross_up":
-      triggered = crossed(prevSide, side, "up") && sample.close > reference;
-      break;
-    case "cross_down":
-      triggered = crossed(prevSide, side, "down") && sample.close < reference;
-      break;
-    case "near_above":
-      triggered = distancePct >= condition.nearMinPct && distancePct <= condition.nearMaxPct;
-      break;
-    case "near_below":
-      triggered = -distancePct >= condition.nearMinPct && -distancePct <= condition.nearMaxPct;
-      break;
-  }
-
-  return { side, distancePct, triggered, reference };
+  return evaluateAgainstReference(
+    condition.mode, condition.nearMinPct, condition.nearMaxPct,
+    reference, sample, prevSide
+  );
 }
 
 function evaluateMaVsMa(
@@ -303,6 +401,9 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
         { type: condition.maType, length: condition.maLength },
         { type: condition.ma2Type, length: condition.ma2Length },
       ];
+    // These resolve their reference from zones or a pivot period, not an MA.
+    case "sr_zone": return [];
+    case "pivot_level": return [];
   }
 }
 
@@ -349,7 +450,38 @@ export function validateCondition(condition: AlertCondition): string | null {
         return "the two moving averages must differ, or the condition can never be met";
       }
       return null;
+
+    case "sr_zone":
+      if (!Number.isInteger(condition.pivotLength) || condition.pivotLength < 2 || condition.pivotLength > 100) {
+        return "pivotLength must be an integer between 2 and 100";
+      }
+      return nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
+
+    case "pivot_level":
+      if (!isPivotType(condition.pivotType)) {
+        return `pivotType must be one of ${PIVOT_TYPES.join(", ")}`;
+      }
+      if (condition.levelName !== PIVOT_LEVEL_ANY) {
+        // A level the chosen type does not define would arm an alert that can
+        // never fire — Fibonacci has no R4, for instance.
+        const names = pivotLevels({ open: 1, high: 2, low: 0, close: 1 }, condition.pivotType)
+          .map((l) => l.name);
+        if (!names.includes(condition.levelName.toUpperCase())) {
+          return `${condition.pivotType} has no level "${condition.levelName}" ` +
+            `(it defines ${names.join(", ")})`;
+        }
+      }
+      if (!condition.anchor.trim()) return "anchor timeframe is required";
+      return nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
   }
+}
+
+/** The near-band rule, shared by every kind that offers `near_above`/`near_below`. */
+function nearBandError(mode: MaMode, minPct: number, maxPct: number): string | null {
+  if (mode !== "near_above" && mode !== "near_below") return null;
+  if (!Number.isFinite(minPct) || minPct < 0) return "nearMinPct must be a non-negative number";
+  if (!(maxPct > minPct)) return "nearMaxPct must be greater than nearMinPct";
+  return null;
 }
 
 /**
@@ -371,6 +503,12 @@ export function conditionFromRow(row: {
   priceDirection: PriceDirection | null;
   nearMinPct: number;
   nearMaxPct: number;
+  srSide?: SrSide | null;
+  srPivotLength?: number | null;
+  srInvalidation?: string | null;
+  pivotType?: string | null;
+  pivotLevelName?: string | null;
+  pivotAnchor?: string | null;
 }): AlertCondition | null {
   switch (row.conditionKind) {
     case "price":
@@ -402,5 +540,35 @@ export function conditionFromRow(row: {
         ma2Length: row.ma2Length,
         mode: row.mode,
       };
+
+    case "sr_zone": {
+      if (!row.srSide || row.mode === null) return null;
+      const invalidation = row.srInvalidation === "wick" ? "wick" : "close";
+      return {
+        kind: "sr_zone",
+        srSide: row.srSide,
+        mode: row.mode,
+        nearMinPct: row.nearMinPct,
+        nearMaxPct: row.nearMaxPct,
+        pivotLength: row.srPivotLength ?? DEFAULT_SR_OPTIONS.pivotLength,
+        invalidation,
+      };
+    }
+
+    case "pivot_level": {
+      const type = row.pivotType ?? "";
+      if (!isPivotType(type) || !row.pivotLevelName || !row.pivotAnchor || row.mode === null) {
+        return null;
+      }
+      return {
+        kind: "pivot_level",
+        pivotType: type,
+        levelName: row.pivotLevelName,
+        anchor: row.pivotAnchor,
+        mode: row.mode,
+        nearMinPct: row.nearMinPct,
+        nearMaxPct: row.nearMaxPct,
+      };
+    }
   }
 }
