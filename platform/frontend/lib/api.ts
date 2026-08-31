@@ -533,6 +533,9 @@ export interface MaAlertEvent {
   title: string;
   body: string;
   pushedTo: number;
+  pushFailed: number;
+  pushPruned: number;
+  deliveryStatus: "delivered" | "partial_failure" | "failed" | "no_devices";
   /** Whether this fired on a candle that had not closed yet. */
   intrabar: boolean;
   frequency: AlertFrequency | null;
@@ -556,6 +559,14 @@ export interface MaAlertOptions {
   defaultFrequency: AlertFrequency;
   intrabarWarning: string;
   frequencies: AlertFrequencyOption[];
+}
+
+export type BulkAlertAction = "pause" | "resume" | "delete";
+export interface BulkAlertResult {
+  action: BulkAlertAction;
+  requested: number;
+  affected: number;
+  missingIds: string[];
 }
 
 export interface ServerWatchlist {
@@ -753,6 +764,10 @@ export const api = {
     frequency: AlertFrequency; targetPrice: number; priceDirection: PriceDirection;
   }>) => req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
+  bulkMaAlerts: (action: BulkAlertAction, ids: string[]) =>
+    req<BulkAlertResult>("/api/ma-alerts/bulk", {
+      method: "POST", body: JSON.stringify({ action, ids }),
+    }),
   maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),
 
   // watchlists (server-side, so the same lists appear on the phone)

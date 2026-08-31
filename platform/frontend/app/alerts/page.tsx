@@ -1,14 +1,21 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Card, CardHeader, Button, Empty } from "@/components/ui";
+import { Card, CardHeader, Button, Empty, Select, TextInput } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
-import { api, DEFAULT_ALERT_FREQUENCY, type MaAlert, type MaAlertEvent } from "@/lib/api";
+import {
+  api, DEFAULT_ALERT_FREQUENCY, type BulkAlertAction, type MaAlert, type MaAlertEvent,
+} from "@/lib/api";
 import {
   alertColor, alertInactiveReason, alertLineLabel, describeAlert,
   FREQUENCY_LABELS, isAlertActive,
 } from "@/lib/alerts";
 import { fmtAgo, fmtPrice } from "@/lib/format";
+import {
+  ALERT_STATUS_FILTERS, ALERT_TYPE_FILTERS, buildBulkRequest, bulkCompletionMessage,
+  deleteConfirmation, describeAlertScope, filterAlerts, type AlertStatusFilter,
+  type AlertTypeFilter,
+} from "@/lib/alertManagement";
 
 /**
  * Every alert across every coin, in one place.
@@ -26,6 +33,9 @@ export default function AlertsPage() {
   /** Support/resistance and pivot alerts are armed from here, not the chart. */
   const [levelOpen, setLevelOpen] = useState(false);
   const [newSymbol, setNewSymbol] = useState("SOLUSDT");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<AlertStatusFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<AlertTypeFilter>("all");
 
   const refresh = useCallback(async () => {
     try {
@@ -52,10 +62,18 @@ export default function AlertsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  /** Grouped by coin, each coin's lines ordered longest-period first. */
+  const filters = useMemo(() => ({
+    search, status: statusFilter, type: typeFilter,
+  }), [search, statusFilter, typeFilter]);
+  const filteredAlerts = useMemo(
+    () => filterAlerts(alerts ?? [], filters),
+    [alerts, filters]
+  );
+
+  /** Filtered and grouped by coin, each coin's lines ordered longest-period first. */
   const bySymbol = useMemo(() => {
     const map = new Map<string, MaAlert[]>();
-    for (const a of alerts ?? []) {
+    for (const a of filteredAlerts) {
       const list = map.get(a.symbol) ?? [];
       list.push(a);
       map.set(a.symbol, list);
@@ -69,7 +87,7 @@ export default function AlertsPage() {
       );
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [alerts]);
+  }, [filteredAlerts]);
 
   // "Active" rather than "enabled": a spent once_only alert is still enabled
   // but will never fire again, and counting it as armed would overstate what is
@@ -89,20 +107,22 @@ export default function AlertsPage() {
     }
   };
 
-  const deleteAll = async () => {
-    const list = alerts ?? [];
-    if (list.length === 0) return;
-    if (!window.confirm(
-      `Delete all ${list.length} alerts?\n\n` +
-      `This cannot be undone. Fired-alert history is kept.`
-    )) return;
-    setBusy("all");
+  const bulkAct = async (action: BulkAlertAction) => {
+    // Snapshot the exact IDs shown at click time. The server never interprets
+    // search/filter semantics, so a refresh cannot widen this operation.
+    const request = buildBulkRequest(action, filteredAlerts);
+    if (!request) return;
+    const { ids } = request;
+    if (action === "delete") {
+      const message = deleteConfirmation(filters, ids.length);
+      if (!message || !window.confirm(message)) return;
+    }
+    setBusy(`bulk-${action}`);
     try {
-      // Sequential rather than parallel: 80 concurrent deletes would hammer
-      // the API for no benefit, and a partial failure stays easy to read.
-      for (const a of list) await api.deleteMaAlert(a.id);
+      const result = await api.bulkMaAlerts(request.action, request.ids);
+      const completion = bulkCompletionMessage(action, ids.length, result);
       await refresh();
-      setToast(`Deleted ${list.length} alerts`);
+      setToast(completion);
     } catch (e) {
       setErr((e as Error).message);
       await refresh();
@@ -146,7 +166,7 @@ export default function AlertsPage() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
+        <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
           {err}
         </div>
       )}
@@ -156,7 +176,7 @@ export default function AlertsPage() {
           title={
             alerts === null
               ? "Active alerts"
-              : `Active alerts · ${activeCount} of ${alerts.length} armed · ${bySymbol.length} coin${bySymbol.length === 1 ? "" : "s"}`
+              : `Notification alerts · ${activeCount} of ${alerts.length} armed`
           }
           right={
             <div className="flex items-center gap-2">
@@ -170,13 +190,71 @@ export default function AlertsPage() {
               <Button variant="primary" onClick={() => setLevelOpen(true)} disabled={!newSymbol.trim()}>
                 Add level alert
               </Button>
-              <Button variant="danger" onClick={deleteAll}
-                disabled={busy !== null || (alerts?.length ?? 0) === 0}>
-                {busy === "all" ? "Deleting…" : "Delete all"}
-              </Button>
             </div>
           }
         />
+        {alerts !== null && alerts.length > 0 && (
+          <div className="flex flex-wrap items-end gap-2 border-b border-border bg-surface-2/20 px-4 py-2.5">
+            <label className="min-w-[180px] flex-1 sm:max-w-[280px]">
+              <span className="sr-only">Search alert symbols</span>
+              <TextInput
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search coin (BTCUSDT or btc)"
+                aria-label="Search alert symbols"
+                className="w-full"
+              />
+            </label>
+            <label>
+              <span className="sr-only">Filter alerts by status</span>
+              <Select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as AlertStatusFilter)}
+                aria-label="Filter alerts by status"
+              >
+                {ALERT_STATUS_FILTERS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </Select>
+            </label>
+            <label>
+              <span className="sr-only">Filter alerts by type</span>
+              <Select
+                value={typeFilter}
+                onChange={(event) => setTypeFilter(event.target.value as AlertTypeFilter)}
+                aria-label="Filter alerts by type"
+              >
+                {ALERT_TYPE_FILTERS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </Select>
+            </label>
+            <span className="mr-auto whitespace-nowrap px-1 pb-1 text-xs text-ink-faint" aria-live="polite">
+              {filteredAlerts.length} of {alerts.length} alerts
+            </span>
+            <Button
+              onClick={() => void bulkAct("resume")}
+              disabled={busy !== null || filteredAlerts.length === 0}
+            >
+              {busy === "bulk-resume" ? "Resuming…" : `Resume ${filteredAlerts.length}`}
+            </Button>
+            <Button
+              onClick={() => void bulkAct("pause")}
+              disabled={busy !== null || filteredAlerts.length === 0}
+            >
+              {busy === "bulk-pause" ? "Pausing…" : `Pause ${filteredAlerts.length}`}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => void bulkAct("delete")}
+              disabled={busy !== null || filteredAlerts.length === 0}
+              aria-label={`Delete ${describeAlertScope(filters, filteredAlerts.length)}`}
+            >
+              {busy === "bulk-delete" ? "Deleting…" : `Delete ${filteredAlerts.length}`}
+            </Button>
+          </div>
+        )}
         {alerts === null ? (
           <Empty>Loading…</Empty>
         ) : alerts.length === 0 ? (
@@ -184,6 +262,8 @@ export default function AlertsPage() {
             No alerts yet. Open a chart, click a price on the scale or the 🔔 next to any SMA or
             EMA, and it will appear here.
           </Empty>
+        ) : filteredAlerts.length === 0 ? (
+          <Empty>No alerts match the current search and filters.</Empty>
         ) : (
           <div className="divide-y divide-border">
             {bySymbol.map(([symbol, list]) => (
@@ -287,10 +367,16 @@ export default function AlertsPage() {
                 <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px]">
                   {/* Whether it actually reached a phone is the thing worth
                       surfacing — a fired alert nobody saw is a silent failure. */}
-                  <span className={e.pushedTo > 0 ? "text-ink-faint" : "text-down"}>
-                    {e.pushedTo > 0
+                  <span className={e.deliveryStatus === "delivered" ? "text-ink-faint" : "text-down"}>
+                    {e.deliveryStatus === "delivered"
                       ? `sent to ${e.pushedTo} device${e.pushedTo === 1 ? "" : "s"}`
-                      : "no device registered"}
+                      : e.deliveryStatus === "partial_failure"
+                        ? `sent to ${e.pushedTo} · ${e.pushFailed} failed · ${e.pushPruned} pruned`
+                        : e.deliveryStatus === "failed"
+                          ? `delivery failed${e.pushFailed > 1 ? ` on ${e.pushFailed} devices` : ""}`
+                          : e.pushPruned > 0
+                            ? `no reachable device · ${e.pushPruned} pruned`
+                            : "no device registered"}
                   </span>
                   <span className="text-ink-faint">{fmtAgo(e.firedAt)}</span>
                 </span>
@@ -309,7 +395,7 @@ export default function AlertsPage() {
       />
 
       {toast && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 text-sm text-ink shadow-xl">
+        <div role="status" className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 text-sm text-ink shadow-xl">
           {toast}
         </div>
       )}

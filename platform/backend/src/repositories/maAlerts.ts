@@ -1,8 +1,8 @@
-import { query } from "../db/pool";
+import { pool, query } from "../db/pool";
 import type { Interval } from "../types/market";
 import type {
-  ConditionKind, MaAlertEventRow, MaAlertMode, MaAlertRow, MaType, PriceDirection,
-  SrSide,
+  BulkAlertAction, ConditionKind, MaAlertEventRow, MaAlertMode, MaAlertRow, MaType,
+  PriceDirection, SrSide,
 } from "../types/maAlerts";
 import type { AlertFrequency } from "../alerts/alertFrequency";
 
@@ -304,6 +304,63 @@ export async function deleteAlert(id: string): Promise<boolean> {
   return (rowCount ?? 0) > 0;
 }
 
+export interface BulkAlertResult {
+  action: BulkAlertAction;
+  requested: number;
+  affected: number;
+  missingIds: string[];
+}
+
+/**
+ * Apply one action to an explicit, already-deduplicated set of alert IDs.
+ *
+ * The authenticated API is a single-admin scope; there is deliberately no
+ * invented user/tenant column. Locking and validating every row before the
+ * write makes the operation atomic: a stale or foreign-to-scope ID changes
+ * nothing, so the UI can never report a partly-applied bulk action as success.
+ */
+export async function bulkActAlerts(
+  ids: string[], action: BulkAlertAction
+): Promise<BulkAlertResult> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query<{ id: string }>(
+      "SELECT id::text AS id FROM ma_alerts WHERE id = ANY($1::uuid[]) FOR UPDATE",
+      [ids]
+    );
+    const foundIds = new Set(found.rows.map((row) => row.id));
+    const missingIds = ids.filter((id) => !foundIds.has(id));
+    if (missingIds.length > 0) {
+      await client.query("ROLLBACK");
+      return { action, requested: ids.length, affected: 0, missingIds };
+    }
+
+    const result = action === "delete"
+      ? await client.query("DELETE FROM ma_alerts WHERE id = ANY($1::uuid[])", [ids])
+      : await client.query(
+          `UPDATE ma_alerts
+             SET enabled = $2,
+                 completed_at = CASE WHEN $2 THEN NULL ELSE completed_at END,
+                 updated_at = now()
+           WHERE id = ANY($1::uuid[])`,
+          [ids, action === "resume"]
+        );
+    await client.query("COMMIT");
+    return {
+      action,
+      requested: ids.length,
+      affected: result.rowCount ?? 0,
+      missingIds: [],
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Persist everything one evaluation decided, in a single write.
  *
@@ -342,17 +399,21 @@ export async function createEvent(input: {
   title: string;
   body: string;
   pushedTo: number;
+  pushFailed: number;
+  pushPruned: number;
+  deliveryStatus: MaAlertEventRow["deliveryStatus"];
   intrabar: boolean;
   frequency: AlertFrequency;
 }): Promise<void> {
   await query(
     `INSERT INTO ma_alert_events
        (alert_id, bar_time, price, ma_value, distance_pct, title, body,
-        pushed_to, intrabar, frequency)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        pushed_to, push_failed, push_pruned, delivery_status, intrabar, frequency)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
       input.alertId, new Date(input.barTime), input.price, input.maValue,
       input.distancePct, input.title, input.body, input.pushedTo,
+      input.pushFailed, input.pushPruned, input.deliveryStatus,
       input.intrabar, input.frequency,
     ]
   );
@@ -362,6 +423,8 @@ interface DbEvent {
   id: string; alert_id: string; fired_at: Date; bar_time: Date;
   price: string; ma_value: string; distance_pct: string;
   title: string; body: string; pushed_to: number;
+  push_failed: number; push_pruned: number;
+  delivery_status: MaAlertEventRow["deliveryStatus"];
   intrabar: boolean; frequency: AlertFrequency | null;
 }
 
@@ -381,6 +444,9 @@ export async function listEvents(limit = 100): Promise<MaAlertEventRow[]> {
     title: r.title,
     body: r.body,
     pushedTo: r.pushed_to,
+    pushFailed: r.push_failed,
+    pushPruned: r.push_pruned,
+    deliveryStatus: r.delivery_status,
     intrabar: r.intrabar,
     frequency: r.frequency,
   }));

@@ -11,13 +11,13 @@
  * alert did before frequencies existed. Nothing an existing client sends
  * changes meaning.
  */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import * as maAlertRepo from "../../repositories/maAlerts";
 import { assertSymbol } from "../../data/binanceRest";
 import { isInterval } from "../../types/market";
 import {
   CONDITION_KINDS, MA_ALERT_MODES, MA_LENGTHS, MA_TYPES, PRICE_DIRECTIONS,
-  isConditionKind, isMaAlertMode, isPriceDirection,
+  BULK_ALERT_ACTIONS, isBulkAlertAction, isConditionKind, isMaAlertMode, isPriceDirection,
 } from "../../types/maAlerts";
 import { bad, readCondition, toColumns } from "../../alerts/alertRequest";
 import {
@@ -25,6 +25,47 @@ import {
   describeFrequency, explainFrequency, isAlertFrequency, isIntrabar,
 } from "../../alerts/alertFrequency";
 import { validateCondition } from "../../alerts/alertConditions";
+
+export const MAX_BULK_ALERTS = 200;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type BulkExecutor = typeof maAlertRepo.bulkActAlerts;
+
+/** Exported so the HTTP contract can be tested with a local repository fake. */
+export function bulkAlertHandler(execute: BulkExecutor = maAlertRepo.bulkActAlerts) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const action = String(body.action ?? "");
+    if (!isBulkAlertAction(action)) {
+      return reply.code(400).send(bad(
+        `action must be one of ${BULK_ALERT_ACTIONS.join(", ")}`
+      ));
+    }
+    if (!Array.isArray(body.ids)) {
+      return reply.code(400).send(bad("ids must be a non-empty array"));
+    }
+    const rawIds = body.ids;
+    if (rawIds.length === 0) {
+      return reply.code(400).send(bad("ids must not be empty"));
+    }
+    if (rawIds.length > MAX_BULK_ALERTS) {
+      return reply.code(400).send(bad(`at most ${MAX_BULK_ALERTS} alert IDs may be changed at once`));
+    }
+    if (rawIds.some((id) => typeof id !== "string" || !UUID.test(id))) {
+      return reply.code(400).send(bad("every id must be a UUID"));
+    }
+
+    const ids = [...new Set(rawIds as string[])];
+    const result = await execute(ids, action);
+    if (result.missingIds.length > 0) {
+      return reply.code(409).send({
+        error: "one or more alerts no longer exist in the current admin scope",
+        ...result,
+      });
+    }
+    return result;
+  };
+}
 
 export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -115,6 +156,8 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
       warning: isIntrabar(row.frequency) ? INTRABAR_WARNING : null,
     });
   });
+
+  app.post("/api/ma-alerts/bulk", bulkAlertHandler());
 
   app.patch("/api/ma-alerts/:id", async (req, reply) => {
     const { id } = req.params as { id: string };

@@ -30,6 +30,11 @@ export const CONDITION_KINDS = [
 ] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
 
+export const BULK_ALERT_ACTIONS = ["pause", "resume", "delete"] as const;
+export type BulkAlertAction = (typeof BULK_ALERT_ACTIONS)[number];
+export const isBulkAlertAction = (value: string): value is BulkAlertAction =>
+  (BULK_ALERT_ACTIONS as readonly string[]).includes(value);
+
 /**
  * What an RSI alert compares the oscillator against: a fixed level (the 50
  * midline by default) or its own moving average.
@@ -177,6 +182,9 @@ export interface MaAlertEventRow {
   title: string;
   body: string;
   pushedTo: number;
+  pushFailed: number;
+  pushPruned: number;
+  deliveryStatus: "delivered" | "partial_failure" | "failed" | "no_devices";
   /**
    * Whether this fired on a FORMING candle. Recorded because it is the honest
    * half of the intrabar promise: an alert can fire at a price the finished
