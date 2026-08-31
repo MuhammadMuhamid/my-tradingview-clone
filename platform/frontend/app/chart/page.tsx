@@ -26,9 +26,10 @@ import { SyncMenu } from "@/components/tv/SyncMenu";
 import { DEFAULT_SYNC, loadSync, saveSync, type SyncOptions } from "@/lib/paneSync";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
+import { ManualTradingPanel } from "@/components/tv/ManualTradingPanel";
 import * as drawStore from "@/lib/drawings";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
-import { api, type MaAlert, type OptimizerBest, type PineScript } from "@/lib/api";
+import { api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript } from "@/lib/api";
 import { CancellableRequest, isAbortError, LatestRequest } from "@/lib/requestGuard";
 import {
   buildMaOverlays, currentMaValues, defaultMaLines, type MaLine, type MaType,
@@ -47,7 +48,7 @@ const HISTORY_OPTIONS = [
   { label: "All", bars: 200000 },
 ];
 
-type Panel = "watchlist" | "alerts" | "indicators" | "ma" | null;
+type Panel = "watchlist" | "alerts" | "indicators" | "ma" | "manual" | null;
 
 /** Standard auto-backtest window: 2025-11-01 → today (handoff §7). */
 const BACKTEST_START = "2025-11-01";
@@ -137,6 +138,19 @@ export default function TvWorkspace() {
   }, [openTrade]);
 
   const [panel, setPanel] = useState<Panel>("watchlist");
+  const [manualState, setManualState] = useState<ManualTradingState | null>(null);
+  // Read-only state hydration draws existing server-authoritative levels. It
+  // never submits, retries, or mutates an order on page load/reconnect.
+  useEffect(() => {
+    let active = true;
+    const refreshManual = async () => {
+      try { const next = await api.manualState(symbol); if (active) setManualState(next); }
+      catch { /* feature is normally disabled; the ticket shows the actionable error */ }
+    };
+    void refreshManual();
+    const timer = setInterval(() => void refreshManual(), 30_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [symbol]);
   // ── phone chrome: everything optional starts closed so the chart gets the screen ──
   const isMobile = useIsMobile();
   /** Drawing rail — a floating drawer on phones, always-on column on desktop. */
@@ -664,9 +678,21 @@ export default function TvWorkspace() {
     [maAlerts, interval]
   );
 
+  /** Server-authoritative manual entry and bot-managed TP/SL levels. */
+  const manualPriceLines = useMemo<ChartPriceLine[]>(() => {
+    const lines: ChartPriceLine[] = [];
+    for (const position of manualState?.positions.filter((p) => p.pair === symbol && p.status === "active") ?? []) {
+      const tag = position.id.slice(0, 4);
+      if (position.entryPrice != null) lines.push({ price: position.entryPrice, color: "#f0b90b", title: `MANUAL ENTRY · ${tag}`, dashed: true });
+      if (position.manualTpPrice != null) lines.push({ price: position.manualTpPrice, color: "#2ebd85", title: `MANUAL TP · BOT · ${tag}`, dashed: true });
+      if (position.manualSlPrice != null) lines.push({ price: position.manualSlPrice, color: "#f6465d", title: `MANUAL SL · BOT · ${tag}`, dashed: true });
+    }
+    return lines;
+  }, [manualState, symbol]);
+
   const allPriceLines = useMemo(
-    () => [...priceLines, ...alertPriceLines],
-    [priceLines, alertPriceLines]
+    () => [...priceLines, ...alertPriceLines, ...manualPriceLines],
+    [priceLines, alertPriceLines, manualPriceLines]
   );
 
   /** MA lines drawn beneath any Pine overlays, so scripts stay on top. */
@@ -825,6 +851,14 @@ export default function TvWorkspace() {
               <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
             </svg>
             Automate
+          </button>
+          <button onClick={() => setPanel((p) => p === "manual" ? null : "manual")}
+            title="Manual Binance Spot order ticket"
+            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
+            </svg>
+            Trade
           </button>
           <button onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
@@ -1076,6 +1110,7 @@ export default function TvWorkspace() {
             {panel === "indicators" && (
               <IndicatorsPanel indicators={indicators} onOpenInEditor={openInEditor} />
             )}
+            {panel === "manual" && <ManualTradingPanel symbol={symbol} onStateChange={setManualState} />}
             {panel === "ma" && (
               <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
                 <MaPanel
@@ -1118,6 +1153,16 @@ export default function TvWorkspace() {
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <path d="M4 6h16M4 12h16M4 18h10" />
+          </svg>
+        </button>
+        <button
+          onClick={() => setPanel((p) => (p === "manual" ? null : "manual"))}
+          className={railBtn(panel === "manual")}
+          title="Manual Binance Spot trading"
+          aria-label="Manual Binance Spot trading"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+            <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
           </svg>
         </button>
         <button

@@ -26,6 +26,10 @@ export interface AppConfig {
   emitterId: string;
   /** True when this process is running as a production deployment. */
   isProduction: boolean;
+  /** Manual orders proxy only to the execution bot; credentials never live here. */
+  manualTradingEnabled: boolean;
+  manualTradingBotUrl: string;
+  manualTradingHmacSecret: string;
 }
 
 /**
@@ -93,6 +97,9 @@ export const config: AppConfig = {
   liveRunnerEnabled: process.env.LIVE_RUNNER_ENABLED === "true",
   emitterId: process.env.EMITTER_ID ?? `${process.env.HOSTNAME ?? "unknown"}:${process.pid}`,
   isProduction: (process.env.NODE_ENV ?? "").toLowerCase() === "production",
+  manualTradingEnabled: process.env.MANUAL_TRADING_ENABLED === "true",
+  manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
+  manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
 };
 
 // ── Fail closed ───────────────────────────────────────────────────────────────
@@ -126,6 +133,19 @@ if (config.alertEncryptionKey.length < 32) {
 
 if (config.isProduction && isPublishedPlaceholder(config.alertEncryptionKey)) {
   throw new Error("ALERT_ENCRYPTION_KEY is a published placeholder value — generate a real one");
+}
+
+if (config.manualTradingEnabled && config.manualTradingHmacSecret.length < 32) {
+  throw new Error("MANUAL_TRADING_HMAC_SECRET must be at least 32 characters when manual trading is enabled");
+}
+if (config.manualTradingEnabled && isPublishedPlaceholder(config.manualTradingHmacSecret)) {
+  throw new Error("MANUAL_TRADING_HMAC_SECRET is a published placeholder value — generate a real one");
+}
+if (config.manualTradingEnabled) {
+  const manualBotUrl = new URL(config.manualTradingBotUrl);
+  if (!/^https?:$/.test(manualBotUrl.protocol) || manualBotUrl.username || manualBotUrl.password) {
+    throw new Error("MANUAL_TRADING_BOT_URL must be an http(s) URL without embedded credentials");
+  }
 }
 
 // An empty allowlist would make `validateWebhookUrl` reject everything, which

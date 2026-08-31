@@ -577,6 +577,33 @@ export interface ServerWatchlist {
   updatedAt: string;
 }
 
+export interface ManualAccount {
+  id: string; name: string; exchange: string; marketType: string;
+  testnet: boolean; mode: "testnet" | "mainnet";
+}
+export interface ManualOrder {
+  id: string; requestId: string; exchangeAccountId: string; linkedPositionId: string | null;
+  symbol: string; side: "BUY" | "SELL"; orderType: "MARKET" | "LIMIT";
+  quantityType: "quote" | "base"; requestedBaseQty: number | null;
+  requestedQuoteQty: number | null; limitPrice: number | null;
+  takeProfitPrice: number | null; stopLossPrice: number | null;
+  protectionType: string | null; protectionState: string | null; status: string;
+  exchangeOrderId: string | null; filledBaseQty: number; filledQuoteQty: number;
+  averageFillPrice: number | null; error: string | null; createdAt: string; updatedAt: string;
+}
+export interface ManualPosition {
+  id: string; exchangeAccountId: string; pair: string; status: string;
+  entryPrice: number | null; currentPrice: number | null; quantity: number; quoteSpent: number;
+  pnlUsdt: number; pnlPct: number; manualTpPrice: number | null; manualSlPrice: number | null;
+  protectionType: string | null; protectionState: string | null;
+  createdAt: string; closedAt: string | null; closedReason: string | null;
+}
+export interface ManualTradingState {
+  enabled: boolean; mainnetEnabled: boolean; dryRun: boolean; mixed: boolean;
+  accounts: ManualAccount[]; orders: ManualOrder[]; positions: ManualPosition[];
+  protection: { type: "bot-managed"; exchangeResting: false; note: string };
+}
+
 export const api = {
   // symbols + market data
   listSymbols: (activeOnly = false) =>
@@ -654,6 +681,16 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+
+  // Manual Binance Spot commands (platform session -> HMAC service channel -> bot).
+  manualState: (symbol?: string) => req<ManualTradingState>(
+    `/api/manual-trading/state${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`),
+  submitManualOrder: (body: Record<string, unknown>) => req<ManualOrder>(
+    "/api/manual-trading/orders", { method: "POST", body: JSON.stringify(body) }),
+  cancelManualOrder: (id: string, body: Record<string, unknown>) => req<ManualOrder>(
+    `/api/manual-trading/orders/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),
+  updateManualProtection: (id: string, body: Record<string, unknown>) => req<ManualPosition>(
+    `/api/manual-trading/positions/${id}/protection`, { method: "PATCH", body: JSON.stringify(body) }),
 
   /** Every tree the backend can actually reach, from its own registry. */
   optimizerTrees: () => req<{ root: string; trees: OptimizerTree[] }>(`/api/optimizer/trees`),

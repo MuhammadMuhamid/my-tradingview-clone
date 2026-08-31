@@ -49,6 +49,13 @@ export function StatusBadge({ status }: { status: string }) {
     running: "bg-accent/15 text-accent border-accent/30",
     queued: "bg-ink-faint/15 text-ink-muted border-border",
     pending: "bg-ink-faint/15 text-ink-muted border-border",
+    requested: "bg-ink-faint/15 text-ink-muted border-border",
+    submitted: "bg-accent/15 text-accent border-accent/30",
+    open: "bg-accent/15 text-accent border-accent/30",
+    partially_filled: "bg-warn/15 text-warn border-warn/30",
+    filled: "bg-up/15 text-up border-up/30",
+    canceled: "bg-ink-faint/15 text-ink-muted border-border",
+    rejected: "bg-down/15 text-down border-down/30",
     paused: "bg-ink-faint/15 text-ink-muted border-border",
     stopped: "bg-ink-faint/15 text-ink-muted border-border",
     skipped: "bg-ink-faint/15 text-ink-muted border-border",
@@ -57,7 +64,7 @@ export function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium capitalize ${map[status] ?? map.pending}`}>
-      {status}
+      {status.replaceAll("_", " ")}
     </span>
   );
 }
