@@ -84,6 +84,24 @@ export interface MaVsMaCondition {
 }
 
 /**
+ * A precondition that must hold for a level alert to notify.
+ *
+ * This is a GATE, not a trigger: it never fires anything on its own, it only
+ * decides whether the level event is worth telling you about. "Alert me when
+ * price approaches 1h support, but only while the 1h trend is up" is one alert
+ * with a filter, not two alerts to correlate by hand.
+ *
+ * Both gates are evaluated on the alert's OWN timeframe and symbol, against the
+ * same bar as the level test, so a 1h alert is gated by 1h RSI and the 1h EMA.
+ */
+export interface AlertFilters {
+  /** RSI(length) must sit above/below `level`. */
+  rsi?: { length: number; level: number; side: Side };
+  /** The close must sit above/below this moving average. */
+  ma?: { type: MaType; length: number; side: Side };
+}
+
+/**
  * The nearest live support or resistance on the alert's own timeframe.
  *
  * There is no length or level to name: the reference is whichever zone price
@@ -98,6 +116,8 @@ export interface SrZoneCondition {
   /** Swing length used to detect the zones. */
   pivotLength: number;
   invalidation: "close" | "wick";
+  /** Optional preconditions; the alert stays silent while any of them fails. */
+  filters?: AlertFilters;
 }
 
 /** A named pivot level computed from a completed anchor period. */
@@ -111,6 +131,8 @@ export interface PivotLevelCondition {
   mode: MaMode;
   nearMinPct: number;
   nearMaxPct: number;
+  /** Optional preconditions; the alert stays silent while any of them fails. */
+  filters?: AlertFilters;
 }
 
 /**
@@ -180,6 +202,10 @@ export interface Sample {
    */
   indicatorValue?: number;
   indicatorReference?: number;
+  /** RSI reading for a filter gate, resolved on the alert's own timeframe. */
+  filterRsiValue?: number;
+  /** Moving-average value for a filter gate, same bar and timeframe. */
+  filterMaValue?: number;
 }
 
 export interface Evaluation {
@@ -329,14 +355,64 @@ function evaluateAgainstReference(
   return { side, distancePct, triggered, reference };
 }
 
+/**
+ * Whether every configured gate currently holds.
+ *
+ * **Fails closed.** A gate whose input has not resolved — RSI still warming up,
+ * an EMA without enough history — blocks the alert rather than passing it. The
+ * user asked for "only when the trend is up"; firing because the trend is
+ * *unknown* answers a different question, and would do so silently.
+ */
+export function filtersPass(
+  filters: AlertFilters | undefined, sample: Sample
+): boolean {
+  if (!filters) return true;
+
+  if (filters.rsi) {
+    const v = sample.filterRsiValue;
+    if (v === undefined || !Number.isFinite(v)) return false;
+    if (filters.rsi.side === "above" ? !(v > filters.rsi.level) : !(v < filters.rsi.level)) {
+      return false;
+    }
+  }
+
+  if (filters.ma) {
+    const v = sample.filterMaValue;
+    if (v === undefined || !Number.isFinite(v)) return false;
+    if (filters.ma.side === "above" ? !(sample.close > v) : !(sample.close < v)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Apply the gates to an evaluation.
+ *
+ * Only `triggered` is suppressed. `side` and `distancePct` are left exactly as
+ * the level test computed them, because they are the memory a cross is detected
+ * against: rewriting or withholding them while a gate is shut would leave stale
+ * state that fires spuriously the moment the gate opens.
+ */
+function gated(
+  evaluation: Evaluation, filters: AlertFilters | undefined, sample: Sample
+): Evaluation {
+  if (!evaluation.triggered || filtersPass(filters, sample)) return evaluation;
+  return { ...evaluation, triggered: false };
+}
+
 function evaluateSrZone(
   condition: SrZoneCondition,
   sample: Sample,
   prevSide: Side | null
 ): Evaluation {
-  return evaluateAgainstReference(
-    condition.mode, condition.nearMinPct, condition.nearMaxPct,
-    sample.refValue ?? NaN, sample, prevSide
+  return gated(
+    evaluateAgainstReference(
+      condition.mode, condition.nearMinPct, condition.nearMaxPct,
+      sample.refValue ?? NaN, sample, prevSide
+    ),
+    condition.filters, sample
   );
 }
 
@@ -345,9 +421,12 @@ function evaluatePivotLevel(
   sample: Sample,
   prevSide: Side | null
 ): Evaluation {
-  return evaluateAgainstReference(
-    condition.mode, condition.nearMinPct, condition.nearMaxPct,
-    sample.refValue ?? NaN, sample, prevSide
+  return gated(
+    evaluateAgainstReference(
+      condition.mode, condition.nearMinPct, condition.nearMaxPct,
+      sample.refValue ?? NaN, sample, prevSide
+    ),
+    condition.filters, sample
   );
 }
 
@@ -581,7 +660,8 @@ export function validateCondition(condition: AlertCondition): string | null {
       if (!Number.isInteger(condition.pivotLength) || condition.pivotLength < 2 || condition.pivotLength > 100) {
         return "pivotLength must be an integer between 2 and 100";
       }
-      return nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
+      return filterError(condition.filters)
+        ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
 
     case "pivot_level":
       if (!isPivotType(condition.pivotType)) {
@@ -598,7 +678,8 @@ export function validateCondition(condition: AlertCondition): string | null {
         }
       }
       if (!condition.anchor.trim()) return "anchor timeframe is required";
-      return nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
+      return filterError(condition.filters)
+        ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
 
     case "rsi":
       if (!Number.isInteger(condition.rsiLength) || condition.rsiLength < 1) {
@@ -627,6 +708,80 @@ export function validateCondition(condition: AlertCondition): string | null {
       }
       return null;
   }
+}
+
+/**
+ * Rebuild the optional gates from their columns.
+ *
+ * A half-written gate — a length with no side — is treated as no gate at all
+ * rather than guessed at, so a row that cannot express a complete rule can
+ * never silently become a different one.
+ */
+function filtersFromRow(row: {
+  filterRsiLength?: number | null;
+  filterRsiLevel?: number | null;
+  filterRsiSide?: string | null;
+  filterMaType?: MaType | null;
+  filterMaLength?: number | null;
+  filterMaSide?: string | null;
+}): { filters?: AlertFilters } {
+  const filters: AlertFilters = {};
+  const side = (v: string | null | undefined): Side | null =>
+    v === "above" || v === "below" ? v : null;
+
+  const rsiSide = side(row.filterRsiSide);
+  if (row.filterRsiLength != null && row.filterRsiLevel != null && rsiSide) {
+    filters.rsi = { length: row.filterRsiLength, level: row.filterRsiLevel, side: rsiSide };
+  }
+  const maSide = side(row.filterMaSide);
+  if (row.filterMaType != null && row.filterMaLength != null && maSide) {
+    filters.ma = { type: row.filterMaType, length: row.filterMaLength, side: maSide };
+  }
+  return Object.keys(filters).length > 0 ? { filters } : {};
+}
+
+/** "RSI 50 above 50" / "price above EMA 200" — the gates, for the UI list. */
+export function describeFilters(filters: AlertFilters | undefined): string {
+  if (!filters) return "";
+  const parts: string[] = [];
+  if (filters.rsi) {
+    parts.push(`RSI ${filters.rsi.length} is ${filters.rsi.side} ${filters.rsi.level}`);
+  }
+  if (filters.ma) {
+    parts.push(
+      `price is ${filters.ma.side} the ${maLabel(filters.ma.type, filters.ma.length)}`
+    );
+  }
+  return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";
+}
+
+/**
+ * The gate rules. A gate that cannot be satisfied is worse than no gate: the
+ * alert would look armed and stay silent forever, which is indistinguishable
+ * from a market that never met the condition.
+ */
+function filterError(filters: AlertFilters | undefined): string | null {
+  if (!filters) return null;
+  if (filters.rsi) {
+    const { length, level, side } = filters.rsi;
+    if (!Number.isInteger(length) || length < 1) {
+      return "filterRsiLength must be a positive integer";
+    }
+    // RSI is bounded 0..100, so a gate outside that range is either always
+    // open or permanently shut.
+    if (!Number.isFinite(level) || level <= 0 || level >= 100) {
+      return "filterRsiLevel must be between 0 and 100 (exclusive)";
+    }
+    if (side !== "above" && side !== "below") return "filterRsiSide must be above or below";
+  }
+  if (filters.ma) {
+    const { length, side } = filters.ma;
+    if (!Number.isInteger(length) || length < 1) {
+      return "filterMaLength must be a positive integer";
+    }
+    if (side !== "above" && side !== "below") return "filterMaSide must be above or below";
+  }
+  return null;
 }
 
 /** The near-band rule, shared by every kind that offers `near_above`/`near_below`. */
@@ -662,6 +817,12 @@ export function conditionFromRow(row: {
   pivotType?: string | null;
   pivotLevelName?: string | null;
   pivotAnchor?: string | null;
+  filterRsiLength?: number | null;
+  filterRsiLevel?: number | null;
+  filterRsiSide?: string | null;
+  filterMaType?: MaType | null;
+  filterMaLength?: number | null;
+  filterMaSide?: string | null;
   rsiLength?: number | null;
   rsiLevel?: number | null;
   rsiMaLength?: number | null;
@@ -705,6 +866,7 @@ export function conditionFromRow(row: {
       if (!row.srSide || row.mode === null) return null;
       const invalidation = row.srInvalidation === "wick" ? "wick" : "close";
       return {
+        ...filtersFromRow(row),
         kind: "sr_zone",
         srSide: row.srSide,
         mode: row.mode,
@@ -721,6 +883,7 @@ export function conditionFromRow(row: {
         return null;
       }
       return {
+        ...filtersFromRow(row),
         kind: "pivot_level",
         pivotType: type,
         levelName: row.pivotLevelName,

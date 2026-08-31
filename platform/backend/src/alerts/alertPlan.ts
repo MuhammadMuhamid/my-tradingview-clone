@@ -18,7 +18,8 @@
  * intrabar modes can be added without touching bar-close behaviour at all.
  */
 import {
-  evaluateCondition, type AlertCondition, type Sample, type Side,
+  evaluateCondition,
+  type AlertCondition, type AlertFilters, type Sample, type Side,
 } from "./alertConditions";
 import {
   acceptsIntrabarSample, decideFire, stateAfterFire,
@@ -179,13 +180,19 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
       const zone = sample.srZone?.(
         condition.srSide, condition.pivotLength, condition.invalidation
       );
-      return { ...base, refValue: zone?.price, refLabel: zone?.label };
+      return {
+        ...base, refValue: zone?.price, refLabel: zone?.label,
+        ...filterValues(condition.filters, sample),
+      };
     }
     case "pivot_level": {
       const level = sample.pivotLevel?.(
         condition.pivotType, condition.anchor, condition.levelName
       );
-      return { ...base, refValue: level?.price, refLabel: level?.label };
+      return {
+        ...base, refValue: level?.price, refLabel: level?.label,
+        ...filterValues(condition.filters, sample),
+      };
     }
     case "rsi": {
       const r = sample.rsi?.(
@@ -201,6 +208,31 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
       return { ...base, indicatorValue: m?.value, indicatorReference: m?.reference };
     }
   }
+}
+
+/**
+ * Resolve the gate inputs from the feed.
+ *
+ * Both come from resolvers the runner already provides for their own alert
+ * families, so a gate costs no extra computation beyond the cache lookup: the
+ * 200 EMA a filter reads is the same array an MA alert on that line uses.
+ */
+function filterValues(
+  filters: AlertFilters | undefined, sample: FeedSample
+): { filterRsiValue?: number; filterMaValue?: number } {
+  if (!filters) return {};
+  const out: { filterRsiValue?: number; filterMaValue?: number } = {};
+  if (filters.rsi) {
+    // The gate only needs the reading, so the target it is compared against
+    // here is irrelevant — "level" keeps the resolver on its cheapest path.
+    out.filterRsiValue = sample.rsi?.(
+      filters.rsi.length, "level", filters.rsi.level, filters.rsi.length
+    )?.value;
+  }
+  if (filters.ma) {
+    out.filterMaValue = sample.series(filters.ma.type, filters.ma.length);
+  }
+  return out;
 }
 
 /** The alert state to persist after acting on `plan`. */

@@ -170,6 +170,20 @@ flips the oscillator's sign, so every "crosses above" would report what a
 reader sees as a downturn. The API, the domain validator and a database CHECK
 each refuse it.
 
+**Trend gates on level alerts.** `sr_zone` and `pivot_level` accept two
+optional preconditions: RSI(length) above/below a level, and the close
+above/below a moving average. "Tell me when price approaches 1h support, but
+only while 1h RSI 50 is above 50 and price holds the 1h EMA 200" is one alert,
+not two to correlate by hand. Both are measured on the alert's **own** symbol
+and timeframe, on the same bar as the level test.
+
+A gate can only ever subtract — it never fires anything itself, and it cannot
+turn an untriggered level event on. It suppresses the notification only: the
+cross state is still recorded, because a gate that withheld the side as well
+would leave stale state that fires spuriously the moment the gate opens. And it
+**fails closed** — an RSI still warming up is not "trend up", so an unresolved
+gate blocks rather than passes.
+
 Delivery is Web Push (VAPID, service worker, installable PWA). Notification
 text names the timeframe, the level and the distance, e.g.
 `Price is 0.26% below Fibonacci R2 at 106.6013 (1d pivots, last 106.32)`.

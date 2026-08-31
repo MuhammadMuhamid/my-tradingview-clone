@@ -13,8 +13,9 @@ import {
   SR_SIDES, PIVOT_LEVEL_ANY, isSrSide, type SrSide,
   RSI_TARGETS, MACD_TARGETS, RSI_DEFAULTS, MACD_DEFAULTS,
   isRsiTarget, isMacdTarget,
+  FILTER_DEFAULTS, isFilterSide,
 } from "../types/maAlerts";
-import type { AlertCondition } from "./alertConditions";
+import type { AlertCondition, AlertFilters } from "./alertConditions";
 import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 
@@ -27,6 +28,41 @@ import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
  * the list, and can never fire.
  */
 const isLength = (v: number): boolean => Number.isInteger(v) && v >= 1 && v <= 1000;
+
+/**
+ * Read the optional gates a level alert may carry.
+ *
+ * Absent keys mean "no gate", which is the pre-existing behaviour every alert
+ * created before this feature has. A gate is only built when the client asks
+ * for it explicitly, so an unrelated request can never acquire one by default.
+ */
+function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | Rejection {
+  const filters: AlertFilters = {};
+
+  if (b.filterRsi === true || b.filterRsiLength !== undefined) {
+    const length = Number(b.filterRsiLength ?? FILTER_DEFAULTS.rsi.length);
+    const level = Number(b.filterRsiLevel ?? FILTER_DEFAULTS.rsi.level);
+    const side = String(b.filterRsiSide ?? FILTER_DEFAULTS.rsi.side);
+    if (!isLength(length)) return bad("filterRsiLength must be an integer 1..1000");
+    if (!(Number.isFinite(level) && level > 0 && level < 100)) {
+      return bad("filterRsiLevel must be a number between 0 and 100 (exclusive)");
+    }
+    if (!isFilterSide(side)) return bad("filterRsiSide must be above or below");
+    filters.rsi = { length, level, side };
+  }
+
+  if (b.filterMa === true || b.filterMaLength !== undefined) {
+    const type = String(b.filterMaType ?? FILTER_DEFAULTS.ma.type);
+    const length = Number(b.filterMaLength ?? FILTER_DEFAULTS.ma.length);
+    const side = String(b.filterMaSide ?? FILTER_DEFAULTS.ma.side);
+    if (!isMaType(type)) return bad("filterMaType must be sma or ema");
+    if (!isLength(length)) return bad("filterMaLength must be an integer 1..1000");
+    if (!isFilterSide(side)) return bad("filterMaSide must be above or below");
+    filters.ma = { type, length, side };
+  }
+
+  return Object.keys(filters).length > 0 ? { filters } : {};
+}
 
 /** Shared 400 shape, so every rejection reads the same way in the UI. */
 export type Rejection = { error: string };
@@ -65,10 +101,12 @@ export function readCondition(
     const pivotLength = b.pivotLength === undefined
       ? DEFAULT_SR_OPTIONS.pivotLength : Number(b.pivotLength);
     const invalidation = String(b.invalidation ?? "close") === "wick" ? "wick" : "close";
+    const f = readFilters(b);
+    if ("error" in f) return f;
     return {
       condition: {
         kind: "sr_zone", srSide, mode: srMode, nearMinPct, nearMaxPct,
-        pivotLength, invalidation,
+        pivotLength, invalidation, ...f,
       },
     };
   }
@@ -80,10 +118,12 @@ export function readCondition(
     const pMode = String(b.mode ?? "near_above");
     if (!isPivotType(pivotType)) return bad(`pivotType must be one of ${PIVOT_TYPES.join(", ")}`);
     if (!isMaAlertMode(pMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
+    const pf = readFilters(b);
+    if ("error" in pf) return pf;
     return {
       condition: {
         kind: "pivot_level", pivotType, levelName, anchor,
-        mode: pMode, nearMinPct, nearMaxPct,
+        mode: pMode, nearMinPct, nearMaxPct, ...pf,
       },
     };
   }
@@ -175,6 +215,10 @@ export function toColumns(condition: AlertCondition): {
   rsiLength: number | null; rsiLevel: number | null; rsiMaLength: number | null;
   macdFast: number | null; macdSlow: number | null; macdSignal: number | null;
   indicatorTarget: string | null;
+  filterRsiLength: number | null; filterRsiLevel: number | null;
+  filterRsiSide: string | null;
+  filterMaType: MaType | null; filterMaLength: number | null;
+  filterMaSide: string | null;
 } {
   // Columns that belong to no kind are null, so a row never carries another
   // kind's settings for an operator to misread.
@@ -184,7 +228,19 @@ export function toColumns(condition: AlertCondition): {
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
     macdFast: null, macdSlow: null, macdSignal: null,
     indicatorTarget: null,
+    filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
+    filterMaType: null, filterMaLength: null, filterMaSide: null,
   };
+
+  /** Flatten the optional gates; absent halves stay null. */
+  const gates = (f: AlertFilters | undefined) => ({
+    filterRsiLength: f?.rsi?.length ?? null,
+    filterRsiLevel: f?.rsi?.level ?? null,
+    filterRsiSide: f?.rsi?.side ?? null,
+    filterMaType: f?.ma?.type ?? null,
+    filterMaLength: f?.ma?.length ?? null,
+    filterMaSide: f?.ma?.side ?? null,
+  });
   switch (condition.kind) {
     case "price":
       return {
@@ -218,6 +274,7 @@ export function toColumns(condition: AlertCondition): {
         srSide: condition.srSide,
         srPivotLength: condition.pivotLength,
         srInvalidation: condition.invalidation,
+        ...gates(condition.filters),
       };
     case "pivot_level":
       return {
@@ -229,6 +286,7 @@ export function toColumns(condition: AlertCondition): {
         pivotType: condition.pivotType,
         pivotLevelName: condition.levelName,
         pivotAnchor: condition.anchor,
+        ...gates(condition.filters),
       };
     case "rsi":
       return {

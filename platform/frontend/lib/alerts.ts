@@ -101,11 +101,11 @@ export function describeAlert(a: MaAlert): string {
     case "sr_zone": {
       const what = a.srSide === "resistance" ? "resistance"
         : a.srSide === "support" ? "support" : "nearest S/R";
-      return `${nearPhrase(a)} the ${a.timeframe} ${what}`;
+      return `${nearPhrase(a)} the ${a.timeframe} ${what}${describeFilters(a)}`;
     }
     case "pivot_level": {
       const level = a.pivotLevelName === "any" ? "nearest level" : a.pivotLevelName;
-      return `${nearPhrase(a)} ${a.pivotType} ${level} (${a.pivotAnchor})`;
+      return `${nearPhrase(a)} ${a.pivotType} ${level} (${a.pivotAnchor})${describeFilters(a)}`;
     }
     case "rsi": {
       // The subject is the OSCILLATOR, so these read "RSI 50 crosses above",
@@ -146,6 +146,26 @@ export function macdLabel(a: MaAlert): string {
     a.macdSlow === MACD_DEFAULTS.slow &&
     a.macdSignal === MACD_DEFAULTS.signal;
   return isDefault ? "MACD" : `MACD ${a.macdFast}/${a.macdSlow}/${a.macdSignal}`;
+}
+
+/**
+ * The trend gates on a level alert, phrased as the precondition they are.
+ *
+ * "only while" rather than "and": a gate never fires anything itself, it just
+ * decides whether the level event is worth telling you about. Reading it as a
+ * second trigger is the misunderstanding this wording exists to prevent.
+ */
+export function describeFilters(a: MaAlert): string {
+  const parts: string[] = [];
+  if (a.filterRsiLength !== null && a.filterRsiSide !== null) {
+    parts.push(`RSI ${a.filterRsiLength} is ${a.filterRsiSide} ${a.filterRsiLevel}`);
+  }
+  if (a.filterMaType !== null && a.filterMaLength !== null && a.filterMaSide !== null) {
+    parts.push(
+      `price is ${a.filterMaSide} the ${maLabel(a.filterMaType, a.filterMaLength)}`
+    );
+  }
+  return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";
 }
 
 /** The mode phrase shared by every kind that compares against a level. */

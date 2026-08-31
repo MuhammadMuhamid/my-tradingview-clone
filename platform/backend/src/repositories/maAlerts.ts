@@ -31,6 +31,12 @@ interface DbAlert {
   macd_slow: number | null;
   macd_signal: number | null;
   indicator_target: string | null;
+  filter_rsi_length: number | null;
+  filter_rsi_level: string | number | null;
+  filter_rsi_side: string | null;
+  filter_ma_type: MaType | null;
+  filter_ma_length: number | null;
+  filter_ma_side: string | null;
   near_min_pct: string | number;
   near_max_pct: string | number;
   enabled: boolean;
@@ -71,6 +77,12 @@ function toRow(r: DbAlert): MaAlertRow {
     macdSlow: r.macd_slow,
     macdSignal: r.macd_signal,
     indicatorTarget: r.indicator_target,
+    filterRsiLength: r.filter_rsi_length,
+    filterRsiLevel: r.filter_rsi_level === null ? null : num(r.filter_rsi_level),
+    filterRsiSide: r.filter_rsi_side,
+    filterMaType: r.filter_ma_type,
+    filterMaLength: r.filter_ma_length,
+    filterMaSide: r.filter_ma_side,
     srSide: r.sr_side,
     srPivotLength: r.sr_pivot_length,
     srInvalidation: r.sr_invalidation,
@@ -123,6 +135,12 @@ export interface MaAlertInput {
   macdSlow?: number | null;
   macdSignal?: number | null;
   indicatorTarget?: string | null;
+  filterRsiLength?: number | null;
+  filterRsiLevel?: number | null;
+  filterRsiSide?: string | null;
+  filterMaType?: MaType | null;
+  filterMaLength?: number | null;
+  filterMaSide?: string | null;
 }
 
 /** The unique index that governs "the same alert" for each condition kind. */
@@ -163,9 +181,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         sr_side, sr_pivot_length, sr_invalidation,
         pivot_type, pivot_level_name, pivot_anchor,
         rsi_length, rsi_level, rsi_ma_length,
-        macd_fast, macd_slow, macd_signal, indicator_target)
+        macd_fast, macd_slow, macd_signal, indicator_target,
+        filter_rsi_length, filter_rsi_level, filter_rsi_side,
+        filter_ma_type, filter_ma_length, filter_ma_side)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
+             $30,$31,$32,$33,$34,$35)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -188,6 +209,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        macd_slow           = EXCLUDED.macd_slow,
        macd_signal         = EXCLUDED.macd_signal,
        indicator_target    = EXCLUDED.indicator_target,
+       filter_rsi_length   = EXCLUDED.filter_rsi_length,
+       filter_rsi_level    = EXCLUDED.filter_rsi_level,
+       filter_rsi_side     = EXCLUDED.filter_rsi_side,
+       filter_ma_type      = EXCLUDED.filter_ma_type,
+       filter_ma_length    = EXCLUDED.filter_ma_length,
+       filter_ma_side      = EXCLUDED.filter_ma_side,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -206,6 +233,10 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.rsiLength ?? null, input.rsiLevel ?? null, input.rsiMaLength ?? null,
       input.macdFast ?? null, input.macdSlow ?? null, input.macdSignal ?? null,
       input.indicatorTarget ?? null,
+      input.filterRsiLength ?? null, input.filterRsiLevel ?? null,
+      input.filterRsiSide ?? null,
+      input.filterMaType ?? null, input.filterMaLength ?? null,
+      input.filterMaSide ?? null,
     ]
   );
   return toRow(rows[0]!);

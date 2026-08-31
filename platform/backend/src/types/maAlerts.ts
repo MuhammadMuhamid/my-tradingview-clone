@@ -45,6 +45,22 @@ export type MacdTarget = (typeof MACD_TARGETS)[number];
 export const isMacdTarget = (v: string): v is MacdTarget =>
   (MACD_TARGETS as readonly string[]).includes(v);
 
+/**
+ * Which side of a filter's reference the market must be on for the gate to
+ * open. Same vocabulary as `Side` in the evaluator, kept here so the database
+ * and the UI can name it without importing the evaluator.
+ */
+export const FILTER_SIDES = ["above", "below"] as const;
+export type FilterSide = (typeof FILTER_SIDES)[number];
+export const isFilterSide = (v: string): v is FilterSide =>
+  (FILTER_SIDES as readonly string[]).includes(v);
+
+/** Defaults for the two gates, as requested: RSI 50 > 50, price > EMA 200. */
+export const FILTER_DEFAULTS = {
+  rsi: { length: 50, level: 50, side: "above" as FilterSide },
+  ma: { type: "ema" as MaType, length: 200, side: "above" as FilterSide },
+} as const;
+
 /** Defaults, matching the request these families were added for. */
 export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
 export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
@@ -119,6 +135,16 @@ export interface MaAlertRow {
 
   /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`; null otherwise. */
   indicatorTarget: string | null;
+
+  // ── optional gates on sr_zone / pivot_level ──
+  /** Null when no RSI gate is configured. */
+  filterRsiLength: number | null;
+  filterRsiLevel: number | null;
+  filterRsiSide: string | null;
+  /** Null when no moving-average gate is configured. */
+  filterMaType: MaType | null;
+  filterMaLength: number | null;
+  filterMaSide: string | null;
   /** Band edges in percent; only read for the near_* modes. */
   nearMinPct: number;
   nearMaxPct: number;

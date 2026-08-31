@@ -386,6 +386,15 @@ export type RsiTarget = "level" | "sma";
 /** What a MACD alert crosses: its signal line, or zero. */
 export type MacdTarget = "signal" | "zero";
 
+/** Which side of a gate's reference the market must be on. */
+export type FilterSide = "above" | "below";
+
+/** Mirrors the backend's `FILTER_DEFAULTS`: RSI 50 > 50, price > EMA 200. */
+export const FILTER_DEFAULTS = {
+  rsi: { length: 50, level: 50, side: "above" as FilterSide },
+  ma: { type: "ema" as MaType, length: 200, side: "above" as FilterSide },
+} as const;
+
 /** Mirrors the backend's `RSI_DEFAULTS` / `MACD_DEFAULTS`. */
 export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
 export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
@@ -438,6 +447,13 @@ export interface MaAlert {
   macdSignal: number | null;
   /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`. */
   indicatorTarget: string | null;
+  /** Optional trend gates on `sr_zone` / `pivot_level`; null when unset. */
+  filterRsiLength: number | null;
+  filterRsiLevel: number | null;
+  filterRsiSide: string | null;
+  filterMaType: MaType | null;
+  filterMaLength: number | null;
+  filterMaSide: string | null;
   /** Populated for `ma` and `ma_vs_ma`. */
   maType: MaType | null;
   maLength: number | null;
@@ -679,6 +695,11 @@ export const api = {
     macdFast?: number; macdSlow?: number; macdSignal?: number;
     /** `RsiTarget` or `MacdTarget`, depending on `conditionKind`. */
     target?: RsiTarget | MacdTarget;
+    /** Trend gates. Send the `filter*` flag to enable one with its defaults. */
+    filterRsi?: boolean;
+    filterRsiLength?: number; filterRsiLevel?: number; filterRsiSide?: FilterSide;
+    filterMa?: boolean;
+    filterMaType?: MaType; filterMaLength?: number; filterMaSide?: FilterSide;
     maType?: MaType; maLength?: number; mode?: MaAlertMode;
     ma2Type?: MaType; ma2Length?: number;
     targetPrice?: number; priceDirection?: PriceDirection;

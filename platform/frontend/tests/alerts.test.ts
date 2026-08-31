@@ -21,6 +21,8 @@ const base: MaAlert = {
   pivotType: null, pivotLevelName: null, pivotAnchor: null,
   rsiLength: null, rsiLevel: null, rsiMaLength: null,
   macdFast: null, macdSlow: null, macdSignal: null, indicatorTarget: null,
+  filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
+  filterMaType: null, filterMaLength: null, filterMaSide: null,
   nearMinPct: 0.2, nearMaxPct: 0.5,
   enabled: true, frequency: "once_per_bar_close", cooldownMin: 60, note: null,
   lastSide: null, lastFiredAt: null, lastFiredBarTime: null, lastBarTime: null,
@@ -193,4 +195,48 @@ test("each oscillator gets its own swatch, not a moving average's hue", () => {
     assert.match(c, /^#[0-9a-f]{6}$/i);
     assert.notEqual(c, alertColor(alert({ conditionKind: "ma", maLength: 200 })));
   }
+});
+
+// ── trend gates on level alerts ─────────────────────────────────────────────
+
+test("a gated level alert reads as a precondition, not a second trigger", () => {
+  const a = alert({
+    conditionKind: "sr_zone", srSide: "support", mode: "near_above",
+    maType: null, maLength: null,
+    filterRsiLength: 50, filterRsiLevel: 50, filterRsiSide: "above",
+    filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
+  });
+  assert.equal(
+    describeAlert(a),
+    "price 0.2–0.5% above the 1h support — only while RSI 50 is above 50 " +
+    "and price is above the EMA 200"
+  );
+  // "and" alone would read as two things that must both HAPPEN; these must
+  // read as a state that must HOLD.
+  assert.match(describeAlert(a), /only while/);
+});
+
+test("an ungated level alert is worded exactly as before", () => {
+  const a = alert({
+    conditionKind: "sr_zone", srSide: "support", mode: "near_above",
+    maType: null, maLength: null,
+  });
+  assert.equal(describeAlert(a), "price 0.2–0.5% above the 1h support");
+  assert.doesNotMatch(describeAlert(a), /only while/);
+});
+
+test("one gate on its own is described on its own", () => {
+  const rsiOnly = alert({
+    conditionKind: "pivot_level", pivotType: "Fibonacci", pivotLevelName: "S1",
+    pivotAnchor: "1d", mode: "near_above", maType: null, maLength: null,
+    filterRsiLength: 50, filterRsiLevel: 50, filterRsiSide: "above",
+  });
+  assert.match(describeAlert(rsiOnly), /Fibonacci S1 \(1d\) — only while RSI 50 is above 50$/);
+
+  const maOnly = alert({
+    conditionKind: "sr_zone", srSide: "support", mode: "near_above",
+    maType: null, maLength: null,
+    filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
+  });
+  assert.match(maOnly && describeAlert(maOnly), /only while price is above the EMA 200$/);
 });
