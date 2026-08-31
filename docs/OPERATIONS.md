@@ -140,19 +140,59 @@ adapter (`BOT-017`, disabled by default) and replacing the order-signing library
 
 ---
 
-## 4. What has never been verified here
+## 4. Deploying, and the two ways it has bitten (added 2026-08-31)
+
+Both of these cost a real outage before they were written down. The full
+procedure is in
+[platform/deployment/aws/README.md](../platform/deployment/aws/README.md); this
+is why it looks the way it does.
+
+**The app instance needs swap.** It is a `t3.micro` with 916 MB of RAM and
+cannot build the Next.js image without it. Without swap the OOM killer takes
+the SSM agent with it and the box wedges: `describe-instance-status` still
+reports `running ok ok` while every `send-command` returns `Undeliverable` /
+`ResponseCode -1`, and the only way back is an EC2-level stop/start. Sustained
+high CPU during such a build is thrashing, not progress — do not read it as the
+build working. A `/swapfile` may exist on disk while being neither enabled nor
+in `/etc/fstab`; trust `free -m`, not the presence of the file.
+
+**`update-app.sh` does not fetch its own bundle.** It builds from an already
+extracted source tree and exits with `source bundle missing at ...` otherwise.
+The S3 download and extraction are separate steps that `cloud-deploy.sh`
+performs.
+
+**A 200 from `/healthz` is not proof the stack is healthy.** Caddy answers it,
+and the app serves `/login` long after the database has gone. When something
+looks wrong, check `aws rds describe-db-instances` first — the production
+database once sat stopped for four days while the site kept answering.
+
+---
+
+## 5. What has never been verified here
 
 Stated because a control that has not been exercised is not a control you can
 count on:
 
-- **Migration 010 and migration 011 have not been executed.** No PostgreSQL
-  server is available in this workspace. Both are additive and both are pinned
-  by `platform/backend/tests/alertMigration.test.ts`, but neither has been run against a
-  populated database.
-- **No AWS, production, credentialed testnet, TradingView-account or live-order
-  validation has occurred.**
+- **No credentialed testnet, TradingView-account or live-order validation has
+  occurred.**
 - **Browser QA covered Chromium only** — not Safari, not Firefox, not a physical
   device, not a screen reader (`docs/WEB-QA.md`).
 - **The holdout deploy gate has never passed**, because no selection artifact
   carries a holdout block yet. It currently refuses every deployment, which is
   the designed behaviour (`OPT-01`); producing the clearance needs a tree run.
+- **No notification alert of the newer families has been observed firing.**
+  `sr_zone`, `pivot_level`, `rsi`, `macd` and the trend gates are unit-tested
+  and have been armed end to end through the real API, database and browser,
+  but no live market event has driven one to delivery.
+
+### Since corrected (2026-08-31)
+
+Two items previously listed here have been discharged, and are recorded rather
+than deleted so the change is auditable:
+
+- **Migrations have now been executed.** 010–017 are applied in production, and
+  013–017 were additionally run against a throwaway PostgreSQL 16 database with
+  their accept/reject matrix exercised by hand before shipping. That found two
+  defects static review had missed — see [ALERTS.md](ALERTS.md) §8.
+- **AWS and production have been operated directly**, including deploys,
+  migration application, an instance recovery and a database restart.

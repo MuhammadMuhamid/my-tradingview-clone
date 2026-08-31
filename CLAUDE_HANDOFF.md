@@ -14,9 +14,15 @@
 > - §7 names parity artifacts in `platform/backend/parity/`. That directory is
 >   gitignored and absent from every clone, so the release gate it describes
 >   cannot be run here. (`BE-08` blocker)
-> - §3–§4 describe the live AWS stack. Nothing in this programme connected to
->   AWS, so every production statement here is an unverified documentation
->   claim, not an observation.
+> - §3–§4 describe the live AWS stack. **This is now observed rather than
+>   claimed** (updated 2026-08-31): the stack has been connected to, deployed to
+>   and verified repeatedly. §3's shape is accurate. Two corrections from
+>   observation: the app instance is a **t3.micro (916 MB)** that cannot build
+>   the frontend image without swap, and the RDS instance is a single-AZ
+>   `db.t4g.micro`. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+> - §6 predates the notification-alert families entirely. It describes the
+>   *trading* configuration only; the alert system it does not mention is
+>   documented in [docs/ALERTS.md](docs/ALERTS.md).
 >
 > Where this document and `docs/` disagree, `docs/` is authoritative.
 
@@ -195,6 +201,24 @@ recording all of the following:
 Old screenshots often showed a balanced leaderboard rank and a separate
 `ORIG#`. Production application must resolve the requested original result
 record exactly. Do not substitute the row position in a sorted view.
+
+### Notification alerts are a separate system (added 2026-08-31)
+
+Everything above concerns **automations** — deployments that send real orders.
+The platform also has notification alerts, which push to a phone and can never
+move money; `tests/alertIsolation.test.ts` walks the import graph and fails the
+build if the alert path can reach the dispatcher, the broker or the deployments
+repository.
+
+Seven condition families share the `ma_alerts` table, one evaluator and one Web
+Push path: `ma`, `price`, `ma_vs_ma`, `sr_zone`, `pivot_level`, `rsi`, `macd`.
+The two level families additionally accept optional RSI / moving-average trend
+gates. Arm them from the chart's moving-average rail (Levels and Oscillators
+sections) or from `/alerts`.
+
+Do not confuse the two when reading routes: `/api/ma-alerts` is notifications,
+`/api/alerts` is the deployment signal log. Full behaviour, including the
+seeding rule and the gate semantics, is in [docs/ALERTS.md](docs/ALERTS.md).
 
 ## 7. Strategies and backtesting fidelity
 

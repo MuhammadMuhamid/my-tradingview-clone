@@ -177,6 +177,28 @@ and therefore a backend with data.
   reaches the 44×44 that AAA asks for. On a chart toolbar that is a genuine
   trade-off against how much of the screen the chart itself gets, and the
   current balance is deliberate.
-- **Everything requiring data.** The chart has not been QA'd with candles, the
-  alert list with alerts, or the deployment controls against a backend that can
-  fail. Those need a database.
+- **Everything requiring data.** Partly discharged — see below. The deployment
+  controls have still not been exercised against a backend that can fail.
+
+## 6. Re-run with a live backend (2026-08-31)
+
+The "needs a database" caveat above no longer covers the alert surface. A real
+backend, a real PostgreSQL 16 database and live Binance candles were used to
+drive the chart in a browser.
+
+Exercised: the chart rendering 10 000 candles with ten moving averages; the
+moving-average rail including its new **Levels** and **Oscillators** sections
+with live armed counts; the RSI and MACD dialogs; the level dialog including
+the trend-gate checkboxes and their conditional inputs; creating alerts through
+the UI and confirming the stored rows over the API; and the armed-alert list
+wording for gated alerts.
+
+**What this found that the tests did not.** The request parser read `b.level`
+while the client and the database column both said `rsiLevel`, so a request for
+RSI level 70 was accepted and quietly armed at the 50 default — no error, wrong
+alert. Every unit test passed, because they only exercised defaults. This is
+the second time in this document that driving the real thing found what review
+and unit tests missed.
+
+Still not covered: Safari, Firefox, a physical device, a screen reader, or the
+deployment controls under backend failure.

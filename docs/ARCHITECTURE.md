@@ -57,7 +57,7 @@ Position state flows the other way on a 30-second poll: the platform asks
 | `platform/backend/src/api` | HTTP surface: charts, backtests, deployments, optimizer views, Pine execution, MA alerts, push, auth. |
 | `platform/backend/src/engine` | Strategy implementations, the backtest broker, metrics, the multi-timeframe merge, and the live evaluators. |
 | `platform/backend/src/data` | Binance REST backfill and the kline websocket. |
-| `platform/backend/src/alerts` | Payload construction, delivery with retries, MA alert evaluation, Web Push. |
+| `platform/backend/src/alerts` | Payload construction, delivery with retries, notification-alert evaluation across all seven condition families, Web Push. |
 | `platform/backend/src/repositories` | All SQL. Nothing else talks to the database. |
 | `platform/backend/src/pine` | Lexer, parser and interpreter for user-supplied Pine scripts. |
 | `platform/backend/src/security` | Session signing, secret encryption, payload redaction. |
@@ -66,10 +66,16 @@ Position state flows the other way on a 30-second poll: the platform asks
 Two independent runners exist in one process:
 
 - **`LiveRunner`** — strategy deployments that can move money.
-- **`MaAlertRunner`** — moving-average notifications that cannot. It evaluates
-  closed bars only and its only output is a Web Push notification.
+- **`MaAlertRunner`** — notifications that cannot. Its only output is a Web Push
+  notification.
 
-Nothing in the MA alert path can create a deployment, send a webhook, or reach
+  The name is now narrower than the job: it evaluates seven condition families
+  (`ma`, `price`, `ma_vs_ma`, `sr_zone`, `pivot_level`, `rsi`, `macd`), the two
+  level families accept optional trend gates, and it evaluates forming candles
+  as well as closed ones for the intrabar frequencies. See
+  [ALERTS.md](ALERTS.md).
+
+Nothing in the notification path can create a deployment, send a webhook, or reach
 Binance's order endpoints. That separation is an invariant, asserted over the
 runner's entire transitive import graph in `platform/backend/tests/alertIsolation.test.ts`.
 

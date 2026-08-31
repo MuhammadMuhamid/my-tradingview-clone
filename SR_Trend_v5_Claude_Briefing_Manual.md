@@ -30,6 +30,14 @@ Philosophy in one line: **"Buy support retests in confirmed uptrends; sell resis
 
 All MTF data uses `request.security(..., barmerge.gaps_off, barmerge.lookahead_off)` — **no lookahead bias** on pivots and MAs.
 
+> **If you run this script through the platform's own Pine editor** rather than
+> on TradingView, note one deliberate semantic difference: the platform's
+> `request.security` returns the last **closed** higher-timeframe bar, whereas
+> TradingView returns the *developing* one. That is the stricter, no-lookahead
+> choice, and it means `[1]` steps back one full period further than it does
+> here. Values will not match TradingView bar-for-bar on the MTF series. See
+> `platform/README.md` and `platform/backend/src/pine/interpreter.ts`.
+
 ### Timeframes & Assets
 
 | Role | Default TF | User production setup |

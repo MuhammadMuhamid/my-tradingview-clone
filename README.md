@@ -87,12 +87,13 @@ it reports file and line only, never the value.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What each system owns, and how a signal reaches an order. |
 | [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md) | The cross-repository payload contract, versioned. |
 | [docs/COST-MODELS.md](docs/COST-MODELS.md) | The cost model each research tree actually ran. |
-| [docs/ALERTS.md](docs/ALERTS.md) | Price and moving-average notifications, and the four frequency modes. |
+| [docs/ALERTS.md](docs/ALERTS.md) | Notification alerts: all seven condition families, the trend gates, and the four frequency modes. |
 | [docs/CANDLE-PERFORMANCE.md](docs/CANDLE-PERFORMANCE.md) | Candle and chart loading: what was measured, and what was not. |
 | [docs/WEB-QA.md](docs/WEB-QA.md) | Desktop and mobile browser QA: what was exercised, and what was not. |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator console, the halt control, paper mode, testnet, and what has never been verified here. |
 | [docs/RESEARCH-METHODOLOGY.md](docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected. |
-| [docs/REMEDIATION-LEDGER.md](docs/REMEDIATION-LEDGER.md) | Every audit finding and its disposition. |
+| [docs/REMEDIATION-LEDGER.md](docs/REMEDIATION-LEDGER.md) | Every finding of the 2026-08-23 audit and its disposition. Generated — do not hand-edit. |
+| [docs/SECURITY-AUDIT-2026-08-31.md](docs/SECURITY-AUDIT-2026-08-31.md) | A later, separate audit: an SSRF fix, two corrections to earlier claims, and the AWS cost answer. |
 | `BACKTESTING_SYSTEMS.md` (backtesting repository) | Metric definitions and per-tree research notes. |
 | `OPTIMIZATION_SYSTEM_BLUEPRINT.md` (backtesting repository) | Optimizer design. Contains figures superseded by the backtesting repository's `backtesting:docs/COST-MODELS.md`. |
 | `CLAUDE_HANDOFF.md` | Historical handover. Parts of it describe directories and deployments that no longer match this checkout; treat `docs/` as authoritative where they disagree. |

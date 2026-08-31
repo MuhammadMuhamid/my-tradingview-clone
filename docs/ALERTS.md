@@ -37,10 +37,74 @@ longer conflates them.
 | `ma` | price against one moving average — the original family, semantics unchanged | `ma_type`, `ma_length`, `mode`, `near_min_pct`, `near_max_pct` |
 | `price` | a fixed price level | `target_price`, `price_direction` |
 | `ma_vs_ma` | one moving average against another | `ma_type`/`ma_length` (fast), `ma2_type`/`ma2_length` (slow), `mode` |
+| `sr_zone` | the nearest swing support/resistance on the alert's own timeframe | `sr_side`, `sr_pivot_length`, `sr_invalidation`, `mode` |
+| `pivot_level` | one pivot level from a completed anchor period | `pivot_type`, `pivot_level_name`, `pivot_anchor`, `mode` |
+| `rsi` | RSI against a fixed level, or against its own SMA | `rsi_length`, `rsi_level`, `rsi_ma_length`, `indicator_target`, `mode` |
+| `macd` | the MACD line against its signal, or against zero | `macd_fast`, `macd_slow`, `macd_signal`, `indicator_target`, `mode` |
 
 A row that does not carry the columns its own kind needs is refused by the
 database (`ma_alerts_shape_ck`). An alert stored half-specified would be
 accepted and then silently never fire, which is the worst failure an alert has.
+
+### The level families resolve their reference, they do not name it
+
+`ma` and `price` are compared against a number the alert stores. `sr_zone` and
+`pivot_level` are not: the runner resolves *which* level price is approaching on
+each bar, and the notification names what it matched ("1h support", "Fibonacci
+S1"). That is why neither carries a price column, and why an `any` pivot alert
+can fire on a different line each time.
+
+Support/resistance comes from **confirmed** swing pivots, so a pivot at bar `i`
+is only knowable at `i + length` — the detector never sees a level before the
+chart could have. Pivot levels are computed from the last **completed** anchor
+period, never the forming one, and share `engine/pivotLevels.ts` with the Pine
+indicator so the alert and the drawn line cannot disagree.
+
+### Oscillators cross a reading, not a price
+
+For `rsi` and `macd` the quantity that crosses is the indicator. A bar that
+makes a new price high while RSI stays under 50 has not crossed 50, and
+`evaluateSeriesCross` compares the reading rather than the close.
+
+Distance is therefore carried in **indicator units**, not as a percentage of
+price: an RSI of 55 against the midline is *5 points* away, and printing "5%"
+would read as a market move. MACD makes this unavoidable rather than merely
+preferable — its zero reference makes a percentage undefined outright.
+
+Two rules exist because the alternative is an alert that is armed and can never
+fire: an RSI level outside 0..100 could never be crossed, and a `macd_fast` at
+or above `macd_slow` inverts the oscillator so every "crosses above" reports
+what the reader sees as a downturn. Both are refused by the request parser, by
+`validateCondition`, and by a database CHECK.
+
+### Trend gates on the level families
+
+`sr_zone` and `pivot_level` accept two optional preconditions — RSI(length)
+above/below a level, and the close above/below a moving average — stored in the
+`filter_*` columns and enforced for those two kinds only
+(`ma_alerts_filter_kind_ck`). "Approaching 1h support, but only while 1h RSI 50
+is above 50" is one alert rather than two to correlate by hand. Both gates are
+measured on the alert's **own** symbol and timeframe, on the same bar as the
+level test.
+
+Three properties, all pinned by `tests/levelAlertFilters.test.ts`:
+
+- **A gate can only subtract.** It suppresses `triggered` and nothing else; it
+  cannot turn an untriggered level event on.
+- **It does not touch cross state.** The side and distance are still recorded
+  while a gate is shut. A gate that withheld the side would leave stale state
+  that fires spuriously the moment the gate opens.
+- **It fails closed.** An RSI or EMA that has not warmed up blocks the alert.
+  "Only when the trend is up" must not fire because the trend is *unknown*.
+
+A gate is complete or absent — a length with no side is refused by
+`ma_alerts_filter_ck`, and a half-written row is read back as *no* gate rather
+than guessed at.
+
+> The `IS NOT NULL` tests in that constraint are load-bearing. A CHECK passes
+> when it evaluates to NULL, so `filter_rsi_length > 0 AND filter_rsi_level > 0`
+> with a NULL level is `TRUE AND NULL` = NULL — the constraint accepted exactly
+> the row it was written to reject until those tests were added.
 
 ### Crosses need a previous side
 
@@ -184,7 +248,7 @@ than notifying again.
 
 ---
 
-## 8. Migration 010
+## 8. Migrations 010–017
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -195,20 +259,44 @@ re-run cannot fail a boot.
 Uniqueness is preserved per kind, with the `ma` key byte-for-byte the one
 migration 007 used: two alerts that coexisted before still coexist.
 
-**Not verified:** no PostgreSQL server is available in this workspace, so 010
-has *not* been executed. `platform/backend/tests/alertMigration.test.ts` pins the properties its
-safety rests on by parsing the SQL; that is not the same as running it. Applying
-it against a populated database is outstanding, and is recorded as such in
-[REMEDIATION-LEDGER.md](REMEDIATION-LEDGER.md).
+The same discipline holds for the later migrations. `013`–`014` added the level
+families, `015` and `016` widened the kind CHECK for them and for the
+oscillators, and `017` added the trend gates. Each new kind's completeness rule
+lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
+**effective** vocabulary — the last definition across the whole set — against
+`CONDITION_KINDS`, so columns can never be added without widening the CHECK
+that would then refuse them.
+
+**Now verified by execution.** These are applied in production, and 013–017
+were additionally run against a throwaway PostgreSQL 16 database before
+shipping, with the accept/reject matrix exercised by hand. That found two
+defects the SQL review had missed: a CHECK defeated by NULL three-valued logic
+(§2), and an RSI uniqueness index that needed `NULLS NOT DISTINCT` — without
+it, only one of `rsi_level`/`rsi_ma_length` is populated per target, two NULLs
+never conflict, `ON CONFLICT` never matches, and re-arming inserts duplicates
+instead of updating.
+
+Parsing the SQL is not the same as running it. Both kinds of check earn their
+place, and the ones above were only caught by the second.
 
 ---
 
-## 9. Also not verified here
+## 9. What is still not verified
 
-- **Web Push delivery.** Needs a push service and a registered device. What is
-  tested is the pure surface: the message shape, its size against the 4 KB
-  payload limit, and which HTTP statuses prune a subscription.
 - **Live Binance websocket behaviour.** The intrabar path is exercised through
   its pure planner, not against a live stream.
-- **Browser rendering of the dialogs.** The frontend typechecks, lints, tests
-  and builds; it has not been driven in a browser.
+- **A firing `sr_zone`, `pivot_level`, `rsi`, `macd` or gated alert.** Every
+  one of these has been armed end to end — HTTP, database, UI — and their
+  evaluators are unit-tested, but no live market event has driven one to
+  delivery. That is the honest gap: arming is proven, firing is not.
+- **Web Push delivery of the newer families.** The transport is in production
+  and delivers; what has not been observed is one of the new kinds arriving on
+  a device.
+
+**Verified since this section was first written:** the alert dialogs have now
+been driven in a real browser against a real backend — the MA rail's Levels and
+Oscillators sections, the RSI/MACD dialog and the level dialog's gates were
+rendered, filled and saved, and the stored rows checked. That found a defect no
+unit test did: the request parser read `b.level` while the client and the column
+both said `rsiLevel`, so a request for RSI level 70 was accepted and quietly
+armed at the 50 default.
