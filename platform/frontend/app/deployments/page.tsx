@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardHeader, Button, StatusBadge, Empty } from "@/components/ui";
+import { Modal } from "@/components/Modal";
 import { DeploymentForm } from "@/components/DeploymentForm";
 import { AlertFeed } from "@/components/AlertFeed";
 import { EditAlertModal } from "@/components/tv/EditAlertModal";
@@ -8,6 +9,7 @@ import { StaleNotice } from "@/components/StaleNotice";
 import { api, type PaperResult } from "@/lib/api";
 import { freshAt, type Freshness } from "@/lib/freshness";
 import { deliversLiveOrders } from "@/lib/types";
+import { activationAcknowledgement } from "@/lib/deploymentConsent";
 import type { Alert, Deployment, SymbolInfo } from "@/lib/types";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 
@@ -18,6 +20,8 @@ export default function DeploymentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Deployment | null>(null);
   const [paper, setPaper] = useState<PaperResult | null>(null);
+  const [activationTarget, setActivationTarget] = useState<Deployment | null>(null);
+  const [activationAcknowledged, setActivationAcknowledged] = useState(false);
   /**
    * FE-12/FE-13: this page used `refresh().catch(() => {})`, so a backend that
    * went away left it rendering the last successful response for as long as it
@@ -90,9 +94,24 @@ export default function DeploymentsPage() {
     }
   };
 
-  const toggle = (d: Deployment) =>
-    act(d, d.status === "active" ? "pause" : "activate",
-      () => (d.status === "active" ? api.pauseDeployment(d.id) : api.activateDeployment(d.id)));
+  const toggle = (d: Deployment) => {
+    // Pausing is a safety action and stays one click. Starting any mode requires
+    // a fresh acknowledgement; it is never remembered between activations.
+    if (d.status === "active") {
+      void act(d, "pause", () => api.pauseDeployment(d.id));
+      return;
+    }
+    setActivationAcknowledged(false);
+    setActivationTarget(d);
+  };
+
+  const confirmActivation = async () => {
+    const d = activationTarget;
+    if (!d || !activationAcknowledged) return;
+    await act(d, "activate", () => api.activateDeployment(d.id));
+    setActivationTarget(null);
+    setActivationAcknowledged(false);
+  };
 
   const remove = (d: Deployment) => {
     if (!confirm(`Delete deployment for ${d.symbol}? Its alert history is removed too.`)) return;
@@ -263,6 +282,48 @@ export default function DeploymentsPage() {
           </div>
         )}
       </Card>
+
+      <Modal
+        open={activationTarget !== null}
+        onClose={() => {
+          setActivationTarget(null);
+          setActivationAcknowledged(false);
+        }}
+        title="Activate deployment"
+        footer={
+          <>
+            <Button onClick={() => {
+              setActivationTarget(null);
+              setActivationAcknowledged(false);
+            }}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={() => void confirmActivation()}
+              disabled={busy !== null || !activationAcknowledged}
+            >
+              {busy ? "Activating…" : "Activate"}
+            </Button>
+          </>
+        }
+      >
+        {activationTarget && (
+          <div className="space-y-3">
+            <p className="rounded-md border border-down/40 bg-down/10 px-3 py-2 text-xs text-down">
+              Activation starts this deployment immediately. Live delivery can place real orders;
+              confirm the exact mode and size below.
+            </p>
+            <label className="flex items-start gap-2 text-xs text-ink">
+              <input
+                type="checkbox"
+                checked={activationAcknowledged}
+                onChange={(e) => setActivationAcknowledged(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent,#f0b90b)]"
+              />
+              <span>{activationAcknowledgement(activationTarget)}</span>
+            </label>
+          </div>
+        )}
+      </Modal>
 
       <Card>
         <CardHeader title="Alert telemetry" right={<span className="text-xs text-ink-faint">last {alerts.length} · auto-refresh 5s</span>} />

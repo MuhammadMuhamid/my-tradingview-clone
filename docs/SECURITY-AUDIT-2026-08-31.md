@@ -30,12 +30,12 @@ The check runs **again at send time**, not only at subscribe time: rows written
 before the rule existed are still in the table, and send time is the last point
 before an outbound request is actually made.
 
-Covered by `tests/pushBoundaries.test.ts`, including lookalike hosts such as
+Covered by `platform/backend/tests/pushBoundaries.test.ts`, including lookalike hosts such as
 `evil-push.apple.com.attacker.test`.
 
 ### The security test suite was not hermetic
 
-`tests/security.test.ts` asserts that a missing `ALLOWED_WEBHOOK_HOSTS` refuses
+`platform/backend/tests/security.test.ts` asserts that a missing `ALLOWED_WEBHOOK_HOSTS` refuses
 to boot. It spawns a child process with a controlled environment — but
 `config.ts` imports `dotenv/config`, so the child read the developer's real
 `backend/.env` and quietly satisfied the very variables the test asserted were
@@ -88,8 +88,8 @@ KMS grants and stopped itself. Entirely AWS-side.
 |---|---|
 | SQL injection | None. Every identifier interpolated into SQL is a code literal from a fixed set; every value is parameterised. Checked across all repositories. |
 | Untrusted code execution | The Pine engine is a real lexer/parser/interpreter — no `eval`, no `new Function` — run in a worker thread under a wall-clock budget and a heap cap, terminated when either is exceeded. |
-| XSS | No `dangerouslySetInnerHTML`, `innerHTML`, `eval` or `new Function` anywhere in the frontend, asserted by `tests/noUnsafeSinks.test.ts`. That test is the actual control, because the CSP needs `'unsafe-inline'` for Next's bootstrap. |
-| Open redirect | `?next=` is decoded before judgement and must be a same-origin absolute path (`lib/safeRedirect.ts`). |
+| XSS | No `dangerouslySetInnerHTML`, `innerHTML`, `eval` or `new Function` anywhere in the frontend, asserted by `platform/frontend/tests/noUnsafeSinks.test.ts`. That test is the actual control, because the CSP needs `'unsafe-inline'` for Next's bootstrap. |
+| Open redirect | `?next=` is decoded before judgement and must be a same-origin absolute path (`platform/frontend/lib/safeRedirect.ts`). |
 | Authentication | HMAC-signed HttpOnly cookie; a token is valid only for the currently configured username. Sign-in is rate-limited because each attempt costs ~100 ms of scrypt on the live runner's event loop. |
 | Authorisation | One `onRequest` hook guards every route, so a new endpoint is protected by omission rather than by remembering. `PUBLIC_PATHS` is the entire exception list. |
 | Configuration | Fails closed on a missing password hash, a short or placeholder session secret, a weak encryption key, or an empty webhook allowlist. |

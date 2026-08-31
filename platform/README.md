@@ -1,8 +1,13 @@
-# TradingView-Lite Platform
+# TradingView-Lite platform implementation notes
 
-Specialized charting + backtesting + live-alerting platform for the
-**MA + R:R Strategy (SR+Trend v9)** on Binance spot pairs, feeding the existing
-custom webhook bot (3Commas replica) without any bot changes.
+> Current repository ownership and cross-service architecture are authoritative
+> in the root [README](../README.md) and [architecture document](../docs/ARCHITECTURE.md).
+> This file retains implementation-stage history; where it disagrees, the
+> current documents win.
+
+Charting, canonical backtesting and live-alerting platform for the current SR
+Trend, MA + R:R and MTF strategy families on Binance spot pairs, feeding the
+separate execution bot without taking ownership of exchange credentials.
 
 ## Architecture
 
@@ -32,7 +37,7 @@ platform/
 2. **Stage 2 ✅** — TypeScript port of `ma_riskreward_strategy.pine` + bar-by-bar
    backtest engine (`src/engine`). Pine-exact `ta` lib, MTF `request.security`
    merge, TV broker fill model. TV trade-diff harness in
-   `scripts/diff_tv_trades.ts` (parity run deferred — see below).
+   `platform/backend/scripts/diff_tv_trades.ts` (parity run deferred — see below).
 3. **Stage 3 ✅** — Binance klines backfill + multi-pair kline WebSocket manager +
    live bar-close strategy runner + alert dispatcher (3Commas / custom-bot
    payloads, exact Pine formats) with retry + idempotent dedupe.
@@ -46,7 +51,7 @@ platform/
 
 ### Stage 5 — charting surface
 
-**Drawing tools** (`frontend/lib/drawings.ts`, `components/tv/Drawing*.tsx`).
+**Drawing tools** (`platform/frontend/lib/drawings.ts`, `platform/frontend/components/tv/Drawing*.tsx`).
 A left icon rail with 22 tools grouped like TradingView's — trend line / ray /
 extended line / arrow, horizontal + vertical lines, parallel channel,
 pitchfork, fib retracement and trend-based extension, rectangle / ellipse /
@@ -66,7 +71,7 @@ is per symbol in `localStorage`.
 pairs and mainstream quotes. Picking an untracked pair registers it first, so
 the chart can backfill it immediately. Opens from the symbol chip or `/`.
 
-**Pine editor** (`backend/src/pine/`, `components/tv/PineEditor.tsx`).
+**Pine editor** (`platform/backend/src/pine/`, `platform/frontend/components/tv/PineEditor.tsx`).
 Write a Pine v5 script, compile it, and add it to the chart: plots become line
 overlays, `plotshape` becomes markers, and a `strategy()` script runs through
 the same `Broker` and metrics as the built-in strategies. `input.*`
@@ -75,8 +80,8 @@ Scripts are saved in `pine_scripts`.
 
 The engine is a real interpreter (lexer → parser → bar-by-bar evaluator), not
 a translator. **`ta.*` calls are not reimplemented**: window functions slice a
-node's history and call `engine/ta.ts` directly, and the recursive ones
-(ema/rma/atr/rsi) use small state machines that `tests/pine.test.ts` asserts
+node's history and call `platform/backend/src/engine/ta.ts` directly, and the recursive ones
+(ema/rma/atr/rsi) use small state machines that `platform/backend/tests/pine.test.ts` asserts
 equal to the array versions bar-for-bar. A script therefore agrees with the
 platform's own strategies by construction.
 
@@ -97,14 +102,14 @@ that produced it had closed.
 > **closed** one. That is the no-lookahead choice, and it means `[1]` steps
 > back one full period further than it would on TradingView. The built-in
 > Pivot Points indicator is written against this behaviour — see
-> `src/pine/interpreter.ts`.
+> `platform/backend/src/pine/interpreter.ts`.
 
 Not supported, and reported as a compile error naming the line rather than
 silently ignored: a non-constant `request.security` timeframe, arrays /
 matrices / maps, labels / lines / boxes / tables, user-defined types and
 methods, libraries, and `switch`.
 
-**Indicator library** (`backend/src/pine/library.ts`). Ships built-in scripts —
+**Indicator library** (`platform/backend/src/pine/library.ts`). Ships built-in scripts —
 Supertrend, Pivot Points (Traditional / Fibonacci / Woodie / Classic /
 Camarilla), and the community set — addable per chart with editable inputs,
 exactly like a user script. Sources are embedded in the module rather than read
@@ -113,7 +118,7 @@ from disk because `tsc` copies only TypeScript into `dist/`.
 **Execution limits.** A Pine script is untrusted input that runs synchronously
 on the same event loop as the live alert runner, so every limit below aborts
 the run with an ordinary line-numbered script error rather than stalling live
-signals (`src/pine/interpreter.ts`, `LIMITS`):
+signals (`platform/backend/src/pine/interpreter.ts`, `LIMITS`):
 
 | Limit | Value | Why |
 |---|---|---|
@@ -151,10 +156,10 @@ Level alerts can be armed across 5m/15m/1h/4h in one action, creating one alert
 per timeframe. `/alerts` is the cross-coin inventory: what is armed, what
 fired, and whether it reached a device.
 
-**Support/resistance zones** (`engine/srZones.ts`) come from confirmed swing
+**Support/resistance zones** (`platform/backend/src/engine/srZones.ts`) come from confirmed swing
 pivots, so a pivot at bar `i` is only knowable at `i + length` — the detector
 never sees a level before the chart could have. **Pivot levels**
-(`engine/pivotLevels.ts`) are computed from the last *completed* anchor period,
+(`platform/backend/src/engine/pivotLevels.ts`) are computed from the last *completed* anchor period,
 not the forming one, and are shared with the Pine indicator so the alert and
 the drawn line can never disagree.
 
@@ -279,7 +284,7 @@ Open http://localhost:3000 — three pages: **Chart** (live Binance candles),
   only when the extension exists; plain Postgres works identically.
 - **Alert formats are frozen contracts** copied from the Pine source
   (`f_bot_json_buy` / `f_bot_json_sell_exit`) and
-  `3commas_alert_message_template.json` — see `src/types/alerts.ts`.
+  `3commas_alert_message_template.json` — see `platform/backend/src/types/alerts.ts`.
 
 ## Security
 
@@ -289,15 +294,15 @@ production.
 
 | Control | Where | Note |
 |---|---|---|
-| Session auth | `security/session.ts` | HMAC-signed HttpOnly cookie, 90-day sliding. A token is only valid for the *currently configured* username — these are stateless, so there is no revocation list. |
+| Session auth | `platform/backend/src/security/session.ts` | HMAC-signed HttpOnly cookie, 90-day sliding. A token is only valid for the *currently configured* username — these are stateless, so there is no revocation list. |
 | Default-deny gate | `api/server.ts` | One `onRequest` hook guards every route; a new endpoint is protected by omission, not by remembering. `PUBLIC_PATHS` is the whole exception list. |
 | Fail-closed config | `config.ts` | Refuses to boot on a missing password hash, a short or placeholder session secret, a weak encryption key, or an empty webhook allowlist. An app that only *looks* protected is worse than one that will not start. |
-| Sign-in rate limit | `security/rateLimit.ts` | Only `POST /api/auth/login` is throttled: each attempt costs ~100 ms of scrypt on the live runner's event loop. |
-| Secrets at rest | `security/secrets.ts` | AES-256-GCM for webhook secrets and bot uuids; payloads and receiver response bodies redacted before storage. |
-| Outbound allowlists | `alerts/dispatcher.ts`, `alerts/webPush.ts` | Both webhook URLs and push endpoints are HTTPS-only, port 443, no embedded credentials, host on an allowlist. Push endpoints are re-checked at send time, not only at subscribe time — stored rows predate the rule. |
-| Untrusted Pine | `pine/runInWorker.ts` | A real interpreter (no `eval`, no `new Function`), run in a worker thread under a wall-clock budget and a heap cap, terminated when either is exceeded. |
-| No XSS sinks | `frontend/tests/noUnsafeSinks.test.ts` | The frontend CSP needs `'unsafe-inline'` for Next's bootstrap, so the *actual* control is having no `dangerouslySetInnerHTML` / `innerHTML` / `eval`. That is asserted, not assumed. |
-| Open-redirect guard | `frontend/lib/safeRedirect.ts` | `?next=` is decoded before judgement and must be a same-origin absolute path. |
+| Sign-in rate limit | `platform/backend/src/security/rateLimit.ts` | Only `POST /api/auth/login` is throttled: each attempt costs ~100 ms of scrypt on the live runner's event loop. |
+| Secrets at rest | `platform/backend/src/security/secrets.ts` | AES-256-GCM for webhook secrets and bot uuids; payloads and receiver response bodies redacted before storage. |
+| Outbound allowlists | `platform/backend/src/alerts/dispatcher.ts`, `platform/backend/src/alerts/webPush.ts` | Both webhook URLs and push endpoints are HTTPS-only, port 443, no embedded credentials, host on an allowlist. Push endpoints are re-checked at send time, not only at subscribe time — stored rows predate the rule. |
+| Untrusted Pine | `platform/backend/src/pine/runInWorker.ts` | A real interpreter (no `eval`, no `new Function`), run in a worker thread under a wall-clock budget and a heap cap, terminated when either is exceeded. |
+| No XSS sinks | `platform/frontend/tests/noUnsafeSinks.test.ts` | The frontend CSP needs `'unsafe-inline'` for Next's bootstrap, so the *actual* control is having no `dangerouslySetInnerHTML` / `innerHTML` / `eval`. That is asserted, not assumed. |
+| Open-redirect guard | `platform/frontend/lib/safeRedirect.ts` | `?next=` is decoded before judgement and must be a same-origin absolute path. |
 | Live-order test | `api/routes/deployments.ts` | `LIVE_TEST_ENABLED` (default off) + confirmation phrase + paused deployment + custom delivery + $20 ceiling. |
 
 **Known and accepted.** Sessions cannot be revoked before expiry (single-admin
@@ -305,7 +310,7 @@ app, no session store); only sign-in is rate-limited, so an authenticated
 operator can still make expensive requests; the CSP cannot forbid inline script
 without giving up static prerendering.
 
-**Operational.** `deployment/aws/update-app.sh` keeps only the five most recent
+**Operational.** `platform/deployment/aws/update-app.sh` keeps only the five most recent
 `.env.bak-*` files — each is a full copy of the live database URL, encryption
 key, session secret and admin hash, so an unbounded pile of them is just more
 copies of the credentials to steal.

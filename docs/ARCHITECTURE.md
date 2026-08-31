@@ -1,21 +1,24 @@
 # Architecture
 
-**Status:** current. Two systems, two repositories, one direction of travel.
+**Status:** current. Three systems, three repositories, explicit ownership boundaries.
 
-## The two systems
+## The three systems
 
-| | Platform (this repository) | Execution bot (`MuhammadMuhamid/3commabotclone`) |
-|---|---|---|
-| Decides when to trade | **yes** | no |
-| Places exchange orders | no | **yes** |
-| Holds Binance API keys | **never** | yes, AES-256-GCM encrypted at rest |
-| Database | PostgreSQL / TimescaleDB | SQLite via Prisma |
-| Stack | Fastify + TypeScript, Next.js | Express + TypeScript, Vite + React |
+| | Platform (`my-tradingview-clone`, this repository) | Research (`pythoncryptobacktesingsystems`) | Execution bot (`3commabotclone`) |
+|---|---|---|---|
+| Role | live charting, alerts, deployments and canonical backtest engine | offline optimizer/research trees consuming the canonical engine | exchange execution |
+| Decides when to trade live | **yes** | no | no |
+| Places exchange orders | no | no | **yes** |
+| Holds Binance API keys | **never** | **never** | yes, AES-256-GCM encrypted at rest |
+| Database | PostgreSQL / TimescaleDB | uses platform market data when a run is explicitly started | SQLite via Prisma |
+| Stack | Fastify + TypeScript, Next.js | TypeScript/Python research tools | Express + TypeScript, Vite + React |
 
-The split is a safety boundary, not an accident of history. Exchange
-credentials exist in exactly one process. **Do not move credential handling
-into the platform, and do not merge the repositories.** What is genuinely
-missing between them is a shared contract artifact, which is
+The split is deliberate, not an accident of history. The platform's live and
+backtest paths share one canonical engine; research consumes it without copying
+it; exchange credentials exist in exactly one bot process. **Do not move
+credential handling into the platform, duplicate the engine in research, or
+merge the repositories.** What remains hand-vendored between platform and bot
+is the webhook contract, documented in
 [docs/WEBHOOK-CONTRACT.md](WEBHOOK-CONTRACT.md).
 
 ## How a signal becomes an order
@@ -93,31 +96,25 @@ script can no longer stall live evaluation.
 
 ## Research trees
 
-Fourteen optimizer and analysis trees live under `platform/backend`. Their code
-and configuration are tracked; their generated result data — the `results`,
-`best`, `index` and `archive` directories under each tree — is deliberately not,
-because it reaches tens of gigabytes. KNOWN-ABSENT from a fresh clone.
+Optimizer, walk-forward, holdout and analysis trees live only in the separate
+[`pythoncryptobacktesingsystems`](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems)
+repository. The platform can read their registries and results when
+`OPTIMIZER_ROOT` points at that checkout. In the other direction, an explicitly
+started research process sets `PLATFORM_BACKEND` to this repository's
+`platform/backend`; a Node resolver then loads this canonical engine and its
+installed dependencies regardless of checkout location. There is no copied
+engine and no symlink contract.
 
-Each tree owns a `tree.json` naming its strategy, timeframe, system, kind and
-status, and that registry is what the API, the CLI, the dashboard exporter and
-the launchd wrapper all route through. A tree with a `config.json` and no
-registry entry fails `scripts/ci/check-docs.sh`, because a tree the application
-cannot reach is how `X-04` happened.
-
-The consequence recorded as `OPT-08` is unchanged in one half and fixed in the
-other: published numbers still cannot be reproduced from a fresh clone, and
-every run from 2026-08-24 onward writes a `runs.jsonl` under the tree's index directory, with the content hash
-of each input, so a result can at least be tied to the space that produced it.
-Each tree's cost model is in [docs/COST-MODELS.md](COST-MODELS.md).
+Tree registry, cost-model and search-space checks run in the research
+repository's standalone CI. Generated multi-gigabyte results remain absent from
+Git. This platform's optimizer API reports an empty registry when
+`OPTIMIZER_ROOT` is absent instead of pretending research lives here.
 
 ## Known structural problems
 
 Real, and recorded in [docs/REMEDIATION-LEDGER.md](REMEDIATION-LEDGER.md) rather
 than described here as if they were resolved:
 
-- **The research trees sit inside the deployed backend's source root.** They are
-  code-only in the image and the generated data is bind-mounted, but the
-  boundary is a convention rather than a package split.
 - **The webhook contract is hand-duplicated across the two repositories.** Each
   side vendors a copy with a fingerprint of its own source, and a test on each
   side fails when they diverge — but nothing makes them one artifact.
@@ -142,7 +139,7 @@ interchangeable:
 | Kind | What backs it | Example |
 |---|---|---|
 | **Current implemented behaviour** | A test that runs in CI on every commit. | The alert runner cannot reach a deployment; a paper deployment cannot place an order; the four alert frequencies. |
-| **Historical result** | A number produced by a run whose data is not in the repository. | Every optimizer leaderboard figure, every walk-forward fold, every `ANALYSIS_*` document. |
+| **Historical result** | A number produced by a research run whose generated data is not in Git. | Every optimizer leaderboard figure, every walk-forward fold, every `ANALYSIS_*` document. |
 | **Locally implemented, externally unverified** | Code and tests exist; the external system has never been contacted from here. | The exchange-native stop adapter, the holdout deploy gate (no artifact carries a clearance yet), migrations 010 and 011. |
 | **Production fact, unconfirmed** | Nothing in this workspace can check it. | What the AWS deployment is running, whether the exposed webhook secret was rotated, what the production database contains. |
 
