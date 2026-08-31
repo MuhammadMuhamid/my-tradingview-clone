@@ -107,3 +107,114 @@ test("an expression, not just a bare series, is evaluated on the HTF feed", () =
   // of highs is (100 + 101) / 2. Computed on the HOURLY series, not the chart.
   assert.equal(series[8], 100.5);
 });
+
+test("different-line security calls keep independent captured series", () => {
+  const out = run(
+    `//@version=6
+indicator("t")
+hourHigh = request.security(syminfo.tickerid, "60", high)
+hourLow = request.security(syminfo.tickerid, "60", low)
+plot(hourHigh, "high")
+plot(hourLow, "low")`,
+    { "60": hourly }
+  );
+  assert.equal(out.plots.find((p) => p.title === "high")!.data[8], 101);
+  assert.equal(out.plots.find((p) => p.title === "low")!.data[8], 201);
+});
+
+test("same-line same-timeframe calls with different expressions do not collide", () => {
+  const out = run(
+    `//@version=6
+indicator("t")
+hourHigh = request.security(syminfo.tickerid, "60", high), hourLow = request.security(syminfo.tickerid, "60", low)
+plot(hourHigh, "high")
+plot(hourLow, "low")`,
+    { "60": hourly }
+  );
+  assert.equal(out.plots.find((p) => p.title === "high")!.data[8], 101);
+  assert.equal(out.plots.find((p) => p.title === "low")!.data[8], 201);
+});
+
+test("same-line calls for different timeframes do not collide", () => {
+  const twoHourly = feed("2h", T0, 120 * MIN, 4, (i) => ({ o: 0, h: 500 + i, l: 0, c: 0 }));
+  const out = run(
+    `//@version=6
+indicator("t")
+oneHour = request.security(syminfo.tickerid, "60", high), twoHour = request.security(syminfo.tickerid, "120", high)
+plot(oneHour, "one")
+plot(twoHour, "two")`,
+    { "60": hourly, "120": twoHourly }
+  );
+  assert.equal(out.plots.find((p) => p.title === "one")!.data[8], 101);
+  assert.equal(out.plots.find((p) => p.title === "two")!.data[8], 500);
+});
+
+test("a security wrapper called with two timeframes keeps call-chain identity", () => {
+  const twoHourly = feed("2h", T0, 120 * MIN, 4, (i) => ({ o: 0, h: 500 + i, l: 0, c: 0 }));
+  const out = run(
+    `//@version=6
+indicator("t")
+wrapped(tf) => request.security(syminfo.tickerid, tf, high)
+oneHour = wrapped("60")
+twoHour = wrapped("120")
+plot(oneHour, "one")
+plot(twoHour, "two")`,
+    { "60": hourly, "120": twoHourly }
+  );
+  assert.equal(out.plots.find((p) => p.title === "one")!.data[8], 101);
+  assert.equal(out.plots.find((p) => p.title === "two")!.data[8], 500);
+});
+
+test("nested wrappers preserve the complete security call chain", () => {
+  const out = run(
+    `//@version=6
+indicator("t")
+inner(tf, src) => request.security(syminfo.tickerid, tf, src)
+outer(tf, src) => inner(tf, src)
+hourHigh = outer("60", high)
+hourLow = outer("60", low)
+plot(hourHigh, "high")
+plot(hourLow, "low")`,
+    { "60": hourly }
+  );
+  assert.equal(out.plots.find((p) => p.title === "high")!.data[8], 101);
+  assert.equal(out.plots.find((p) => p.title === "low")!.data[8], 201);
+});
+
+test("history indexing evaluates the request.security call before looking back", () => {
+  const out = run(
+    `//@version=6
+indicator("t")
+plot(request.security(syminfo.tickerid, "60", high)[1], "previous-chart-bar")`,
+    { "60": hourly }
+  );
+  const values = out.plots[0]!.data;
+  assert.equal(values[4], null, "the preceding chart bar still had no completed HTF value");
+  assert.equal(values[5], 100);
+  assert.equal(values[8], 100, "[1] shifts the aligned result by one chart bar");
+});
+
+test("request.security accepts only the implemented gaps/lookahead subset", () => {
+  const supported = PineInterpreter.compile(`//@version=6
+indicator("t")
+plot(request.security(syminfo.tickerid, "60", high, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off))`);
+  assert.deepEqual(supported.errors, []);
+
+  const legacyOff = PineInterpreter.compile(`//@version=4
+indicator("t")
+plot(request.security(syminfo.tickerid, "60", high, lookahead=false))`);
+  assert.deepEqual(legacyOff.errors, []);
+
+  const gapsOn = PineInterpreter.compile(`//@version=6
+indicator("t")
+plot(request.security(syminfo.tickerid, "60", high, gaps=barmerge.gaps_on))`);
+  assert.match(gapsOn.errors[0]?.message ?? "", /gaps supports only barmerge\.gaps_off/);
+
+  const lookaheadOn = PineInterpreter.compile(`//@version=6
+indicator("t")
+plot(request.security(syminfo.tickerid, "60", high, lookahead=barmerge.lookahead_on))`);
+  assert.match(
+    lookaheadOn.errors[0]?.message ?? "",
+    /lookahead supports only barmerge\.lookahead_off/
+  );
+});

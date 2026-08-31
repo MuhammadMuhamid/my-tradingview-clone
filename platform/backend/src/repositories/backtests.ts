@@ -10,7 +10,7 @@ import type {
 import type { Interval } from "../types/market";
 import type { StrategyParams } from "../types/strategy";
 
-interface DbBacktest {
+export interface DbBacktest {
   id: string;
   strategy_id: number;
   config_id: string | null;
@@ -26,12 +26,13 @@ interface DbBacktest {
   error: string | null;
   metrics: BacktestMetrics | null;
   equity_curve: EquityPoint[] | null;
+  engine_fingerprint: string | null;
   started_at: Date | null;
   finished_at: Date | null;
   created_at: Date;
 }
 
-function toRow(r: DbBacktest): BacktestRow {
+export function toBacktestRow(r: DbBacktest): BacktestRow {
   return {
     id: r.id,
     strategyId: r.strategy_id,
@@ -48,6 +49,7 @@ function toRow(r: DbBacktest): BacktestRow {
     error: r.error,
     metrics: r.metrics,
     equityCurve: r.equity_curve,
+    engineFingerprint: r.engine_fingerprint,
     startedAt: r.started_at ? r.started_at.toISOString() : null,
     finishedAt: r.finished_at ? r.finished_at.toISOString() : null,
     createdAt: r.created_at.toISOString(),
@@ -74,7 +76,7 @@ export async function createBacktest(req: BacktestRequest): Promise<BacktestRow>
       req.slippageTicks,
     ]
   );
-  return toRow(rows[0]!);
+  return toBacktestRow(rows[0]!);
 }
 
 export async function getBacktest(id: string): Promise<BacktestRow | null> {
@@ -82,7 +84,7 @@ export async function getBacktest(id: string): Promise<BacktestRow | null> {
     "SELECT * FROM backtests WHERE id = $1",
     [id]
   );
-  return rows[0] ? toRow(rows[0]) : null;
+  return rows[0] ? toBacktestRow(rows[0]) : null;
 }
 
 export async function listBacktests(opts: {
@@ -100,7 +102,7 @@ export async function listBacktests(opts: {
     `SELECT * FROM backtests ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
     params
   );
-  return rows.map(toRow);
+  return rows.map(toBacktestRow);
 }
 
 /** Claims the oldest queued backtest for the Stage 2 runner (single-worker safe). */
@@ -114,8 +116,10 @@ export async function claimNextQueued(): Promise<BacktestRow | null> {
      )
      RETURNING *`
   );
-  return rows[0] ? toRow(rows[0]) : null;
+  return rows[0] ? toBacktestRow(rows[0]) : null;
 }
+
+type WriteQuery = (text: string, params?: unknown[]) => Promise<unknown>;
 
 export async function finishBacktest(
   id: string,
@@ -123,13 +127,16 @@ export async function finishBacktest(
     metrics: BacktestMetrics;
     equityCurve: EquityPoint[];
     trades: TradeRecord[];
-  }
+    engine: string;
+  },
+  runQuery: WriteQuery = query
 ): Promise<void> {
-  await query(
+  await runQuery(
     `UPDATE backtests
-     SET status = 'done', metrics = $2, equity_curve = $3, finished_at = now()
+     SET status = 'done', metrics = $2, equity_curve = $3,
+         engine_fingerprint = $4, finished_at = now()
      WHERE id = $1`,
-    [id, JSON.stringify(result.metrics), JSON.stringify(result.equityCurve)]
+    [id, JSON.stringify(result.metrics), JSON.stringify(result.equityCurve), result.engine]
   );
   if (result.trades.length > 0) {
     const COLS = 13;
@@ -144,7 +151,7 @@ export async function finishBacktest(
       );
       return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9},$${o + 10},$${o + 11},$${o + 12},$${o + 13})`;
     });
-    await query(
+    await runQuery(
       `INSERT INTO backtest_trades
          (backtest_id, trade_no, direction, entry_time, entry_price,
           exit_time, exit_price, qty, pnl, pnl_pct, exit_reason, run_up_pct, drawdown_pct)

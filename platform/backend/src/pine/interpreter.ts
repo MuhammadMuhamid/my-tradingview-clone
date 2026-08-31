@@ -279,9 +279,10 @@ export class PineInterpreter {
   /** Higher-timeframe feeds supplied by the caller, keyed by timeframe string. */
   private htf: Record<string, Bars> = {};
   /**
-   * `request.security` results for a higher timeframe, keyed by the line the
-   * call sits on and indexed by HTF bar. Filled by a capture pass before the
-   * main loop; read during it.
+   * `request.security` results for a higher timeframe, keyed by its stable AST
+   * call id, active user-function call chain and resolved timeframe, then
+   * indexed by HTF bar. Filled by a capture pass before the main loop; read
+   * during it.
    */
   private htfValues = new Map<string, PineValue[]>();
   /**
@@ -725,15 +726,17 @@ export class PineInterpreter {
   // ── higher-timeframe feeds ───────────────────────────────────────────────
 
   /**
-   * Identity of a `request.security` call site, shared between the capture
-   * pass and the main run.
+   * Identity of a `request.security` series, shared between the capture pass
+   * and the main run.
    *
-   * The line is the key rather than the AST node, because the two passes are
-   * separate interpreter instances over separately-parsed copies of the same
-   * source: node object identity cannot survive that, while the line does.
+   * Both passes parse the exact same source, so the parser's monotonically
+   * assigned call id is deterministic across them. The function call chain is
+   * deterministic for the same reason and separates one wrapper invocation
+   * from another. Including the resolved timeframe also handles a wrapper
+   * whose single security node is invoked with different timeframe values.
    */
-  private securityKey(line: number): string {
-    return `sec@${line}`;
+  private securityKey(e: Extract<Expr, { k: "call" }>, timeframe: string): string {
+    return `sec@${this.frameKey()}${e.id}@${timeframe}`;
   }
 
   /**
@@ -858,6 +861,11 @@ export class PineInterpreter {
       }
       case "hist": {
         const offset = Math.trunc(this.num(this.evalExpr(e.offset), e.line));
+        // A call owns its history buffer, but reading `call(...)[n]` used to
+        // consult that buffer without ever evaluating the call on this bar.
+        // It therefore stayed empty forever and the expression was always na.
+        // Evaluate exactly once before looking back; evalCall records it.
+        if (e.base.k === "call") this.evalExpr(e.base);
         return this.historyOf(e.base, offset, e.line);
       }
       case "switch": {
@@ -1667,10 +1675,37 @@ export class PineInterpreter {
        * chart-timeframe data there would produce plausible, wrong numbers.
        */
       case "request.security": case "request.security_lower_tf": {
-        const [, tf, expr] = this.args(e, ["symbol", "timeframe", "expression"]);
+        const [, tf, expr, gaps, lookahead] = this.args(
+          e,
+          ["symbol", "timeframe", "expression", "gaps", "lookahead"]
+        );
         const want = S(tf, "").trim();
         const own = this.bars.interval;
         const sameTf = want === "" || want === own || want.toLowerCase() === "chart";
+
+        // This engine deliberately implements completed bars with gaps_off and
+        // lookahead_off semantics. Optional values outside that subset must be
+        // rejected instead of being accepted and silently ignored.
+        if (path === "request.security") {
+          if (gaps !== undefined) {
+            const value = this.evalExpr(gaps);
+            if (value !== "gaps_off") {
+              throw new PineRuntimeError(
+                "request.security gaps supports only barmerge.gaps_off", line
+              );
+            }
+          }
+          if (lookahead !== undefined) {
+            const value = this.evalExpr(lookahead);
+            // Pine v4 scripts commonly spell lookahead_off as `false`.
+            if (value !== "lookahead_off" && value !== false) {
+              throw new PineRuntimeError(
+                "request.security lookahead supports only barmerge.lookahead_off (or false)",
+                line
+              );
+            }
+          }
+        }
         /**
          * During a capture pass this instance IS the requested timeframe, even
          * though the two are spelled differently: Pine says "60", the platform
@@ -1691,7 +1726,7 @@ export class PineInterpreter {
           if (this.captureTf !== null) {
             return path === "request.security" ? NaN : new PineArray("float", [NaN]);
           }
-          const series = this.htfValues.get(this.securityKey(line));
+          const series = this.htfValues.get(this.securityKey(e, want));
           if (!series) {
             throw new PineRuntimeError(
               `request.${path.slice(8)} for a different timeframe ('${want}' vs the chart's ` +
@@ -1709,7 +1744,7 @@ export class PineInterpreter {
         const v = expr ? this.evalExpr(expr) : NaN;
         // Capturing this timeframe: record the value this HTF bar produced.
         if (this.captureInto && isCaptureTarget) {
-          const key = this.securityKey(line);
+          const key = this.securityKey(e, want);
           let arr = this.captureInto.get(key);
           if (!arr) { arr = []; this.captureInto.set(key, arr); }
           arr[this.i] = v;

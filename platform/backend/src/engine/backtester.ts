@@ -7,6 +7,7 @@ import * as candleRepo from "../repositories/candles";
 import * as symbolRepo from "../repositories/symbols";
 import * as strategyRepo from "../repositories/strategies";
 import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
+import { assertNoInternalCandleGaps } from "../data/candleSeries";
 import { FeedStore, subBarsFor, toBars, type Bars } from "./mtf";
 import { computeMetrics, downsampleEquity, toTradeRecords } from "./metrics";
 import { ACTIVE_CORRECTIONS, correctionsFingerprint, describeCorrections } from "./corrections";
@@ -108,6 +109,10 @@ export async function executeBacktest(
     await ensureCandles(symbol, need.interval, from, endMs, log);
     const candles = await candleRepo.getCandles(symbol, need.interval, { from, to: endMs });
     if (candles.length === 0) throw new Error(`no ${need.interval} data for ${symbol}`);
+    // Boundaries may be partial because a pair was newly listed or the cache
+    // begins inside the requested warmup. A hole between two present candles
+    // is never partial coverage: toBars would compress it into one bar step.
+    assertNoInternalCandleGaps(candles, need.interval, `${symbol} ${need.interval}`);
     feeds.set(toBars(candles));
   }
 
