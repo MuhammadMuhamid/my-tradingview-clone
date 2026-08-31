@@ -180,7 +180,10 @@ export async function getRiskLimits(): Promise<RiskLimits> {
     haltedBy: r.halted_by,
     maxTotalExposureQuote: num(r.max_total_exposure_quote),
     maxConcurrentPositions: r.max_concurrent_positions,
-    maxDailyLossQuote: num(r.max_daily_loss_quote),
+    // This repository does not receive authoritative exchange fills. Keeping a
+    // configured number active against an always-empty ledger is misleading;
+    // the execution bot owns and enforces daily realised-loss protection.
+    maxDailyLossQuote: null,
     dailyLossWindowHours: r.daily_loss_window_hours,
   };
 }

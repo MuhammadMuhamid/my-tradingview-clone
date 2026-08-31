@@ -102,7 +102,8 @@ ceiling from the deploy path entirely.
 
 1. `aws rds describe-db-instances` — check `DBInstanceStatus` first. The app
    serves `/healthz` (Caddy) and `/login` long after the database is gone, so a
-   200 there is not evidence the stack is healthy.
+   200 there is not evidence the stack is ready. Check `/readyz`: it crosses
+   the proxy and returns 503 unless the app can reach a fully migrated database.
 2. `docker ps -a` — a compose roll that aborts on an unhealthy backend leaves
    the frontend in `Created` and never started. `docker compose --env-file .env
    -f compose.app.yml up -d` finishes it.

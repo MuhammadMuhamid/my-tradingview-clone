@@ -14,26 +14,30 @@ const MIGRATIONS_DIR = migrationCandidates.find((dir) => {
   }
 });
 
+/** The exact migration set shipped with this build, in application order. */
+export function requiredMigrationFiles(): string[] {
+  if (!MIGRATIONS_DIR) {
+    throw new Error(`No SQL migration directory found (checked: ${migrationCandidates.join(", ")})`);
+  }
+  return fs
+    .readdirSync(MIGRATIONS_DIR)
+    // Ignore macOS AppleDouble files (._001_init.sql) and other hidden files.
+    .filter((f) => !f.startsWith(".") && f.endsWith(".sql"))
+    .sort();
+}
+
 /**
  * Applies pending .sql migrations in filename order, each inside its own
  * transaction, recording progress in schema_migrations. Idempotent — safe to
  * run on every boot.
  */
 export async function migrate(): Promise<string[]> {
-  if (!MIGRATIONS_DIR) {
-    throw new Error(`No SQL migration directory found (checked: ${migrationCandidates.join(", ")})`);
-  }
+  const files = requiredMigrationFiles();
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename   text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     )`);
-
-  const files = fs
-    .readdirSync(MIGRATIONS_DIR)
-    // Ignore macOS AppleDouble files (._001_init.sql) and other hidden files.
-    .filter((f) => !f.startsWith(".") && f.endsWith(".sql"))
-    .sort();
 
   const { rows } = await pool.query<{ filename: string }>(
     "SELECT filename FROM schema_migrations"
@@ -43,7 +47,7 @@ export async function migrate(): Promise<string[]> {
 
   for (const file of files) {
     if (applied.has(file)) continue;
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR!, file), "utf8");
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

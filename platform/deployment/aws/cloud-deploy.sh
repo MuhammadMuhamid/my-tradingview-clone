@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs in AWS CloudShell (ap-south-1) next to an uploaded src-<TAG>.tar.gz.
 # Safe rollout: RDS snapshot → upload bundle to the stack bucket → SSM build
-# + roll on the app EC2 → poll the command → verify public health endpoint.
+# + roll on the app EC2 → poll the command → verify public readiness.
 set -euo pipefail
 
 # Production identifiers come from the untracked .env in this directory (X-11).
@@ -56,13 +56,13 @@ if [ "$STATUS" != Success ]; then
   exit 1
 fi
 
-echo "== 5/5 public health check =="
+echo "== 5/5 public readiness check =="
 for _ in $(seq 1 12); do
-  code="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/healthz" || echo 000)"
+  code="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/readyz" || echo 000)"
   [ "$code" = 200 ] && break
   sleep 5
 done
-echo "https://$DOMAIN/healthz -> $code"
-[ "$code" = 200 ] || { echo "public health check failed"; exit 1; }
+echo "https://$DOMAIN/readyz -> $code"
+[ "$code" = 200 ] || { echo "public readiness check failed"; exit 1; }
 
 echo "DEPLOY OK $TAG"

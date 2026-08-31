@@ -239,7 +239,8 @@ Open http://localhost:3000 — three pages: **Chart** (live Binance candles),
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/health` | server + db liveness |
+| GET | `/health` | cheap application-process liveness (no dependencies) |
+| GET | `/readyz` | application readiness: DB connectivity + shipped migrations |
 | GET | `/api/symbols` | list tracked pairs (`?active=true`) |
 | GET | `/api/symbols/search?q=zec&quote=USDT` | search every Binance spot pair |
 | POST | `/api/symbols` | add a pair `{symbol, baseAsset, quoteAsset}` |

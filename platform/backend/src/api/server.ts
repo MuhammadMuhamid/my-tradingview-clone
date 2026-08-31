@@ -22,7 +22,7 @@ import {
 
 /** Reachable without a session: health probes and the sign-in flow itself. */
 const PUBLIC_PATHS = new Set([
-  "/health", "/healthz", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+  "/health", "/healthz", "/readyz", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
 ]);
 
 /**

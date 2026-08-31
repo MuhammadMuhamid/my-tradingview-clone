@@ -15,12 +15,13 @@ import type { FastifyInstance } from "fastify";
 import * as liveSafety from "../../repositories/liveSafety";
 import * as deploymentRepo from "../../repositories/deployments";
 import {
-  countOpenPositions, describeRiskState, intendedExposure, realisedPnlInWindow,
+  countOpenPositions, intendedExposure, realisedPnlInWindow,
 } from "../../engine/riskControls";
 import { worstFeedState, type FeedState } from "../../data/feedHealth";
 import { summariseDelivery } from "../../engine/deliveryHealth";
 import { config } from "../../config";
 import type { LiveRunner } from "../../engine/liveRunner";
+import { readBotStatus } from "../../operations/botStatus";
 
 /** The word an operator must send to arm or disarm trading. */
 const HALT_CONFIRMATION = "HALT_TRADING";
@@ -40,12 +41,22 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         position: (d.runtimeState.position ?? "flat") as "flat" | "long",
         buyQuoteQty: d.buyQuoteQty,
       }));
-      const pnlRows = await liveSafety.listRealisedPnl(limits.dailyLossWindowHours);
       const snapshot = {
         currentExposureQuote: intendedExposure(positions),
         openPositions: countOpenPositions(positions),
-        realisedPnlInWindow: realisedPnlInWindow(pnlRows, limits.dailyLossWindowHours),
+        // The execution bot owns fills. This platform ledger has no production
+        // writer, so zero is not presented as an observation or enforced.
+        realisedPnlInWindow: null,
       };
+      const platformRiskSummary = limits.tradingHalted
+        ? `HALTED${limits.haltedBy ? ` (${limits.haltedBy})` : ""}${
+            limits.haltedReason ? `: ${limits.haltedReason}` : ""
+          }`
+        : `ACTIVE — configured exposure ${snapshot.currentExposureQuote.toFixed(2)}${
+            limits.maxTotalExposureQuote !== null ? `/${limits.maxTotalExposureQuote.toFixed(2)}` : ""
+          }, positions ${snapshot.openPositions}${
+            limits.maxConcurrentPositions !== null ? `/${limits.maxConcurrentPositions}` : ""
+          }, platform daily-loss control disabled`;
 
       const feeds = await liveSafety.listFeedHealth();
       const lease = await liveSafety.getEmitterLease();
@@ -54,6 +65,7 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         await liveSafety.listDeliveryOutcomes(deliveryWindowHours),
         { now: Date.now(), windowHours: deliveryWindowHours }
       );
+      const bot = await readBotStatus([...active, ...deployments.filter((d) => d.status !== "active")]);
 
       let runnerIsEmitter = false;
       try {
@@ -94,8 +106,15 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         risk: {
           ...limits,
           snapshot,
-          summary: describeRiskState(limits, snapshot),
+          summary: platformRiskSummary,
+          dailyLossControl: {
+            state: "DISABLED_UNFED",
+            authority: "BOT",
+            note: "Platform daily-loss enforcement is disabled because this process does not own "
+              + "exchange fills. Bot status below reports authoritative realised P/L and bot-side protection.",
+          },
         },
+        bot,
         deployments: {
           total: deployments.length,
           active: active.length,
@@ -209,9 +228,19 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         const patch = {
           maxTotalExposureQuote: optionalPositive("maxTotalExposureQuote"),
           maxConcurrentPositions: optionalPositive("maxConcurrentPositions"),
-          maxDailyLossQuote: optionalPositive("maxDailyLossQuote"),
+          maxDailyLossQuote: undefined as number | null | undefined,
           dailyLossWindowHours: undefined as number | undefined,
         };
+        if ("maxDailyLossQuote" in b) {
+          if (b.maxDailyLossQuote !== null) {
+            return reply.code(409).send({
+              error: "platform daily-loss control is disabled because the bot owns realised fills; "
+                + "configure the bot-side daily-loss protection instead",
+            });
+          }
+          // Allow an old, misleading value to be explicitly cleared.
+          patch.maxDailyLossQuote = null;
+        }
         if ("dailyLossWindowHours" in b) {
           const v = b.dailyLossWindowHours;
           if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 720) {

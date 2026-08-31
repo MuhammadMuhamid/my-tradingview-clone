@@ -29,7 +29,7 @@ import {
 import * as liveSafety from "../repositories/liveSafety";
 import {
   countOpenPositions, describeRiskState, evaluateRisk, intendedExposure,
-  realisedPnlInWindow, shouldLatchHalt, type RiskSnapshot,
+  shouldLatchHalt, type RiskSnapshot,
 } from "./riskControls";
 import { assessForEvaluation } from "../data/feedHealth";
 import { config } from "../config";
@@ -467,11 +467,13 @@ export class LiveRunner {
       position: (d.row.runtimeState.position ?? "flat") as "flat" | "long",
       buyQuoteQty: d.row.buyQuoteQty,
     }));
-    const pnlRows = await liveSafety.listRealisedPnl(limits.dailyLossWindowHours);
     return {
       currentExposureQuote: intendedExposure(deployments),
       openPositions: countOpenPositions(deployments),
-      realisedPnlInWindow: realisedPnlInWindow(pnlRows, limits.dailyLossWindowHours),
+      // Real fills and realised P/L live in the execution bot. A synchronous
+      // remote dependency here would make signal safety depend on the network,
+      // so platform daily-loss enforcement is deliberately disabled.
+      realisedPnlInWindow: 0,
     };
   }
 

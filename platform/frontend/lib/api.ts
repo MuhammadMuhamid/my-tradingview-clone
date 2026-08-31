@@ -269,8 +269,42 @@ export function expandCompact(payload: CompactCandles): Candle[] {
  * live runner is off by configuration rather than by an operator's decision.
  */
 export type OpsMode = "LIVE" | "STANDBY" | "HALTED" | "DISABLED";
-export type FeedState = "live" | "lagging" | "stale" | "gapped" | "unknown";
+export type FeedState = "live" | "delayed" | "reconnecting" | "gap" | "error" | "unknown";
 export type DeliveryState = "failing" | "stalled" | "degraded" | "idle" | "healthy";
+
+export interface BotOperationalStatus {
+  service: { reachable: true; name: string; version: string | null };
+  execution: {
+    mode: "DRY_RUN" | "HALTED" | "LIVE";
+    dryRun: boolean;
+    halted: boolean;
+    haltedBy: string | null;
+    haltedReason: string | null;
+  };
+  exchange: {
+    mode: "TESTNET" | "MAINNET" | "MIXED";
+    processDefault: "TESTNET" | "MAINNET";
+    configuredAccounts: { total: number; testnet: number; mainnet: number };
+  };
+  realisedPnl: {
+    currency: "USDT"; today: number; dayStart: string; timezone: "UTC";
+    rollingWindowHours: number; rolling: number;
+  };
+  openTrades: { count: number; exposureQuote: number; currency: "USDT" };
+  dailyLossProtection: {
+    authority: "BOT"; limitQuote: number | null; windowHours: number;
+    realisedPnlInWindow: number; enabled: boolean;
+  };
+  time: string;
+}
+
+export type BotStatusConnection =
+  | { state: "CONNECTED"; configuredEndpoints: number; status: BotOperationalStatus }
+  | { state: "NOT_CONFIGURED"; configuredEndpoints: 0; reason: "no_custom_bot_deployment" }
+  | {
+      state: "UNAVAILABLE"; configuredEndpoints: number;
+      reason: "authentication_rejected" | "request_failed" | "invalid_response";
+    };
 
 export interface OpsStatus {
   mode: OpsMode;
@@ -295,10 +329,16 @@ export interface OpsStatus {
     snapshot: {
       currentExposureQuote: number;
       openPositions: number;
-      realisedPnlInWindow: number;
+      realisedPnlInWindow: null;
     };
     summary: string;
+    dailyLossControl: {
+      state: "DISABLED_UNFED";
+      authority: "BOT";
+      note: string;
+    };
   };
+  bot: BotStatusConnection;
   deployments: { total: number; active: number; long: number; paused: number };
   delivery: {
     state: DeliveryState;
@@ -315,9 +355,9 @@ export interface OpsStatus {
   feeds: {
     worst: FeedState;
     rows: Array<{
-      symbol: string; interval: string; state: string;
+      symbol: string; interval: string; state: FeedState;
       lastBarTime: string | null; lastCheckedAt: string;
-      barsBehind: number | null; gapCount?: number | null; detail?: string | null;
+      barsBehind?: number | null; missingBars: number; detail?: string | null;
     }>;
   };
   time: string;

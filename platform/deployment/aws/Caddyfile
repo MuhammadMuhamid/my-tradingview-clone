@@ -14,6 +14,11 @@
 
         @backendHealth path /health
         reverse_proxy @backendHealth backend:4000
+
+        # Readiness crosses the proxy and proves the app's DB/schema state.
+        # /healthz above intentionally stays the cheap Caddy liveness probe.
+        @backendReady path /readyz
+        reverse_proxy @backendReady backend:4000
         reverse_proxy frontend:3000
     }
 

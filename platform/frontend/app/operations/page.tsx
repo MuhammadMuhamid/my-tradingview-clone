@@ -38,10 +38,17 @@ const MODE_STYLE: Record<OpsStatus["mode"], { badge: string; note: string }> = {
 
 const FEED_STYLE: Record<string, string> = {
   live: "text-up",
-  lagging: "text-warn",
-  stale: "text-down",
-  gapped: "text-down",
+  delayed: "text-warn",
+  reconnecting: "text-warn",
+  gap: "text-down",
+  error: "text-down",
   unknown: "text-ink-faint",
+};
+
+const BOT_STYLE: Record<string, string> = {
+  CONNECTED: "text-up",
+  NOT_CONFIGURED: "text-ink-muted",
+  UNAVAILABLE: "text-down",
 };
 
 const DELIVERY_STYLE: Record<string, string> = {
@@ -57,10 +64,10 @@ const when = (iso: string | null): string =>
 
 /** A limit and what is currently used against it, as one readable line. */
 function LimitRow(
-  { label, used, limit, unit, invert }:
-  { label: string; used: number; limit: number | null; unit: string; invert?: boolean }
+  { label, used, limit, unit }:
+  { label: string; used: number; limit: number | null; unit: string }
 ) {
-  const breached = limit !== null && (invert ? used >= limit : used >= limit);
+  const breached = limit !== null && used >= limit;
   const pct = limit === null || limit === 0 ? 0 : Math.min(100, (used / limit) * 100);
   return (
     <div className="space-y-1">
@@ -128,7 +135,7 @@ export default function OperationsPage() {
         <div>
           <h1 className="text-lg font-semibold text-ink">Operations</h1>
           <p className="text-xs text-ink-faint">
-            Trading mode, risk limits, feed freshness and signal delivery.
+            Platform emission, execution-bot truth, feed freshness and signal delivery.
           </p>
         </div>
         <Card><Empty>{error || "Loading operator status…"}</Empty></Card>
@@ -145,7 +152,7 @@ export default function OperationsPage() {
         <div>
           <h1 className="text-lg font-semibold text-ink">Operations</h1>
           <p className="text-xs text-ink-faint">
-            Read from the process that enforces these limits. Refreshed every 10 seconds;
+            Platform state and bot-authoritative execution state. Refreshed every 10 seconds;
             last read {when(status.time)}.
           </p>
         </div>
@@ -167,7 +174,7 @@ export default function OperationsPage() {
 
       {/* ── The control ─────────────────────────────────────────────────── */}
       <Card>
-        <CardHeader title="Trading" right={<span className="text-xs text-ink-faint">{mode.note}</span>} />
+        <CardHeader title="Platform signal emission" right={<span className="text-xs text-ink-faint">{mode.note}</span>} />
         <div className="space-y-3 px-4 pb-4">
           {risk.tradingHalted ? (
             <>
@@ -222,10 +229,73 @@ export default function OperationsPage() {
         </div>
       </Card>
 
+      {/* The execution bot owns fills, exchange routing and realised P/L. */}
+      <Card>
+        <CardHeader
+          title="Execution bot (authoritative)"
+          right={
+            <span className={`text-xs font-medium ${BOT_STYLE[status.bot.state] ?? ""}`}>
+              {status.bot.state.replaceAll("_", " ")}
+            </span>
+          }
+        />
+        {status.bot.state === "CONNECTED" ? (
+          <div className="space-y-3 px-4 pb-4">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-ink-muted md:grid-cols-4">
+              <dt>Bot execution</dt>
+              <dd className="text-right font-medium text-ink">{status.bot.status.execution.mode}</dd>
+              <dt>Exchange routing</dt>
+              <dd className="text-right font-medium text-ink">{status.bot.status.exchange.mode}</dd>
+              <dt>Realised today (UTC)</dt>
+              <dd className={`text-right font-medium ${status.bot.status.realisedPnl.today < 0 ? "text-down" : "text-up"}`}>
+                {status.bot.status.realisedPnl.today.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+              </dd>
+              <dt>Open trades</dt>
+              <dd className="text-right font-medium text-ink">
+                {status.bot.status.openTrades.count} · {status.bot.status.openTrades.exposureQuote.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+              </dd>
+              <dt>Bot halt</dt>
+              <dd className="text-right text-ink">
+                {status.bot.status.execution.halted
+                  ? `halted${status.bot.status.execution.haltedBy ? ` by ${status.bot.status.execution.haltedBy}` : ""}`
+                  : "not halted"}
+              </dd>
+              <dt>Bot daily-loss protection</dt>
+              <dd className="text-right text-ink">
+                {status.bot.status.dailyLossProtection.enabled
+                  ? `${status.bot.status.dailyLossProtection.limitQuote} USDT / ${status.bot.status.dailyLossProtection.windowHours}h`
+                  : "off"}
+              </dd>
+              <dt>Service version</dt>
+              <dd className="text-right font-mono text-ink">{status.bot.status.service.version ?? "unavailable"}</dd>
+              <dt>Bot read</dt>
+              <dd className="text-right text-ink">{when(status.bot.status.time)}</dd>
+            </dl>
+            {status.bot.status.execution.haltedReason && (
+              <p className="rounded border border-down/30 bg-down/10 px-3 py-2 text-xs text-ink">
+                Bot halt reason: {status.bot.status.execution.haltedReason}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="px-4 pb-4">
+            <p role={status.bot.state === "UNAVAILABLE" ? "alert" : undefined} className="text-sm text-ink-muted">
+              {status.bot.state === "NOT_CONFIGURED"
+                ? "No custom execution-bot webhook is configured on a platform deployment."
+                : status.bot.reason === "authentication_rejected"
+                  ? "The execution bot rejected the configured webhook credential."
+                  : status.bot.reason === "invalid_response"
+                    ? "The execution bot returned an unsupported status contract."
+                    : "The execution bot status endpoint is currently unreachable."}
+            </p>
+          </div>
+        )}
+      </Card>
+
       <div className="grid gap-4 md:grid-cols-2">
         {/* ── Risk ─────────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader title="Risk limits" />
+          <CardHeader title="Platform signal controls" />
           <div className="space-y-4 px-4 pb-4">
             <LimitRow
               label="Configured exposure"
@@ -239,14 +309,10 @@ export default function OperationsPage() {
               limit={risk.maxConcurrentPositions}
               unit=""
             />
-            <LimitRow
-              label={`Realised loss (rolling ${risk.dailyLossWindowHours}h)`}
-              used={Math.max(0, -risk.snapshot.realisedPnlInWindow)}
-              limit={risk.maxDailyLossQuote}
-              unit=" USDT"
-              invert
-            />
             <p className="text-xs text-ink-faint">{risk.summary}</p>
+            <p className="rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink">
+              Platform daily-loss control: disabled. {risk.dailyLossControl.note}
+            </p>
             <p className="text-xs text-ink-faint">
               Exposure is what the deployments are <em>configured</em> to spend, not a balance read
               from the exchange. The platform does not hold the credentials.
@@ -312,7 +378,7 @@ export default function OperationsPage() {
                     <td className="px-4 py-2">{f.interval}</td>
                     <td className={`px-4 py-2 font-medium ${FEED_STYLE[f.state] ?? ""}`}>{f.state}</td>
                     <td className="px-4 py-2 text-right">{f.barsBehind ?? "—"}</td>
-                    <td className="px-4 py-2 text-right">{f.gapCount ?? "—"}</td>
+                    <td className="px-4 py-2 text-right">{f.missingBars}</td>
                     <td className="px-4 py-2 text-right text-ink-faint">{when(f.lastBarTime)}</td>
                     <td className="px-4 py-2 text-right text-ink-faint">{when(f.lastCheckedAt)}</td>
                   </tr>
@@ -338,7 +404,7 @@ export default function OperationsPage() {
             <dd className="text-right font-mono text-ink">{status.emitter.lease?.holder ?? "—"}</dd>
             <dt>Lease expires</dt>
             <dd className="text-right text-ink">{when(status.emitter.lease?.expiresAt ?? null)}</dd>
-            <dt>Binance testnet configured</dt>
+            <dt>Platform BINANCE_TESTNET hint</dt>
             <dd className="text-right text-ink">{status.exchange.testnetConfigured ? "yes" : "no"}</dd>
             <dt>Deployments</dt>
             <dd className="text-right text-ink">
