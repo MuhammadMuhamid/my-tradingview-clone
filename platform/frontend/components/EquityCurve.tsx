@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef } from "react";
 import {
-  createChart, ColorType, IChartApi, ISeriesApi, UTCTimestamp, LineStyle,
+  createChart, IChartApi, ISeriesApi, UTCTimestamp, LineStyle,
 } from "lightweight-charts";
+import { baseChartOptions } from "@/lib/chartTheme";
 import type { EquityPoint } from "@/lib/types";
 
 /**
@@ -19,13 +20,7 @@ export function EquityCurve({ points, initialCapital, className = "h-[260px]" }:
 
   useEffect(() => {
     if (!ref.current) return;
-    const chart = createChart(ref.current, {
-      layout: { background: { type: ColorType.Solid, color: "#121722" }, textColor: "#9aa4b6", fontFamily: "ui-monospace, monospace" },
-      grid: { vertLines: { color: "#1a2030" }, horzLines: { color: "#1a2030" } },
-      rightPriceScale: { borderColor: "#232b3a" },
-      timeScale: { borderColor: "#232b3a", timeVisible: true, secondsVisible: false },
-      autoSize: true,
-    });
+    const chart = createChart(ref.current, baseChartOptions());
     areaRef.current = chart.addAreaSeries({
       lineColor: "#4f8cff", topColor: "rgba(79,140,255,0.25)", bottomColor: "rgba(79,140,255,0.02)",
       lineWidth: 2,
