@@ -52,6 +52,24 @@ const LEVEL_ROWS: { kind: LevelKind; label: string; hint: string; color: string 
 ];
 
 /**
+ * The alert bell.
+ *
+ * An SVG rather than the 🔔 emoji it replaced: an emoji renders at whatever
+ * size and hue the platform font decides, so the rail's controls were three
+ * different sizes on macOS, Windows and Android, and none of them inherited
+ * the disabled or accent colour the row was trying to express.
+ */
+const BellIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path
+      d="M7 1.5a3.5 3.5 0 0 0-3.5 3.5v2.2L2.4 9.1a.5.5 0 0 0 .43.76h8.34a.5.5 0 0 0 .43-.76L10.5 7.2V5A3.5 3.5 0 0 0 7 1.5Z"
+      stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"
+    />
+    <path d="M5.6 11.2a1.5 1.5 0 0 0 2.8 0" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+  </svg>
+);
+
+/**
  * One non-MA family row: swatch, name, armed count, bell.
  *
  * Shared by the Levels and Oscillators sections so the two cannot drift into
@@ -81,11 +99,13 @@ function FamilyRow({
       <button
         onClick={onArm}
         title={count ? `${count} alert(s) — click to add another` : hint}
-        className={`w-6 text-center ${
-          count ? "text-accent" : "invisible text-ink-faint group-hover:visible hover:text-ink"
+        aria-label={count ? `Add another ${label} alert (${count} armed)` : hint}
+        className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded ${
+          count ? "text-accent" : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
         }`}
       >
-        {count > 1 ? `🔔${count}` : "🔔"}
+        <BellIcon />
+        {count > 1 && <span className="text-[10px] tabular leading-none">{count}</span>}
       </button>
     </div>
   );
@@ -177,10 +197,22 @@ export function MaPanel({
         </span>
         <button
           onClick={() => onArm(line.type, line.length)}
-          title={armed.length ? `${armed.length} alert(s) — click to add or edit` : "Add alert on this line"}
-          className={`w-6 text-center ${armed.length ? "text-accent" : "invisible text-ink-faint group-hover:visible hover:text-ink"}`}
+          title={armed.length ? `${armed.length} alert(s) — click to add another` : "Add alert on this line"}
+          aria-label={
+            armed.length
+              ? `Add another alert on ${maLabel(line.type, line.length)} (${armed.length} armed)`
+              : `Add alert on ${maLabel(line.type, line.length)}`
+          }
+          className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded ${
+            armed.length
+              ? "text-accent"
+              : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+          }`}
         >
-          {armed.length ? `🔔${armed.length > 1 ? armed.length : ""}` : "🔔"}
+          <BellIcon />
+          {armed.length > 1 && (
+            <span className="text-[10px] tabular leading-none">{armed.length}</span>
+          )}
         </button>
       </div>
     );
@@ -250,7 +282,9 @@ export function MaPanel({
         ))}
 
         <div className="flex items-center justify-between border-y border-border bg-surface-2/40 px-3 py-1">
-          <span className="text-[10px] uppercase tracking-wide text-ink-faint">Armed alerts</span>
+          <span className="text-[10px] uppercase tracking-wide text-ink-faint">
+            Armed alerts <span className="normal-case tracking-normal">— click to edit</span>
+          </span>
           <button
             onClick={onArmPrice}
             title="Alert on a price level"
@@ -263,14 +297,15 @@ export function MaPanel({
           <div className="px-4 py-6 text-center text-xs text-ink-faint">
             No alerts on this symbol yet.
             <br />
-            Click the 🔔 on a line or a level, or + Price.
+            Use the bell on a line or a level, or + Price.
           </div>
         ) : (
           armedList.map((a) => (
             <button
               key={a.id}
               onClick={() => onOpenAlert(a)}
-              title={`${describeAlert(a)} · ${FREQUENCY_LABELS[a.frequency]}`}
+              title={`Edit — ${describeAlert(a)} · ${FREQUENCY_LABELS[a.frequency]}`}
+              aria-label={`Edit alert — ${alertLineLabel(a)}, ${describeAlert(a)}, ${a.timeframe}`}
               className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-surface-2/60"
             >
               <span

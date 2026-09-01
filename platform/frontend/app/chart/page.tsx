@@ -21,6 +21,7 @@ import { MaAlertModal } from "@/components/tv/MaAlertModal";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { IndicatorAlertModal, type IndicatorKind } from "@/components/tv/IndicatorAlertModal";
+import { AlertEditor } from "@/components/tv/AlertEditor";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { SyncMenu } from "@/components/tv/SyncMenu";
@@ -251,6 +252,8 @@ export default function TvWorkspace() {
   const [maLines, setMaLines] = useState<MaLine[]>(defaultMaLines);
   const [maAlerts, setMaAlerts] = useState<MaAlert[]>([]);
   const [armLine, setArmLine] = useState<{ type: MaType; length: number } | null>(null);
+  /** The armed alert opened for editing from the rail, or null. */
+  const [editingAlert, setEditingAlert] = useState<MaAlert | null>(null);
   /**
    * The price-alert dialog, and the level it opened with.
    *
@@ -1174,18 +1177,11 @@ export default function TvWorkspace() {
                   onArmPrice={openPriceAlert}
                   onArmLevel={setLevelKind}
                   onArmOscillator={setOscillatorKind}
-                  onOpenAlert={(a) => {
-                    if (a.conditionKind === "price") {
-                      setPriceAlertLevel(a.targetPrice);
-                      setPriceAlertOpen(true);
-                    } else if (a.conditionKind === "sr_zone" || a.conditionKind === "pivot_level") {
-                      setLevelKind(a.conditionKind);
-                    } else if (a.conditionKind === "rsi" || a.conditionKind === "macd") {
-                      setOscillatorKind(a.conditionKind);
-                    } else if (a.maType !== null && a.maLength !== null) {
-                      setArmLine({ type: a.maType, length: a.maLength });
-                    }
-                  }}
+                  // Clicking an armed alert opens THAT alert, not a fresh
+                  // dialog for its family. Re-opening the create dialog was
+                  // pre-filled by family only, so a user editing "RSI 14 > 70"
+                  // was silently handed a blank RSI 50 > 50 form.
+                  onOpenAlert={setEditingAlert}
                   push={<PushSetup onMessage={setToast} />}
                 />
               </aside>
@@ -1369,6 +1365,12 @@ export default function TvWorkspace() {
         defaultTimeframe={interval}
         kind={oscillatorKind ?? "rsi"}
         onSaved={(message) => { setToast(message); void refreshMaAlerts(); }}
+      />
+      <AlertEditor
+        alert={editingAlert}
+        onClose={() => setEditingAlert(null)}
+        onSaved={(_updated, message) => { setToast(message); void refreshMaAlerts(); }}
+        onDeleted={(_deleted, message) => { setToast(message); void refreshMaAlerts(); }}
       />
       <MaAlertModal
         open={armLine !== null}

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, Button, Empty, Select, TextInput } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
+import { AlertEditor } from "@/components/tv/AlertEditor";
 import {
   api, DEFAULT_ALERT_FREQUENCY, type BulkAlertAction, type MaAlert, type MaAlertEvent,
 } from "@/lib/api";
@@ -16,6 +17,7 @@ import {
   deleteConfirmation, describeAlertScope, filterAlerts, type AlertStatusFilter,
   type AlertTypeFilter,
 } from "@/lib/alertManagement";
+import { leavesFilteredView } from "@/lib/alertEditing";
 
 /**
  * Every alert across every coin, in one place.
@@ -36,6 +38,8 @@ export default function AlertsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<AlertStatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<AlertTypeFilter>("all");
+  /** The alert open in the shared editor, or null. */
+  const [editing, setEditing] = useState<MaAlert | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -276,31 +280,53 @@ export default function AlertsPage() {
                 </div>
                 {list.map((a) => (
                   <div key={a.id}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[13px] hover:bg-surface-2/40">
-                    <span className="inline-block h-[3px] w-4 shrink-0 rounded-full"
-                      style={{ background: alertColor(a), opacity: isAlertActive(a) ? 1 : 0.3 }} />
-                    <span className={`w-[88px] shrink-0 truncate font-medium ${isAlertActive(a) ? "text-ink" : "text-ink-faint"}`}>
-                      {alertLineLabel(a)}
-                    </span>
-                    <span className={isAlertActive(a) ? "text-ink-muted" : "text-ink-faint"}>
-                      {describeAlert(a)}
-                    </span>
-                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">
-                      {a.timeframe}
-                    </span>
-                    {a.frequency !== DEFAULT_ALERT_FREQUENCY && (
-                      <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
-                        {FREQUENCY_LABELS[a.frequency]}
+                    className="group flex items-center gap-2 pr-2 text-[13px] hover:bg-surface-2/40">
+                    {/*
+                      The description is the edit affordance. Making the whole
+                      row a button would swallow the pause and delete controls
+                      inside it; making only a pencil icon clickable would hide
+                      the primary action of the row behind a 15px target.
+                    */}
+                    <button
+                      type="button"
+                      onClick={() => setEditing(a)}
+                      aria-label={`Edit alert — ${a.symbol} ${alertLineLabel(a)}, ${describeAlert(a)}`}
+                      className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5 px-4 py-2 text-left"
+                    >
+                      <span className="inline-block h-[3px] w-4 shrink-0 rounded-full"
+                        style={{ background: alertColor(a), opacity: isAlertActive(a) ? 1 : 0.3 }}
+                        aria-hidden="true" />
+                      <span className={`w-[84px] shrink-0 truncate font-medium ${isAlertActive(a) ? "text-ink" : "text-ink-faint"}`}>
+                        {alertLineLabel(a)}
                       </span>
-                    )}
-                    <span className="text-[11px] text-ink-faint">
-                      {/* The cooldown only throttles the bar-close mode; showing
-                          it beside an intrabar alert would describe a rule that
-                          is not applied to it. */}
-                      {a.frequency === DEFAULT_ALERT_FREQUENCY && `cooldown ${a.cooldownMin}m`}
-                      {a.lastFiredAt && `${a.frequency === DEFAULT_ALERT_FREQUENCY ? " · " : ""}last fired ${fmtAgo(a.lastFiredAt)}`}
-                    </span>
-                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                      <span className={`truncate ${isAlertActive(a) ? "text-ink-muted" : "text-ink-faint"}`}>
+                        {describeAlert(a)}
+                      </span>
+                      <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] tabular text-ink-muted">
+                        {a.timeframe}
+                      </span>
+                      {a.frequency !== DEFAULT_ALERT_FREQUENCY && (
+                        <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
+                          {FREQUENCY_LABELS[a.frequency]}
+                        </span>
+                      )}
+                      <span className="shrink-0 text-[11px] text-ink-faint">
+                        {/* The cooldown only throttles the bar-close mode; showing
+                            it beside an intrabar alert would describe a rule that
+                            is not applied to it. */}
+                        {a.frequency === DEFAULT_ALERT_FREQUENCY && `cooldown ${a.cooldownMin}m`}
+                        {a.lastFiredAt && `${a.frequency === DEFAULT_ALERT_FREQUENCY ? " · " : ""}last fired ${fmtAgo(a.lastFiredAt)}`}
+                      </span>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(a)}
+                        aria-label={`Edit ${a.symbol} ${alertLineLabel(a)}`}
+                        className="rounded px-2 py-1 text-[11px] text-ink-faint opacity-0 transition-opacity hover:bg-surface-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                      >
+                        Edit
+                      </button>
                       <button
                         disabled={busy !== null}
                         // Re-enabling also re-arms a spent once_only alert, which
@@ -309,6 +335,7 @@ export default function AlertsPage() {
                         onClick={() => void act(a.id,
                           () => api.updateMaAlert(a.id, { enabled: !a.enabled }),
                           `${a.symbol} ${alertLineLabel(a)} ${a.enabled ? "paused" : "re-armed"}`)}
+                        aria-label={`${isAlertActive(a) ? "Pause" : "Re-arm"} ${a.symbol} ${alertLineLabel(a)}`}
                         className={`rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40 ${
                           isAlertActive(a)
                             ? "bg-up/15 text-up hover:bg-up/25"
@@ -322,10 +349,12 @@ export default function AlertsPage() {
                         onClick={() => void act(a.id,
                           () => api.deleteMaAlert(a.id),
                           `Deleted ${a.symbol} ${alertLineLabel(a)}`)}
-                        aria-label="Delete alert"
-                        className="rounded px-2 py-1 text-[11px] text-ink-faint hover:bg-down/15 hover:text-down disabled:opacity-40"
+                        aria-label={`Delete ${a.symbol} ${alertLineLabel(a)}`}
+                        className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-down/15 hover:text-down disabled:opacity-40"
                       >
-                        ✕
+                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+                          <path d="M1 1l9 9M10 1l-9 9" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
                       </button>
                     </div>
                   </div>
@@ -392,6 +421,22 @@ export default function AlertsPage() {
         symbol={newSymbol.trim().toUpperCase()}
         defaultTimeframe="1h"
         onSaved={(m) => { setToast(m); void refresh(); }}
+      />
+
+      <AlertEditor
+        alert={editing}
+        onClose={() => setEditing(null)}
+        onSaved={(updated, message) => {
+          // An edit can move an alert out of the list it was opened from — a
+          // renamed symbol under an active search, a pause under "Active".
+          // Vanishing silently is indistinguishable from a failed save, so it
+          // is said out loud.
+          const left = editing !== null &&
+            leavesFilteredView(editing, updated, (x) => filterAlerts([x], filters).length === 1);
+          setToast(left ? `${message} — no longer matches the current filters` : message);
+          void refresh();
+        }}
+        onDeleted={(_deleted, message) => { setToast(message); void refresh(); }}
       />
 
       {toast && (

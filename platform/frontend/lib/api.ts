@@ -612,6 +612,68 @@ export interface MaAlertOptions {
   frequencies: AlertFrequencyOption[];
 }
 
+/**
+ * What a single alert edit may change.
+ *
+ * Every key here is one the server also accepts at creation, read back through
+ * the same validators — an edit cannot store a configuration the create route
+ * would have refused. The alert's `conditionKind` is deliberately absent: a
+ * family is fixed for the life of a row, because its id carries the event log
+ * and the per-kind uniqueness rule.
+ *
+ * Nothing about firing state (`lastSide`, `lastFiredAt`, `completedAt`) appears
+ * either. Those belong to the runner, and the server refuses them outright
+ * rather than ignoring them.
+ */
+export interface MaAlertUpdate {
+  // ── common to every family ──
+  symbol?: string;
+  timeframe?: Interval;
+  frequency?: AlertFrequency;
+  cooldownMin?: number;
+  note?: string | null;
+  enabled?: boolean;
+  /** Echoed back on save so the server can confirm the family is unchanged. */
+  conditionKind?: ConditionKind;
+  // ── price ──
+  targetPrice?: number;
+  priceDirection?: PriceDirection;
+  // ── ma / ma_vs_ma ──
+  maType?: MaType;
+  maLength?: number;
+  ma2Type?: MaType;
+  ma2Length?: number;
+  mode?: MaAlertMode;
+  nearMinPct?: number;
+  nearMaxPct?: number;
+  // ── sr_zone ──
+  srSide?: SrSide;
+  pivotLength?: number;
+  invalidation?: "close" | "wick";
+  // ── pivot_level ──
+  pivotType?: PivotType;
+  levelName?: string;
+  anchor?: string;
+  // ── rsi / macd ──
+  rsiLength?: number;
+  rsiLevel?: number;
+  rsiMaLength?: number;
+  macdFast?: number;
+  macdSlow?: number;
+  macdSignal?: number;
+  /** `RsiTarget` for an RSI alert, `MacdTarget` for a MACD one. */
+  target?: RsiTarget | MacdTarget;
+  // ── optional trend gates on the two level families ──
+  filterRsi?: boolean;
+  filterRsiLength?: number;
+  filterRsiLevel?: number;
+  filterRsiSide?: FilterSide;
+  filterMa?: boolean;
+  filterMaType?: MaType;
+  filterMaLength?: number;
+  filterMaSide?: FilterSide;
+}
+
 export type BulkAlertAction = "pause" | "resume" | "delete";
 export interface BulkAlertResult {
   action: BulkAlertAction;
@@ -846,11 +908,8 @@ export const api = {
     nearMinPct?: number; nearMaxPct?: number;
     cooldownMin?: number; note?: string | null;
   }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
-  updateMaAlert: (id: string, body: Partial<{
-    enabled: boolean; cooldownMin: number; nearMinPct: number;
-    nearMaxPct: number; mode: MaAlertMode; timeframe: Interval; note: string | null;
-    frequency: AlertFrequency; targetPrice: number; priceDirection: PriceDirection;
-  }>) => req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  updateMaAlert: (id: string, body: MaAlertUpdate) =>
+    req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
   bulkMaAlerts: (action: BulkAlertAction, ids: string[]) =>
     req<BulkAlertResult>("/api/ma-alerts/bulk", {
