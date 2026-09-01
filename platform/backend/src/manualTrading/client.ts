@@ -31,13 +31,13 @@ export class ManualBotError extends Error {
 }
 
 export async function manualBotRequest<T>(input: { method: "GET" | "POST" | "PATCH";
-  path: string; body?: unknown; requestId?: string }): Promise<T> {
+  path: string; body?: unknown; requestId?: string }, fetchImpl: typeof fetch = fetch): Promise<T> {
   if (!config.manualTradingEnabled) throw new ManualBotError("manual trading is disabled", 404);
   const timestamp = String(Date.now());
   const nonce = randomBytes(24).toString("base64url");
   const requestId = input.requestId ?? randomUUID();
   const signature = signManualCommand({ ...input, timestamp, nonce, requestId });
-  const response = await fetch(`${config.manualTradingBotUrl}${input.path}`, {
+  const response = await fetchImpl(`${config.manualTradingBotUrl}${input.path}`, {
     method: input.method,
     headers: { "content-type": "application/json", "x-manual-timestamp": timestamp,
       "x-manual-nonce": nonce, "x-manual-request-id": requestId,

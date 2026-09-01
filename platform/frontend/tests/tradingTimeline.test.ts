@@ -11,9 +11,16 @@ const api = fs.readFileSync(path.join(ROOT, "lib", "api.ts"), "utf8");
 
 test("timeline distinguishes persisted events from current snapshot state in text", () => {
   assert.match(timeline, /Persisted event/);
+  assert.match(timeline, /AUTHORITATIVE_HISTORICAL_EVENT/);
   assert.match(timeline, /Current known state/);
   assert.match(timeline, /missing transitions remain missing/i);
   assert.match(timeline, /without invented precision/i);
+});
+
+test("Bot linkage identifiers render distinctly", () => {
+  for (const identifier of ["Strategy order intent ID", "Platform dedupe key", "Manual command ID",
+    "Partial close ID"]) assert.match(timeline, new RegExp(identifier));
+  assert.match(timeline, /Authoritative linkage/);
 });
 test("timeline exposes technical evidence progressively and announces loading/failure", () => {
   assert.match(timeline, /<details/);

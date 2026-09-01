@@ -1,5 +1,6 @@
 export type TimelineEvidenceClass =
   | "AUTHORITATIVE_EVENT"
+  | "AUTHORITATIVE_HISTORICAL_EVENT"
   | "CURRENT_AUTHORITATIVE_STATE"
   | "SAFE_DERIVATION";
 
@@ -14,6 +15,15 @@ export interface TimelineIdentifiers {
   signalId?: string;
   alertId?: string;
   intentId?: string;
+  strategyOrderIntentId?: string;
+  sourceKey?: string;
+  callerDedupeKey?: string;
+  botId?: string;
+  manualOrderId?: string;
+  manualCommandId?: string;
+  commandRequestId?: string;
+  targetManualOrderId?: string;
+  partialCloseId?: string;
 }
 
 export interface TimelineQuantity {
@@ -24,6 +34,11 @@ export interface TimelineQuantity {
   price?: number;
   averagePrice?: number;
   reportedQuantity?: number;
+  baseQuantity?: number;
+  quoteRevenue?: number;
+  realizedPnlQuote?: number;
+  cumulativeExecutedBaseQuantity?: number;
+  cumulativeExecutedQuoteQuantity?: number;
 }
 
 export interface TimelineItem {
@@ -36,6 +51,7 @@ export interface TimelineItem {
   description: string;
   source: TimelineSource;
   evidenceSource: string;
+  linkageEvidenceClass?: "AUTHORITATIVE_LINKAGE";
   identifiers: TimelineIdentifiers;
   quantity?: TimelineQuantity;
 }

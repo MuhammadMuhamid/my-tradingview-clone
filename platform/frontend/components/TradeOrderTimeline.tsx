@@ -4,6 +4,7 @@ import { api, type TimelineItem, type TradingTimeline } from "@/lib/api";
 
 const CLASS_LABELS = {
   AUTHORITATIVE_EVENT: "Persisted event",
+  AUTHORITATIVE_HISTORICAL_EVENT: "Persisted event",
   CURRENT_AUTHORITATIVE_STATE: "Current known state",
   SAFE_DERIVATION: "Derived display",
 } as const;
@@ -17,6 +18,15 @@ const ID_LABELS: Record<string, string> = {
   signalId: "Signal ID",
   alertId: "Alert ID",
   intentId: "Intent ID",
+  strategyOrderIntentId: "Strategy order intent ID",
+  sourceKey: "Bot source key",
+  callerDedupeKey: "Platform dedupe key",
+  botId: "Bot ID",
+  manualOrderId: "Manual order ID",
+  manualCommandId: "Manual command ID",
+  commandRequestId: "Command request ID",
+  targetManualOrderId: "Target manual order ID",
+  partialCloseId: "Partial close ID",
 };
 
 const QUANTITY_LABELS: Record<string, string> = {
@@ -27,6 +37,11 @@ const QUANTITY_LABELS: Record<string, string> = {
   price: "Price",
   averagePrice: "Average price",
   reportedQuantity: "Reported quantity",
+  baseQuantity: "Accounting base quantity",
+  quoteRevenue: "Accounting quote revenue",
+  realizedPnlQuote: "Realized P&L (quote)",
+  cumulativeExecutedBaseQuantity: "Cumulative executed base",
+  cumulativeExecutedQuoteQuantity: "Cumulative executed quote",
 };
 
 function Details({ event }: { event: TimelineItem }) {
@@ -39,6 +54,9 @@ function Details({ event }: { event: TimelineItem }) {
       <summary className="cursor-pointer select-none py-1 text-ink-muted">Evidence &amp; identifiers</summary>
       <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 rounded border border-border/70 bg-surface px-2 py-1.5">
         <dt>Evidence</dt><dd className="min-w-0 break-words text-ink-muted">{event.evidenceSource}</dd>
+        {event.linkageEvidenceClass && <div className="contents">
+          <dt>Linkage</dt><dd className="min-w-0 break-words text-ink-muted">Authoritative linkage</dd>
+        </div>}
         {identifiers.map(([key, value]) => <div className="contents" key={key}>
           <dt>{ID_LABELS[key] ?? key}</dt><dd className="min-w-0 break-all font-mono text-ink-muted">{value}</dd>
         </div>)}

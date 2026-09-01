@@ -757,6 +757,7 @@ export interface ManualTradingState {
 
 export type TimelineEvidenceClass =
   | "AUTHORITATIVE_EVENT"
+  | "AUTHORITATIVE_HISTORICAL_EVENT"
   | "CURRENT_AUTHORITATIVE_STATE"
   | "SAFE_DERIVATION";
 
@@ -770,13 +771,17 @@ export interface TimelineItem {
   description: string;
   source: "MANUAL" | "AUTOMATED" | "PAPER" | "UNKNOWN";
   evidenceSource: string;
+  linkageEvidenceClass?: "AUTHORITATIVE_LINKAGE";
   identifiers: Partial<Record<
     "requestId" | "clientOrderId" | "exchangeOrderId" | "deploymentId"
-    | "strategyId" | "signalId" | "alertId" | "intentId", string
+    | "strategyId" | "signalId" | "alertId" | "intentId" | "strategyOrderIntentId"
+    | "sourceKey" | "callerDedupeKey" | "botId" | "manualOrderId" | "manualCommandId"
+    | "commandRequestId" | "targetManualOrderId" | "partialCloseId", string
   >>;
   quantity?: Partial<Record<
     "requestedBase" | "requestedQuote" | "filledBase" | "filledQuote" | "price" | "averagePrice"
-    | "reportedQuantity", number
+    | "reportedQuantity" | "baseQuantity" | "quoteRevenue" | "realizedPnlQuote"
+    | "cumulativeExecutedBaseQuantity" | "cumulativeExecutedQuoteQuantity", number
   >>;
 }
 

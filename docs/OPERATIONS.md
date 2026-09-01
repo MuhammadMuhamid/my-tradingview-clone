@@ -132,13 +132,13 @@ time; `Current known state` means a mutable snapshot was last persisted at the
 displayed time and does not prove every earlier transition. The panel labels
 paper simulation, Bot dry-run, Binance testnet, and Binance mainnet separately.
 
-An incomplete-history warning is expected for older or partial records. In
-particular, the current manual Bot read contract does not expose individual
-fills, prior cumulative snapshots, or a cancel command linked to its order;
-Platform also cannot read the Bot's `StrategyOrderIntent` by the Platform
-deployment/alert/dedupe identity. Those facts remain unavailable rather than
-being inferred. The Timeline creates no rows and is not a second execution
-ledger.
+Bot execution evidence is fetched server-side only after one specific timeline
+is opened. Manual orders use the exact signed order identity; custom deployment
+evidence uses the exact Platform source/dedupe identity and is hard-bounded.
+Bot unavailability or not-found leaves existing Platform evidence intact, and
+the Timeline creates no rows or duplicate Bot ledger. Individual Bot exchange
+fills, commission history, prior cumulative snapshots, and unpersisted
+transitions remain unavailable rather than inferred.
 
 ---
 
