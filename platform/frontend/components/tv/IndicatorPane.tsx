@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createChart, ColorType, CrosshairMode, LineStyle, LineType,
+  createChart, LineStyle, LineType,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type IChartApi, type ISeriesApi, type LineData, type Time, type UTCTimestamp,
   type WhitespaceData,
@@ -9,6 +9,7 @@ import {
 import {
   planSeriesMutation, plotValueAt, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
+import { baseChartOptions } from "@/lib/chartTheme";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 
@@ -19,7 +20,7 @@ type SeriesEntry =
   | { kind: "Candlestick"; api: ISeriesApi<"Candlestick">; data: ChartPoint[] }
   | { kind: "Bar"; api: ISeriesApi<"Bar">; data: ChartPoint[] };
 
-const MIN_HEIGHT = 96;
+const MIN_HEIGHT = 72;
 const MAX_HEIGHT = 360;
 
 function seriesKind(overlay: ChartOverlay): SeriesEntry["kind"] {
@@ -175,26 +176,35 @@ export function IndicatorPane({
   useEffect(() => {
     if (!containerRef.current) return;
     const seriesEntries = seriesRef.current;
+    const base = baseChartOptions();
     const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" },
-        textColor: "#9aa4b6", fontFamily: "ui-monospace, monospace",
-      },
-      grid: { vertLines: { color: "#1a2030" }, horzLines: { color: "#1a2030" } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: {
-        borderColor: "#232b3a", scaleMargins: { top: 0.12, bottom: 0.12 },
-      },
-      timeScale: {
-        borderColor: "#232b3a", timeVisible: true, secondsVisible: false,
-        visible: showTimeAxisRef.current,
-      },
-      autoSize: true,
+      ...base,
+      rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top: 0.12, bottom: 0.12 } },
+      timeScale: { ...base.timeScale, visible: showTimeAxisRef.current },
     });
     const crosshair = (param: { time?: Time }): void =>
       onHoverRef.current(typeof param.time === "number" ? param.time : null);
     const range = (next: { from: Time; to: Time } | null): void => {
       if (!next || typeof next.from !== "number" || typeof next.to !== "number") return;
+      /*
+       * A pane that holds no points yet must not move anybody else.
+       *
+       * lightweight-charts emits a visible-range change as soon as a chart is
+       * created, from the default logical range of an empty series — a span of
+       * a few bars around the epoch. That range was broadcast to the price
+       * chart, which obediently zoomed to it: with three studies on screen the
+       * chart opened showing about three candles across the full width, and
+       * the only way back was to scroll out by hand. It is a race, so it did
+       * not always fire; it fired every time once the panes changed size.
+       *
+       * The pane's own data is the test. Once a series has points, its range
+       * is real and syncs as before.
+       */
+      let hasPoints = false;
+      for (const entry of seriesRef.current.values()) {
+        if (entry.data.length > 0) { hasPoints = true; break; }
+      }
+      if (!hasPoints) return;
       onRangeRef.current(id, { from: next.from, to: next.to });
     };
     chart.subscribeCrosshairMove(crosshair);
@@ -274,7 +284,10 @@ export function IndicatorPane({
         lineType: overlay.style === "stepline" ? LineType.WithSteps : LineType.Simple,
         lineVisible: overlay.style !== "circles" && overlay.style !== "cross",
         pointMarkersVisible: overlay.style === "circles",
-        title: compact ? "" : overlay.title,
+        // Values on the axis, names in the legend — see CandleChart. An
+        // oscillator's reference levels otherwise printed "70" beside
+        // "70.0000" on every line.
+        title: "",
       });
       else if (entry.kind === "Histogram") entry.api.applyOptions({ color: overlay.color });
       else if (entry.kind === "Area") entry.api.applyOptions({ lineColor: overlay.color });
@@ -291,7 +304,7 @@ export function IndicatorPane({
       else if (plan === "update") updateData(entry, points[points.length - 1]!);
     }
     onReady(id, chart);
-  }, [id, onReady, overlays, ready, compact]);
+  }, [id, onReady, overlays, ready]);
 
   // Keep the pane's crosshair aligned with price and sibling panes. Use the
   // first plot that has a value at this time only as the vertical anchor; all
@@ -340,7 +353,7 @@ export function IndicatorPane({
 
   return (
     <section
-      className="group/pane relative shrink-0 border-t border-border bg-[#121722]"
+      className="group/pane relative shrink-0 border-t border-border bg-surface"
       style={{ height }}
       aria-label={`${title} indicator pane`}
     >
@@ -376,10 +389,10 @@ export function IndicatorPane({
           title={title}
           collapsible={compact}
           startCollapsed={compact}
-          className="min-w-0 rounded bg-[#121722]/80 px-1.5 py-0.5"
+          className="min-w-0 rounded bg-surface/80 px-1.5 py-0.5"
         />
         {onAction && (
-          <span className="flex shrink-0 items-center gap-0.5 rounded bg-[#121722]/85 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
+          <span className="flex shrink-0 items-center gap-0.5 rounded bg-surface/85 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
             <PaneButton
               label={`Hide ${title} — it stays in the Indicators panel`}
               onClick={() => onAction(id, "hide")}

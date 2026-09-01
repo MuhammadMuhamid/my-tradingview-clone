@@ -17,6 +17,26 @@ export function fmtPrice(n: number | null | undefined): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+/**
+ * A price DELTA, at the precision of the price it was taken from.
+ *
+ * `fmtPrice` picks its decimals from the magnitude of the number it is given,
+ * which is right for a price and wrong for the difference between two: a
+ * 102.31 close moving by seven thousandths was printed in the chart legend as
+ * "−0.006980", six decimals of noise beside a two-decimal price. The delta is
+ * shown the way the reference chart headers show it — same precision as the
+ * price, and always signed.
+ */
+export function fmtPriceDelta(delta: number | null | undefined, reference: number): string {
+  if (delta === null || delta === undefined || Number.isNaN(delta)) return "—";
+  const abs = Math.abs(reference);
+  const digits = abs >= 100 ? 2 : abs >= 1 ? 4 : 6;
+  const sign = delta >= 0 ? "+" : "−";
+  return `${sign}${Math.abs(delta).toLocaleString(undefined, {
+    minimumFractionDigits: digits, maximumFractionDigits: digits,
+  })}`;
+}
+
 export function fmtDateTime(ms: number | string | null | undefined): string {
   if (ms === null || ms === undefined) return "—";
   const d = new Date(ms);

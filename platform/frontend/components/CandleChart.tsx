@@ -1,14 +1,15 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, Time, UTCTimestamp,
+  createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, LineStyle, LineType,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type LineData, type WhitespaceData,
 } from "lightweight-charts";
 import type { Candle, Interval, Trade } from "@/lib/types";
 import { snapToBarIndex } from "@/lib/paneSync";
-import { fmtPrice } from "@/lib/format";
+import { baseChartOptions } from "@/lib/chartTheme";
+import { fmtPrice, fmtPriceDelta } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
@@ -94,12 +95,19 @@ type OverlaySeriesEntry =
  * height meant a third oscillator overflowed that cap and was drawn cut in
  * half. Shrinking as panes are added keeps the common cases whole; the user's
  * own resize always wins over this.
+ *
+ * These were 160/144/124/106 against a 56% cap, which on a 1000px workspace
+ * with an overlay study, an oscillator and MACD left the price chart 44% —
+ * measured at 230px, shorter than the two oscillators under it put together.
+ * The candles are the subject of this screen; the studies annotate them. The
+ * cap is now 38% and the panes open smaller, so price keeps the majority of
+ * the column in every case a user actually reaches.
  */
 function defaultPaneHeight(paneCount: number): number {
-  if (paneCount <= 1) return 160;
-  if (paneCount === 2) return 144;
-  if (paneCount === 3) return 124;
-  return 106;
+  if (paneCount <= 1) return 132;
+  if (paneCount === 2) return 118;
+  if (paneCount === 3) return 104;
+  return 94;
 }
 
 function overlaySeriesKind(overlay: ChartOverlay): OverlaySeriesEntry["kind"] {
@@ -443,25 +451,16 @@ export function CandleChart({
     if (!containerRef.current) return;
     const overlayEntries = overlayRefs.current;
     const paneCharts = paneChartRefs.current;
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" },
-        textColor: "#9aa4b6",
-        fontFamily: "ui-monospace, monospace",
-      },
-      grid: {
-        vertLines: { color: "#1a2030" },
-        horzLines: { color: "#1a2030" },
-      },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#232b3a" },
-      timeScale: { borderColor: "#232b3a", timeVisible: true, secondsVisible: false },
-      autoSize: true,
-    });
+    const chart = createChart(containerRef.current, baseChartOptions());
     const vol = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "vol",
       color: "#2a3346",
+      // Volume has its own hidden scale, so its last-value badge landed in the
+      // price column on top of whatever level sat nearest the low — "4.47K"
+      // was printed over the S1 support label. The figure is in the legend.
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
@@ -694,13 +693,17 @@ export function CandleChart({
       };
       const lastValueVisible = !compact && overlay.instanceId !== "moving-averages";
       /*
-       * lightweight-charts draws the series `title` on the price scale even
-       * when the last value is hidden, so ten moving averages stamped ten
-       * name-only badges down the axis and buried the price ticks under them.
-       * The scale is for prices: a label earns its place there only when it
-       * carries a value. Every series is still named in the legend.
+       * The price scale carries values, never names.
+       *
+       * lightweight-charts draws the series `title` as its own badge on the
+       * axis, beside the value badge — so every level plotted two labels, "R1"
+       * and "843.49", down a column already crowded by the last price, the
+       * open orders and each moving average. Ten moving averages stamped ten
+       * name-only badges and buried the price ticks under them, which is why
+       * they were suppressed here first; the same argument applies to all of
+       * them. Every series is still named, with its colour, in the legend.
        */
-      const axisTitle = lastValueVisible ? overlay.title : "";
+      const axisTitle = "";
       if (!entry) {
         if (kind === "Histogram") {
           entry = { kind, api: chart.addHistogramSeries({
@@ -999,11 +1002,11 @@ export function CandleChart({
 
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
-  const px = up ? "text-[#2ebd85]" : "text-[#f6465d]";
+  const px = up ? "text-up" : "text-down";
 
   return (
     <div className={`flex ${fill ? "h-full" : "h-[520px]"} w-full flex-col overflow-hidden`}>
-      <div className="relative min-h-0 flex-1 bg-[#121722]">
+      <div className="relative min-h-0 flex-1 bg-surface">
       <div ref={containerRef} className="absolute inset-0 z-[1]" />
       <PineVisualLayer
         container={containerRef.current}
@@ -1048,10 +1051,10 @@ export function CandleChart({
         wrap, which is exactly when a second overlay pinned to a fixed offset
         would have been drawn straight through it.
       */}
-      <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex max-w-[calc(100%-130px)] flex-col items-start gap-0.5">
+      <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex max-w-[min(60%,760px)] flex-col items-start gap-0.5">
       {legend && (
-        <div className="flex flex-wrap items-baseline gap-x-2 rounded bg-[#121722]/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-[#9aa4b6] sm:text-[11px]">
-          <span className="font-semibold text-[#e5e9f0]">{symbol}</span>
+        <div className="flex flex-wrap items-baseline gap-x-2 rounded bg-surface/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-ink-muted sm:text-[11px]">
+          <span className="font-semibold text-ink">{symbol}</span>
           <span>· {interval} ·</span>
           {/* O/H/L and volume are the first things to go on a phone: the close
               and the change are what the eye actually reads at a glance. */}
@@ -1059,19 +1062,27 @@ export function CandleChart({
           <span className="hidden sm:inline">H <span className={px}>{fmtPrice(legend.high)}</span></span>
           <span className="hidden sm:inline">L <span className={px}>{fmtPrice(legend.low)}</span></span>
           <span>C <span className={px}>{fmtPrice(legend.close)}</span></span>
-          <span className={chgUp ? "text-[#2ebd85]" : "text-[#f6465d]"}>
-            {chgUp ? "+" : ""}{fmtPrice(legend.chg)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
+          <span className={chgUp ? "text-up" : "text-down"}>
+            {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
           </span>
           {legend.volume !== null && (
-            <span className="hidden sm:inline">Vol <span className="text-[#e5e9f0]">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
+            <span className="hidden xl:inline">Vol <span className="text-ink">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
           )}
         </div>
       )}
+      {/*
+        Ten moving averages, an overlay study and its levels expand to four
+        wrapped rows of numbers laid opaquely across the candles they describe.
+        Past a handful of plots the legend opens collapsed — the names and
+        their colours, which is what identifies what is on the chart — and the
+        chevron brings the values back. The moving-average panel carries the
+        same numbers in a form built to be read.
+      */}
       <IndicatorLegend
         overlays={groupedOverlays.price}
         time={indicatorHoverTime}
-        startCollapsed={compact}
-        className="max-w-full rounded bg-[#121722]/75 px-1 py-0.5"
+        startCollapsed={compact || groupedOverlays.price.length > 6}
+        className="max-w-full rounded bg-surface/75 px-1 py-0.5"
       />
       </div>
       {/*
@@ -1093,7 +1104,7 @@ export function CandleChart({
       )}
       </div>
       {groupedOverlays.panes.length > 0 && (
-        <div className="max-h-[56%] shrink-0 overflow-y-auto bg-[#121722]">
+        <div className="max-h-[38%] shrink-0 overflow-y-auto bg-surface">
           {groupedOverlays.panes.map((pane, index) => (
             <IndicatorPane
               key={pane.id}
@@ -1125,11 +1136,16 @@ export function CandleChart({
  * moving, which is the state a user is most likely to misread as calm.
  */
 const FEED_BADGE: Record<ChartFeedState, { label: string; className: string }> = {
-  idle: { label: "not live", className: "bg-[#121722]/75 text-[#9aa4b6]" },
-  connecting: { label: "connecting…", className: "bg-[#121722]/75 text-[#9aa4b6]" },
-  live: { label: "live", className: "bg-[#121722]/75 text-[#2ebd85]" },
-  reconnecting: { label: "reconnecting…", className: "bg-[#3a2a12]/85 text-[#f0b90b]" },
-  stale: { label: "feed stalled — price is not current", className: "bg-[#3a1c24]/85 text-[#f6465d]" },
+  idle: { label: "not live", className: "bg-surface/75 text-ink-muted" },
+  connecting: { label: "connecting…", className: "bg-surface/75 text-ink-muted" },
+  live: { label: "live", className: "bg-surface/75 text-up" },
+  /*
+    The two loud states keep an opaque plate under the tint. They are read
+    against whatever candle happens to be behind them, and a translucent
+    coloured wash alone is not reliably legible over a bright green bar.
+  */
+  reconnecting: { label: "reconnecting…", className: "border border-warn/40 bg-surface/90 text-warn" },
+  stale: { label: "feed stalled — price is not current", className: "border border-down/40 bg-surface/90 text-down" },
 };
 
 export { INTERVAL_MS };
