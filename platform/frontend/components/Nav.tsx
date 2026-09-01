@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
  */
 const LINKS = [
   { href: "/chart", label: "Chart" },
+  { href: "/scanner", label: "Scanner" },
   { href: "/alerts", label: "Alerts" },
   { href: "/optimizers", label: "Optimizers" },
   { href: "/backtests", label: "Backtests" },
@@ -78,7 +79,9 @@ export function Nav() {
           })}
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-3">
-          <span className="hidden text-xs text-ink-faint sm:block">Binance Spot</span>
+          <span className="hidden text-xs text-ink-faint sm:block">
+            {path.startsWith("/scanner") ? "Binance USD-M Futures" : "Binance Spot"}
+          </span>
           {username && (
             <button onClick={signOut} title={`Signed in as ${username}`}
               className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">

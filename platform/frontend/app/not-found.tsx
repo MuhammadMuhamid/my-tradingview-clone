@@ -9,7 +9,7 @@ export default function NotFound() {
         That address does not match any page in this application.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {[["/chart", "Chart"], ["/alerts", "Alerts"], ["/backtests", "Backtests"],
+        {[["/chart", "Chart"], ["/scanner", "Scanner"], ["/alerts", "Alerts"], ["/backtests", "Backtests"],
           ["/deployments", "Live trading"]].map(([href, label]) => (
           <Link
             key={href}

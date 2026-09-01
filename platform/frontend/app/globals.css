@@ -99,3 +99,40 @@ body {
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
+/* Native Scanner keeps Mahamid's information density inside Platform tokens. */
+.scanner-workspace {
+  --color-surface: theme("colors.bg");
+  --color-surface-2: theme("colors.surface");
+  --color-surface-3: theme("colors.surface-2");
+  --color-line: theme("colors.border");
+  --color-ink: theme("colors.ink");
+  --color-ink-dim: theme("colors.ink-muted");
+  --color-pos: theme("colors.up");
+  --color-neg: theme("colors.down");
+}
+.scanner-control {
+  @apply inline-flex min-h-7 items-center rounded border border-border px-2 py-0.5 text-xs text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
+}
+.scanner-select, .scanner-input {
+  @apply min-h-7 rounded border border-border bg-bg px-1.5 py-0.5 text-xs text-ink;
+}
+.scanner-workspace .num { font-variant-numeric: tabular-nums; text-align: right; }
+.scanner-workspace .sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-surface-2);
+  box-shadow: 1px 0 0 var(--color-line);
+}
+.scanner-workspace thead .sticky-col { z-index: 4; }
+.scanner-workspace .stale { opacity: 0.48; font-style: italic; }
+.scanner-workspace table.dense th,
+.scanner-workspace table.dense td {
+  padding: 2px 8px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-line);
+  font-size: 12px;
+  line-height: 20px;
+}
+.scanner-workspace table.dense td.row-detail,
+.scanner-workspace table.dense td.row-detail * { white-space: normal; }
