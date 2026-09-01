@@ -9,8 +9,8 @@ import { SESSION_COOKIE, signSession } from "../src/security/session";
 import type { LiveRunner } from "../src/engine/liveRunner";
 
 const MARKET = {
-  exchange: "binanceusdm", market_type: "usd_m_perpetual", contract_type: "perpetual",
-  linear: true, spot: false,
+  exchange: "binance", market_type: "spot", contract_type: null,
+  linear: false, spot: true,
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -19,7 +19,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-test("Scanner client preserves canonical Futures identity and sends no browser credentials", async () => {
+test("Scanner client preserves canonical Spot identity and sends no browser credentials", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init });
@@ -32,7 +32,7 @@ test("Scanner client preserves canonical Futures identity and sends no browser c
   assert.equal(calls[0]?.url, "http://scanner.internal:8000/api/screener");
   assert.deepEqual(calls[0]?.init?.headers, { accept: "application/json" });
   assert.equal(JSON.stringify(calls).toLowerCase().includes("authorization"), false);
-  assert.equal(JSON.stringify(calls).toLowerCase().includes("spot"), false);
+  assert.equal(result.market.spot, true);
 });
 
 test("Scanner boundary forwards only approved timeframe writes and validation details", async (t) => {

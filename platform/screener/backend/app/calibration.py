@@ -467,15 +467,20 @@ def calibration_provenance(
         if key not in {"mode", "empirical"}
     }
     exchange_id = exchange or config.get("exchange")
+    is_spot = exchange_id == "binance"
+    market_type = (
+        "spot" if is_spot
+        else "usd_m_perpetual" if exchange_id == "binanceusdm"
+        else "linear_perpetual"
+    )
     return {
         "calculation_version": CALCULATION_VERSION,
         "market": {
             "exchange": exchange_id,
-            "market_type": (
-                "usd_m_perpetual" if exchange_id == "binanceusdm" else "linear_perpetual"
-            ),
-            "contract_type": "perpetual",
-            "linear": True,
+            "market_type": market_type,
+            "contract_type": None if is_spot else "perpetual",
+            "linear": not is_spot,
+            "spot": is_spot,
         },
         "symbol": {
             "config": symbol,

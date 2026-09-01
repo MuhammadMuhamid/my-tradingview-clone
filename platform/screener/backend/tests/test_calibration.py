@@ -425,17 +425,39 @@ def test_legacy_unfingerprinted_calibration_never_returns_a_rate():
     assert "%" not in out["display"]
 
 
-def test_provenance_identifies_binance_usdm_perpetual(cfg):
+def test_provenance_identifies_binance_spot(cfg):
     _, provenance = calibration.calibration_fingerprint(
-        cfg, "BTC/USDT", "1h", native_symbol="BTC/USDT:USDT"
+        cfg, "BTC/USDT", "1h", native_symbol="BTC/USDT"
     )
     assert provenance["market"] == {
-        "exchange": "binanceusdm",
-        "market_type": "usd_m_perpetual",
-        "contract_type": "perpetual",
-        "linear": True,
+        "exchange": "binance",
+        "market_type": "spot",
+        "contract_type": None,
+        "linear": False,
+        "spot": True,
     }
     assert provenance["symbol"] == {
         "config": "BTC/USDT",
-        "native": "BTC/USDT:USDT",
+        "native": "BTC/USDT",
     }
+
+
+def test_futures_calibration_fingerprint_is_stale_for_spot(result, cfg):
+    futures_fingerprint, futures_provenance = calibration.calibration_fingerprint(
+        cfg,
+        "BTC/USDT",
+        "1h",
+        exchange="binanceusdm",
+        native_symbol="BTC/USDT:USDT",
+    )
+    spot_fingerprint, _ = calibration.calibration_fingerprint(
+        cfg, "BTC/USDT", "1h", exchange="binance", native_symbol="BTC/USDT"
+    )
+    legacy = {**result, "fingerprint": futures_fingerprint, "provenance": futures_provenance}
+
+    assessed = calibration.assess_provenance(legacy, spot_fingerprint)
+
+    assert futures_fingerprint != spot_fingerprint
+    assert assessed["current"] is False
+    assert assessed["stale"] is True
+    assert assessed["available"] is False

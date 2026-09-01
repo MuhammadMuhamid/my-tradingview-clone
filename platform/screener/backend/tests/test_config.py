@@ -62,6 +62,22 @@ def test_rejects_duplicate_symbols():
         validate(doc)
 
 
+def test_market_source_is_pinned_to_binance_spot(cfg):
+    assert cfg.doc["exchange"] == "binance"
+    with pytest.raises(ConfigError, match="Spot-only"):
+        cfg.update({"exchange": "binanceusdm"})
+
+
+def test_legacy_user_exchange_override_cannot_reactivate_futures(tmp_path):
+    user = tmp_path / "user.json"
+    user.write_text(json.dumps({"exchange": "binanceusdm"}))
+
+    cfg = ConfigStore(user_path=user)
+
+    assert cfg.doc["exchange"] == "binance"
+    assert json.loads(user.read_text())["exchange"] == "binanceusdm"
+
+
 def test_active_timeframes_are_ordered_shortest_first(cfg):
     cfg.update({
         "strategy": {"enabled": False},
@@ -106,13 +122,13 @@ def test_disabled_indicators_do_not_pull_a_timeframe(cfg):
     assert "1w" not in cfg.active_timeframes()
 
 
-def test_universe_is_the_36_symbols_that_resolve_on_the_default_exchange(cfg):
+def test_universe_is_the_approved_36_symbol_configuration(cfg):
     """§3 minus two, at the user's direction on 2026-08-28.
 
     The unverifiable `BIANRENSHENGUSDT` was dropped, and `PEPE/USDT` with it —
-    `binanceusdm` lists only the denominated `1000PEPE` contract, which is a
-    different price scale. Any surviving unverified entry must still be surfaced
-    rather than silently enabled, so the mechanism stays under test.
+    The product migration changes market source, not Mahamid's configured
+    universe. Any unavailable Spot pair is surfaced unresolved at startup rather
+    than replaced or silently removed.
     """
     symbols = cfg.doc["symbols"]
     assert len(symbols) == 36

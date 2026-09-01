@@ -18,6 +18,7 @@ import {
   type AlertTypeFilter,
 } from "@/lib/alertManagement";
 import { leavesFilteredView } from "@/lib/alertEditing";
+import { parseScannerAlertTarget } from "@/lib/spotScene";
 
 /**
  * Every alert across every coin, in one place.
@@ -54,6 +55,12 @@ export default function AlertsPage() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    const target = parseScannerAlertTarget(window.location.search);
+    if (!target) return;
+    setNewSymbol(target.symbol);
+    setLevelOpen(true);
+  }, []);
   // A fired alert should show up here without a manual reload.
   useEffect(() => {
     const t = setInterval(() => void refresh(), 15_000);

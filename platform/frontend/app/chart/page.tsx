@@ -45,6 +45,7 @@ import * as layoutStore from "@/lib/layouts";
 import type { Layout, WorkspaceState } from "@/lib/layouts";
 import type { Candle, Interval, OpenTrade, Strategy, StrategyParams, SymbolInfo, Trade } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
+import { parseScannerChartTarget } from "@/lib/spotScene";
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 const HISTORY_OPTIONS = [
@@ -468,6 +469,17 @@ export default function TvWorkspace() {
     setPendingApply(parseApplyLink(window.location.search));
   }, []);
 
+  // Scanner navigation is a read-only workspace prefill. It selects the exact
+  // existing Platform Spot symbol and, for Trade, opens the normal manual ticket.
+  // It never chooses a side/size or submits an order.
+  useEffect(() => {
+    const target = parseScannerChartTarget(window.location.search);
+    if (!target) return;
+    setSymbol(target.symbol);
+    setTrades([]);
+    if (target.panel === "manual") setPanel("manual");
+  }, []);
+
   const applyDeepLink = useCallback(async (request: ApplyRequest) => {
     setPendingApply(null);
     setLoadingBest(true);
@@ -525,7 +537,8 @@ export default function TvWorkspace() {
     // the restored layout; still sync + list layouts for the menu. The user may
     // dismiss the link, in which case the layout they left is what they get on
     // the next load rather than being silently replaced on this one.
-    const isDeepLink = parseApplyLink(window.location.search) !== null;
+    const isDeepLink = parseApplyLink(window.location.search) !== null ||
+      parseScannerChartTarget(window.location.search) !== null;
     (async () => {
       await layoutStore.migrateLegacyLayouts();
       await layoutStore.syncDeploymentLayouts();

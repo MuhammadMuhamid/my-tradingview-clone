@@ -95,8 +95,8 @@ class CandleCache:
         self.store = store
         self.fetch_bars = fetch_bars
         # config symbol -> exchange-native symbol (see exchange.SymbolResolution).
-        # Cache rows stay keyed by the config symbol so a change of exchange does
-        # not rewrite every key.
+        # Cache rows stay keyed by the config symbol within the feed's exchange
+        # namespace. `binance` and legacy `binanceusdm` rows therefore cannot mix.
         self.symbol_map: dict[str, str] = dict(symbol_map or {})
         self._sem = asyncio.Semaphore(max_concurrent)
         # Guards against two concurrent refreshes racing on the same pair — the

@@ -85,9 +85,9 @@ export default function ScannerPage() {
       stale: rows.filter((row) => Object.values(row.series ?? {}).some((series) => series.stale)).length,
     };
   }, [snapshot]);
-  const marketLabel = snapshot?.market.market_type === "usd_m_perpetual"
-    ? "Binance USD-M Perpetual"
-    : snapshot ? `${snapshot.market.exchange} · ${snapshot.market.market_type}` : "Binance USD-M Perpetual";
+  const marketLabel = snapshot?.market.spot
+    ? `${snapshot.market.exchange === "binance" ? "Binance" : snapshot.market.exchange} Spot`
+    : "Binance Spot";
 
   return (
     <div className="scanner-workspace flex h-full min-h-0 flex-col bg-bg">
@@ -95,13 +95,13 @@ export default function ScannerPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
           <div className="mr-1 min-w-[220px]">
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold text-ink">Futures Scanner</h1>
+              <h1 className="text-sm font-semibold text-ink">Spot Scanner</h1>
               <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-medium text-accent">
                 {marketLabel}
               </span>
             </div>
             <p className="mt-0.5 text-[11px] text-ink-muted">
-              Linear perpetual contracts · {snapshot?.market.spot === false ? "not Spot" : "market identity loading"}
+              Exact Spot instruments · {snapshot?.market.spot ? "API provenance verified" : "market identity loading"}
             </p>
           </div>
 
@@ -157,7 +157,7 @@ export default function ScannerPage() {
           </button>
 
           <span className="flex items-center gap-1">
-            <label className="sr-only" htmlFor="scanner-symbol">Add Futures symbol</label>
+            <label className="sr-only" htmlFor="scanner-symbol">Add Spot symbol</label>
             <input id="scanner-symbol" value={newSymbol} onChange={(event) => setNewSymbol(event.target.value)}
               placeholder="ADD/USDT" className="scanner-input w-28" />
             <button disabled={busy !== null || !newSymbol.trim()} className="scanner-control"
@@ -203,7 +203,7 @@ export default function ScannerPage() {
         ) : (
           <div className="grid flex-1 place-items-center p-6 text-sm text-ink-muted">
             <div className="text-center">
-              <p>{error ? "Scanner service unavailable." : "Loading cached Futures Scanner snapshot…"}</p>
+              <p>{error ? "Scanner service unavailable." : "Loading cached Spot Scanner snapshot…"}</p>
               {error && <button className="scanner-control mt-3" onClick={() => void load()}>Retry</button>}
             </div>
           </div>

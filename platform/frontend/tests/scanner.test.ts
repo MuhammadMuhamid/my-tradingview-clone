@@ -11,24 +11,28 @@ const read = (file: string) => fs.readFileSync(path.join(ROOT, file), "utf8");
 
 function row(symbol: string, state: ScreenerRow["state"], bull: number | null): ScreenerRow {
   return {
-    symbol, state, price: state === "unresolved" ? null : 100, change_24h_pct: 1,
+    symbol, state, market: {
+      exchange: "binance", market_type: "spot", contract_type: null,
+      linear: false, spot: true, config_symbol: symbol,
+      native_symbol: state === "unresolved" ? null : symbol,
+    }, price: state === "unresolved" ? null : 100, change_24h_pct: 1,
     indicators: {}, series: {}, errors: state === "partial" ? { rsi: "missing" } : {},
     score: null, empirical: null, strategy: bull === null ? null : {
       bull: { side: "bull", timeframes: {}, passed: 1, total: 2, pct: bull, aligned: false },
       bear: { side: "bear", timeframes: {}, passed: 1, total: 2, pct: 100 - bull, aligned: false },
       bullish_pct: bull, bearish_pct: 100 - bull, bias: "bull", setup: null,
       note: "condition share, not probability", timeframes_used: {}, series: {},
-    }, mtf: {}, note: state === "unresolved" ? "not resolved on Binance USD-M" : null,
+    }, mtf: {}, note: state === "unresolved" ? "not resolved on Binance Spot" : null,
   };
 }
 
-test("native Scanner route and navigation preserve visible USD-M Futures identity", () => {
+test("native Scanner route and navigation preserve visible Binance Spot identity", () => {
   const page = read("app/scanner/page.tsx");
   const nav = read("components/Nav.tsx");
-  assert.match(page, /Futures Scanner/);
-  assert.match(page, /snapshot\?\.market\.market_type === "usd_m_perpetual"/);
-  assert.match(page, /Binance USD-M Perpetual/);
-  assert.match(page, /not Spot/);
+  assert.match(page, /Spot Scanner/);
+  assert.match(page, /snapshot\?\.market\.spot/);
+  assert.match(page, /Binance Spot/);
+  assert.doesNotMatch(page, /USD-M|perpetual|not Spot/);
   assert.ok(nav.indexOf('href: "/chart"') < nav.indexOf('href: "/scanner"'));
   assert.ok(nav.indexOf('href: "/scanner"') < nav.indexOf('href: "/alerts"'));
 });
@@ -69,17 +73,28 @@ test("expanded details retain both checklists, score disclaimer, provenance, and
   assert.match(calibration, /data\.current && data\.available \? d\.display : `withheld/);
 });
 
-test("Futures row actions cannot invoke Spot behavior", () => {
+test("Spot row actions use existing destinations and Backtest stays truthful", () => {
   const detail = read("components/scanner/RowDetail.tsx");
-  for (const label of ["Open Chart", "Create Alert", "Trade", "Backtest"]) {
-    assert.match(detail, new RegExp(`\\["${label}",`));
-  }
-  assert.match(detail, /<button disabled aria-label=/);
-  assert.match(detail, /no Spot chart will be opened/);
-  assert.match(detail, /no Spot alert will be created/);
-  assert.match(detail, /Manual Trading V1 is Spot-only/);
+  assert.match(detail, /scannerActionHrefs\(row\)/);
+  assert.match(detail, /<Link href=\{actions\.chart\}/);
+  assert.match(detail, /<Link href=\{actions\.alert\}/);
+  assert.match(detail, /<Link href=\{actions\.trade\}/);
+  assert.match(detail, /Backtest · unavailable/);
   assert.match(detail, /calibration is not a backtest/);
-  assert.doesNotMatch(detail, /href=|router\.push|window\.location/);
+  assert.match(detail, /neither action saves, arms, sizes, or submits anything/);
+});
+
+test("Scanner navigation prefills existing Spot workflows without direct mutations", () => {
+  const chart = read("app/chart/page.tsx");
+  const alerts = read("app/alerts/page.tsx");
+  const links = read("lib/spotScene.ts");
+  assert.match(chart, /parseScannerChartTarget\(window\.location\.search\)/);
+  assert.match(chart, /target\.panel === "manual"/);
+  assert.match(chart, /<ManualTradingPanel symbol=\{symbol\}/);
+  assert.match(alerts, /parseScannerAlertTarget\(window\.location\.search\)/);
+  assert.match(alerts, /setNewSymbol\(target\.symbol\)/);
+  assert.match(alerts, /setLevelOpen\(true\)/);
+  assert.doesNotMatch(links, /submitManualOrder|createMaAlert|fetch\(|api\./);
 });
 
 test("Scanner writes are explicit and polling pauses while the page is hidden", () => {

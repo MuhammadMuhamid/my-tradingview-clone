@@ -80,7 +80,7 @@ export function Nav() {
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-3">
           <span className="hidden text-xs text-ink-faint sm:block">
-            {path.startsWith("/scanner") ? "Binance USD-M Futures" : "Binance Spot"}
+            Binance Spot
           </span>
           {username && (
             <button onClick={signOut} title={`Signed in as ${username}`}

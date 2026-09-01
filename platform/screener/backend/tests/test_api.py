@@ -94,19 +94,19 @@ def test_snapshot_is_json_serialisable_and_reports_its_own_cost(client):
     assert body["exchange"] == "fakeex"
 
 
-def test_snapshot_market_identity_is_explicit_and_not_spot(client):
+def test_snapshot_market_identity_is_explicitly_spot(client):
     body = client.get("/api/screener").json()
     assert body["market"] == {
         "exchange": "fakeex",
-        "market_type": "linear_perpetual",
-        "contract_type": "perpetual",
-        "linear": True,
-        "spot": False,
+        "market_type": "spot",
+        "contract_type": None,
+        "linear": False,
+        "spot": True,
     }
     btc = next(row for row in body["rows"] if row["symbol"] == "BTC/USDT")
     assert btc["market"]["config_symbol"] == "BTC/USDT"
     assert btc["market"]["native_symbol"] == "BTC/USDT"
-    assert btc["market"]["spot"] is False
+    assert btc["market"]["spot"] is True
 
 
 # --- refresh -----------------------------------------------------------

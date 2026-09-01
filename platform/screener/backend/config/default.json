@@ -1,5 +1,5 @@
 {
-  "exchange": "binanceusdm",
+  "exchange": "binance",
   "indicators": {
     "ema": {
       "enabled": true,

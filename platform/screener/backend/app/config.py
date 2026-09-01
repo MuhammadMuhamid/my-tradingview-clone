@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .timeframes import SUPPORTED, is_supported
+from .exchange import BINANCE_SPOT
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 DEFAULT_PATH = CONFIG_DIR / "default.json"
@@ -47,6 +48,8 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def validate(doc: dict[str, Any]) -> None:
     if not isinstance(doc.get("exchange"), str) or not doc["exchange"]:
         raise ConfigError("`exchange` must be a non-empty string")
+    if doc["exchange"] != BINANCE_SPOT:
+        raise ConfigError("`exchange` must be 'binance' (Trading Scene is Spot-only)")
 
     symbols = doc.get("symbols")
     if not isinstance(symbols, list) or not all(isinstance(s, str) and "/" in s for s in symbols):
@@ -151,6 +154,7 @@ class ConfigStore:
     def reload(self) -> dict[str, Any]:
         with self._lock:
             doc = json.loads(self._default_path.read_text())
+            canonical_exchange = doc["exchange"]
 
             seed = json.loads(self._symbols_path.read_text())
             doc["symbols"] = list(seed.get("symbols", []))
@@ -161,6 +165,11 @@ class ConfigStore:
 
             if self._user_path.exists():
                 doc = _deep_merge(doc, json.loads(self._user_path.read_text()))
+
+            # Market source is a product invariant, not a user preference. Keep
+            # a legacy override file intact as history, but never let its former
+            # `binanceusdm` value reactivate Futures or prevent Spot startup.
+            doc["exchange"] = canonical_exchange
 
             validate(doc)
             self._doc = doc

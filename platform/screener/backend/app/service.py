@@ -189,16 +189,13 @@ class ScreenerService:
     # --- market identity ----------------------------------------------
 
     def market_contract(self) -> dict[str, Any]:
-        """Stable derivative identity for downstream Platform consumers."""
-        exchange = self.cache.exchange_id
+        """Stable Spot identity for downstream Platform consumers."""
         return {
-            "exchange": exchange,
-            "market_type": (
-                "usd_m_perpetual" if exchange == "binanceusdm" else "linear_perpetual"
-            ),
-            "contract_type": "perpetual",
-            "linear": True,
-            "spot": False,
+            "exchange": self.cache.exchange_id,
+            "market_type": "spot",
+            "contract_type": None,
+            "linear": False,
+            "spot": True,
         }
 
     def market_identity(self, symbol: str) -> dict[str, Any]:

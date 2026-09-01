@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { CalibrationPanel } from "./CalibrationPanel";
 import { StrategyPanel } from "./StrategyPanel";
 import { fmtNum, fmtPrice, fmtTime } from "@/lib/scanner/format";
+import { scannerActionHrefs } from "@/lib/spotScene";
 import type { CandlePattern, RowScore, ScreenerRow, SrLevel } from "@/lib/scanner/types";
 
 /**
@@ -110,12 +112,7 @@ function ScoreBreakdown({ score }: { score: RowScore | null }) {
   );
 }
 
-const FUTURE_ACTIONS = [
-  ["Open Chart", "USD-M Futures charting is not available; no Spot chart will be opened."],
-  ["Create Alert", "USD-M Futures alert evaluation is not available; no Spot alert will be created."],
-  ["Trade", "Manual Trading V1 is Spot-only; this Futures result cannot create an order."],
-  ["Backtest", "The checklist has no exact USD-M Futures backtest path; calibration is not a backtest."],
-] as const;
+const BACKTEST_REASON = "No exact compatible Spot backtest represents the Scanner checklist; calibration is not a backtest.";
 
 export function RowDetail({ row, span, onRemove, busy }: {
   row: ScreenerRow;
@@ -125,6 +122,11 @@ export function RowDetail({ row, span, onRemove, busy }: {
 }) {
   const patterns = (row.indicators.candles?.patterns ?? []) as CandlePattern[];
   const levels = (row.indicators.sr?.levels ?? []) as SrLevel[];
+  const actions = scannerActionHrefs(row);
+  const marketLabel = row.market?.spot
+    ? `${row.market.exchange === "binance" ? "Binance" : row.market.exchange} Spot`
+    : "market identity unavailable";
+  const linkClass = "inline-flex h-7 items-center rounded border border-[var(--color-line)] px-2 text-xs text-[var(--color-ink)] hover:bg-[var(--color-surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]";
 
   return (
     <tr>
@@ -135,15 +137,20 @@ export function RowDetail({ row, span, onRemove, busy }: {
         <div className="sticky left-0 grid w-[min(1180px,100vw)] gap-6 px-4 py-3 md:grid-cols-3">
           <section className="min-w-0 md:col-span-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 text-xs font-semibold">{row.symbol} · Binance USD-M Perpetual</span>
-              {FUTURE_ACTIONS.map(([label, reason]) => (
-                <span key={label} title={reason}>
-                  <button disabled aria-label={`${label} unavailable: ${reason}`}
-                    className="rounded border border-[var(--color-line)] px-2 py-1 text-xs text-[var(--color-ink-dim)] opacity-60">
-                    {label} · unavailable
-                  </button>
-                </span>
-              ))}
+              <span className="mr-1 text-xs font-semibold">{row.symbol} · {marketLabel}</span>
+              {actions.chart && <Link href={actions.chart} className={linkClass}>Open Chart</Link>}
+              {actions.alert && <Link href={actions.alert} className={linkClass}>Create Alert</Link>}
+              {actions.trade && <Link href={actions.trade} className={linkClass}>Trade</Link>}
+              {!actions.chart && (
+                <button disabled title="Exact Binance Spot identity is unresolved"
+                  className={`${linkClass} cursor-not-allowed text-[var(--color-ink-dim)] opacity-60`}>
+                  Spot actions unavailable
+                </button>
+              )}
+              <button disabled title={BACKTEST_REASON} aria-label={`Backtest unavailable: ${BACKTEST_REASON}`}
+                className={`${linkClass} cursor-not-allowed text-[var(--color-ink-dim)] opacity-60`}>
+                Backtest · unavailable
+              </button>
               {onRemove && (
                 <button disabled={busy} onClick={() => onRemove(row.symbol)}
                   className="ml-auto rounded border border-[var(--color-line)] px-2 py-1 text-xs text-[var(--color-neg)] hover:bg-[var(--color-surface-2)] disabled:opacity-50">
@@ -152,7 +159,8 @@ export function RowDetail({ row, span, onRemove, busy }: {
               )}
             </div>
             <p className="mt-1 text-[10px] text-[var(--color-ink-dim)]">
-              Cross-product actions stay disabled until each destination supports this exact Futures market.
+              Chart opens this exact Spot pair. Alert and Trade only prefill their existing review flows;
+              neither action saves, arms, sizes, or submits anything.
             </p>
           </section>
           <section className="min-w-0 md:col-span-2">

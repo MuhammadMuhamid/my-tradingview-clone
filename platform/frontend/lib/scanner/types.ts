@@ -12,10 +12,10 @@ export type Timeframe = (typeof TIMEFRAMES)[number];
 
 export interface MarketIdentity {
   exchange: string;
-  market_type: "usd_m_perpetual" | "linear_perpetual";
-  contract_type: "perpetual";
+  market_type: "spot";
+  contract_type: null;
   linear: boolean;
-  spot: false;
+  spot: true;
   config_symbol?: string;
   native_symbol?: string | null;
 }

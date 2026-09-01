@@ -48,7 +48,11 @@ def store(tmp_path):
 
 @pytest.fixture(scope="session")
 def btc_1h():
-    """1799 closed BINANCE:BTCUSDT.P 1h bars, frozen 2026-08-28. The §8.1 fixture.
+    """1799 closed BINANCE:BTCUSDT.P 1h bars, frozen 2026-08-28.
+
+    The `.P` source identifies a TradingView perpetual fixture. It remains valid
+    as deterministic numerical input for formula/parity/no-lookahead tests, but
+    it is not evidence of Binance Spot exchange parity.
 
     Deep on purpose: Pine seeds `ta.ema` with an SMA, and a 200-period EMA still
     carries ~0.4% of that seed after 550 bars. 1799 puts it near 1e-7.
