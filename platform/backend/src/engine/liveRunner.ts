@@ -349,6 +349,11 @@ export class LiveRunner {
         this.processing.delete(id);
       }
     }
+    // Write the boundary report after evaluation telemetry so a replay, gap or
+    // out-of-order close is not immediately hidden by the deduplicated DB read.
+    await liveSafety.recordFeedIntegrity(e.integrity).catch(() => {
+      /* integrity status is telemetry; candle validation already happened */
+    });
   }
 
   private async evaluateDeployment(

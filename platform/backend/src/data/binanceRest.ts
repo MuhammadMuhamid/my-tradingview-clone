@@ -6,6 +6,7 @@ import type { Candle, Interval } from "../types/market";
 import { INTERVAL_MS } from "../types/market";
 import * as candleRepo from "../repositories/candles";
 import * as symbolRepo from "../repositories/symbols";
+import { inspectCandleIntegrity } from "./candleIntegrity";
 
 const BASE = "https://api.binance.com";
 const PAGE_LIMIT = 1000;
@@ -66,7 +67,7 @@ export async function fetchKlines(
     if (rows.length === 0) break;
     for (const r of rows) {
       out.push({
-        symbol,
+        symbol: ticker,
         interval,
         openTime: r[0],
         open: parseFloat(r[1]),
@@ -83,6 +84,17 @@ export async function fetchKlines(
     cursor = lastOpen + INTERVAL_MS[interval];
     if (rows.length < PAGE_LIMIT) break;
     await sleep(PAGE_DELAY_MS);
+  }
+  const integrity = inspectCandleIntegrity(out, {
+    symbol: ticker,
+    interval,
+    now: Date.now(),
+    checkFreshness: false,
+  });
+  if (integrity.state === "invalid") {
+    throw new Error(
+      `invalid ${ticker} ${interval} backfill: ${integrity.issues.map((issue) => issue.code).join(", ")}`
+    );
   }
   return out;
 }

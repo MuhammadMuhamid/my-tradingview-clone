@@ -236,6 +236,13 @@ active deployments ─▶ subscribe kline streams (wss://stream.binance.com:9443
   bar; a restart resumes active deployments and gap-fills missed bars via REST.
 - **Idempotent** — a repeated `dedupe_key` is skipped, so a reconnect never
   double-fires an order.
+- **Bounded candle integrity** — REST batches, requested bounded series, and
+  each backfill/live close boundary report timestamp duplicates/order/gaps,
+  OHLC and numeric validity, Spot symbol/timeframe identity, and deterministic
+  timeframe-derived freshness. Forming bars are not mistaken for gaps. Invalid
+  candles are rejected; missing candles are reported, never fabricated or
+  interpolated. `/api/ops/status` reads incremental feed-health evidence rather
+  than rescanning history.
 
 Set `WORKER_ENABLED=false` / `LIVE_RUNNER_ENABLED=false` to run the API alone.
 
@@ -271,6 +278,7 @@ Open http://localhost:3000 — three pages: **Chart** (live Binance candles),
 |---|---|---|
 | GET | `/health` | cheap application-process liveness (no dependencies) |
 | GET | `/readyz` | application readiness: DB connectivity + shipped migrations |
+| GET | `/api/ops/status` | cheap operational feed state, including candle-integrity issues and completed-bar age |
 | GET | `/api/symbols` | list tracked pairs (`?active=true`) |
 | GET | `/api/symbols/search?q=zec&quote=USDT` | search every Binance spot pair |
 | POST | `/api/symbols` | add a pair `{symbol, baseAsset, quoteAsset}` |
@@ -281,7 +289,7 @@ Open http://localhost:3000 — three pages: **Chart** (live Binance candles),
 | GET/PATCH/DELETE | `/api/configs/:id` | manage one preset |
 | POST | `/api/backtests` | queue a run (async worker executes it) |
 | GET | `/api/backtests` `/:id` `/:id/trades` | results + trade list |
-| POST | `/api/data/backfill` | fetch+cache klines `{symbol, interval, start, end}` |
+| POST | `/api/data/backfill` | fetch+cache klines and return bounded integrity `{symbol, interval, start, end}` |
 | POST | `/api/data/ensure` | ensure coverage without refetching |
 | POST | `/api/data/sync-filters` | sync tick/step/minNotional `{symbols:[]}` |
 | GET/POST | `/api/layouts` | server-persisted chart layouts (POST upserts by name) |

@@ -59,12 +59,27 @@ Position state flows the other way on a 30-second poll: the platform asks
 |---|---|
 | `platform/backend/src/api` | HTTP surface: charts, backtests, deployments, optimizer views, Pine execution, MA alerts, push, auth. |
 | `platform/backend/src/engine` | Strategy implementations, the backtest broker, metrics, the multi-timeframe merge, and the live evaluators. |
-| `platform/backend/src/data` | Binance REST backfill and the kline websocket. |
+| `platform/backend/src/data` | Binance Spot REST backfill, kline websocket, and bounded candle-integrity contract. |
 | `platform/backend/src/alerts` | Payload construction, delivery with retries, notification-alert evaluation across all seven condition families, Web Push. |
 | `platform/backend/src/repositories` | All SQL. Nothing else talks to the database. |
 | `platform/backend/src/pine` | Lexer, parser and interpreter for user-supplied Pine scripts. |
 | `platform/backend/src/security` | Session signing, secret encryption, payload redaction. |
 | `platform/backend/src/optimizer` | The tree registry each research tree owns an entry in, the shared GA driver and objective, bounded result reading, and the walk-forward selection helper. |
+
+The candle-integrity contract inspects only the batch, requested series, or
+backfill/live boundary already in hand. It reports `healthy`, `degraded`, or
+`invalid` with machine-readable issue codes for timestamp ordering and
+duplicates, completed-interval gaps, OHLC/numeric/identity defects, and
+timeframe-derived staleness. Forming and not-yet-closed intervals are not
+reported as historical gaps. Closed WebSocket bars validate against the newest
+stored/observed open time before the existing idempotent upsert; explicit
+backfills return their bounded report. Invalid candles are not persisted, and
+gaps are reported rather than filled or interpolated.
+
+`GET /api/ops/status` reads the incremental `feed_health` row and exposes the
+Spot symbol/timeframe, integrity state and issue counts, latest completed-bar
+time/age, and last check time. The status request does not rescan candle
+history.
 
 ### Spot-only Trading Scene and native Scanner
 

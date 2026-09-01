@@ -17,15 +17,68 @@ import * as deploymentRepo from "../../repositories/deployments";
 import {
   countOpenPositions, intendedExposure, realisedPnlInWindow,
 } from "../../engine/riskControls";
-import { worstFeedState, type FeedState } from "../../data/feedHealth";
+import { newestClosedBarOpenTime, worstFeedState, type FeedState } from "../../data/feedHealth";
 import { summariseDelivery } from "../../engine/deliveryHealth";
 import { config } from "../../config";
 import type { LiveRunner } from "../../engine/liveRunner";
 import { readBotStatus } from "../../operations/botStatus";
+import { INTERVAL_MS, isInterval } from "../../types/market";
+import type { CandleIntegrityState, CandleIntegrityIssueCode } from "../../data/candleIntegrity";
 
 /** The word an operator must send to arm or disarm trading. */
 const HALT_CONFIRMATION = "HALT_TRADING";
 const RESUME_CONFIRMATION = "RESUME_TRADING";
+
+interface FeedIntegrityStatusInput {
+  symbol: string;
+  interval: string;
+  state: FeedState;
+  lastBarTime: number | null;
+  lastCheckedAt: number;
+  integrityState: CandleIntegrityState | null;
+  issueCodes: CandleIntegrityIssueCode[];
+  issueCounts: Record<string, number>;
+}
+
+/** Cheap status projection over the already-incremental feed-health row. */
+export function formatFeedIntegrityStatus(feed: FeedIntegrityStatusInput, now: number) {
+  const interval = isInterval(feed.interval) ? feed.interval : null;
+  const latestCompletedBarAgeMs = feed.lastBarTime === null || interval === null
+    ? null
+    : Math.max(0, now - (feed.lastBarTime + INTERVAL_MS[interval]));
+  const fallback: CandleIntegrityState | null = feed.state === "live"
+    ? "healthy"
+    : feed.state === "unknown"
+      ? null
+      : feed.state === "error"
+        ? "invalid"
+        : "degraded";
+  let state = feed.integrityState ?? fallback;
+  const issueCodes = [...feed.issueCodes];
+  const issueCounts = { ...feed.issueCounts };
+  if (feed.lastBarTime !== null && interval !== null) {
+    const expected = newestClosedBarOpenTime(interval, now);
+    const barsBehind = Math.max(0, Math.round((expected - feed.lastBarTime) / INTERVAL_MS[interval]));
+    if (barsBehind > 1) {
+      if (!issueCodes.includes("stale_latest_completed_bar")) {
+        issueCodes.push("stale_latest_completed_bar");
+      }
+      issueCounts.stale_latest_completed_bar = barsBehind;
+      if (state !== "invalid") state = "degraded";
+    }
+  }
+  return {
+    state,
+    market: "spot" as const,
+    symbol: feed.symbol,
+    interval: feed.interval,
+    latestCompletedBarTime: feed.lastBarTime === null ? null : new Date(feed.lastBarTime).toISOString(),
+    latestCompletedBarAgeMs,
+    lastCheckedAt: new Date(feed.lastCheckedAt).toISOString(),
+    issueCodes,
+    issueCounts,
+  };
+}
 
 export function operationsRoutes(getRunner: () => LiveRunner) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -75,6 +128,7 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         // not the emitter. Never let this route 500 because of ordering.
       }
 
+      const statusNow = Date.now();
       return {
         /*
          * Three states, and `unknown` is a real answer rather than a guess. A
@@ -147,9 +201,10 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
             ...f,
             lastBarTime: f.lastBarTime === null ? null : new Date(f.lastBarTime).toISOString(),
             lastCheckedAt: new Date(f.lastCheckedAt).toISOString(),
+            integrity: formatFeedIntegrityStatus(f, statusNow),
           })),
         },
-        time: new Date().toISOString(),
+        time: new Date(statusNow).toISOString(),
       };
     });
 
