@@ -62,6 +62,7 @@ backtest-spot/data/
 backtest-spot/optuna_dbs/
 scripts/binance_ohlc/
 *.csv
+!platform/screener/backend/tests/fixtures/BTCUSDT_1h.csv
 *.db
 
 # ── graphify generated output ──
