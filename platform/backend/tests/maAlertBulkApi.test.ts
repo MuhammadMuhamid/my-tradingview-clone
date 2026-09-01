@@ -8,7 +8,7 @@ const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
 
 async function request(
-  body: unknown,
+  body: Record<string, unknown>,
   execute: (ids: string[], action: BulkAlertAction) => Promise<{
     action: BulkAlertAction; requested: number; affected: number; missingIds: string[];
   }>
@@ -39,7 +39,7 @@ test("bulk API deduplicates explicit IDs and supports pause, resume, and delete"
 
 test("bulk API rejects empty, malformed, unsupported, and oversized requests", async () => {
   const never = async (): Promise<never> => { throw new Error("executor must not run"); };
-  const cases: Array<[unknown, RegExp]> = [
+  const cases: Array<[Record<string, unknown>, RegExp]> = [
     [{ action: "pause", ids: [] }, /must not be empty/],
     [{ action: "pause" }, /non-empty array/],
     [{ action: "launch", ids: [A] }, /action must be one of/],

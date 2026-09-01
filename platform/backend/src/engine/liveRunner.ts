@@ -462,7 +462,7 @@ export class LiveRunner {
   }
 
   /** The risk picture at this instant, read once per emission. */
-  private async riskSnapshot(limits: { dailyLossWindowHours: number }): Promise<RiskSnapshot> {
+  private async riskSnapshot(_limits: { dailyLossWindowHours: number }): Promise<RiskSnapshot> {
     const deployments = [...this.active.values()].map((d) => ({
       position: (d.row.runtimeState.position ?? "flat") as "flat" | "long",
       buyQuoteQty: d.row.buyQuoteQty,

@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { healthRoutes } from "../src/api/routes/health";
+import { registerHealthRoutes } from "../src/api/routes/health";
 
 const migrations = ["001_init.sql", "002_feature.sql"];
 
 async function server(query: (sql: string) => Promise<{ rows: Array<{ filename?: string }> }>) {
   const app = Fastify({ logger: false });
-  await healthRoutes(app, { query, requiredMigrations: () => migrations });
+  await registerHealthRoutes(app, { query, requiredMigrations: () => migrations });
   return app;
 }
 

@@ -21,7 +21,7 @@ test("platform signs the distinct manual command canonical method/path/body", ()
 });
 
 test("manual HMAC material has no frontend reference", () => {
-  const frontend = path.resolve(import.meta.dirname, "../../frontend");
+  const frontend = path.resolve(__dirname, "../../frontend");
   const files: string[] = [];
   const visit = (dir: string) => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
     if (item.name === "node_modules" || item.name === ".next") continue;

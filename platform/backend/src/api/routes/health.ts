@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import { query } from "../../db/pool";
 import { requiredMigrationFiles } from "../../db/migrate";
 
@@ -12,7 +12,7 @@ const defaultDependencies: HealthDependencies = {
   requiredMigrations: requiredMigrationFiles,
 };
 
-export async function healthRoutes(
+export async function registerHealthRoutes(
   app: FastifyInstance,
   deps: HealthDependencies = defaultDependencies
 ): Promise<void> {
@@ -73,3 +73,8 @@ export async function healthRoutes(
     };
   });
 }
+
+/** Fastify-compatible production plugin; tests inject dependencies above. */
+export const healthRoutes: FastifyPluginAsync = async (app) => {
+  await registerHealthRoutes(app);
+};
