@@ -9,6 +9,21 @@ Charting, canonical backtesting and live-alerting platform for the current SR
 Trend, MA + R:R and MTF strategy families on Binance spot pairs, feeding the
 separate execution bot without taking ownership of exchange credentials.
 
+Trading Scene is Spot-only, including the native `/scanner` workspace. The
+Scanner's Python service remains authoritative for its checklist, indicators,
+confluence score and calibration; the browser reaches it only through the
+authenticated, operation-specific `/api/scanner/*` Platform routes. Scanner
+candles/metadata/calibrations use the `binance` exchange namespace, so legacy
+`binanceusdm` state remains stored but cannot be read or validated as current
+Spot state.
+
+Scanner row actions reuse existing Spot workflows. Chart selects the exact
+compact Spot symbol; Alert opens the existing level-alert review UI without
+arming; Trade opens Manual Spot Trading V1 with symbol only and still requires
+the normal review and explicit confirmation. Backtest stays unavailable because
+the Platform has no exact Scanner-checklist strategy and calibration is not a
+backtest.
+
 ## Architecture
 
 ```
@@ -29,7 +44,8 @@ platform/
 │       │   └── alerts.ts      3Commas + custom-bot payloads (exact Pine formats)
 │       ├── repositories/      SQL data access (candles, symbols, strategies, backtests)
 │       └── api/               Fastify routes
-└── frontend/              (Stage 4) Next.js + lightweight-charts
+├── screener/              Python Scanner calculation service + Spot cache
+└── frontend/              Next.js native Chart/Scanner/Alerts workspaces
 ```
 
 ### Build stages

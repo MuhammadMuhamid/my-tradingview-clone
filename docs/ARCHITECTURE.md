@@ -66,6 +66,47 @@ Position state flows the other way on a 30-second poll: the platform asks
 | `platform/backend/src/security` | Session signing, secret encryption, payload redaction. |
 | `platform/backend/src/optimizer` | The tree registry each research tree owns an entry in, the shared GA driver and objective, bounded result reading, and the walk-forward selection helper. |
 
+### Spot-only Trading Scene and native Scanner
+
+Trading Scene is Spot-only: Chart, notification alerts, Manual Trading V1,
+deployments, Paper and the Scanner represent Binance Spot instruments. The
+native `/scanner` route is part of the authenticated Next.js Platform, while the
+Python Scanner remains the calculation authority for Mahamid's 1h/15m/5m
+checklist, eight indicators, S&R/VWAP/pivots, confluence scoring and empirical
+calibration. Browser traffic follows a fixed boundary:
+
+```
+browser /scanner
+    -> authenticated Platform /api/scanner/*
+    -> explicit bounded Scanner-service operations
+    -> Python cached snapshot/calculation
+```
+
+There is no browser-visible Scanner service URL and no generic proxy. Scanner
+reads do not refresh market data. Its explicit refresh, symbol and calibration
+operations retain the Platform route allowlist and bounded timeouts.
+
+The Scanner production feed is ccxt `binance` with `defaultType: spot`.
+Configured `BASE/QUOTE` symbols resolve only to the exact active Spot market;
+`BTC/USDT:USDT`, dated Futures and denominated alternatives are never adopted.
+SQLite candles, series metadata and calibrations are keyed by exchange, so
+legacy `binanceusdm` rows remain historical and are invisible to `binance`.
+Calibration fingerprints additionally include exchange, market type and native
+symbol, preventing a USD-M calibration from validating as current Spot work.
+
+Expanded Scanner rows keep normal row clicks as inspection and expose only
+prefill navigation:
+
+- **Open Chart** selects the exact compact Platform Spot symbol (`BTC/USDT` ->
+  `BTCUSDT`) after exact API provenance is verified.
+- **Create Alert** opens the existing Spot level-alert review UI with the symbol
+  prefilled; it does not save or arm anything.
+- **Trade** opens the existing Manual Spot Trading V1 ticket with only the symbol
+  prefilled. Side, quantity, review, confirmation, halt and risk paths are
+  unchanged; Scanner cannot submit an order.
+- **Backtest** remains unavailable because no existing Platform strategy is an
+  exact representation of the Scanner checklist. Calibration is not a backtest.
+
 Two independent runners exist in one process:
 
 - **`LiveRunner`** — strategy deployments that can move money.

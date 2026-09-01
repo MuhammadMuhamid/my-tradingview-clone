@@ -1,9 +1,14 @@
-# Multi-Coin Multi-Timeframe Crypto Screener
+# Multi-Coin Multi-Timeframe Binance Spot Scanner
 
-A standalone screener. **Not** a TradingView indicator — 36 symbols × up to 8 independently
-configurable timeframes is ~300 unique symbol/timeframe contexts, and Pine caps `request.*()` at 40
-(64 on Professional). The Pine files under `../mtf_suite/` are a different project; `screener.rtf`
-is a reference for indicator *math* only.
+The Python service is the calculation authority behind Platform's native,
+authenticated `/scanner` route. It is **not** a TradingView indicator — 36
+symbols × up to 8 independently configurable timeframes is ~300 unique
+symbol/timeframe contexts, and Pine caps `request.*()` at 40 (64 on
+Professional). The Pine files under `../mtf_suite/` are a different project;
+`screener.rtf` is a reference for indicator *math* only.
+
+The production market is Binance Spot (`ccxt.binance`, `defaultType: spot`).
+Mahamid's Scanner logic is unchanged by the market migration.
 
 **This tool does not predict price.** It ranks current indicator state across a watchlist. That is
 the whole product.
@@ -231,9 +236,15 @@ Two details that took a couple of attempts to get right, recorded so they are no
   anything is written. Every value the screener shows comes from a confirmed bar, and the source
   bar's close time is exposed per series so the UI can render provenance and grey out stale cells.
 - **TTL is the bar duration.** A 1h series is not re-fetched until the next hourly bar closes.
-- **Exchange is swappable.** Everything above `app/exchange.py` talks to a `MarketFeed` protocol.
-  `binanceusdm` is the default; `bybit` and `okx` are the intended fallbacks if Binance is
-  unreachable from the deploy region.
+- **Market identity is explicit.** Everything above `app/exchange.py` talks to a `MarketFeed`
+  protocol for deterministic tests, while production is pinned to Binance Spot. The ccxt adapter
+  forces `defaultType: spot` and exact resolution refuses any perpetual, dated future or alias.
+- **Legacy state is isolated, not rewritten.** SQLite keys candles and series metadata by
+  `(exchange, symbol, timeframe)` and calibrations by the same identity. Old `binanceusdm` rows may
+  remain, but the current `binance` cache cannot read them. Calibration fingerprints include the
+  exchange, Spot market type and exact native symbol, so Futures calibration is stale/incompatible.
+  A legacy `config/user.json` exchange override is retained on disk but ignored at reload; the
+  shipped Spot source is authoritative.
 
 ### Deviations from the spec, and why
 
@@ -241,17 +252,15 @@ Two details that took a couple of attempts to get right, recorded so they are no
    rendered as `BIANRENSHENGUSDT` and does not resolve to a base asset. `PEPE/USDT` went with it —
    see note 3. The `unverified` array in `config/symbols.json` and its startup warning remain, for
    the next symbol that cannot be resolved.
-2. **Config symbols are `BASE/QUOTE`; the exchange is not.** ccxt's unified symbol for a linear
-   perpetual is `BASE/QUOTE:SETTLE`, so `BTC/USDT` on `binanceusdm` is really `BTC/USDT:USDT`.
-   `resolve_symbols()` maps between them; cache rows stay keyed by the config symbol.
-3. **Denominated contracts are suggested, never substituted.** `PEPE/USDT` does not exist on
-   `binanceusdm` — the listing is `1000PEPE/USDT:USDT`, a different price scale. Rather than alias
-   it, resolution reports it unresolved with the near match named in the reason. Percentage outputs
-   would survive the substitution but price levels would not. The user chose to drop the symbol; the
-   suggestion logic stays, for the next asset that hits this.
+2. **Config symbols are exact Spot `BASE/QUOTE` identities.** `BTC/USDT` resolves only when that
+   exact active Spot market exists. `BTC/USDT:USDT` and any other perpetual/future stay unresolved.
+3. **Denominated Spot markets are suggested, never substituted.** An exact pair that is absent may
+   name a `1000BASE/QUOTE` Spot near match in the reason, but resolution does not adopt it. Percentage
+   outputs might survive the substitution while price levels would not.
 
-Live check against `binanceusdm` on 2026-08-28: all 36 symbols resolved, 36 fetches in 9.0s, second
-refresh inside the same hourly bar made 0 network calls.
+**Historical USD-M evidence (superseded):** the 2026-08-28 live check against `binanceusdm` resolved
+all 36 then-configured symbols and demonstrated cache deduplication. It describes the old market
+source and is not Binance Spot evidence. No live exchange check was performed for the Spot migration.
 
 
 ## Notes on the indicators
@@ -269,7 +278,7 @@ No `pandas_ta`, no TA-Lib. Both disagree with Pine on the details that matter he
 
 The spec's 750 is not deep enough. Because Pine seeds EMA with an SMA, a 200-period EMA still
 carries **0.4% of its seed after 550 bars** — visible contamination in a column the user sorts on.
-1800 bars puts it near 1e-7. Binance USDⓈ-M caps a page at 1000 bars regardless of the `limit`
+1800 bars puts it near 1e-7. Binance caps a Spot OHLCV page at 1000 bars regardless of the `limit`
 asked for, so `CcxtFeed.fetch_ohlcv` paginates backwards; one series is still one cache entry and
 one TTL, so the §8.3 dedup guarantee is unchanged.
 
@@ -281,6 +290,12 @@ no code with `app/ta.py`. They agree to **1e-9 relative** across 1799 bars, tigh
 the spec asks for, and Supertrend `direction` matches as an **exact integer sequence** over every
 bar, across three parameter sets and both `changeATR` branches. `test_the_oracle_can_actually_fail` is a negative control: a deliberately wrong
 EMA must and does fail the same comparison, so the assertion is not vacuous.
+
+The frozen `tests/fixtures/BTCUSDT_1h.csv` source is
+`BINANCE:BTCUSDT.P`; `.P` identifies perpetual provenance. It remains a valid
+deterministic numerical fixture for formula parity, scoring and no-lookahead
+properties, but it does **not** prove Binance Spot exchange parity. Spot market
+identity tests use synthetic, deterministic ccxt-shaped Spot markets instead.
 
 **Not proven.** Agreement with TradingView's *own* rendered values. The comparison was attempted on
 2026-08-28 against `BINANCE:BTCUSDT.P` 1h and abandoned: the chart-automation bridge reported a
@@ -320,7 +335,8 @@ is the previous bar's *reassigned* value, not the raw `src - m*ATR`. Three pinne
 
 ### End-to-end check
 
-Against `binanceusdm` on 2026-08-28: 36 symbols resolved, 36 series fetched in 18.2s at 1800 bars
+**Historical USD-M result (superseded):** against `binanceusdm` on 2026-08-28, 36 symbols resolved
+and 36 series were fetched in 18.2s at 1800 bars
 each (two pages per series), every implemented indicator computed for every symbol, every result
 JSON-serialisable, no series short of 1000 bars. Computing all eight indicators across all 36
 symbols takes **4.7s** — Supertrend 30ms/symbol, ADX/S&R/EMA ~17ms, the rest under 11ms.
@@ -561,7 +577,8 @@ overfittable result in retail trading.
 
 ### What it actually found
 
-Run against BTC/USDT 1h on 2026-08-28, 1509 labelled bars over 64 days:
+Historical run against the Futures-origin BTC/USDT 1h fixture on 2026-08-28,
+1509 labelled bars over 64 days (not a current Spot calibration):
 
 | Decile | Score range | Hit rate |
 |---|---|---|
