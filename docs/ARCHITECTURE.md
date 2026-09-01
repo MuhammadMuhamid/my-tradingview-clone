@@ -90,6 +90,21 @@ Python Scanner remains the calculation authority for Mahamid's 1h/15m/5m
 checklist, eight indicators, S&R/VWAP/pivots, confluence scoring and empirical
 calibration. Browser traffic follows a fixed boundary:
 
+**Bar Replay.** Replay is a chart-local historical evaluation horizon over the
+already loaded Spot candle sequence; it does not replace live ingestion. Its
+single clock is the current replay chart bar's `closeTime`. Visible candles,
+OHLC/current price, moving averages, Pine, script drawings and MTF feeds are
+bounded to that close, and `request.security` keeps the established inclusive
+completed-source-close rule. Previous/Next move one real bar; Play advances the
+same sequence at 1x/2x/5x and stops at the captured history end. A symbol or
+timeframe change preserves T and resolves the last completed new-context bar at
+or before it.
+
+Persisted drawings have no creation-time provenance, so Replay V1 hides them;
+session drawings are isolated in memory and are discarded on exit. Manual
+trading, Bot/LiveRunner automation, paper actions and live alert creation/editing
+are disabled until Replay exits. Replay Paper Trading is not implemented.
+
 ```
 browser /scanner
     -> authenticated Platform /api/scanner/*
