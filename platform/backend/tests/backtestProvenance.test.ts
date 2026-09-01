@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   finishBacktest,
   toBacktestRow,
@@ -22,6 +24,14 @@ const metrics: BacktestMetrics = {
   avgBarsInTrade: 0,
   commissionPaid: 0,
 };
+
+test("018 adds nullable provenance without rewriting historical backtests", () => {
+  const sql = fs.readFileSync(path.join(
+    process.cwd(), "src", "db", "migrations", "018_backtest_provenance.sql"
+  ), "utf8");
+  assert.match(sql, /ALTER TABLE backtests\s+ADD COLUMN engine_fingerprint text;/);
+  assert.doesNotMatch(sql, /NOT NULL|DEFAULT|DROP|DELETE|TRUNCATE/i);
+});
 
 function dbRow(engineFingerprint: string | null): DbBacktest {
   const now = new Date("2026-08-31T12:00:00.000Z");

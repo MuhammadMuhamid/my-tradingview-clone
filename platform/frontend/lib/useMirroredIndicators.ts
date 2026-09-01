@@ -13,7 +13,8 @@
  * otherwise double the concurrent load the moment it opens.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChartMarker, ChartOverlay } from "@/components/CandleChart";
+import type { ChartMarker } from "@/components/CandleChart";
+import type { ChartOverlay } from "@/lib/chartSeries";
 import type { PineDrawings } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { NO_DRAWINGS, runIndicator, type AppliedIndicator } from "@/lib/indicators";
@@ -21,7 +22,8 @@ import { NO_DRAWINGS, runIndicator, type AppliedIndicator } from "@/lib/indicato
 export function useMirroredIndicators(
   list: AppliedIndicator[],
   ctx: { symbol: string; timeframe: Interval; startTime: string; endTime: string },
-  enabled: boolean
+  enabled: boolean,
+  revision = 0
 ) {
   const [results, setResults] = useState<AppliedIndicator[]>([]);
   const token = useRef(0);
@@ -34,12 +36,12 @@ export function useMirroredIndicators(
   const signature = useMemo(
     () => list
       .filter((i) => i.visible)
-      .map((i) => `${i.key}:${JSON.stringify(i.params)}:${i.source.length}`)
+      .map((i) => `${i.key}:${JSON.stringify(i.params)}:${i.source}`)
       .join("|"),
     [list]
   );
 
-  const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}`;
+  const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}|${revision}`;
 
   useEffect(() => {
     if (!enabled) { setResults([]); return; }

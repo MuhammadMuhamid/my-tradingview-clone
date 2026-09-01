@@ -8,7 +8,8 @@
  * an old symbol can never overwrite a newer one.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChartMarker, ChartOverlay } from "@/components/CandleChart";
+import type { ChartMarker } from "@/components/CandleChart";
+import type { ChartOverlay } from "@/lib/chartSeries";
 import type { PineDrawings } from "@/lib/api";
 import type { Interval, Trade } from "@/lib/types";
 import {
@@ -33,6 +34,8 @@ export interface AddIndicatorInput {
 export function useIndicators(ctx: IndicatorContext) {
   const [list, setList] = useState<AppliedIndicator[]>([]);
   const runToken = useRef(0);
+  /** Per-instance generation prevents an older same-context run settling last. */
+  const runVersions = useRef(new Map<string, number>());
   /** keys whose inputs changed and therefore need a re-run */
   const [dirtyKeys, setDirtyKeys] = useState<string[]>([]);
 
@@ -54,13 +57,15 @@ export function useIndicators(ctx: IndicatorContext) {
   }, [list]);
 
   /** Replace one instance in place, ignoring stale results for removed rows. */
-  const settle = useCallback((next: AppliedIndicator, token: number) => {
-    if (token !== runToken.current) return;
+  const settle = useCallback((next: AppliedIndicator, token: number, version: number) => {
+    if (token !== runToken.current || runVersions.current.get(next.key) !== version) return;
     setList((cur) => cur.map((i) => (i.key === next.key ? next : i)));
   }, []);
 
   const runOne = useCallback((ind: AppliedIndicator, token: number) => {
-    void runIndicator(ind, ctx).then((res) => settle(res, token));
+    const version = (runVersions.current.get(ind.key) ?? 0) + 1;
+    runVersions.current.set(ind.key, version);
+    void runIndicator(ind, ctx).then((res) => settle(res, token, version));
   }, [ctx, settle]);
 
   // A ref mirror of the list, so the run effects can read the current
@@ -84,12 +89,16 @@ export function useIndicators(ctx: IndicatorContext) {
   // Inputs changed on specific instances: re-run just those.
   useEffect(() => {
     if (dirtyKeys.length === 0) return;
-    const wanted = new Set(dirtyKeys);
-    const token = runToken.current;
-    const pending = listRef.current.filter((i) => wanted.has(i.key));
-    setList((cur) => cur.map((i) => (wanted.has(i.key) ? { ...i, loading: true, error: null } : i)));
-    setDirtyKeys([]);
-    for (const ind of pending) runOne(ind, token);
+    const timer = setTimeout(() => {
+      const wanted = new Set(dirtyKeys);
+      const token = runToken.current;
+      const pending = listRef.current.filter((i) => wanted.has(i.key));
+      setList((cur) => cur.map((i) => (wanted.has(i.key)
+        ? { ...i, loading: true, error: null } : i)));
+      setDirtyKeys([]);
+      for (const ind of pending) runOne(ind, token);
+    }, 250);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirtyKeys]);
 
@@ -99,12 +108,16 @@ export function useIndicators(ctx: IndicatorContext) {
       scriptId: input.scriptId,
       name: input.name,
       kind: "indicator",
+      shortTitle: "",
+      overlay: true,
+      precision: null,
       source: input.source,
       inputs: [],
       params: input.params ?? {},
       visible: true,
       loading: true,
       error: null,
+      warnings: [],
       overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
     };
     setList((cur) => [...cur, ind]);
@@ -113,10 +126,14 @@ export function useIndicators(ctx: IndicatorContext) {
   }, [runOne]);
 
   const remove = useCallback((key: string) => {
+    runVersions.current.delete(key);
     setList((cur) => cur.filter((i) => i.key !== key));
   }, []);
 
-  const clear = useCallback(() => setList([]), []);
+  const clear = useCallback(() => {
+    runVersions.current.clear();
+    setList([]);
+  }, []);
 
   const toggleVisible = useCallback((key: string) => {
     setList((cur) => cur.map((i) => (i.key === key ? { ...i, visible: !i.visible } : i)));
@@ -133,8 +150,33 @@ export function useIndicators(ctx: IndicatorContext) {
     setDirtyKeys((d) => (d.includes(key) ? d : [...d, key]));
   }, []);
 
+  /** Recompile an edited script into the same instance/pane/series namespace. */
+  const updateSource = useCallback((
+    key: string,
+    input: { name: string; source: string; params: PineParams }
+  ) => {
+    setList((cur) => cur.map((item) => item.key === key ? {
+      ...item,
+      name: input.name,
+      source: input.source,
+      params: input.params,
+      loading: true,
+      error: null,
+      warnings: [],
+    } : item));
+    setDirtyKeys((dirty) => dirty.includes(key) ? dirty : [...dirty, key]);
+  }, []);
+
   const rerun = useCallback((key: string) => {
     setDirtyKeys((d) => (d.includes(key) ? d : [...d, key]));
+  }, []);
+
+  /** Refresh every visible instance, used once at a completed live-bar boundary. */
+  const rerunAll = useCallback(() => {
+    setDirtyKeys((current) => {
+      const keys = listRef.current.filter((i) => i.visible).map((i) => i.key);
+      return [...new Set([...current, ...keys])];
+    });
   }, []);
 
   /** Union of every visible instance's output, for the chart. */
@@ -163,8 +205,8 @@ export function useIndicators(ctx: IndicatorContext) {
     return withTrades.length > 0 ? withTrades[withTrades.length - 1]!.trades : null;
   }, [list]);
 
-  return { list, add, remove, clear, toggleVisible, setParam, resetParams, rerun,
-    overlays, markers, drawings, trades };
+  return { list, add, remove, clear, toggleVisible, setParam, resetParams, updateSource, rerun,
+    rerunAll, overlays, markers, drawings, trades };
 }
 
 export type IndicatorsApi = ReturnType<typeof useIndicators>;

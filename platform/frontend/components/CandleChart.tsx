@@ -1,16 +1,25 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, Time, UTCTimestamp,
-  SeriesMarker, MouseEventParams, LineStyle,
+  SeriesMarker, MouseEventParams, LineStyle, LineType,
+  type AreaData, type HistogramData, type LineData, type WhitespaceData,
 } from "lightweight-charts";
 import type { Candle, Interval, Trade } from "@/lib/types";
 import { snapToBarIndex } from "@/lib/paneSync";
 import { fmtPrice } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
+import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
+import { IndicatorPane } from "@/components/tv/IndicatorPane";
 import type { PineDrawings } from "@/lib/api";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
+import {
+  groupChartOverlays, planCandleMutation, planSeriesMutation,
+  type ChartOverlay, type ChartPoint,
+} from "@/lib/chartSeries";
+
+export type { ChartOverlay } from "@/lib/chartSeries";
 
 /** TradingView-style legend readout for the candle under the crosshair. */
 interface LegendBar {
@@ -66,15 +75,65 @@ export interface ChartMarker {
   shape: "arrowUp" | "arrowDown" | "circle" | "square";
 }
 
-/** Extra series a compiled Pine script asks the chart to plot. */
-export interface ChartOverlay {
-  id: string;
-  title: string;
-  color: string;
-  width?: number;
-  dashed?: boolean;
-  /** [barTimeSec, value] pairs; NaN/null values break the line. */
-  data: { time: number; value: number | null }[];
+type OverlaySeriesEntry =
+  | { kind: "Line"; api: ISeriesApi<"Line">; data: ChartPoint[] }
+  | { kind: "Histogram"; api: ISeriesApi<"Histogram">; data: ChartPoint[] }
+  | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] };
+
+function overlaySeriesKind(overlay: ChartOverlay): OverlaySeriesEntry["kind"] {
+  if (overlay.style === "histogram" || overlay.style === "columns") return "Histogram";
+  if (overlay.style === "area") return "Area";
+  return "Line";
+}
+
+function visiblePoint(point: ChartPoint): boolean {
+  return point.value !== null && Number.isFinite(point.value) && point.color !== null;
+}
+
+function alphaColor(color: string, alpha: string): string {
+  return /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(color)
+    ? `${color.slice(0, 7)}${alpha}` : color;
+}
+
+function lineDatum(point: ChartPoint): LineData<Time> | WhitespaceData<Time> {
+  return visiblePoint(point)
+    ? { time: point.time as UTCTimestamp, value: point.value!, ...(point.color ? { color: point.color } : {}) }
+    : { time: point.time as UTCTimestamp };
+}
+
+function histogramDatum(point: ChartPoint): HistogramData<Time> | WhitespaceData<Time> {
+  return visiblePoint(point)
+    ? { time: point.time as UTCTimestamp, value: point.value!, ...(point.color ? { color: point.color } : {}) }
+    : { time: point.time as UTCTimestamp };
+}
+
+function areaDatum(point: ChartPoint): AreaData<Time> | WhitespaceData<Time> {
+  return visiblePoint(point)
+    ? {
+        time: point.time as UTCTimestamp, value: point.value!,
+        ...(point.color ? {
+          lineColor: point.color,
+          topColor: alphaColor(point.color, "55"),
+          bottomColor: alphaColor(point.color, "08"),
+        } : {}),
+      }
+    : { time: point.time as UTCTimestamp };
+}
+
+function replaceOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): void {
+  if (entry.kind === "Line") entry.api.setData(points.map(lineDatum));
+  else if (entry.kind === "Histogram") entry.api.setData(points.map(histogramDatum));
+  else entry.api.setData(points.map(areaDatum));
+  entry.data = points;
+}
+
+function updateOverlayData(entry: OverlaySeriesEntry, point: ChartPoint): void {
+  if (entry.kind === "Line") entry.api.update(lineDatum(point));
+  else if (entry.kind === "Histogram") entry.api.update(histogramDatum(point));
+  else entry.api.update(areaDatum(point));
+  entry.data = entry.data.length > 0 && entry.data[entry.data.length - 1]!.time === point.time
+    ? [...entry.data.slice(0, -1), point]
+    : [...entry.data, point];
 }
 
 export function CandleChart({
@@ -84,6 +143,7 @@ export function CandleChart({
   magnet = false, drawingsLocked = false, drawingsHidden = false,
   onPriceSelect,
   compact = false,
+  onLiveBarBoundary,
   onCrosshairMove, crosshairTime,
   onVisibleRangeChange, visibleRange, followEdgeTime,
 }: {
@@ -144,12 +204,16 @@ export function CandleChart({
    * 390px screen covers most of the price column.
    */
   compact?: boolean;
+  /** Completed + newly-forming bars, emitted once per live bar boundary. */
+  onLiveBarBoundary?: (closed: Candle | null, current: Candle) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const overlayRefs = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const overlayRefs = useRef<Map<string, OverlaySeriesEntry>>(new Map());
+  const paneChartRefs = useRef<Map<string, IChartApi>>(new Map());
+  const datasetKeyRef = useRef<string | null>(null);
   const candlesRef = useRef<Candle[]>([]);
   const timeIndexRef = useRef<Map<number, number>>(new Map());
   const hoverTimeRef = useRef<number | null>(null);
@@ -162,13 +226,73 @@ export function CandleChart({
   onCrosshairRef.current = onCrosshairMove;
   const onRangeRef = useRef(onVisibleRangeChange);
   onRangeRef.current = onVisibleRangeChange;
+  const onLiveBoundaryRef = useRef(onLiveBarBoundary);
+  onLiveBoundaryRef.current = onLiveBarBoundary;
   /** Set while applying a range from the other pane, to break the feedback loop. */
   const applyingRangeRef = useRef(false);
+  /** Internal price/indicator-pane range propagation, throttled to one frame. */
+  const syncingPaneRangeRef = useRef(false);
+  const syncPaneRangesRef = useRef<(source: string, range: { from: number; to: number }) => void>(() => {});
   const [legend, setLegend] = useState<LegendBar | null>(null);
+  const [indicatorHoverTime, setIndicatorHoverTime] = useState<number | null>(null);
   /** FE-09: what the live feed is actually doing, so the UI can say so. */
   const [feedState, setFeedState] = useState<ChartFeedState>("idle");
   /** bumped once the chart/series exist, so the drawing layer can attach */
   const [chartReady, setChartReady] = useState(0);
+  const groupedOverlays = useMemo(() => groupChartOverlays(overlays ?? []), [overlays]);
+
+  syncPaneRangesRef.current = (source, range) => {
+    if (syncingPaneRangeRef.current) return;
+    syncingPaneRangeRef.current = true;
+    const targets: Array<[string, IChartApi]> = [
+      ...(chartRef.current ? [["price", chartRef.current] as [string, IChartApi]] : []),
+      ...paneChartRefs.current,
+    ];
+    for (const [id, chart] of targets) {
+      if (id === source) continue;
+      try {
+        chart.timeScale().setVisibleRange({
+          from: range.from as UTCTimestamp, to: range.to as UTCTimestamp,
+        });
+      } catch { /* the target has not loaded this range yet */ }
+    }
+    requestAnimationFrame(() => { syncingPaneRangeRef.current = false; });
+  };
+
+  const registerIndicatorPane = useCallback((id: string, chart: IChartApi | null) => {
+    if (!chart) {
+      paneChartRefs.current.delete(id);
+      return;
+    }
+    paneChartRefs.current.set(id, chart);
+    const current = chartRef.current?.timeScale().getVisibleRange();
+    if (current && typeof current.from === "number" && typeof current.to === "number") {
+      try { chart.timeScale().setVisibleRange(current); } catch { /* data is landing */ }
+    }
+  }, []);
+
+  const indicatorPaneRange = useCallback((id: string, range: { from: number; to: number }) => {
+    if (!syncingPaneRangeRef.current) syncPaneRangesRef.current(id, range);
+  }, []);
+
+  const indicatorPaneHover = useCallback((time: number | null) => {
+    setIndicatorHoverTime((current) => current === time ? current : time);
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) return;
+    if (time === null) {
+      chart.clearCrosshairPosition();
+      return;
+    }
+    const list = candlesRef.current;
+    const index = snapToBarIndex(list.map((bar) => bar.openTime / 1000), time);
+    if (index < 0) {
+      chart.clearCrosshairPosition();
+      return;
+    }
+    const bar = list[index]!;
+    chart.setCrosshairPosition(bar.close, (bar.openTime / 1000) as UTCTimestamp, series);
+  }, []);
 
   const legendFromIndex = useCallback((i: number): LegendBar | null => {
     const list = candlesRef.current;
@@ -185,6 +309,8 @@ export function CandleChart({
   // Create the chart once.
   useEffect(() => {
     if (!containerRef.current) return;
+    const overlayEntries = overlayRefs.current;
+    const paneCharts = paneChartRefs.current;
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "#121722" },
@@ -216,6 +342,7 @@ export function CandleChart({
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
       const t = param.time as number | undefined;
       hoverTimeRef.current = t ?? null;
+      setIndicatorHoverTime((current) => current === (t ?? null) ? current : (t ?? null));
       // Tell the other pane where the pointer is. Guarded by a ref so the
       // subscription does not have to be torn down when the callback changes.
       onCrosshairRef.current?.(t ?? null);
@@ -233,10 +360,13 @@ export function CandleChart({
     chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       // A range we just applied ourselves would otherwise bounce back to the
       // pane that sent it, and the two would chase each other.
-      if (applyingRangeRef.current || !range) return;
+      if (applyingRangeRef.current || syncingPaneRangeRef.current || !range) return;
       const from = range.from as number;
       const to = range.to as number;
-      if (Number.isFinite(from) && Number.isFinite(to)) onRangeRef.current?.({ from, to });
+      if (Number.isFinite(from) && Number.isFinite(to)) {
+        onRangeRef.current?.({ from, to });
+        syncPaneRangesRef.current("price", { from, to });
+      }
     });
 
     chartRef.current = chart;
@@ -247,29 +377,49 @@ export function CandleChart({
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
-      overlayRefs.current.clear();
+      overlayEntries.clear();
+      paneCharts.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load historical candles + markers whenever the data changes.
+  // Load candles without rebuilding all 10,000 points for a last-bar update.
   useEffect(() => {
     const series = seriesRef.current;
     const vol = volRef.current;
     if (!series || !vol) return;
-    candlesRef.current = candles;
+    const datasetKey = `${symbol}|${interval}`;
+    const mutation = datasetKeyRef.current === datasetKey
+      ? planCandleMutation(candlesRef.current, candles) : "replace";
+    candlesRef.current = [...candles];
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
     setLegend(candles.length > 0 ? legendFromIndex(candles.length - 1) : null);
-    const bars = candles.map((c) => ({
+    const candleDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       open: c.open, high: c.high, low: c.low, close: c.close,
-    }));
-    series.setData(bars);
-    vol.setData(candles.map((c) => ({
+    });
+    const volumeDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       value: c.volume,
       color: c.close >= c.open ? "#1c3a30" : "#3a1c24",
-    })));
+    });
+    if (mutation === "replace") {
+      series.setData(candles.map(candleDatum));
+      vol.setData(candles.map(volumeDatum));
+    } else if (mutation === "update" && candles.length > 0) {
+      series.update(candleDatum(candles[candles.length - 1]!));
+      vol.update(volumeDatum(candles[candles.length - 1]!));
+    }
+    if (datasetKeyRef.current !== datasetKey) {
+      datasetKeyRef.current = datasetKey;
+      chartRef.current?.timeScale().fitContent();
+    }
+  }, [candles, symbol, interval, legendFromIndex]);
+
+  // Markers update independently: adding an indicator must not reset zoom.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
 
     // Entry/exit markers only: BUY at the fill, and the exit reason (TP / SL /
     // whatever the strategy named it) at the close. Nothing else is marked.
@@ -321,7 +471,6 @@ export function CandleChart({
     } else {
       series.setMarkers([]);
     }
-    chartRef.current?.timeScale().fitContent();
   }, [candles, trades, markers]);
 
   // Live stop / target / entry levels for a running position.
@@ -359,8 +508,8 @@ export function CandleChart({
     return () => chart.unsubscribeClick(onClick);
   }, [onPriceSelect, chartReady]);
 
-  // Line series plotted by a compiled Pine script. Series are reused across
-  // recompiles by plot id so the chart doesn't flicker on every edit.
+  // Pine/MA series are stable by plot id. Gaps stay as whitespace and a
+  // last-point change uses update() instead of replaying the full history.
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -369,34 +518,68 @@ export function CandleChart({
     const first = candles[0] ? candles[0].openTime / 1000 : -Infinity;
     const lastBar = candles[candles.length - 1];
     const lastTime = lastBar ? lastBar.openTime / 1000 : Infinity;
-    const want = new Map((overlays ?? []).map((o) => [o.id, o]));
-    for (const [id, s] of overlayRefs.current) {
-      if (!want.has(id)) {
-        chart.removeSeries(s);
+    const want = new Map(groupedOverlays.price.map((overlay) => [overlay.id, overlay]));
+    for (const [id, entry] of overlayRefs.current) {
+      const overlay = want.get(id);
+      if (!overlay || overlaySeriesKind(overlay) !== entry.kind) {
+        chart.removeSeries(entry.api);
         overlayRefs.current.delete(id);
       }
     }
-    for (const o of want.values()) {
-      let s = overlayRefs.current.get(o.id);
-      if (!s) {
-        s = chart.addLineSeries({ priceLineVisible: false, lastValueVisible: false });
-        overlayRefs.current.set(o.id, s);
+    for (const overlay of want.values()) {
+      const kind = overlaySeriesKind(overlay);
+      let entry = overlayRefs.current.get(overlay.id);
+      const precision = overlay.precision;
+      const priceFormat = precision === null || precision === undefined ? undefined : {
+        type: "price" as const, precision, minMove: 10 ** -precision,
+      };
+      const lastValueVisible = !compact && overlay.instanceId !== "moving-averages";
+      if (!entry) {
+        if (kind === "Histogram") {
+          entry = { kind, api: chart.addHistogramSeries({
+            color: overlay.color, base: 0, priceLineVisible: false, lastValueVisible,
+            ...(priceFormat ? { priceFormat } : {}),
+          }), data: [] };
+        } else if (kind === "Area") {
+          entry = { kind, api: chart.addAreaSeries({
+            lineColor: overlay.color,
+            topColor: alphaColor(overlay.color, "55"),
+            bottomColor: alphaColor(overlay.color, "08"),
+            priceLineVisible: false, lastValueVisible,
+            ...(priceFormat ? { priceFormat } : {}),
+          }), data: [] };
+        } else {
+          entry = { kind, api: chart.addLineSeries({
+            color: overlay.color, priceLineVisible: false, lastValueVisible,
+            ...(priceFormat ? { priceFormat } : {}),
+          }), data: [] };
+        }
+        overlayRefs.current.set(overlay.id, entry);
       }
-      s.applyOptions({
-        color: o.color,
-        lineWidth: (o.width ?? 2) as 1 | 2 | 3 | 4,
-        lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
-        // The title is what lightweight-charts stamps onto the price scale.
-        title: compact ? "" : o.title,
+      if (entry.kind === "Line") entry.api.applyOptions({
+        color: overlay.color,
+        lineWidth: Math.max(1, Math.min(4, overlay.width ?? 2)) as 1 | 2 | 3 | 4,
+        lineStyle: overlay.lineStyle === "dotted" ? LineStyle.Dotted
+          : overlay.dashed || overlay.lineStyle === "dashed" ? LineStyle.Dashed : LineStyle.Solid,
+        lineType: overlay.style === "stepline" ? LineType.WithSteps : LineType.Simple,
+        lineVisible: overlay.style !== "circles",
+        pointMarkersVisible: overlay.style === "circles",
+        lastValueVisible,
+        title: compact ? "" : overlay.title,
       });
-      s.setData(
-        o.data
-          .filter((d) => d.value !== null && Number.isFinite(d.value) &&
-            d.time >= first && d.time <= lastTime)
-          .map((d) => ({ time: d.time as UTCTimestamp, value: d.value as number }))
-      );
+      else if (entry.kind === "Histogram") entry.api.applyOptions({
+        color: overlay.color, lastValueVisible, title: compact ? "" : overlay.title,
+      });
+      else entry.api.applyOptions({
+        lineColor: overlay.color, lastValueVisible, title: compact ? "" : overlay.title,
+      });
+      const points = overlay.data.filter((point) =>
+        Number.isFinite(point.time) && point.time >= first && point.time <= lastTime);
+      const plan = planSeriesMutation(entry.data, points);
+      if (plan === "replace") replaceOverlayData(entry, points);
+      else if (plan === "update") updateOverlayData(entry, points[points.length - 1]!);
     }
-  }, [overlays, chartReady, candles, compact]);
+  }, [groupedOverlays.price, chartReady, candles, compact]);
 
   /*
    * Live: update the forming candle from the Binance kline websocket.
@@ -422,6 +605,7 @@ export function CandleChart({
     let watchdog: ReturnType<typeof setInterval> | null = null;
     let attempt = 0;
     let lastMessageAt = 0;
+    let previousStreamBar: Candle | null = null;
     let closed = false;
 
     const connect = (): void => {
@@ -483,7 +667,9 @@ export function CandleChart({
         else if (list.length === 0 || k.t > list[list.length - 1]!.openTime) {
           list.push(liveBar);
           timeIndexRef.current.set(k.t / 1000, list.length - 1);
+          onLiveBoundaryRef.current?.(previousStreamBar, liveBar);
         }
+        previousStreamBar = liveBar;
         const hover = hoverTimeRef.current;
         if (hover === null || hover === k.t / 1000) {
           const i = timeIndexRef.current.get(k.t / 1000);
@@ -524,7 +710,7 @@ export function CandleChart({
       try { open?.close(); } catch { /* already gone */ }
       setFeedState("idle");
     };
-  }, [symbol, interval, live]);
+  }, [symbol, interval, live, legendFromIndex]);
 
   /**
    * Mirror the other pane's crosshair.
@@ -604,7 +790,8 @@ export function CandleChart({
   const px = up ? "text-[#2ebd85]" : "text-[#f6465d]";
 
   return (
-    <div className={`relative ${fill ? "h-full" : "h-[520px]"} w-full`}>
+    <div className={`flex ${fill ? "h-full" : "h-[520px]"} w-full flex-col overflow-hidden`}>
+      <div className="relative min-h-0 flex-1">
       <div ref={containerRef} className="h-full w-full" />
       {/* Script drawings sit under the user's own drawing layer, so the
           user's tools keep priority for clicks and hit-testing. */}
@@ -652,6 +839,11 @@ export function CandleChart({
           )}
         </div>
       )}
+      <IndicatorLegend
+        overlays={groupedOverlays.price}
+        time={indicatorHoverTime}
+        className="absolute left-2 top-7 z-10 max-w-[calc(100%-72px)] rounded bg-[#121722]/75 px-1.5 py-0.5"
+      />
       {/*
         FE-09: the feed's real state, next to the price it is supposed to be
         updating. A frozen price used to look exactly like a live one.
@@ -667,6 +859,24 @@ export function CandleChart({
         >
           <span aria-hidden="true">●</span>
           {FEED_BADGE[feedState].label}
+        </div>
+      )}
+      </div>
+      {groupedOverlays.panes.length > 0 && (
+        <div className="max-h-[48%] shrink-0 overflow-y-auto bg-[#121722]">
+          {groupedOverlays.panes.map((pane) => (
+            <IndicatorPane
+              key={pane.id}
+              id={pane.id}
+              title={pane.title}
+              params={pane.params}
+              overlays={pane.overlays}
+              hoverTime={indicatorHoverTime}
+              onHover={indicatorPaneHover}
+              onReady={registerIndicatorPane}
+              onRangeChange={indicatorPaneRange}
+            />
+          ))}
         </div>
       )}
     </div>

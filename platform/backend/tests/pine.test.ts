@@ -293,6 +293,58 @@ plot(close > open ? 1 : -1, "ternary")
   );
 });
 
+test("qualified function parameters and aligned continuations compile", () => {
+  const result = PineInterpreter.compile(`
+indicator("syntax")
+tfSeconds(simple string tf) =>
+    math.max(tf == "60" ? 3600 : 0,
+         1)
+plot(tfSeconds("60"), "seconds")
+`);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.meta.title, "syntax");
+});
+
+test("multiline ternaries and timeframe.in_seconds execute", () => {
+  const plots = plotsOf(`
+indicator("syntax")
+seconds(simple string tf) => timeframe.in_seconds(tf)
+choice = close > open ? (seconds("60") + 1)
+     : seconds(timeframe.period)
+plot(choice, "choice")
+`);
+  assert.equal(plots.choice?.length, BARS.length);
+  assert.ok(plots.choice?.every((v) => v === 3601 || v === 900));
+});
+
+test("a ternary may begin on the following continuation line", () => {
+  const plots = plotsOf(`
+indicator("wrapped")
+value = close > open
+     ? high
+     : low
+plot(value, "value")
+`);
+  assert.deepEqual(plots.value, BARS.close.map((close, i) =>
+    close > BARS.open[i]! ? BARS.high[i]! : BARS.low[i]!));
+});
+
+test("anchored ta.vwap returns its mean and deviation bands", () => {
+  const out = new PineInterpreter(`
+indicator("vwap")
+[v, upper, lower] = ta.vwap(close, bar_index == 0, 1)
+plot(v, "v")
+plot(upper, "upper")
+plot(lower, "lower")
+`).run({ bars: BARS, startIdx: 0, endIdx: BARS.length - 1 });
+  const plots = Object.fromEntries(out.plots.map((p) => [p.title, p.data]));
+  assert.equal(plots.v?.[0], BARS.close[0]);
+  assert.equal(plots.upper?.[0], BARS.close[0]);
+  assert.equal(plots.lower?.[0], BARS.close[0]);
+  assert.ok((plots.upper?.at(-1) ?? 0) >= (plots.v?.at(-1) ?? 0));
+  assert.ok((plots.lower?.at(-1) ?? 0) <= (plots.v?.at(-1) ?? 0));
+});
+
 test("each call site of a user function gets its own series state", () => {
   // Both calls share one AST body; if they also shared the ta.ema/ta.sma
   // accumulators the two outputs would be identical garbage.
@@ -729,4 +781,35 @@ if barstate.islast
   assert.equal(box.bgColor, "#2962ff1a");
   // transp 0 leaves the colour opaque, with no alpha suffix at all.
   assert.equal(box.borderColor, "#f23645");
+});
+
+test("plot rendering metadata preserves panes, styles, offsets, colours, hlines and explicit warnings", () => {
+  const out = new PineInterpreter(`
+indicator("Render contract", shorttitle="RC", overlay=false, precision=3)
+columns = plot(close, "Columns", color=close > open ? color.green : na,
+     style=plot.style_columns, linewidth=2, offset=1)
+hidden = plot(close, "Hidden", display=display.none)
+level = hline(50, "Middle", color.gray, hline.style_dashed, 2)
+fill(columns, hidden, color=color.new(color.blue, 80))
+barcolor(color.red)
+plotcandle(open, high, low, close)
+`).run({ bars: BARS, startIdx: 0, endIdx: BARS.length - 1 });
+
+  assert.equal(out.meta.overlay, false);
+  assert.equal(out.meta.shortTitle, "RC");
+  assert.equal(out.meta.precision, 3);
+  assert.equal(out.plots[0]!.style, "columns");
+  assert.equal(out.plots[0]!.offset, 1);
+  assert.equal(out.plots[0]!.width, 2);
+  assert.equal(out.plots[0]!.colors.length, BARS.length);
+  assert.ok(out.plots[1]!.data.every((value) => value === null));
+  assert.equal(out.plots[1]!.renderable, false);
+  assert.deepEqual(
+    out.hlines.map((line) => [line.title, line.style, line.width]),
+    [["Middle", "dashed", 2]]
+  );
+  assert.deepEqual(
+    out.meta.warnings.map((warning) => warning.message.split(" ")[0]),
+    ["fill()", "barcolor()", "plotcandle()"]
+  );
 });

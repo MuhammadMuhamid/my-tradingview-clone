@@ -15,14 +15,15 @@
  * see ./values.ts for why they are boxed handles rather than plain values,
  * and ./collections.ts for the `array.*` / `matrix.*` surface.
  *
- * Deliberately unsupported (reported as errors, never silently ignored):
- * `request.security` and other multi-timeframe access, maps, libraries, and
- * boxes/labels/tables. Everything the engine does not know about raises a
- * Pine-style error naming the line, so a script never runs half-interpreted.
+ * Deliberately unsupported semantics (maps, libraries, lookahead-on and
+ * unknown builtins) raise line-numbered errors. Unsupported visual-only
+ * primitives execute their arguments and emit explicit compatibility warnings
+ * so a chart never invents a plausible but semantically wrong substitute.
  */
 import * as ta from "../engine/ta";
 import { Broker } from "../engine/broker";
-import type { Bars } from "../engine/mtf";
+import { pineTfToInterval, type Bars } from "../engine/mtf";
+import { INTERVAL_MS, type Interval } from "../types/market";
 import type { EquityPoint } from "../types/backtest";
 import { parse, type Expr, type Stmt, type TypeField } from "./parser";
 import { PineSyntaxError } from "./lexer";
@@ -35,6 +36,8 @@ export type PineValue = Value;
 export { PineArray, PineMatrix, PineObject } from "./values";
 
 export interface PineError { line: number; col: number; message: string }
+
+export interface PineCompatibilityWarning { line: number; message: string }
 
 export interface PineInputDef {
   /** variable the input was assigned to (used as the params key) */
@@ -56,11 +59,27 @@ export interface PinePlot {
   color: string;
   width: number;
   style: "line" | "histogram" | "columns" | "circles" | "cross" | "stepline" | "area";
+  /** Pine display offset, in chart bars. */
+  offset: number;
+  /** A non-overlay script may explicitly force one plot onto the price pane. */
+  forceOverlay: boolean;
+  /** False suppresses chart output for a hidden or unsupported visual style. */
+  renderable: boolean;
+  /** Per-bar colours; null hides that point without inventing another colour. */
+  colors: (string | null)[];
   /** null = na (line breaks) */
   data: (number | null)[];
 }
 
-export interface PineHline { price: number; color: string; title: string }
+export interface PineHline {
+  id: string;
+  price: number;
+  color: string;
+  title: string;
+  width: number;
+  style: "solid" | "dashed" | "dotted";
+  renderable: boolean;
+}
 
 export interface PineShapeMark {
   time: number;
@@ -75,21 +94,24 @@ export interface PineMeta {
   title: string;
   shortTitle: string;
   overlay: boolean;
+  format: string;
+  precision: number | null;
   inputs: PineInputDef[];
+  /** Explicitly surfaced constructs that executed but cannot yet be rendered. */
+  warnings: PineCompatibilityWarning[];
   /**
    * Timeframes the script asks for through `request.security`, other than the
    * chart's own. Collected during the declaration pass so the caller knows
-   * which extra feeds to load BEFORE the run — the run itself cannot go and
-   * fetch data, it is synchronous and on the live runner's event loop.
+   * which extra feeds to load BEFORE the run — the interpreter itself is
+   * deterministic and never fetches data.
    */
   securityTimeframes: string[];
 }
 
 /**
- * Execution limits. A Pine script is untrusted input that runs synchronously on
- * the same event loop as the live alert runner, so a runaway script must not be
- * able to stall live signals. Every limit below aborts with a normal
- * PineRuntimeError naming the line, exactly like any other script error.
+ * Execution limits. A Pine script is untrusted input. API runs are additionally
+ * isolated in runInWorker, while these cooperative limits also protect direct
+ * test/research callers. Every limit aborts with a normal PineRuntimeError.
  */
 const LIMITS = {
   /** wall-clock budget for one run, ms */
@@ -301,13 +323,14 @@ export class PineInterpreter {
 
   private meta: PineMeta = {
     kind: "indicator", title: "Untitled", shortTitle: "", overlay: false, inputs: [],
-    securityTimeframes: [],
+    format: "inherit", precision: null, warnings: [], securityTimeframes: [],
   };
   private inputsSeen = new Set<string>();
   private params: Record<string, number | string | boolean> = {};
   private plots = new Map<string, PinePlot>();
   private plotOrder: string[] = [];
   private hlines: PineHline[] = [];
+  private warningsSeen = new Set<string>();
   private drawings = new DrawingRegistry();
   private shapes: PineShapeMark[] = [];
   private times: number[] = [];
@@ -337,6 +360,13 @@ export class PineInterpreter {
         `script exceeded ${LIMITS.loopIterations.toLocaleString()} total loop iterations`, line
       );
     }
+  }
+
+  private compatibilityWarning(line: number, message: string): void {
+    const key = `${line}:${message}`;
+    if (this.warningsSeen.has(key)) return;
+    this.warningsSeen.add(key);
+    this.meta.warnings.push({ line, message });
   }
 
   constructor(source: string) {
@@ -370,7 +400,7 @@ export class PineInterpreter {
         return {
           meta: {
             kind: "indicator", title: "", shortTitle: "", overlay: false,
-            inputs: [], securityTimeframes: [],
+            format: "inherit", precision: null, inputs: [], warnings: [], securityTimeframes: [],
           },
           errors: [{ line: err.line, col: err.col, message: err.message }],
         };
@@ -379,7 +409,7 @@ export class PineInterpreter {
         return {
           meta: {
             kind: "indicator", title: "", shortTitle: "", overlay: false,
-            inputs: [], securityTimeframes: [],
+            format: "inherit", precision: null, inputs: [], warnings: [], securityTimeframes: [],
           },
           errors: [{ line: err.line, col: 1, message: err.message }],
         };
@@ -390,7 +420,7 @@ export class PineInterpreter {
         return {
           meta: {
             kind: "indicator", title: "", shortTitle: "", overlay: false,
-            inputs: [], securityTimeframes: [],
+            format: "inherit", precision: null, inputs: [], warnings: [], securityTimeframes: [],
           },
           errors: [{ line: 1, col: 1, message: "script is too complex to compile (call stack exhausted)" }],
         };
@@ -1048,6 +1078,13 @@ export class PineInterpreter {
       case "syminfo.tickerid": case "syminfo.ticker": return this.bars.symbol;
       case "syminfo.mintick": return this.broker?.opts.tickSize ?? NaN;
       case "timeframe.period": return this.bars.interval;
+      case "timeframe.isintraday": return INTERVAL_MS[this.bars.interval] < 86_400_000;
+      case "timeframe.isdaily": return this.bars.interval === "1d";
+      case "timeframe.isdwm": return INTERVAL_MS[this.bars.interval] >= 86_400_000;
+      case "timeframe.multiplier": {
+        const ms = INTERVAL_MS[this.bars.interval];
+        return ms < 86_400_000 ? ms / 60_000 : 1;
+      }
       // The chart's own palette, as used by scripts that colour text to
       // contrast with the background. Matches the CandleChart theme.
       case "chart.fg_color": return "#d1d4dc";
@@ -1059,7 +1096,7 @@ export class PineInterpreter {
       case "barstate.ishistory": return true;
       // Style/position enums are accepted and passed through as plain strings.
       default:
-        if (/^(plot|shape|location|size|display|scale|format|extend|line|label|text|position|alert|order|xloc|yloc|barmerge|currency|session|adjustment|math)\./.test(path)) {
+        if (/^(plot|hline|shape|location|size|display|scale|format|extend|line|label|text|position|alert|order|xloc|yloc|barmerge|currency|session|adjustment|math)\./.test(path)) {
           return path.split(".").slice(1).join(".");
         }
         void line;
@@ -1326,11 +1363,18 @@ export class PineInterpreter {
     switch (path) {
       // ── declarations ──
       case "indicator": case "strategy": {
-        const [title, shorttitle, overlay] = this.args(e, ["title", "shorttitle", "overlay"]);
+        const [title, shorttitle, overlay, format, precision] = this.args(
+          e, ["title", "shorttitle", "overlay", "format", "precision"]
+        );
         this.meta.kind = path === "strategy" ? "strategy" : "indicator";
         this.meta.title = S(title, "Untitled");
         this.meta.shortTitle = S(shorttitle, "");
         this.meta.overlay = B(overlay, path === "strategy");
+        this.meta.format = S(format, "inherit") || "inherit";
+        const digits = L(precision);
+        this.meta.precision = Number.isFinite(digits)
+          ? Math.max(0, Math.min(16, Math.trunc(digits)))
+          : null;
         // Drawing caps are declared here; they bound the emitted payload.
         for (const [arg, kind] of [
           ["max_lines_count", "line"], ["max_boxes_count", "box"],
@@ -1348,20 +1392,55 @@ export class PineInterpreter {
       case "input.price": case "input.session": case "input.symbol":
         return this.declareInput(path, e);
 
+      case "timeframe.in_seconds": {
+        const [timeframe] = this.args(e, ["timeframe"]);
+        const raw = S(timeframe, this.bars.interval);
+        try {
+          const interval = raw === this.bars.interval
+            ? this.bars.interval
+            : pineTfToInterval(raw, this.bars.interval);
+          return INTERVAL_MS[interval] / 1000;
+        } catch {
+          throw new PineRuntimeError(`unsupported timeframe '${raw}'`, line);
+        }
+      }
+      case "timeframe.change": {
+        const [timeframe] = this.args(e, ["timeframe"]);
+        const raw = S(timeframe, this.bars.interval);
+        if (this.i === 0) return true;
+        try {
+          return timeframeBucket(raw, this.bars.interval, this.bars.time[this.i]!) !==
+            timeframeBucket(raw, this.bars.interval, this.bars.time[this.i - 1]!);
+        } catch {
+          throw new PineRuntimeError(`unsupported timeframe '${raw}'`, line);
+        }
+      }
+
       // ── plotting ──
       case "plot": return this.doPlot(e);
       case "plotshape": case "plotchar": return this.doPlotShape(e);
       case "hline": {
-        const [price, title, color] = this.args(e, ["price", "title", "color"]);
+        const [price, title, color, linestyle, linewidth, , display] = this.args(
+          e, ["price", "title", "color", "linestyle", "linewidth", "editable", "display"]
+        );
+        const id = `hline_${e.id}`;
         if (this.i === 0) {
+          const rawStyle = S(linestyle, "solid");
           this.hlines.push({
-            price: L(price), title: S(title, ""), color: S(color, "#787b86") || "#787b86",
+            id,
+            price: L(price),
+            title: S(title, ""),
+            color: pineColor(color ? this.argVal(color) : "#787b86") ?? "#787b86",
+            width: Math.max(1, Math.min(4, Math.trunc(L(linewidth, 1)))) as 1 | 2 | 3 | 4,
+            style: rawStyle.includes("dot") ? "dotted"
+              : rawStyle.includes("dash") ? "dashed" : "solid",
+            renderable: S(display, "all") !== "none",
           });
         }
-        return NaN;
+        return id;
       }
       case "fill": case "bgcolor": case "barcolor": case "plotcandle": case "plotbar":
-        return NaN; // accepted, not rendered
+        return this.unsupportedRendering(path, e);
 
       // ── colours ──
       case "color.new": {
@@ -1517,6 +1596,29 @@ export class PineInterpreter {
       case "ta.cum": {
         const st = this.stateFor(e, () => new Cum());
         return st.next(L(e.args[0]?.value));
+      }
+      case "ta.vwap": {
+        const [source, anchor, multiplier] = this.args(e, ["source", "anchor", "stdev_mult"]);
+        const price = L(source);
+        const volume = this.bars.volume[this.i] ?? NaN;
+        const reset = anchor === undefined
+          ? timeframeBucket("D", this.bars.interval, this.bars.time[this.i]!) !==
+            (this.i > 0
+              ? timeframeBucket("D", this.bars.interval, this.bars.time[this.i - 1]!)
+              : -1)
+          : B(anchor);
+        const st = this.stateFor(e, () => ({ weighted: 0, squared: 0, volume: 0 }));
+        if (reset) { st.weighted = 0; st.squared = 0; st.volume = 0; }
+        if (Number.isFinite(price) && Number.isFinite(volume) && volume >= 0) {
+          st.weighted += price * volume;
+          st.squared += price * price * volume;
+          st.volume += volume;
+        }
+        if (!(st.volume > 0)) return multiplier === undefined ? NaN : [NaN, NaN, NaN];
+        const mean = st.weighted / st.volume;
+        if (multiplier === undefined) return mean;
+        const deviation = Math.sqrt(Math.max(0, st.squared / st.volume - mean * mean)) * L(multiplier);
+        return [mean, mean + deviation, mean - deviation];
       }
       case "ta.barssince": {
         const st = this.stateFor(e, () => new BarsSince());
@@ -1764,8 +1866,11 @@ export class PineInterpreter {
         }
         if (DRAWING_NS.test(path)) return this.callDrawingPath(path, e);
         if (path.startsWith("linefill.") || path.startsWith("polyline.")) {
-          // Accepted and ignored: these only ever add shading over drawings
-          // that are already rendered, so skipping them loses no structure.
+          for (const arg of e.args) this.evalExpr(arg.value);
+          this.compatibilityWarning(
+            line,
+            `${path} is not rendered by this chart runtime; no substitute was drawn`
+          );
           return NaN;
         }
         throw new PineRuntimeError(`unknown function '${path}'`, line);
@@ -2038,28 +2143,94 @@ export class PineInterpreter {
   // ── plots ────────────────────────────────────────────────────────────────
   private doPlot(e: Extract<Expr, { k: "call" }>): PineValue {
     const line = e.line;
-    const [seriesE, titleE, colorE, widthE, styleE] = this.args(
-      e, ["series", "title", "color", "linewidth", "style"]
+    const [seriesE, titleE, colorE, widthE, styleE, , histbaseE, offsetE, , , , displayE, , precisionE, forceOverlayE] = this.args(
+      e, [
+        "series", "title", "color", "linewidth", "style", "trackprice", "histbase",
+        "offset", "join", "editable", "show_last", "display", "format", "precision",
+        "force_overlay",
+      ]
     );
     const id = `plot_${e.id}`;
+    const rawColor = colorE ? this.argVal(colorE) : undefined;
     let plot = this.plots.get(id);
     if (!plot && this.plotOrder.length >= LIMITS.plots) {
       throw new PineRuntimeError(`a script may declare at most ${LIMITS.plots} plots`, line);
     }
     if (!plot) {
+      const style = normaliseStyle(toStr(this.argVal(styleE, "line")));
+      const initialDisplay = toStr(this.argVal(displayE, "all"));
+      const requestedOffset = Math.trunc(this.num(this.argVal(offsetE, 0), line));
+      if (!Number.isFinite(requestedOffset) || Math.abs(requestedOffset) > 500) {
+        throw new PineRuntimeError("plot offset must be between -500 and 500 bars", line);
+      }
+      const renderable = style !== "cross" && initialDisplay !== "none";
+      if (style === "cross") {
+        this.compatibilityWarning(
+          line,
+          "plot.style_cross is not rendered by this chart runtime; no substitute was drawn"
+        );
+      }
+      // Evaluate histbase even though the current chart adapter uses Pine's
+      // normal zero baseline. A non-zero baseline would otherwise be a silent
+      // semantic substitution, so surface it explicitly.
+      const histbase = this.num(this.argVal(histbaseE, 0), line);
+      if ((style === "histogram" || style === "columns") && histbase !== 0) {
+        this.compatibilityWarning(
+          line,
+          `plot histbase=${histbase} is not rendered; histogram columns use a zero baseline`
+        );
+      }
+      const plotPrecision = this.num(this.argVal(precisionE), line);
+      if (Number.isFinite(plotPrecision) && this.meta.precision === null) {
+        this.meta.precision = Math.max(0, Math.min(16, Math.trunc(plotPrecision)));
+      }
       plot = {
         id,
         title: toStr(this.argVal(titleE, "")) || this.declName || `Plot ${this.plotOrder.length + 1}`,
-        color: toStr(this.argVal(colorE, "")) || DEFAULT_COLORS[this.plotOrder.length % DEFAULT_COLORS.length]!,
+        color: pineColor(rawColor)
+          ?? DEFAULT_COLORS[this.plotOrder.length % DEFAULT_COLORS.length]!,
         width: Math.max(1, Math.trunc(this.num(this.argVal(widthE, 1), line))) || 1,
-        style: normaliseStyle(toStr(this.argVal(styleE, "line"))),
+        style,
+        offset: requestedOffset,
+        forceOverlay: this.truthy(this.argVal(forceOverlayE, false)),
+        renderable,
+        colors: [],
         data: [],
       };
       this.plots.set(id, plot);
       this.plotOrder.push(id);
     }
     const v = this.num(this.argVal(seriesE), line);
-    if (this.inRange) plot.data.push(Number.isFinite(v) ? v : null);
+    const display = toStr(this.argVal(displayE, "all"));
+    const pointColor = colorE ? pineColor(rawColor) : plot.color;
+    if (this.inRange) {
+      plot.data.push(display === "none" || !Number.isFinite(v) ? null : v);
+      plot.colors.push(display === "none" ? null : pointColor);
+    }
+    // `plot()` returns a plot handle. `fill(p1, p2, …)` is not rendered yet,
+    // but returning the real identity avoids corrupting scripts that retain it.
+    return id;
+  }
+
+  private unsupportedRendering(
+    path: "fill" | "bgcolor" | "barcolor" | "plotcandle" | "plotbar",
+    e: Extract<Expr, { k: "call" }>
+  ): PineValue {
+    // Plot arguments may contain stateful TA/user-function calls. Evaluate
+    // them even when the visual primitive is unavailable, so later plots do
+    // not receive plausible-but-wrong series state.
+    for (const arg of e.args) this.evalExpr(arg.value);
+    const labels: Record<typeof path, string> = {
+      fill: "fill() shading",
+      bgcolor: "bgcolor() bands",
+      barcolor: "barcolor() candle recolouring",
+      plotcandle: "plotcandle() custom candles",
+      plotbar: "plotbar() custom bars",
+    };
+    this.compatibilityWarning(
+      e.line,
+      `${labels[path]} is not rendered by this chart runtime; no substitute was drawn`
+    );
     return NaN;
   }
 
@@ -2115,6 +2286,24 @@ function memberPath(e: Expr): string | null {
   return null;
 }
 
+/** UTC bucket used by timeframe.change; Binance candle sessions are UTC. */
+function timeframeBucket(raw: string, chart: Interval, time: number): number {
+  const tf = raw.toUpperCase();
+  const calendar = /^(\d+)?([DWM])$/.exec(tf);
+  if (calendar) {
+    const n = Math.max(1, Number(calendar[1] ?? 1));
+    if (calendar[2] === "D") return Math.floor(time / (n * 86_400_000));
+    if (calendar[2] === "W") {
+      // 1970-01-01 was Thursday; +3 makes bucket boundaries Monday 00:00 UTC.
+      return Math.floor((Math.floor(time / 86_400_000) + 3) / (n * 7));
+    }
+    const d = new Date(time);
+    return Math.floor((d.getUTCFullYear() * 12 + d.getUTCMonth()) / n);
+  }
+  const interval = raw === chart ? chart : pineTfToInterval(raw, chart);
+  return Math.floor(time / INTERVAL_MS[interval]);
+}
+
 /**
  * Apply Pine transparency to a colour, as #rrggbbaa. `transp` is 0 (opaque)
  * to 100 (invisible); an already-8-digit colour has its alpha replaced.
@@ -2160,6 +2349,13 @@ function toStr(v: PineValue): string {
   if (typeof v === "number") return Number.isNaN(v) ? "NaN" : String(v);
   if (typeof v === "boolean") return String(v);
   return "";
+}
+
+/** A Pine `na` colour hides a point; never hand an invalid token to canvas. */
+function pineColor(v: PineValue | undefined): string | null {
+  const color = toStr(v as PineValue).trim();
+  if (!color || color === "NaN" || color.toLowerCase() === "na") return null;
+  return color;
 }
 
 function looseEq(a: PineValue, b: PineValue): boolean {

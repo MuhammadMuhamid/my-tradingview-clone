@@ -45,6 +45,7 @@ export function SplitPane({
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [liveRevision, setLiveRevision] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,7 +71,8 @@ export function SplitPane({
   useEffect(() => { void load(); }, [load]);
 
   const mirrored = useMirroredIndicators(
-    indicators, { symbol, timeframe, startTime, endTime }, indicators.length > 0
+    indicators, { symbol, timeframe, startTime, endTime }, indicators.length > 0,
+    liveRevision
   );
 
   const maOverlays = useMemo(() => buildMaOverlays(candles, maLines), [candles, maLines]);
@@ -81,6 +83,20 @@ export function SplitPane({
   );
 
   const last = candles[candles.length - 1];
+
+  const liveBarBoundary = useCallback((closed: Candle | null, current: Candle) => {
+    setCandles((existing) => {
+      const next = [...existing];
+      for (const bar of [closed, current]) {
+        if (!bar) continue;
+        const index = next.findIndex((candidate) => candidate.openTime === bar.openTime);
+        if (index >= 0) next[index] = bar;
+        else if (next.length === 0 || bar.openTime > next[next.length - 1]!.openTime) next.push(bar);
+      }
+      return next.length > bars ? next.slice(-bars) : next;
+    });
+    setLiveRevision((value) => value + 1);
+  }, [bars]);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col border-l border-border">
@@ -133,6 +149,7 @@ export function SplitPane({
             pineDrawings={mirrored.drawings}
             live
             fill
+            onLiveBarBoundary={liveBarBoundary}
             onCrosshairMove={onCrosshairMove}
             crosshairTime={crosshairTime}
             onVisibleRangeChange={onVisibleRangeChange}

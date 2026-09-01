@@ -79,7 +79,10 @@ export interface PineMeta {
   title: string;
   shortTitle: string;
   overlay: boolean;
+  format: string;
+  precision: number | null;
   inputs: PineInputDef[];
+  warnings: { line: number; message: string }[];
 }
 
 export interface PineCompileError { line: number; col: number; message: string }
@@ -90,6 +93,10 @@ export interface PinePlotSeries {
   color: string;
   width: number;
   style: string;
+  offset: number;
+  forceOverlay: boolean;
+  renderable: boolean;
+  colors: (string | null)[];
   data: (number | null)[];
 }
 
@@ -120,7 +127,8 @@ export interface PineRunResult {
   meta: PineMeta;
   times?: number[];
   plots?: PinePlotSeries[];
-  hlines?: { price: number; color: string; title: string }[];
+  hlines?: { id: string; price: number; color: string; title: string;
+    width: number; style: "solid" | "dashed" | "dotted"; renderable: boolean }[];
   shapes?: PineShapeMark[];
   drawings?: PineDrawings;
   trades?: Trade[];

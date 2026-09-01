@@ -63,6 +63,10 @@ export function tokenize(source: string): Token[] {
   let atLineStart = true;
   /** bracket depth — newlines inside brackets are insignificant */
   let depth = 0;
+  /** A depth-zero line whose final operator explicitly continues it. */
+  let continuedLine = false;
+  /** Unmatched conditional operators also continue onto a following `:` arm. */
+  let pendingTernaries = 0;
 
   const col = (): number => i - lineStart + 1;
   const push = (type: TokenType, value: string, c = col()): void => {
@@ -92,6 +96,14 @@ export function tokenize(source: string): Token[] {
       }
       if (i >= text.length) break;
 
+      // Continuation indentation is alignment, not a nested Pine block. This
+      // matters for calls and expressions split after a comma/operator.
+      if (continuedLine) {
+        continuedLine = false;
+        atLineStart = false;
+        continue;
+      }
+
       const top = indents[indents.length - 1]!;
       if (width > top) {
         indents.push(width);
@@ -109,6 +121,11 @@ export function tokenize(source: string): Token[] {
       continue;
     }
 
+    // A physical line that began inside brackets is already part of the
+    // current logical statement. Mark its leading position consumed before a
+    // closing bracket brings depth back to zero later on the same line.
+    if (atLineStart && depth > 0) atLineStart = false;
+
     const c = text[i]!;
 
     // whitespace (not line-leading)
@@ -124,16 +141,22 @@ export function tokenize(source: string): Token[] {
     if (c === "\n") {
       i++;
       const prev = tokens[tokens.length - 1];
+      let next = i;
+      while (text[next] === " " || text[next] === "\t") next++;
+      const nextLineContinues = text[next] === "?";
       // Suppress the newline when inside brackets, or when the previous token
       // makes the line obviously incomplete (Pine's continuation rule).
       // `=>` is the exception: it ends a function header and opens an indented
       // body, so its newline must survive for the parser to see the block.
       const continues =
         depth > 0 ||
+        pendingTernaries > 0 ||
+        nextLineContinues ||
         (prev !== undefined && prev.type === "op" &&
           !["(", ")", "]", "}", "=>"].includes(prev.value)) ||
         (prev !== undefined && prev.type === "kw" &&
           ["and", "or", "not"].includes(prev.value));
+      continuedLine = depth === 0 && continues;
       if (!continues && prev !== undefined && prev.type !== "newline") {
         push("newline", "\\n");
       }
@@ -211,6 +234,8 @@ export function tokenize(source: string): Token[] {
       // the parser decides, but bracket depth must track either way.
       if (op === "(" || op === "[" || op === "{") depth++;
       if (op === ")" || op === "]" || op === "}") depth = Math.max(0, depth - 1);
+      if (op === "?") pendingTernaries++;
+      if (op === ":" && pendingTernaries > 0) pendingTernaries--;
       i += op.length;
       push("op", op, startCol);
       continue;

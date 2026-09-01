@@ -10,7 +10,10 @@
  * applied straight from the editor (never saved) behaves like any other.
  */
 import { api, type PineDrawings, type PineInputDef, type PineRunResult } from "@/lib/api";
-import type { ChartMarker, ChartOverlay } from "@/components/CandleChart";
+import type { ChartMarker } from "@/components/CandleChart";
+import {
+  PRICE_PANE_ID, shiftedPlotTime, type ChartOverlay, type ChartSeriesStyle,
+} from "@/lib/chartSeries";
 import type { Interval, Trade } from "@/lib/types";
 
 export type PineParams = Record<string, number | string | boolean>;
@@ -22,6 +25,9 @@ export interface AppliedIndicator {
   scriptId: string | null;
   name: string;
   kind: "indicator" | "strategy";
+  shortTitle: string;
+  overlay: boolean;
+  precision: number | null;
   source: string;
   inputs: PineInputDef[];
   params: PineParams;
@@ -30,6 +36,7 @@ export interface AppliedIndicator {
   loading: boolean;
   /** first compile/run error, shown on the instance row */
   error: string | null;
+  warnings: { line: number; message: string }[];
   overlays: ChartOverlay[];
   markers: ChartMarker[];
   drawings: PineDrawings;
@@ -84,12 +91,16 @@ export function hydrate(s: StoredIndicator): AppliedIndicator {
     scriptId: s.scriptId ?? null,
     name: s.name,
     kind: "indicator",
+    shortTitle: "",
+    overlay: true,
+    precision: null,
     source: s.source,
     inputs: [],
     params: s.params ?? {},
     visible: s.visible !== false,
     loading: true,
     error: null,
+    warnings: [],
     overlays: [],
     markers: [],
     drawings: NO_DRAWINGS,
@@ -103,18 +114,64 @@ export function hydrate(s: StoredIndicator): AppliedIndicator {
  */
 export function toChartOutput(
   key: string,
-  r: PineRunResult
+  r: PineRunResult,
+  params: PineParams = {}
 ): Pick<AppliedIndicator, "overlays" | "markers" | "drawings" | "trades"> {
   const times = r.times ?? [];
+  const instanceTitle = `${r.meta.shortTitle || r.meta.title} · ${key.slice(-5)}`;
+  const activeParams = r.meta.inputs
+    .map((input) => [input.title, params[input.key] ?? input.defval] as const)
+    .filter(([, value]) => value !== "" && value !== undefined)
+    .slice(0, 3)
+    .map(([title, value]) => `${title} ${String(value)}`)
+    .join(" · ");
+  const paneFor = (forceOverlay = false): string =>
+    r.meta.overlay || forceOverlay ? PRICE_PANE_ID : `indicator:${key}`;
+  const plotOverlays: ChartOverlay[] = (r.plots ?? [])
+    .filter((plot) => plot.renderable !== false)
+    .map((plot) => ({
+      id: `${key}:${plot.id}`,
+      title: plot.title,
+      color: plot.color,
+      width: plot.width,
+      style: plot.style as ChartSeriesStyle,
+      paneId: paneFor(plot.forceOverlay),
+      instanceId: key,
+      instanceTitle,
+      instanceParams: activeParams,
+      precision: r.meta.precision,
+      data: plot.data.flatMap((value, i) => {
+        const time = shiftedPlotTime(times, i, plot.offset ?? 0);
+        return time === null ? [] : [{
+          time,
+          value,
+          color: plot.colors?.[i] === undefined ? plot.color : plot.colors[i],
+        }];
+      }),
+    }));
+  const hlineOverlays: ChartOverlay[] = (r.hlines ?? [])
+    .filter((line) => line.renderable !== false && Number.isFinite(line.price) && times.length > 0)
+    .map((line) => ({
+      id: `${key}:${line.id}`,
+      title: line.title || "Level",
+      color: line.color,
+      width: line.width,
+      dashed: line.style !== "solid",
+      lineStyle: line.style,
+      paneId: paneFor(),
+      instanceId: key,
+      instanceTitle,
+      instanceParams: activeParams,
+      precision: r.meta.precision,
+      data: [
+        { time: times[0]!, value: line.price, color: line.color },
+        ...(times.length > 1
+          ? [{ time: times[times.length - 1]!, value: line.price, color: line.color }]
+          : []),
+      ],
+    }));
   return {
-    overlays: (r.plots ?? []).map((p) => ({
-      id: `${key}:${p.id}`,
-      title: p.title,
-      color: p.color,
-      width: p.width,
-      dashed: p.style === "dashed" || p.style === "dotted",
-      data: p.data.map((v, i) => ({ time: times[i] ?? 0, value: v })),
-    })),
+    overlays: [...plotOverlays, ...hlineOverlays],
     markers: (r.shapes ?? []).map((s) => ({
       time: s.time,
       position: s.position === "above" ? "aboveBar" : "belowBar",
@@ -151,6 +208,7 @@ export async function runIndicator(
         ...ind,
         loading: false,
         inputs: r.meta?.inputs ?? ind.inputs,
+        warnings: r.meta?.warnings ?? [],
         error: e ? `line ${e.line}: ${e.message}` : "compile failed",
         overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
       };
@@ -161,10 +219,17 @@ export async function runIndicator(
       error: null,
       kind: r.meta.kind,
       name: ind.name || r.meta.title,
+      shortTitle: r.meta.shortTitle,
+      overlay: r.meta.overlay,
+      precision: r.meta.precision,
       inputs: r.meta.inputs,
-      ...toChartOutput(ind.key, r),
+      warnings: r.meta.warnings ?? [],
+      ...toChartOutput(ind.key, r, ind.params),
     };
   } catch (e) {
-    return { ...ind, loading: false, error: (e as Error).message };
+    return {
+      ...ind, loading: false, error: (e as Error).message,
+      overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+    };
   }
 }

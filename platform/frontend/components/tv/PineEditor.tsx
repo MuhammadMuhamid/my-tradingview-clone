@@ -17,13 +17,13 @@ export interface PineChartPayload {
  * chart. Compiled `input.*` declarations become an editable settings column;
  * changing one re-runs the script.
  *
- * The engine executes a documented subset of Pine (single timeframe; no maps)
- * — anything outside it comes back as a normal compile error naming the line,
- * never a silent no-op.
+ * The engine executes a documented Pine subset (including bounded MTF; no
+ * maps). Unsupported semantics return line-numbered errors, while unsupported
+ * visual-only constructs are listed as explicit compatibility warnings.
  */
 export function PineEditor({
   symbol, timeframe, startTime, endTime, onApplyToChart, appliedCount,
-  openScript, onOpenScriptConsumed,
+  openScript, openParams, onOpenScriptConsumed, editingApplied = false,
 }: {
   symbol: string;
   timeframe: Interval;
@@ -34,7 +34,11 @@ export function PineEditor({
   appliedCount: number;
   /** a script the Indicators panel asked to open here */
   openScript?: PineScript | null;
+  /** Existing instance overrides retained while its source is edited. */
+  openParams?: Record<string, number | string | boolean>;
   onOpenScriptConsumed?: () => void;
+  /** Apply replaces an existing chart instance instead of adding another. */
+  editingApplied?: boolean;
 }) {
   const [scripts, setScripts] = useState<PineScript[]>([]);
   const [scriptId, setScriptId] = useState<string | null>(null);
@@ -62,12 +66,12 @@ export function PineEditor({
     setScriptId(openScript.id);
     setName(openScript.name);
     setSource(openScript.source);
-    setParams({});
+    setParams(openParams ?? {});
     setStatus(`Opened “${openScript.name}”`);
     onOpenScriptConsumed?.();
-  }, [openScript, onOpenScriptConsumed]);
+  }, [openScript, openParams, onOpenScriptConsumed]);
 
-  const errors = result?.errors ?? [];
+  const errors = useMemo(() => result?.errors ?? [], [result?.errors]);
   const errorLines = useMemo(() => new Set(errors.map((e) => e.line)), [errors]);
   const lines = useMemo(() => source.split("\n"), [source]);
 
@@ -77,7 +81,9 @@ export function PineEditor({
       api.compilePine(source)
         .then((r) => {
           setInputs(r.meta.inputs);
-          setResult((prev) => (r.errors.length > 0 || !prev ? { ...r, ok: r.errors.length === 0 } : prev));
+          setResult((prev) => prev
+            ? { ...prev, ok: r.errors.length === 0, errors: r.errors, meta: r.meta }
+            : { ...r, ok: r.errors.length === 0 });
           // Drop overrides whose input no longer exists.
           setParams((p) => {
             const keys = new Set(r.meta.inputs.map((i) => i.key));
@@ -108,7 +114,7 @@ export function PineEditor({
       setInputs(r.meta.inputs);
       if (apply) {
         onApplyToChart({ name: r.meta.title || name, source, params });
-        setStatus(`Added to chart — ${r.plots?.length ?? 0} plot(s)`);
+        setStatus(`${editingApplied ? "Updated on chart" : "Added to chart"} — ${r.plots?.length ?? 0} plot(s)`);
       } else {
         setStatus(`Compiled OK — ${r.times?.length ?? 0} bars`);
       }
@@ -118,7 +124,7 @@ export function PineEditor({
     } finally {
       setBusy(false);
     }
-  }, [source, symbol, timeframe, startTime, endTime, params, onApplyToChart, name]);
+  }, [source, symbol, timeframe, startTime, endTime, params, onApplyToChart, name, editingApplied]);
 
   const save = async () => {
     const clean = name.trim();
@@ -232,7 +238,7 @@ export function PineEditor({
             title="⌘↵"
             className="rounded bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:bg-accent/90 disabled:opacity-40"
           >
-            Add to chart
+            {editingApplied ? "Update on chart" : "Add to chart"}
           </button>
           {appliedCount > 0 && (
             <span className="text-[11px] text-ink-faint" title="Manage them in the Indicators panel">
@@ -294,18 +300,24 @@ export function PineEditor({
             <span>Console</span>
             {errors.length > 0
               ? <span className="rounded bg-down/20 px-1.5 text-down">{errors.length}</span>
-              : <span className="text-up">no errors</span>}
+              : result?.meta.warnings?.length
+                ? <span className="rounded bg-warn/20 px-1.5 text-warn">{result.meta.warnings.length} warning(s)</span>
+                : <span className="text-up">no errors</span>}
             {status && <span className="ml-auto text-ink-faint">{status}</span>}
           </button>
           {showConsole && (
             <div className="max-h-[110px] overflow-y-auto px-3 pb-2 font-mono text-[11px]">
               {errors.length === 0 && (
                 <div className="text-ink-faint">
-                  Script compiled. Engine supports arrays, matrices, types,
-                  methods and line/box/label/table drawings. Not supported:
-                  maps, and request.security for a different timeframe.
+                  Script compiled. Unsupported visual constructs are listed
+                  explicitly below and are never replaced with a fake series.
                 </div>
               )}
+              {(result?.meta.warnings ?? []).map((warning) => (
+                <div key={`${warning.line}:${warning.message}`} className="text-warn">
+                  line {warning.line} — {warning.message}
+                </div>
+              ))}
               {errors.map((e, i) => (
                 <button
                   key={i}

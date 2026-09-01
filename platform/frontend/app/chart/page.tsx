@@ -5,6 +5,7 @@ import { PineEditor } from "@/components/tv/PineEditor";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
 import { SplitPane } from "@/components/tv/SplitPane";
 import { useIndicators } from "@/lib/useIndicators";
+import type { AppliedIndicator } from "@/lib/indicators";
 import { Watchlist } from "@/components/tv/Watchlist";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
 import { LayoutMenu } from "@/components/tv/LayoutMenu";
@@ -148,8 +149,8 @@ export default function TvWorkspace() {
       catch { /* feature is normally disabled; the ticket shows the actionable error */ }
     };
     void refreshManual();
-    const timer = setInterval(() => void refreshManual(), 30_000);
-    return () => { active = false; clearInterval(timer); };
+    const timer = window.setInterval(() => void refreshManual(), 30_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [symbol]);
   // ── phone chrome: everything optional starts closed so the chart gets the screen ──
   const isMobile = useIsMobile();
@@ -238,6 +239,8 @@ export default function TvWorkspace() {
   }, [splitOpen, splitInterval]);
   /** a library script the panel asked the editor to open */
   const [editorScript, setEditorScript] = useState<PineScript | null>(null);
+  /** Applied instance being edited; null means Add creates a new instance. */
+  const [editingIndicatorKey, setEditingIndicatorKey] = useState<string | null>(null);
 
   // ── applied Pine studies (TradingView "Indicators") ──
   const indicators = useIndicators({
@@ -299,16 +302,36 @@ export default function TvWorkspace() {
     setMaLines((prev) => prev.map((l) => ({ ...l, visible })));
   }, []);
 
-  /** Editor "Add to chart" becomes a normal study instance. */
+  /** Editor apply either replaces one stable instance or creates a new one. */
   const applyPine = useCallback((payload: { name: string; source: string; params: Record<string, number | string | boolean> }) => {
-    indicators.add({ scriptId: null, name: payload.name, source: payload.source, params: payload.params });
+    if (editingIndicatorKey) {
+      indicators.updateSource(editingIndicatorKey, payload);
+      setEditingIndicatorKey(null);
+    } else {
+      indicators.add({ scriptId: null, name: payload.name, source: payload.source, params: payload.params });
+    }
     setOpenTrade(null);
     setPanel("indicators");
-  }, [indicators]);
+  }, [editingIndicatorKey, indicators]);
 
   const openInEditor = useCallback((s: PineScript) => {
+    setEditingIndicatorKey(null);
     setEditorScript(s);
     setBottomTab("pine");
+  }, []);
+
+  const editIndicator = useCallback((indicator: AppliedIndicator) => {
+    setEditingIndicatorKey(indicator.key);
+    setEditorScript({
+      id: indicator.scriptId ?? "",
+      name: indicator.name,
+      source: indicator.source,
+      kind: indicator.kind,
+      createdAt: "",
+      updatedAt: "",
+    });
+    setBottomTab("pine");
+    setBottomCollapsed(false);
   }, []);
 
   useEffect(() => { setDrawings(drawStore.loadDrawings(symbol)); }, [symbol]);
@@ -703,6 +726,22 @@ export default function TvWorkspace() {
     [maOverlays, indicators.overlays]
   );
 
+  const liveBarBoundary = useCallback((closed: Candle | null, current: Candle) => {
+    setCandles((existing) => {
+      const next = [...existing];
+      for (const bar of [closed, current]) {
+        if (!bar) continue;
+        const index = next.findIndex((candidate) => candidate.openTime === bar.openTime);
+        if (index >= 0) next[index] = bar;
+        else if (next.length === 0 || bar.openTime > next[next.length - 1]!.openTime) next.push(bar);
+      }
+      return next.length > bars ? next.slice(-bars) : next;
+    });
+    // Custom Pine stays bar-close truthful without re-running 10k bars on
+    // every one-second kline tick.
+    indicators.rerunAll();
+  }, [bars, indicators]);
+
   /** One definition, rendered twice: as the desktop column and the phone drawer. */
   const drawingToolbarProps = {
     tool, onTool: setTool,
@@ -971,6 +1010,7 @@ export default function TvWorkspace() {
               markers={indicators.markers}
               pineDrawings={indicators.drawings}
               priceLines={allPriceLines} live fill compact={isMobile}
+              onLiveBarBoundary={liveBarBoundary}
               onPriceSelect={pickingLevel ? pickLevel : undefined}
               drawingTool={tool}
               onDrawingToolDone={() => setTool("cursor")}
@@ -1085,8 +1125,12 @@ export default function TvWorkspace() {
                 endTime={todayISO()}
                 appliedCount={indicators.list.length}
                 openScript={editorScript}
+                openParams={editingIndicatorKey
+                  ? indicators.list.find((item) => item.key === editingIndicatorKey)?.params
+                  : undefined}
                 onOpenScriptConsumed={() => setEditorScript(null)}
                 onApplyToChart={applyPine}
+                editingApplied={editingIndicatorKey !== null}
               />
             </div>
           )}
@@ -1108,7 +1152,11 @@ export default function TvWorkspace() {
             )}
             {panel === "alerts" && <AlertsPanel onCreateAlert={() => setAlertOpen(true)} />}
             {panel === "indicators" && (
-              <IndicatorsPanel indicators={indicators} onOpenInEditor={openInEditor} />
+              <IndicatorsPanel
+                indicators={indicators}
+                onOpenInEditor={openInEditor}
+                onEditIndicator={editIndicator}
+              />
             )}
             {panel === "manual" && <ManualTradingPanel symbol={symbol} onStateChange={setManualState} />}
             {panel === "ma" && (

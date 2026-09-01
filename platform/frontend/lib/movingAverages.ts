@@ -10,7 +10,7 @@
  * the same number the server alerts on, or a "touch" would appear to fire on
  * the wrong line.
  */
-import type { ChartOverlay } from "@/components/CandleChart";
+import type { ChartOverlay } from "@/lib/chartSeries";
 import type { Candle } from "@/lib/types";
 
 export type MaType = "sma" | "ema";
@@ -99,6 +99,9 @@ export function buildMaOverlays(candles: Candle[], lines: MaLine[]): ChartOverla
       return {
         id: maId(l.type, l.length),
         title: maLabel(l.type, l.length),
+        paneId: "price",
+        instanceId: "moving-averages",
+        instanceTitle: "Moving averages",
         color: maColor(l.length),
         width: l.length >= 100 ? 2 : 1,
         dashed: l.type === "ema",

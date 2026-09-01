@@ -72,11 +72,13 @@ pairs and mainstream quotes. Picking an untracked pair registers it first, so
 the chart can backfill it immediately. Opens from the symbol chip or `/`.
 
 **Pine editor** (`platform/backend/src/pine/`, `platform/frontend/components/tv/PineEditor.tsx`).
-Write a Pine v5 script, compile it, and add it to the chart: plots become line
-overlays, `plotshape` becomes markers, and a `strategy()` script runs through
+Write a Pine v5 script, compile it, and add it to the chart: `overlay=true`
+plots share the price pane, non-overlay scripts get stable independent panes,
+supported line/step/area/histogram/column/circle styles retain gaps and dynamic
+colours, and `plotshape` becomes markers. A `strategy()` script runs through
 the same `Broker` and metrics as the built-in strategies. `input.*`
-declarations become an editable settings column that re-runs on change.
-Scripts are saved in `pine_scripts`.
+declarations become editable settings that replace the same indicator instance
+on change. Scripts are saved in `pine_scripts`.
 
 The engine is a real interpreter (lexer → parser → bar-by-bar evaluator), not
 a translator. **`ta.*` calls are not reimplemented**: window functions slice a
@@ -87,8 +89,10 @@ platform's own strategies by construction.
 
 Supported: `indicator`/`strategy`, `input.*`, `var`/`varip`, `:=`, history
 `x[n]`, if/else (statement and expression), bounded `for`/`while`, user
-functions (single-line and indented, with per-call-site series state like
-Pine), `ta.*`, `math.*`, `str.*`, `plot`/`plotshape`/`hline`, colours, and
+functions (single-line and indented, including qualified parameters and
+per-call-site series state), arrays, matrices, user-defined types and methods,
+`switch`, the implemented `ta.*`/`math.*`/`str.*` surface, drawings and tables,
+`plot`/`plotshape`/`plotchar`/`hline`, colours, and
 `strategy.entry`/`close`/`exit` with `position_size`/`position_avg_price`.
 
 `request.security` is supported for a **constant** timeframe argument. A
@@ -104,10 +108,12 @@ that produced it had closed.
 > Pivot Points indicator is written against this behaviour — see
 > `platform/backend/src/pine/interpreter.ts`.
 
-Not supported, and reported as a compile error naming the line rather than
-silently ignored: a non-constant `request.security` timeframe, arrays /
-matrices / maps, labels / lines / boxes / tables, user-defined types and
-methods, libraries, and `switch`.
+This is a documented subset, not full Pine compatibility. Maps, imports,
+libraries, unsupported builtins, and `barmerge.lookahead_on` fail with a
+line-numbered compatibility error. Visual primitives not yet drawn (`fill`,
+`bgcolor`, `barcolor`, `plotcandle`, `plotbar`, linefill/polyline, and
+`plot.style_cross`) produce explicit editor warnings; the runtime evaluates
+their arguments but never substitutes a plausible-looking wrong series.
 
 **Indicator library** (`platform/backend/src/pine/library.ts`). Ships built-in scripts —
 Supertrend, Pivot Points (Traditional / Fibonacci / Woodie / Classic /
@@ -115,10 +121,11 @@ Camarilla), and the community set — addable per chart with editable inputs,
 exactly like a user script. Sources are embedded in the module rather than read
 from disk because `tsc` copies only TypeScript into `dist/`.
 
-**Execution limits.** A Pine script is untrusted input that runs synchronously
-on the same event loop as the live alert runner, so every limit below aborts
-the run with an ordinary line-numbered script error rather than stalling live
-signals (`platform/backend/src/pine/interpreter.ts`, `LIMITS`):
+**Execution limits.** A Pine script is untrusted input. Chart runs execute in a
+bounded worker thread with a heap ceiling, hard wall-clock termination,
+concurrency/queue limits, and the interpreter limits below; the API/live-alert
+event loop remains free (`platform/backend/src/pine/runInWorker.ts` and
+`platform/backend/src/pine/interpreter.ts`):
 
 | Limit | Value | Why |
 |---|---|---|

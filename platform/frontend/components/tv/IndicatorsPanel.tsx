@@ -13,11 +13,13 @@ import type { AppliedIndicator } from "@/lib/indicators";
  * which is most of them.
  */
 export function IndicatorsPanel({
-  indicators, onOpenInEditor,
+  indicators, onOpenInEditor, onEditIndicator,
 }: {
   indicators: IndicatorsApi;
   /** load a saved script into the Pine Editor tab for editing */
   onOpenInEditor: (script: PineScript) => void;
+  /** edit one applied instance without changing its stable chart identity */
+  onEditIndicator: (indicator: AppliedIndicator) => void;
 }) {
   const [library, setLibrary] = useState<PineScript[]>([]);
   const [q, setQ] = useState("");
@@ -187,6 +189,7 @@ export function IndicatorsPanel({
               open={expanded === ind.key}
               onToggleOpen={() => setExpanded((k) => (k === ind.key ? null : ind.key))}
               indicators={indicators}
+              onEdit={() => onEditIndicator(ind)}
             />
           ))}
         </div>
@@ -197,12 +200,13 @@ export function IndicatorsPanel({
 
 /** One applied study: visibility, error state, and its input() settings. */
 function IndicatorRow({
-  ind, open, onToggleOpen, indicators,
+  ind, open, onToggleOpen, indicators, onEdit,
 }: {
   ind: AppliedIndicator;
   open: boolean;
   onToggleOpen: () => void;
   indicators: IndicatorsApi;
+  onEdit: () => void;
 }) {
   const overridden = Object.keys(ind.params).length;
   return (
@@ -213,10 +217,10 @@ function IndicatorRow({
           className={`text-[11px] ${ind.visible ? "text-ink" : "text-ink-faint"}`}
           title={ind.visible ? "Hide" : "Show"}
         >
-          {ind.visible ? "👁" : "◻"}
+          {ind.visible ? "●" : "○"}
         </button>
         <button onClick={onToggleOpen} className="min-w-0 flex-1 truncate text-left text-xs text-ink">
-          {ind.name}
+          {ind.shortTitle || ind.name} · {ind.key.slice(-5)}
           {ind.loading && <span className="ml-1 text-[10px] text-ink-faint">running…</span>}
           {!ind.loading && !ind.error && (
             <span className="ml-1 text-[10px] text-ink-faint">
@@ -224,6 +228,13 @@ function IndicatorRow({
               {ind.markers.length > 0 ? ` · ${ind.markers.length} marks` : ""}
             </span>
           )}
+        </button>
+        <button
+          onClick={onEdit}
+          className="text-[11px] text-ink-faint hover:text-ink"
+          title="Edit source in Pine Editor"
+        >
+          ✎
         </button>
         <button
           onClick={() => indicators.rerun(ind.key)}
@@ -244,6 +255,16 @@ function IndicatorRow({
       {ind.error && (
         <div className="border-t border-down/25 bg-down/10 px-2 py-1 font-mono text-[10px] text-down">
           {ind.error}
+        </div>
+      )}
+
+      {ind.warnings.length > 0 && (
+        <div className="border-t border-warn/25 bg-warn/10 px-2 py-1 font-mono text-[10px] text-warn">
+          {ind.warnings.map((warning) => (
+            <div key={`${warning.line}:${warning.message}`}>
+              line {warning.line}: {warning.message}
+            </div>
+          ))}
         </div>
       )}
 
