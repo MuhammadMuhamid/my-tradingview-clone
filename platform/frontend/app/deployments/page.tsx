@@ -6,6 +6,7 @@ import { DeploymentForm } from "@/components/DeploymentForm";
 import { AlertFeed } from "@/components/AlertFeed";
 import { EditAlertModal } from "@/components/tv/EditAlertModal";
 import { StaleNotice } from "@/components/StaleNotice";
+import { TradeOrderTimeline } from "@/components/TradeOrderTimeline";
 import { api, type PaperResult } from "@/lib/api";
 import { freshAt, type Freshness } from "@/lib/freshness";
 import { deliversLiveOrders } from "@/lib/types";
@@ -19,6 +20,7 @@ export default function DeploymentsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Deployment | null>(null);
+  const [timelineDeploymentId, setTimelineDeploymentId] = useState<string | null>(null);
   const [paper, setPaper] = useState<PaperResult | null>(null);
   const [activationTarget, setActivationTarget] = useState<Deployment | null>(null);
   const [activationAcknowledged, setActivationAcknowledged] = useState(false);
@@ -242,8 +244,9 @@ export default function DeploymentsPage() {
                 chips. What the deployment IS — status, market, delivery — reads
                 first; what it is currently DOING is the quieter line beneath.
               */
-              <div key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
-                <div className="min-w-0 flex-1">
+              <div key={d.id}>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+                  <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge status={d.status} />
                     <span className="font-medium text-ink">{d.symbol}</span>
@@ -282,8 +285,12 @@ export default function DeploymentsPage() {
                       <span className="text-ink-faint">last bar {fmtAgo(d.lastBarTime)}</span>
                     )}
                   </div>
-                </div>
-                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  </div>
+                  <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <Button onClick={() => setTimelineDeploymentId((current) => current === d.id ? null : d.id)}
+                    aria-expanded={timelineDeploymentId === d.id}>
+                    {timelineDeploymentId === d.id ? "Hide timeline" : "Timeline"}
+                  </Button>
                   {d.delivery === "paper" && (
                     <Button onClick={() => void openPaper(d.id)} disabled={busy !== null}>
                       Paper results
@@ -300,7 +307,9 @@ export default function DeploymentsPage() {
                   {/* Separated from the reversible controls beside it. */}
                   <span className="mx-0.5 inline-block h-5 w-px bg-border" aria-hidden="true" />
                   <Button variant="danger" onClick={() => remove(d)} disabled={busy !== null}>Delete</Button>
+                  </div>
                 </div>
+                {timelineDeploymentId === d.id && <TradeOrderTimeline kind="deployment" id={d.id} />}
               </div>
             ))}
           </div>

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button, StatusBadge } from "@/components/ui";
+import { TradeOrderTimeline } from "@/components/TradeOrderTimeline";
 import { api, type ManualAccount, type ManualOrder, type ManualPosition, type ManualTradingState } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
@@ -104,6 +105,7 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
   const [tab, setTab] = useState<"ticket" | "orders">("ticket");
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
   const [edit, setEdit] = useState<Record<string, { tp: string; sl: string }>>({});
+  const [timelineOrderId, setTimelineOrderId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -363,21 +365,30 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
         <p className="px-3 py-8 text-center text-xs text-ink-faint">
           {orders.length === 0 ? "No manual orders yet." : "No orders in this state."}
         </p>
-      ) : shownOrders.map((o) => <div key={o.id} className="border-b border-border/60 px-3 py-2 text-xs">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="min-w-0 truncate font-medium text-ink">
-            <span className={o.side === "BUY" ? "text-up" : "text-down"}>{o.side}</span>{" "}
-            {o.orderType} · {o.symbol}
-          </span>
-          <StatusBadge status={o.status} />
+      ) : shownOrders.map((o) => <div key={o.id} className="border-b border-border/60">
+        <div className="px-3 py-2 text-xs">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="min-w-0 truncate font-medium text-ink">
+              <span className={o.side === "BUY" ? "text-up" : "text-down"}>{o.side}</span>{" "}
+              {o.orderType} · {o.symbol}
+            </span>
+            <StatusBadge status={o.status} />
+          </div>
+          <div className="mt-1 tabular text-ink-faint">{o.quantityType === "quote" ? `${o.requestedQuoteQty} USDT` : `${o.requestedBaseQty} base`}
+            {o.limitPrice ? ` @ ${fmtPrice(o.limitPrice)}` : ""} · filled {o.filledBaseQty}
+            {o.averageFillPrice ? ` @ ${fmtPrice(o.averageFillPrice)}` : ""}
+            {accountLabel(o.exchangeAccountId)}</div>
+          {o.error && <div className="mt-1 text-down">{o.error}</div>}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button onClick={() => setTimelineOrderId((current) => current === o.id ? null : o.id)}
+              aria-expanded={timelineOrderId === o.id}>
+              {timelineOrderId === o.id ? "Hide timeline" : "Timeline"}
+            </Button>
+            {o.orderType === "LIMIT" && ["requested", "submitted", "open", "partially_filled"].includes(o.status) &&
+              <Button variant="danger" disabled={pending} onClick={() => void cancel(o.id)}>Cancel limit</Button>}
+          </div>
         </div>
-        <div className="mt-1 tabular text-ink-faint">{o.quantityType === "quote" ? `${o.requestedQuoteQty} USDT` : `${o.requestedBaseQty} base`}
-          {o.limitPrice ? ` @ ${fmtPrice(o.limitPrice)}` : ""} · filled {o.filledBaseQty}
-          {o.averageFillPrice ? ` @ ${fmtPrice(o.averageFillPrice)}` : ""}
-          {accountLabel(o.exchangeAccountId)}</div>
-        {o.error && <div className="mt-1 text-down">{o.error}</div>}
-        {o.orderType === "LIMIT" && ["requested", "submitted", "open", "partially_filled"].includes(o.status) &&
-          <Button variant="danger" disabled={pending} className="mt-2" onClick={() => void cancel(o.id)}>Cancel limit</Button>}
+        {timelineOrderId === o.id && <TradeOrderTimeline kind="manual-order" id={o.id} />}
       </div>)}
     </div>}
     <Modal title="Confirm manual Spot order" open={confirming} onClose={() => !pending && setConfirming(false)} footer={<>

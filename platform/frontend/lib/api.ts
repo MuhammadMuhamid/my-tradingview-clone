@@ -737,8 +737,10 @@ export interface ManualOrder {
   requestedQuoteQty: number | null; limitPrice: number | null;
   takeProfitPrice: number | null; stopLossPrice: number | null;
   protectionType: string | null; protectionState: string | null; status: string;
-  exchangeOrderId: string | null; filledBaseQty: number; filledQuoteQty: number;
-  averageFillPrice: number | null; error: string | null; createdAt: string; updatedAt: string;
+  exchangeOrderId: string | null; clientOrderId: string | null;
+  filledBaseQty: number; filledQuoteQty: number;
+  averageFillPrice: number | null; error: string | null; submittedAt: string | null;
+  completedAt: string | null; createdAt: string; updatedAt: string;
 }
 export interface ManualPosition {
   id: string; exchangeAccountId: string; pair: string; status: string;
@@ -751,6 +753,49 @@ export interface ManualTradingState {
   enabled: boolean; mainnetEnabled: boolean; dryRun: boolean; mixed: boolean;
   accounts: ManualAccount[]; orders: ManualOrder[]; positions: ManualPosition[];
   protection: { type: "bot-managed"; exchangeResting: false; note: string };
+}
+
+export type TimelineEvidenceClass =
+  | "AUTHORITATIVE_EVENT"
+  | "CURRENT_AUTHORITATIVE_STATE"
+  | "SAFE_DERIVATION";
+
+export interface TimelineItem {
+  key: string;
+  timestamp: string;
+  kind: string;
+  state?: string;
+  evidenceClass: TimelineEvidenceClass;
+  title: string;
+  description: string;
+  source: "MANUAL" | "AUTOMATED" | "PAPER" | "UNKNOWN";
+  evidenceSource: string;
+  identifiers: Partial<Record<
+    "requestId" | "clientOrderId" | "exchangeOrderId" | "deploymentId"
+    | "strategyId" | "signalId" | "alertId" | "intentId", string
+  >>;
+  quantity?: Partial<Record<
+    "requestedBase" | "requestedQuote" | "filledBase" | "filledQuote" | "price" | "averagePrice"
+    | "reportedQuantity", number
+  >>;
+}
+
+export interface TradingTimeline {
+  scope: {
+    kind: "manual_order" | "deployment";
+    id: string;
+    source: "MANUAL" | "AUTOMATED" | "PAPER" | "UNKNOWN";
+    symbol: string | null;
+    side: string | null;
+    executionMode: string;
+    delivery?: string;
+    strategyId?: string;
+    configId?: string | null;
+  };
+  finalKnownState: string | null;
+  items: TimelineItem[];
+  gaps: string[];
+  truncated: boolean;
 }
 
 export const api = {
@@ -840,6 +885,10 @@ export const api = {
     `/api/manual-trading/orders/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),
   updateManualProtection: (id: string, body: Record<string, unknown>) => req<ManualPosition>(
     `/api/manual-trading/positions/${id}/protection`, { method: "PATCH", body: JSON.stringify(body) }),
+  manualOrderTimeline: (id: string) => req<TradingTimeline>(
+    `/api/trading-timeline/manual-orders/${encodeURIComponent(id)}`),
+  deploymentTimeline: (id: string, limit = 50) => req<TradingTimeline>(
+    `/api/trading-timeline/deployments/${encodeURIComponent(id)}?limit=${limit}`),
 
   /** Every tree the backend can actually reach, from its own registry. */
   optimizerTrees: () => req<{ root: string; trees: OptimizerTree[] }>(`/api/optimizer/trees`),

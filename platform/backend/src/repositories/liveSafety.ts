@@ -159,6 +159,16 @@ export async function listUnresolvedIntents(deploymentId?: string): Promise<Orde
   return rows.map(toIntent);
 }
 
+/** Newest durable intents for one deployment, bounded for read projections. */
+export async function listOrderIntents(deploymentId: string, limit = 50): Promise<OrderIntent[]> {
+  const bounded = Math.max(1, Math.min(100, Math.trunc(limit)));
+  const { rows } = await query<DbIntent>(
+    "SELECT * FROM order_intents WHERE deployment_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2",
+    [deploymentId, bounded]
+  );
+  return rows.map(toIntent);
+}
+
 // ── Risk controls (BE-11) ───────────────────────────────────────────────────
 
 interface DbRisk {

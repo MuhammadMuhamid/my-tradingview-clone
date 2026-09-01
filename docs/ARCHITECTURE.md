@@ -160,6 +160,31 @@ is a pure module importing nothing at all, and
 `platform/backend/tests/paperIsolation.test.ts` asserts the same graph property
 for it. See [OPERATIONS.md](OPERATIONS.md).
 
+### Trade / Order Timeline read model
+
+The Timeline shown from Manual Trading order rows and deployment rows is a
+read-only projection, not another execution ledger. Manual rows are projected
+from the execution Bot's existing bounded `ManualOrder` state contract. Live
+deployment rows are projected from Platform `order_intents`, `alerts`, and any
+explicitly linked `executions`; paper fills come only from `paper_fills`.
+Correlation uses stored request/client/exchange/order/alert/deployment keys and
+never symbol, side, quantity, or approximate time.
+
+An immutable row with its own occurrence time is rendered as a persisted event.
+A mutable order snapshot is rendered as current known state at its explicit
+`updatedAt`; it is not expanded into transitions that storage did not retain.
+`createdAt` is never reused for submission, fill, cancellation, or completion,
+and equal real timestamps remain equal (a stable secondary order affects only
+rendering). Missing intermediate fills, cancel requests, and Bot-side strategy
+execution linkage are called out as unavailable rather than reconstructed.
+
+The authenticated read boundary is deliberately narrow and bounded:
+`GET /api/trading-timeline/manual-orders/:id` returns one order from the Bot's
+existing 100-row state window, and
+`GET /api/trading-timeline/deployments/:id?limit=1..100` returns recent evidence
+for one deployment. Neither endpoint writes, reconciles, submits, or contacts an
+exchange.
+
 User-supplied Pine runs on a **worker thread**, not this one
 (`platform/backend/src/pine/runInWorker.ts`): its own heap, a wall clock backed
 by terminating the thread, and a bounded number of concurrent runs. A heavy

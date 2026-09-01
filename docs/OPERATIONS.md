@@ -124,6 +124,22 @@ what happens when those two are conflated.
 Orders whose outcome is unknown, because the process died between sending and
 recording (`BE-13`). Reconcile each against the bot before resuming.
 
+### Trade / Order Timeline
+
+The **Timeline** control on a Manual Trading order or deployment is evidence
+inspection only. `Persisted event` means the named record has an explicit event
+time; `Current known state` means a mutable snapshot was last persisted at the
+displayed time and does not prove every earlier transition. The panel labels
+paper simulation, Bot dry-run, Binance testnet, and Binance mainnet separately.
+
+An incomplete-history warning is expected for older or partial records. In
+particular, the current manual Bot read contract does not expose individual
+fills, prior cumulative snapshots, or a cancel command linked to its order;
+Platform also cannot read the Bot's `StrategyOrderIntent` by the Platform
+deployment/alert/dedupe identity. Those facts remain unavailable rather than
+being inferred. The Timeline creates no rows and is not a second execution
+ledger.
+
 ---
 
 ## 2. Paper mode
