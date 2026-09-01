@@ -4,10 +4,10 @@ import { FeedStore } from "./mtf";
 import { isNetWin } from "./liveCosts";
 import { computeSignals } from "./strategies/srtrend_v10/signals";
 import type { SrTrendParams } from "./strategies/srtrend_v10/params";
-import type { LiveDecision } from "./liveEvaluator";
+import { roundStrategyPrice, type LiveDecision } from "./liveEvaluator";
 
 export function evaluateSrTrendBar(feeds: FeedStore, symbol: string, chartTf: Interval,
-  p: SrTrendParams, state: RuntimeState, barTime: number): { next: RuntimeState; decision: LiveDecision | null } {
+  p: SrTrendParams, state: RuntimeState, barTime: number, priceTick = 0): { next: RuntimeState; decision: LiveDecision | null } {
   const chart = feeds.get(symbol, chartTf), i = chart.time.indexOf(barTime);
   if (i < 0) throw new Error(`bar ${barTime} missing from ${symbol} ${chartTf}`);
   const sig = computeSignals(feeds, symbol, chartTf, p), next = { ...state };
@@ -45,7 +45,9 @@ export function evaluateSrTrendBar(feeds: FeedStore, symbol: string, chartTf: In
   const soft = (p.minRForSoftExit <= 0 || unrealR >= p.minRForSoftExit) &&
     (sig.exitMa[i]! || sig.belowSt[i]! || sig.belowMa1[i]! || sig.belowLinReg[i]!);
   const structural = (p.hlBreakMinR <= 0 || unrealR >= p.hlBreakMinR) && sig.hlBreak[i]!;
-  const stopHit = l <= stop, tpHit = next.savedLongTp !== null && h >= next.savedLongTp;
+  const activeStop = roundStrategyPrice(stop, priceTick);
+  const activeTarget = next.savedLongTp === null ? null : roundStrategyPrice(next.savedLongTp, priceTick);
+  const stopHit = l <= activeStop, tpHit = activeTarget !== null && h >= activeTarget;
 
   /*
    * BE-03: brackets resolve BEFORE signal exits, and along the broker's
@@ -65,10 +67,10 @@ export function evaluateSrTrendBar(feeds: FeedStore, symbol: string, chartTf: In
     if (reason) break;
     if (which === "stop" && stopHit) {
       reason = next.trailAnchor !== null && stop === next.trailAnchor ? "Trail" : "SL";
-      exitPx = stop;
+      exitPx = activeStop;
     } else if (which === "tp" && tpHit) {
       reason = "TP";
-      exitPx = next.savedLongTp!;
+      exitPx = activeTarget!;
     }
   }
   if (!reason) {

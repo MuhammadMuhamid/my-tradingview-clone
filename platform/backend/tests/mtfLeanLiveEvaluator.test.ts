@@ -6,14 +6,14 @@ import { resolveParams } from "../src/engine/strategies/mtf_lean/params";
 import { initialRuntimeState } from "../src/types/deployments";
 import type { Candle } from "../src/types/market";
 
-function fixture(lastHigh: number): { feeds: FeedStore; time: number } {
+function fixture(lastHigh: number, lastLow = 99): { feeds: FeedStore; time: number } {
   const base = Date.UTC(2026, 0, 1);
   const candles: Candle[] = Array.from({ length: 240 }, (_, i) => ({
     symbol: "TESTUSDT", interval: "15m" as const,
     openTime: base + i * 900_000,
     open: i === 239 ? 103 : 100,
     high: i === 239 ? lastHigh : 101,
-    low: 99,
+    low: i === 239 ? lastLow : 99,
     close: i === 239 ? 102.5 : 100,
     volume: 1000,
     closeTime: base + (i + 1) * 900_000 - 1,
@@ -64,4 +64,42 @@ test("full-exit mode remains one runner SELL with no partial percentage", () => 
   assert.equal(result.steps[0]!.decision.exitLeg, "runner");
   assert.equal(result.steps[0]!.decision.sellPercent, undefined);
   assert.equal(result.next.position, "flat");
+});
+
+test("a trail derived at this close cannot retroactively stop the same bar", () => {
+  const { feeds, time } = fixture(105, 95);
+  const result = evaluateMtfLeanBar(
+    feeds,
+    "TESTUSDT",
+    "15m",
+    resolveParams({
+      ...baseParams,
+      rrUsePartialTp: false,
+      rrUseTrailSl: true,
+      rrTrailActPct: 1,
+      rrTrailPct: 5,
+    }),
+    longState(),
+    time,
+  );
+  assert.deepEqual(result.steps, []);
+  assert.equal(result.next.position, "long");
+  assert.equal(result.next.trailArmed, true);
+  assert.equal(result.next.trailAnchor, 102.5 * 0.95);
+});
+
+test("strategy order prices use the same tick normalization as Backtester", () => {
+  const { feeds, time } = fixture(130);
+  const state = { ...longState(), savedLongTp: 130.004 };
+  const result = evaluateMtfLeanBar(
+    feeds,
+    "TESTUSDT",
+    "15m",
+    resolveParams({ ...baseParams, rrUsePartialTp: false }),
+    state,
+    time,
+    0.01,
+  );
+  assert.equal(result.steps[0]?.decision.reason, "TP");
+  assert.equal(result.steps[0]?.decision.price, 130);
 });

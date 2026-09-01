@@ -53,6 +53,24 @@ active at once, and they do **not** share dedupe state
 Position state flows the other way on a 30-second poll: the platform asks
 `POST /api/webhooks/signal_bots/status` which symbols the bot currently holds.
 
+The strategy-parity boundary is the output of `*LiveEvaluator.ts`, before
+`LiveRunner.fireAlert` applies operator halt/risk controls or performs delivery.
+Research adapters call the canonical `strategies/*/runBars` modules through
+`PLATFORM_BACKEND`; Research does not carry another strategy implementation.
+At this boundary, order prices are normalized with the same stored
+`symbols.priceTick` used by the historical broker. MTF source values are visible
+only when their source close is at or before the completed target-bar close.
+
+Deterministic cross-path coverage proves the current `mtf_lean` evaluator over
+a flat → long → TP1 → TP2 → flat sequence, including carried trail/partial
+state. It deliberately does not claim that downstream halt, risk, delivery or
+exchange behavior is historical strategy parity. Two production input gaps are
+still explicit rather than normalized away: Research workers load fixed deep
+warm-up windows while LiveRunner reloads rolling per-feed windows, and baseline
+`ma_rr_v9`/`srtrend_v10` histories leave `entryBarBrackets` off while the live
+wrappers protect the next bar. Choosing either historical meaning requires a
+methodology decision and a historical rerun, not a silent live-parity edit.
+
 ## Platform components
 
 | Module | Responsibility |

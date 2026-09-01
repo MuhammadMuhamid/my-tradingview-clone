@@ -4,7 +4,7 @@ import type { RuntimeState } from "../types/deployments";
 import { FeedStore } from "./mtf";
 import { computeSignals } from "./strategies/mtf_lean/signals";
 import type { MtfLeanParams } from "./strategies/mtf_lean/params";
-import type { LiveDecision } from "./liveEvaluator";
+import { roundStrategyPrice, type LiveDecision } from "./liveEvaluator";
 
 export interface MtfLeanDecision extends LiveDecision {
   sellPercent?: number;
@@ -43,6 +43,7 @@ export function evaluateMtfLeanBar(
   p: MtfLeanParams,
   state: RuntimeState,
   barTime: number,
+  priceTick = 0,
 ): { next: RuntimeState; steps: MtfLeanStep[] } {
   const chart = feeds.get(symbol, chartTf);
   const i = chart.time.indexOf(barTime);
@@ -90,25 +91,30 @@ export function evaluateMtfLeanBar(
   const entry = next.entryPrice ?? close;
   const baseStop = next.savedLongStop ?? -Infinity;
   const risk = entry - baseStop;
-  const tp1 = entry * (1 + p.rrTp1Pct / 100);
-  const tp2 = entry * (1 + p.rrTp2Pct / 100);
-  const runner = next.savedLongTp ?? entry + risk * p.rrRatio;
-  const unrealR = risk > 0 ? (close - entry) / risk : 0;
+  const tp1 = roundStrategyPrice(entry * (1 + p.rrTp1Pct / 100), priceTick);
+  const tp2 = roundStrategyPrice(entry * (1 + p.rrTp2Pct / 100), priceTick);
+  const runner = roundStrategyPrice(next.savedLongTp ?? entry + risk * p.rrRatio, priceTick);
 
-  let effStop = baseStop;
-  if (p.rrUseBE && risk > 0 && unrealR >= p.rrBeAfterR) {
-    effStop = Math.max(effStop, entry + p.rrBeOffR * risk);
-  }
-  if (p.rrUseTrailSl) {
-    if (!next.trailArmed && (p.rrTrailActPct <= 0 ? close > entry : high >= entry * (1 + p.rrTrailActPct / 100))) {
-      next.trailArmed = true;
+  /*
+   * Orders derived at bar T's close become active on T+1. The historical
+   * engine therefore processes the previously-issued stop before it computes
+   * T's break-even/trailing update. Reusing T's new close-derived stop against
+   * T's earlier low is look-behind within the candle and can invent an exit.
+  */
+  let activeStop = baseStop;
+  let activeStopIsTrail = false;
+  const previous = i - 1;
+  if (p.rrUseBE && risk > 0 && previous >= 0) {
+    const previousUnrealR = (chart.close[previous]! - entry) / risk;
+    if (previousUnrealR >= p.rrBeAfterR) {
+      activeStop = Math.max(activeStop, entry + p.rrBeOffR * risk);
     }
-    if (next.trailArmed) {
-      const candidate = close * (1 - p.rrTrailPct / 100);
-      next.trailAnchor = next.trailAnchor === null ? candidate : Math.max(next.trailAnchor, candidate);
-      effStop = Math.max(effStop, next.trailAnchor);
-    }
   }
+  if (p.rrUseTrailSl && next.trailAnchor !== null) {
+    activeStopIsTrail = next.trailAnchor >= activeStop;
+    activeStop = Math.max(activeStop, next.trailAnchor);
+  }
+  activeStop = roundStrategyPrice(activeStop, priceTick);
 
   const finish = (reason: string, leg: "runner" | "stop" | "signal", price: number): void => {
     // BE-15: net of both commissions, matching the backtest's `pnl > 0` on
@@ -154,7 +160,7 @@ export function evaluateMtfLeanBar(
     return isFullClose;
   };
 
-  const stopHit = Number.isFinite(effStop) && low <= effStop;
+  const stopHit = Number.isFinite(activeStop) && low <= activeStop;
   const limits = (): boolean => {
     if (p.rrUsePartialTp) {
       // A tier that takes 100% of the remainder IS the exit. Stop here rather
@@ -169,11 +175,23 @@ export function evaluateMtfLeanBar(
 
   // Match broker's deterministic OHLC path: green open→low→high; red open→high→low.
   if (close >= open) {
-    if (stopHit) { finish(next.trailAnchor !== null && effStop === next.trailAnchor ? "Trail" : "SL", "stop", effStop); return { next, steps }; }
+    if (stopHit) { finish(activeStopIsTrail ? "Trail" : "SL", "stop", activeStop); return { next, steps }; }
     if (limits()) return { next, steps };
   } else {
     if (limits()) return { next, steps };
-    if (stopHit && next.position === "long") { finish(next.trailAnchor !== null && effStop === next.trailAnchor ? "Trail" : "SL", "stop", effStop); return { next, steps }; }
+    if (stopHit && next.position === "long") { finish(activeStopIsTrail ? "Trail" : "SL", "stop", activeStop); return { next, steps }; }
+  }
+
+  // With the bar's existing orders resolved, derive the stop that becomes
+  // active on the next completed bar.
+  if (next.position === "long" && p.rrUseTrailSl) {
+    if (!next.trailArmed && (p.rrTrailActPct <= 0 ? close > entry : high >= entry * (1 + p.rrTrailActPct / 100))) {
+      next.trailArmed = true;
+    }
+    if (next.trailArmed) {
+      const candidate = close * (1 - p.rrTrailPct / 100);
+      next.trailAnchor = next.trailAnchor === null ? candidate : Math.max(next.trailAnchor, candidate);
+    }
   }
 
   const barsInTrade = next.entryBarTime === null ? 0 : Math.floor((barTime - next.entryBarTime) / barMs);
@@ -182,5 +200,6 @@ export function evaluateMtfLeanBar(
     p.maxBarsTrade > 0 && barsInTrade >= p.maxBarsTrade ? "time stop" :
     p.useHlBreakExit && sig.hlBreak[i]! ? "HL break" : null;
   if (reason) finish(reason, "signal", close);
+  else if (steps.length > 0) steps[steps.length - 1]!.stateAfter = copy(next);
   return { next, steps };
 }

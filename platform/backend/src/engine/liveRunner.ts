@@ -16,6 +16,7 @@ import type { Interval } from "../types/market";
 import type { DeploymentRow } from "../types/deployments";
 import * as deploymentRepo from "../repositories/deployments";
 import * as strategyRepo from "../repositories/strategies";
+import * as symbolRepo from "../repositories/symbols";
 import * as alertRepo from "../repositories/alerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
@@ -82,6 +83,7 @@ interface ActiveDeployment {
   row: DeploymentRow;
   params: Record<string, unknown>;
   strategyKey: string;
+  priceTick: number;
   feeds: { symbol: string; interval: Interval; warmupBars: number }[];
   barIndexBase: number; // stable-ish bar index for dedupe keys (openTime/intervalMs)
 }
@@ -290,6 +292,10 @@ export class LiveRunner {
     const module = (strategy ? MODULES[strategy.key] : undefined) as typeof maRrV9Module | undefined;
     if (!module) throw new Error(`no engine module for strategy id ${dep.strategyId}`);
     const params = module.resolveParams(dep.params);
+    const symbol = await symbolRepo.getSymbol(dep.symbol);
+    if (!symbol?.priceTick || symbol.priceTick <= 0) {
+      throw new Error(`no tick size available for ${dep.symbol}`);
+    }
     const needs = module.requiredFeeds(params, dep.timeframe).map((n) => ({
       symbol: n.symbol ?? dep.symbol,
       interval: n.interval,
@@ -300,6 +306,7 @@ export class LiveRunner {
       row: dep,
       params,
       strategyKey: strategy!.key,
+      priceTick: symbol.priceTick,
       feeds: needs,
       barIndexBase: 0,
     });
@@ -431,7 +438,7 @@ export class LiveRunner {
 
     if (dep.strategyKey === mtfLeanModule.key) {
       const result = evaluateMtfLeanBar(
-        feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime
+        feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime, dep.priceTick
       );
       if (result.steps.length === 0) {
         await deploymentRepo.saveRuntimeState(id, result.next, barTime);
@@ -453,8 +460,8 @@ export class LiveRunner {
     }
 
     const { next, decision } = dep.strategyKey === srTrendV10Module.key
-      ? evaluateSrTrendBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime)
-      : evaluateBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime);
+      ? evaluateSrTrendBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime, dep.priceTick)
+      : evaluateBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime, dep.priceTick);
     if (!decision) {
       await deploymentRepo.saveRuntimeState(id, next, barTime);
       return;

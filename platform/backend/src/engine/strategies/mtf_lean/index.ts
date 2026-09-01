@@ -26,6 +26,29 @@ export interface RunResult {
   barsProcessed: number;
 }
 
+export interface MtfLeanHistoricalStateTrace {
+  position: "flat" | "long";
+  entryPrice: number | null;
+  entryBar: number | null;
+  savedLongStop: number | null;
+  savedLongTp: number | null;
+  trailAnchor: number | null;
+  trailArmed: boolean;
+  tp1Done: boolean;
+  tp2Done: boolean;
+  consecLosses: number;
+  choppyUntilBar: number | null;
+  lastExitBar: number | null;
+  indSigArmed: boolean;
+}
+
+export interface MtfLeanHistoricalBarTrace {
+  barIndex: number;
+  barTime: number;
+  stateBefore: MtfLeanHistoricalStateTrace;
+  stateAfter: MtfLeanHistoricalStateTrace;
+}
+
 const EXIT_REASONS = {
   tp: { RR1: "TP1", RR2: "TP2", RR3: "TP", "RR X": "TP" } as Record<string, string>,
   sl: "SL",
@@ -37,7 +60,8 @@ export function runBars(
   chartTf: Interval,
   p: MtfLeanParams,
   brokerOpts: BrokerOptions,
-  range: { startMs: number; endMs: number }
+  range: { startMs: number; endMs: number },
+  trace?: (bar: MtfLeanHistoricalBarTrace) => void,
 ): RunResult {
   const chart = feeds.get(symbol, chartTf);
   const sig: SignalArrays = computeSignals(feeds, symbol, chartTf, p);
@@ -77,9 +101,26 @@ export function runBars(
   if (startIdx < 0) throw new Error("no chart bars in the requested range");
   let barsProcessed = 0;
 
+  const stateTrace = (): MtfLeanHistoricalStateTrace => ({
+    position: broker.positionQty > 0 ? "long" : "flat",
+    entryPrice: broker.positionQty > 0 ? broker.avgPrice : null,
+    entryBar: entryBar >= 0 ? entryBar : null,
+    savedLongStop: Number.isNaN(posStop) ? null : posStop,
+    savedLongTp: Number.isNaN(posTp3) ? null : posTp3,
+    trailAnchor: Number.isNaN(trailAnchor) ? null : trailAnchor,
+    trailArmed,
+    tp1Done: ptpTp1Done,
+    tp2Done: ptpTp2Done,
+    consecLosses,
+    choppyUntilBar: choppyUntilBar >= 0 ? choppyUntilBar : null,
+    lastExitBar: lastExitToFlatBar,
+    indSigArmed,
+  });
+
   for (let i = startIdx; i < chart.length; i++) {
     if (chart.time[i]! > range.endMs) break;
     barsProcessed++;
+    const stateBefore = trace ? stateTrace() : null;
     const close = chart.close[i]!;
     const high = chart.high[i]!;
     const low = chart.low[i]!;
@@ -215,6 +256,15 @@ export function runBars(
     prevEndPos = broker.positionQty;
 
     broker.processClose(chart, i);
+
+    if (trace) {
+      trace({
+        barIndex: i,
+        barTime: chart.time[i]!,
+        stateBefore: stateBefore!,
+        stateAfter: stateTrace(),
+      });
+    }
 
     // ── Equity curve (close-marked; drawdown vs running peak) ──
     const equity = broker.equityAt(close);
