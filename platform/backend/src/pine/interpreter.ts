@@ -838,29 +838,22 @@ export class PineInterpreter {
   /**
    * The HTF value in force at the current chart bar.
    *
-   * Lookahead is OFF: only a higher-timeframe bar that has actually CLOSED at
-   * or before this chart bar's open is visible. Reading the forming HTF bar
-   * would leak the rest of the hour into a 15m decision, which is the classic
-   * multi-timeframe backtest lie — and this engine also drives live alerts,
-   * where that value simply does not exist yet.
+   * On historical bars, TradingView's `barmerge.lookahead_off` publishes a new
+   * HTF value at the END of each HTF period. The value is therefore visible on
+   * the final constituent chart bar, where their close times coincide. A feed
+   * bar that closes after the chart bar remains unavailable.
    *
-   * ── Deliberate deviation from TradingView ──
-   * TradingView returns the DEVELOPING higher-timeframe bar, which is why
-   * ported scripts say `close[1]` to reach the last completed one. Here the
-   * developing bar is never returned, so `request.security(s, "D", close)`
-   * already IS the previous completed day and a `[1]` steps back one period
-   * too far. The developing value cannot be reconstructed for an arbitrary
-   * expression — `ta.sma(close, 20)` part-way through a day is not derivable
-   * from completed daily bars — so the engine offers the definition it can
-   * compute honestly rather than one it would have to approximate.
+   * Realtime developing HTF values are a separate TradingView behavior and are
+   * not synthesized here. This alignment is the historical, confirmed-bar
+   * contract supported by this interpreter.
    */
   private alignHtf(series: PineValue[], bars: Bars): PineValue {
-    const now = this.bars.time[this.i];
+    const now = this.bars.closeTime[this.i];
     if (now === undefined) return NaN;
     let lo = 0, hi = bars.length - 1, found = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      // closeTime is the last millisecond of the bar, so <= now means closed.
+      // Inclusive close times make simultaneous HTF/chart closes line up.
       if (bars.closeTime[mid]! <= now) { found = mid; lo = mid + 1; }
       else hi = mid - 1;
     }

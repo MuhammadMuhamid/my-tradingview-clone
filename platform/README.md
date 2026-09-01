@@ -101,15 +101,14 @@ timeframe session filtering with UTC/exchange and IANA timezones.
 `request.security` is supported for a **constant** timeframe argument. A
 capture pass runs the script once per referenced higher timeframe on that
 timeframe's own bars, then aligns each result onto the chart's bars by
-`closeTime <= now` (binary search), so no value is ever visible before the bar
-that produced it had closed.
+`feed.closeTime <= chart.closeTime` (binary search). This matches TradingView's
+documented historical `barmerge.lookahead_off` boundary: a new HTF value appears
+on the chart bar ending the HTF period, and `gaps_off` holds it until the next
+HTF period ends. No feed value is visible before the bar that produced it has
+closed.
 
-> **Deliberate deviation from TradingView.** TradingView's `request.security`
-> returns the *developing* higher-timeframe bar; this returns the last
-> **closed** one. That is the no-lookahead choice, and it means `[1]` steps
-> back one full period further than it would on TradingView. The built-in
-> Pivot Points indicator is written against this behaviour — see
-> `platform/backend/src/pine/interpreter.ts`.
+Realtime developing HTF values are separate TradingView behavior and are not
+synthesized by this historical interpreter path.
 
 This is a documented subset, not full Pine compatibility. Maps, imports,
 libraries, unsupported builtins, and `barmerge.lookahead_on` fail with a

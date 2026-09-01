@@ -121,10 +121,10 @@ than described here as if they were resolved:
 - **The backtest fills a stop intrabar at the trigger price; the live path
   cannot** (`BE-02`). Blocked on Binance testnet credentials for the
   exchange-side stop, and on `BE-08` for the backtest-side correction.
-- **The multi-timeframe merge convention is unresolved** (`BE-08`). The code
-  does not cheat under either convention — that is proved — but whether
-  TradingView delays a higher-timeframe value by one bar is a comparison this
-  workspace may not run.
+- **The multi-timeframe merge convention is resolved** (`BE-08`). Official Pine
+  v6 documentation places new historical `lookahead_off` values at the end of
+  each HTF period. Both built-in MTF and the Pine interpreter now use that
+  close-time boundary; focused tests retain the no-future-data guard.
 
 Resolved since the audit, and no longer true of this checkout: the optimizer API
 routing (`X-04`), the Pine interpreter sharing the live runner's event loop

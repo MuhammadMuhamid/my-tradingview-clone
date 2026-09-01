@@ -5,10 +5,8 @@
  * by hand:
  *
  *  1. **Look-ahead.** Does any chart bar see a value that could not have been
- *     known at that bar's close? `BE-08` is exactly this question about the
- *     multi-timeframe merge, and it took a careful reading of three files plus
- *     a claim about an absent parity artifact to even state it. It should take
- *     one function call.
+ *     known at that bar's close? This is the standing guard for BE-08's
+ *     resolved close-time merge convention.
  *
  *  2. **Warm-up sensitivity.** Does the result depend on where the loaded
  *     window happens to start? `BE-09` is this: `ma_rr_v9` applies a 1500-bar
@@ -48,8 +46,7 @@ export interface LookaheadReport {
   /** True when no chart bar sees a feed bar that closed after it. */
   clean: boolean;
   /**
-   * Bars where the two conventions disagree. Not a defect on its own — it is
-   * the measure of how much BE-08 actually matters for this pair of feeds.
+   * Bars where the supported convention and diagnostic alternative disagree.
    */
   conventionDisagreements: number;
   summary: string;
@@ -65,9 +62,8 @@ export interface LookaheadReport {
  * `chartClose` is clean by this test then neither convention leaks the future,
  * and the disagreement between them is about DELAY, not about look-ahead.
  *
- * That distinction is the substance of BE-08: the question is not "does the
- * code cheat" but "does TradingView delay by one bar". This function separates
- * the two so the second can be settled by comparison rather than by argument.
+ * BE-08 established that TradingView's historical behavior is `chartClose`.
+ * Keeping the distinction measurable makes any future regression visible.
  */
 export function analyseLookahead(
   chart: Bars,
