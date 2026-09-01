@@ -92,8 +92,11 @@ Supported: `indicator`/`strategy`, `input.*`, `var`/`varip`, `:=`, history
 functions (single-line and indented, including qualified parameters and
 per-call-site series state), arrays, matrices, user-defined types and methods,
 `switch`, the implemented `ta.*`/`math.*`/`str.*` surface, drawings and tables,
-`plot`/`plotshape`/`plotchar`/`hline`, colours, and
+`plot`/`plotshape`/`plotchar`/`hline`, plot/hline `fill`, per-bar `bgcolor` and
+`barcolor`, `plot.style_cross`, custom `plotcandle`/`plotbar`, colours, and
 `strategy.entry`/`close`/`exit` with `position_size`/`position_avg_price`.
+The TA subset includes `ta.mfi(series, length)`. `time()` supports chart-
+timeframe session filtering with UTC/exchange and IANA timezones.
 
 `request.security` is supported for a **constant** timeframe argument. A
 capture pass runs the script once per referenced higher timeframe on that
@@ -110,10 +113,10 @@ that produced it had closed.
 
 This is a documented subset, not full Pine compatibility. Maps, imports,
 libraries, unsupported builtins, and `barmerge.lookahead_on` fail with a
-line-numbered compatibility error. Visual primitives not yet drawn (`fill`,
-`bgcolor`, `barcolor`, `plotcandle`, `plotbar`, linefill/polyline, and
-`plot.style_cross`) produce explicit editor warnings; the runtime evaluates
-their arguments but never substitutes a plausible-looking wrong series.
+line-numbered compatibility error. Gradient fills, visual `show_last`,
+display-hidden fill endpoints, linefill/polyline, and session-filtered
+`time()` on a timeframe other than the chart remain explicit unsupported
+subsets; the runtime never substitutes a plausible-looking wrong series.
 
 **Indicator library** (`platform/backend/src/pine/library.ts`). Ships built-in scripts —
 Supertrend, Pivot Points (Traditional / Fibonacci / Woodie / Classic /

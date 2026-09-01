@@ -100,6 +100,45 @@ export interface PinePlotSeries {
   data: (number | null)[];
 }
 
+export interface PineFillSeries {
+  id: string;
+  title: string;
+  firstId: string;
+  secondId: string;
+  forceOverlay: boolean;
+  renderable: boolean;
+  fillgaps: boolean;
+  colors: (string | null)[];
+}
+
+export interface PineBackgroundSeries {
+  id: string;
+  title: string;
+  offset: number;
+  forceOverlay: boolean;
+  colors: (string | null)[];
+}
+
+export interface PineBarColorSeries {
+  id: string;
+  title: string;
+  offset: number;
+  colors: (string | null)[];
+}
+
+export interface PineOhlcSeries {
+  id: string;
+  title: string;
+  style: "candles" | "bars";
+  color: string;
+  forceOverlay: boolean;
+  renderable: boolean;
+  data: ({ open: number; high: number; low: number; close: number } | null)[];
+  colors: (string | null)[];
+  wickColors: (string | null)[];
+  borderColors: (string | null)[];
+}
+
 export interface PineShapeMark {
   time: number;
   position: "above" | "below";
@@ -127,6 +166,10 @@ export interface PineRunResult {
   meta: PineMeta;
   times?: number[];
   plots?: PinePlotSeries[];
+  fills?: PineFillSeries[];
+  backgrounds?: PineBackgroundSeries[];
+  barColors?: PineBarColorSeries[];
+  ohlcPlots?: PineOhlcSeries[];
   hlines?: { id: string; price: number; color: string; title: string;
     width: number; style: "solid" | "dashed" | "dotted"; renderable: boolean }[];
   shapes?: PineShapeMark[];

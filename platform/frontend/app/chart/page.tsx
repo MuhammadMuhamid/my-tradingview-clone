@@ -1007,6 +1007,8 @@ export default function TvWorkspace() {
             <CandleChart symbol={symbol} interval={interval} candles={candles}
               trades={indicators.trades ?? trades}
               overlays={chartOverlays}
+              decorations={indicators.decorations}
+              barColors={indicators.barColors}
               markers={indicators.markers}
               pineDrawings={indicators.drawings}
               priceLines={allPriceLines} live fill compact={isMobile}

@@ -145,6 +145,8 @@ export function SplitPane({
             interval={timeframe}
             candles={candles}
             overlays={overlays}
+            decorations={mirrored.decorations}
+            barColors={mirrored.barColors}
             markers={mirrored.markers}
             pineDrawings={mirrored.drawings}
             live

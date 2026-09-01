@@ -9,7 +9,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChartMarker } from "@/components/CandleChart";
-import type { ChartOverlay } from "@/lib/chartSeries";
+import {
+  mergeBarColorLayers, type ChartBarColor, type ChartDecoration, type ChartOverlay,
+} from "@/lib/chartSeries";
 import type { PineDrawings } from "@/lib/api";
 import type { Interval, Trade } from "@/lib/types";
 import {
@@ -118,7 +120,7 @@ export function useIndicators(ctx: IndicatorContext) {
       loading: true,
       error: null,
       warnings: [],
-      overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+      overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
     };
     setList((cur) => [...cur, ind]);
     runOne(ind, runToken.current);
@@ -184,6 +186,14 @@ export function useIndicators(ctx: IndicatorContext) {
     () => list.filter((i) => i.visible).flatMap((i) => i.overlays),
     [list]
   );
+  const decorations = useMemo<ChartDecoration[]>(
+    () => list.filter((i) => i.visible).flatMap((i) => i.decorations),
+    [list]
+  );
+  const barColors = useMemo<ChartBarColor[]>(
+    () => mergeBarColorLayers(list.filter((i) => i.visible).map((i) => i.barColors)),
+    [list]
+  );
   const markers = useMemo<ChartMarker[]>(
     () => list.filter((i) => i.visible).flatMap((i) => i.markers),
     [list]
@@ -206,7 +216,7 @@ export function useIndicators(ctx: IndicatorContext) {
   }, [list]);
 
   return { list, add, remove, clear, toggleVisible, setParam, resetParams, updateSource, rerun,
-    rerunAll, overlays, markers, drawings, trades };
+    rerunAll, overlays, decorations, barColors, markers, drawings, trades };
 }
 
 export type IndicatorsApi = ReturnType<typeof useIndicators>;

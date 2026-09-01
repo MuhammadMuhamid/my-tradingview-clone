@@ -2,18 +2,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChart, ColorType, CrosshairMode, LineStyle, LineType,
-  type AreaData, type HistogramData, type IChartApi, type ISeriesApi,
-  type LineData, type Time, type UTCTimestamp, type WhitespaceData,
+  type AreaData, type BarData, type CandlestickData, type HistogramData,
+  type IChartApi, type ISeriesApi, type LineData, type Time, type UTCTimestamp,
+  type WhitespaceData,
 } from "lightweight-charts";
 import {
-  planSeriesMutation, plotValueAt, type ChartOverlay, type ChartPoint,
+  planSeriesMutation, plotValueAt, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
+import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 
 type SeriesEntry =
   | { kind: "Line"; api: ISeriesApi<"Line">; data: ChartPoint[] }
   | { kind: "Histogram"; api: ISeriesApi<"Histogram">; data: ChartPoint[] }
-  | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] };
+  | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] }
+  | { kind: "Candlestick"; api: ISeriesApi<"Candlestick">; data: ChartPoint[] }
+  | { kind: "Bar"; api: ISeriesApi<"Bar">; data: ChartPoint[] };
 
 const MIN_HEIGHT = 96;
 const MAX_HEIGHT = 360;
@@ -21,6 +25,8 @@ const MAX_HEIGHT = 360;
 function seriesKind(overlay: ChartOverlay): SeriesEntry["kind"] {
   if (overlay.style === "histogram" || overlay.style === "columns") return "Histogram";
   if (overlay.style === "area") return "Area";
+  if (overlay.style === "candles") return "Candlestick";
+  if (overlay.style === "bars") return "Bar";
   return "Line";
 }
 
@@ -58,29 +64,56 @@ function areaDatum(point: ChartPoint): AreaData<Time> | WhitespaceData<Time> {
     : { time: point.time as UTCTimestamp };
 }
 
+function candlestickDatum(point: ChartPoint): CandlestickData<Time> | WhitespaceData<Time> {
+  return visible(point) && [point.open, point.high, point.low, point.close].every(Number.isFinite)
+    ? {
+        time: point.time as UTCTimestamp,
+        open: point.open!, high: point.high!, low: point.low!, close: point.close!,
+        ...(point.color ? { color: point.color } : {}),
+        ...(point.wickColor ? { wickColor: point.wickColor } : {}),
+        ...(point.borderColor ? { borderColor: point.borderColor } : {}),
+      }
+    : { time: point.time as UTCTimestamp };
+}
+
+function barDatum(point: ChartPoint): BarData<Time> | WhitespaceData<Time> {
+  return visible(point) && [point.open, point.high, point.low, point.close].every(Number.isFinite)
+    ? {
+        time: point.time as UTCTimestamp,
+        open: point.open!, high: point.high!, low: point.low!, close: point.close!,
+        ...(point.color ? { color: point.color } : {}),
+      }
+    : { time: point.time as UTCTimestamp };
+}
+
 function replaceData(entry: SeriesEntry, points: ChartPoint[]): void {
   if (entry.kind === "Line") entry.api.setData(points.map(lineDatum));
   else if (entry.kind === "Histogram") entry.api.setData(points.map(histogramDatum));
-  else entry.api.setData(points.map(areaDatum));
+  else if (entry.kind === "Area") entry.api.setData(points.map(areaDatum));
+  else if (entry.kind === "Candlestick") entry.api.setData(points.map(candlestickDatum));
+  else entry.api.setData(points.map(barDatum));
   entry.data = points;
 }
 
 function updateData(entry: SeriesEntry, point: ChartPoint): void {
   if (entry.kind === "Line") entry.api.update(lineDatum(point));
   else if (entry.kind === "Histogram") entry.api.update(histogramDatum(point));
-  else entry.api.update(areaDatum(point));
+  else if (entry.kind === "Area") entry.api.update(areaDatum(point));
+  else if (entry.kind === "Candlestick") entry.api.update(candlestickDatum(point));
+  else entry.api.update(barDatum(point));
   entry.data = entry.data.length > 0 && entry.data[entry.data.length - 1]!.time === point.time
     ? [...entry.data.slice(0, -1), point]
     : [...entry.data, point];
 }
 
 export function IndicatorPane({
-  id, title, params, overlays, hoverTime, onHover, onReady, onRangeChange,
+  id, title, params, overlays, decorations, hoverTime, onHover, onReady, onRangeChange,
 }: {
   id: string;
   title: string;
   params: string;
   overlays: ChartOverlay[];
+  decorations: ChartDecoration[];
   hoverTime: number | null;
   onHover: (time: number | null) => void;
   onReady: (id: string, chart: IChartApi | null) => void;
@@ -101,7 +134,7 @@ export function IndicatorPane({
     const seriesEntries = seriesRef.current;
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#121722" },
+        background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" },
         textColor: "#9aa4b6", fontFamily: "ui-monospace, monospace",
       },
       grid: { vertLines: { color: "#1a2030" }, horzLines: { color: "#1a2030" } },
@@ -165,6 +198,20 @@ export function IndicatorPane({
             priceLineVisible: false, lastValueVisible: true,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
+        } else if (kind === "Candlestick") {
+          entry = { kind, api: chart.addCandlestickSeries({
+            upColor: overlay.color, downColor: overlay.color,
+            borderUpColor: overlay.color, borderDownColor: overlay.color,
+            wickUpColor: overlay.color, wickDownColor: overlay.color,
+            priceLineVisible: false, lastValueVisible: true,
+            ...(priceFormat ? { priceFormat } : {}),
+          }), data: [] };
+        } else if (kind === "Bar") {
+          entry = { kind, api: chart.addBarSeries({
+            upColor: overlay.color, downColor: overlay.color,
+            priceLineVisible: false, lastValueVisible: true,
+            ...(priceFormat ? { priceFormat } : {}),
+          }), data: [] };
         } else {
           entry = { kind, api: chart.addLineSeries({
             color: overlay.color, priceLineVisible: false, lastValueVisible: true,
@@ -179,12 +226,18 @@ export function IndicatorPane({
         lineStyle: overlay.lineStyle === "dotted" ? LineStyle.Dotted
           : overlay.dashed || overlay.lineStyle === "dashed" ? LineStyle.Dashed : LineStyle.Solid,
         lineType: overlay.style === "stepline" ? LineType.WithSteps : LineType.Simple,
-        lineVisible: overlay.style !== "circles",
+        lineVisible: overlay.style !== "circles" && overlay.style !== "cross",
         pointMarkersVisible: overlay.style === "circles",
         title: overlay.title,
       });
       else if (entry.kind === "Histogram") entry.api.applyOptions({ color: overlay.color });
-      else entry.api.applyOptions({ lineColor: overlay.color });
+      else if (entry.kind === "Area") entry.api.applyOptions({ lineColor: overlay.color });
+      else if (entry.kind === "Candlestick") entry.api.applyOptions({
+        upColor: overlay.color, downColor: overlay.color,
+        borderUpColor: overlay.color, borderDownColor: overlay.color,
+        wickUpColor: overlay.color, wickDownColor: overlay.color,
+      });
+      else entry.api.applyOptions({ upColor: overlay.color, downColor: overlay.color });
 
       const points = overlay.data.filter((point) => Number.isFinite(point.time) && point.time > 0);
       const plan = planSeriesMutation(entry.data, points);
@@ -215,6 +268,11 @@ export function IndicatorPane({
     chart.clearCrosshairPosition();
   }, [hoverTime, overlays, ready]);
 
+  const priceToCoordinate = useCallback((overlayId: string, value: number): number | null => {
+    const entry = seriesRef.current.get(overlayId);
+    return entry ? entry.api.priceToCoordinate(value) as number | null : null;
+  }, []);
+
   const beginResize = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const startY = event.clientY;
@@ -230,7 +288,7 @@ export function IndicatorPane({
   }, [height]);
 
   return (
-    <section className="relative shrink-0 border-t border-border" style={{ height }} aria-label={`${title} indicator pane`}>
+    <section className="relative shrink-0 border-t border-border bg-[#121722]" style={{ height }} aria-label={`${title} indicator pane`}>
       <button
         type="button"
         aria-label={`Resize ${title} pane`}
@@ -238,7 +296,14 @@ export function IndicatorPane({
         onPointerDown={beginResize}
         className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent focus-visible:bg-accent/30"
       />
-      <div ref={containerRef} className="h-full w-full" />
+      <div ref={containerRef} className="absolute inset-0 z-[1]" />
+      <PineVisualLayer
+        container={containerRef.current}
+        chart={chartRef.current}
+        overlays={overlays}
+        decorations={decorations}
+        priceToCoordinate={priceToCoordinate}
+      />
       <IndicatorLegend
         overlays={overlays}
         time={hoverTime}

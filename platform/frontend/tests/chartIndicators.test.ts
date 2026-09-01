@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  groupChartOverlays, planCandleMutation, planSeriesMutation,
-  plotValueAt, shiftedPlotTime, type ChartOverlay,
+  groupChartOverlays, mergeBarColorLayers, planCandleMutation,
+  planColoredCandleMutation, planSeriesMutation, plotValueAt, shiftedPlotTime,
+  type ChartOverlay,
 } from "../lib/chartSeries";
 import { toChartOutput } from "../lib/indicators";
 import type { PineRunResult } from "../lib/api";
@@ -93,4 +94,94 @@ test("Pine output preserves styles, gaps, dynamic colours, hlines and instance i
   ]);
   assert.deepEqual(output.overlays[1]!.data.map((point) => point.value), [70, 70]);
   assert.match(output.overlays[0]!.instanceTitle!, /nce-a/);
+});
+
+test("Pine visual contracts preserve pane ownership, handles, offsets and custom OHLC", () => {
+  const result: PineRunResult = {
+    ok: true,
+    errors: [],
+    meta: {
+      kind: "indicator", title: "Visuals", shortTitle: "V", overlay: false,
+      format: "price", precision: 2, inputs: [], warnings: [],
+    },
+    times: [60, 120, 180],
+    plots: [
+      { id: "plot_1", title: "Upper", color: "#fff", width: 1, style: "line",
+        offset: 0, forceOverlay: false, renderable: true,
+        colors: ["#fff", "#fff", "#fff"], data: [3, 4, 5] },
+      { id: "plot_2", title: "Lower", color: "#fff", width: 1, style: "cross",
+        offset: 0, forceOverlay: false, renderable: true,
+        colors: ["#fff", null, "#fff"], data: [1, null, 3] },
+    ],
+    fills: [{
+      id: "fill_3", title: "Band", firstId: "plot_1", secondId: "plot_2",
+      forceOverlay: false, renderable: true, fillgaps: false,
+      colors: ["#2962ff1a", null, "#2962ff1a"],
+    }],
+    backgrounds: [{
+      id: "bgcolor_4", title: "State", offset: 1, forceOverlay: false,
+      colors: ["#0899811a", null, null],
+    }],
+    barColors: [{
+      id: "barcolor_5", title: "Bars", offset: 0,
+      colors: [null, "#f23645", null],
+    }],
+    ohlcPlots: [{
+      id: "plotcandle_6", title: "Synthetic", style: "candles", color: "#00e676",
+      forceOverlay: false, renderable: true,
+      data: [{ open: 1, high: 3, low: 0, close: 2 }, null,
+        { open: 2, high: 4, low: 1, close: 3 }],
+      colors: ["#00e676", null, "#00e676"],
+      wickColors: ["#ffeb3b", null, "#ffeb3b"],
+      borderColors: ["#ffffff", null, "#ffffff"],
+    }],
+  };
+  const output = toChartOutput("instance-v", result);
+  assert.deepEqual(output.overlays.map((item) => item.style), ["line", "cross", "candles"]);
+  assert.equal(output.overlays[2]!.data[0]!.high, 3);
+  assert.equal(output.overlays[2]!.data[1]!.value, null);
+  assert.deepEqual(output.decorations.map((item) => [item.kind, item.paneId]), [
+    ["background", "indicator:instance-v"], ["fill", "indicator:instance-v"],
+  ]);
+  const fill = output.decorations[1]!;
+  assert.equal(fill.kind, "fill");
+  if (fill.kind === "fill") {
+    assert.equal(fill.firstId, "instance-v:plot_1");
+    assert.equal(fill.secondId, "instance-v:plot_2");
+  }
+  assert.equal(output.decorations[0]!.data[0]!.time, 120);
+  assert.deepEqual(output.barColors, [
+    { time: 60, color: null }, { time: 120, color: "#f23645" }, { time: 180, color: null },
+  ]);
+  const duplicate = toChartOutput("instance-w", result);
+  assert.notEqual(duplicate.overlays[0]!.id, output.overlays[0]!.id);
+  assert.notEqual(duplicate.decorations[1]!.id, output.decorations[1]!.id);
+});
+
+test("barcolor precedence is deterministic and candle updates stay incremental", () => {
+  assert.deepEqual(mergeBarColorLayers([
+    [{ time: 1, color: "#111111" }, { time: 2, color: "#222222" }],
+    [{ time: 1, color: null }, { time: 2, color: "#ffffff" }],
+  ]), [
+    { time: 1, color: "#111111" }, { time: 2, color: "#ffffff" },
+  ]);
+  assert.deepEqual(mergeBarColorLayers([[
+    { time: 1, color: "#111111" }, { time: 2, color: "#222222" },
+  ]]), [
+    { time: 1, color: "#111111" }, { time: 2, color: "#222222" },
+  ]);
+
+  const candles = [candle(1_000, 1), candle(2_000, 2), candle(3_000, 3)];
+  const base = new Map<number, string>([[1, "#111111"], [3, "#333333"]]);
+  assert.equal(planColoredCandleMutation(candles, candles, base, new Map(base)), "none");
+  assert.equal(
+    planColoredCandleMutation(candles, candles, base,
+      new Map<number, string>([[1, "#111111"], [3, "#ffffff"]])),
+    "update"
+  );
+  assert.equal(
+    planColoredCandleMutation(candles, candles, base,
+      new Map<number, string>([[1, "#ffffff"], [3, "#333333"]])),
+    "replace"
+  );
 });

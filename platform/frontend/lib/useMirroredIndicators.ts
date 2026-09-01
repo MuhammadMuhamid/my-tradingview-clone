@@ -14,7 +14,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChartMarker } from "@/components/CandleChart";
-import type { ChartOverlay } from "@/lib/chartSeries";
+import {
+  mergeBarColorLayers, type ChartBarColor, type ChartDecoration, type ChartOverlay,
+} from "@/lib/chartSeries";
 import type { PineDrawings } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { NO_DRAWINGS, runIndicator, type AppliedIndicator } from "@/lib/indicators";
@@ -69,6 +71,12 @@ export function useMirroredIndicators(
   const overlays = useMemo<ChartOverlay[]>(
     () => results.flatMap((i) => i.overlays), [results]
   );
+  const decorations = useMemo<ChartDecoration[]>(
+    () => results.flatMap((i) => i.decorations), [results]
+  );
+  const barColors = useMemo<ChartBarColor[]>(
+    () => mergeBarColorLayers(results.map((i) => i.barColors)), [results]
+  );
   const markers = useMemo<ChartMarker[]>(
     () => results.flatMap((i) => i.markers), [results]
   );
@@ -84,5 +92,5 @@ export function useMirroredIndicators(
 
   const loading = enabled && results.length < list.filter((i) => i.visible).length;
 
-  return { overlays, markers, drawings, loading };
+  return { overlays, decorations, barColors, markers, drawings, loading };
 }

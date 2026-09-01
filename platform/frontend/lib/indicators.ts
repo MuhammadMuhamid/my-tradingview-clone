@@ -12,7 +12,8 @@
 import { api, type PineDrawings, type PineInputDef, type PineRunResult } from "@/lib/api";
 import type { ChartMarker } from "@/components/CandleChart";
 import {
-  PRICE_PANE_ID, shiftedPlotTime, type ChartOverlay, type ChartSeriesStyle,
+  PRICE_PANE_ID, shiftedPlotTime, type ChartBarColor, type ChartDecoration,
+  type ChartOverlay, type ChartSeriesStyle,
 } from "@/lib/chartSeries";
 import type { Interval, Trade } from "@/lib/types";
 
@@ -38,6 +39,8 @@ export interface AppliedIndicator {
   error: string | null;
   warnings: { line: number; message: string }[];
   overlays: ChartOverlay[];
+  decorations: ChartDecoration[];
+  barColors: ChartBarColor[];
   markers: ChartMarker[];
   drawings: PineDrawings;
   trades: Trade[];
@@ -102,6 +105,8 @@ export function hydrate(s: StoredIndicator): AppliedIndicator {
     error: null,
     warnings: [],
     overlays: [],
+    decorations: [],
+    barColors: [],
     markers: [],
     drawings: NO_DRAWINGS,
     trades: [],
@@ -116,7 +121,7 @@ export function toChartOutput(
   key: string,
   r: PineRunResult,
   params: PineParams = {}
-): Pick<AppliedIndicator, "overlays" | "markers" | "drawings" | "trades"> {
+): Pick<AppliedIndicator, "overlays" | "decorations" | "barColors" | "markers" | "drawings" | "trades"> {
   const times = r.times ?? [];
   const instanceTitle = `${r.meta.shortTitle || r.meta.title} · ${key.slice(-5)}`;
   const activeParams = r.meta.inputs
@@ -149,6 +154,31 @@ export function toChartOutput(
         }];
       }),
     }));
+  const ohlcOverlays: ChartOverlay[] = (r.ohlcPlots ?? [])
+    .filter((plot) => plot.renderable !== false)
+    .map((plot) => ({
+      id: `${key}:${plot.id}`,
+      title: plot.title,
+      color: plot.color,
+      style: plot.style,
+      paneId: paneFor(plot.forceOverlay),
+      instanceId: key,
+      instanceTitle,
+      instanceParams: activeParams,
+      precision: r.meta.precision,
+      data: plot.data.flatMap((value, i) => {
+        const time = times[i];
+        if (time === undefined) return [];
+        return [{
+          time,
+          value: value?.close ?? null,
+          color: plot.colors?.[i] ?? null,
+          ...(value ?? {}),
+          wickColor: plot.wickColors?.[i] ?? null,
+          borderColor: plot.borderColors?.[i] ?? null,
+        }];
+      }),
+    }));
   const hlineOverlays: ChartOverlay[] = (r.hlines ?? [])
     .filter((line) => line.renderable !== false && Number.isFinite(line.price) && times.length > 0)
     .map((line) => ({
@@ -163,6 +193,7 @@ export function toChartOutput(
       instanceTitle,
       instanceParams: activeParams,
       precision: r.meta.precision,
+      constantValue: line.price,
       data: [
         { time: times[0]!, value: line.price, color: line.color },
         ...(times.length > 1
@@ -170,8 +201,41 @@ export function toChartOutput(
           : []),
       ],
     }));
+  const decorations: ChartDecoration[] = [
+    ...(r.backgrounds ?? []).map((background) => ({
+      kind: "background" as const,
+      id: `${key}:${background.id}`,
+      paneId: paneFor(background.forceOverlay),
+      data: background.colors.flatMap((color, i) => {
+        const time = shiftedPlotTime(times, i, background.offset ?? 0);
+        return time === null ? [] : [{ time, color }];
+      }),
+    })),
+    ...(r.fills ?? [])
+      .filter((fill) => fill.renderable !== false)
+      .map((fill) => ({
+        kind: "fill" as const,
+        id: `${key}:${fill.id}`,
+        paneId: paneFor(fill.forceOverlay),
+        firstId: `${key}:${fill.firstId}`,
+        secondId: `${key}:${fill.secondId}`,
+        fillgaps: fill.fillgaps,
+        data: fill.colors.flatMap((color, i) => {
+          const time = times[i];
+          return time === undefined ? [] : [{ time, color }];
+        }),
+      })),
+  ];
+  const barColors: ChartBarColor[] = (r.barColors ?? []).flatMap((call) =>
+    call.colors.flatMap((color, i) => {
+      const time = shiftedPlotTime(times, i, call.offset ?? 0);
+      return time === null ? [] : [{ time, color }];
+    })
+  );
   return {
-    overlays: [...plotOverlays, ...hlineOverlays],
+    overlays: [...plotOverlays, ...ohlcOverlays, ...hlineOverlays],
+    decorations,
+    barColors,
     markers: (r.shapes ?? []).map((s) => ({
       time: s.time,
       position: s.position === "above" ? "aboveBar" : "belowBar",
@@ -210,7 +274,7 @@ export async function runIndicator(
         inputs: r.meta?.inputs ?? ind.inputs,
         warnings: r.meta?.warnings ?? [],
         error: e ? `line ${e.line}: ${e.message}` : "compile failed",
-        overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+        overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
       };
     }
     return {
@@ -229,7 +293,7 @@ export async function runIndicator(
   } catch (e) {
     return {
       ...ind, loading: false, error: (e as Error).message,
-      overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+      overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
     };
   }
 }

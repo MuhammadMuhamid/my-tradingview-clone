@@ -4,13 +4,20 @@ import type { Candle } from "@/lib/types";
 export const PRICE_PANE_ID = "price";
 
 export type ChartSeriesStyle =
-  | "line" | "histogram" | "columns" | "circles" | "stepline" | "area";
+  | "line" | "histogram" | "columns" | "circles" | "cross" | "stepline" | "area"
+  | "candles" | "bars";
 
 export interface ChartPoint {
   time: number;
   value: number | null;
   /** A dynamic Pine colour. Null means the point is deliberately hidden. */
   color?: string | null;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  wickColor?: string | null;
+  borderColor?: string | null;
 }
 
 export interface ChartOverlay {
@@ -27,7 +34,36 @@ export interface ChartOverlay {
   instanceTitle?: string;
   instanceParams?: string;
   precision?: number | null;
+  /** Hlines have two endpoints for the line renderer but one value at every bar. */
+  constantValue?: number;
   data: ChartPoint[];
+}
+
+export interface ChartDecorationPoint {
+  time: number;
+  color: string | null;
+}
+
+export type ChartDecoration =
+  | {
+      kind: "fill";
+      id: string;
+      paneId: string;
+      firstId: string;
+      secondId: string;
+      fillgaps: boolean;
+      data: ChartDecorationPoint[];
+    }
+  | {
+      kind: "background";
+      id: string;
+      paneId: string;
+      data: ChartDecorationPoint[];
+    };
+
+export interface ChartBarColor {
+  time: number;
+  color: string | null;
 }
 
 export interface ChartPaneGroup {
@@ -35,13 +71,16 @@ export interface ChartPaneGroup {
   title: string;
   params: string;
   overlays: ChartOverlay[];
+  decorations: ChartDecoration[];
 }
 
-export function groupChartOverlays(overlays: ChartOverlay[]): {
+export function groupChartOverlays(overlays: ChartOverlay[], decorations: ChartDecoration[] = []): {
   price: ChartOverlay[];
+  priceDecorations: ChartDecoration[];
   panes: ChartPaneGroup[];
 } {
   const price: ChartOverlay[] = [];
+  const priceDecorations: ChartDecoration[] = [];
   const panes = new Map<string, ChartPaneGroup>();
   for (const overlay of overlays) {
     const paneId = overlay.paneId ?? PRICE_PANE_ID;
@@ -58,10 +97,29 @@ export function groupChartOverlays(overlays: ChartOverlay[]): {
         title: overlay.instanceTitle || overlay.title,
         params: overlay.instanceParams ?? "",
         overlays: [overlay],
+        decorations: [],
       });
     }
   }
-  return { price, panes: [...panes.values()] };
+  for (const decoration of decorations) {
+    if (decoration.paneId === PRICE_PANE_ID) {
+      priceDecorations.push(decoration);
+      continue;
+    }
+    const existing = panes.get(decoration.paneId);
+    if (existing) {
+      existing.decorations.push(decoration);
+    } else {
+      panes.set(decoration.paneId, {
+        id: decoration.paneId,
+        title: "Indicator",
+        params: "",
+        overlays: [],
+        decorations: [decoration],
+      });
+    }
+  }
+  return { price, priceDecorations, panes: [...panes.values()] };
 }
 
 export function shiftedPlotTime(times: number[], index: number, offset: number): number | null {
@@ -76,7 +134,9 @@ export function shiftedPlotTime(times: number[], index: number, offset: number):
 }
 
 function samePoint(a: ChartPoint, b: ChartPoint): boolean {
-  return a.time === b.time && a.value === b.value && a.color === b.color;
+  return a.time === b.time && a.value === b.value && a.color === b.color &&
+    a.open === b.open && a.high === b.high && a.low === b.low && a.close === b.close &&
+    a.wickColor === b.wickColor && a.borderColor === b.borderColor;
 }
 
 /**
@@ -117,6 +177,34 @@ export function planCandleMutation(
   }
   if (next.length === previous.length && sameCandle(previous.at(-1)!, next.at(-1)!)) return "none";
   return "update";
+}
+
+/** Candle mutation planning including derived barcolor presentation state. */
+export function planColoredCandleMutation(
+  previous: Candle[], next: Candle[],
+  previousColors: ReadonlyMap<number, string>, nextColors: ReadonlyMap<number, string>
+): "none" | "update" | "replace" {
+  const canonical = planCandleMutation(previous, next);
+  if (canonical === "replace") return "replace";
+  for (let i = 0; i < next.length - 1; i++) {
+    const time = next[i]!.openTime / 1000;
+    if (previousColors.get(time) !== nextColors.get(time)) return "replace";
+  }
+  if (next.length === 0) return canonical;
+  const lastTime = next[next.length - 1]!.openTime / 1000;
+  return canonical === "none" && previousColors.get(lastTime) === nextColors.get(lastTime)
+    ? "none" : "update";
+}
+
+/** Later calls and later indicator instances win; na never clears an earlier override. */
+export function mergeBarColorLayers(layers: ChartBarColor[][]): ChartBarColor[] {
+  const merged = new Map<number, string>();
+  for (const layer of layers) {
+    for (const point of layer) {
+      if (point.color !== null) merged.set(point.time, point.color);
+    }
+  }
+  return [...merged].map(([time, color]) => ({ time, color }));
 }
 
 /** Exact crosshair value, or the newest finite value when the crosshair left. */

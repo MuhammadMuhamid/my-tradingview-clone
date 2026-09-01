@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, LineStyle, LineType,
-  type AreaData, type HistogramData, type LineData, type WhitespaceData,
+  type AreaData, type BarData, type CandlestickData, type HistogramData,
+  type LineData, type WhitespaceData,
 } from "lightweight-charts";
 import type { Candle, Interval, Trade } from "@/lib/types";
 import { snapToBarIndex } from "@/lib/paneSync";
@@ -12,11 +13,12 @@ import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { IndicatorPane } from "@/components/tv/IndicatorPane";
+import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 import type { PineDrawings } from "@/lib/api";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import {
-  groupChartOverlays, planCandleMutation, planSeriesMutation,
-  type ChartOverlay, type ChartPoint,
+  groupChartOverlays, planColoredCandleMutation, planSeriesMutation,
+  type ChartBarColor, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
@@ -78,11 +80,15 @@ export interface ChartMarker {
 type OverlaySeriesEntry =
   | { kind: "Line"; api: ISeriesApi<"Line">; data: ChartPoint[] }
   | { kind: "Histogram"; api: ISeriesApi<"Histogram">; data: ChartPoint[] }
-  | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] };
+  | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] }
+  | { kind: "Candlestick"; api: ISeriesApi<"Candlestick">; data: ChartPoint[] }
+  | { kind: "Bar"; api: ISeriesApi<"Bar">; data: ChartPoint[] };
 
 function overlaySeriesKind(overlay: ChartOverlay): OverlaySeriesEntry["kind"] {
   if (overlay.style === "histogram" || overlay.style === "columns") return "Histogram";
   if (overlay.style === "area") return "Area";
+  if (overlay.style === "candles") return "Candlestick";
+  if (overlay.style === "bars") return "Bar";
   return "Line";
 }
 
@@ -120,24 +126,51 @@ function areaDatum(point: ChartPoint): AreaData<Time> | WhitespaceData<Time> {
     : { time: point.time as UTCTimestamp };
 }
 
+function customCandleDatum(point: ChartPoint): CandlestickData<Time> | WhitespaceData<Time> {
+  return visiblePoint(point) && [point.open, point.high, point.low, point.close].every(Number.isFinite)
+    ? {
+        time: point.time as UTCTimestamp,
+        open: point.open!, high: point.high!, low: point.low!, close: point.close!,
+        ...(point.color ? { color: point.color } : {}),
+        ...(point.wickColor ? { wickColor: point.wickColor } : {}),
+        ...(point.borderColor ? { borderColor: point.borderColor } : {}),
+      }
+    : { time: point.time as UTCTimestamp };
+}
+
+function customBarDatum(point: ChartPoint): BarData<Time> | WhitespaceData<Time> {
+  return visiblePoint(point) && [point.open, point.high, point.low, point.close].every(Number.isFinite)
+    ? {
+        time: point.time as UTCTimestamp,
+        open: point.open!, high: point.high!, low: point.low!, close: point.close!,
+        ...(point.color ? { color: point.color } : {}),
+      }
+    : { time: point.time as UTCTimestamp };
+}
+
 function replaceOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): void {
   if (entry.kind === "Line") entry.api.setData(points.map(lineDatum));
   else if (entry.kind === "Histogram") entry.api.setData(points.map(histogramDatum));
-  else entry.api.setData(points.map(areaDatum));
+  else if (entry.kind === "Area") entry.api.setData(points.map(areaDatum));
+  else if (entry.kind === "Candlestick") entry.api.setData(points.map(customCandleDatum));
+  else entry.api.setData(points.map(customBarDatum));
   entry.data = points;
 }
 
 function updateOverlayData(entry: OverlaySeriesEntry, point: ChartPoint): void {
   if (entry.kind === "Line") entry.api.update(lineDatum(point));
   else if (entry.kind === "Histogram") entry.api.update(histogramDatum(point));
-  else entry.api.update(areaDatum(point));
+  else if (entry.kind === "Area") entry.api.update(areaDatum(point));
+  else if (entry.kind === "Candlestick") entry.api.update(customCandleDatum(point));
+  else entry.api.update(customBarDatum(point));
   entry.data = entry.data.length > 0 && entry.data[entry.data.length - 1]!.time === point.time
     ? [...entry.data.slice(0, -1), point]
     : [...entry.data, point];
 }
 
 export function CandleChart({
-  symbol, interval, candles, trades, priceLines, overlays, markers, pineDrawings,
+  symbol, interval, candles, trades, priceLines, overlays, decorations, barColors,
+  markers, pineDrawings,
   live = true, fill = false,
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
   magnet = false, drawingsLocked = false, drawingsHidden = false,
@@ -155,6 +188,8 @@ export function CandleChart({
   priceLines?: ChartPriceLine[];
   /** Line series plotted by a compiled Pine script. */
   overlays?: ChartOverlay[];
+  decorations?: ChartDecoration[];
+  barColors?: ChartBarColor[];
   /** Bar markers plotted by compiled scripts, merged with the trade markers. */
   markers?: ChartMarker[];
   /** line/box/label/table objects created by compiled Pine scripts */
@@ -215,6 +250,7 @@ export function CandleChart({
   const paneChartRefs = useRef<Map<string, IChartApi>>(new Map());
   const datasetKeyRef = useRef<string | null>(null);
   const candlesRef = useRef<Candle[]>([]);
+  const barColorRef = useRef<Map<number, string>>(new Map());
   const timeIndexRef = useRef<Map<number, number>>(new Map());
   const hoverTimeRef = useRef<number | null>(null);
   /**
@@ -239,7 +275,10 @@ export function CandleChart({
   const [feedState, setFeedState] = useState<ChartFeedState>("idle");
   /** bumped once the chart/series exist, so the drawing layer can attach */
   const [chartReady, setChartReady] = useState(0);
-  const groupedOverlays = useMemo(() => groupChartOverlays(overlays ?? []), [overlays]);
+  const groupedOverlays = useMemo(
+    () => groupChartOverlays(overlays ?? [], decorations ?? []),
+    [overlays, decorations]
+  );
 
   syncPaneRangesRef.current = (source, range) => {
     if (syncingPaneRangeRef.current) return;
@@ -313,7 +352,7 @@ export function CandleChart({
     const paneCharts = paneChartRefs.current;
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#121722" },
+        background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" },
         textColor: "#9aa4b6",
         fontFamily: "ui-monospace, monospace",
       },
@@ -389,15 +428,24 @@ export function CandleChart({
     const vol = volRef.current;
     if (!series || !vol) return;
     const datasetKey = `${symbol}|${interval}`;
+    const nextColors = new Map(
+      (barColors ?? []).flatMap((point) => point.color === null ? [] : [[point.time, point.color] as const])
+    );
     const mutation = datasetKeyRef.current === datasetKey
-      ? planCandleMutation(candlesRef.current, candles) : "replace";
+      ? planColoredCandleMutation(candlesRef.current, candles, barColorRef.current, nextColors)
+      : "replace";
     candlesRef.current = [...candles];
+    barColorRef.current = nextColors;
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
     setLegend(candles.length > 0 ? legendFromIndex(candles.length - 1) : null);
-    const candleDatum = (c: Candle) => ({
-      time: (c.openTime / 1000) as UTCTimestamp,
-      open: c.open, high: c.high, low: c.low, close: c.close,
-    });
+    const candleDatum = (c: Candle) => {
+      const color = nextColors.get(c.openTime / 1000);
+      return {
+        time: (c.openTime / 1000) as UTCTimestamp,
+        open: c.open, high: c.high, low: c.low, close: c.close,
+        ...(color ? { color, borderColor: color, wickColor: color } : {}),
+      };
+    };
     const volumeDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       value: c.volume,
@@ -414,7 +462,7 @@ export function CandleChart({
       datasetKeyRef.current = datasetKey;
       chartRef.current?.timeScale().fitContent();
     }
-  }, [candles, symbol, interval, legendFromIndex]);
+  }, [candles, symbol, interval, legendFromIndex, barColors]);
 
   // Markers update independently: adding an indicator must not reset zoom.
   useEffect(() => {
@@ -548,6 +596,20 @@ export function CandleChart({
             priceLineVisible: false, lastValueVisible,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
+        } else if (kind === "Candlestick") {
+          entry = { kind, api: chart.addCandlestickSeries({
+            upColor: overlay.color, downColor: overlay.color,
+            borderUpColor: overlay.color, borderDownColor: overlay.color,
+            wickUpColor: overlay.color, wickDownColor: overlay.color,
+            priceLineVisible: false, lastValueVisible,
+            ...(priceFormat ? { priceFormat } : {}),
+          }), data: [] };
+        } else if (kind === "Bar") {
+          entry = { kind, api: chart.addBarSeries({
+            upColor: overlay.color, downColor: overlay.color,
+            priceLineVisible: false, lastValueVisible,
+            ...(priceFormat ? { priceFormat } : {}),
+          }), data: [] };
         } else {
           entry = { kind, api: chart.addLineSeries({
             color: overlay.color, priceLineVisible: false, lastValueVisible,
@@ -562,7 +624,7 @@ export function CandleChart({
         lineStyle: overlay.lineStyle === "dotted" ? LineStyle.Dotted
           : overlay.dashed || overlay.lineStyle === "dashed" ? LineStyle.Dashed : LineStyle.Solid,
         lineType: overlay.style === "stepline" ? LineType.WithSteps : LineType.Simple,
-        lineVisible: overlay.style !== "circles",
+        lineVisible: overlay.style !== "circles" && overlay.style !== "cross",
         pointMarkersVisible: overlay.style === "circles",
         lastValueVisible,
         title: compact ? "" : overlay.title,
@@ -570,8 +632,18 @@ export function CandleChart({
       else if (entry.kind === "Histogram") entry.api.applyOptions({
         color: overlay.color, lastValueVisible, title: compact ? "" : overlay.title,
       });
-      else entry.api.applyOptions({
+      else if (entry.kind === "Area") entry.api.applyOptions({
         lineColor: overlay.color, lastValueVisible, title: compact ? "" : overlay.title,
+      });
+      else if (entry.kind === "Candlestick") entry.api.applyOptions({
+        upColor: overlay.color, downColor: overlay.color,
+        borderUpColor: overlay.color, borderDownColor: overlay.color,
+        wickUpColor: overlay.color, wickDownColor: overlay.color,
+        lastValueVisible, title: compact ? "" : overlay.title,
+      });
+      else entry.api.applyOptions({
+        upColor: overlay.color, downColor: overlay.color,
+        lastValueVisible, title: compact ? "" : overlay.title,
       });
       const points = overlay.data.filter((point) =>
         Number.isFinite(point.time) && point.time >= first && point.time <= lastTime);
@@ -580,6 +652,11 @@ export function CandleChart({
       else if (plan === "update") updateOverlayData(entry, points[points.length - 1]!);
     }
   }, [groupedOverlays.price, chartReady, candles, compact]);
+
+  const pinePriceToCoordinate = useCallback((overlayId: string, value: number): number | null => {
+    const entry = overlayRefs.current.get(overlayId);
+    return entry ? entry.api.priceToCoordinate(value) as number | null : null;
+  }, []);
 
   /*
    * Live: update the forming candle from the Binance kline websocket.
@@ -651,7 +728,11 @@ export function CandleChart({
         if (!msg.k) return;
         const k = msg.k;
         const time = (k.t / 1000) as UTCTimestamp;
-        series.update({ time, open: +k.o, high: +k.h, low: +k.l, close: +k.c });
+        const override = barColorRef.current.get(k.t / 1000);
+        series.update({
+          time, open: +k.o, high: +k.h, low: +k.l, close: +k.c,
+          ...(override ? { color: override, borderColor: override, wickColor: override } : {}),
+        });
         vol.update({ time, value: +k.v, color: +k.c >= +k.o ? "#1c3a30" : "#3a1c24" });
 
         // Mirror the forming candle into the legend source so the readout
@@ -791,8 +872,15 @@ export function CandleChart({
 
   return (
     <div className={`flex ${fill ? "h-full" : "h-[520px]"} w-full flex-col overflow-hidden`}>
-      <div className="relative min-h-0 flex-1">
-      <div ref={containerRef} className="h-full w-full" />
+      <div className="relative min-h-0 flex-1 bg-[#121722]">
+      <div ref={containerRef} className="absolute inset-0 z-[1]" />
+      <PineVisualLayer
+        container={containerRef.current}
+        chart={chartRef.current}
+        overlays={groupedOverlays.price}
+        decorations={groupedOverlays.priceDecorations}
+        priceToCoordinate={pinePriceToCoordinate}
+      />
       {/* Script drawings sit under the user's own drawing layer, so the
           user's tools keep priority for clicks and hit-testing. */}
       <PineDrawingLayer
@@ -871,6 +959,7 @@ export function CandleChart({
               title={pane.title}
               params={pane.params}
               overlays={pane.overlays}
+              decorations={pane.decorations}
               hoverTime={indicatorHoverTime}
               onHover={indicatorPaneHover}
               onReady={registerIndicatorPane}

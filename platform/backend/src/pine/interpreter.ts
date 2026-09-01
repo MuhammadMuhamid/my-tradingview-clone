@@ -81,6 +81,56 @@ export interface PineHline {
   renderable: boolean;
 }
 
+export interface PineFill {
+  id: string;
+  title: string;
+  firstId: string;
+  secondId: string;
+  /** True when both endpoints belong to the price pane. */
+  forceOverlay: boolean;
+  renderable: boolean;
+  fillgaps: boolean;
+  /** Per-bar colours; null means no fill on that bar. */
+  colors: (string | null)[];
+}
+
+export interface PineBackground {
+  id: string;
+  title: string;
+  offset: number;
+  forceOverlay: boolean;
+  /** Per-bar colours; null leaves the pane background unchanged. */
+  colors: (string | null)[];
+}
+
+export interface PineBarColor {
+  id: string;
+  title: string;
+  offset: number;
+  /** Per-bar presentation overrides; canonical OHLC is never changed. */
+  colors: (string | null)[];
+}
+
+export interface PineOhlcPoint {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface PineOhlcPlot {
+  id: string;
+  title: string;
+  style: "candles" | "bars";
+  color: string;
+  forceOverlay: boolean;
+  renderable: boolean;
+  data: (PineOhlcPoint | null)[];
+  colors: (string | null)[];
+  wickColors: (string | null)[];
+  borderColors: (string | null)[];
+}
+
 export interface PineShapeMark {
   time: number;
   position: "above" | "below";
@@ -260,6 +310,10 @@ export interface RunOutput {
   meta: PineMeta;
   plots: PinePlot[];
   hlines: PineHline[];
+  fills: PineFill[];
+  backgrounds: PineBackground[];
+  barColors: PineBarColor[];
+  ohlcPlots: PineOhlcPlot[];
   shapes: PineShapeMark[];
   /** final state of every surviving line/box/label/table */
   drawings: DrawnOutput;
@@ -330,6 +384,14 @@ export class PineInterpreter {
   private plots = new Map<string, PinePlot>();
   private plotOrder: string[] = [];
   private hlines: PineHline[] = [];
+  private fills = new Map<string, PineFill>();
+  private fillOrder: string[] = [];
+  private backgrounds = new Map<string, PineBackground>();
+  private backgroundOrder: string[] = [];
+  private barColors = new Map<string, PineBarColor>();
+  private barColorOrder: string[] = [];
+  private ohlcPlots = new Map<string, PineOhlcPlot>();
+  private ohlcPlotOrder: string[] = [];
   private warningsSeen = new Set<string>();
   private drawings = new DrawingRegistry();
   private shapes: PineShapeMark[] = [];
@@ -511,6 +573,10 @@ export class PineInterpreter {
       meta: this.meta,
       plots: this.plotOrder.map((id) => this.plots.get(id)!),
       hlines: this.hlines,
+      fills: this.fillOrder.map((id) => this.fills.get(id)!),
+      backgrounds: this.backgroundOrder.map((id) => this.backgrounds.get(id)!),
+      barColors: this.barColorOrder.map((id) => this.barColors.get(id)!),
+      ohlcPlots: this.ohlcPlotOrder.map((id) => this.ohlcPlots.get(id)!),
       shapes: this.shapes,
       drawings: this.drawings.emit({ timeAt: (b) => this.timeAtBar(b) }),
       times: this.times,
@@ -1392,6 +1458,45 @@ export class PineInterpreter {
       case "input.price": case "input.session": case "input.symbol":
         return this.declareInput(path, e);
 
+      case "time": {
+        const [timeframeE, sessionE, timezoneE, barsBackE] = this.args(
+          e, ["timeframe", "session", "timezone", "bars_back"]
+        );
+        if (barsBackE !== undefined || e.args.filter((arg) => !arg.name).length > 3) {
+          for (const arg of e.args) this.evalExpr(arg.value);
+          throw new PineRuntimeError(
+            "time() supports only time(timeframe), time(timeframe, session), and time(timeframe, session, timezone)",
+            line
+          );
+        }
+        const rawTimeframe = S(timeframeE, this.bars.interval).trim();
+        let interval: Interval;
+        try {
+          interval = rawTimeframe === "" || rawTimeframe === this.bars.interval ||
+            rawTimeframe.toLowerCase() === "chart"
+            ? this.bars.interval
+            : pineTfToInterval(rawTimeframe, this.bars.interval);
+        } catch {
+          throw new PineRuntimeError(`unsupported time() timeframe '${rawTimeframe}'`, line);
+        }
+        if (interval !== this.bars.interval) {
+          throw new PineRuntimeError(
+            `time() session filtering supports only the chart timeframe ('${this.bars.interval}')`,
+            line
+          );
+        }
+        const barTime = this.bars.time[this.i] ?? NaN;
+        if (sessionE === undefined) return barTime;
+        const session = S(sessionE).trim();
+        if (session === "") return barTime;
+        const timezone = timezoneE === undefined ? "UTC" : S(timezoneE, "UTC").trim();
+        try {
+          return sessionContains(barTime, session, timezone) ? barTime : NaN;
+        } catch (err) {
+          throw new PineRuntimeError((err as Error).message, line);
+        }
+      }
+
       case "timeframe.in_seconds": {
         const [timeframe] = this.args(e, ["timeframe"]);
         const raw = S(timeframe, this.bars.interval);
@@ -1439,8 +1544,10 @@ export class PineInterpreter {
         }
         return id;
       }
-      case "fill": case "bgcolor": case "barcolor": case "plotcandle": case "plotbar":
-        return this.unsupportedRendering(path, e);
+      case "fill": return this.doFill(e);
+      case "bgcolor": return this.doBackground(e);
+      case "barcolor": return this.doBarColor(e);
+      case "plotcandle": case "plotbar": return this.doOhlcPlot(path, e);
 
       // ── colours ──
       case "color.new": {
@@ -1462,9 +1569,10 @@ export class PineInterpreter {
         return mixHex(S(cLo, "#787b86"), S(cHi, "#787b86"), t);
       }
       case "color.rgb": {
-        const [r, g, b] = this.args(e, ["red", "green", "blue"]);
+        const [r, g, b, transp] = this.args(e, ["red", "green", "blue", "transp"]);
         const hex = (v: number): string => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
-        return `#${hex(L(r, 0))}${hex(L(g, 0))}${hex(L(b, 0))}`;
+        const color = `#${hex(L(r, 0))}${hex(L(g, 0))}${hex(L(b, 0))}`;
+        return transp === undefined ? color : withAlpha(color, L(transp, 0));
       }
 
       // ── na handling ──
@@ -1565,6 +1673,23 @@ export class PineInterpreter {
         const w = this.windowOf(src, n, line);
         const vol = this.barWindow(this.bars.volume, n);
         return last(ta.vwma(w, vol, n));
+      }
+      case "ta.mfi": {
+        if (e.args.length !== 2 || e.args.some((arg) =>
+          arg.name !== undefined && arg.name !== "series" && arg.name !== "length" && arg.name !== "source"
+        )) {
+          for (const arg of e.args) this.evalExpr(arg.value);
+          throw new PineRuntimeError("ta.mfi supports only ta.mfi(series, length)", line);
+        }
+        const [src, len] = this.args(e, ["series", "length"]);
+        const source = src ?? e.args.find((arg) => arg.name === "source")?.value;
+        const n = this.taLength(this.argVal(len), line);
+        this.evalSeriesArg(source, line);
+        this.ensureHistory(source!, n + 1);
+        if (this.historyDepth(source!) < n + 1) return NaN;
+        const values = this.windowOf(source, n + 1, line);
+        const volume = this.barWindow(this.bars.volume, n + 1);
+        return last(ta.mfi(values, volume, n));
       }
 
       // ── ta: recursive functions (streaming state) ──
@@ -2153,7 +2278,7 @@ export class PineInterpreter {
     const id = `plot_${e.id}`;
     const rawColor = colorE ? this.argVal(colorE) : undefined;
     let plot = this.plots.get(id);
-    if (!plot && this.plotOrder.length >= LIMITS.plots) {
+    if (!plot && this.plotOrder.length + this.ohlcPlotOrder.length >= LIMITS.plots) {
       throw new PineRuntimeError(`a script may declare at most ${LIMITS.plots} plots`, line);
     }
     if (!plot) {
@@ -2163,13 +2288,7 @@ export class PineInterpreter {
       if (!Number.isFinite(requestedOffset) || Math.abs(requestedOffset) > 500) {
         throw new PineRuntimeError("plot offset must be between -500 and 500 bars", line);
       }
-      const renderable = style !== "cross" && initialDisplay !== "none";
-      if (style === "cross") {
-        this.compatibilityWarning(
-          line,
-          "plot.style_cross is not rendered by this chart runtime; no substitute was drawn"
-        );
-      }
+      const renderable = initialDisplay !== "none";
       // Evaluate histbase even though the current chart adapter uses Pine's
       // normal zero baseline. A non-zero baseline would otherwise be a silent
       // semantic substitution, so surface it explicitly.
@@ -2207,30 +2326,220 @@ export class PineInterpreter {
       plot.data.push(display === "none" || !Number.isFinite(v) ? null : v);
       plot.colors.push(display === "none" ? null : pointColor);
     }
-    // `plot()` returns a plot handle. `fill(p1, p2, …)` is not rendered yet,
-    // but returning the real identity avoids corrupting scripts that retain it.
+    // `plot()` returns a stable plot handle used by fill().
     return id;
   }
 
-  private unsupportedRendering(
-    path: "fill" | "bgcolor" | "barcolor" | "plotcandle" | "plotbar",
+  private doFill(e: Extract<Expr, { k: "call" }>): PineValue {
+    const positional = e.args.filter((arg) => !arg.name);
+    const gradient = e.args.some((arg) =>
+      arg.name === "top_value" || arg.name === "bottom_value" ||
+      arg.name === "top_color" || arg.name === "bottom_color"
+    ) || positional.length >= 6;
+    if (gradient) {
+      for (const arg of e.args) this.evalExpr(arg.value);
+      this.compatibilityWarning(
+        e.line,
+        "gradient fill() is not rendered; only fill(plot, plot, color) and fill(hline, hline, color) are supported"
+      );
+      return NaN;
+    }
+
+    const [firstE, secondE, colorE, titleE, , showLastE, fillgapsE, displayE] = this.args(
+      e, ["plot1", "plot2", "color", "title", "editable", "show_last", "fillgaps", "display"]
+    );
+    const firstId = toStr(this.argVal(firstE));
+    const secondId = toStr(this.argVal(secondE));
+    const color = pineColor(this.argVal(colorE));
+    const display = toStr(this.argVal(displayE, "all"));
+    const fillgaps = this.truthy(this.argVal(fillgapsE, true));
+    if (showLastE !== undefined) {
+      this.evalExpr(showLastE);
+      this.compatibilityWarning(e.line, "fill() show_last is not supported; the fill was not rendered");
+    }
+
+    const id = `fill_${e.id}`;
+    let fill = this.fills.get(id);
+    if (!fill) {
+      const firstKind = firstId.startsWith("plot_") ? "plot"
+        : firstId.startsWith("hline_") ? "hline" : "unknown";
+      const secondKind = secondId.startsWith("plot_") ? "plot"
+        : secondId.startsWith("hline_") ? "hline" : "unknown";
+      const firstPlot = this.plots.get(firstId);
+      const secondPlot = this.plots.get(secondId);
+      const known = firstKind !== "unknown" && firstKind === secondKind &&
+        (firstKind === "hline" || (firstPlot !== undefined && secondPlot !== undefined));
+      const firstOnPrice = this.meta.overlay || (firstPlot?.forceOverlay ?? false);
+      const secondOnPrice = this.meta.overlay || (secondPlot?.forceOverlay ?? false);
+      const samePane = firstOnPrice === secondOnPrice;
+      const endpointsVisible = firstKind === "hline" ||
+        (firstPlot?.renderable === true && secondPlot?.renderable === true);
+      const renderable = known && samePane && endpointsVisible && showLastE === undefined && display !== "none";
+      if (!known) {
+        this.compatibilityWarning(
+          e.line,
+          "fill() requires two existing plot handles or two existing hline handles; no fill was drawn"
+        );
+      } else if (!samePane) {
+        this.compatibilityWarning(e.line, "fill() endpoints belong to different panes; no fill was drawn");
+      } else if (!endpointsVisible) {
+        this.compatibilityWarning(e.line, "fill() with a display.none endpoint is not rendered");
+      }
+      fill = {
+        id,
+        title: toStr(this.argVal(titleE, "")) || "Fill",
+        firstId,
+        secondId,
+        forceOverlay: firstOnPrice,
+        renderable,
+        fillgaps,
+        colors: [],
+      };
+      this.fills.set(id, fill);
+      this.fillOrder.push(id);
+    }
+    if (this.inRange) fill.colors.push(fill.renderable && display !== "none" ? color : null);
+    return NaN;
+  }
+
+  private doBackground(e: Extract<Expr, { k: "call" }>): PineValue {
+    const [colorE, offsetE, , showLastE, titleE, displayE, forceOverlayE] = this.args(
+      e, ["color", "offset", "editable", "show_last", "title", "display", "force_overlay"]
+    );
+    const color = pineColor(this.argVal(colorE));
+    const offset = Math.trunc(this.num(this.argVal(offsetE, 0), e.line));
+    if (!Number.isFinite(offset) || Math.abs(offset) > 500) {
+      throw new PineRuntimeError("bgcolor offset must be between -500 and 500 bars", e.line);
+    }
+    if (showLastE !== undefined) {
+      this.evalExpr(showLastE);
+      this.compatibilityWarning(e.line, "bgcolor() show_last is not supported; the background was not rendered");
+    }
+    const display = toStr(this.argVal(displayE, "all"));
+    const id = `bgcolor_${e.id}`;
+    let background = this.backgrounds.get(id);
+    if (!background) {
+      background = {
+        id,
+        title: toStr(this.argVal(titleE, "")) || "Background",
+        offset,
+        forceOverlay: this.truthy(this.argVal(forceOverlayE, false)),
+        colors: [],
+      };
+      this.backgrounds.set(id, background);
+      this.backgroundOrder.push(id);
+    }
+    if (this.inRange) {
+      background.colors.push(showLastE === undefined && display !== "none" ? color : null);
+    }
+    return NaN;
+  }
+
+  private doBarColor(e: Extract<Expr, { k: "call" }>): PineValue {
+    const [colorE, offsetE, , showLastE, titleE, displayE] = this.args(
+      e, ["color", "offset", "editable", "show_last", "title", "display"]
+    );
+    const color = pineColor(this.argVal(colorE));
+    const offset = Math.trunc(this.num(this.argVal(offsetE, 0), e.line));
+    if (!Number.isFinite(offset) || Math.abs(offset) > 500) {
+      throw new PineRuntimeError("barcolor offset must be between -500 and 500 bars", e.line);
+    }
+    if (showLastE !== undefined) {
+      this.evalExpr(showLastE);
+      this.compatibilityWarning(e.line, "barcolor() show_last is not supported; the override was not rendered");
+    }
+    const display = toStr(this.argVal(displayE, "all"));
+    const id = `barcolor_${e.id}`;
+    let barColor = this.barColors.get(id);
+    if (!barColor) {
+      barColor = {
+        id,
+        title: toStr(this.argVal(titleE, "")) || "Bar color",
+        offset,
+        colors: [],
+      };
+      this.barColors.set(id, barColor);
+      this.barColorOrder.push(id);
+    }
+    if (this.inRange) {
+      barColor.colors.push(showLastE === undefined && display !== "none" ? color : null);
+    }
+    return NaN;
+  }
+
+  private doOhlcPlot(
+    path: "plotcandle" | "plotbar",
     e: Extract<Expr, { k: "call" }>
   ): PineValue {
-    // Plot arguments may contain stateful TA/user-function calls. Evaluate
-    // them even when the visual primitive is unavailable, so later plots do
-    // not receive plausible-but-wrong series state.
-    for (const arg of e.args) this.evalExpr(arg.value);
-    const labels: Record<typeof path, string> = {
-      fill: "fill() shading",
-      bgcolor: "bgcolor() bands",
-      barcolor: "barcolor() candle recolouring",
-      plotcandle: "plotcandle() custom candles",
-      plotbar: "plotbar() custom bars",
-    };
-    this.compatibilityWarning(
-      e.line,
-      `${labels[path]} is not rendered by this chart runtime; no substitute was drawn`
-    );
+    const names = path === "plotcandle"
+      ? [
+          "open", "high", "low", "close", "title", "color", "wickcolor", "editable",
+          "show_last", "bordercolor", "display", "format", "precision", "force_overlay",
+        ]
+      : [
+          "open", "high", "low", "close", "title", "color", "editable", "show_last",
+          "display", "format", "precision", "force_overlay",
+        ];
+    const resolved = this.args(e, names);
+    const [openE, highE, lowE, closeE, titleE, colorE] = resolved;
+    const wickE = path === "plotcandle" ? resolved[6] : undefined;
+    const showLastE = path === "plotcandle" ? resolved[8] : resolved[7];
+    const borderE = path === "plotcandle" ? resolved[9] : undefined;
+    const displayE = path === "plotcandle" ? resolved[10] : resolved[8];
+    const precisionE = path === "plotcandle" ? resolved[12] : resolved[10];
+    const forceOverlayE = path === "plotcandle" ? resolved[13] : resolved[11];
+    const open = this.num(this.argVal(openE), e.line);
+    const high = this.num(this.argVal(highE), e.line);
+    const low = this.num(this.argVal(lowE), e.line);
+    const close = this.num(this.argVal(closeE), e.line);
+    const rawColor = colorE ? this.argVal(colorE) : undefined;
+    const rawWick = wickE ? this.argVal(wickE) : rawColor;
+    const rawBorder = borderE ? this.argVal(borderE) : rawColor;
+    const display = toStr(this.argVal(displayE, "all"));
+    if (showLastE !== undefined) {
+      this.evalExpr(showLastE);
+      this.compatibilityWarning(
+        e.line,
+        `${path}() show_last is not supported; the custom OHLC series was not rendered`
+      );
+    }
+
+    const id = `${path}_${e.id}`;
+    let plot = this.ohlcPlots.get(id);
+    if (!plot && this.plotOrder.length + this.ohlcPlotOrder.length >= LIMITS.plots) {
+      throw new PineRuntimeError(`a script may declare at most ${LIMITS.plots} plots`, e.line);
+    }
+    if (!plot) {
+      const fallback = DEFAULT_COLORS[
+        (this.plotOrder.length + this.ohlcPlotOrder.length) % DEFAULT_COLORS.length
+      ]!;
+      const precision = this.num(this.argVal(precisionE), e.line);
+      if (Number.isFinite(precision) && this.meta.precision === null) {
+        this.meta.precision = Math.max(0, Math.min(16, Math.trunc(precision)));
+      }
+      plot = {
+        id,
+        title: toStr(this.argVal(titleE, "")) || `${path === "plotcandle" ? "Candles" : "Bars"} ${this.ohlcPlotOrder.length + 1}`,
+        style: path === "plotcandle" ? "candles" : "bars",
+        color: pineColor(rawColor) ?? fallback,
+        forceOverlay: this.truthy(this.argVal(forceOverlayE, false)),
+        renderable: display !== "none" && showLastE === undefined,
+        data: [],
+        colors: [],
+        wickColors: [],
+        borderColors: [],
+      };
+      this.ohlcPlots.set(id, plot);
+      this.ohlcPlotOrder.push(id);
+    }
+    if (this.inRange) {
+      const valid = plot.renderable && display !== "none" &&
+        [open, high, low, close].every(Number.isFinite);
+      plot.data.push(valid ? { open, high, low, close } : null);
+      plot.colors.push(valid ? (pineColor(rawColor) ?? plot.color) : null);
+      plot.wickColors.push(valid ? (pineColor(rawWick) ?? pineColor(rawColor) ?? plot.color) : null);
+      plot.borderColors.push(valid ? (pineColor(rawBorder) ?? pineColor(rawColor) ?? plot.color) : null);
+    }
     return NaN;
   }
 
@@ -2302,6 +2611,78 @@ function timeframeBucket(raw: string, chart: Interval, time: number): number {
   }
   const interval = raw === chart ? chart : pineTfToInterval(raw, chart);
   return Math.floor(time / INTERVAL_MS[interval]);
+}
+
+const SESSION_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * Common Pine session membership for Binance feeds. Binance's exchange
+ * timezone is UTC; explicit IANA zones use Intl so DST transitions come from
+ * the host timezone database instead of a fixed-offset approximation.
+ */
+function sessionContains(time: number, spec: string, timezone: string): boolean {
+  if (!Number.isFinite(time)) return false;
+  if (spec.toLowerCase() === "24x7") return true;
+  const zone = timezone === "" || timezone.toLowerCase() === "exchange" ? "UTC" : timezone;
+  let formatter = SESSION_FORMATTERS.get(zone);
+  if (!formatter) {
+    try {
+      formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: zone,
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      });
+      // Force timezone validation now; some runtimes defer it until format().
+      formatter.format(0);
+    } catch {
+      throw new Error(`unsupported time() timezone '${timezone}'`);
+    }
+    SESSION_FORMATTERS.set(zone, formatter);
+  }
+  const parts = Object.fromEntries(
+    formatter.formatToParts(new Date(time)).map((part) => [part.type, part.value])
+  );
+  const weekdays: Record<string, number> = {
+    Sun: 1, Mon: 2, Tue: 3, Wed: 4, Thu: 5, Fri: 6, Sat: 7,
+  };
+  const day = weekdays[parts.weekday ?? ""];
+  const hour = Number(parts.hour);
+  const minute = Number(parts.minute);
+  if (day === undefined || !Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new Error(`could not evaluate time() timezone '${timezone}'`);
+  }
+  const localMinute = (hour === 24 ? 0 : hour) * 60 + minute;
+  const previousDay = day === 1 ? 7 : day - 1;
+
+  for (const period of spec.split(",")) {
+    const match = /^(\d{2})(\d{2})-(\d{2})(\d{2})(?::([1-7]+))?$/.exec(period.trim());
+    if (!match) throw new Error(`unsupported time() session '${spec}'`);
+    const startHour = Number(match[1]);
+    const startMinute = Number(match[2]);
+    const endHour = Number(match[3]);
+    const endMinute = Number(match[4]);
+    if (startHour > 23 || startMinute > 59 || endHour > 24 || endMinute > 59 ||
+        (endHour === 24 && endMinute !== 0)) {
+      throw new Error(`unsupported time() session '${spec}'`);
+    }
+    const start = startHour * 60 + startMinute;
+    const end = endHour * 60 + endMinute;
+    const days = match[5] ?? "1234567";
+    const allowed = (pineDay: number): boolean => days.includes(String(pineDay));
+    if (start === end || (start === 0 && end === 1440)) {
+      if (allowed(day)) return true;
+    } else if (start < end) {
+      if (allowed(day) && localMinute >= start && localMinute < end) return true;
+    } else if (
+      (localMinute >= start && allowed(day)) ||
+      (localMinute < end && allowed(previousDay))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
