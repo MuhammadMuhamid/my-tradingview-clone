@@ -30,10 +30,12 @@ relative to the end of the data, so it is genuinely recomputed per bar.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import math
-from dataclasses import dataclass, field
-from typing import Any, Iterable
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -45,6 +47,7 @@ from .indicators import sr as sr_mod
 from .indicators import supertrend as st_mod
 from .indicators import vfi as vfi_mod
 from .scoring import compute as compute_score
+from .timeframes import duration_ms
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +64,7 @@ DEFAULTS: dict[str, Any] = {
 
 INSUFFICIENT = "insufficient data"
 DAY_MS = 86_400_000
+CALCULATION_VERSION = "scanner-calibration-mtf-v1"
 
 
 # --- forward-return labelling -----------------------------------------
@@ -272,15 +276,83 @@ def indicator_frames(df: pd.DataFrame, config: dict) -> list[dict]:
     return frames
 
 
+def source_bar_indices(
+    decisions: pd.DataFrame,
+    source: pd.DataFrame,
+    decision_timeframe: str,
+    source_timeframe: str,
+) -> np.ndarray:
+    """Latest source bar closed at each decision bar's close, or ``-1``.
+
+    The live scanner reads the newest independently confirmed bar from every
+    configured timeframe. Historical calibration reproduces that rule by
+    comparing bar *close* times. A higher-timeframe bar is therefore absent
+    until its own close is less than or equal to the decision close.
+    """
+    decision_closes = (
+        decisions["ts"].to_numpy(dtype="int64") + duration_ms(decision_timeframe)
+    )
+    source_closes = source["ts"].to_numpy(dtype="int64") + duration_ms(source_timeframe)
+    return np.searchsorted(source_closes, decision_closes, side="right") - 1
+
+
+def aligned_indicator_frames(
+    frames: dict[str, pd.DataFrame],
+    config: dict,
+    decision_timeframe: str,
+) -> tuple[list[dict], list[dict[str, int | None]]]:
+    """Live-shaped score inputs aligned to historical decision closes.
+
+    Only enabled indicators are included, exactly like ``ScreenerService``.
+    The source-index sidecar lets the S&R slow path use the same aligned bar
+    without duplicating the alignment rule.
+    """
+    decisions = frames[decision_timeframe]
+    enabled = {
+        name: spec for name, spec in config["indicators"].items() if spec["enabled"]
+    }
+    needed_timeframes = {spec["timeframe"] for spec in enabled.values()}
+    computed = {
+        tf: indicator_frames(frames[tf], config)
+        for tf in needed_timeframes
+        if tf in frames and not frames[tf].empty
+    }
+    aligned = {
+        tf: source_bar_indices(decisions, frames[tf], decision_timeframe, tf)
+        for tf in computed
+    }
+
+    payloads: list[dict] = []
+    sources: list[dict[str, int | None]] = []
+    for decision_index in range(len(decisions)):
+        payload: dict[str, Any] = {}
+        source_map: dict[str, int | None] = {}
+        for name, spec in enabled.items():
+            tf = spec["timeframe"]
+            indices = aligned.get(tf)
+            source_index = None if indices is None else int(indices[decision_index])
+            if source_index is None or source_index < 0:
+                source_map[name] = None
+                continue
+            source_map[name] = source_index
+            value = computed[tf][source_index].get(name)
+            if value is not None:
+                payload[name] = value
+        payloads.append(payload)
+        sources.append(source_map)
+    return payloads, sources
+
+
 # --- the walk ---------------------------------------------------------
 
 
 def walk_scores(
-    df: pd.DataFrame,
+    data: pd.DataFrame | dict[str, pd.DataFrame],
     config: dict,
     start: int,
     stride: int = 1,
     with_sr: bool = True,
+    timeframe: str | None = None,
 ) -> tuple[list[int], list[float]]:
     """Confluence score at each closed bar from `start` onward.
 
@@ -290,21 +362,44 @@ def walk_scores(
     `df.iloc[:i+1]` and costs about 8ms a bar. Turning it off is faster and
     scores a different model, so the calibration records which was used.
     """
-    frames = indicator_frames(df, config)
-    sr_params = config["indicators"]["sr"].get("params") if with_sr else None
+    if isinstance(data, pd.DataFrame):
+        if timeframe is None:
+            raise ValueError("timeframe is required when calibrating one dataframe")
+        source_frames = {timeframe: data}
+    else:
+        source_frames = data
+    if timeframe is None:
+        raise ValueError("decision timeframe is required")
+
+    df = source_frames[timeframe]
+    payloads, source_indices = aligned_indicator_frames(source_frames, config, timeframe)
+    sr_spec = config["indicators"]["sr"]
+    include_sr = bool(with_sr and sr_spec["enabled"])
+    sr_params = sr_spec.get("params") if include_sr else None
+    sr_timeframe = sr_spec["timeframe"]
+    sr_df = source_frames.get(sr_timeframe)
+    sr_cache: dict[int, dict | None] = {}
     scoring_params = config.get("scoring")
 
     indices: list[int] = []
     scores: list[float] = []
 
     for i in range(start, len(df), stride):
-        payload = dict(frames[i])
-        if with_sr:
-            try:
-                payload["sr"] = sr_mod.compute(df.iloc[: i + 1], sr_params)
-            except Exception:
-                payload["sr"] = None
-        if payload["sr"] is None:
+        payload = dict(payloads[i])
+        if include_sr and sr_df is not None:
+            source_index = source_indices[i].get("sr")
+            if source_index is not None and source_index not in sr_cache:
+                try:
+                    sr_cache[source_index] = sr_mod.compute(
+                        sr_df.iloc[: source_index + 1], sr_params
+                    )
+                except Exception:
+                    sr_cache[source_index] = None
+            if source_index is not None and sr_cache.get(source_index) is not None:
+                payload["sr"] = sr_cache[source_index]
+            else:
+                payload.pop("sr", None)
+        else:
             payload.pop("sr", None)
 
         result = compute_score(payload, scoring_params)
@@ -319,13 +414,115 @@ def walk_scores(
 def _warmup_bars(config: dict) -> int:
     """First bar at which every enabled indicator has a value."""
     params = {k: v.get("params", {}) for k, v in config["indicators"].items()}
-    needs = [
-        max(int(x) for x in params.get("ema", {}).get("lengths", [200])) + 1,
-        int(params.get("adx", {}).get("adxLen", 14)) + int(params.get("adx", {}).get("diLen", 14)) + 2,
-        2 * int(params.get("vfi", {}).get("length", 130)) + int(params.get("vfi", {}).get("signalLength", 5)) + 2,
-        2 * int(params.get("sr", {}).get("pivot_length", 15)) + int(params.get("sr", {}).get("atr_length", 20)) + 2,
-    ]
+    enabled = config["indicators"]
+    needs = [1]
+    if enabled["ema"]["enabled"]:
+        needs.append(max(int(x) for x in params.get("ema", {}).get("lengths", [200])) + 1)
+    if enabled["adx"]["enabled"]:
+        needs.append(
+            int(params.get("adx", {}).get("adxLen", 14))
+            + int(params.get("adx", {}).get("diLen", 14))
+            + 2
+        )
+    if enabled["vfi"]["enabled"]:
+        needs.append(
+            2 * int(params.get("vfi", {}).get("length", 130))
+            + int(params.get("vfi", {}).get("signalLength", 5))
+            + 2
+        )
+    if enabled["sr"]["enabled"]:
+        needs.append(
+            2 * int(params.get("sr", {}).get("pivot_length", 15))
+            + int(params.get("sr", {}).get("atr_length", 20))
+            + 2
+        )
     return max(needs)
+
+
+def calibration_provenance(
+    config: dict,
+    symbol: str,
+    timeframe: str,
+    *,
+    exchange: str | None = None,
+    native_symbol: str | None = None,
+    params: dict | None = None,
+    with_sr: bool = True,
+) -> dict:
+    """Canonical inputs that determine one empirical calibration."""
+    empirical = config.get("scoring", {}).get("empirical") or {}
+    settings = {**DEFAULTS, **empirical, **(params or {})}
+    settings.pop("enabled", None)  # presentation toggle; it changes no sample
+    indicators = {
+        name: {
+            "timeframe": spec["timeframe"],
+            "params": spec.get("params") or {},
+        }
+        for name, spec in config["indicators"].items()
+        if spec["enabled"]
+    }
+    scoring = {
+        key: value
+        for key, value in (config.get("scoring") or {}).items()
+        if key not in {"mode", "empirical"}
+    }
+    exchange_id = exchange or config.get("exchange")
+    return {
+        "calculation_version": CALCULATION_VERSION,
+        "market": {
+            "exchange": exchange_id,
+            "market_type": (
+                "usd_m_perpetual" if exchange_id == "binanceusdm" else "linear_perpetual"
+            ),
+            "contract_type": "perpetual",
+            "linear": True,
+        },
+        "symbol": {
+            "config": symbol,
+            "native": native_symbol or symbol,
+        },
+        "decision_timeframe": timeframe,
+        "indicator_basis": indicators,
+        "scoring": scoring,
+        "calibration_settings": settings,
+        "with_sr": bool(with_sr and config["indicators"]["sr"]["enabled"]),
+    }
+
+
+def calibration_fingerprint(
+    config: dict,
+    symbol: str,
+    timeframe: str,
+    **kwargs: Any,
+) -> tuple[str, dict]:
+    provenance = calibration_provenance(config, symbol, timeframe, **kwargs)
+    encoded = json.dumps(
+        provenance, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), provenance
+
+
+def assess_provenance(calibration: dict, expected_fingerprint: str) -> dict:
+    """Return a presentation copy marked current or stale; never rewrite storage."""
+    out = dict(calibration)
+    stored = calibration.get("fingerprint")
+    if stored == expected_fingerprint:
+        out.update({"current": True, "stale": False, "stale_reason": None})
+        return out
+
+    reason = (
+        "legacy calibration has no fingerprint"
+        if not stored
+        else "calibration fingerprint does not match current calculation settings"
+    )
+    out.update({
+        "current": False,
+        "stale": True,
+        "stale_reason": reason,
+        "historically_available": bool(calibration.get("available")),
+        "available": False,
+    })
+    return out
 
 
 @dataclass
@@ -365,15 +562,38 @@ class Decile:
 
 
 def calibrate(
-    df: pd.DataFrame,
+    data: pd.DataFrame | dict[str, pd.DataFrame],
     config: dict,
     symbol: str,
     timeframe: str,
     params: dict | None = None,
     with_sr: bool = True,
+    *,
+    exchange: str | None = None,
+    native_symbol: str | None = None,
 ) -> dict:
     """Score deciles with empirical hit rates, per symbol. §6.2."""
     p = {**DEFAULTS, **(config.get("scoring", {}).get("empirical") or {}), **(params or {})}
+    p.pop("enabled", None)
+    frames = {timeframe: data} if isinstance(data, pd.DataFrame) else data
+    if timeframe not in frames:
+        raise ValueError(f"missing decision timeframe {timeframe}")
+    df = frames[timeframe]
+    fingerprint, provenance = calibration_fingerprint(
+        config,
+        symbol,
+        timeframe,
+        exchange=exchange,
+        native_symbol=native_symbol,
+        params=params,
+        with_sr=with_sr,
+    )
+    common = {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "fingerprint": fingerprint,
+        "provenance": provenance,
+    }
     horizon = int(p["horizon_bars"])
     minimum = int(p["min_decile_samples"])
     n_deciles = int(p["deciles"])
@@ -387,14 +607,16 @@ def calibrate(
     warnings: list[str] = []
     if last_labelable <= start:
         return {
-            "symbol": symbol, "timeframe": timeframe, "available": False,
+            **common, "available": False,
             "reason": (
                 f"not enough history: need more than {warmup + horizon} bars, have {len(df)}"
             ),
             "warnings": warnings, "deciles": [], "samples": 0,
         }
 
-    indices, scores = walk_scores(df, config, start, with_sr=with_sr)
+    indices, scores = walk_scores(
+        frames, config, start, with_sr=with_sr, timeframe=timeframe
+    )
 
     high = df["high"].to_numpy(dtype="float64")
     low = df["low"].to_numpy(dtype="float64")
@@ -418,7 +640,7 @@ def calibrate(
 
     if not kept_scores:
         return {
-            "symbol": symbol, "timeframe": timeframe, "available": False,
+            **common, "available": False,
             "reason": "no labelable bars", "warnings": warnings,
             "deciles": [], "samples": 0,
         }
@@ -480,8 +702,7 @@ def calibrate(
     )
 
     return {
-        "symbol": symbol,
-        "timeframe": timeframe,
+        **common,
         "available": usable,
         "reason": reason,
         "in_sample": True,
@@ -510,13 +731,36 @@ def calibrate(
     }
 
 
-def lookup(calibration: dict, score: float | None) -> dict:
+def lookup(
+    calibration: dict,
+    score: float | None,
+    expected_fingerprint: str | None = None,
+) -> dict:
     """The decile the live score falls into. §6.2 step 4.
 
     `n` travels with every answer, including the refusals: "insufficient data"
     with no number attached hides how far short the sample fell, which is the
     thing a reader most needs in order to judge it.
     """
+    stored_fingerprint = calibration.get("fingerprint")
+    if not stored_fingerprint or (
+        expected_fingerprint is not None and stored_fingerprint != expected_fingerprint
+    ):
+        reason = (
+            "legacy calibration has no fingerprint"
+            if not stored_fingerprint
+            else "calibration fingerprint does not match current calculation settings"
+        )
+        return {
+            "available": False,
+            "current": False,
+            "stale": True,
+            "stale_reason": reason,
+            "display": f"{INSUFFICIENT} (n=0) — stale calibration: {reason}",
+            "hit_rate": None,
+            "n": 0,
+        }
+
     if score is None:
         return {"available": False, "display": f"{INSUFFICIENT} (no score)",
                 "hit_rate": None, "n": 0}
