@@ -49,6 +49,24 @@ export interface AppliedIndicator {
 /** Empty drawing set, so callers never branch on null. */
 export const NO_DRAWINGS: PineDrawings = { lines: [], boxes: [], labels: [], tables: [] };
 
+/** Drop every horizon-derived byte before a replay re-run is allowed to settle. */
+export function invalidateReplayOutput(indicator: AppliedIndicator): AppliedIndicator {
+  return {
+    ...indicator, loading: true, error: null,
+    overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+  };
+}
+
+/** Exact API boundaries; Replay must never widen a close-time horizon to end-of-day. */
+export function pineRunRange(ctx: { startTime: string; endTime: string }): {
+  startTime: string; endTime: string;
+} {
+  return {
+    startTime: new Date(ctx.startTime).toISOString(),
+    endTime: new Date(ctx.endTime).toISOString(),
+  };
+}
+
 /** What survives a reload — run output is always recomputed. */
 interface StoredIndicator {
   key: string;
@@ -270,8 +288,7 @@ export async function runIndicator(
       source: ind.source,
       symbol: ctx.symbol,
       timeframe: ctx.timeframe,
-      startTime: new Date(ctx.startTime).toISOString(),
-      endTime: new Date(`${ctx.endTime}T23:59:59Z`).toISOString(),
+      ...pineRunRange(ctx),
       params: ind.params,
     });
     if (!r.ok) {

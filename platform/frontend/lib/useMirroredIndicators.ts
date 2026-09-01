@@ -27,7 +27,9 @@ export function useMirroredIndicators(
   enabled: boolean,
   revision = 0
 ) {
-  const [results, setResults] = useState<AppliedIndicator[]>([]);
+  const [resultSet, setResultSet] = useState<{ contextKey: string; items: AppliedIndicator[] }>({
+    contextKey: "", items: [],
+  });
   const token = useRef(0);
 
   /**
@@ -46,11 +48,12 @@ export function useMirroredIndicators(
   const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}|${revision}`;
 
   useEffect(() => {
-    if (!enabled) { setResults([]); return; }
+    if (!enabled) { setResultSet({ contextKey: ctxKey, items: [] }); return; }
     const visible = list.filter((i) => i.visible);
-    if (visible.length === 0) { setResults([]); return; }
+    if (visible.length === 0) { setResultSet({ contextKey: ctxKey, items: [] }); return; }
 
     const mine = ++token.current;
+    setResultSet({ contextKey: ctxKey, items: [] });
     let cancelled = false;
     (async () => {
       const out: AppliedIndicator[] = [];
@@ -60,13 +63,18 @@ export function useMirroredIndicators(
         const res = await runIndicator({ ...ind, key: `mirror_${ind.key}` }, ctx);
         if (cancelled || token.current !== mine) return;
         out.push(res);
-        setResults([...out]);
+        setResultSet({ contextKey: ctxKey, items: [...out] });
       }
     })();
     return () => { cancelled = true; };
     // ctx is covered by ctxKey; list by signature.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, signature, ctxKey]);
+
+  const results = useMemo(
+    () => resultSet.contextKey === ctxKey ? resultSet.items : [],
+    [resultSet, ctxKey]
+  );
 
   const overlays = useMemo<ChartOverlay[]>(
     () => results.flatMap((i) => i.overlays), [results]

@@ -76,6 +76,10 @@ export function PineEditor({
   const errorLines = useMemo(() => new Set(errors.map((e) => e.line)), [errors]);
   const lines = useMemo(() => source.split("\n"), [source]);
 
+  // A prior result belongs to its old temporal context. Clear it immediately;
+  // the next explicit run uses the new exact replay boundary.
+  useEffect(() => { setResult(null); setStatus(null); }, [symbol, timeframe, startTime, endTime]);
+
   // Compile (no data fetch) as you type, so the console tracks the source.
   useEffect(() => {
     const t = setTimeout(() => {
@@ -103,7 +107,7 @@ export function PineEditor({
       const r = await api.runPine({
         source, symbol, timeframe,
         startTime: new Date(startTime).toISOString(),
-        endTime: new Date(`${endTime}T23:59:59Z`).toISOString(),
+        endTime: new Date(endTime).toISOString(),
         params,
       });
       setResult(r);

@@ -7,6 +7,7 @@ import { useMirroredIndicators } from "@/lib/useMirroredIndicators";
 import { buildMaOverlays, type MaLine } from "@/lib/movingAverages";
 import type { Candle, Interval } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
+import { replayCandles, type ReplaySession } from "@/lib/replay";
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
@@ -20,6 +21,7 @@ const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 export function SplitPane({
   symbol, timeframe, onTimeframe, bars, indicators, maLines, startTime, endTime, onClose,
   onCrosshairMove, crosshairTime, onVisibleRangeChange, visibleRange, followEdgeTime,
+  replayHorizonCloseTime, replayAvailableThroughCloseTime,
 }: {
   symbol: string;
   timeframe: Interval;
@@ -35,6 +37,8 @@ export function SplitPane({
   maLines: MaLine[];
   startTime: string;
   endTime: string;
+  replayHorizonCloseTime?: number | null;
+  replayAvailableThroughCloseTime?: number | null;
   onClose: () => void;
   onCrosshairMove?: (time: number | null) => void;
   crosshairTime?: number | null;
@@ -46,6 +50,12 @@ export function SplitPane({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [liveRevision, setLiveRevision] = useState(0);
+  const replaySession = useMemo<ReplaySession | null>(() =>
+    replayHorizonCloseTime == null || replayAvailableThroughCloseTime == null ? null : {
+      horizonCloseTime: replayHorizonCloseTime,
+      availableThroughCloseTime: replayAvailableThroughCloseTime,
+      playing: false, speed: 1,
+    }, [replayHorizonCloseTime, replayAvailableThroughCloseTime]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,14 +85,15 @@ export function SplitPane({
     liveRevision
   );
 
-  const maOverlays = useMemo(() => buildMaOverlays(candles, maLines), [candles, maLines]);
+  const visibleCandles = useMemo(() => replayCandles(candles, replaySession), [candles, replaySession]);
+  const maOverlays = useMemo(() => buildMaOverlays(visibleCandles, maLines), [visibleCandles, maLines]);
   /** MAs beneath the Pine studies, matching pane 1's draw order. */
   const overlays = useMemo(
     () => [...maOverlays, ...mirrored.overlays],
     [maOverlays, mirrored.overlays]
   );
 
-  const last = candles[candles.length - 1];
+  const last = visibleCandles[visibleCandles.length - 1];
 
   const liveBarBoundary = useCallback((closed: Candle | null, current: Candle) => {
     setCandles((existing) => {
@@ -119,7 +130,7 @@ export function SplitPane({
         <span className="ml-auto flex items-center gap-2 tabular text-[11px] text-ink-muted">
           {last && <span className="text-ink">{fmtPrice(last.close)}</span>}
           <span className="text-ink-faint">
-            {loading ? "loading…" : `${candles.length.toLocaleString()} bars`}
+            {loading ? "loading…" : `${visibleCandles.length.toLocaleString()} bars`}
             {mirrored.loading ? " · indicators…" : ""}
           </span>
           <button
@@ -146,15 +157,15 @@ export function SplitPane({
           <CandleChart
             symbol={symbol}
             interval={timeframe}
-            candles={candles}
+            candles={visibleCandles}
             overlays={overlays}
             decorations={mirrored.decorations}
             barColors={mirrored.barColors}
             markers={mirrored.markers}
             pineDrawings={mirrored.drawings}
-            live
+            live={replaySession === null}
             fill
-            onLiveBarBoundary={liveBarBoundary}
+            onLiveBarBoundary={replaySession === null ? liveBarBoundary : undefined}
             onCrosshairMove={onCrosshairMove}
             crosshairTime={crosshairTime}
             onVisibleRangeChange={onVisibleRangeChange}

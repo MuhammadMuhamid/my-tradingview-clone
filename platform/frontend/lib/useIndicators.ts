@@ -15,7 +15,7 @@ import {
 import type { PineDrawings } from "@/lib/api";
 import type { Interval, Trade } from "@/lib/types";
 import {
-  NO_DRAWINGS, hydrate, loadStored, newKey, runIndicator, saveStored,
+  NO_DRAWINGS, hydrate, invalidateReplayOutput, loadStored, newKey, runIndicator, saveStored,
   type AppliedIndicator, type PineParams,
 } from "@/lib/indicators";
 
@@ -24,6 +24,7 @@ export interface IndicatorContext {
   timeframe: Interval;
   startTime: string;
   endTime: string;
+  replay?: boolean;
 }
 
 export interface AddIndicatorInput {
@@ -35,6 +36,7 @@ export interface AddIndicatorInput {
 
 export function useIndicators(ctx: IndicatorContext) {
   const [list, setList] = useState<AppliedIndicator[]>([]);
+  const [preparedContextKey, setPreparedContextKey] = useState("");
   const runToken = useRef(0);
   /** Per-instance generation prevents an older same-context run settling last. */
   const runVersions = useRef(new Map<string, number>());
@@ -77,16 +79,26 @@ export function useIndicators(ctx: IndicatorContext) {
   useEffect(() => { listRef.current = list; }, [list]);
 
   // Chart context changed: re-run everything under a fresh token.
-  const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}`;
+  const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}|${ctx.replay ? "replay" : "live"}`;
   useEffect(() => {
     const pending = listRef.current;
-    if (pending.length === 0) return;
     const token = ++runToken.current;
-    setList((cur) => cur.map((i) => ({ ...i, loading: true, error: null })));
+    setPreparedContextKey(ctxKey);
+    if (pending.length === 0) return;
+    setList((cur) => cur.map((i) => ctx.replay
+      ? invalidateReplayOutput(i)
+      : { ...i, loading: true, error: null }));
     for (const ind of pending) runOne(ind, token);
     // runOne closes over ctx, which ctxKey already covers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctxKey]);
+
+  // React paints once before effects clear stale state. Suppress the old
+  // output synchronously on that render so rewind has no later-horizon flash.
+  const outputList = useMemo(
+    () => ctx.replay && preparedContextKey !== ctxKey ? [] : list,
+    [ctx.replay, preparedContextKey, ctxKey, list]
+  );
 
   // Inputs changed on specific instances: re-run just those.
   useEffect(() => {
@@ -183,37 +195,37 @@ export function useIndicators(ctx: IndicatorContext) {
 
   /** Union of every visible instance's output, for the chart. */
   const overlays = useMemo<ChartOverlay[]>(
-    () => list.filter((i) => i.visible).flatMap((i) => i.overlays),
-    [list]
+    () => outputList.filter((i) => i.visible).flatMap((i) => i.overlays),
+    [outputList]
   );
   const decorations = useMemo<ChartDecoration[]>(
-    () => list.filter((i) => i.visible).flatMap((i) => i.decorations),
-    [list]
+    () => outputList.filter((i) => i.visible).flatMap((i) => i.decorations),
+    [outputList]
   );
   const barColors = useMemo<ChartBarColor[]>(
-    () => mergeBarColorLayers(list.filter((i) => i.visible).map((i) => i.barColors)),
-    [list]
+    () => mergeBarColorLayers(outputList.filter((i) => i.visible).map((i) => i.barColors)),
+    [outputList]
   );
   const markers = useMemo<ChartMarker[]>(
-    () => list.filter((i) => i.visible).flatMap((i) => i.markers),
-    [list]
+    () => outputList.filter((i) => i.visible).flatMap((i) => i.markers),
+    [outputList]
   );
   /** Union of every visible instance's drawing objects. */
   const drawings = useMemo<PineDrawings>(() => {
-    const vis = list.filter((i) => i.visible);
+    const vis = outputList.filter((i) => i.visible);
     return {
       lines: vis.flatMap((i) => i.drawings.lines),
       boxes: vis.flatMap((i) => i.drawings.boxes),
       labels: vis.flatMap((i) => i.drawings.labels),
       tables: vis.flatMap((i) => i.drawings.tables),
     };
-  }, [list]);
+  }, [outputList]);
 
   /** Trades come from strategy instances only; the newest applied one wins. */
   const trades = useMemo<Trade[] | null>(() => {
-    const withTrades = list.filter((i) => i.visible && i.trades.length > 0);
+    const withTrades = outputList.filter((i) => i.visible && i.trades.length > 0);
     return withTrades.length > 0 ? withTrades[withTrades.length - 1]!.trades : null;
-  }, [list]);
+  }, [outputList]);
 
   return { list, add, remove, clear, toggleVisible, setParam, resetParams, updateSource, rerun,
     rerunAll, overlays, decorations, barColors, markers, drawings, trades };

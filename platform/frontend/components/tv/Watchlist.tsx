@@ -14,11 +14,12 @@ type NamedWatchlist = ServerWatchlist;
 const LEGACY_KEY = "tv-clone-watchlists-v1";
 const ACTIVE_KEY = "tv.watchlist.active.v1";
 
-export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged }: {
+export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, replayQuote = null }: {
   symbols: SymbolInfo[];
   selected: string;
   onSelect: (symbol: string) => void;
   onSymbolsChanged: () => void;
+  replayQuote?: Ticker | null;
 }) {
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [adding, setAdding] = useState("");
@@ -72,6 +73,7 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged }: {
         setLists([]);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // once on mount; the server is the source of truth afterwards
 
   useEffect(() => {
@@ -197,11 +199,16 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged }: {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {visibleSymbols.length === 0 && <div className="px-4 py-8 text-center text-xs text-ink-faint">This watchlist is empty.<br />Add a USDT pair above.</div>}
         {visibleSymbols.map((s) => {
-          const t = tickers[s.symbol], up = t ? t.chgPct >= 0 : true, selectedRow = s.symbol === selected;
+          const selectedRow = s.symbol === selected;
+          const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
+          const up = t ? t.chgPct >= 0 : true;
           return <div key={s.symbol} className={`group grid grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 px-3 py-[7px] text-[13px] tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_#4f8cff]" : "hover:bg-surface-2/60"}`}>
             <button onClick={() => onSelect(s.symbol)} className="contents text-left">
               <span className="truncate font-medium text-ink">{s.baseAsset}<span className="text-ink-faint">USDT</span></span>
-              <span className={`text-right ${t ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t ? px(t.last) : "—"}</span>
+              <span className={`text-right ${t ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}
+                title={selectedRow && replayQuote ? "Replay price at the current historical horizon" : undefined}>
+                {t ? px(t.last) : "—"}
+              </span>
               <span className={`w-[64px] text-right ${t ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t ? `${up ? "+" : ""}${t.chgPct.toFixed(2)}%` : "—"}</span>
             </button>
             <button title="Remove from watchlist" onClick={() => updateActive((l) => ({ ...l, symbols: l.symbols.filter((x) => x !== s.symbol) }))} className="invisible text-ink-faint hover:text-down group-hover:visible">×</button>

@@ -33,6 +33,7 @@ import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
 import { loadChartType, saveChartType, type ChartType } from "@/lib/chartType";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import { ManualTradingPanel } from "@/components/tv/ManualTradingPanel";
+import { ReplayControls } from "@/components/tv/ReplayControls";
 import * as drawStore from "@/lib/drawings";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import { api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript } from "@/lib/api";
@@ -46,6 +47,11 @@ import type { Layout, WorkspaceState } from "@/lib/layouts";
 import type { Candle, Interval, OpenTrade, Strategy, StrategyParams, SymbolInfo, Trade } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
 import { parseScannerChartTarget } from "@/lib/spotScene";
+import {
+  activeReplayQuote, drawingsAtReplayHorizon, liveActionsDisabled, reconcileReplay,
+  replayCandles, replayDelayMs, replayTick, startReplay, stepReplay,
+  type ReplaySession, type ReplaySpeed,
+} from "@/lib/replay";
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 const HISTORY_OPTIONS = [
@@ -60,6 +66,7 @@ type Panel = "watchlist" | "alerts" | "indicators" | "ma" | "manual" | null;
 /** Standard auto-backtest window: 2025-11-01 → today (handoff §7). */
 const BACKTEST_START = "2025-11-01";
 const todayISO = (): string => new Date().toISOString().slice(0, 10);
+const endOfTodayISO = (): string => `${todayISO()}T23:59:59.999Z`;
 
 /**
  * Bottom-panel preference key. Phones and desktops store it separately so one
@@ -119,6 +126,20 @@ export default function TvWorkspace() {
   const [interval, setInterval] = useState<Interval>("15m");
   const [bars, setBars] = useState(10000);
   const [candles, setCandles] = useState<Candle[]>([]);
+  const [replay, setReplay] = useState<ReplaySession | null>(null);
+  const [replayPickerOpen, setReplayPickerOpen] = useState(false);
+  const [replayDrawings, setReplayDrawings] = useState<Drawing[]>([]);
+  const replayActive = replay !== null;
+  const replayBlocksLiveActions = liveActionsDisabled(replay);
+  const visibleCandles = useMemo(() => replayCandles(candles, replay), [candles, replay]);
+  const replayLast = visibleCandles[visibleCandles.length - 1];
+  const replayFirst = visibleCandles[0];
+  const pineStartTime = replayActive && replayFirst
+    ? new Date(replayFirst.openTime).toISOString()
+    : `${BACKTEST_START}T00:00:00.000Z`;
+  const pineEndTime = replay
+    ? new Date(replay.horizonCloseTime).toISOString()
+    : endOfTodayISO();
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -149,6 +170,7 @@ export default function TvWorkspace() {
   // Read-only state hydration draws existing server-authoritative levels. It
   // never submits, retries, or mutates an order on page load/reconnect.
   useEffect(() => {
+    if (replayActive) return;
     let active = true;
     const refreshManual = async () => {
       try { const next = await api.manualState(symbol); if (active) setManualState(next); }
@@ -157,7 +179,7 @@ export default function TvWorkspace() {
     void refreshManual();
     const timer = window.setInterval(() => void refreshManual(), 30_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [symbol]);
+  }, [symbol, replayActive]);
   // ── phone chrome: everything optional starts closed so the chart gets the screen ──
   const isMobile = useIsMobile();
   /** Drawing rail — a floating drawer on phones, always-on column on desktop. */
@@ -269,7 +291,8 @@ export default function TvWorkspace() {
 
   // ── applied Pine studies (TradingView "Indicators") ──
   const indicators = useIndicators({
-    symbol, timeframe: interval, startTime: BACKTEST_START, endTime: todayISO(),
+    symbol, timeframe: interval, startTime: pineStartTime, endTime: pineEndTime,
+    replay: replayActive,
   });
 
   // ── moving averages (first-class chart lines, armable one at a time) ──
@@ -383,6 +406,7 @@ export default function TvWorkspace() {
     setDrawings(next);
     drawStore.saveDrawings(symbol, next);
   }, [symbol]);
+  const updateReplayDrawings = useCallback((next: Drawing[]) => setReplayDrawings(next), []);
   const [toast, setToast] = useState<string | null>(null);
   const [loadingBest, setLoadingBest] = useState(false);
   const [bestRange, setBestRange] = useState<{ start: string; end: string; nonce: number; run?: boolean } | null>(null);
@@ -713,6 +737,7 @@ export default function TvWorkspace() {
 
       // The response is applied ONLY if it is still the one being waited for.
       if (!requestSeq.current.isCurrent(token)) return;
+      setReplay((current) => current ? reconcileReplay(current, data) : null);
       setCandles(data);
     } catch (e) {
       // An abort is this component superseding itself, not a failure to report.
@@ -733,9 +758,55 @@ export default function TvWorkspace() {
     return () => { controller.cancel(); seq.invalidate(); };
   }, []);
 
-  const changeSymbol = (s: string) => { setSymbol(s); setTrades([]); };
-  const changeInterval = (i: Interval) => { setInterval(i); setTrades([]); };
-  const last = candles[candles.length - 1];
+  const changeSymbol = (s: string) => {
+    if (replayActive) {
+      setReplay((current) => current ? { ...current, playing: false } : null);
+      setReplayDrawings([]);
+      setCandles([]);
+    }
+    setSymbol(s); setTrades([]);
+  };
+  const changeInterval = (i: Interval) => {
+    if (replayActive) {
+      setReplay((current) => current ? { ...current, playing: false } : null);
+      setCandles([]);
+    }
+    setInterval(i); setTrades([]);
+  };
+  const last = replayLast;
+
+  const beginReplay = useCallback((requestedTime: number) => {
+    const next = startReplay(candles, requestedTime);
+    if (!next) { setErr("No completed candle exists at or before that replay point."); return; }
+    setReplay(next);
+    setReplayPickerOpen(false);
+    setReplayDrawings([]);
+    setTrades([]); setOpenTrade(null);
+    setToast(null); setPendingApply(null);
+    setPickingLevel(false); setPriceAlertOpen(false);
+    setLevelKind(null); setOscillatorKind(null); setEditingAlert(null); setArmLine(null);
+    setAlertOpen(false);
+    setPanel((current) => current === "indicators" || current === "watchlist" ? current : null);
+  }, [candles]);
+
+  const exitReplay = useCallback(() => {
+    setReplay(null); setReplayPickerOpen(false); setReplayDrawings([]);
+  }, []);
+  const setReplayPlaying = useCallback((playing: boolean) => {
+    setReplay((current) => current ? { ...current, playing } : null);
+  }, []);
+  const setReplaySpeed = useCallback((speed: ReplaySpeed) => {
+    setReplay((current) => current ? { ...current, speed } : null);
+  }, []);
+
+  const replayIndicatorLoading = indicators.list.some((indicator) => indicator.loading);
+  useEffect(() => {
+    if (!replay?.playing || replayIndicatorLoading) return;
+    const timer = window.setTimeout(() => {
+      setReplay((current) => current ? replayTick(current, candles) : null);
+    }, replayDelayMs(replay.speed));
+    return () => window.clearTimeout(timer);
+  }, [candles, replay, replayIndicatorLoading]);
 
   /**
    * Armed price alerts, drawn as horizontal levels on the chart.
@@ -773,13 +844,13 @@ export default function TvWorkspace() {
   }, [manualState, symbol]);
 
   const allPriceLines = useMemo(
-    () => [...priceLines, ...alertPriceLines, ...manualPriceLines],
-    [priceLines, alertPriceLines, manualPriceLines]
+    () => replayActive ? [] : [...priceLines, ...alertPriceLines, ...manualPriceLines],
+    [replayActive, priceLines, alertPriceLines, manualPriceLines]
   );
 
   /** MA lines drawn beneath any Pine overlays, so scripts stay on top. */
-  const maOverlays = useMemo(() => buildMaOverlays(candles, maLines), [candles, maLines]);
-  const maValues = useMemo(() => currentMaValues(candles, maLines), [candles, maLines]);
+  const maOverlays = useMemo(() => buildMaOverlays(visibleCandles, maLines), [visibleCandles, maLines]);
+  const maValues = useMemo(() => currentMaValues(visibleCandles, maLines), [visibleCandles, maLines]);
   const chartOverlays = useMemo(
     () => [...maOverlays, ...indicators.overlays],
     [maOverlays, indicators.overlays]
@@ -808,9 +879,11 @@ export default function TvWorkspace() {
     locked: drawLocked, onLocked: setDrawLocked,
     hidden: drawHidden, onHidden: setDrawHidden,
     onDeleteAll: () => {
-      if (window.confirm("Remove all drawings on this symbol?")) updateDrawings([]);
+      if (window.confirm("Remove all drawings on this symbol?")) {
+        if (replayActive) updateReplayDrawings([]); else updateDrawings([]);
+      }
     },
-    count: drawings.length,
+    count: replayActive ? replayDrawings.length : drawings.length,
   };
 
   /** Phone drawers are mutually exclusive — two overlays at once hides the chart. */
@@ -827,7 +900,8 @@ export default function TvWorkspace() {
    * most visible difference between this toolbar and a professional one.
    */
   const toolBtn = "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] " +
-    "text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink";
+    "text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink " +
+    "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-muted";
 
   const railBtn = (active: boolean): string =>
     `flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
@@ -904,6 +978,17 @@ export default function TvWorkspace() {
           </div>
           <Separator className="hidden sm:inline-block" />
           <ChartTypeMenu value={chartType} onChange={changeChartType} />
+          <button
+            onClick={() => setReplayPickerOpen((open) => replayActive ? open : !open)}
+            aria-pressed={replayActive || replayPickerOpen}
+            title={replayActive ? "Replay is active" : "Start Bar Replay from a historical point"}
+            className={`${toolBtn} ${replayActive || replayPickerOpen ? "bg-accent/15 text-accent" : ""}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M8 5v14l11-7z" /><path d="M4 5v14" />
+            </svg>
+            Replay
+          </button>
           {/* Secondary controls: always inline on desktop, behind ⋯ on phones. */}
           {/*
             Secondary controls: inline on a wide screen, behind ⋯ below it.
@@ -962,16 +1047,16 @@ export default function TvWorkspace() {
             in this product and in every other one; automation now has its own
             button, below, that says what it does.
           */}
-          <button onClick={openPriceAlert}
-            title="Notify me when price reaches a level"
+          <button onClick={openPriceAlert} disabled={replayBlocksLiveActions}
+            title={replayActive ? "Exit Replay to create live alerts" : "Notify me when price reaches a level"}
             className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
             </svg>
             Alert
           </button>
-          <button onClick={() => setAlertOpen(true)}
-            title="Run this strategy server-side and send live orders to your bot"
+          <button onClick={() => setAlertOpen(true)} disabled={replayBlocksLiveActions}
+            title={replayActive ? "Exit Replay to invoke Bot automation" : "Run this strategy server-side and send live orders to your bot"}
             className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
@@ -979,7 +1064,8 @@ export default function TvWorkspace() {
             Automate
           </button>
           <button onClick={() => setPanel((p) => p === "manual" ? null : "manual")}
-            title="Manual Binance Spot order ticket"
+            disabled={replayBlocksLiveActions}
+            title={replayActive ? "Exit Replay to trade" : "Manual Binance Spot order ticket"}
             className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
@@ -993,8 +1079,8 @@ export default function TvWorkspace() {
             </svg>
             Strategy
           </button>
-          <button onClick={applyBestConfig} disabled={loadingBest}
-            title={`Apply the local optimizer's best saved config for ${symbol}`}
+          <button onClick={applyBestConfig} disabled={loadingBest || replayActive}
+            title={replayActive ? "Exit Replay to apply a full-range optimizer result" : `Apply the local optimizer's best saved config for ${symbol}`}
             className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-warn/30 bg-warn/10 px-2 text-[13px] font-medium text-warn transition-colors hover:bg-warn/20 disabled:cursor-wait disabled:opacity-60">
             <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
               <path d="M7 1l1.8 3.9 4.2.5-3.1 2.9.8 4.2L7 10.5 3.3 12.5l.8-4.2L1 5.4l4.2-.5L7 1Z" />
@@ -1003,9 +1089,9 @@ export default function TvWorkspace() {
           </button>
           <div className="flex shrink-0 items-center gap-3 xl:ml-auto">
             <span className="tabular whitespace-nowrap text-xs text-ink-muted">
-              {last && <>Last <span className="text-ink">{fmtPrice(last.close)}</span></>}
+              {last && <>{replayActive ? "Replay" : "Last"} <span className="text-ink">{fmtPrice(last.close)}</span></>}
               <span className="ml-3 text-ink-faint">
-                {candles.length.toLocaleString()} bars{loading ? " · loading…" : ""}
+                {visibleCandles.length.toLocaleString()} bars{loading ? " · loading…" : ""}
               </span>
             </span>
             <LayoutMenu
@@ -1032,6 +1118,14 @@ export default function TvWorkspace() {
             </svg>
           </button>
         </div>
+
+        <ReplayControls
+          candles={candles} session={replay} pickerOpen={replayPickerOpen}
+          onStart={beginReplay} onCancel={() => setReplayPickerOpen(false)}
+          onPrevious={() => setReplay((current) => current ? stepReplay(current, candles, -1) : null)}
+          onNext={() => setReplay((current) => current ? stepReplay(current, candles, 1) : null)}
+          onPlaying={setReplayPlaying} onSpeed={setReplaySpeed} onExit={exitReplay}
+        />
 
         {err && <div className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">{err}</div>}
 
@@ -1093,21 +1187,21 @@ export default function TvWorkspace() {
                 </button>
               </div>
             )}
-            <CandleChart symbol={symbol} interval={interval} candles={candles}
-              trades={indicators.trades ?? trades}
+            <CandleChart symbol={symbol} interval={interval} candles={visibleCandles}
+              trades={indicators.trades ?? (replayActive ? [] : trades)}
               overlays={chartOverlays}
               decorations={indicators.decorations}
               barColors={indicators.barColors}
               markers={indicators.markers}
               pineDrawings={indicators.drawings}
-              priceLines={allPriceLines} live fill compact={isMobile}
+              priceLines={allPriceLines} live={!replayActive} fill compact={isMobile}
               chartType={chartType}
-              onLiveBarBoundary={liveBarBoundary}
+              onLiveBarBoundary={replayActive ? undefined : liveBarBoundary}
               onPriceSelect={pickingLevel ? pickLevel : undefined}
               drawingTool={tool}
               onDrawingToolDone={() => setTool("cursor")}
-              drawings={drawings}
-              onDrawingsChange={updateDrawings}
+              drawings={drawingsAtReplayHorizon(replay, drawings, replayDrawings)}
+              onDrawingsChange={replayActive ? updateReplayDrawings : updateDrawings}
               magnet={magnet}
               drawingsLocked={drawLocked}
               drawingsHidden={drawHidden}
@@ -1124,8 +1218,10 @@ export default function TvWorkspace() {
               bars={bars}
               indicators={indicators.list}
               maLines={maLines}
-              startTime={BACKTEST_START}
-              endTime={todayISO()}
+              startTime={pineStartTime}
+              endTime={pineEndTime}
+              replayHorizonCloseTime={replay?.horizonCloseTime ?? null}
+              replayAvailableThroughCloseTime={replay?.availableThroughCloseTime ?? null}
               onClose={() => setSplitOpen(false)}
               onCrosshairMove={(t) => sync.crosshair && setCross({ pane: 2, time: t })}
               crosshairTime={sync.crosshair && cross?.pane === 1 ? cross.time : null}
@@ -1195,7 +1291,11 @@ export default function TvWorkspace() {
           {/* Collapsed: the tab strip stays as the handle to bring it back.
               The body unmounts rather than hiding, so a collapsed Pine Editor
               stops compiling on every keystroke. */}
-          {bottomCollapsed ? null : bottomTab === "tester" ? (
+          {bottomCollapsed ? null : bottomTab === "tester" && replayActive ? (
+            <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-ink-muted">
+              Strategy Tester is unavailable during Bar Replay. Exit Replay to run a full-range strategy test.
+            </div>
+          ) : bottomTab === "tester" ? (
             <StrategyTester
               symbol={symbol}
               timeframe={interval}
@@ -1214,8 +1314,8 @@ export default function TvWorkspace() {
               <PineEditor
                 symbol={symbol}
                 timeframe={interval}
-                startTime={BACKTEST_START}
-                endTime={todayISO()}
+                startTime={pineStartTime}
+                endTime={pineEndTime}
                 appliedCount={indicators.list.length}
                 openScript={editorScript}
                 openParams={editingIndicatorKey
@@ -1241,9 +1341,10 @@ export default function TvWorkspace() {
           />
           <div className="fixed bottom-[52px] right-0 top-0 z-40 md:static md:bottom-auto md:right-auto md:z-auto md:h-auto">
             {panel === "watchlist" && (
-              <Watchlist symbols={symbols} selected={symbol} onSelect={changeSymbol} onSymbolsChanged={refreshSymbols} />
+              <Watchlist symbols={symbols} selected={symbol} onSelect={changeSymbol}
+                onSymbolsChanged={refreshSymbols} replayQuote={activeReplayQuote(candles, replay)} />
             )}
-            {panel === "alerts" && <AlertsPanel onCreateAlert={() => setAlertOpen(true)} />}
+            {panel === "alerts" && !replayActive && <AlertsPanel onCreateAlert={() => setAlertOpen(true)} />}
             {panel === "indicators" && (
               <IndicatorsPanel
                 indicators={indicators}
@@ -1252,7 +1353,7 @@ export default function TvWorkspace() {
                 focusKey={indicatorFocusKey}
               />
             )}
-            {panel === "manual" && <ManualTradingPanel symbol={symbol}
+            {panel === "manual" && !replayActive && <ManualTradingPanel symbol={symbol}
               lastPrice={last?.close ?? null}
               onClose={() => setPanel(null)}
               onStateChange={setManualState} />}
@@ -1261,7 +1362,7 @@ export default function TvWorkspace() {
                 <MaPanel
                   lines={maLines}
                   values={maValues}
-                  alerts={maAlerts}
+                  alerts={replayActive ? [] : maAlerts}
                   timeframe={interval}
                   onToggle={toggleMa}
                   onToggleAll={toggleAllMa}
@@ -1274,6 +1375,7 @@ export default function TvWorkspace() {
                   // pre-filled by family only, so a user editing "RSI 14 > 70"
                   // was silently handed a blank RSI 50 > 50 form.
                   onOpenAlert={setEditingAlert}
+                  liveActionsDisabled={replayBlocksLiveActions}
                   push={<PushSetup onMessage={setToast} />}
                 />
               </aside>
@@ -1295,9 +1397,10 @@ export default function TvWorkspace() {
         </button>
         <button
           onClick={() => setPanel((p) => (p === "manual" ? null : "manual"))}
+          disabled={replayBlocksLiveActions}
           className={railBtn(panel === "manual")}
-          title="Manual Binance Spot trading"
-          aria-label="Manual Binance Spot trading"
+          title={replayBlocksLiveActions ? "Exit Replay to trade" : "Manual Binance Spot trading"}
+          aria-label={replayBlocksLiveActions ? "Exit Replay to trade" : "Manual Binance Spot trading"}
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
@@ -1333,8 +1436,9 @@ export default function TvWorkspace() {
         </button>
         <button
           onClick={() => setPanel((p) => (p === "alerts" ? null : "alerts"))}
+          disabled={replayBlocksLiveActions}
           className={railBtn(panel === "alerts")}
-          title="Automations — running strategies and their order log"
+          title={replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations — running strategies and their order log"}
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
@@ -1359,8 +1463,12 @@ export default function TvWorkspace() {
           <button
             key={id}
             onClick={onClick}
+            disabled={replayBlocksLiveActions && id === "alerts"}
+            title={replayBlocksLiveActions && id === "alerts" ? "Exit Replay to manage live automation" : undefined}
             className={`relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] ${
-              active ? "text-accent" : "text-ink-muted"
+              replayBlocksLiveActions && id === "alerts"
+                ? "cursor-not-allowed text-ink-faint opacity-40"
+                : active ? "text-accent" : "text-ink-muted"
             }`}
           >
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"

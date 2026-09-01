@@ -76,13 +76,14 @@ const BellIcon = () => (
  * looking like different kinds of control — they are the same affordance.
  */
 function FamilyRow({
-  label, hint, color, count, onArm,
+  label, hint, color, count, onArm, disabled = false,
 }: {
   label: string;
   hint: string;
   color: string;
   count: number;
   onArm: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-surface-2/60">
@@ -98,9 +99,10 @@ function FamilyRow({
       </span>
       <button
         onClick={onArm}
-        title={count ? `${count} alert(s) — click to add another` : hint}
+        disabled={disabled}
+        title={disabled ? "Exit Replay to create live alerts" : count ? `${count} alert(s) — click to add another` : hint}
         aria-label={count ? `Add another ${label} alert (${count} armed)` : hint}
-        className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded ${
+        className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
           count ? "text-accent" : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
         }`}
       >
@@ -119,7 +121,7 @@ function FamilyRow({
  */
 export function MaPanel({
   lines, values, alerts, timeframe, onToggle, onToggleAll, onArm, onArmPrice,
-  onArmLevel, onArmOscillator, onOpenAlert, push,
+  onArmLevel, onArmOscillator, onOpenAlert, push, liveActionsDisabled = false,
 }: {
   lines: MaLine[];
   /** Latest value per line id, for the price column. */
@@ -137,6 +139,7 @@ export function MaPanel({
   onArmOscillator: (kind: OscillatorKind) => void;
   onOpenAlert: (alert: MaAlert) => void;
   push: React.ReactNode;
+  liveActionsDisabled?: boolean;
 }) {
   /**
    * Alerts grouped by the line they watch, across all timeframes. Only the `ma`
@@ -199,13 +202,14 @@ export function MaPanel({
         </span>
         <button
           onClick={() => onArm(line.type, line.length)}
-          title={armed.length ? `${armed.length} alert(s) — click to add another` : "Add alert on this line"}
+          disabled={liveActionsDisabled}
+          title={liveActionsDisabled ? "Exit Replay to create live alerts" : armed.length ? `${armed.length} alert(s) — click to add another` : "Add alert on this line"}
           aria-label={
             armed.length
               ? `Add another alert on ${maLabel(line.type, line.length)} (${armed.length} armed)`
               : `Add alert on ${maLabel(line.type, line.length)}`
           }
-          className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded ${
+          className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
             armed.length
               ? "text-accent"
               : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
@@ -243,6 +247,11 @@ export function MaPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {liveActionsDisabled && (
+          <div className="border-b border-accent/30 bg-accent/10 px-3 py-2 text-[11px] text-accent">
+            Exit Replay to create or edit live alerts. Historical MA values remain available.
+          </div>
+        )}
         {(["sma", "ema"] as MaType[]).map((type) => (
           <div key={type}>
             <div className="border-b border-border/60 bg-surface-2/40 px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">
@@ -266,6 +275,7 @@ export function MaPanel({
             color={row.color}
             count={byKind.get(row.kind) ?? 0}
             onArm={() => onArmLevel(row.kind)}
+            disabled={liveActionsDisabled}
           />
         ))}
 
@@ -280,6 +290,7 @@ export function MaPanel({
             color={row.color}
             count={byKind.get(row.kind) ?? 0}
             onArm={() => onArmOscillator(row.kind)}
+            disabled={liveActionsDisabled}
           />
         ))}
 
@@ -289,8 +300,9 @@ export function MaPanel({
           </span>
           <button
             onClick={onArmPrice}
+            disabled={liveActionsDisabled}
             title="Alert on a price level"
-            className="flex h-6 items-center rounded px-1.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+            className="flex h-6 items-center rounded px-1.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
           >
             + Price
           </button>
@@ -306,9 +318,10 @@ export function MaPanel({
             <button
               key={a.id}
               onClick={() => onOpenAlert(a)}
+              disabled={liveActionsDisabled}
               title={`Edit — ${describeAlert(a)} · ${FREQUENCY_LABELS[a.frequency]}`}
               aria-label={`Edit alert — ${alertLineLabel(a)}, ${describeAlert(a)}, ${a.timeframe}`}
-              className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-surface-2/60"
+              className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-surface-2/60 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span
                 className="inline-block h-[3px] w-3 shrink-0 rounded-full"
@@ -335,7 +348,7 @@ export function MaPanel({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-border p-3">{push}</div>
+      {!liveActionsDisabled && <div className="shrink-0 border-t border-border p-3">{push}</div>}
     </div>
   );
 }
