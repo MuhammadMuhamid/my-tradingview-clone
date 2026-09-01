@@ -136,7 +136,12 @@ export default function DeploymentsPage() {
       {actionError && (
         <div role="alert" className="flex items-start gap-3 rounded-md border border-down/40 bg-down/10 px-3 py-2 text-xs text-down">
           <span className="min-w-0 flex-1">{actionError}</span>
-          <button onClick={() => setActionError(null)} aria-label="Dismiss" className="shrink-0 hover:text-ink">✕</button>
+          <button onClick={() => setActionError(null)} aria-label="Dismiss"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-down/15 hover:text-ink">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </button>
         </div>
       )}
 
@@ -150,9 +155,11 @@ export default function DeploymentsPage() {
               <button
                 onClick={() => setPaper(null)}
                 aria-label="Close paper results"
-                className="text-xs text-ink-faint hover:text-ink"
+                className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
               >
-                ✕
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+                  <path d="M1 1l9 9M10 1l-9 9" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
               </button>
             }
           />
@@ -230,38 +237,53 @@ export default function DeploymentsPage() {
         ) : (
           <div className="divide-y divide-border">
             {deps.map((d) => (
-              <div key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <StatusBadge status={d.status} />
-                <span className="font-medium">{d.symbol}</span>
-                <span className="text-sm text-ink-muted">{d.timeframe}</span>
-                <span
-                  className={
-                    d.delivery === "paper"
-                      ? "rounded bg-accent/15 px-1.5 py-0.5 text-xs font-medium text-accent"
-                      : deliversLiveOrders(d.delivery)
-                        ? "rounded bg-warn/15 px-1.5 py-0.5 text-xs font-medium text-ink"
-                        : "rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-muted"
-                  }
-                  title={
-                    d.delivery === "paper"
-                      ? "Paper: fills are simulated at the live cost model. No order is sent anywhere."
-                      : deliversLiveOrders(d.delivery)
-                        ? "Live: this deployment sends real buy and sell orders."
-                        : "Off: signals are recorded and nothing is sent or simulated."
-                  }
-                >
-                  {d.delivery === "paper" ? "paper (simulated)" : d.delivery}
-                </span>
-                {d.buyQuoteQty != null && (
-                  <span className="text-xs text-ink-muted">buy {d.buyQuoteQty} USDT</span>
-                )}
-                <span className={`text-xs ${d.runtimeState.position === "long" ? "text-up" : "text-ink-faint"}`}>
-                  {d.runtimeState.position === "long"
-                    ? `in position @ ${fmtPrice(d.runtimeState.entryPrice)}`
-                    : "flat"}
-                </span>
-                {d.lastBarTime && <span className="text-xs text-ink-faint">last bar {fmtAgo(d.lastBarTime)}</span>}
-                <div className="ml-auto flex items-center gap-2">
+              /*
+                Two lines with a hierarchy, not one wrapping row of nine equal
+                chips. What the deployment IS — status, market, delivery — reads
+                first; what it is currently DOING is the quieter line beneath.
+              */
+              <div key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={d.status} />
+                    <span className="font-medium text-ink">{d.symbol}</span>
+                    <span className="text-sm text-ink-muted">{d.timeframe}</span>
+                    <span
+                      className={
+                        d.delivery === "paper"
+                          ? "rounded bg-accent/15 px-1.5 py-0.5 text-xs font-medium text-accent"
+                          : deliversLiveOrders(d.delivery)
+                            ? "rounded border border-warn/40 bg-warn/15 px-1.5 py-0.5 text-xs font-medium text-warn"
+                            : "rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-muted"
+                      }
+                      title={
+                        d.delivery === "paper"
+                          ? "Paper: fills are simulated at the live cost model. No order is sent anywhere."
+                          : deliversLiveOrders(d.delivery)
+                            ? "Live: this deployment sends real buy and sell orders."
+                            : "Off: signals are recorded and nothing is sent or simulated."
+                      }
+                    >
+                      {d.delivery === "paper" ? "paper (simulated)"
+                        : deliversLiveOrders(d.delivery) ? `${d.delivery} · live orders`
+                        : d.delivery}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs">
+                    {d.buyQuoteQty != null && (
+                      <span className="text-ink-muted">buy {d.buyQuoteQty} USDT</span>
+                    )}
+                    <span className={d.runtimeState.position === "long" ? "text-up" : "text-ink-faint"}>
+                      {d.runtimeState.position === "long"
+                        ? `in position @ ${fmtPrice(d.runtimeState.entryPrice)}`
+                        : "flat"}
+                    </span>
+                    {d.lastBarTime && (
+                      <span className="text-ink-faint">last bar {fmtAgo(d.lastBarTime)}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
                   {d.delivery === "paper" && (
                     <Button onClick={() => void openPaper(d.id)} disabled={busy !== null}>
                       Paper results
@@ -275,6 +297,8 @@ export default function DeploymentsPage() {
                   >
                     {busy === d.id ? "Working…" : d.status === "active" ? "Pause" : "Activate"}
                   </Button>
+                  {/* Separated from the reversible controls beside it. */}
+                  <span className="mx-0.5 inline-block h-5 w-px bg-border" aria-hidden="true" />
                   <Button variant="danger" onClick={() => remove(d)} disabled={busy !== null}>Delete</Button>
                 </div>
               </div>
@@ -317,7 +341,10 @@ export default function DeploymentsPage() {
                 type="checkbox"
                 checked={activationAcknowledged}
                 onChange={(e) => setActivationAcknowledged(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent,#f0b90b)]"
+                // This pointed at a CSS variable the application never defines,
+                // so it always rendered at its hard-coded fallback. Named as the
+                // token it actually was.
+                className="mt-0.5 h-4 w-4 shrink-0 accent-warn"
               />
               <span>{activationAcknowledgement(activationTarget)}</span>
             </label>

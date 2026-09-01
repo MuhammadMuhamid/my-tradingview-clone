@@ -186,7 +186,10 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged }: {
         )}
       </div>
       <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-        <input value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="+ Add symbol to this list…" className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-border focus:bg-surface-2" />
+        {/* A placeholder is not an accessible name, and it disappears as soon
+            as the field is typed into. Measured in a browser: this was the one
+            control on the chart with no name at all. */}
+        <input value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} aria-label="Add a symbol to this watchlist" placeholder="+ Add symbol to this list…" className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-border focus:bg-surface-2" />
         {adding && <button onClick={add} className="rounded bg-accent px-2 py-1 text-xs font-medium text-white">Add</button>}
       </div>
       {err && <div className="px-3 py-1.5 text-xs text-down">{err}</div>}

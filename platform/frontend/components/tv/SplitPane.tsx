@@ -125,9 +125,12 @@ export function SplitPane({
           <button
             onClick={onClose}
             title="Close this pane"
-            className="rounded px-1 text-ink-faint hover:bg-surface-2 hover:text-ink"
+            aria-label="Close the second chart pane"
+            className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
           >
-            ✕
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
           </button>
         </span>
       </div>

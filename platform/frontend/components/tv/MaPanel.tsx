@@ -178,7 +178,9 @@ export function MaPanel({
         <button
           onClick={() => onToggle(line.type, line.length)}
           title={line.visible ? "Hide line" : "Show line"}
-          className="flex h-4 w-4 items-center justify-center"
+          aria-label={`${line.visible ? "Hide" : "Show"} ${maLabel(line.type, line.length)}`}
+          aria-pressed={line.visible}
+          className="flex h-5 w-5 items-center justify-center rounded hover:bg-surface-2"
         >
           <span
             className="inline-block h-[3px] w-4 rounded-full"
@@ -234,7 +236,7 @@ export function MaPanel({
         <span className="text-sm font-semibold">Moving averages</span>
         <button
           onClick={() => onToggleAll(!allVisible)}
-          className="rounded px-2 py-1 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+          className="flex h-6 items-center rounded px-2 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
         >
           {allVisible ? "Hide all" : "Show all"}
         </button>
@@ -288,7 +290,7 @@ export function MaPanel({
           <button
             onClick={onArmPrice}
             title="Alert on a price level"
-            className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+            className="flex h-6 items-center rounded px-1.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
           >
             + Price
           </button>

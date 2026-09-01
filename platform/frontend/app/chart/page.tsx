@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { CandleChart, INTERVAL_MS, type ChartPriceLine } from "@/components/CandleChart";
 import { PineEditor } from "@/components/tv/PineEditor";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
+import type { PaneAction } from "@/components/tv/IndicatorPane";
 import { SplitPane } from "@/components/tv/SplitPane";
 import { useIndicators } from "@/lib/useIndicators";
 import type { AppliedIndicator } from "@/lib/indicators";
@@ -23,6 +24,7 @@ import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { IndicatorAlertModal, type IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import { AlertEditor } from "@/components/tv/AlertEditor";
 import { PushSetup } from "@/components/tv/PushSetup";
+import { Separator } from "@/components/ui";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { SyncMenu } from "@/components/tv/SyncMenu";
 import { DEFAULT_SYNC, loadSync, saveSync, type SyncOptions } from "@/lib/paneSync";
@@ -254,6 +256,8 @@ export default function TvWorkspace() {
   const [armLine, setArmLine] = useState<{ type: MaType; length: number } | null>(null);
   /** The armed alert opened for editing from the rail, or null. */
   const [editingAlert, setEditingAlert] = useState<MaAlert | null>(null);
+  /** The instance whose settings the Indicators panel should open on. */
+  const [indicatorFocusKey, setIndicatorFocusKey] = useState<string | null>(null);
   /**
    * The price-alert dialog, and the level it opened with.
    *
@@ -336,6 +340,21 @@ export default function TvWorkspace() {
     setBottomTab("pine");
     setBottomCollapsed(false);
   }, []);
+
+  /**
+   * Hide / settings / remove, from the controls overlaid on an oscillator pane.
+   *
+   * The pane id is `indicator:<instance key>` — the same key the applied list
+   * is keyed by — so the pane can act on its own instance without the chart
+   * having to be told which indicator each pane belongs to.
+   */
+  const paneAction = useCallback((paneId: string, action: PaneAction) => {
+    const key = paneId.replace(/^indicator:/, "");
+    if (action === "hide") { indicators.toggleVisible(key); return; }
+    if (action === "remove") { indicators.remove(key); return; }
+    setIndicatorFocusKey(key);
+    setPanel("indicators");
+  }, [indicators]);
 
   useEffect(() => { setDrawings(drawStore.loadDrawings(symbol)); }, [symbol]);
   const updateDrawings = useCallback((next: Drawing[]) => {
@@ -698,7 +717,10 @@ export default function TvWorkspace() {
       .map((a) => ({
         price: a.targetPrice!,
         color: alertColor(a),
-        title: `🔔 ${describeAlert(a).replace("price ", "")}`,
+        // Text, not an emoji: this is drawn into the price scale by the chart
+        // canvas, where a platform emoji renders at its own size and colour and
+        // cannot inherit the line's.
+        title: `Alert · ${describeAlert(a).replace("price ", "")}`,
         dashed: true,
       })),
     [maAlerts, interval]
@@ -763,6 +785,16 @@ export default function TvWorkspace() {
     setPanel((cur) => (cur === p ? null : p));
   };
 
+  /**
+   * Every secondary toolbar control, at one height.
+   *
+   * They were a mixture of `py-1` and `py-1.5` with three different text
+   * sizes, so the row's baseline stepped up and down across it — the single
+   * most visible difference between this toolbar and a professional one.
+   */
+  const toolBtn = "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] " +
+    "text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink";
+
   const railBtn = (active: boolean): string =>
     `flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
       active ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
@@ -812,21 +844,25 @@ export default function TvWorkspace() {
           <button
             onClick={() => setSearchOpen(true)}
             title="Change symbol (/)"
-            className="flex shrink-0 items-center gap-1.5 rounded-md bg-surface-2 px-2.5 py-1 text-sm font-semibold text-ink transition-colors hover:bg-border"
+            aria-label={`Change symbol — currently ${symbol}`}
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-surface-2 px-2.5 text-sm font-semibold text-ink transition-colors hover:bg-border"
           >
             {symbol}
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="text-ink-faint">
               <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
             </svg>
           </button>
-          <span className="shrink-0 text-ink-faint">·</span>
+          <Separator className="hidden sm:inline-block" />
           {/* The interval strip is the only thing allowed to overflow, so the
               ☰ and ⋯ buttons stay pinned at the edges of a narrow screen. */}
           <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto sm:flex-none sm:overflow-visible">
             {INTERVALS.map((i) => (
               <button key={i} onClick={() => changeInterval(i)}
-                className={`shrink-0 rounded px-2 py-1 text-[13px] transition-colors ${
-                  interval === i ? "bg-surface-2 font-semibold text-ink" : "text-ink-muted hover:text-ink"
+                aria-pressed={interval === i}
+                className={`flex h-7 shrink-0 items-center rounded px-2 text-[13px] transition-colors ${
+                  interval === i
+                    ? "bg-surface-2 font-semibold text-ink"
+                    : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
                 }`}>
                 {i}
               </button>
@@ -834,22 +870,25 @@ export default function TvWorkspace() {
           </div>
           {/* Secondary controls: always inline on desktop, behind ⋯ on phones. */}
           <div className={`${moreOpen ? "flex" : "hidden"} order-last w-full flex-wrap items-center gap-2 border-t border-border pt-1.5 md:order-none md:flex md:w-auto md:border-0 md:pt-0`}>
-          <span className="hidden text-ink-faint md:inline">·</span>
+          <Separator className="hidden md:inline-block" />
           <div className="flex items-center gap-0.5">
             {HISTORY_OPTIONS.map((h) => (
               <button key={h.label} onClick={() => setBars(h.bars)}
                 title={`Show up to ${h.bars.toLocaleString()} bars`}
-                className={`rounded px-2 py-1 text-xs transition-colors ${
-                  bars === h.bars ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"
+                aria-pressed={bars === h.bars}
+                className={`flex h-7 items-center rounded px-2 text-xs transition-colors ${
+                  bars === h.bars
+                    ? "bg-surface-2 text-ink"
+                    : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
                 }`}>
                 {h.label}
               </button>
             ))}
           </div>
-          <span className="text-ink-faint">·</span>
+          <Separator />
           <button onClick={() => setPanel((p) => (p === "indicators" ? null : "indicators"))}
             title="Pine indicators on this chart"
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
             </svg>
@@ -863,9 +902,8 @@ export default function TvWorkspace() {
           <button
             onClick={() => setSplitOpen((v) => !v)}
             title={splitOpen ? "Close the second chart" : "Split view — same symbol, second timeframe"}
-            className={`flex items-center gap-1.5 rounded px-2 py-1 text-[13px] transition-colors hover:bg-surface-2 hover:text-ink ${
-              splitOpen ? "bg-surface-2 text-accent" : "text-ink-muted"
-            }`}>
+            aria-pressed={splitOpen}
+            className={`${toolBtn} ${splitOpen ? "bg-surface-2 text-accent" : ""}`}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="3" y="4" width="18" height="16" rx="1.5" /><path d="M12 4v16" />
             </svg>
@@ -880,7 +918,7 @@ export default function TvWorkspace() {
           */}
           <button onClick={openPriceAlert}
             title="Notify me when price reaches a level"
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
             </svg>
@@ -888,7 +926,7 @@ export default function TvWorkspace() {
           </button>
           <button onClick={() => setAlertOpen(true)}
             title="Run this strategy server-side and send live orders to your bot"
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
             </svg>
@@ -896,14 +934,14 @@ export default function TvWorkspace() {
           </button>
           <button onClick={() => setPanel((p) => p === "manual" ? null : "manual")}
             title="Manual Binance Spot order ticket"
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
             </svg>
             Trade
           </button>
           <button onClick={() => setSettingsOpen(true)}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            className={toolBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M3 12h4l2-7 4 14 2-7h6" />
             </svg>
@@ -911,8 +949,10 @@ export default function TvWorkspace() {
           </button>
           <button onClick={applyBestConfig} disabled={loadingBest}
             title={`Apply the local optimizer's best saved config for ${symbol}`}
-            className="flex items-center gap-1.5 rounded border border-warn/30 bg-warn/10 px-2 py-1 text-[13px] font-medium text-warn transition-colors hover:bg-warn/20 disabled:cursor-wait disabled:opacity-60">
-            <span aria-hidden>★</span>
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-warn/30 bg-warn/10 px-2 text-[13px] font-medium text-warn transition-colors hover:bg-warn/20 disabled:cursor-wait disabled:opacity-60">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+              <path d="M7 1l1.8 3.9 4.2.5-3.1 2.9.8 4.2L7 10.5 3.3 12.5l.8-4.2L1 5.4l4.2-.5L7 1Z" />
+            </svg>
             {loadingBest ? "Loading…" : "Best"}
           </button>
           <div className="flex items-center gap-3 md:ml-auto">
@@ -1024,6 +1064,7 @@ export default function TvWorkspace() {
               magnet={magnet}
               drawingsLocked={drawLocked}
               drawingsHidden={drawHidden}
+              onIndicatorPaneAction={paneAction}
             />
             </>
           )}
@@ -1161,6 +1202,7 @@ export default function TvWorkspace() {
                 indicators={indicators}
                 onOpenInEditor={openInEditor}
                 onEditIndicator={editIndicator}
+                focusKey={indicatorFocusKey}
               />
             )}
             {panel === "manual" && <ManualTradingPanel symbol={symbol} onStateChange={setManualState} />}
@@ -1399,7 +1441,15 @@ export default function TvWorkspace() {
         <div className="fixed bottom-4 right-16 z-50 flex items-center gap-3 rounded-md border border-up/30 bg-surface px-4 py-2.5 text-sm shadow-xl">
           <span className="h-2 w-2 rounded-full bg-up" />
           {toast}
-          <button onClick={() => setToast(null)} className="text-ink-faint hover:text-ink">✕</button>
+          <button
+            onClick={() => setToast(null)}
+            aria-label="Dismiss"
+            className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </button>
         </div>
       )}
     </div>

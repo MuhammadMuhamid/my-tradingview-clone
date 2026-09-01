@@ -106,8 +106,12 @@ function updateData(entry: SeriesEntry, point: ChartPoint): void {
     : [...entry.data, point];
 }
 
+/** What a pane header control asks the owner of the indicator list to do. */
+export type PaneAction = "hide" | "settings" | "remove";
+
 export function IndicatorPane({
   id, title, params, overlays, decorations, hoverTime, onHover, onReady, onRangeChange,
+  onAction,
 }: {
   id: string;
   title: string;
@@ -118,6 +122,12 @@ export function IndicatorPane({
   onHover: (time: number | null) => void;
   onReady: (id: string, chart: IChartApi | null) => void;
   onRangeChange: (id: string, range: { from: number; to: number }) => void;
+  /**
+   * Hide/settings/remove for the instance that owns this pane. Omit to render
+   * the pane with no controls, which is what the strategy tester and the
+   * split-view panes want.
+   */
+  onAction?: (paneId: string, action: PaneAction) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -288,13 +298,22 @@ export function IndicatorPane({
   }, [height]);
 
   return (
-    <section className="relative shrink-0 border-t border-border bg-[#121722]" style={{ height }} aria-label={`${title} indicator pane`}>
+    <section
+      className="group/pane relative shrink-0 border-t border-border bg-[#121722]"
+      style={{ height }}
+      aria-label={`${title} indicator pane`}
+    >
+      {/*
+        The grab area sits ON the border rather than in a header row of its own.
+        A pane is 96–360px tall; spending 20 of them on a bar whose only job is
+        to be draggable is 20 pixels of oscillator the user came here to read.
+      */}
       <button
         type="button"
         aria-label={`Resize ${title} pane`}
         title="Drag to resize pane"
         onPointerDown={beginResize}
-        className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent focus-visible:bg-accent/30"
+        className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent hover:bg-accent/25 focus-visible:bg-accent/30"
       />
       <div ref={containerRef} className="absolute inset-0 z-[1]" />
       <PineVisualLayer
@@ -304,12 +323,74 @@ export function IndicatorPane({
         decorations={decorations}
         priceToCoordinate={priceToCoordinate}
       />
-      <IndicatorLegend
-        overlays={overlays}
-        time={hoverTime}
-        className="absolute left-2 top-1 z-10 max-w-[calc(100%-72px)] rounded bg-[#121722]/80 px-1.5 py-0.5"
-      />
+      {/*
+        Legend and controls share one overlaid row, the way TradingView does it:
+        the pane's identity and its actions are in the same place, and neither
+        costs the pane any height.
+      */}
+      <div className="absolute left-2 top-1 z-10 flex max-w-[calc(100%-64px)] items-start gap-1">
+        <IndicatorLegend
+          overlays={overlays}
+          time={hoverTime}
+          className="min-w-0 rounded bg-[#121722]/80 px-1.5 py-0.5"
+        />
+        {onAction && (
+          <span className="flex shrink-0 items-center gap-0.5 rounded bg-[#121722]/85 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
+            <PaneButton
+              label={`Hide ${title} — it stays in the Indicators panel`}
+              onClick={() => onAction(id, "hide")}
+            >
+              <path d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z" />
+              <circle cx="7" cy="7" r="1.6" />
+            </PaneButton>
+            <PaneButton label={`${title} settings`} onClick={() => onAction(id, "settings")}>
+              <circle cx="7" cy="7" r="2" />
+              <path d="M7 1.5v1.8M7 10.7v1.8M1.5 7h1.8M10.7 7h1.8M3.1 3.1l1.3 1.3M9.6 9.6l1.3 1.3M10.9 3.1L9.6 4.4M4.4 9.6l-1.3 1.3" />
+            </PaneButton>
+            <PaneButton
+              label={`Remove ${title} from the chart`}
+              danger
+              onClick={() => onAction(id, "remove")}
+            >
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </PaneButton>
+          </span>
+        )}
+      </div>
       {params && <span className="sr-only">{params}</span>}
     </section>
+  );
+}
+
+/**
+ * One pane control.
+ *
+ * Icon-only, so each carries a real accessible name rather than relying on the
+ * tooltip — an icon button with no name is announced as "button" and nothing
+ * else, which on a control that removes an indicator is not acceptable.
+ */
+function PaneButton({
+  label, onClick, danger = false, children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`flex h-5 w-5 items-center justify-center rounded text-ink-faint transition-colors ${
+        danger ? "hover:bg-down/20 hover:text-down" : "hover:bg-surface-2 hover:text-ink"
+      }`}
+    >
+      <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+        strokeWidth="1.2" strokeLinecap="round" aria-hidden="true">
+        {children}
+      </svg>
+    </button>
   );
 }

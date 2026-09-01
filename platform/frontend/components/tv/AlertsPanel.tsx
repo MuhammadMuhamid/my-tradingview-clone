@@ -84,10 +84,12 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
   return (
     <aside className="flex h-full w-[85vw] max-w-[290px] shrink-0 flex-col border-l border-border bg-surface md:w-[290px]">
       {/* tabs */}
-      <div className="flex items-center gap-1 border-b border-border p-2">
+      <div className="flex items-center gap-1 border-b border-border p-2" role="tablist" aria-label="Automations">
         {([["alerts", "Running"], ["log", "Order log"]] as const).map(([t, label]) => (
           <button
             key={t}
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
             className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === t ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"
@@ -147,10 +149,19 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
                     {d.buyQuoteQty != null && <> · {d.buyQuoteQty} USDT</>}
                     {" · "}{d.runtimeState.position === "long" ? "in position" : "flat"}
                   </span>
-                  <span className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  {/*
+                    Revealed on hover OR on focus. Without `focus-within` a
+                    keyboard user tabbed into a control that was still at zero
+                    opacity — three invisible stops, one of which stops a live
+                    strategy. Delete is also pushed away from Pause: they sat a
+                    4px gap apart, on the panel where the two mistakes are not
+                    equally recoverable.
+                  */}
+                  <span className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                     <button
                       onClick={() => setEditing(d)}
                       disabled={busy === d.id}
+                      aria-label={`Edit the automation on ${d.symbol} ${d.timeframe}`}
                       className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:bg-border hover:text-ink"
                     >
                       Edit
@@ -158,13 +169,16 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
                     <button
                       onClick={() => void toggle(d)}
                       disabled={busy === d.id}
+                      aria-label={`${d.status === "active" ? "Pause" : "Resume"} the automation on ${d.symbol} ${d.timeframe}`}
                       className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:bg-border hover:text-ink"
                     >
                       {d.status === "active" ? "Pause" : "Resume"}
                     </button>
+                    <span className="mx-0.5 h-3.5 w-px bg-border" aria-hidden="true" />
                     <button
                       onClick={() => remove(d)}
                       disabled={busy === d.id}
+                      aria-label={`Stop and delete the automation on ${d.symbol} ${d.timeframe}`}
                       className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:bg-down/20 hover:text-down"
                     >
                       Delete

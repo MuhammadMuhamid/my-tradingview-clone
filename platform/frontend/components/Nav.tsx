@@ -48,8 +48,13 @@ export function Nav() {
     <header className={`sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur ${
       hideOnMobile ? "hidden md:block" : ""
     }`}>
-      <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-3 py-2.5 sm:gap-6 sm:px-4 sm:py-3">
-        <Link href="/chart" className="flex shrink-0 items-center gap-2 font-semibold">
+      {/*
+        A 40px bar, not 52. This sits above every page including the chart, and
+        a trading workspace's vertical budget is spent on data — the extra
+        12 pixels bought nothing but air.
+      */}
+      <div className="mx-auto flex h-10 max-w-[1400px] items-center gap-3 px-3 sm:gap-5 sm:px-4">
+        <Link href="/chart" className="flex h-7 shrink-0 items-center gap-2 text-[13px] font-semibold">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-accent" />
           <span>SR+Trend</span>
           <span className="hidden text-ink-faint sm:inline">·</span>
@@ -62,8 +67,9 @@ export function Nav() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm transition-colors sm:px-3 ${
-                  active ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink hover:bg-surface"
+                aria-current={active ? "page" : undefined}
+                className={`flex h-7 shrink-0 items-center whitespace-nowrap rounded-md px-2.5 text-[13px] transition-colors sm:px-3 ${
+                  active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
                 }`}
               >
                 {l.label}
@@ -75,7 +81,7 @@ export function Nav() {
           <span className="hidden text-xs text-ink-faint sm:block">Binance Spot</span>
           {username && (
             <button onClick={signOut} title={`Signed in as ${username}`}
-              className="rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface hover:text-ink">
+              className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
               Sign out
             </button>
           )}

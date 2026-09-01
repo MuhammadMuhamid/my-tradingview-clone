@@ -509,25 +509,42 @@ export function DrawingCanvas({
           </button>
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
-            className={`px-1 text-[11px] ${sel.style.filled ? "text-accent" : "text-ink-muted hover:text-ink"}`}
+            className={`flex h-5 w-5 items-center justify-center rounded ${sel.style.filled ? "text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
             title="Fill"
+            aria-label={sel.style.filled ? "Remove the fill" : "Fill the shape"}
+            aria-pressed={Boolean(sel.style.filled)}
           >
-            ▣
+            <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+              <rect x="1.5" y="1.5" width="9" height="9" rx="1"
+                fill={sel.style.filled ? "currentColor" : "none"}
+                stroke="currentColor" strokeWidth="1.2" />
+            </svg>
           </button>
           <span className="mx-0.5 h-4 w-px bg-border" />
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
-            className={`px-1 text-[11px] ${sel.locked ? "text-accent" : "text-ink-muted hover:text-ink"}`}
+            className={`flex h-5 w-5 items-center justify-center rounded ${sel.locked ? "text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
             title={sel.locked ? "Unlock" : "Lock"}
+            aria-label={sel.locked ? "Unlock this drawing" : "Lock this drawing"}
+            aria-pressed={Boolean(sel.locked)}
           >
-            {sel.locked ? "🔒" : "🔓"}
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+              strokeWidth="1.2" aria-hidden="true">
+              <rect x="2" y="5.4" width="8" height="5.1" rx="1" />
+              {/* An open shackle leans clear of the body, so locked and unlocked
+                  differ in SHAPE and not only in tint. */}
+              <path d={sel.locked ? "M4 5.4V3.9a2 2 0 0 1 4 0v1.5" : "M4 5.4V3.9a2 2 0 0 1 3.9-.5"} />
+            </svg>
           </button>
           <button
             onClick={() => { onChange(drawings.filter((d) => d.id !== selected)); setSelected(null); }}
-            className="px-1 text-[11px] text-ink-muted hover:text-down"
+            className="flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-down/15 hover:text-down"
             title="Delete (Del)"
+            aria-label="Delete this drawing"
           >
-            ✕
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
           </button>
         </div>
       )}

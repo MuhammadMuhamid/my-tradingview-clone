@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { EquityCurve } from "@/components/EquityCurve";
 import { TradeList } from "@/components/TradeList";
-import { StatusBadge } from "@/components/ui";
+import { Separator, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { Backtest, Interval, OpenTrade, Strategy, StrategyParams, Trade } from "@/lib/types";
 import type { StrategyProperties } from "./StrategySettingsModal";
@@ -25,7 +25,7 @@ function Stat({ label, value, valueClass = "text-ink", sub }: {
   return (
     <div>
       <div className="text-xs text-ink-muted">{label}</div>
-      <div className={`mt-0.5 text-lg font-semibold tabular ${valueClass}`}>{value}</div>
+      <div className={`mt-0.5 text-[15px] font-semibold leading-5 tabular ${valueClass}`}>{value}</div>
       {sub && <div className="text-xs text-ink-faint tabular">{sub}</div>}
     </div>
   );
@@ -134,13 +134,19 @@ export function StrategyTester({
 
   const m = run?.metrics ?? null;
   const running = run !== null && (run.status === "queued" || run.status === "running");
-  const inputBox = "rounded border border-border bg-surface-2 px-2 py-1 text-xs text-ink outline-none focus:border-accent";
+  const inputBox = "h-7 rounded-md border border-border bg-surface-2 px-2 text-xs text-ink outline-none focus:border-accent";
 
   return (
     <div className="shrink-0 border-t border-border bg-surface">
       {/* header bar */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <button onClick={() => setCollapsed((c) => !c)} className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink" title={collapsed ? "Expand" : "Collapse"}>
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand the strategy tester" : "Collapse the strategy tester"}
+          title={collapsed ? "Expand" : "Collapse"}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-2 hover:text-ink"
+        >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d={collapsed ? "M3 9l4-4 4 4" : "M3 5l4 4 4-4"} stroke="currentColor" strokeWidth="1.5" fill="none" />
           </svg>
@@ -148,36 +154,46 @@ export function StrategyTester({
         <select
           value={strategy?.key ?? ""}
           onChange={(e) => onStrategyChange(e.target.value)}
-          className="rounded-md border border-border bg-surface-2 px-2 py-1 text-sm font-medium text-ink outline-none"
+          aria-label="Strategy"
+          className="h-7 rounded-md border border-border bg-surface-2 px-2 text-sm font-medium text-ink outline-none focus:border-accent"
         >
           {strategies.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
         </select>
-        <button onClick={onOpenSettings} className="rounded p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink" title="Strategy settings">
+        <button
+          onClick={onOpenSettings}
+          aria-label="Strategy settings"
+          title="Strategy settings"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-2 hover:text-ink"
+        >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" />
           </svg>
         </button>
-        <span className="text-ink-faint">·</span>
+        <Separator />
         <span className="text-xs text-ink-faint">{symbol} {timeframe}</span>
-        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={inputBox} />
-        <span className="text-xs text-ink-faint">→</span>
-        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className={inputBox} />
+        <input type="date" value={start} aria-label="Backtest start date"
+          onChange={(e) => setStart(e.target.value)} className={inputBox} />
+        <span aria-hidden="true" className="text-xs text-ink-faint">&rarr;</span>
+        <input type="date" value={end} aria-label="Backtest end date"
+          onChange={(e) => setEnd(e.target.value)} className={inputBox} />
         <button
           onClick={() => void launch()}
           disabled={running || !strategy}
-          className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-7 shrink-0 items-center rounded-md bg-accent px-3 text-xs font-semibold text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {running ? "Running…" : "Run backtest"}
         </button>
         {run && <StatusBadge status={run.status} />}
         {err && <span className="text-xs text-down">{err}</span>}
-        <div className="ml-auto flex gap-4">
+        <div className="ml-auto flex gap-4" role="tablist" aria-label="Strategy tester results">
           {(["overview", "trades"] as const).map((t) => (
             <button
               key={t}
+              role="tab"
+              aria-selected={tab === t && !collapsed}
               onClick={() => { setTab(t); setCollapsed(false); }}
-              className={`border-b-2 pb-0.5 text-xs font-medium capitalize ${
+              className={`flex h-7 items-center border-b-2 text-xs font-medium capitalize ${
                 tab === t && !collapsed ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"
               }`}
             >

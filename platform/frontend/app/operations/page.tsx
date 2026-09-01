@@ -59,6 +59,32 @@ const DELIVERY_STYLE: Record<string, string> = {
   stalled: "text-down",
 };
 
+/**
+ * Who owns the numbers in a section.
+ *
+ * The distinction this page exists to preserve is that the PLATFORM knows what
+ * it emitted and the BOT knows what actually happened on the exchange. It was
+ * carried only by the section titles and the prose beneath them, which is the
+ * first thing that stops being read at 3am. A two-letter eyebrow on every card
+ * makes it impossible to read a platform-local number as an exchange fact.
+ */
+function Owner({ of }: { of: "platform" | "bot" }) {
+  return (
+    <span
+      className={`mr-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+        of === "bot"
+          ? "bg-up/15 text-up"
+          : "bg-surface-2 text-ink-faint"
+      }`}
+      title={of === "bot"
+        ? "Read from the execution bot. Authoritative for fills, exposure and realised P/L."
+        : "Known to this platform only. It says what was emitted, never what the exchange did."}
+    >
+      {of === "bot" ? "Bot" : "Platform"}
+    </span>
+  );
+}
+
 const when = (iso: string | null): string =>
   iso === null ? "—" : new Date(iso).toLocaleString();
 
@@ -174,7 +200,7 @@ export default function OperationsPage() {
 
       {/* ── The control ─────────────────────────────────────────────────── */}
       <Card>
-        <CardHeader title="Platform signal emission" right={<span className="text-xs text-ink-faint">{mode.note}</span>} />
+        <CardHeader title={<><Owner of="platform" />Signal emission</>} right={<span className="text-xs text-ink-faint">{mode.note}</span>} />
         <div className="space-y-3 px-4 pb-4">
           {risk.tradingHalted ? (
             <>
@@ -232,7 +258,7 @@ export default function OperationsPage() {
       {/* The execution bot owns fills, exchange routing and realised P/L. */}
       <Card>
         <CardHeader
-          title="Execution bot (authoritative)"
+          title={<><Owner of="bot" />Execution bot — authoritative</>}
           right={
             <span className={`text-xs font-medium ${BOT_STYLE[status.bot.state] ?? ""}`}>
               {status.bot.state.replaceAll("_", " ")}
@@ -295,7 +321,7 @@ export default function OperationsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {/* ── Risk ─────────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader title="Platform signal controls" />
+          <CardHeader title={<><Owner of="platform" />Signal controls</>} />
           <div className="space-y-4 px-4 pb-4">
             <LimitRow
               label="Configured exposure"
@@ -310,8 +336,16 @@ export default function OperationsPage() {
               unit=""
             />
             <p className="text-xs text-ink-faint">{risk.summary}</p>
+            {/*
+              Worded as an ABSENCE. "Platform daily-loss control: disabled" beside
+              two live limit bars reads as a third limit that happens to be off;
+              this says there is no platform limit at all, and names the one that
+              does exist.
+            */}
             <p className="rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink">
-              Platform daily-loss control: disabled. {risk.dailyLossControl.note}
+              <strong className="text-warn">No platform daily-loss limit.</strong>{" "}
+              This platform does not cap losses — only the execution bot&apos;s own daily-loss
+              protection, shown above, can. {risk.dailyLossControl.note}
             </p>
             <p className="text-xs text-ink-faint">
               Exposure is what the deployments are <em>configured</em> to spend, not a balance read
@@ -323,7 +357,7 @@ export default function OperationsPage() {
         {/* ── Delivery ─────────────────────────────────────────────────── */}
         <Card>
           <CardHeader
-            title="Signal delivery"
+            title={<><Owner of="platform" />Signal delivery</>}
             right={
               <span className={`text-xs font-medium uppercase ${DELIVERY_STYLE[status.delivery.state] ?? ""}`}>
                 {status.delivery.state}
@@ -348,7 +382,7 @@ export default function OperationsPage() {
       {/* ── Feeds ──────────────────────────────────────────────────────── */}
       <Card>
         <CardHeader
-          title="Candle and WebSocket freshness"
+          title={<><Owner of="platform" />Candle and WebSocket freshness</>}
           right={
             <span className={`text-xs font-medium uppercase ${FEED_STYLE[status.feeds.worst] ?? ""}`}>
               worst: {status.feeds.worst}
@@ -392,7 +426,7 @@ export default function OperationsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {/* ── Emitter ──────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader title="Emitter" />
+          <CardHeader title={<><Owner of="platform" />Emitter</>} />
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 px-4 pb-4 text-xs text-ink-muted">
             <dt>This process</dt>
             <dd className="text-right font-mono text-ink">{status.emitter.thisProcess}</dd>
@@ -418,7 +452,7 @@ export default function OperationsPage() {
         {/* ── Unresolved intents ───────────────────────────────────────── */}
         <Card>
           <CardHeader
-            title="Unresolved order intents"
+            title={<><Owner of="platform" />Unresolved order intents</>}
             right={<span className="text-xs text-ink-faint">{intents?.count ?? 0}</span>}
           />
           {!intents || intents.count === 0 ? (

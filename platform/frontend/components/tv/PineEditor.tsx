@@ -4,6 +4,7 @@ import { api, type PineInputDef, type PineRunResult, type PineScript } from "@/l
 import type { Interval } from "@/lib/types";
 import { PINE_TEMPLATE, TOKEN_COLOR, highlightLine } from "@/lib/pineHighlight";
 import { fmtNum, fmtPct, signClass } from "@/lib/format";
+import { Separator } from "@/components/ui";
 
 /** What the editor hands the chart when you press "Add to chart". */
 export interface PineChartPayload {
@@ -202,7 +203,11 @@ export function PineEditor({
     setParams((p) => ({ ...p, [key]: v }));
 
   const m = result?.metrics;
-  const btn = "rounded border border-border bg-surface-2 px-2 py-1 text-xs text-ink hover:border-accent";
+  // One height for every control on the editor's toolbar. They were a mix of
+  // py-1 and py-1.5 across selects, inputs and buttons, so the row's baseline
+  // stepped across it.
+  const btn = "flex h-7 shrink-0 items-center rounded-md border border-border bg-surface-2 " +
+    "px-2 text-xs text-ink transition-colors hover:border-accent hover:bg-border";
 
   return (
     <div className="flex h-full min-h-0">
@@ -212,23 +217,28 @@ export function PineEditor({
           <select
             value={scriptId ?? ""}
             onChange={(e) => void open(e.target.value)}
-            className="rounded border border-border bg-surface-2 px-2 py-1 text-xs text-ink outline-none"
+            aria-label="Saved Pine script"
+            className="h-7 shrink-0 rounded-md border border-border bg-surface-2 px-2 text-xs text-ink outline-none focus:border-accent"
           >
-            <option value="">＋ New script</option>
+            <option value="">+ New script</option>
             {scripts.map((s) => (
-              <option key={s.id} value={s.id}>{s.name} · {s.kind}</option>
+              <option key={s.id} value={s.id}>{s.name} — {s.kind}</option>
             ))}
           </select>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-40 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-ink outline-none focus:border-accent"
+            aria-label="Script name"
+            className="h-7 w-40 shrink-0 rounded-md border border-border bg-surface-2 px-2 text-xs text-ink outline-none focus:border-accent"
             placeholder="Script name"
           />
           <button onClick={() => void save()} className={btn} title="⌘S">Save</button>
+          {/* Deleting a saved script is separated from Save, which sits beside it. */}
           <button onClick={() => void remove()} disabled={!scriptId}
-            className={`${btn} disabled:opacity-30`}>Delete</button>
-          <span className="text-ink-faint">·</span>
+            className={`${btn} hover:border-down/50 hover:bg-down/10 hover:text-down disabled:opacity-30`}>
+            Delete
+          </button>
+          <Separator />
           <button onClick={() => void run(false)} disabled={busy} className={`${btn} disabled:opacity-40`}>
             {busy ? "Running…" : "Compile"}
           </button>
@@ -236,7 +246,7 @@ export function PineEditor({
             onClick={() => void run(true)}
             disabled={busy}
             title="⌘↵"
-            className="rounded bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:bg-accent/90 disabled:opacity-40"
+            className="flex h-7 shrink-0 items-center rounded-md bg-accent px-2.5 text-xs font-semibold text-white transition-colors hover:bg-accent/90 disabled:opacity-40"
           >
             {editingApplied ? "Update on chart" : "Add to chart"}
           </button>
@@ -294,9 +304,14 @@ export function PineEditor({
         <div className="border-t border-border">
           <button
             onClick={() => setShowConsole((v) => !v)}
-            className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] text-ink-muted hover:text-ink"
+            aria-expanded={showConsole}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] text-ink-muted hover:bg-surface-2/60 hover:text-ink"
           >
-            <span>{showConsole ? "▾" : "▸"}</span>
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true"
+              className="shrink-0">
+              <path d={showConsole ? "M2 3.5l3 3 3-3" : "M3.5 2l3 3-3 3"}
+                stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
             <span>Console</span>
             {errors.length > 0
               ? <span className="rounded bg-down/20 px-1.5 text-down">{errors.length}</span>

@@ -12,7 +12,7 @@ import { fmtPrice } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
-import { IndicatorPane } from "@/components/tv/IndicatorPane";
+import { IndicatorPane, type PaneAction } from "@/components/tv/IndicatorPane";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 import type { PineDrawings } from "@/lib/api";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
@@ -179,6 +179,7 @@ export function CandleChart({
   onLiveBarBoundary,
   onCrosshairMove, crosshairTime,
   onVisibleRangeChange, visibleRange, followEdgeTime,
+  onIndicatorPaneAction,
 }: {
   symbol: string;
   interval: Interval;
@@ -233,6 +234,14 @@ export function CandleChart({
    * (time sync). Ignored when `visibleRange` is driving the whole span.
    */
   followEdgeTime?: number | null;
+  /**
+   * Hide/settings/remove for the instance owning a non-overlay pane.
+   *
+   * Optional, so a chart rendered without an indicator list — the strategy
+   * tester's, the split view's second pane — shows the panes with no controls
+   * rather than controls that would act on somebody else's list.
+   */
+  onIndicatorPaneAction?: (paneId: string, action: PaneAction) => void;
   /**
    * Phone layout: drop the per-series price-axis badges and shorten the
    * legend. Ten moving averages each stamp a label on the scale, which on a
@@ -964,6 +973,7 @@ export function CandleChart({
               onHover={indicatorPaneHover}
               onReady={registerIndicatorPane}
               onRangeChange={indicatorPaneRange}
+              onAction={onIndicatorPaneAction}
             />
           ))}
         </div>

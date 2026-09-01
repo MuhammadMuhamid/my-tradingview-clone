@@ -197,73 +197,94 @@ export default function AlertsPage() {
             </div>
           }
         />
+        {/*
+          Two rows, not one wrapping row. The bulk buttons act on whatever the
+          filters above them currently select, and at a narrow width a single
+          flex row put "Delete 42" beside an unrelated control — the one place
+          in this page where proximity has to mean "these belong together".
+        */}
         {alerts !== null && alerts.length > 0 && (
-          <div className="flex flex-wrap items-end gap-2 border-b border-border bg-surface-2/20 px-4 py-2.5">
-            <label className="min-w-[180px] flex-1 sm:max-w-[280px]">
-              <span className="sr-only">Search alert symbols</span>
-              <TextInput
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search coin (BTCUSDT or btc)"
-                aria-label="Search alert symbols"
-                className="w-full"
-              />
-            </label>
-            <label>
-              <span className="sr-only">Filter alerts by status</span>
+          <div className="space-y-2 border-b border-border bg-surface-2/20 px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="min-w-[170px] flex-1 sm:max-w-[260px]">
+                <span className="sr-only">Search alert symbols</span>
+                <TextInput
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search coin (BTCUSDT or btc)"
+                  aria-label="Search alert symbols"
+                  className="w-full"
+                />
+              </label>
               <Select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value as AlertStatusFilter)}
                 aria-label="Filter alerts by status"
+                className="min-w-0 flex-1 sm:flex-none"
               >
                 {ALERT_STATUS_FILTERS.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </Select>
-            </label>
-            <label>
-              <span className="sr-only">Filter alerts by type</span>
               <Select
                 value={typeFilter}
                 onChange={(event) => setTypeFilter(event.target.value as AlertTypeFilter)}
                 aria-label="Filter alerts by type"
+                className="min-w-0 flex-1 sm:flex-none"
               >
                 {ALERT_TYPE_FILTERS.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </Select>
-            </label>
-            <span className="mr-auto whitespace-nowrap px-1 pb-1 text-xs text-ink-faint" aria-live="polite">
-              {filteredAlerts.length} of {alerts.length} alerts
-            </span>
-            <Button
-              onClick={() => void bulkAct("resume")}
-              disabled={busy !== null || filteredAlerts.length === 0}
-            >
-              {busy === "bulk-resume" ? "Resuming…" : `Resume ${filteredAlerts.length}`}
-            </Button>
-            <Button
-              onClick={() => void bulkAct("pause")}
-              disabled={busy !== null || filteredAlerts.length === 0}
-            >
-              {busy === "bulk-pause" ? "Pausing…" : `Pause ${filteredAlerts.length}`}
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => void bulkAct("delete")}
-              disabled={busy !== null || filteredAlerts.length === 0}
-              aria-label={`Delete ${describeAlertScope(filters, filteredAlerts.length)}`}
-            >
-              {busy === "bulk-delete" ? "Deleting…" : `Delete ${filteredAlerts.length}`}
-            </Button>
+              {(search.trim() !== "" || statusFilter !== "all" || typeFilter !== "all") && (
+                <Button
+                  variant="ghost"
+                  onClick={() => { setSearch(""); setStatusFilter("all"); setTypeFilter("all"); }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {/*
+                The count is stated before the buttons that act on it, and named
+                in full, so "Delete 42" is never read without knowing what the
+                42 are.
+              */}
+              <span className="mr-auto whitespace-nowrap text-xs text-ink-faint" aria-live="polite">
+                {describeAlertScope(filters, filteredAlerts.length)} of {alerts.length}
+              </span>
+              <Button
+                onClick={() => void bulkAct("resume")}
+                disabled={busy !== null || filteredAlerts.length === 0}
+                label={`Resume ${describeAlertScope(filters, filteredAlerts.length)}`}
+              >
+                {busy === "bulk-resume" ? "Resuming…" : `Resume ${filteredAlerts.length}`}
+              </Button>
+              <Button
+                onClick={() => void bulkAct("pause")}
+                disabled={busy !== null || filteredAlerts.length === 0}
+                label={`Pause ${describeAlertScope(filters, filteredAlerts.length)}`}
+              >
+                {busy === "bulk-pause" ? "Pausing…" : `Pause ${filteredAlerts.length}`}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void bulkAct("delete")}
+                disabled={busy !== null || filteredAlerts.length === 0}
+                label={`Delete ${describeAlertScope(filters, filteredAlerts.length)}`}
+              >
+                {busy === "bulk-delete" ? "Deleting…" : `Delete ${filteredAlerts.length}`}
+              </Button>
+            </div>
           </div>
         )}
         {alerts === null ? (
           <Empty>Loading…</Empty>
         ) : alerts.length === 0 ? (
           <Empty>
-            No alerts yet. Open a chart, click a price on the scale or the 🔔 next to any SMA or
+            No alerts yet. Open a chart, click a price on the scale or the bell next to any SMA or
             EMA, and it will appear here.
           </Empty>
         ) : filteredAlerts.length === 0 ? (

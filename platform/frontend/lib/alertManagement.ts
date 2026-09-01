@@ -27,12 +27,12 @@ export const ALERT_TYPE_FILTERS: ReadonlyArray<{
 }> = [
   { value: "all", label: "All types", scopeLabel: "alerts" },
   { value: "price", label: "Price", scopeLabel: "Price alerts" },
-  { value: "ma", label: "MA", scopeLabel: "MA alerts" },
-  { value: "ma_ema", label: "MA · EMA", scopeLabel: "EMA alerts" },
-  { value: "ma_sma", label: "MA · SMA", scopeLabel: "SMA alerts" },
-  { value: "ma_vs_ma", label: "MA-vs-MA", scopeLabel: "MA-vs-MA alerts" },
-  { value: "sr_zone", label: "S/R", scopeLabel: "S/R alerts" },
-  { value: "pivot_level", label: "Pivot", scopeLabel: "Pivot alerts" },
+  { value: "ma", label: "Moving average — EMA & SMA", scopeLabel: "MA alerts" },
+  { value: "ma_ema", label: "Moving average — EMA only", scopeLabel: "EMA alerts" },
+  { value: "ma_sma", label: "Moving average — SMA only", scopeLabel: "SMA alerts" },
+  { value: "ma_vs_ma", label: "MA vs MA", scopeLabel: "MA-vs-MA alerts" },
+  { value: "sr_zone", label: "Support / resistance", scopeLabel: "S/R alerts" },
+  { value: "pivot_level", label: "Pivot levels", scopeLabel: "Pivot alerts" },
   { value: "rsi", label: "RSI", scopeLabel: "RSI alerts" },
   { value: "macd", label: "MACD", scopeLabel: "MACD alerts" },
 ];

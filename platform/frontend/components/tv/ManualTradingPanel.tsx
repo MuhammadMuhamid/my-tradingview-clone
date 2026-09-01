@@ -109,9 +109,11 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
   };
 
   return <aside className="flex h-full w-[90vw] max-w-[330px] shrink-0 flex-col border-l border-border bg-surface md:w-[330px]">
-    <div className="flex border-b border-border p-2">
+    <div className="flex gap-1 border-b border-border p-2" role="tablist" aria-label="Manual trading">
       {(["ticket", "orders"] as const).map((id) => <button key={id} onClick={() => setTab(id)}
-        className={`flex-1 rounded-md px-2 py-1.5 text-sm font-medium ${tab === id ? "bg-surface-2 text-ink" : "text-ink-muted"}`}>
+        role="tab" aria-selected={tab === id}
+        className={`flex-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
+          tab === id ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"}`}>
         {id === "ticket" ? "Order ticket" : "Orders & positions"}</button>)}
     </div>
     {error && <div role="alert" className="border-b border-down/30 bg-down/10 px-3 py-2 text-xs text-down">{error}</div>}
@@ -119,8 +121,17 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
     {!state ? <div className="p-4 text-sm text-ink-faint">Loading manual trading…</div>
     : !state.enabled ? <div className="p-4 text-sm text-ink-faint">Manual trading is disabled by server configuration.</div>
     : tab === "ticket" ? <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      {/*
+        Real funds versus testnet is the single most consequential fact in this
+        panel, and it was one word in a thin outline. `mainnet` now reads as a
+        filled warning; every other mode stays quiet.
+      */}
       <div className="flex items-center justify-between text-xs"><span className="text-ink-muted">Binance Spot</span>
-        <span className={`rounded border px-2 py-0.5 ${mode === "mainnet" ? "border-down/40 text-down" : "border-warn/40 text-warn"}`}>{mode}</span></div>
+        <span className={`rounded border px-2 py-0.5 font-medium ${
+          account && !account.testnet
+            ? "border-down/50 bg-down/15 text-down"
+            : "border-warn/40 bg-warn/10 text-warn"}`}>
+          {account && !account.testnet ? `${mode} · real funds` : mode}</span></div>
       {state.mixed && <p className="text-xs text-warn">Mixed account modes: verify the selected account.</p>}
       {state.accounts.length === 0 && <p role="alert" className="text-xs text-warn">
         No connected Binance Spot account is available. Add credentials in the execution bot.</p>}
@@ -128,10 +139,11 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
         <p role="alert" className="text-xs text-down">Mainnet manual trading is disabled on the execution bot.</p>}
       <Field label="Connected account"><Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setMainnetConfirmed(false); }}>
         {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.mode}</option>)}</Select></Field>
-      <div className="grid grid-cols-2 gap-2">{(["BUY", "SELL"] as const).map((v) => <button key={v}
-        onClick={() => { setSide(v); setPositionId(""); }} className={`rounded-md border py-2 text-sm font-semibold ${side === v
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order side">{(["BUY", "SELL"] as const).map((v) => <button key={v}
+        onClick={() => { setSide(v); setPositionId(""); }} aria-pressed={side === v}
+        className={`rounded-md border py-2 text-sm font-semibold transition-colors ${side === v
           ? v === "BUY" ? "border-up bg-up/15 text-up" : "border-down bg-down/15 text-down"
-          : "border-border text-ink-muted"}`}>{v}</button>)}</div>
+          : "border-border text-ink-muted hover:text-ink"}`}>{v}</button>)}</div>
       <Field label="Order type"><Select value={orderType} onChange={(e) => setOrderType(e.target.value as "MARKET" | "LIMIT")}>
         <option value="MARKET">Market</option><option value="LIMIT">Limit (GTC)</option></Select></Field>
       {side === "SELL" && activePositions.length > 0 && <Field label="Manual position (required when tracked)">
@@ -146,7 +158,10 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
       {side === "BUY" && <div className="grid grid-cols-2 gap-2"><Field label="Take profit (optional)">
         <TextInput inputMode="decimal" value={tp} onChange={(e) => setTp(e.target.value)} /></Field>
         <Field label="Stop loss (optional)"><TextInput inputMode="decimal" value={sl} onChange={(e) => setSl(e.target.value)} /></Field></div>}
-      <p className="text-[11px] leading-4 text-ink-faint">TP/SL is bot-managed and activates only after an entry fill. It is not exchange-resting.</p>
+      <p className="rounded-md border border-border bg-surface-2/50 px-2.5 py-2 text-[11px] leading-4 text-ink-muted">
+        TP/SL here is <span className="text-ink">bot-managed</span>: it activates only after an entry
+        fill and is <span className="text-ink">not resting on the exchange</span>. If the bot is
+        down, nothing protects the position.</p>
       <Button variant={side === "BUY" ? "primary" : "danger"} disabled={!valid || pending}
         onClick={() => { setOrderRequestId(newRequestId()); setConfirming(true); }} className="w-full py-2">Review {side} order</Button>
     </div> : <div className="min-h-0 flex-1 overflow-y-auto">

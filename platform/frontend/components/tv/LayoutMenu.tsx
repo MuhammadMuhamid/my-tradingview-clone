@@ -59,7 +59,11 @@ export function LayoutMenu({
         <span className="max-w-[140px] truncate">{current?.name ?? "Unnamed"}{dirty && !autosave ? " •" : ""}</span>
         {autosaveError && (
           <span className="text-warn" title={`Autosave failed: ${autosaveError}`} aria-label="Autosave is failing">
-            ⚠
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+              strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+              <path d="M7 1.6L13 12H1L7 1.6Z" strokeLinejoin="round" />
+              <path d="M7 5.6v3" /><path d="M7 10.4h.01" />
+            </svg>
           </span>
         )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" /></svg>

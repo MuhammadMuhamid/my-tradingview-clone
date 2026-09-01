@@ -32,16 +32,20 @@ export function IndicatorLegend({
     <div className={`pointer-events-none font-mono text-[10px] leading-4 ${className}`}>
       {groups.map((group, index) => (
         <div key={`${group.title}:${index}`} className="flex flex-wrap items-baseline gap-x-2">
-          <span className="font-semibold text-[#d1d4dc]">{group.title}</span>
-          {group.params && <span className="text-[#6f7b8e]">{group.params}</span>}
+          <span className="font-semibold text-ink">{group.title}</span>
+          {group.params && <span className="text-ink-faint">{group.params}</span>}
           {group.plots.map((plot) => (
-            <span key={plot.id} className="inline-flex items-center gap-1 text-[#9aa4b6]">
+            <span key={plot.id} className="inline-flex items-center gap-1 text-ink-muted">
               <span
                 aria-hidden="true"
                 className="inline-block h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: plot.color }}
               />
-              {plot.title} {formatPlotValue(plotValueAt(plot.data, time), plot.precision)}
+              {plot.title}{" "}
+              {/* The value is the thing being read; the plot's name is context. */}
+              <span className="tabular text-ink">
+                {formatPlotValue(plotValueAt(plot.data, time), plot.precision)}
+              </span>
             </span>
           ))}
         </div>
