@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type OpsStatus, type UnresolvedIntents } from "@/lib/api";
+import { api as scannerApi } from "@/lib/scanner/api";
+import {
+  buildOperationsOverview, formatDuration, type HealthTone, type ScannerEvidence,
+} from "@/lib/operationsHealth";
 import { Button, Card, CardHeader, Empty, Field, TextInput } from "@/components/ui";
 
 /**
@@ -58,6 +62,22 @@ const DELIVERY_STYLE: Record<string, string> = {
   failing: "text-down",
   stalled: "text-down",
 };
+
+const HEALTH_STYLE: Record<HealthTone, string> = {
+  positive: "border-up/30 bg-up/10 text-up",
+  neutral: "border-border bg-surface-2 text-ink-muted",
+  warning: "border-warn/30 bg-warn/10 text-warn",
+  critical: "border-down/30 bg-down/10 text-down",
+  halted: "border-accent/30 bg-accent/10 text-accent",
+};
+
+function HealthBadge({ tone, children }: { tone: HealthTone; children: string }) {
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${HEALTH_STYLE[tone]}`}>
+      {children}
+    </span>
+  );
+}
 
 /**
  * Who owns the numbers in a section.
@@ -122,12 +142,16 @@ export default function OperationsPage() {
   const [notice, setNotice] = useState("");
   const [haltReason, setHaltReason] = useState("");
   const [confirmResume, setConfirmResume] = useState(false);
+  const [scanner, setScanner] = useState<ScannerEvidence>({ loading: true });
 
   const refresh = useCallback(() => {
     api.opsStatus()
       .then((s) => { setStatus(s); setError(""); })
       .catch((e: Error) => setError(e.message));
     api.opsUnresolvedIntents().then(setIntents).catch(() => setIntents(null));
+    scannerApi.health()
+      .then((value) => setScanner({ value }))
+      .catch((e: Error) => setScanner({ error: e.message }));
   }, []);
 
   useEffect(() => {
@@ -164,13 +188,18 @@ export default function OperationsPage() {
             Platform emission, execution-bot truth, feed freshness and signal delivery.
           </p>
         </div>
-        <Card><Empty>{error || "Loading operator status…"}</Empty></Card>
+        <Card>
+          <div role={error ? "alert" : "status"}>
+            <Empty>{error ? `Unable to read authoritative operations status: ${error}` : "Loading operator status…"}</Empty>
+          </div>
+        </Card>
       </div>
     );
   }
 
   const mode = MODE_STYLE[status.mode];
   const risk = status.risk;
+  const overview = buildOperationsOverview(status, scanner);
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-4 px-4 py-6">
@@ -182,9 +211,7 @@ export default function OperationsPage() {
             last read {when(status.time)}.
           </p>
         </div>
-        <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold ${mode.badge}`}>
-          {status.mode}
-        </span>
+        <HealthBadge tone={overview.tone}>{overview.status}</HealthBadge>
       </div>
 
       {notice && (
@@ -197,6 +224,38 @@ export default function OperationsPage() {
           {error}
         </p>
       )}
+
+      {/* Dense first-glance health. Each claim names the evidence behind it. */}
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Operational health</h2>
+            <p className="mt-0.5 text-xs text-ink-muted">{overview.summary}</p>
+          </div>
+          <span className="text-xs text-ink-faint">Evidence read {when(status.time)}</span>
+        </div>
+        <div className="divide-y divide-border/70">
+          {overview.items.map((item) => (
+            <div key={item.id} className="grid gap-2 px-4 py-2.5 md:grid-cols-[150px_minmax(0,1fr)_auto] md:items-start">
+              <div className="flex items-center justify-between gap-2 md:block">
+                <h3 className="text-sm font-medium text-ink">{item.name}</h3>
+                <span className="md:hidden"><HealthBadge tone={item.tone}>{item.status}</HealthBadge></span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm text-ink">{item.summary}</p>
+                {item.facts.length > 0 && (
+                  <p className="mt-0.5 text-xs text-ink-faint">{item.facts.join(" · ")}</p>
+                )}
+                <details className="mt-1 text-xs text-ink-faint">
+                  <summary className="w-fit cursor-pointer rounded text-ink-muted hover:text-ink">Evidence source</summary>
+                  <p className="mt-1">{item.source}</p>
+                </details>
+              </div>
+              <span className="hidden md:block"><HealthBadge tone={item.tone}>{item.status}</HealthBadge></span>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       {/* ── The control ─────────────────────────────────────────────────── */}
       <Card>
@@ -382,10 +441,10 @@ export default function OperationsPage() {
       {/* ── Feeds ──────────────────────────────────────────────────────── */}
       <Card>
         <CardHeader
-          title={<><Owner of="platform" />Candle and WebSocket freshness</>}
+          title={<><Owner of="platform" />Market-data integrity</>}
           right={
             <span className={`text-xs font-medium uppercase ${FEED_STYLE[status.feeds.worst] ?? ""}`}>
-              worst: {status.feeds.worst}
+              {overview.items.find((item) => item.id === "market-data")?.status}
             </span>
           }
         />
@@ -393,15 +452,15 @@ export default function OperationsPage() {
           <Empty>No feed has been assessed yet. An unassessed feed is never reported as live.</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm tabular">
+            <table className="w-full min-w-[760px] text-sm tabular">
               <thead>
                 <tr className="border-b border-border text-xs text-ink-muted">
                   <th className="px-4 py-2 text-left">Symbol</th>
-                  <th className="px-4 py-2 text-left">Interval</th>
-                  <th className="px-4 py-2 text-left">State</th>
-                  <th className="px-4 py-2 text-right">Bars behind</th>
-                  <th className="px-4 py-2 text-right">Gaps</th>
-                  <th className="px-4 py-2 text-right">Newest bar</th>
+                  <th className="px-4 py-2 text-left">Timeframe</th>
+                  <th className="px-4 py-2 text-left">Integrity</th>
+                  <th className="px-4 py-2 text-left">Issue</th>
+                  <th className="px-4 py-2 text-right">Latest completed</th>
+                  <th className="px-4 py-2 text-right">Age</th>
                   <th className="px-4 py-2 text-right">Checked</th>
                 </tr>
               </thead>
@@ -410,11 +469,34 @@ export default function OperationsPage() {
                   <tr key={`${f.symbol}-${f.interval}`} className="border-b border-border/50">
                     <td className="px-4 py-2 font-medium">{f.symbol}</td>
                     <td className="px-4 py-2">{f.interval}</td>
-                    <td className={`px-4 py-2 font-medium ${FEED_STYLE[f.state] ?? ""}`}>{f.state}</td>
-                    <td className="px-4 py-2 text-right">{f.barsBehind ?? "—"}</td>
-                    <td className="px-4 py-2 text-right">{f.missingBars}</td>
-                    <td className="px-4 py-2 text-right text-ink-faint">{when(f.lastBarTime)}</td>
-                    <td className="px-4 py-2 text-right text-ink-faint">{when(f.lastCheckedAt)}</td>
+                    <td className={`px-4 py-2 font-medium ${
+                      f.integrity.state === "healthy" ? "text-up" :
+                        f.integrity.state === "degraded" ? "text-warn" :
+                          f.integrity.state === "invalid" ? "text-down" : "text-ink-faint"
+                    }`}>{f.integrity.state ?? "unknown"}</td>
+                    <td className="max-w-64 px-4 py-2 text-xs text-ink-muted">
+                      {f.integrity.issueCodes.length === 0 ? "None recorded" : (
+                        <details>
+                          <summary className="cursor-pointer rounded text-ink">
+                            {f.integrity.issueCodes[0]!.replaceAll("_", " ")}
+                          </summary>
+                          <dl className="mt-1 space-y-0.5 font-mono text-[11px]">
+                            {f.integrity.issueCodes.map((code) => (
+                              <div key={code} className="flex justify-between gap-3">
+                                <dt>{code}</dt><dd>{f.integrity.issueCounts[code] ?? "—"}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </details>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right text-ink-faint">{when(f.integrity.latestCompletedBarTime)}</td>
+                    <td className="px-4 py-2 text-right text-ink-faint">
+                      {f.integrity.latestCompletedBarAgeMs === null
+                        ? "No evidence"
+                        : formatDuration(f.integrity.latestCompletedBarAgeMs)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-ink-faint">{when(f.integrity.lastCheckedAt)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -24,6 +24,9 @@ import type { LiveRunner } from "../../engine/liveRunner";
 import { readBotStatus } from "../../operations/botStatus";
 import { INTERVAL_MS, isInterval } from "../../types/market";
 import type { CandleIntegrityState, CandleIntegrityIssueCode } from "../../data/candleIntegrity";
+import * as maAlertRepo from "../../repositories/maAlerts";
+import { readReadiness } from "./health";
+import type { MaAlertRow } from "../../types/maAlerts";
 
 /** The word an operator must send to arm or disarm trading. */
 const HALT_CONFIRMATION = "HALT_TRADING";
@@ -80,6 +83,69 @@ export function formatFeedIntegrityStatus(feed: FeedIntegrityStatusInput, now: n
   };
 }
 
+/**
+ * Read-only alert-runner evidence. Configuration or saved alerts alone never
+ * become "healthy": an active alert must carry a recent evaluation watermark.
+ */
+export function formatAlertRunnerStatus(
+  enabled: boolean,
+  alerts: readonly Pick<MaAlertRow, "timeframe" | "lastBarTime">[],
+  now: number
+) {
+  if (!enabled) {
+    return {
+      state: "disabled" as const, active: alerts.length, recent: 0, stale: 0,
+      withoutEvidence: 0, lastEvaluatedAt: null,
+      reason: "MA_ALERTS_ENABLED is false; notification alerts are intentionally disabled.",
+    };
+  }
+  if (alerts.length === 0) {
+    return {
+      state: "not_configured" as const, active: 0, recent: 0, stale: 0,
+      withoutEvidence: 0, lastEvaluatedAt: null,
+      reason: "No active notification alerts are configured.",
+    };
+  }
+
+  let recent = 0;
+  let stale = 0;
+  let withoutEvidence = 0;
+  let lastEvaluatedAt: number | null = null;
+  for (const alert of alerts) {
+    const evaluatedAt = alert.lastBarTime === null ? NaN : Date.parse(alert.lastBarTime);
+    if (!Number.isFinite(evaluatedAt) || !isInterval(alert.timeframe)) {
+      withoutEvidence += 1;
+      continue;
+    }
+    lastEvaluatedAt = lastEvaluatedAt === null
+      ? evaluatedAt
+      : Math.max(lastEvaluatedAt, evaluatedAt);
+    const expected = newestClosedBarOpenTime(alert.timeframe, now);
+    if (expected - evaluatedAt > INTERVAL_MS[alert.timeframe]) stale += 1;
+    else recent += 1;
+  }
+
+  if (stale > 0) {
+    return {
+      state: "degraded" as const, active: alerts.length, recent, stale, withoutEvidence,
+      lastEvaluatedAt: lastEvaluatedAt === null ? null : new Date(lastEvaluatedAt).toISOString(),
+      reason: `${stale} active alert(s) have not evaluated within their expected cadence.`,
+    };
+  }
+  if (withoutEvidence > 0) {
+    return {
+      state: "unknown" as const, active: alerts.length, recent, stale, withoutEvidence,
+      lastEvaluatedAt: lastEvaluatedAt === null ? null : new Date(lastEvaluatedAt).toISOString(),
+      reason: `${withoutEvidence} active alert(s) have no completed evaluation evidence yet.`,
+    };
+  }
+  return {
+    state: "healthy" as const, active: alerts.length, recent, stale, withoutEvidence,
+    lastEvaluatedAt: lastEvaluatedAt === null ? null : new Date(lastEvaluatedAt).toISOString(),
+    reason: `${recent} active alert(s) have recent evaluation evidence.`,
+  };
+}
+
 export function operationsRoutes(getRunner: () => LiveRunner) {
   return async function register(app: FastifyInstance): Promise<void> {
     /**
@@ -119,6 +185,12 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         { now: Date.now(), windowHours: deliveryWindowHours }
       );
       const bot = await readBotStatus([...active, ...deployments.filter((d) => d.status !== "active")]);
+      const database = await readReadiness();
+      const alertRunner = formatAlertRunnerStatus(
+        process.env.MA_ALERTS_ENABLED !== "false",
+        await maAlertRepo.listAlerts({ activeOnly: true }),
+        Date.now()
+      );
 
       let runnerIsEmitter = false;
       try {
@@ -169,11 +241,16 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
           },
         },
         bot,
+        database,
+        alertRunner,
         deployments: {
           total: deployments.length,
           active: active.length,
           long: snapshot.openPositions,
           paused: deployments.filter((d) => d.status === "paused").length,
+          paper: deployments.filter((d) => d.delivery === "paper").length,
+          automated: deployments.filter((d) => d.delivery === "custom" || d.delivery === "3commas").length,
+          signalOnly: deployments.filter((d) => d.delivery === "off").length,
         },
         /**
          * Are the signals this system produced actually reaching the bot? Before

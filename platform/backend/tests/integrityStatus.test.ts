@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatFeedIntegrityStatus } from "../src/api/routes/operations";
+import { formatAlertRunnerStatus, formatFeedIntegrityStatus } from "../src/api/routes/operations";
 import { INTERVAL_MS } from "../src/types/market";
 
 test("operations integrity status is a cheap deterministic projection", () => {
@@ -43,4 +43,25 @@ test("operations status derives stale state from timeframe and injected read tim
   assert.equal(status.state, "degraded");
   assert.deepEqual(status.issueCodes, ["stale_latest_completed_bar"]);
   assert.equal(status.issueCounts.stale_latest_completed_bar, 2);
+});
+
+test("alert runner health requires recent evaluation evidence, not saved configuration", () => {
+  const now = Date.UTC(2026, 8, 1, 12, 7, 30);
+  assert.equal(formatAlertRunnerStatus(false, [], now).state, "disabled");
+  assert.equal(formatAlertRunnerStatus(true, [], now).state, "not_configured");
+  assert.equal(formatAlertRunnerStatus(true, [
+    { timeframe: "15m", lastBarTime: null },
+  ], now).state, "unknown");
+
+  const recent = new Date(Date.UTC(2026, 8, 1, 11, 45)).toISOString();
+  const stale = new Date(Date.UTC(2026, 8, 1, 10, 45)).toISOString();
+  assert.equal(formatAlertRunnerStatus(true, [
+    { timeframe: "15m", lastBarTime: recent },
+  ], now).state, "healthy");
+  const degraded = formatAlertRunnerStatus(true, [
+    { timeframe: "15m", lastBarTime: recent },
+    { timeframe: "15m", lastBarTime: stale },
+  ], now);
+  assert.equal(degraded.state, "degraded");
+  assert.equal(degraded.stale, 1);
 });

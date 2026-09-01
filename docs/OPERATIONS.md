@@ -10,9 +10,26 @@ things this workspace has never been able to verify.
 
 ## 1. The operator console
 
-`/operations` in the app. Every number on it is read from `/api/ops/status`, in
-the process that enforces the limits — the screen cannot disagree with the thing
-doing the enforcing.
+`/operations` in the app. The compact health overview reads `/api/ops/status`
+plus the existing authenticated `/api/scanner/health` boundary. The detailed
+controls remain below it. Risk, emitter, deployment, delivery, feed-integrity,
+alert-evaluation and database-readiness state all come from the Platform process
+and persisted rows that own those facts; Scanner remains the authority for its
+own refresh and symbol-resolution state.
+
+`Healthy` is shown only when the named source provides positive evidence. An
+empty log, a saved configuration, or the existence of a deployment is not
+treated as proof. `Unknown`, `No recent evidence`, `Not configured`, `Disabled`
+and `Not applicable` are intentional answers: they mean the current architecture
+cannot prove health, has no observation yet, or the subsystem is deliberately
+out of service. The evidence source and exact reason are expandable beside each
+summary.
+
+The overall `Halted` state is an operating mode, not a crash verdict. The Trading
+Mode row identifies an operator-selected halt separately from an automatic/risk
+block, preserves the recorded reason and time, and leaves subsystem health
+visible. Resume still uses the existing explicit confirmation flow and backend
+risk re-checks.
 
 ### Trading mode
 
@@ -62,9 +79,27 @@ an exit.
 
 ### Feed freshness
 
-Per symbol and interval: state, bars behind, gap count, newest bar, when it was
-last assessed. `unknown` is a real state — a feed that has not been assessed is
-never rendered as live (`BE-14`).
+Per Spot symbol and timeframe: integrated candle-integrity state, issue codes
+and counts, latest completed bar, completed-bar age, and last integrity-check
+time. The UI consumes the bounded incremental `feed_health` projection from
+`/api/ops/status`; it does not rescan candles or run another validator.
+`unknown` is a real state — a feed that has not been assessed is never rendered
+as live (`BE-14`).
+
+### Other subsystem evidence
+
+- **Database** — the existing readiness proof: connection plus the shipped
+  migration set. A successful page request alone is not called healthy.
+- **LiveRunner** — opt-in configuration and emitter-lease ownership. Deployments
+  are counts and operating modes, not a heartbeat.
+- **Notification Alerts** — recent `last_bar_time` evaluation watermarks for
+  active alerts. With no active alerts it says `Not configured`; with no
+  completed evaluation it says `No recent evidence`. This is not presented as a
+  process heartbeat because none exists.
+- **Scanner** — its existing `/api/health` contract: reachability, last refresh
+  error/time, and resolved/unresolved symbols. Rendering `/scanner` is not proof.
+- **Webhook delivery** — persisted signal-delivery outcomes in the existing 24h
+  window. `idle` remains `No recent evidence`, not `Healthy`.
 
 ### Signal delivery
 

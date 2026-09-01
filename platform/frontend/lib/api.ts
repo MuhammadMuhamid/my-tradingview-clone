@@ -390,7 +390,32 @@ export interface OpsStatus {
     };
   };
   bot: BotStatusConnection;
-  deployments: { total: number; active: number; long: number; paused: number };
+  database:
+    | {
+        ready: true;
+        checks: { database: "ok"; schema: "current" };
+        schema: { expected: number; applied: number; missing: string[] };
+        time: string;
+      }
+    | {
+        ready: false;
+        checks: { database: "unavailable" | "ok"; schema: "unknown" | "unavailable" | "behind" };
+        schema?: { expected: number; applied: number; missing: string[] };
+        time: string;
+      };
+  alertRunner: {
+    state: "healthy" | "degraded" | "unknown" | "disabled" | "not_configured";
+    active: number;
+    recent: number;
+    stale: number;
+    withoutEvidence: number;
+    lastEvaluatedAt: string | null;
+    reason: string;
+  };
+  deployments: {
+    total: number; active: number; long: number; paused: number;
+    paper: number; automated: number; signalOnly: number;
+  };
   delivery: {
     state: DeliveryState;
     summary: string;
@@ -409,6 +434,17 @@ export interface OpsStatus {
       symbol: string; interval: string; state: FeedState;
       lastBarTime: string | null; lastCheckedAt: string;
       barsBehind?: number | null; missingBars: number; detail?: string | null;
+      integrity: {
+        state: "healthy" | "degraded" | "invalid" | null;
+        market: "spot";
+        symbol: string;
+        interval: string;
+        latestCompletedBarTime: string | null;
+        latestCompletedBarAgeMs: number | null;
+        lastCheckedAt: string;
+        issueCodes: string[];
+        issueCounts: Record<string, number>;
+      };
     }>;
   };
   time: string;
