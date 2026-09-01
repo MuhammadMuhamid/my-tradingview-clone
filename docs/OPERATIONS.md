@@ -140,6 +140,24 @@ the Timeline creates no rows or duplicate Bot ledger. Individual Bot exchange
 fills, commission history, prior cumulative snapshots, and unpersisted
 transitions remain unavailable rather than inferred.
 
+### Trade Journal
+
+Open **Journal** for a bounded cross-source view of activity and accumulated
+known realized results. REAL and PAPER totals are separate by default. Manual
+orders and live cumulative execution reports can appear with **Unknown** P&L:
+that means execution activity is known but cost basis, disposition linkage, or
+commission evidence is not. Unknown is excluded from known totals and from
+win/loss counts; it is never displayed as zero.
+
+Daily, weekly, and monthly summaries use persisted realization time in UTC, the
+Platform's existing timestamp convention. Paper realization uses the existing
+paper accounting result. Live automated results appear only when Platform has a
+persisted signed realization row; the Journal does not fan out to the Bot per
+historical intent. Use the per-order/deployment Timeline for current exact Bot
+execution evidence. Notes are not part of this first version: Platform has no
+existing annotation persistence/ownership convention, and the smallest Journal
+can remain a pure read projection instead of adding a new writable surface.
+
 ---
 
 ## 2. Paper mode

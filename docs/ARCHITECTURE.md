@@ -208,6 +208,37 @@ lookup plus the existing bounded state fallback, and
 for one deployment, with Bot reads capped to the newest 10 exact intents.
 Neither endpoint writes, reconciles, submits, or contacts an exchange.
 
+### Trade Journal read projection
+
+The Journal answers a different question from Timeline: it projects chronological
+activity and accumulated known realized outcomes across sources, while Timeline
+explains the lifecycle evidence for one order or deployment. `GET /api/journal`
+is authenticated by the Platform's default session gate and accepts a date range
+(at most 366 days), source/symbol/strategy/deployment filters, day/week/month
+grouping, and page/limit bounds (at most 100 rows and 100 pages). Summary scans
+are hard-capped and declare truncation rather than presenting a partial total as
+complete.
+
+The projection reads existing truth; it is not another execution ledger. Durable
+live `order_intents` and linked `executions` are activity with unknown economics.
+Platform `realised_pnl` rows are realization events with their persisted signed
+result, but absent commission history remains Unknown. Paper sells reuse the
+paper engine's persisted net P&L and its no-averaging single-position relationship
+to allocate the persisted entry/exit commissions; a final sell is a closed paper
+episode and a partial sell remains a realization. ManualOrder state is fetched
+once through the existing signed state contract, never once per row, and remains
+activity unless a future authoritative cost-basis/disposition relationship exists.
+Manual BUY and SELL orders are never paired.
+
+Real and PAPER summaries are returned and rendered separately. Only rows with a
+known persisted realized result enter known totals or win/loss counts. Date
+buckets use the realization time; activity and any outcome without such a time
+cannot enter a fabricated bucket. The Journal performs no automated Bot history
+lookups, so Bot-only PartialClose evidence remains available in the demand-driven
+Timeline until it is authoritatively persisted by Platform. Individual exchange
+fills, commissions, historical cumulative snapshots, and manual realized P&L
+remain unavailable rather than inferred.
+
 User-supplied Pine runs on a **worker thread**, not this one
 (`platform/backend/src/pine/runInWorker.ts`): its own heap, a wall clock backed
 by terminating the thread, and a bounded number of concurrent runs. A heavy

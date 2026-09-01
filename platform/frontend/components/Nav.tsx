@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/optimizers", label: "Optimizers" },
   { href: "/backtests", label: "Backtests" },
   { href: "/deployments", label: "Live trading" },
+  { href: "/journal", label: "Journal" },
   { href: "/operations", label: "Operations" },
 ];
 

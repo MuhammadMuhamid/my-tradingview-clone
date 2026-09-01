@@ -803,6 +803,41 @@ export interface TradingTimeline {
   truncated: boolean;
 }
 
+export type JournalSource = "MANUAL" | "AUTOMATED" | "PAPER";
+export interface JournalSummarySlice {
+  knownRealizedPnl: number; knownRealizedRows: number; realizationRows: number;
+  knownFees: number; feeKnownRows: number; wins: number; losses: number; scratches: number;
+  incompleteRows: number; unknownEconomicRows: number; durationKnownRows: number;
+  averageDurationMs: number | null;
+}
+export interface JournalRow {
+  id: string; kind: "ACTIVITY" | "REALIZATION" | "CLOSED_TRADE";
+  source: JournalSource; environment: "REAL" | "PAPER"; symbol: string;
+  side: "BUY" | "SELL" | null; title: string; occurredAt: string;
+  entryAt: string | null; realizationAt: string | null; durationMs: number | null;
+  quantity: number | null; entryPrice: number | null; exitPrice: number | null;
+  grossRealizedPnl: number | null; fees: number | null; realizedPnl: number | null;
+  netRealizedPnl: number | null;
+  economicsState: "KNOWN" | "UNKNOWN"; feeState: "KNOWN" | "UNKNOWN";
+  evidenceState: "COMPLETE" | "INCOMPLETE"; evidenceDetail: string;
+  strategy: { id: string; key: string | null; name: string | null } | null;
+  deploymentId: string | null; config: { id: string; name: string | null } | null;
+  reason: string | null; identifiers: Record<string, string | undefined>;
+}
+export interface JournalResponse {
+  rows: JournalRow[];
+  page: { number: number; limit: number; hasNext: boolean };
+  range: { from: string; toExclusive: string; period: "day" | "week" | "month" };
+  summary: JournalSummarySlice & {
+    real: JournalSummarySlice; paper: JournalSummarySlice;
+    bySource: Array<{ source: JournalSource; summary: JournalSummarySlice }>;
+    bySymbol: Array<{ symbol: string; source: JournalSource; summary: JournalSummarySlice }>;
+    byPeriod: Array<{ bucket: string; source: JournalSource; summary: JournalSummarySlice }>;
+    evidenceRowsScanned: number; truncated: boolean;
+  };
+  limitations: string[];
+}
+
 export const api = {
   // symbols + market data
   listSymbols: (activeOnly = false) =>
@@ -894,6 +929,17 @@ export const api = {
     `/api/trading-timeline/manual-orders/${encodeURIComponent(id)}`),
   deploymentTimeline: (id: string, limit = 50) => req<TradingTimeline>(
     `/api/trading-timeline/deployments/${encodeURIComponent(id)}?limit=${limit}`),
+  journal: (query: {
+    from: string; to: string; source?: JournalSource | ""; symbol?: string;
+    deploymentId?: string; strategyId?: string; period: "day" | "week" | "month";
+    page: number; limit?: number;
+  }) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== "" && value !== undefined) params.set(key, String(value));
+    }
+    return req<JournalResponse>(`/api/journal?${params.toString()}`);
+  },
 
   /** Every tree the backend can actually reach, from its own registry. */
   optimizerTrees: () => req<{ root: string; trees: OptimizerTree[] }>(`/api/optimizer/trees`),

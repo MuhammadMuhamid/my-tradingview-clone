@@ -18,6 +18,7 @@ import { operationsRoutes } from "./routes/operations";
 import { manualTradingRoutes } from "./routes/manualTrading";
 import { scannerRoutes } from "./routes/scanner";
 import { tradingTimelineRoutes } from "./routes/tradingTimeline";
+import { journalRoutes } from "./routes/journal";
 import type { LiveRunner } from "../engine/liveRunner";
 import {
   SESSION_COOKIE, readCookie, sessionCookie, signSession, verifySession,
@@ -150,6 +151,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(manualTradingRoutes);
   app.register(scannerRoutes);
   app.register(tradingTimelineRoutes);
+  app.register(journalRoutes);
 
   return app;
 }
