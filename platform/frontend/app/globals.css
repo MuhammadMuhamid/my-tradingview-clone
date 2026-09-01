@@ -109,12 +109,36 @@ body {
   --color-ink-dim: theme("colors.ink-muted");
   --color-pos: theme("colors.up");
   --color-neg: theme("colors.down");
+  /*
+   * `--color-accent` was read by the Chart / Alert / Trade links in a row's
+   * detail panel and defined nowhere, so `outline-[var(--color-accent)]`
+   * resolved to nothing: the focus ring on the three controls that navigate
+   * out of the Scanner was invisible to a keyboard user.
+   */
+  --color-accent: theme("colors.accent");
 }
+/*
+ * One control height across the Scanner toolbar.
+ *
+ * `min-h-7` let a native <select> keep the platform's own taller box, so the
+ * buttons, the inputs and the timeframe pickers sat on three different
+ * baselines in the same row. Fixed heights and a suppressed native appearance
+ * put them on one, and the chevron is drawn back in so a select still reads as
+ * a select.
+ */
 .scanner-control {
-  @apply inline-flex min-h-7 items-center rounded border border-border px-2 py-0.5 text-xs text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
+  @apply inline-flex h-7 items-center rounded-md border border-border px-2 text-xs text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
 }
-.scanner-select, .scanner-input {
-  @apply min-h-7 rounded border border-border bg-bg px-1.5 py-0.5 text-xs text-ink;
+.scanner-input {
+  @apply h-7 rounded-md border border-border bg-bg px-2 text-xs text-ink outline-none focus:border-accent;
+}
+.scanner-select {
+  @apply h-7 rounded-md border border-border bg-bg py-0 pl-2 pr-5 text-xs text-ink outline-none focus:border-accent;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='none' stroke='%239aa4b6' stroke-width='2'%3E%3Cpath d='M2 4l3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
 }
 .scanner-workspace .num { font-variant-numeric: tabular-nums; text-align: right; }
 .scanner-workspace .sticky-col {
@@ -133,6 +157,28 @@ body {
   border-bottom: 1px solid var(--color-line);
   font-size: 12px;
   line-height: 20px;
+}
+/*
+ * Alternating rows: a 20px row in a 30-column table needs the eye helped
+ * across it, and a hairline border alone does not do that at this density.
+ *
+ * `.sticky-col` is excluded from both rules and tinted separately. It scrolls
+ * over the other columns, so it must stay opaque — a translucent zebra on it
+ * let the cells sliding underneath show through the symbol.
+ */
+.scanner-workspace table.dense tbody tr:nth-child(odd) > td:not(.sticky-col) {
+  background: color-mix(in srgb, var(--color-surface-2) 45%, transparent);
+}
+.scanner-workspace table.dense tbody tr:hover > td:not(.sticky-col) {
+  background: var(--color-surface-3);
+}
+.scanner-workspace table.dense tbody tr:hover > td.sticky-col {
+  background: var(--color-surface-3);
+}
+.scanner-workspace table.dense thead tr:first-child th {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-bottom-color: transparent;
 }
 .scanner-workspace table.dense td.row-detail,
 .scanner-workspace table.dense td.row-detail * { white-space: normal; }

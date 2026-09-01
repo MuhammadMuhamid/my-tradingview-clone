@@ -29,6 +29,16 @@ interface Props {
   onRemoveSymbol?: (symbol: string) => void;
 }
 
+/** Group open/closed state, so the header carries a name rather than a verb. */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {open ? <path d="M2 4.5L6 8.5l4-4" /> : <path d="M4.5 2l4 4-4 4" />}
+    </svg>
+  );
+}
+
 export function ScreenerTable({
   snapshot,
   filters,
@@ -130,10 +140,13 @@ export function ScreenerTable({
                   >
                     <button
                       onClick={() => onToggleGroup(group)}
-                      className="text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]"
+                      className="flex items-center gap-1 text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]"
                       title={`Expand ${group}`}
+                      aria-expanded={false}
+                      aria-label={`Expand the ${group} columns`}
                     >
-                      Expand {group}
+                      <Chevron open={false} />
+                      {group}
                     </button>
                   </th>
                 );
@@ -148,12 +161,23 @@ export function ScreenerTable({
                   }`}
                 >
                   <span className="flex items-center gap-2">
+                    {/*
+                      The group's NAME, with a chevron for its state. These read
+                      "Collapse EMA" — an instruction where a column-group label
+                      belongs, so the header row of a dense table said what
+                      clicking would do four times over and never said what the
+                      columns underneath were. The action is still announced,
+                      on the control.
+                    */}
                     <button
                       onClick={() => onToggleGroup(group)}
-                      className="hover:text-[var(--color-ink-dim)]"
+                      className="flex items-center gap-1 font-semibold text-[var(--color-ink)] hover:text-[var(--color-ink-dim)]"
                       title={`Collapse ${group}`}
+                      aria-expanded
+                      aria-label={`Collapse the ${group} columns`}
                     >
-                      Collapse {group}
+                      <Chevron open />
+                      {group}
                     </button>
                     {indicator && (
                       <select
