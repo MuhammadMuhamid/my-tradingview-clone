@@ -30,6 +30,8 @@ export interface AppConfig {
   manualTradingEnabled: boolean;
   manualTradingBotUrl: string;
   manualTradingHmacSecret: string;
+  /** Canonical Scanner service. Browser code never receives this address. */
+  scannerServiceUrl: string;
 }
 
 /**
@@ -100,6 +102,9 @@ export const config: AppConfig = {
   manualTradingEnabled: process.env.MANUAL_TRADING_ENABLED === "true",
   manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
+  scannerServiceUrl: (process.env.SCANNER_SERVICE_URL ?? (
+    (process.env.NODE_ENV ?? "").toLowerCase() === "production" ? "" : "http://127.0.0.1:8000"
+  )).replace(/\/$/, ""),
 };
 
 // ── Fail closed ───────────────────────────────────────────────────────────────
@@ -145,6 +150,15 @@ if (config.manualTradingEnabled) {
   const manualBotUrl = new URL(config.manualTradingBotUrl);
   if (!/^https?:$/.test(manualBotUrl.protocol) || manualBotUrl.username || manualBotUrl.password) {
     throw new Error("MANUAL_TRADING_BOT_URL must be an http(s) URL without embedded credentials");
+  }
+}
+if (config.scannerServiceUrl) {
+  const scannerUrl = new URL(config.scannerServiceUrl);
+  if (!/^https?:$/.test(scannerUrl.protocol) || scannerUrl.username || scannerUrl.password ||
+      scannerUrl.search || scannerUrl.hash || scannerUrl.pathname !== "/") {
+    throw new Error(
+      "SCANNER_SERVICE_URL must be an http(s) origin without credentials, path, query, or fragment"
+    );
   }
 }
 
