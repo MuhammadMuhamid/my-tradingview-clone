@@ -85,10 +85,28 @@ export function ema(src: number[], len: number): (number | null)[] {
   return out;
 }
 
+/**
+ * Decimal places for a price of this magnitude — the same adaptive rule
+ * `fmtPrice` uses, so a moving average and the price it tracks are never shown
+ * at two different precisions.
+ */
+export function pricePrecision(price: number): number {
+  const abs = Math.abs(price);
+  return abs >= 100 ? 2 : abs >= 1 ? 4 : 6;
+}
+
 /** Turn the visible lines into chart overlays for the given candles. */
 export function buildMaOverlays(candles: Candle[], lines: MaLine[]): ChartOverlay[] {
   if (candles.length === 0) return [];
   const closes = candles.map((c) => c.close);
+  /*
+   * Read the moving averages at the instrument's own price precision. Without
+   * a stated precision the formatter falls back to the magnitude of each
+   * individual value, so one legend row showed `210.228` beside `212.3651`
+   * beside `216.9878` — three different precisions for three prices of the
+   * same instrument, which is noise, not information.
+   */
+  const precision = pricePrecision(closes[closes.length - 1] ?? 0);
   // Chart times are seconds; candle openTime is epoch milliseconds.
   const times = candles.map((c) => Math.floor(c.openTime / 1000));
 
@@ -105,6 +123,7 @@ export function buildMaOverlays(candles: Candle[], lines: MaLine[]): ChartOverla
         color: maColor(l.length),
         width: l.length >= 100 ? 2 : 1,
         dashed: l.type === "ema",
+        precision,
         data: times.map((time, i) => ({ time, value: series[i] })),
       };
     });

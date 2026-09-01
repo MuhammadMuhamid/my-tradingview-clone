@@ -123,7 +123,15 @@ export function toChartOutput(
   params: PineParams = {}
 ): Pick<AppliedIndicator, "overlays" | "decorations" | "barColors" | "markers" | "drawings" | "trades"> {
   const times = r.times ?? [];
-  const instanceTitle = `${r.meta.shortTitle || r.meta.title} · ${key.slice(-5)}`;
+  /*
+   * The script's own name, and nothing else. This used to carry the instance
+   * key (`RSI · ind_b`), which put an internal identifier in front of the user
+   * on every indicator whether or not anything needed distinguishing. Two
+   * copies of one script are told apart by their arguments — which is what the
+   * parameter summary beside the name is for — and by an ordinal added at
+   * render time when even those match.
+   */
+  const instanceTitle = r.meta.shortTitle || r.meta.title;
   const activeParams = r.meta.inputs
     .map((input) => [input.title, params[input.key] ?? input.defval] as const)
     .filter(([, value]) => value !== "" && value !== undefined)

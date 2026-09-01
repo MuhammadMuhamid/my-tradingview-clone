@@ -93,7 +93,10 @@ test("Pine output preserves styles, gaps, dynamic colours, hlines and instance i
     [40, "#111111"], [null, null], [60, "#333333"],
   ]);
   assert.deepEqual(output.overlays[1]!.data.map((point) => point.value), [70, 70]);
-  assert.match(output.overlays[0]!.instanceTitle!, /nce-a/);
+  // Instance identity is the pane/series id, not the display title: the key
+  // used to be printed in front of the user on every indicator.
+  assert.equal(output.overlays[0]!.instanceId, "instance-a");
+  assert.equal(output.overlays[0]!.instanceTitle, "RSI");
 });
 
 test("Pine visual contracts preserve pane ownership, handles, offsets and custom OHLC", () => {
@@ -184,4 +187,38 @@ test("barcolor precedence is deterministic and candle updates stay incremental",
       new Map<number, string>([[1, "#ffffff"], [3, "#333333"]])),
     "replace"
   );
+});
+
+test("an indicator instance is named by its script, not by its internal key", () => {
+  const run: PineRunResult = {
+    ok: true, errors: [],
+    meta: {
+      kind: "indicator", title: "Relative Strength Index", shortTitle: "RSI",
+      overlay: false, format: "price", precision: 2,
+      inputs: [{ key: "len", title: "Length", type: "int", defval: 14 }], warnings: [],
+    },
+    times: [1, 2],
+    plots: [{
+      id: "rsi", title: "RSI", color: "#fff", width: 1, style: "line", offset: 0,
+      forceOverlay: false, renderable: true, colors: [], data: [1, 2],
+    }],
+  };
+  const out = toChartOutput("ind_abcdef", run, { len: 14 });
+  assert.equal(out.overlays[0]!.instanceTitle, "RSI");
+  assert.equal(out.overlays[0]!.instanceParams, "Length 14");
+  // The key still separates the two instances' series and panes.
+  assert.equal(out.overlays[0]!.instanceId, "ind_abcdef");
+  assert.equal(out.overlays[0]!.paneId, "indicator:ind_abcdef");
+});
+
+test("only instances a reader could not otherwise tell apart get an ordinal", () => {
+  const grouped = groupChartOverlays([
+    { ...overlay("a", "indicator:a"), instanceTitle: "RSI", instanceParams: "Length 14" },
+    { ...overlay("b", "indicator:b"), instanceTitle: "RSI", instanceParams: "Length 7" },
+    { ...overlay("c", "indicator:c"), instanceTitle: "RSI", instanceParams: "Length 14" },
+    { ...overlay("d", "indicator:d"), instanceTitle: "MACD", instanceParams: "Fast 12" },
+  ]);
+  assert.deepEqual(grouped.panes.map((p) => p.title), [
+    "RSI (1)", "RSI", "RSI (2)", "MACD",
+  ]);
 });

@@ -112,6 +112,9 @@ export type PaneAction = "hide" | "settings" | "remove";
 export function IndicatorPane({
   id, title, params, overlays, decorations, hoverTime, onHover, onReady, onRangeChange,
   onAction,
+  showTimeAxis = true,
+  defaultHeight = 144,
+  compact = false,
 }: {
   id: string;
   title: string;
@@ -128,16 +131,46 @@ export function IndicatorPane({
    * split-view panes want.
    */
   onAction?: (paneId: string, action: PaneAction) => void;
+  /**
+   * Draw the time axis under this pane. Only the bottom-most pane does: the
+   * panes are horizontally locked to the price chart, so repeating the same
+   * axis under each one spent a row of pixels per pane to say the same thing
+   * three times over. TradingView draws it once, at the bottom.
+   */
+  showTimeAxis?: boolean;
+  /**
+   * Opening height. Shrinks as panes are added so a third oscillator does not
+   * push the stack past the space it is allowed and get clipped mid-body.
+   * A pane the user has resized keeps its own height.
+   */
+  defaultHeight?: number;
+  /**
+   * Phone layout. A pane is ~106px tall there, and the desktop presentation
+   * spends three wrapped legend rows and a column of `Overbought 70.00`-width
+   * axis badges on top of it — most of the oscillator the pane exists to show.
+   * Compact starts the legend collapsed and drops the series names from the
+   * scale, keeping the values.
+   */
+  compact?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef(new Map<string, SeriesEntry>());
-  const [height, setHeight] = useState(144);
+  const [height, setHeight] = useState(defaultHeight);
+  /** Once the user drags the handle, the pane count stops moving the height. */
+  const resizedRef = useRef(false);
+  useEffect(() => {
+    if (!resizedRef.current) setHeight(defaultHeight);
+  }, [defaultHeight]);
   const [ready, setReady] = useState(0);
   const onHoverRef = useRef(onHover);
   onHoverRef.current = onHover;
   const onRangeRef = useRef(onRangeChange);
   onRangeRef.current = onRangeChange;
+  /** Read at creation; kept in sync by its own effect so the chart is not
+   *  rebuilt when a pane is added below this one. */
+  const showTimeAxisRef = useRef(showTimeAxis);
+  showTimeAxisRef.current = showTimeAxis;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -152,7 +185,10 @@ export function IndicatorPane({
       rightPriceScale: {
         borderColor: "#232b3a", scaleMargins: { top: 0.12, bottom: 0.12 },
       },
-      timeScale: { borderColor: "#232b3a", timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: "#232b3a", timeVisible: true, secondsVisible: false,
+        visible: showTimeAxisRef.current,
+      },
       autoSize: true,
     });
     const crosshair = (param: { time?: Time }): void =>
@@ -238,7 +274,7 @@ export function IndicatorPane({
         lineType: overlay.style === "stepline" ? LineType.WithSteps : LineType.Simple,
         lineVisible: overlay.style !== "circles" && overlay.style !== "cross",
         pointMarkersVisible: overlay.style === "circles",
-        title: overlay.title,
+        title: compact ? "" : overlay.title,
       });
       else if (entry.kind === "Histogram") entry.api.applyOptions({ color: overlay.color });
       else if (entry.kind === "Area") entry.api.applyOptions({ lineColor: overlay.color });
@@ -255,7 +291,7 @@ export function IndicatorPane({
       else if (plan === "update") updateData(entry, points[points.length - 1]!);
     }
     onReady(id, chart);
-  }, [id, onReady, overlays, ready]);
+  }, [id, onReady, overlays, ready, compact]);
 
   // Keep the pane's crosshair aligned with price and sibling panes. Use the
   // first plot that has a value at this time only as the vertical anchor; all
@@ -283,8 +319,13 @@ export function IndicatorPane({
     return entry ? entry.api.priceToCoordinate(value) as number | null : null;
   }, []);
 
+  useEffect(() => {
+    chartRef.current?.timeScale().applyOptions({ visible: showTimeAxis });
+  }, [showTimeAxis, ready]);
+
   const beginResize = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
+    resizedRef.current = true;
     const startY = event.clientY;
     const startHeight = height;
     const move = (next: PointerEvent): void =>
@@ -332,6 +373,9 @@ export function IndicatorPane({
         <IndicatorLegend
           overlays={overlays}
           time={hoverTime}
+          title={title}
+          collapsible={compact}
+          startCollapsed={compact}
           className="min-w-0 rounded bg-[#121722]/80 px-1.5 py-0.5"
         />
         {onAction && (

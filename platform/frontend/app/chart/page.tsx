@@ -29,6 +29,8 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { SyncMenu } from "@/components/tv/SyncMenu";
 import { DEFAULT_SYNC, loadSync, saveSync, type SyncOptions } from "@/lib/paneSync";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
+import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
+import { loadChartType, saveChartType, type ChartType } from "@/lib/chartType";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import { ManualTradingPanel } from "@/components/tv/ManualTradingPanel";
 import * as drawStore from "@/lib/drawings";
@@ -214,6 +216,17 @@ export default function TvWorkspace() {
     });
   }, []);
 
+  /**
+   * How the price series is drawn. Workspace furniture rather than analysis
+   * state, so it lives beside the split/bottom preferences in localStorage
+   * instead of the saved layout.
+   */
+  const [chartType, setChartType] = useState<ChartType>("candles");
+  const changeChartType = useCallback((next: ChartType) => {
+    setChartType(next);
+    saveChartType(next);
+  }, []);
+
   // ── split view: a second pane on the same symbol, its own timeframe ──
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitInterval, setSplitInterval] = useState<Interval>("1h");
@@ -226,7 +239,15 @@ export default function TvWorkspace() {
     // SEPARATE preferences: a tester left open on a large screen must not open
     // itself on a phone, where it would take over half the chart.
     const storedBottom = window.localStorage.getItem(bottomKey());
-    setBottomCollapsed(storedBottom === null ? window.innerWidth < 768 : storedBottom === "1");
+    /*
+     * Default closed on every form factor, not only on phones. The panel opens
+     * on an empty placeholder that says "hit Run backtest", and it was taking
+     * ~40% of the workspace to say it — on a chart-first product that is the
+     * most expensive blank space on the screen. The tab strip stays visible as
+     * the handle, and once a user opens it the preference is theirs.
+     */
+    setBottomCollapsed(storedBottom === null ? true : storedBottom === "1");
+    setChartType(loadChartType());
     const split = window.localStorage.getItem("tv.split");
     if (split) {
       try {
@@ -868,9 +889,21 @@ export default function TvWorkspace() {
               </button>
             ))}
           </div>
+          <Separator className="hidden sm:inline-block" />
+          <ChartTypeMenu value={chartType} onChange={changeChartType} />
           {/* Secondary controls: always inline on desktop, behind ⋯ on phones. */}
-          <div className={`${moreOpen ? "flex" : "hidden"} order-last w-full flex-wrap items-center gap-2 border-t border-border pt-1.5 md:order-none md:flex md:w-auto md:border-0 md:pt-0`}>
-          <Separator className="hidden md:inline-block" />
+          {/*
+            Secondary controls: inline on a wide screen, behind ⋯ below it.
+            The threshold used to be 768px, which meant a 1024px laptop with
+            the watchlist open laid these out across THREE wrapped rows —
+            nearly a third of the viewport spent on chrome before the first
+            candle. They cannot be put in a horizontal scroller instead: the
+            layout and sync menus open downwards out of it, and a scroll
+            container would clip them. So below `xl` they collapse behind the
+            same ⋯ toggle the phone layout already uses.
+          */}
+          <div className={`${moreOpen ? "flex" : "hidden"} order-last w-full flex-wrap items-center gap-2 border-t border-border pt-1.5 xl:order-none xl:flex xl:w-auto xl:border-0 xl:pt-0`}>
+          <Separator className="hidden xl:inline-block" />
           <div className="flex items-center gap-0.5">
             {HISTORY_OPTIONS.map((h) => (
               <button key={h.label} onClick={() => setBars(h.bars)}
@@ -955,8 +988,8 @@ export default function TvWorkspace() {
             </svg>
             {loadingBest ? "Loading…" : "Best"}
           </button>
-          <div className="flex items-center gap-3 md:ml-auto">
-            <span className="tabular text-xs text-ink-muted">
+          <div className="flex shrink-0 items-center gap-3 xl:ml-auto">
+            <span className="tabular whitespace-nowrap text-xs text-ink-muted">
               {last && <>Last <span className="text-ink">{fmtPrice(last.close)}</span></>}
               <span className="ml-3 text-ink-faint">
                 {candles.length.toLocaleString()} bars{loading ? " · loading…" : ""}
@@ -973,11 +1006,11 @@ export default function TvWorkspace() {
           </div>
           </div>
 
-          {/* Phone-only overflow toggle for everything above. */}
+          {/* Overflow toggle for the secondary controls, below `xl`. */}
           <button
             onClick={() => setMoreOpen((v) => !v)}
             aria-label={moreOpen ? "Fewer controls" : "More controls"}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md md:hidden ${
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md xl:hidden ${
               moreOpen ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
             }`}
           >
@@ -1055,6 +1088,7 @@ export default function TvWorkspace() {
               markers={indicators.markers}
               pineDrawings={indicators.drawings}
               priceLines={allPriceLines} live fill compact={isMobile}
+              chartType={chartType}
               onLiveBarBoundary={liveBarBoundary}
               onPriceSelect={pickingLevel ? pickLevel : undefined}
               drawingTool={tool}

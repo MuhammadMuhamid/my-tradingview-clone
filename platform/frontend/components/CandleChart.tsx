@@ -20,6 +20,9 @@ import {
   groupChartOverlays, planColoredCandleMutation, planSeriesMutation,
   type ChartBarColor, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
+import {
+  mainSeriesDatum, type ChartType, type MainSeriesDatum,
+} from "@/lib/chartType";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
 
@@ -84,6 +87,21 @@ type OverlaySeriesEntry =
   | { kind: "Candlestick"; api: ISeriesApi<"Candlestick">; data: ChartPoint[] }
   | { kind: "Bar"; api: ISeriesApi<"Bar">; data: ChartPoint[] };
 
+/**
+ * Opening height for each indicator pane, given how many there are.
+ *
+ * The stack is capped at a share of the chart column, and a fixed per-pane
+ * height meant a third oscillator overflowed that cap and was drawn cut in
+ * half. Shrinking as panes are added keeps the common cases whole; the user's
+ * own resize always wins over this.
+ */
+function defaultPaneHeight(paneCount: number): number {
+  if (paneCount <= 1) return 160;
+  if (paneCount === 2) return 144;
+  if (paneCount === 3) return 124;
+  return 106;
+}
+
 function overlaySeriesKind(overlay: ChartOverlay): OverlaySeriesEntry["kind"] {
   if (overlay.style === "histogram" || overlay.style === "columns") return "Histogram";
   if (overlay.style === "area") return "Area";
@@ -138,6 +156,55 @@ function customCandleDatum(point: ChartPoint): CandlestickData<Time> | Whitespac
     : { time: point.time as UTCTimestamp };
 }
 
+/**
+ * The main price series, in whichever presentation is selected.
+ *
+ * lightweight-charts types `setData`/`update` per series kind, so the two
+ * helpers below are the single place the datum shape is reconciled with the
+ * series that receives it. Everything else — markers, price lines, the
+ * crosshair, the drawing layers — uses only methods every series kind shares.
+ */
+type MainSeriesApi =
+  | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line"> | ISeriesApi<"Area">;
+
+function setMainSeriesData(api: MainSeriesApi, kind: ChartType, rows: MainSeriesDatum[]): void {
+  const data = rows as unknown;
+  if (kind === "candles") (api as ISeriesApi<"Candlestick">).setData(data as CandlestickData<Time>[]);
+  else if (kind === "bars") (api as ISeriesApi<"Bar">).setData(data as BarData<Time>[]);
+  else if (kind === "area") (api as ISeriesApi<"Area">).setData(data as AreaData<Time>[]);
+  else (api as ISeriesApi<"Line">).setData(data as LineData<Time>[]);
+}
+
+function updateMainSeries(api: MainSeriesApi, kind: ChartType, row: MainSeriesDatum): void {
+  const datum = row as unknown;
+  if (kind === "candles") (api as ISeriesApi<"Candlestick">).update(datum as CandlestickData<Time>);
+  else if (kind === "bars") (api as ISeriesApi<"Bar">).update(datum as BarData<Time>);
+  else if (kind === "area") (api as ISeriesApi<"Area">).update(datum as AreaData<Time>);
+  else (api as ISeriesApi<"Line">).update(datum as LineData<Time>);
+}
+
+/** Create the main series for a presentation, in the shared price palette. */
+function addMainSeries(chart: IChartApi, kind: ChartType): MainSeriesApi {
+  if (kind === "candles") {
+    return chart.addCandlestickSeries({
+      upColor: "#2ebd85", downColor: "#f6465d",
+      borderUpColor: "#2ebd85", borderDownColor: "#f6465d",
+      wickUpColor: "#2ebd85", wickDownColor: "#f6465d",
+    });
+  }
+  if (kind === "bars") {
+    return chart.addBarSeries({ upColor: "#2ebd85", downColor: "#f6465d", thinBars: false });
+  }
+  if (kind === "area") {
+    return chart.addAreaSeries({
+      lineColor: "#4f8cff", lineWidth: 2,
+      topColor: "rgba(79,140,255,0.28)", bottomColor: "rgba(79,140,255,0.02)",
+      priceLineVisible: false,
+    });
+  }
+  return chart.addLineSeries({ color: "#4f8cff", lineWidth: 2, priceLineVisible: false });
+}
+
 function customBarDatum(point: ChartPoint): BarData<Time> | WhitespaceData<Time> {
   return visiblePoint(point) && [point.open, point.high, point.low, point.close].every(Number.isFinite)
     ? {
@@ -172,6 +239,7 @@ export function CandleChart({
   symbol, interval, candles, trades, priceLines, overlays, decorations, barColors,
   markers, pineDrawings,
   live = true, fill = false,
+  chartType = "candles",
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
   magnet = false, drawingsLocked = false, drawingsHidden = false,
   onPriceSelect,
@@ -250,10 +318,23 @@ export function CandleChart({
   compact?: boolean;
   /** Completed + newly-forming bars, emitted once per live bar boundary. */
   onLiveBarBoundary?: (closed: Candle | null, current: Candle) => void;
+  /**
+   * How the main price series is drawn. Presentation only — the candles, the
+   * indicators, the drawings and the alerts are untouched by it.
+   */
+  chartType?: ChartType;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const seriesRef = useRef<MainSeriesApi | null>(null);
+  /** Which presentation `seriesRef` currently holds, for the typed writes. */
+  const mainKindRef = useRef<ChartType>(chartType);
+  /**
+   * Set when the main series has just been recreated, so the data effect
+   * repaints the whole history into it instead of taking the `update()` path
+   * that assumes the previous series is still on screen.
+   */
+  const mainSeriesDirtyRef = useRef(true);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const overlayRefs = useRef<Map<string, OverlaySeriesEntry>>(new Map());
   const paneChartRefs = useRef<Map<string, IChartApi>>(new Map());
@@ -284,6 +365,9 @@ export function CandleChart({
   const [feedState, setFeedState] = useState<ChartFeedState>("idle");
   /** bumped once the chart/series exist, so the drawing layer can attach */
   const [chartReady, setChartReady] = useState(0);
+  /** bumped only when the chart itself is (re)created, so the series effect
+   *  can depend on it without re-triggering itself through `chartReady`. */
+  const [chartCreated, setChartCreated] = useState(0);
   const groupedOverlays = useMemo(
     () => groupChartOverlays(overlays ?? [], decorations ?? []),
     [overlays, decorations]
@@ -374,11 +458,6 @@ export function CandleChart({
       timeScale: { borderColor: "#232b3a", timeVisible: true, secondsVisible: false },
       autoSize: true,
     });
-    const series = chart.addCandlestickSeries({
-      upColor: "#2ebd85", downColor: "#f6465d",
-      borderUpColor: "#2ebd85", borderDownColor: "#f6465d",
-      wickUpColor: "#2ebd85", wickDownColor: "#f6465d",
-    });
     const vol = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "vol",
@@ -418,9 +497,8 @@ export function CandleChart({
     });
 
     chartRef.current = chart;
-    seriesRef.current = series;
     volRef.current = vol;
-    setChartReady((n) => n + 1);
+    setChartCreated((n) => n + 1);
     return () => {
       chart.remove();
       chartRef.current = null;
@@ -431,6 +509,31 @@ export function CandleChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /*
+   * The main price series lives in its own effect so the presentation can be
+   * changed without recreating the chart. Swapping the series keeps the time
+   * scale — and therefore the viewport — exactly where the user left it; only
+   * the series is torn down, and the data effect below repaints into the new
+   * one. `chartReady` is bumped so the drawing layers, which hold a reference
+   * to the series for price/coordinate conversion, remount against it.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const series = addMainSeries(chart, chartType);
+    seriesRef.current = series;
+    mainKindRef.current = chartType;
+    mainSeriesDirtyRef.current = true;
+    setChartReady((n) => n + 1);
+    return () => {
+      // When the whole chart went away the series went with it, and asking a
+      // disposed chart to remove it throws.
+      if (chartRef.current !== chart) return;
+      chart.removeSeries(series);
+      if (seriesRef.current === series) seriesRef.current = null;
+    };
+  }, [chartType, chartCreated]);
+
   // Load candles without rebuilding all 10,000 points for a last-bar update.
   useEffect(() => {
     const series = seriesRef.current;
@@ -440,38 +543,37 @@ export function CandleChart({
     const nextColors = new Map(
       (barColors ?? []).flatMap((point) => point.color === null ? [] : [[point.time, point.color] as const])
     );
-    const mutation = datasetKeyRef.current === datasetKey
-      ? planColoredCandleMutation(candlesRef.current, candles, barColorRef.current, nextColors)
-      : "replace";
+    // A freshly created series holds nothing, so it must be filled from
+    // scratch — but that is not a reason to refit the time scale, which is
+    // what makes a presentation change viewport-preserving.
+    const mutation = mainSeriesDirtyRef.current || datasetKeyRef.current !== datasetKey
+      ? "replace"
+      : planColoredCandleMutation(candlesRef.current, candles, barColorRef.current, nextColors);
     candlesRef.current = [...candles];
     barColorRef.current = nextColors;
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
     setLegend(candles.length > 0 ? legendFromIndex(candles.length - 1) : null);
-    const candleDatum = (c: Candle) => {
-      const color = nextColors.get(c.openTime / 1000);
-      return {
-        time: (c.openTime / 1000) as UTCTimestamp,
-        open: c.open, high: c.high, low: c.low, close: c.close,
-        ...(color ? { color, borderColor: color, wickColor: color } : {}),
-      };
-    };
+    const kind = mainKindRef.current;
+    const candleDatum = (c: Candle) =>
+      mainSeriesDatum(kind, c, nextColors.get(c.openTime / 1000) ?? null);
     const volumeDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       value: c.volume,
       color: c.close >= c.open ? "#1c3a30" : "#3a1c24",
     });
     if (mutation === "replace") {
-      series.setData(candles.map(candleDatum));
+      setMainSeriesData(series, kind, candles.map(candleDatum));
       vol.setData(candles.map(volumeDatum));
+      mainSeriesDirtyRef.current = false;
     } else if (mutation === "update" && candles.length > 0) {
-      series.update(candleDatum(candles[candles.length - 1]!));
+      updateMainSeries(series, kind, candleDatum(candles[candles.length - 1]!));
       vol.update(volumeDatum(candles[candles.length - 1]!));
     }
     if (datasetKeyRef.current !== datasetKey) {
       datasetKeyRef.current = datasetKey;
       chartRef.current?.timeScale().fitContent();
     }
-  }, [candles, symbol, interval, legendFromIndex, barColors]);
+  }, [candles, symbol, interval, legendFromIndex, barColors, chartReady]);
 
   // Markers update independently: adding an indicator must not reset zoom.
   useEffect(() => {
@@ -528,7 +630,7 @@ export function CandleChart({
     } else {
       series.setMarkers([]);
     }
-  }, [candles, trades, markers]);
+  }, [candles, trades, markers, chartReady]);
 
   // Live stop / target / entry levels for a running position.
   useEffect(() => {
@@ -545,7 +647,7 @@ export function CandleChart({
         title: l.title,
       }));
     return () => { for (const line of drawn) series.removePriceLine(line); };
-  }, [priceLines]);
+  }, [priceLines, chartReady]);
 
   // Pick a price level by clicking the chart. Subscribed only while a handler
   // exists — see `onPriceSelect`.
@@ -591,6 +693,14 @@ export function CandleChart({
         type: "price" as const, precision, minMove: 10 ** -precision,
       };
       const lastValueVisible = !compact && overlay.instanceId !== "moving-averages";
+      /*
+       * lightweight-charts draws the series `title` on the price scale even
+       * when the last value is hidden, so ten moving averages stamped ten
+       * name-only badges down the axis and buried the price ticks under them.
+       * The scale is for prices: a label earns its place there only when it
+       * carries a value. Every series is still named in the legend.
+       */
+      const axisTitle = lastValueVisible ? overlay.title : "";
       if (!entry) {
         if (kind === "Histogram") {
           entry = { kind, api: chart.addHistogramSeries({
@@ -636,23 +746,23 @@ export function CandleChart({
         lineVisible: overlay.style !== "circles" && overlay.style !== "cross",
         pointMarkersVisible: overlay.style === "circles",
         lastValueVisible,
-        title: compact ? "" : overlay.title,
+        title: axisTitle,
       });
       else if (entry.kind === "Histogram") entry.api.applyOptions({
-        color: overlay.color, lastValueVisible, title: compact ? "" : overlay.title,
+        color: overlay.color, lastValueVisible, title: axisTitle,
       });
       else if (entry.kind === "Area") entry.api.applyOptions({
-        lineColor: overlay.color, lastValueVisible, title: compact ? "" : overlay.title,
+        lineColor: overlay.color, lastValueVisible, title: axisTitle,
       });
       else if (entry.kind === "Candlestick") entry.api.applyOptions({
         upColor: overlay.color, downColor: overlay.color,
         borderUpColor: overlay.color, borderDownColor: overlay.color,
         wickUpColor: overlay.color, wickDownColor: overlay.color,
-        lastValueVisible, title: compact ? "" : overlay.title,
+        lastValueVisible, title: axisTitle,
       });
       else entry.api.applyOptions({
         upColor: overlay.color, downColor: overlay.color,
-        lastValueVisible, title: compact ? "" : overlay.title,
+        lastValueVisible, title: axisTitle,
       });
       const points = overlay.data.filter((point) =>
         Number.isFinite(point.time) && point.time >= first && point.time <= lastTime);
@@ -682,9 +792,6 @@ export function CandleChart({
    */
   useEffect(() => {
     if (!live) { setFeedState("idle"); return; }
-    const series = seriesRef.current;
-    const vol = volRef.current;
-    if (!series || !vol) return;
 
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -737,11 +844,16 @@ export function CandleChart({
         if (!msg.k) return;
         const k = msg.k;
         const time = (k.t / 1000) as UTCTimestamp;
-        const override = barColorRef.current.get(k.t / 1000);
-        series.update({
-          time, open: +k.o, high: +k.h, low: +k.l, close: +k.c,
-          ...(override ? { color: override, borderColor: override, wickColor: override } : {}),
-        });
+        // Read through the refs: the main series is replaced when the user
+        // changes presentation, and capturing it here would leave the feed
+        // writing into a series that is no longer on the chart.
+        const series = seriesRef.current;
+        const vol = volRef.current;
+        if (!series || !vol) return;
+        const override = barColorRef.current.get(k.t / 1000) ?? null;
+        updateMainSeries(series, mainKindRef.current, mainSeriesDatum(mainKindRef.current, {
+          openTime: k.t, open: +k.o, high: +k.h, low: +k.l, close: +k.c,
+        }, override));
         vol.update({ time, value: +k.v, color: +k.c >= +k.o ? "#1c3a30" : "#3a1c24" });
 
         // Mirror the forming candle into the legend source so the readout
@@ -875,6 +987,16 @@ export function CandleChart({
     }
   }, [followEdgeTime, visibleRange, chartReady]);
 
+  /*
+   * The panes are horizontally locked to the price chart, so only the bottom
+   * one needs an axis. Repeating it under every pane cost a row of pixels each
+   * and drew the same numbers three times; TradingView draws it once.
+   */
+  const hasPanes = groupedOverlays.panes.length > 0;
+  useEffect(() => {
+    chartRef.current?.timeScale().applyOptions({ visible: !hasPanes });
+  }, [hasPanes, chartCreated]);
+
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
   const px = up ? "text-[#2ebd85]" : "text-[#f6465d]";
@@ -918,8 +1040,17 @@ export function CandleChart({
           hidden={drawingsHidden}
         />
       )}
+      {/*
+        One stacked column, not two independently positioned overlays. The OHLC
+        readout is width-capped so it cannot run underneath the feed-state badge
+        opposite — "feed stalled — price is not current" is the one message on
+        this chart that must never be half-covered — and capping it means it can
+        wrap, which is exactly when a second overlay pinned to a fixed offset
+        would have been drawn straight through it.
+      */}
+      <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex max-w-[calc(100%-130px)] flex-col items-start gap-0.5">
       {legend && (
-        <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap items-baseline gap-x-2 rounded bg-[#121722]/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-[#9aa4b6] sm:text-[11px]">
+        <div className="flex flex-wrap items-baseline gap-x-2 rounded bg-[#121722]/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-[#9aa4b6] sm:text-[11px]">
           <span className="font-semibold text-[#e5e9f0]">{symbol}</span>
           <span>· {interval} ·</span>
           {/* O/H/L and volume are the first things to go on a phone: the close
@@ -939,8 +1070,10 @@ export function CandleChart({
       <IndicatorLegend
         overlays={groupedOverlays.price}
         time={indicatorHoverTime}
-        className="absolute left-2 top-7 z-10 max-w-[calc(100%-72px)] rounded bg-[#121722]/75 px-1.5 py-0.5"
+        startCollapsed={compact}
+        className="max-w-full rounded bg-[#121722]/75 px-1 py-0.5"
       />
+      </div>
       {/*
         FE-09: the feed's real state, next to the price it is supposed to be
         updating. A frozen price used to look exactly like a live one.
@@ -952,7 +1085,7 @@ export function CandleChart({
         <div
           role="status"
           aria-live="polite"
-          className={`pointer-events-none absolute right-2 top-1.5 z-10 flex items-center gap-1.5 rounded px-2 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState].className}`}
+          className={`pointer-events-none absolute right-2 top-1.5 z-10 flex max-w-[60%] items-center gap-1.5 rounded px-2 py-0.5 text-right font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState].className}`}
         >
           <span aria-hidden="true">●</span>
           {FEED_BADGE[feedState].label}
@@ -960,8 +1093,8 @@ export function CandleChart({
       )}
       </div>
       {groupedOverlays.panes.length > 0 && (
-        <div className="max-h-[48%] shrink-0 overflow-y-auto bg-[#121722]">
-          {groupedOverlays.panes.map((pane) => (
+        <div className="max-h-[56%] shrink-0 overflow-y-auto bg-[#121722]">
+          {groupedOverlays.panes.map((pane, index) => (
             <IndicatorPane
               key={pane.id}
               id={pane.id}
@@ -974,6 +1107,9 @@ export function CandleChart({
               onReady={registerIndicatorPane}
               onRangeChange={indicatorPaneRange}
               onAction={onIndicatorPaneAction}
+              defaultHeight={defaultPaneHeight(groupedOverlays.panes.length)}
+              showTimeAxis={index === groupedOverlays.panes.length - 1}
+              compact={compact}
             />
           ))}
         </div>

@@ -22,7 +22,8 @@ export function PineDrawingLayer({
 }: {
   container: HTMLDivElement | null;
   chart: IChartApi | null;
-  series: ISeriesApi<"Candlestick"> | null;
+  /** Any main-series presentation: only price/coordinate conversion is used. */
+  series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line"> | ISeriesApi<"Area"> | null;
   candles: Candle[];
   drawings: PineDrawings | null;
 }) {

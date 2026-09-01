@@ -74,6 +74,32 @@ export interface ChartPaneGroup {
   decorations: ChartDecoration[];
 }
 
+/**
+ * Number instances that a reader could not otherwise tell apart.
+ *
+ * Two applications of the same script with different inputs are already
+ * distinct — "RSI · Length 14" against "RSI · Length 7". Only when the name
+ * *and* the arguments match does an ordinal have anything to add, so only then
+ * is one shown.
+ */
+export function labelDuplicateInstances<T extends { title: string; params: string }>(
+  groups: T[]
+): T[] {
+  const total = new Map<string, number>();
+  for (const g of groups) {
+    const k = `${g.title}\u0000${g.params}`;
+    total.set(k, (total.get(k) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  return groups.map((g) => {
+    const k = `${g.title}\u0000${g.params}`;
+    if ((total.get(k) ?? 0) < 2) return g;
+    const n = (seen.get(k) ?? 0) + 1;
+    seen.set(k, n);
+    return { ...g, title: `${g.title} (${n})` };
+  });
+}
+
 export function groupChartOverlays(overlays: ChartOverlay[], decorations: ChartDecoration[] = []): {
   price: ChartOverlay[];
   priceDecorations: ChartDecoration[];
@@ -119,7 +145,9 @@ export function groupChartOverlays(overlays: ChartOverlay[], decorations: ChartD
       });
     }
   }
-  return { price, priceDecorations, panes: [...panes.values()] };
+  return {
+    price, priceDecorations, panes: labelDuplicateInstances([...panes.values()]),
+  };
 }
 
 export function shiftedPlotTime(times: number[], index: number, offset: number): number | null {

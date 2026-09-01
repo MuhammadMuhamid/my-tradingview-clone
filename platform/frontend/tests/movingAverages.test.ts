@@ -9,7 +9,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MA_LENGTHS, currentMaValues, defaultMaLines, ema, maColor, maId, maLabel, sma } from "../lib/movingAverages";
+import {
+  MA_LENGTHS, buildMaOverlays, currentMaValues, defaultMaLines, ema, maColor, maId,
+  maLabel, pricePrecision, sma,
+} from "../lib/movingAverages";
 import type { Candle } from "../lib/types";
 
 const near = (a: number, b: number, eps = 1e-9) =>
@@ -89,4 +92,20 @@ test("currentMaValues reports the newest value of every requested line", () => {
 test("currentMaValues reports hidden lines too — the alert dialog needs them", () => {
   const values = currentMaValues(candles(closes), [{ type: "sma", length: 3, visible: false }]);
   assert.ok(values["ma-sma-3"] !== null);
+});
+
+test("moving averages are read at the price's own precision, not each value's", () => {
+  // fmtPrice's rule: >=100 -> 2dp, >=1 -> 4dp, else 6dp. Without this, one
+  // legend row showed 210.228 beside 212.3651 for the same instrument.
+  assert.equal(pricePrecision(218.53), 2);
+  assert.equal(pricePrecision(12.5), 4);
+  assert.equal(pricePrecision(0.3341), 6);
+  assert.equal(pricePrecision(-218.53), 2);
+
+  const overlays = buildMaOverlays(candles([180, 190, 200, 210, 220]), [
+    { type: "sma", length: 3, visible: true },
+    { type: "ema", length: 3, visible: true },
+  ] as Parameters<typeof buildMaOverlays>[1]);
+  assert.equal(overlays.length, 2);
+  for (const o of overlays) assert.equal(o.precision, 2);
 });
