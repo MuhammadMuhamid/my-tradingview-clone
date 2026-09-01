@@ -216,7 +216,20 @@ timeframes before it reports healthy.
 ./start.sh --logs
 ```
 
-Then open **http://localhost:3000**. Tests: `cd backend && .venv/bin/python -m pytest -q`.
+Then open **http://localhost:3000**. `backend/requirements.txt` is the existing
+single Python dependency declaration and includes the test-only packages used
+by the current suite (`pytest`, `pytest-asyncio`, and `httpx`). To establish the
+same test environment without starting either service:
+
+```bash
+cd backend
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pytest -q
+```
+
+The tests use the frozen CSV fixture and in-memory fake market feeds; running
+pytest does not refresh Scanner data or contact Binance.
 
 Two details that took a couple of attempts to get right, recorded so they are not re-broken:
 
