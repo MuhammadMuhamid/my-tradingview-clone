@@ -864,7 +864,7 @@ export default function TvWorkspace() {
         */}
         <h1 className="sr-only">{symbol} {interval} chart</h1>
         {/* top toolbar */}
-        <div className="flex flex-nowrap items-center gap-2 border-b border-border bg-surface px-2 py-1.5 sm:flex-wrap sm:overflow-x-visible sm:px-3">
+        <div className="flex flex-nowrap items-center gap-1.5 border-b border-border bg-surface px-2 py-1 sm:flex-wrap sm:overflow-x-visible sm:px-2.5">
           {/* Phone-only: site nav lives here, so the global bar can be hidden. */}
           <button
             onClick={() => setNavOpen(true)}
@@ -915,7 +915,7 @@ export default function TvWorkspace() {
             container would clip them. So below `xl` they collapse behind the
             same ⋯ toggle the phone layout already uses.
           */}
-          <div className={`${moreOpen ? "flex" : "hidden"} order-last w-full flex-wrap items-center gap-2 border-t border-border pt-1.5 xl:order-none xl:flex xl:w-auto xl:border-0 xl:pt-0`}>
+          <div className={`${moreOpen ? "flex" : "hidden"} order-last w-full flex-wrap items-center gap-1.5 border-t border-border pt-1.5 xl:order-none xl:flex xl:w-auto xl:border-0 xl:pt-0`}>
           <Separator className="hidden xl:inline-block" />
           <div className="flex items-center gap-0.5">
             {HISTORY_OPTIONS.map((h) => (
@@ -1252,7 +1252,10 @@ export default function TvWorkspace() {
                 focusKey={indicatorFocusKey}
               />
             )}
-            {panel === "manual" && <ManualTradingPanel symbol={symbol} onStateChange={setManualState} />}
+            {panel === "manual" && <ManualTradingPanel symbol={symbol}
+              lastPrice={last?.close ?? null}
+              onClose={() => setPanel(null)}
+              onStateChange={setManualState} />}
             {panel === "ma" && (
               <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
                 <MaPanel

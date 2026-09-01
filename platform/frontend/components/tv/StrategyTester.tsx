@@ -54,7 +54,6 @@ export function StrategyTester({
   /** Running position from the finished run, so the chart can draw SL/TP lines. */
   onOpenTrade?: (openTrade: OpenTrade | null) => void;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
   const [tab, setTab] = useState<"overview" | "trades">("overview");
   const [start, setStart] = useState(DEFAULT_START);
   const [end, setEnd] = useState(isoDaysAgo(0));
@@ -137,20 +136,15 @@ export function StrategyTester({
   const inputBox = "h-7 rounded-md border border-border bg-surface-2 px-2 text-xs text-ink outline-none focus:border-accent";
 
   return (
-    <div className="shrink-0 border-t border-border bg-surface">
+    <div className="shrink-0 bg-surface">
       {/* header bar */}
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand the strategy tester" : "Collapse the strategy tester"}
-          title={collapsed ? "Expand" : "Collapse"}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-2 hover:text-ink"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d={collapsed ? "M3 9l4-4 4 4" : "M3 5l4 4 4-4"} stroke="currentColor" strokeWidth="1.5" fill="none" />
-          </svg>
-        </button>
+      {/*
+        No collapse control here. The panel this renders inside already has
+        one, in its tab strip, and two chevrons a row apart that collapse
+        overlapping amounts of the same panel is a coin toss for the user —
+        one hid the tester and left the tab strip, the other hid both.
+      */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
         <select
           value={strategy?.key ?? ""}
           onChange={(e) => onStrategyChange(e.target.value)}
@@ -191,10 +185,10 @@ export function StrategyTester({
             <button
               key={t}
               role="tab"
-              aria-selected={tab === t && !collapsed}
-              onClick={() => { setTab(t); setCollapsed(false); }}
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
               className={`flex h-7 items-center border-b-2 text-xs font-medium capitalize ${
-                tab === t && !collapsed ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"
+                tab === t ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"
               }`}
             >
               {t === "trades" ? `List of trades${trades.length ? ` (${trades.length})` : ""}` : "Overview"}
@@ -203,9 +197,17 @@ export function StrategyTester({
         </div>
       </div>
 
-      {/* body */}
-      {!collapsed && (
-        <div className="h-[220px] overflow-y-auto border-t border-border sm:h-[300px]">
+      {/*
+        body
+
+        Height follows the content. A fixed 300px reserved the tester's full
+        height for the one-line "run a backtest" placeholder, so a workspace
+        that had never run one gave a third of the screen to an empty box
+        while the candles above it were squeezed into what was left.
+      */}
+      <div className={`overflow-y-auto ${
+          tab === "overview" && !m ? "py-6" : "h-[220px] sm:h-[280px]"
+        }`}>
           {tab === "overview" ? (
             m ? (
               <div className="flex h-full flex-col gap-2 px-4 py-3">
@@ -244,7 +246,7 @@ export function StrategyTester({
                 </div>
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-ink-faint">
+              <div className="flex items-center justify-center px-4 text-center text-sm text-ink-faint">
                 {running ? "Backtest running — fetching data and simulating…"
                   : run?.status === "error" ? <span className="text-down">{run.error}</span>
                   : "Configure the date range and hit “Run backtest” to see results here."}
@@ -253,8 +255,7 @@ export function StrategyTester({
           ) : (
             <TradeList trades={trades} />
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
