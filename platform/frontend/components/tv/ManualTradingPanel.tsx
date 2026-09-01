@@ -1,15 +1,89 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button, Field, Select, StatusBadge, TextInput } from "@/components/ui";
-import { api, type ManualAccount, type ManualPosition, type ManualTradingState } from "@/lib/api";
+import { Button, StatusBadge } from "@/components/ui";
+import { api, type ManualAccount, type ManualOrder, type ManualPosition, type ManualTradingState } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
 const newRequestId = (): string => window.crypto.randomUUID();
 const n = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
 
-export function ManualTradingPanel({ symbol, onStateChange }: {
-  symbol: string; onStateChange: (state: ManualTradingState | null) => void;
+/** Order types this product actually supports. Nothing else is offered. */
+const ORDER_TYPES = [
+  { id: "MARKET", label: "Market" },
+  { id: "LIMIT", label: "Limit" },
+] as const;
+
+/**
+ * Status buckets for the order list.
+ *
+ * These are the statuses the manual-trading API already reports; the tabs
+ * only filter what is on screen. A full list of 100 orders is unreadable as
+ * one undifferentiated stack, and "is my limit still working?" is the question
+ * this panel is opened to answer.
+ */
+const ORDER_FILTERS = [
+  { id: "all", label: "All", match: () => true },
+  { id: "working", label: "Working", match: (o: ManualOrder) => ["requested", "submitted", "open", "partially_filled"].includes(o.status) },
+  { id: "filled", label: "Filled", match: (o: ManualOrder) => o.status === "filled" },
+  { id: "cancelled", label: "Cancelled", match: (o: ManualOrder) => o.status === "canceled" },
+  { id: "rejected", label: "Rejected", match: (o: ManualOrder) => o.status === "rejected" || o.status === "error" },
+] as const;
+
+type OrderFilter = (typeof ORDER_FILTERS)[number]["id"];
+
+/** A labelled input with the unit printed inside it, as the reference does. */
+function UnitField({
+  label, unit, value, onChange, invalid = false, error, id, placeholder,
+}: {
+  label: string;
+  unit: string;
+  value: string;
+  onChange: (v: string) => void;
+  invalid?: boolean;
+  error?: string | null;
+  id: string;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-[11px] font-medium text-ink-muted">{label}</label>
+      {/*
+        The message sits against the field it is about, not at the top of the
+        panel. A rejected amount used to be explained six controls away from
+        the amount box, above the account picker.
+      */}
+      {error && (
+        <p id={`${id}-error`} role="alert"
+          className="mb-1 rounded border border-down/40 bg-down/10 px-2 py-1 text-[11px] leading-4 text-down">
+          {error}
+        </p>
+      )}
+      <div className={`flex items-center rounded-md border bg-surface-2 transition-colors focus-within:border-accent ${
+        invalid ? "border-down" : "border-border"
+      }`}>
+        <input
+          id={id}
+          inputMode="decimal"
+          value={value}
+          placeholder={placeholder}
+          aria-invalid={invalid || undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm tabular text-ink outline-none"
+        />
+        <span aria-hidden="true" className="shrink-0 px-2.5 text-[11px] font-medium text-ink-faint">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateChange }: {
+  symbol: string;
+  /** Latest close from the chart. Presentational context only — never submitted. */
+  lastPrice?: number | null;
+  onClose?: () => void;
+  onStateChange: (state: ManualTradingState | null) => void;
 }) {
   const [state, setState] = useState<ManualTradingState | null>(null);
   const [accountId, setAccountId] = useState("");
@@ -28,6 +102,7 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<"ticket" | "orders">("ticket");
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
   const [edit, setEdit] = useState<Record<string, { tp: string; sl: string }>>({});
 
   const refresh = useCallback(async () => {
@@ -44,6 +119,11 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
   const account = state?.accounts.find((a) => a.id === accountId) ?? null;
   const activePositions = useMemo(() => state?.positions.filter((p) =>
     p.status === "active" && p.exchangeAccountId === accountId) ?? [], [state, accountId]);
+  const base = symbol.replace(/USDT$/, "");
+  const amountUnit = side === "BUY" ? "USDT" : base;
+  const amountLabel = side === "BUY" ? "Quote amount" : "Base quantity";
+  const amountInvalid = amount.trim() !== "" && !(Number(amount) > 0);
+  const priceInvalid = orderType === "LIMIT" && limitPrice.trim() !== "" && !(Number(limitPrice) > 0);
   const valid = !!account && (account.testnet || !!state?.mainnetEnabled) && Number(amount) > 0 &&
     (orderType === "MARKET" || Number(limitPrice) > 0)
     && (side === "BUY" || !positionId || activePositions.some((p) => p.id === positionId));
@@ -52,6 +132,14 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
     const found = state?.accounts.find((item) => item.id === id);
     return found ? ` · ${found.name} (${found.mode})` : "";
   };
+  /**
+   * The exact order the primary button will put up for confirmation, or null
+   * while the ticket is still empty — a summary reading "— USDT SOLUSDT
+   * MARKET" states nothing and only makes the disabled button taller.
+   */
+  const orderSummary = amount.trim() === "" ? null
+    : `${amount} ${amountUnit} ${symbol}${
+      orderType === "LIMIT" ? ` @ ${limitPrice || "—"} LIMIT` : " MARKET"}`;
 
   const commandBody = (selected: ManualAccount, requestId: string) => ({ requestId, accountId: selected.id,
     symbol, side, orderType, ...(side === "BUY" ? { quoteQuantity: n(amount) } : { baseQuantity: n(amount) }),
@@ -108,13 +196,42 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
     catch (e) { setError((e as Error).message); } finally { setPending(false); }
   };
 
-  return <aside className="flex h-full w-[90vw] max-w-[330px] shrink-0 flex-col border-l border-border bg-surface md:w-[330px]">
+  const orders = useMemo(() => state?.orders ?? [], [state]);
+  const counts = useMemo(() => Object.fromEntries(
+    ORDER_FILTERS.map((f) => [f.id, orders.filter(f.match).length])
+  ) as Record<OrderFilter, number>, [orders]);
+  const shownOrders = orders.filter(
+    ORDER_FILTERS.find((f) => f.id === orderFilter)?.match ?? (() => true));
+
+  return <aside className="flex h-full w-[90vw] max-w-[340px] shrink-0 flex-col border-l border-border bg-surface md:w-[340px]"
+    aria-label="Manual Binance Spot trading">
+    {/*
+      Instrument header. The panel used to open with no statement of which
+      symbol it would trade — it follows the chart, but the chart's symbol is
+      in a toolbar the panel covers on a narrow window — and with no way to
+      close itself except the icon rail on the far side of the screen.
+    */}
+    <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+      <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-warn" />
+      <span className="truncate text-sm font-semibold text-ink">{symbol}</span>
+      {lastPrice !== null && (
+        <span className="tabular text-[11px] text-ink-muted">{fmtPrice(lastPrice)}</span>
+      )}
+      {onClose && (
+        <button onClick={onClose} aria-label="Close the trading panel" title="Close"
+          className="ml-auto flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+            <path d="M2 2l8 8M10 2l-8 8" />
+          </svg>
+        </button>
+      )}
+    </div>
     <div className="flex gap-1 border-b border-border p-2" role="tablist" aria-label="Manual trading">
       {(["ticket", "orders"] as const).map((id) => <button key={id} onClick={() => setTab(id)}
         role="tab" aria-selected={tab === id}
         className={`flex-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
           tab === id ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"}`}>
-        {id === "ticket" ? "Order ticket" : "Orders & positions"}</button>)}
+        {id === "ticket" ? "Order" : `Orders${orders.length ? ` ${orders.length}` : ""}`}</button>)}
     </div>
     {error && <div role="alert" className="border-b border-down/30 bg-down/10 px-3 py-2 text-xs text-down">{error}</div>}
     {notice && <div role="status" className="border-b border-up/30 bg-up/10 px-3 py-2 text-xs text-up">{notice}</div>}
@@ -137,49 +254,126 @@ export function ManualTradingPanel({ symbol, onStateChange }: {
         No connected Binance Spot account is available. Add credentials in the execution bot.</p>}
       {account && !account.testnet && !state.mainnetEnabled &&
         <p role="alert" className="text-xs text-down">Mainnet manual trading is disabled on the execution bot.</p>}
-      <Field label="Connected account"><Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setMainnetConfirmed(false); }}>
-        {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.mode}</option>)}</Select></Field>
-      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order side">{(["BUY", "SELL"] as const).map((v) => <button key={v}
-        onClick={() => { setSide(v); setPositionId(""); }} aria-pressed={side === v}
-        className={`rounded-md border py-2 text-sm font-semibold transition-colors ${side === v
-          ? v === "BUY" ? "border-up bg-up/15 text-up" : "border-down bg-down/15 text-down"
-          : "border-border text-ink-muted hover:text-ink"}`}>{v}</button>)}</div>
-      <Field label="Order type"><Select value={orderType} onChange={(e) => setOrderType(e.target.value as "MARKET" | "LIMIT")}>
-        <option value="MARKET">Market</option><option value="LIMIT">Limit (GTC)</option></Select></Field>
-      {side === "SELL" && activePositions.length > 0 && <Field label="Manual position (required when tracked)">
-        <Select value={positionId} onChange={(e) => { setPositionId(e.target.value);
-          const p = activePositions.find((x) => x.id === e.target.value); if (p) setAmount(String(p.quantity)); }}>
-          <option value="">Unassociated wallet sell</option>{activePositions.map((p) => <option key={p.id} value={p.id}>
-            {p.quantity} {p.pair.replace(/USDT$/, "")} · entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"}</option>)}</Select></Field>}
-      <Field label={side === "BUY" ? "Quote amount (USDT)" : `Base quantity (${symbol.replace(/USDT$/, "")})`}>
-        <TextInput inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
-      {orderType === "LIMIT" && <Field label="Limit price"><TextInput inputMode="decimal" value={limitPrice}
-        onChange={(e) => setLimitPrice(e.target.value)} /></Field>}
-      {side === "BUY" && <div className="grid grid-cols-2 gap-2"><Field label="Take profit (optional)">
-        <TextInput inputMode="decimal" value={tp} onChange={(e) => setTp(e.target.value)} /></Field>
-        <Field label="Stop loss (optional)"><TextInput inputMode="decimal" value={sl} onChange={(e) => setSl(e.target.value)} /></Field></div>}
+      <div>
+        <label htmlFor="manual-account" className="mb-1 block text-[11px] font-medium text-ink-muted">Connected account</label>
+        <select id="manual-account" value={accountId}
+          onChange={(e) => { setAccountId(e.target.value); setMainnetConfirmed(false); }}
+          className="w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent">
+          {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.mode}</option>)}
+        </select>
+      </div>
+      {/* Side: two halves of one control, the chosen one carrying its colour. */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border"
+        role="group" aria-label="Order side">
+        {(["BUY", "SELL"] as const).map((v) => <button key={v}
+          onClick={() => { setSide(v); setPositionId(""); }} aria-pressed={side === v}
+          className={`py-2 text-sm font-semibold transition-colors ${side === v
+            ? v === "BUY" ? "bg-up/20 text-up" : "bg-down/20 text-down"
+            : "bg-surface text-ink-muted hover:bg-surface-2 hover:text-ink"}`}>{v}</button>)}
+      </div>
+      {/* Order type: the reference's underlined tab row, over the two types
+          this product supports. Nothing here offers an unsupported type. */}
+      <div className="flex border-b border-border" role="tablist" aria-label="Order type">
+        {ORDER_TYPES.map((t) => <button key={t.id} role="tab" aria-selected={orderType === t.id}
+          onClick={() => setOrderType(t.id)}
+          className={`-mb-px flex-1 border-b-2 pb-1.5 text-[13px] font-medium transition-colors ${
+            orderType === t.id ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"}`}>
+          {t.label}</button>)}
+      </div>
+      {side === "SELL" && activePositions.length > 0 && (
+        <div>
+          <label htmlFor="manual-position" className="mb-1 block text-[11px] font-medium text-ink-muted">
+            Manual position (required when tracked)
+          </label>
+          <select id="manual-position" value={positionId}
+            onChange={(e) => { setPositionId(e.target.value);
+              const p = activePositions.find((x) => x.id === e.target.value); if (p) setAmount(String(p.quantity)); }}
+            className="w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent">
+            <option value="">Unassociated wallet sell</option>
+            {activePositions.map((p) => <option key={p.id} value={p.id}>
+              {p.quantity} {p.pair.replace(/USDT$/, "")} · entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"}</option>)}
+          </select>
+        </div>
+      )}
+      {orderType === "LIMIT" && (
+        <UnitField id="manual-limit" label="Limit price" unit="USDT" value={limitPrice} onChange={setLimitPrice}
+          invalid={priceInvalid} error={priceInvalid ? "Enter a limit price above zero." : null} />
+      )}
+      <UnitField id="manual-amount" label={amountLabel} unit={amountUnit} value={amount} onChange={setAmount}
+        invalid={amountInvalid} error={amountInvalid ? `Enter an amount above zero in ${amountUnit}.` : null} />
+      {side === "BUY" && <div className="grid grid-cols-2 gap-2">
+        <UnitField id="manual-tp" label="Take profit" unit="USDT" value={tp} onChange={setTp} placeholder="optional" />
+        <UnitField id="manual-sl" label="Stop loss" unit="USDT" value={sl} onChange={setSl} placeholder="optional" />
+      </div>}
       <p className="rounded-md border border-border bg-surface-2/50 px-2.5 py-2 text-[11px] leading-4 text-ink-muted">
         TP/SL here is <span className="text-ink">bot-managed</span>: it activates only after an entry
         fill and is <span className="text-ink">not resting on the exchange</span>. If the bot is
         down, nothing protects the position.</p>
-      <Button variant={side === "BUY" ? "primary" : "danger"} disabled={!valid || pending}
-        onClick={() => { setOrderRequestId(newRequestId()); setConfirming(true); }} className="w-full py-2">Review {side} order</Button>
+      {/*
+        The primary action names the order it is about to put up for review,
+        the way the reference does. Nothing is sent from here — the review
+        dialog is still the only place an order can be confirmed.
+      */}
+      <button
+        type="button"
+        disabled={!valid || pending}
+        onClick={() => { setOrderRequestId(newRequestId()); setConfirming(true); }}
+        className={`w-full rounded-md px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          side === "BUY" ? "bg-up/20 text-up hover:bg-up/30" : "bg-down/20 text-down hover:bg-down/30"}`}
+      >
+        Review {side}
+        {orderSummary && (
+          <span className="mt-0.5 block text-[11px] font-normal tabular opacity-80">{orderSummary}</span>
+        )}
+      </button>
     </div> : <div className="min-h-0 flex-1 overflow-y-auto">
       {activePositions.map((p) => { const values = edit[p.id] ?? { tp: p.manualTpPrice?.toString() ?? "", sl: p.manualSlPrice?.toString() ?? "" };
-        return <div key={p.id} className="space-y-2 border-b border-border p-3 text-xs">
-          <div className="flex justify-between"><strong>{p.pair} · {p.quantity}</strong><StatusBadge status={p.status} /></div>
-          <div className="text-ink-faint">Entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"} · {p.protectionType ?? "no protection"} {p.protectionState ?? ""}</div>
-          <div className="grid grid-cols-2 gap-2"><TextInput aria-label="Take profit" placeholder="TP" value={values.tp}
-            onChange={(e) => setEdit((old) => ({ ...old, [p.id]: { ...values, tp: e.target.value } }))} />
-            <TextInput aria-label="Stop loss" placeholder="SL" value={values.sl}
-            onChange={(e) => setEdit((old) => ({ ...old, [p.id]: { ...values, sl: e.target.value } }))} /></div>
+        return <div key={p.id} className="space-y-2 border-b border-border bg-surface-2/30 p-3 text-xs">
+          <div className="flex items-center justify-between">
+            <strong className="text-ink">{p.pair} · <span className="tabular">{p.quantity}</span></strong>
+            <StatusBadge status={p.status} />
+          </div>
+          <div className="tabular text-ink-faint">Entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"} · {p.protectionType ?? "no protection"} {p.protectionState ?? ""}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <input aria-label="Take profit" placeholder="TP" value={values.tp} inputMode="decimal"
+              onChange={(e) => setEdit((old) => ({ ...old, [p.id]: { ...values, tp: e.target.value } }))}
+              className="min-w-0 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs tabular text-ink outline-none focus:border-accent" />
+            <input aria-label="Stop loss" placeholder="SL" value={values.sl} inputMode="decimal"
+              onChange={(e) => setEdit((old) => ({ ...old, [p.id]: { ...values, sl: e.target.value } }))}
+              className="min-w-0 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs tabular text-ink outline-none focus:border-accent" />
+          </div>
           <div className="flex gap-2"><Button disabled={pending} onClick={() => void protection(p)}>Save TP/SL</Button>
             <Button variant="ghost" disabled={pending} onClick={() => void protection(p, true)}>Remove</Button></div>
         </div>; })}
-      {state.orders.map((o) => <div key={o.id} className="border-b border-border/60 px-3 py-2.5 text-xs">
-        <div className="flex items-center justify-between"><span className="font-medium">{o.side} {o.orderType} · {o.symbol}</span><StatusBadge status={o.status} /></div>
-        <div className="mt-1 text-ink-faint">{o.quantityType === "quote" ? `${o.requestedQuoteQty} USDT` : `${o.requestedBaseQty} base`}
+      {/* Status tabs over the existing order list — the reference's Orders /
+          Order history split, over the statuses this product reports. */}
+      <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b border-border bg-surface px-2 py-1.5"
+        role="tablist" aria-label="Filter orders by status">
+        {ORDER_FILTERS.map((f) => (
+          <button key={f.id} role="tab" aria-selected={orderFilter === f.id}
+            onClick={() => setOrderFilter(f.id)}
+            className={`flex h-6 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-medium transition-colors ${
+              orderFilter === f.id ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"}`}>
+            {f.label}
+            {counts[f.id] > 0 && <span className="tabular text-ink-faint">{counts[f.id]}</span>}
+          </button>
+        ))}
+      </div>
+      {shownOrders.length === 0 ? (
+        <p className="px-3 py-8 text-center text-xs text-ink-faint">
+          {orders.length === 0 ? "No manual orders yet." : "No orders in this state."}
+        </p>
+      ) : shownOrders.map((o) => <div key={o.id} className="border-b border-border/60 px-3 py-2 text-xs">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="min-w-0 truncate font-medium text-ink">
+            <span className={o.side === "BUY" ? "text-up" : "text-down"}>{o.side}</span>{" "}
+            {o.orderType} · {o.symbol}
+          </span>
+          <StatusBadge status={o.status} />
+        </div>
+        <div className="mt-1 tabular text-ink-faint">{o.quantityType === "quote" ? `${o.requestedQuoteQty} USDT` : `${o.requestedBaseQty} base`}
           {o.limitPrice ? ` @ ${fmtPrice(o.limitPrice)}` : ""} · filled {o.filledBaseQty}
+          {o.averageFillPrice ? ` @ ${fmtPrice(o.averageFillPrice)}` : ""}
           {accountLabel(o.exchangeAccountId)}</div>
         {o.error && <div className="mt-1 text-down">{o.error}</div>}
         {o.orderType === "LIMIT" && ["requested", "submitted", "open", "partially_filled"].includes(o.status) &&
