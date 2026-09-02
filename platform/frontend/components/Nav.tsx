@@ -18,6 +18,7 @@ const LINKS = [
   { href: "/deployments", label: "Live trading" },
   { href: "/journal", label: "Journal" },
   { href: "/operations", label: "Operations" },
+  { href: "/shariah", label: "Shariah" },
 ];
 
 export function Nav() {
