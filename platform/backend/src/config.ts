@@ -34,6 +34,12 @@ export interface AppConfig {
   realizationHmacSecret: string;
   /** Canonical Scanner service. Browser code never receives this address. */
   scannerServiceUrl: string;
+  /**
+   * Origin every PUBLIC Binance Spot market-data request is sent to
+   * (`/api/v3/klines`, `/api/v3/exchangeInfo`). No credential is ever attached
+   * to it and no account/order endpoint is reachable through it.
+   */
+  binanceMarketDataBaseUrl: string;
 }
 
 /**
@@ -46,6 +52,64 @@ export interface AppConfig {
  */
 export function parseAuthEnabled(raw: string | null | undefined): boolean {
   return (raw ?? "true").trim().toLowerCase() !== "false";
+}
+
+/**
+ * The official Binance public Spot market-data hosts.
+ *
+ * `api.binance.com` and its `api1`–`api4` / `api-gcp` siblings are the normal
+ * authority. `data-api.binance.vision` is Binance's public market-data-only
+ * mirror: it serves the identical `/api/v3/klines` and `/api/v3/exchangeInfo`
+ * surfaces and exposes no account, order, or credentialed endpoint at all, so
+ * it is the supported escape hatch on a machine where the main API answers
+ * HTTP 451.
+ *
+ * This is an allowlist rather than a free-form URL because the value is the
+ * destination of every outbound market-data request: a mistyped or attacker
+ * supplied host would silently become the price source the charts, backtests
+ * and live evaluators all treat as truth.
+ */
+export const BINANCE_MARKET_DATA_HOSTS = [
+  "api.binance.com",
+  "api1.binance.com",
+  "api2.binance.com",
+  "api3.binance.com",
+  "api4.binance.com",
+  "api-gcp.binance.com",
+  "data-api.binance.vision",
+] as const;
+
+export const DEFAULT_BINANCE_MARKET_DATA_BASE_URL = "https://api.binance.com";
+
+/**
+ * Parse BINANCE_MARKET_DATA_BASE_URL. Unset keeps the historical default, so a
+ * deployment that never heard of this setting behaves exactly as before.
+ */
+export function resolveBinanceMarketDataBaseUrl(raw: string | null | undefined): string {
+  const value = (raw ?? "").trim().replace(/\/+$/, "");
+  if (!value) return DEFAULT_BINANCE_MARKET_DATA_BASE_URL;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`BINANCE_MARKET_DATA_BASE_URL is not a URL: ${JSON.stringify(raw)}`);
+  }
+  if (
+    url.protocol !== "https:" || url.username || url.password ||
+    url.port || url.search || url.hash || url.pathname !== "/"
+  ) {
+    throw new Error(
+      "BINANCE_MARKET_DATA_BASE_URL must be an https origin on port 443 " +
+      "without credentials, path, query, or fragment"
+    );
+  }
+  if (!(BINANCE_MARKET_DATA_HOSTS as readonly string[]).includes(url.hostname)) {
+    throw new Error(
+      `BINANCE_MARKET_DATA_BASE_URL must be an official Binance public Spot ` +
+      `market-data host (${BINANCE_MARKET_DATA_HOSTS.join(", ")}), got ${url.hostname}`
+    );
+  }
+  return url.origin;
 }
 
 /**
@@ -109,6 +173,7 @@ export const config: AppConfig = {
   scannerServiceUrl: (process.env.SCANNER_SERVICE_URL ?? (
     (process.env.NODE_ENV ?? "").toLowerCase() === "production" ? "" : "http://127.0.0.1:8000"
   )).replace(/\/$/, ""),
+  binanceMarketDataBaseUrl: resolveBinanceMarketDataBaseUrl(process.env.BINANCE_MARKET_DATA_BASE_URL),
 };
 
 // ── Fail closed ───────────────────────────────────────────────────────────────

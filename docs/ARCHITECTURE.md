@@ -77,7 +77,7 @@ methodology decision and a historical rerun, not a silent live-parity edit.
 |---|---|
 | `platform/backend/src/api` | HTTP surface: charts, backtests, deployments, optimizer views, Pine execution, MA alerts, push, auth. |
 | `platform/backend/src/engine` | Strategy implementations, the backtest broker, metrics, the multi-timeframe merge, and the live evaluators. |
-| `platform/backend/src/data` | Binance Spot REST backfill, kline websocket, and bounded candle-integrity contract. |
+| `platform/backend/src/data` | Binance Spot REST backfill over the configurable public market-data host, kline websocket, and bounded candle-integrity contract. |
 | `platform/backend/src/alerts` | Payload construction, delivery with retries, notification-alert evaluation across all seven condition families, Web Push. |
 | `platform/backend/src/repositories` | All SQL. Nothing else talks to the database. |
 | `platform/backend/src/pine` | Lexer, parser and interpreter for user-supplied Pine scripts. |
@@ -93,6 +93,16 @@ reported as historical gaps. Closed WebSocket bars validate against the newest
 stored/observed open time before the existing idempotent upsert; explicit
 backfills return their bounded report. Invalid candles are not persisted, and
 gaps are reported rather than filled or interpolated.
+
+All Binance history is acquired from the **public** Spot endpoints
+(`/api/v3/klines`, `/api/v3/exchangeInfo`) — no credential exists on this path.
+The origin is configuration (`BINANCE_MARKET_DATA_BASE_URL`, validated against
+the official Binance public-host allowlist) so a network refused by
+`api.binance.com` can use Binance's market-data-only mirror without a source
+change. An explicitly bounded window is acquired by `backfillRange`, which
+shares one paging authority with `fetchKlines` and upserts each batch as it
+arrives, so a multi-year 1m history is persisted incrementally instead of being
+held in memory. See `docs/OPERATIONS.md` §8 for the operator command.
 
 `GET /api/ops/status` reads the incremental `feed_health` row and exposes the
 Spot symbol/timeframe, integrity state and issue counts, latest completed-bar

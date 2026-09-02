@@ -447,3 +447,73 @@ proceeding. If `rollback-check` ever reports `ROLLBACK_INCOMPATIBLE` or
 `UNKNOWN` for a future migration, do not start old Platform code against the
 current database — restore the verified pre-release backup into a fresh
 database (§5) and start old code against that instead.
+
+---
+
+## 8. Acquiring Binance Spot history (added 2026-09-02)
+
+Historical candles come from Binance's **public** Spot market-data endpoints —
+`/api/v3/klines` and `/api/v3/exchangeInfo`. No API key, secret or signature is
+involved, and no account or order endpoint is reachable from this path. The
+platform holds no Binance credential at all.
+
+### Choosing the market-data host
+
+`BINANCE_MARKET_DATA_BASE_URL` sets the origin every public market-data request
+goes to. Unset, it is `https://api.binance.com` — existing deployments need no
+change.
+
+Some networks are refused by `api.binance.com` (and `api1`–`api4` / `api-gcp`)
+with **HTTP 451**. Binance publishes a market-data-only mirror for exactly this
+case, which serves the identical public endpoints and carries no account or
+order surface:
+
+```
+BINANCE_MARKET_DATA_BASE_URL=https://data-api.binance.vision
+```
+
+The value is validated at boot against the official-host allowlist in
+`src/config.ts`: HTTPS on port 443, no credentials, no path, query or fragment,
+and a hostname Binance actually operates. Anything else is a startup failure
+rather than a silently redirected price feed. This setting never affects manual
+trading — those commands go to the execution bot, not to Binance.
+
+### Bounded historical backfill
+
+`platform/backend/scripts/backfill_history.ts` is the supported entry point. Give
+it explicit targets and an explicit window:
+
+```
+cd platform/backend
+npx tsx scripts/backfill_history.ts \
+  --targets=NEARUSDT:1m,NEARUSDT:5m,NEARUSDT:15m,NEARUSDT:1h \
+  --start=2023-05-03 --end=2026-08-13
+```
+
+- `--targets=SYMBOL:INTERVAL,...` — only what is listed is fetched. Nothing
+  universe-wide happens unless no symbol is named at all.
+- `--start` / `--end` — an ISO date/datetime or epoch milliseconds. `--end`
+  defaults to now. Windows of any length are allowed, including multi-year.
+- Alternatively `--symbols=A,B --intervals=1m,1h` for a symbol × timeframe grid.
+- Omitting `--start` keeps the historical rolling behaviour (730 days, 300 for
+  1m, relative to now) for the named or all active symbols.
+
+**The window is the caller's decision.** The script hardcodes no research dates
+and reads no research configuration; whichever research tree needs a particular
+history determines its own scientific window and passes those dates in.
+
+Large histories are streamed, not buffered: rows are upserted in batches as each
+page arrives, so three years of 1m bars (~1.6M rows for one symbol) never sit in
+memory, and an interrupted run has already persisted every row it reported.
+Candles upsert on `(symbol, interval, open_time)`, so rerunning an overlapping
+window overwrites rather than duplicates — resuming is always safe.
+
+Each target prints rows upserted, pages fetched, the stored row count and
+min/max coverage inside the requested window, and the candle-integrity state
+with issue counts. Gaps are reported, never filled or interpolated.
+
+Unless `--skip-symbol-metadata` is passed, the run first registers each pair and
+refreshes `price_tick`, `qty_step`, `min_notional`, base/quote asset and trading
+status from `exchangeInfo`, so a freshly backfilled symbol is immediately usable
+by production freezing. Filters Binance does not send stay zero rather than
+being guessed at.
