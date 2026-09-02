@@ -231,7 +231,7 @@ export function projectCurrentOverlays(input: {
       eventTime: null, observedAt: iso(order.observedAt), price: order.price,
       quantity: order.quantity, state: order.state, orderType: order.orderType,
       completeness: "INCOMPLETE",
-      detail: "Latest Platform-persisted order observation. A newer unpersisted exchange transition may exist.",
+      detail: "Latest Platform-persisted order observation. Quantity, when present, is cumulative executed quantity from that snapshot, not remaining requested quantity. A newer unpersisted exchange transition may exist.",
       identifiers: identifiers({ executionId: order.executionId, alertId: order.alertId,
         exchangeOrderId: order.exchangeOrderId, deploymentId: order.deploymentId,
         strategyId: order.strategyId, configId: order.configId }), provenance: provenance(order),

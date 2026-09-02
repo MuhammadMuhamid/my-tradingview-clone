@@ -98,6 +98,8 @@ test("active LIMIT snapshots render; terminal orders do not", () => {
   assert.equal(items.filter((item) => item.kind === "ACTIVE_ORDER_LINE").length, 2);
   assert.equal(items.find((item) => item.id === "manual-order:manual-1:active")?.quantity, 2,
     "active order quantity is the requested base quantity, not cumulative execution");
+  assert.match(items.find((item) => item.id.startsWith("automated-order:"))?.detail ?? "",
+    /cumulative executed quantity/i);
   assert.ok(items.every((item) => item.observedAt !== null));
   assert.equal(isActiveOrderState("FILLED"), false);
   state.orders[0]!.status = "canceled";
