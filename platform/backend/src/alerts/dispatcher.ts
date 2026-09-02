@@ -14,6 +14,8 @@ import {
   legacyDedupeKey,
   mayAdvanceLocalState,
   orderPlaced,
+  PLATFORM_DEPLOYMENT_ID_HEADER,
+  PLATFORM_ORDER_INTENT_ID_HEADER,
   type ExitLeg,
   type ReceiverOutcome,
 } from "../contract/webhookContract";
@@ -39,6 +41,14 @@ export interface BuiltAlert {
   payload: AlertPayload;
   dedupeKey: string | null;
   url: string | null;
+}
+
+/** Exact v2 provenance in headers that an old Bot safely ignores. */
+export function platformCorrelationHeaders(
+  input: { deploymentId: string; orderIntentId: number }
+): Record<string, string> {
+  return { [PLATFORM_DEPLOYMENT_ID_HEADER]: input.deploymentId,
+    [PLATFORM_ORDER_INTENT_ID_HEADER]: String(input.orderIntentId) };
 }
 
 export function validateWebhookUrl(value: string): string {
@@ -206,6 +216,8 @@ export async function deliver(
     allowUnsafeTestUrl?: boolean;
     /** False when the payload carries no idempotency key — then never retry. */
     idempotent?: boolean;
+    /** Server-to-server provenance headers. Never include webhook credentials. */
+    headers?: Readonly<Record<string, string>>;
   } = {}
 ): Promise<DeliveryResult> {
   if (!url) return { status: "skipped", attempts: 0 };
@@ -232,7 +244,7 @@ export async function deliver(
     try {
       const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...opts.headers },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });

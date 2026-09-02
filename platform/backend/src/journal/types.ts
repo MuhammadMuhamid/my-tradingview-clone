@@ -13,6 +13,7 @@ export interface JournalIdentifiers {
   paperFillId?: string;
   partialCloseId?: string;
   strategyOrderIntentId?: string;
+  realizationEventId?: string;
   deploymentId?: string;
   strategyId?: string;
   configId?: string;

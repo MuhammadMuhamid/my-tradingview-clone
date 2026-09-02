@@ -20,6 +20,7 @@ import { scannerRoutes } from "./routes/scanner";
 import { tradingTimelineRoutes } from "./routes/tradingTimeline";
 import { journalRoutes } from "./routes/journal";
 import { tradingOverlayRoutes } from "./routes/tradingOverlays";
+import { realizationEventRoutes } from "./routes/realizationEvents";
 import type { LiveRunner } from "../engine/liveRunner";
 import {
   SESSION_COOKIE, readCookie, sessionCookie, signSession, verifySession,
@@ -28,6 +29,7 @@ import {
 /** Reachable without a session: health probes and the sign-in flow itself. */
 const PUBLIC_PATHS = new Set([
   "/health", "/healthz", "/readyz", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+  "/api/internal/realization-events/v1",
 ]);
 
 /**
@@ -154,6 +156,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(tradingTimelineRoutes);
   app.register(journalRoutes);
   app.register(tradingOverlayRoutes);
+  app.register(realizationEventRoutes);
 
   return app;
 }

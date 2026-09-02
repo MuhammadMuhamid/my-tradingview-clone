@@ -158,6 +158,11 @@ execution evidence. Notes are not part of this first version: Platform has no
 existing annotation persistence/ownership convention, and the smallest Journal
 can remain a pure read projection instead of adding a new writable surface.
 
+For the custom Bot path these are per-event accounting results, labeled as
+modeled fee-adjusted at fixed 0.1% buy and sell rates rather than
+exchange-observed net P&L. Partial and final-leg rows remain `REALIZATION`; a
+final leg is not promoted to `CLOSED_TRADE` without authoritative entry pairing.
+
 ---
 
 ## 2. Paper mode
@@ -242,7 +247,8 @@ database once sat stopped for four days while the site kept answering.
 PostgreSQL is the authoritative recovery store. A complete database backup
 contains strategy/config provenance, deployments and `runtime_state`, order
 intents and dedupe identities, alert/execution history, risk controls and
-realised P&L, paper fills/accounting, notification-alert state and history,
+realised P&L including Bot source identity/accounting semantics, realization
+ingest nonce replay state, paper fills/accounting, notification-alert state and history,
 saved layouts/Pine scripts/watchlists, push subscriptions, database-backed VAPID
 keys, backtest history, feed-health evidence, and `schema_migrations`.
 
@@ -251,7 +257,7 @@ bot UUIDs, Web Push endpoints/key material, and possibly a database-backed VAPID
 private key. Store it with the same access restrictions as the database. The
 matching `ALERT_ENCRYPTION_KEY` must be re-provisioned separately or encrypted
 deployment credentials cannot be reopened. `SESSION_SECRET`, admin password
-hash, database credentials, TLS keys, manual-Bot HMAC secret, and env-provided
+hash, database credentials, TLS keys, manual-Bot and realization HMAC secrets, and env-provided
 VAPID keys are configuration/secrets outside PostgreSQL and must also be
 re-provisioned from the existing operator-owned secret store. Sessions are
 stateless cookies, so there is no session table to restore.
@@ -324,7 +330,9 @@ new database, run its readiness check, compare recovery-critical state, and
 only then perform the existing single-emitter cutover procedure. An independent
 disposable proof on 2026-09-02 restored a compact representative fixture into a
 second fresh PostgreSQL 16 database and reopened it through current Platform
-repositories; it did not contact Binance, Bot, or any webhook.
+repositories. The focused realization fixture also preserves a legacy nullable
+row, one Bot source-event row, and one ingest nonce. It does not contact
+Binance, Bot, or any webhook.
 
 ## 6. What has never been verified here
 

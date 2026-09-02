@@ -168,8 +168,13 @@ export function projectHistoricalOverlays(input: {
       source: "AUTOMATED", environment: "REAL", symbol: row.symbol, side: "SELL",
       eventTime: iso(row.closedAt), observedAt: null, price: row.exitPrice,
       quantity: row.quantity, state: row.reason, orderType: null, completeness: "INCOMPLETE",
-      detail: "Platform-persisted economic realization. Fee treatment and unavailable fill history remain unknown.",
-      identifiers: identifiers({ realizedPnlId: row.id, deploymentId: row.deploymentId,
+      detail: row.accountingBasis === "modeled_fee_adjusted"
+        ? "Bot-accounted per-event realization using modeled 0.1% fees on each side; not exchange-observed net P&L."
+        : "Platform-persisted economic realization. Fee treatment and unavailable fill history remain unknown.",
+      identifiers: identifiers({ realizedPnlId: row.id, realizationEventId: row.sourceEventId,
+        strategyOrderIntentId: row.strategyOrderIntentId,
+        intentId: row.platformOrderIntentId, exchangeOrderId: row.exchangeOrderId,
+        deploymentId: row.deploymentId,
         strategyId: row.strategyId, configId: row.configId }), provenance: provenance(row),
     });
   }

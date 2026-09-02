@@ -59,12 +59,12 @@ test("canonicalisation ignores line endings and trailing whitespace, but not con
   const base = canonicalizeContractSource(source);
   assert.equal(canonicalizeContractSource(source.replace(/\n/g, "\r\n")), base);
   assert.equal(canonicalizeContractSource(source.replace(/\n/g, "   \n")), base);
-  assert.notEqual(canonicalizeContractSource(source.replace("CONTRACT_VERSION = 1", "CONTRACT_VERSION = 2")), base);
+  assert.notEqual(canonicalizeContractSource(source.replace("CONTRACT_VERSION = 2", "CONTRACT_VERSION = 3")), base);
 });
 
 test("the fingerprint does not depend on its own value", () => {
   const source = fs.readFileSync(CONTRACT_PATH, "utf8");
-  const withOtherHash = source.replace(CONTRACT_FINGERPRINT, "sha256:v1:" + "0".repeat(64));
+  const withOtherHash = source.replace(CONTRACT_FINGERPRINT, "sha256:v2:" + "0".repeat(64));
   assert.equal(canonicalizeContractSource(withOtherHash), canonicalizeContractSource(source));
 });
 

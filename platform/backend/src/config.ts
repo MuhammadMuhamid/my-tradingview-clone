@@ -30,6 +30,8 @@ export interface AppConfig {
   manualTradingEnabled: boolean;
   manualTradingBotUrl: string;
   manualTradingHmacSecret: string;
+  realizationIngestionEnabled: boolean;
+  realizationHmacSecret: string;
   /** Canonical Scanner service. Browser code never receives this address. */
   scannerServiceUrl: string;
 }
@@ -102,6 +104,8 @@ export const config: AppConfig = {
   manualTradingEnabled: process.env.MANUAL_TRADING_ENABLED === "true",
   manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
+  realizationIngestionEnabled: process.env.REALIZATION_INGESTION_ENABLED === "true",
+  realizationHmacSecret: process.env.REALIZATION_HMAC_SECRET ?? "",
   scannerServiceUrl: (process.env.SCANNER_SERVICE_URL ?? (
     (process.env.NODE_ENV ?? "").toLowerCase() === "production" ? "" : "http://127.0.0.1:8000"
   )).replace(/\/$/, ""),
@@ -145,6 +149,12 @@ if (config.manualTradingEnabled && config.manualTradingHmacSecret.length < 32) {
 }
 if (config.manualTradingEnabled && isPublishedPlaceholder(config.manualTradingHmacSecret)) {
   throw new Error("MANUAL_TRADING_HMAC_SECRET is a published placeholder value — generate a real one");
+}
+if (config.realizationIngestionEnabled && config.realizationHmacSecret.length < 32) {
+  throw new Error("REALIZATION_HMAC_SECRET must be at least 32 characters when realization ingestion is enabled");
+}
+if (config.realizationIngestionEnabled && isPublishedPlaceholder(config.realizationHmacSecret)) {
+  throw new Error("REALIZATION_HMAC_SECRET is a published placeholder value — generate a real one");
 }
 if (config.manualTradingEnabled) {
   const manualBotUrl = new URL(config.manualTradingBotUrl);

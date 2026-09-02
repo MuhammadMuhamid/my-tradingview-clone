@@ -1,6 +1,6 @@
 # Cross-repository webhook contract
 
-**Status:** current, **`v1`**. The contract is now a real artifact rather than a
+**Status:** current, **`v2`**. The contract is now a real artifact rather than a
 description: `platform/backend/src/contract/webhookContract.ts` is vendored
 byte-for-byte into both repositories, carries a `CONTRACT_FINGERPRINT`, and both
 test suites hash their own copy against it. Editing one side turns both builds
@@ -46,13 +46,21 @@ Both senders may be active simultaneously. They do **not** share dedupe state.
   "quantity":        1.25,                    // base units; mutually exclusive with sell_percent
   "sell_percent":    50,                      // SELL only; > 0 and <= 100 (v1)
   "exit_leg":        "tp1" | "tp2" | "runner" | "stop" | "signal",
-  "dedupe_key":      "L-<barOpenTimeMs>"      // v1; see "Idempotency" below
+  "dedupe_key":      "L-<barOpenTimeMs>"      // see "Idempotency" below
 }
 ```
 
 The schema is **strict**: any field not listed is rejected with HTTP 400. The
 platform never sends a price — every order the receiver places is a
 `type: "MARKET"` order at the then-current price.
+
+Platform's live runner adds paired `X-Platform-Deployment-Id` and
+`X-Platform-Order-Intent-Id` HTTP headers. An old Bot ignores them, so Platform
+may roll first without changing the strict JSON body. A new Bot stores this
+provenance solely to publish accounting evidence; it never affects order
+decisions. If Bot rolls first, it still persists an event with the dedupe key
+and a one-way identity of the high-entropy webhook credential; upgraded
+Platform resolves that pair uniquely or rejects it rather than approximating.
 
 ### Normalisation applied by the receiver
 

@@ -16,6 +16,8 @@ services:
       # Keep the cloud runner disabled during migration/QA. Enable only after
       # the local runner is stopped to guarantee a single order emitter.
       LIVE_RUNNER_ENABLED: ${LIVE_RUNNER_ENABLED:-false}
+      REALIZATION_INGESTION_ENABLED: ${REALIZATION_INGESTION_ENABLED:-false}
+      REALIZATION_HMAC_SECRET: ${REALIZATION_HMAC_SECRET:-}
       MA_ALERTS_ENABLED: ${MA_ALERTS_ENABLED:-true}
       # Cookie-session sign-in (replaces the Caddy basic_auth that kept
       # signing the user out). COOKIE_SECURE stays on: Caddy terminates TLS.

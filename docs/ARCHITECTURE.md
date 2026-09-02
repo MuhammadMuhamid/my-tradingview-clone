@@ -222,7 +222,20 @@ complete.
 The projection reads existing truth; it is not another execution ledger. Durable
 live `order_intents` and linked `executions` are activity with unknown economics.
 Platform `realised_pnl` rows are realization events with their persisted signed
-result, but absent commission history remains Unknown. Paper sells reuse the
+result. New `BOT_CUSTOM_V1` rows originate only from the Bot's authoritative
+accounting transaction and carry unique source-event identity, exact Bot intent,
+exchange-order identity, Platform dedupe/credential provenance and, for current
+commands, direct Platform deployment/order-intent identity, partial/final kind,
+authoritative realization time, and accounting metadata. Values cross as
+canonical decimal strings; Platform never reconstructs cost basis, fills, fees,
+or final-leg P&L. Identical replay is idempotent and conflicting same-ID content
+fails closed. Legacy rows stay nullable without guessed identities.
+
+Bot partials are per-slice results and a final event is only the remaining
+final-leg delta, never cumulative SmartTrade P&L repeated as another event.
+Their sum equals Bot cumulative accounting. The current Bot model adjusts buy
+cost and sell revenue by fixed 0.1% rates; it is labeled modeled fee-adjusted,
+not exchange-observed net, and absent commission history remains Unknown. Paper sells reuse the
 paper engine's persisted net P&L and its no-averaging single-position relationship
 to allocate the persisted entry/exit commissions; a final sell is a closed paper
 episode and a partial sell remains a realization. ManualOrder state is fetched
@@ -234,10 +247,22 @@ Real and PAPER summaries are returned and rendered separately. Only rows with a
 known persisted realized result enter known totals or win/loss counts. Date
 buckets use the realization time; activity and any outcome without such a time
 cannot enter a fabricated bucket. The Journal performs no automated Bot history
-lookups, so Bot-only PartialClose evidence remains available in the demand-driven
-Timeline until it is authoritatively persisted by Platform. Individual exchange
+lookups: it reads the durable `realised_pnl` projection once. Individual exchange
 fills, commissions, historical cumulative snapshots, and manual realized P&L
 remain unavailable rather than inferred.
+
+Delivery is a Bot-owned SQLite outbox of immutable v1 payloads, pushed in
+HMAC-authenticated batches of at most 50 with timestamp/nonce replay controls
+and bounded backoff. Receipt is one PostgreSQL transaction, including exact
+deployment/order-intent correlation. Current Platform commands put direct IDs
+in headers an old Bot safely ignores. A new Bot behind an old Platform persists
+the event with a one-way credential identity and dedupe key, which the upgraded
+Platform resolves uniquely or rejects; it never approximates. Arrival order is irrelevant; Journal and
+overlays use authoritative realization time. Migration/reconciliation never
+scans old closed trades or PartialClose rows, so cutover is going-forward only.
+Ingestion/delivery remain independently opt-in for staged rollout. 3Commas
+remains unsupported because it has no equivalent authoritative
+durable accounting evidence.
 
 ### Spot chart trading overlays
 

@@ -21,6 +21,13 @@ export interface AutomatedRealizationEvidence extends ProvenanceEvidence {
   exitPrice: number | null;
   quantity: number | null;
   reason: string | null;
+  sourceEventId?: string | null;
+  realizationKind?: "partial" | "final" | null;
+  strategyOrderIntentId?: string | null;
+  exchangeOrderId?: string | null;
+  platformOrderIntentId?: string | null;
+  accountingBasis?: string | null;
+  feeModel?: string | null;
 }
 
 export interface AutomatedActivityEvidence extends ProvenanceEvidence {
@@ -78,14 +85,19 @@ const provenance = (row: ProvenanceEvidence) => ({
 });
 
 export function automatedRealizationRows(rows: readonly AutomatedRealizationEvidence[]): JournalRow[] {
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    const modeled = row.accountingBasis === "modeled_fee_adjusted"
+      && row.feeModel === "fixed_0.1pct_each_side_not_exchange_observed";
+    return ({
     id: `automated-realization:${row.id}`,
     kind: "REALIZATION",
     source: "AUTOMATED",
     environment: "REAL",
     symbol: row.symbol,
     side: "SELL",
-    title: "Persisted realized outcome",
+    title: row.realizationKind === "partial" ? "Automated partial realization"
+      : row.realizationKind === "final" ? "Automated final-leg realization"
+      : "Persisted realized outcome",
     occurredAt: iso(row.closedAt),
     entryAt: null,
     realizationAt: iso(row.closedAt),
@@ -100,14 +112,20 @@ export function automatedRealizationRows(rows: readonly AutomatedRealizationEvid
     economicsState: "KNOWN",
     feeState: "UNKNOWN",
     evidenceState: "INCOMPLETE",
-    evidenceDetail: "Platform persisted the signed realized P&L and close time; storage does not state gross/net fee treatment, commission history, or a provable open time.",
+    evidenceDetail: modeled
+      ? "Bot authoritative accounting persisted this per-event result using its fixed modeled 0.1% buy and 0.1% sell fee adjustment. It is not exchange-observed net P&L; individual commissions and a provable open time remain unavailable."
+      : "Platform persisted the signed realized P&L and close time; storage does not state gross/net fee treatment, commission history, or a provable open time.",
     ...provenance(row),
     reason: row.reason,
     identifiers: {
       realizedPnlId: String(row.id), deploymentId: row.deploymentId,
+      ...(row.sourceEventId ? { realizationEventId: row.sourceEventId } : {}),
+      ...(row.strategyOrderIntentId ? { strategyOrderIntentId: row.strategyOrderIntentId } : {}),
+      ...(row.platformOrderIntentId ? { intentId: row.platformOrderIntentId } : {}),
+      ...(row.exchangeOrderId ? { exchangeOrderId: row.exchangeOrderId } : {}),
       strategyId: String(row.strategyId), ...(row.configId ? { configId: row.configId } : {}),
     },
-  }));
+  }); });
 }
 
 export function automatedActivityRows(rows: readonly AutomatedActivityEvidence[]): JournalRow[] {

@@ -49,6 +49,23 @@ test("automated persisted realization keeps authoritative provenance and P&L wit
   assert.equal(row?.config?.id, "cfg-7");
 });
 
+test("Bot realization is one REAL/AUTOMATED realization and labels modeled fees conservatively", () => {
+  const [row] = automatedRealizationRows([{ ...provenance, id: 10, closedAt: T0,
+    pnlQuote: 4.945, entryPrice: null, exitPrice: 120, quantity: 0.4, reason: "tp1",
+    sourceEventId: "bot-realization-v1:partial:partial-1", realizationKind: "partial",
+    strategyOrderIntentId: "bot-intent-1", exchangeOrderId: "exchange-1",
+    platformOrderIntentId: "41", accountingBasis: "modeled_fee_adjusted",
+    feeModel: "fixed_0.1pct_each_side_not_exchange_observed" }]);
+  assert.equal(row?.kind, "REALIZATION");
+  assert.equal(row?.environment, "REAL");
+  assert.equal(row?.source, "AUTOMATED");
+  assert.equal(row?.realizedPnl, 4.945);
+  assert.equal(row?.netRealizedPnl, null);
+  assert.equal(row?.feeState, "UNKNOWN");
+  assert.match(row?.evidenceDetail ?? "", /modeled 0\.1% buy and 0\.1% sell/);
+  assert.equal(row?.identifiers.realizationEventId, "bot-realization-v1:partial:partial-1");
+});
+
 test("multiple exact PartialClose events are unique and aggregate once", () => {
   const first = strategyEvidence("partial-1", 5, T0);
   const second = strategyEvidence("partial-2", -2, T0 + 1000);

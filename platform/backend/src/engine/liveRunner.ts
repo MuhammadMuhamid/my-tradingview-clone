@@ -24,7 +24,7 @@ import { BinanceWsManager, BarCloseEvent } from "../data/binanceWs";
 import { FeedStore, toBars } from "./mtf";
 import { evaluateBar } from "./liveEvaluator";
 import {
-  buildPayload, deliver, deliveryAdvancesState, deliveryPlacedOrder,
+  buildPayload, deliver, deliveryAdvancesState, deliveryPlacedOrder, platformCorrelationHeaders,
   sellContracts, validateWebhookUrl, type SignalContext,
 } from "../alerts/dispatcher";
 import * as liveSafety from "../repositories/liveSafety";
@@ -628,6 +628,12 @@ export class LiveRunner {
       intentId = claim.intent.id;
     }
 
+    // Headers are ignored by an old Bot, so either repository can roll first.
+    // The body remains the strict legacy-compatible custom webhook shape.
+    const correlationHeaders = intentId !== null && dep.delivery === "custom"
+      ? platformCorrelationHeaders({ deploymentId: dep.id, orderIntentId: intentId })
+      : undefined;
+
     const alert = await alertRepo.createAlert({
       deploymentId: dep.id,
       barTime: decision.barTime,
@@ -713,6 +719,7 @@ export class LiveRunner {
     // that actually succeeded would be duplicated by a retry (BE-12).
     const result = await deliver(built.url, built.payload, {
       idempotent: built.dedupeKey !== null,
+      headers: correlationHeaders,
     });
     await alertRepo.markDelivery(alert.id, result);
 

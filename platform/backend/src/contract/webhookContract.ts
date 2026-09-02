@@ -1,6 +1,6 @@
 /**
  * ════════════════════════════════════════════════════════════════════════════
- *  SHARED CROSS-REPOSITORY WEBHOOK CONTRACT — v1
+ *  SHARED CROSS-REPOSITORY WEBHOOK CONTRACT — v2
  * ════════════════════════════════════════════════════════════════════════════
  *
  * This file is VENDORED, byte-for-byte, into both repositories:
@@ -29,6 +29,11 @@
  *
  * ── Changelog ──────────────────────────────────────────────────────────────
  *
+ *  v2  Adds optional paired Platform deployment/order-intent correlation.
+ *      Platform emits it as HTTP headers, which an old Bot safely ignores;
+ *      the legacy JSON body remains unchanged. Direct TradingView payloads
+ *      remain valid.
+ *
  *  v1  Baseline, plus three corrections to the v0 behaviour the audit found:
  *
  *      * `sell_percent` now accepts exactly 100 (`> 0 && <= 100`). The sender
@@ -55,7 +60,7 @@
  */
 
 /** Bumped on any change to what is accepted or emitted. */
-export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION = 2;
 
 /**
  * SHA-256 of this file's canonical content, computed by
@@ -66,11 +71,15 @@ export const CONTRACT_VERSION = 1;
  * hash it prints, and paste it here in BOTH repositories.
  */
 export const CONTRACT_FINGERPRINT =
-  "sha256:v1:ed604eaea2cec870ef372b3499061dde9c2901646eff3c5cbb2cab998624c136";
+  "sha256:v2:8bae811b4ed68fbc22a9382915f367ac1b510a4f3d76c1f6b8cd2f76d5e8c3bf";
 
 // ── Payload shapes ──────────────────────────────────────────────────────────
 
 export type ContractAction = "buy" | "sell";
+
+/** Optional HTTP metadata; deliberately outside the strict legacy JSON body. */
+export const PLATFORM_DEPLOYMENT_ID_HEADER = "x-platform-deployment-id";
+export const PLATFORM_ORDER_INTENT_ID_HEADER = "x-platform-order-intent-id";
 
 /** Exit legs the strategy engines can emit. Stable identities, not free text. */
 export const EXIT_LEGS = ["tp1", "tp2", "runner", "stop", "signal"] as const;

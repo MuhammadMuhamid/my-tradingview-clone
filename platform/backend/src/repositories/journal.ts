@@ -46,9 +46,16 @@ export async function listAutomatedRealizations(
     id: number; closed_at: Date; pnl_quote: string | number;
     entry_price: string | number | null; exit_price: string | number | null;
     quantity: string | number | null; reason: string | null;
+    source_event_id: string | null; realization_kind: "partial" | "final" | null;
+    source_strategy_order_intent_id: string | null; source_exchange_order_id: string | null;
+    source_platform_order_intent_id: string | number | null;
+    accounting_basis: string | null; fee_model: string | null;
   }>(
     `SELECT rp.id, rp.closed_at, rp.pnl_quote, rp.entry_price, rp.exit_price,
-            rp.quantity, rp.reason, d.id AS deployment_id, d.strategy_id,
+            rp.quantity, rp.reason, rp.source_event_id, rp.realization_kind,
+            rp.source_strategy_order_intent_id, rp.source_exchange_order_id,
+            rp.source_platform_order_intent_id, rp.accounting_basis, rp.fee_model,
+            d.id AS deployment_id, d.strategy_id,
             s.key AS strategy_key, s.name AS strategy_name, d.config_id,
             sc.name AS config_name, d.symbol
        FROM realised_pnl rp
@@ -66,6 +73,12 @@ export async function listAutomatedRealizations(
     ...provenance(row), id: row.id, closedAt: row.closed_at.getTime(),
     pnlQuote: Number(row.pnl_quote), entryPrice: num(row.entry_price),
     exitPrice: num(row.exit_price), quantity: num(row.quantity), reason: row.reason,
+    sourceEventId: row.source_event_id, realizationKind: row.realization_kind,
+    strategyOrderIntentId: row.source_strategy_order_intent_id,
+    exchangeOrderId: row.source_exchange_order_id,
+    platformOrderIntentId: row.source_platform_order_intent_id === null
+      ? null : String(row.source_platform_order_intent_id),
+    accountingBasis: row.accounting_basis, feeModel: row.fee_model,
   }));
 }
 
