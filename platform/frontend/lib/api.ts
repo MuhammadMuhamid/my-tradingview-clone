@@ -750,6 +750,14 @@ export interface ManualPosition {
   protectionType: string | null; protectionState: string | null;
   createdAt: string; closedAt: string | null; closedReason: string | null;
 }
+export interface ManualAssetBalance { asset: string; free: number; locked: number }
+export interface ManualAccountStateView {
+  symbol: string;
+  base: ManualAssetBalance;
+  quote: ManualAssetBalance;
+  rules: { lotStep: number; minQty: number; priceTick: number; minNotional: number };
+  simulated: boolean;
+}
 export interface ManualTradingState {
   enabled: boolean; mainnetEnabled: boolean; dryRun: boolean; mixed: boolean;
   accounts: ManualAccount[]; orders: ManualOrder[]; positions: ManualPosition[];
@@ -918,6 +926,14 @@ export const api = {
     }),
 
   // Manual Binance Spot commands (platform session -> HMAC service channel -> bot).
+  /**
+   * Advisory account context for the ticket. Bound to one symbol and one
+   * account, and read-only: the execution Bot re-derives everything at
+   * submission, so this can inform a human but never widen what executes.
+   */
+  manualAccountState: (symbol: string, accountId: string) => req<ManualAccountStateView>(
+    `/api/manual-trading/account-state?symbol=${encodeURIComponent(symbol)}`
+    + `&accountId=${encodeURIComponent(accountId)}`),
   manualState: (symbol?: string) => req<ManualTradingState>(
     `/api/manual-trading/state${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`),
   submitManualOrder: (body: Record<string, unknown>) => req<ManualOrder>(

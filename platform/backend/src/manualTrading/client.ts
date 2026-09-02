@@ -30,7 +30,7 @@ export class ManualBotError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
-export async function manualBotRequest<T>(input: { method: "GET" | "POST" | "PATCH";
+export async function manualBotRequest<T>(input: { method: "GET" | "POST" | "PUT" | "PATCH";
   path: string; body?: unknown; requestId?: string }, fetchImpl: typeof fetch = fetch): Promise<T> {
   if (!config.manualTradingEnabled) throw new ManualBotError("manual trading is disabled", 404);
   const timestamp = String(Date.now());

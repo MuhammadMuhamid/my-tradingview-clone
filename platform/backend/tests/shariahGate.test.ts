@@ -237,7 +237,6 @@ test("the outbound Bot request carries exactly the agreed Shariah context, insid
   config.manualTradingEnabled = true;
   config.manualTradingBotUrl = "http://127.0.0.1:9";
   config.manualTradingHmacSecret = "test-only-manual-hmac-secret-0000000000";
-  config.shariahBotContextEnabled = true;
   t.after(() => Object.assign(config, previous));
 
   const realFetch = globalThis.fetch;
@@ -301,12 +300,11 @@ test("the outbound Bot request carries exactly the agreed Shariah context, insid
   }
 });
 
-test("a mode-off order still states the mode explicitly when the block is enabled", async (t) => {
+test("a mode-off order still states the mode explicitly", async (t) => {
   const previous = { ...config };
   config.manualTradingEnabled = true;
   config.manualTradingBotUrl = "http://127.0.0.1:9";
   config.manualTradingHmacSecret = "test-only-manual-hmac-secret-0000000000";
-  config.shariahBotContextEnabled = true;
   t.after(() => Object.assign(config, previous));
 
   const realFetch = globalThis.fetch;

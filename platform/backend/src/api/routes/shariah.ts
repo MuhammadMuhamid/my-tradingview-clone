@@ -41,8 +41,13 @@ import {
 import {
   ShariahReviewImportError, importShariahReviewResults, previewShariahReviewResults,
 } from "../../shariah/reviewImport";
-import { getShariahMode, isShariahMode, setShariahMode } from "../../shariah/mode";
+import {
+  getShariahMode, isShariahMode, setShariahMode, type ShariahMode,
+} from "../../shariah/mode";
 import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
+import {
+  pushShariahModeToBot, ShariahBotSyncError, type BotEnforcementDeps,
+} from "../../shariah/botEnforcement";
 import type { PoolClient } from "pg";
 
 /**
@@ -67,10 +72,19 @@ const isDigits = (v: string): boolean => /^[0-9]+$/.test(v);
 
 export async function shariahRoutes(
   app: FastifyInstance,
-  dependencies: { connect?: () => Promise<PoolClient>; shariah?: ShariahGateDeps } = {}
+  dependencies: {
+    connect?: () => Promise<PoolClient>;
+    shariah?: ShariahGateDeps;
+    botEnforcement?: BotEnforcementDeps;
+    /** The stored mode, injectable so the arm-then-store ORDER can be tested. */
+    mode?: { get?: () => Promise<ShariahMode>; set?: (mode: ShariahMode) => Promise<ShariahMode> };
+  } = {}
 ): Promise<void> {
   const connect = dependencies.connect ?? (() => pool.connect());
   const gateDeps = dependencies.shariah ?? {};
+  const botEnforcementDeps = dependencies.botEnforcement ?? {};
+  const readMode = dependencies.mode?.get ?? getShariahMode;
+  const writeMode = dependencies.mode?.set ?? setShariahMode;
 
   /** The whole registry, including delisted assets (`binanceAvailable: false`). */
   app.get("/api/shariah/universe", async () => {
@@ -278,7 +292,7 @@ export async function shariahRoutes(
 
   // ── Shariah Mode ──────────────────────────────────────────────────────────
 
-  app.get("/api/shariah/mode", async () => ({ mode: await getShariahMode(), policyVersion: TS_SHARIAH_V1 }));
+  app.get("/api/shariah/mode", async () => ({ mode: await readMode(), policyVersion: TS_SHARIAH_V1 }));
 
   /**
    * The mode lives server-side because the gate is server-side. The browser
@@ -290,7 +304,36 @@ export async function shariahRoutes(
     if (!isShariahMode(mode)) {
       return reply.code(400).send({ error: 'mode must be "off" or "enforce"' });
     }
-    return { mode: await setShariahMode(mode), policyVersion: TS_SHARIAH_V1 };
+    /*
+     * The mode is not only Platform state. The execution Bot accepts signals
+     * this Platform never sees — a direct TradingView webhook, authenticated by
+     * a per-bot secret — and it can only refuse those if it has been TOLD this
+     * installation enforces. Nothing else can tell it: the Bot remembers
+     * enforcement per sender scope, and no Platform-originated request ever
+     * lands on the webhook sender's scope.
+     *
+     * So the push is part of the change, not a side effect of it, and the order
+     * is chosen so every intermediate state is the stricter one:
+     *
+     *   enforce — arm the Bot first; persist only if it agreed. A failure
+     *             reports 502 and leaves the stored mode alone, so the operator
+     *             is never shown "enforcing" over an executing side that isn't.
+     *   off     — persist first, disarm after.
+     */
+    try {
+      if (mode === "enforce") {
+        await pushShariahModeToBot("enforce", botEnforcementDeps);
+        return { mode: await writeMode(mode), policyVersion: TS_SHARIAH_V1 };
+      }
+      const stored = await writeMode(mode);
+      await pushShariahModeToBot("off", botEnforcementDeps);
+      return { mode: stored, policyVersion: TS_SHARIAH_V1 };
+    } catch (error) {
+      if (error instanceof ShariahBotSyncError) {
+        return reply.code(error.status).send({ error: error.message, mode: await readMode() });
+      }
+      throw error;
+    }
   });
 
   /**

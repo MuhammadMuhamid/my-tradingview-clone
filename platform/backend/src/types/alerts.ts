@@ -2,6 +2,7 @@
  * Alert payload shapes. Both formats replicate EXACTLY what the Pine strategy
  * sends today, so the existing bots keep working unchanged.
  */
+import type { ShariahContext } from "../contract/webhookContract";
 
 /**
  * 3Commas Signal-bot webhook payload — mirrors
@@ -9,6 +10,7 @@
  * because TradingView renders its {{placeholders}} into a string template.
  * POSTed to https://api.3commas.io/signal_bots/webhooks
  */
+
 export interface ThreeCommasAlertPayload {
   secret: string;
   max_lag: string;            // seconds, e.g. "300"
@@ -46,6 +48,19 @@ export interface CustomBotAlertPayload {
   /** Stable leg identity permits multiple legitimate exits on one candle. */
   exit_leg?: "tp1" | "tp2" | "runner" | "stop" | "signal";
   dedupe_key: string;
+  /**
+   * The Platform's Shariah decision for this exact order, plus the detached
+   * signature that proves the Platform made it.
+   *
+   * The manual channel needs no such signature — its HMAC already covers the
+   * whole body — but this path's only authentication is the shared secret
+   * inside the body, which authorises placing an order and proves nothing about
+   * a screening decision. Without the detached signature the receiver treats
+   * the block as unproven: it may still refuse an entry, never authorise one.
+   */
+  shariah?: ShariahContext;
+  shariah_ts?: string;
+  shariah_sig?: string;
 }
 
 export type AlertPayload = ThreeCommasAlertPayload | CustomBotAlertPayload;

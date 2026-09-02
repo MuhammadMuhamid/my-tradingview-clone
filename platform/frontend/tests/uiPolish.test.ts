@@ -109,8 +109,10 @@ test("two-state toggles announce their state, not only tint it", () => {
     ["components/tv/MaPanel.tsx", [/aria-pressed=\{line\.visible\}/]],
     // Study visibility in the Indicators panel.
     ["components/tv/IndicatorsPanel.tsx", [/aria-pressed=\{ind\.visible\}/]],
-    // Buy versus sell, and the tester's tabs.
-    ["components/tv/ManualTradingPanel.tsx", [/aria-pressed=\{side === v\}/, /role="tab"/]],
+    // Buy versus sell — now two explicit buttons, because each carries its own
+    // live price — and the tester's tabs.
+    ["components/tv/ManualTradingPanel.tsx",
+      [/aria-pressed=\{side === "SELL"\}/, /aria-pressed=\{side === "BUY"\}/, /role="tab"/]],
     ["components/tv/StrategyTester.tsx", [/role="tab"/, /aria-selected=/]],
     // Drawing lock, which differs in shape as well as tint.
     ["components/tv/DrawingCanvas.tsx", [/aria-pressed=\{Boolean\(sel\.locked\)\}/]],

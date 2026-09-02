@@ -51,6 +51,27 @@ export async function manualTradingRoutes(
 ): Promise<void> {
   const shariahDeps = dependencies.shariah ?? {};
 
+  /**
+   * Advisory account context for the ticket: free and locked for the two assets
+   * of one symbol, plus the exchange's own size and price rules.
+   *
+   * A pure pass-through to the Bot, deliberately. Binance credentials stay on
+   * the execution side and never come here; this is the same authenticated
+   * boundary the order itself crosses. It is read-only and it authorises
+   * nothing — the Bot re-derives everything it needs at submission time, so a
+   * figure shown here can inform a human but can never widen what executes.
+   */
+  app.get("/api/manual-trading/account-state", async (req, reply) => send(reply, async () => {
+    if (!config.manualTradingEnabled) throw new ManualBotError("manual trading is disabled", 404);
+    const query = req.query as { symbol?: unknown; accountId?: unknown };
+    const symbol = typeof query.symbol === "string" ? query.symbol : "";
+    const accountId = typeof query.accountId === "string" ? query.accountId : "";
+    if (!symbol || !accountId) throw new ManualBotError("symbol and accountId are required", 400);
+    return manualBotRequest({ method: "GET",
+      path: `/api/manual-trading/account-state?accountId=${encodeURIComponent(accountId)}`
+        + `&symbol=${encodeURIComponent(symbol)}` });
+  }));
+
   app.get("/api/manual-trading/state", async (req, reply) => send(reply, async () => {
     if (!config.manualTradingEnabled) throw new ManualBotError("manual trading is disabled", 404);
     const symbol = (req.query as { symbol?: unknown }).symbol;
@@ -73,12 +94,16 @@ export async function manualTradingRoutes(
       shariahDeps
     );
 
-    // The block rides inside the signed request body (client.ts canonicalises
-    // the whole body into the HMAC), so it cannot be added, removed or edited
-    // in flight. Gated by the paired-release flag — see config.ts.
-    const outbound = config.shariahBotContextEnabled ? { ...command, shariah: context } : command;
+    /*
+     * The block rides inside the signed request body — `client.ts`
+     * canonicalises the WHOLE body into the HMAC — so it cannot be added,
+     * removed or edited in flight, and needs no signature of its own. It ships
+     * unconditionally: an installation where the operator has turned Shariah
+     * Mode on must not depend on a second, hidden switch to actually send the
+     * evidence that lets the Bot enforce it.
+     */
     return manualBotRequest({ method: "POST", path: "/api/manual-trading/orders",
-      body: outbound, requestId });
+      body: { ...command, shariah: context }, requestId });
   }));
 
   // Cancelling an order and editing stop-loss/take-profit protection can only

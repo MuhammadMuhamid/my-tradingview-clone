@@ -16,9 +16,12 @@ import {
   orderPlaced,
   PLATFORM_DEPLOYMENT_ID_HEADER,
   PLATFORM_ORDER_INTENT_ID_HEADER,
+  shariahEvidenceCanonical,
   type ExitLeg,
   type ReceiverOutcome,
+  type ShariahContext,
 } from "../contract/webhookContract";
+import { createHmac } from "node:crypto";
 
 export interface SignalContext {
   action: "buy" | "sell";
@@ -41,6 +44,56 @@ export interface BuiltAlert {
   payload: AlertPayload;
   dedupeKey: string | null;
   url: string | null;
+}
+
+/**
+ * Attach the Shariah decision to an automated custom-bot alert, with a detached
+ * signature proving the Platform made it.
+ *
+ * ── Why the manual path needs no equivalent ─────────────────────────────────
+ *
+ * A manual order is delivered over the HMAC channel, whose signature covers a
+ * canonical hash of the ENTIRE body; the block is authenticated there for free.
+ * This path is different. Its only authentication is the per-deployment webhook
+ * secret carried inside the body — which authorises placing an order and says
+ * nothing about who screened the asset. A block sent bare here would be exactly
+ * the "arbitrary unsigned client classification field" the receiver must not
+ * trust, so it travels with its own signature over the symbol, the side, the
+ * decision and the time.
+ *
+ * The key is the manual HMAC secret the Platform already shares with the Bot. A
+ * TradingView alert firing at the same endpoint has the webhook secret but not
+ * this one, which is precisely why it cannot certify its own BUY.
+ *
+ * 3Commas is left alone: it is a third party with no Shariah contract, and the
+ * gate has already refused anything it must not receive.
+ */
+export function withShariahEvidence(
+  built: BuiltAlert,
+  input: { symbol: string; side: "buy" | "sell"; context: ShariahContext },
+  secret = config.manualTradingHmacSecret
+): BuiltAlert {
+  const payload = built.payload;
+  // Only the custom shape carries it. `3commas` has no such field, and the
+  // off/paper shapes make no outbound call at all.
+  if (!("dedupe_key" in payload) || built.url === null) return built;
+  const timestamp = String(Date.now());
+  const canonical = shariahEvidenceCanonical({
+    symbol: input.symbol, side: input.side, timestamp, context: input.context });
+  const signed: CustomBotAlertPayload = {
+    ...(payload as CustomBotAlertPayload),
+    shariah: input.context,
+    shariah_ts: timestamp,
+    /*
+     * An installation with no shared secret has no execution Bot to sign for.
+     * The block still ships as evidence; unsigned, the receiver treats it as
+     * unproven, which can only ever be stricter than omitting it.
+     */
+    ...(secret
+      ? { shariah_sig: `v1=${createHmac("sha256", secret).update(canonical).digest("hex")}` }
+      : {}),
+  };
+  return { ...built, payload: signed };
 }
 
 /** Exact v2 provenance in headers that an old Bot safely ignores. */

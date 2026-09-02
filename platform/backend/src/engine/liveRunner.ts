@@ -25,6 +25,7 @@ import { FeedStore, toBars } from "./mtf";
 import { evaluateBar } from "./liveEvaluator";
 import {
   buildPayload, deliver, deliveryAdvancesState, deliveryPlacedOrder, platformCorrelationHeaders,
+  withShariahEvidence,
   sellContracts, validateWebhookUrl, type SignalContext,
 } from "../alerts/dispatcher";
 import * as liveSafety from "../repositories/liveSafety";
@@ -546,7 +547,7 @@ export class LiveRunner {
       sellPercent: decision.sellPercent,
       exitLeg: decision.exitLeg,
     };
-    const built = buildPayload(dep, ctx);
+    let built = buildPayload(dep, ctx);
 
     /*
      * BE-11: the risk gate, immediately before anything is written or sent.
@@ -632,6 +633,18 @@ export class LiveRunner {
       // Same rule as the risk gate: nothing was sent, so nothing advances.
       return false;
     }
+
+    /*
+     * The decision now travels WITH the order.
+     *
+     * Gating here is necessary but not sufficient: the Bot also accepts signals
+     * this Platform never sees, and it can only apply the rule to an order it
+     * can prove carries a Platform decision. On this path the body's only
+     * authentication is the webhook secret, so the block is signed separately —
+     * see `withShariahEvidence`.
+     */
+    built = withShariahEvidence(built,
+      { symbol: dep.symbol, side: decision.action, context: shariah.context });
 
     /*
      * BE-13 / BE-16: claim the intent BEFORE delivering.

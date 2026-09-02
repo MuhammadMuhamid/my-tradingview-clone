@@ -9,6 +9,21 @@ export function fmtPct(n: number | null | undefined, digits = 2): string {
   return `${s}${n.toFixed(digits)}%`;
 }
 
+/**
+ * An asset QUANTITY or balance.
+ *
+ * Unlike a price, a balance must not be rounded to a fixed width: showing
+ * "0.00" beside a real holding of 0.0004 BTC tells the operator they have
+ * nothing. Trailing zeros are dropped so the number reads as the amount it is,
+ * and up to eight decimals are kept because that is Binance's own precision.
+ */
+export function fmtQty(n: number | null | undefined): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  if (n === 0) return "0";
+  const fixed = n.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+  return fixed === "" || fixed === "-" ? "0" : fixed;
+}
+
 export function fmtPrice(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
   // Adaptive precision: more decimals for small-priced coins.
@@ -27,11 +42,15 @@ export function fmtPrice(n: number | null | undefined): string {
  * shown the way the reference chart headers show it — same precision as the
  * price, and always signed.
  */
-export function fmtPriceDelta(delta: number | null | undefined, reference: number): string {
+export function fmtPriceDelta(
+  delta: number | null | undefined, reference: number,
+  /** A spread is a magnitude, not a movement, so it is shown unsigned. */
+  signed = true
+): string {
   if (delta === null || delta === undefined || Number.isNaN(delta)) return "—";
   const abs = Math.abs(reference);
   const digits = abs >= 100 ? 2 : abs >= 1 ? 4 : 6;
-  const sign = delta >= 0 ? "+" : "−";
+  const sign = !signed ? "" : delta >= 0 ? "+" : "−";
   return `${sign}${Math.abs(delta).toLocaleString(undefined, {
     minimumFractionDigits: digits, maximumFractionDigits: digits,
   })}`;

@@ -7,7 +7,9 @@ import { isInterval } from "../../types/market";
 import { deliversLiveOrders, type DeliveryMode } from "../../types/deployments";
 import type { StrategyParams } from "../../types/strategy";
 import type { LiveRunner } from "../../engine/liveRunner";
-import { buildPayload, deliver, validateWebhookUrl, type SignalContext } from "../../alerts/dispatcher";
+import {
+  buildPayload, deliver, validateWebhookUrl, withShariahEvidence, type SignalContext,
+} from "../../alerts/dispatcher";
 import { validateDeploymentPatch, type DeploymentPatchInput } from "../deploymentPatch";
 import { config as appConfig } from "../../config";
 import * as paperRepo from "../../repositories/paperFills";
@@ -235,7 +237,10 @@ export function deploymentRoutes(
         prevPositionSize: body.action === "buy" ? 0 : estimatedQty,
         contracts: estimatedQty,
       };
-      const built = buildPayload(dep, ctx);
+      // Same reasoning as LiveRunner: the gate above decided, and the decision
+      // has to travel with the order so the receiver can apply it too.
+      const built = withShariahEvidence(buildPayload(dep, ctx),
+        { symbol: dep.symbol, side: body.action, context: shariah.context });
       if (built.dedupeKey && await alertRepo.dedupeKeyExists(dep.id, built.dedupeKey)) {
         return reply.code(409).send({ error: "duplicate test signal" });
       }
