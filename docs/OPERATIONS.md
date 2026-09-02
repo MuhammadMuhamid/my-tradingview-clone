@@ -257,13 +257,16 @@ re-provisioned from the existing operator-owned secret store. Sessions are
 stateless cookies, so there is no session table to restore.
 
 PostgreSQL candles are a cache: existing `ensureCandles`/backfill behavior can
-rebuild a requested range from Binance. Scanner OHLCV and `series_meta` in the
-generated `data/ohlcv.sqlite` store are likewise a bounded cache;
+rebuild a requested range from Binance. The full native database dump includes
+the current PostgreSQL candle rows and restores them without treating them as
+authoritative; allow storage for that data. Scanner OHLCV and `series_meta` in
+the generated `data/ohlcv.sqlite` store are likewise a bounded cache, and
 Scanner calibrations in that file are reproducible from the matching candles,
-configuration and current calculation code. Normal disaster recovery does not
-include either candle store: expect a temporarily cold chart/runner/Scanner and
-rehydrate before enabling the LiveRunner. Rehydration contacts Binance and is a
-separate operator action. The Scanner's generated `user.json` under
+configuration and current calculation code. The procedure does not include the
+Scanner SQLite cache, so expect a temporarily cold Scanner after machine
+replacement. Validate or rehydrate both market-data stores before enabling the
+LiveRunner; rehydration contacts Binance and is a separate operator action. The
+Scanner's generated `user.json` under
 `platform/screener/backend/config/`, when present, is authoritative user
 configuration and must be copied separately with mode `0600`; restore it before
 starting the Scanner. Browser-local drawings are not server-backed and are a
