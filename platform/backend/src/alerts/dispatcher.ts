@@ -21,7 +21,26 @@ import {
   type ReceiverOutcome,
   type ShariahContext,
 } from "../contract/webhookContract";
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
+
+/**
+ * Mint the single-use identity of one Shariah authorisation.
+ *
+ * 24 bytes from the platform CSPRNG, base64url — 192 bits in 32 characters,
+ * which is the same generator and the same encoding the manual control channel
+ * already uses for its request nonces (`manualTrading/client.ts`). Reusing it
+ * keeps one answer in this repository to "where does an unguessable identifier
+ * come from", and puts this comfortably above the contract's 132-bit floor.
+ *
+ * It is minted per DELIVERY, not per bar and not per deployment. Nothing about
+ * the order it authorises is derivable from it: not the symbol, not the time,
+ * not the decision. That is the point — a nonce a replayer can predict is not a
+ * nonce, and one derived from the timestamp would simply reintroduce the
+ * problem v5 exists to fix.
+ */
+function mintShariahNonce(): string {
+  return randomBytes(24).toString("base64url");
+}
 
 export interface SignalContext {
   action: "buy" | "sell";
@@ -77,21 +96,32 @@ export function withShariahEvidence(
   // Only the custom shape carries it. `3commas` has no such field, and the
   // off/paper shapes make no outbound call at all.
   if (!("dedupe_key" in payload) || built.url === null) return built;
+  /*
+   * An installation with no shared secret has no execution Bot to sign for, so
+   * there is nothing to certify and no authorisation to mint. The block still
+   * ships as evidence; unproven, the receiver treats it as strictly no weaker
+   * than omitting it.
+   *
+   * The detached trio ships whole or not at all. It used to emit `shariah_ts`
+   * even with no `shariah_sig`, which the shared validator's pairing rule
+   * rejects — harmless in practice, because a receiver that cannot verify a
+   * signature reaches the same refusal either way, but it meant the sender
+   * could emit a payload the contract calls invalid. Since the nonce joins the
+   * same set, the set is now assembled in one place.
+   */
+  if (!secret) {
+    return { ...built, payload: { ...(payload as CustomBotAlertPayload), shariah: input.context } };
+  }
   const timestamp = String(Date.now());
+  const nonce = mintShariahNonce();
   const canonical = shariahEvidenceCanonical({
-    symbol: input.symbol, side: input.side, timestamp, context: input.context });
+    symbol: input.symbol, side: input.side, timestamp, nonce, context: input.context });
   const signed: CustomBotAlertPayload = {
     ...(payload as CustomBotAlertPayload),
     shariah: input.context,
     shariah_ts: timestamp,
-    /*
-     * An installation with no shared secret has no execution Bot to sign for.
-     * The block still ships as evidence; unsigned, the receiver treats it as
-     * unproven, which can only ever be stricter than omitting it.
-     */
-    ...(secret
-      ? { shariah_sig: `v1=${createHmac("sha256", secret).update(canonical).digest("hex")}` }
-      : {}),
+    shariah_nonce: nonce,
+    shariah_sig: `v1=${createHmac("sha256", secret).update(canonical).digest("hex")}`,
   };
   return { ...built, payload: signed };
 }

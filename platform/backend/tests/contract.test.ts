@@ -59,7 +59,17 @@ test("canonicalisation ignores line endings and trailing whitespace, but not con
   const base = canonicalizeContractSource(source);
   assert.equal(canonicalizeContractSource(source.replace(/\n/g, "\r\n")), base);
   assert.equal(canonicalizeContractSource(source.replace(/\n/g, "   \n")), base);
-  assert.notEqual(canonicalizeContractSource(source.replace("CONTRACT_VERSION = 4", "CONTRACT_VERSION = 5")), base);
+  /*
+   * Derived from the live constant rather than written out, so this keeps
+   * testing what it means — that a content change moves the canonical form —
+   * instead of silently becoming a no-op replace the next time the version is
+   * bumped. That is exactly what it had become at v4.
+   */
+  assert.notEqual(
+    canonicalizeContractSource(source.replace(
+      `CONTRACT_VERSION = ${CONTRACT_VERSION}`,
+      `CONTRACT_VERSION = ${CONTRACT_VERSION + 1}`)),
+    base);
 });
 
 test("the fingerprint does not depend on its own value", () => {

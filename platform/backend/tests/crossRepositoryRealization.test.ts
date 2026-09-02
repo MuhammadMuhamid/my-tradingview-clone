@@ -57,6 +57,52 @@ class ReceiptDb {
   release(): void {}
 }
 
+/*
+ * The cross-repository half of the contract drift guard.
+ *
+ * Each repository already hashes its OWN vendored copy against the
+ * `CONTRACT_FINGERPRINT` it carries, which catches the common accident: editing
+ * one side and forgetting the other. What that cannot catch is both sides being
+ * edited differently and each fingerprint being updated to match its own file —
+ * two self-consistent copies that disagree with each other. That is exactly the
+ * shape of the drift this suite exists to prevent, and it is only detectable
+ * from a vantage point that can see both trees at once. This is that vantage
+ * point.
+ *
+ * Byte-for-byte, because that is the standard the file itself sets: it takes no
+ * imports specifically so the two copies can be identical across a CommonJS
+ * project and an ESM one.
+ */
+test("the shared webhook contract is byte-identical in both repositories", {
+  skip: !botRoot,
+}, async () => {
+  if (!botRoot) return;
+  const here = fs.readFileSync(
+    path.join(__dirname, "..", "src", "contract", "webhookContract.ts"), "utf8");
+  const there = fs.readFileSync(
+    path.join(botRoot, "backend", "src", "contract", "webhookContract.ts"), "utf8");
+
+  const version = (source: string) => /CONTRACT_VERSION = (\d+)/.exec(source)?.[1];
+  const fingerprint = (source: string) =>
+    /CONTRACT_FINGERPRINT =\s*\n?\s*"([^"]+)"/.exec(source)?.[1];
+
+  assert.equal(version(there), version(here),
+    `contract VERSION drift: platform v${version(here)} vs bot v${version(there)}`);
+  assert.equal(fingerprint(there), fingerprint(here), "contract FINGERPRINT drift");
+  assert.equal(there, here, "the two vendored contract copies are not byte-identical");
+
+  // And the fingerprint they agree on is the one the shared content actually
+  // hashes to, so agreeing on a stale value is not a way to pass this.
+  const canonical = (source: string) => source
+    .replace(/\r\n/g, "\n")
+    .replace(/export const CONTRACT_FINGERPRINT =[\s\S]*?;/,
+      "export const CONTRACT_FINGERPRINT = <ELIDED>;")
+    .split("\n").map((line) => line.replace(/[ \t]+$/, "")).join("\n").trim();
+  assert.equal(
+    fingerprint(here),
+    `sha256:v${version(here)}:${createHash("sha256").update(canonical(here)).digest("hex")}`);
+});
+
 test("loopback Bot outbox to authenticated Platform receipt survives duplicate replay", {
   skip: !botRoot,
 }, async () => {

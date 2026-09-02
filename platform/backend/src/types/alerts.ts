@@ -61,6 +61,8 @@ export interface CustomBotAlertPayload {
   shariah?: ShariahContext;
   shariah_ts?: string;
   shariah_sig?: string;
+  /** Single-use identity of the authorisation the signature grants (v5). */
+  shariah_nonce?: string;
 }
 
 export type AlertPayload = ThreeCommasAlertPayload | CustomBotAlertPayload;

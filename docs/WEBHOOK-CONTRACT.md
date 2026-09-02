@@ -46,9 +46,57 @@ Both senders may be active simultaneously. They do **not** share dedupe state.
   "quantity":        1.25,                    // base units; mutually exclusive with sell_percent
   "sell_percent":    50,                      // SELL only; > 0 and <= 100 (v1)
   "exit_leg":        "tp1" | "tp2" | "runner" | "stop" | "signal",
-  "dedupe_key":      "L-<barOpenTimeMs>"      // see "Idempotency" below
+  "dedupe_key":      "L-<barOpenTimeMs>",     // see "Idempotency" below
+
+  // Shariah execution context (v3+). Optional; absent means the sender is not
+  // enforcing, which is exactly the pre-Shariah behaviour.
+  "shariah": {
+    "mode":            "off" | "enforce",
+    "policyVersion":   "TS_SHARIAH_V1",       // required under enforce
+    "assetId":         "reg_apt_0001",
+    "baseAsset":       "APT",                 // binds the decision to the symbol
+    "effectiveStatus": "ELIGIBLE" | "REVIEW" | "EXCLUDED",
+    "publicationId":   "pub_2026_09_02"       // null only for unresolved REVIEW
+  },
+
+  // Detached evidence (v4, v5). Emitted as a SET — all three or none.
+  "shariah_ts":    "<epoch ms>",
+  "shariah_nonce": "<22..128 base64url>",     // single-use, v5
+  "shariah_sig":   "v1=<64 hex>"              // HMAC over the canonical bytes
 }
 ```
+
+### Detached Shariah evidence
+
+This body is authenticated only by the per-bot `secret` it carries, which
+authorises **placing** an order and proves nothing about who **screened** the
+asset. So under `enforce` the decision travels with its own signature, keyed by
+the installation's Platform HMAC secret — which a direct TradingView alert does
+not have. That asymmetry is the mechanism: a signal source can ask for a BUY, it
+cannot certify one.
+
+The signed bytes are built by `shariahEvidenceCanonical`, newline-joined:
+
+```
+TS_SHARIAH_EVIDENCE_V2
+<SYMBOL, uppercased, non-alphanumerics stripped>
+<side>
+<shariah_ts>
+<shariah_nonce>
+mode=…  policyVersion=…  assetId=…  baseAsset=…  effectiveStatus=…  publicationId=…
+```
+
+`shariah_nonce` is v5's addition and the reason it exists. Until v5 the signature
+named a symbol, a side, a decision and a time — nothing identifying the ORDER —
+so a captured payload re-sent under a fresh `dedupe_key` looked like a brand new
+order to every idempotency layer below, and bought again. The nonce is minted per
+delivery from 24 CSPRNG bytes, is inside the signed bytes (so it cannot be swapped
+for an unspent one), and the receiver claims it durably. One signed decision
+authorises **one** entry.
+
+**SELL is never gated by any of this.** An exit carries evidence for protocol
+consistency, claims no nonce, and is never refused on Shariah grounds — including
+when the authorisation it carries has already been spent.
 
 The schema is **strict**: any field not listed is rejected with HTTP 400. The
 platform never sends a price — every order the receiver places is a
@@ -93,7 +141,7 @@ report; the platform currently consumes only `"flat"` (`X-03`).
 
 ## Idempotency
 
-Four layers now, two on each side.
+Five layers now: two on the sender, three on the receiver.
 
 **Sender (platform):**
 
@@ -118,6 +166,27 @@ Four layers now, two on each side.
    not open a second within 45 seconds — and the response was
    `ignored_duplicate` with HTTP 200, so the sender believed an order had been
    placed when none had. A scale-in is not a duplicate (`BOT-027`).
+
+5. **Shariah authorisation nonce** (v5) — `shariah_nonce`, claimed durably as
+   `StrategyOrderIntent.authorizationNonceHash`, which is UNIQUE. This is the
+   only layer a replayer cannot route around by choosing a new `dedupe_key`,
+   because it is not keyed by anything the sender of the replay controls: the
+   nonce is inside the Platform's signature. Applies to **entries under
+   enforcement only** — a SELL, the manual HMAC channel, and everything admitted
+   while enforcement is off all write null, and nulls do not collide.
+
+   Claiming it and writing the durable intent are the **same insert**, so there
+   is no window where an authorisation has been spent but no recoverable intent
+   exists, and cleanup cannot remove the evidence while the order it authorised
+   is still on file. Recovery is distinguished from replay by the intent
+   identity: the same `dedupe_key` derives the same `sourceKey` and resolves to
+   the intent already on file, so a legitimate redelivery never needs a second
+   authorisation. A different one is a replay, refused with
+   `SHARIAH_EVIDENCE_REPLAYED` (HTTP 409, outcome `shariah_blocked`).
+
+   The 120 s `SHARIAH_EVIDENCE_MAX_AGE_MS` window stays, unchanged, as
+   defence-in-depth and a bounded retention horizon — not as the replay defence
+   it was being asked to be before v5.
 
 **Exchange:** every order carries a deterministic `newClientOrderId` derived
 from the logical order's dedupe key, so a retry of the same logical order

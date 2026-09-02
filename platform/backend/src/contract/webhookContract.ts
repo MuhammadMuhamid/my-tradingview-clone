@@ -29,6 +29,34 @@
  *
  * ── Changelog ──────────────────────────────────────────────────────────────
  *
+ *  v5  Makes the authenticated Shariah evidence SINGLE-USE.
+ *
+ *      v4 authenticated the decision but not the OCCASION. The detached
+ *      signature covers the symbol, the side, the decision and a timestamp —
+ *      nothing that distinguishes one authorised entry from another — so a
+ *      signature observed in flight could be presented again under a fresh
+ *      `dedupe_key` and buy a second time. Every ordinary idempotency control
+ *      on the receiver is keyed by `dedupe_key`, which the replayer chooses,
+ *      so none of them saw a duplicate. The only thing bounding that was the
+ *      freshness window, which is an expiry, not a replay defence.
+ *
+ *      v5 adds `shariah_nonce`: a per-authorisation random identifier the
+ *      sender mints once, covers by the same signature, and never reuses. The
+ *      receiver claims it durably against the order intent it admits, so one
+ *      signed decision can authorise at most one new entry — whatever
+ *      `dedupe_key` accompanies it, however fast the second request arrives,
+ *      and across a process restart. A replay is refused with
+ *      `SHARIAH_EVIDENCE_REPLAYED`.
+ *
+ *      The signed byte layout changes, so the domain tag moves to
+ *      `TS_SHARIAH_EVIDENCE_V2`: a v4 signature cannot verify here and a v5
+ *      signature cannot verify there, rather than the two silently disagreeing
+ *      about which line means what.
+ *
+ *      SELL is untouched, again and deliberately. An exit never claims a nonce
+ *      and can therefore never be trapped by one having been claimed. See the
+ *      receiver's `noteSpotExit`, which still cannot refuse anything.
+ *
  *  v4  Makes the Shariah block USABLE on the direct-webhook path, which v3
  *      left open.
  *
@@ -113,7 +141,7 @@
  */
 
 /** Bumped on any change to what is accepted or emitted. */
-export const CONTRACT_VERSION = 4;
+export const CONTRACT_VERSION = 5;
 
 /**
  * SHA-256 of this file's canonical content, computed by
@@ -124,7 +152,7 @@ export const CONTRACT_VERSION = 4;
  * hash it prints, and paste it here in BOTH repositories.
  */
 export const CONTRACT_FINGERPRINT =
-  "sha256:v4:c51cc0411b1e3d75c5e6b14ea113ae7f47d5cab7cae562e508c991939b0914fb";
+  "sha256:v5:a12dc909f4e8c252634561c1757c1811b19d3dcdb9eaae5e82eae8de2a89899c";
 
 // ── Payload shapes ──────────────────────────────────────────────────────────
 
@@ -193,6 +221,15 @@ export const SHARIAH_LIMITS = {
   identityMax: 128,
   baseAssetMin: 2,
   baseAssetMax: 20,
+  /*
+   * The single-use authorisation identifier. 22 base64url characters is 132
+   * bits, which is the floor rather than the target: the sender mints 24 random
+   * bytes (32 characters). The minimum exists so a sender that generates its own
+   * cannot present something guessable and have the receiver treat it as an
+   * authorisation identity.
+   */
+  nonceMin: 22,
+  nonceMax: 128,
 } as const;
 
 const SHARIAH_IDENTITY_RE = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -223,6 +260,15 @@ export const SHARIAH_REJECTION_CODES = [
    * sent nothing" apart from "something sent a decision it could not prove".
    */
   "SHARIAH_EVIDENCE_UNVERIFIED",
+  /**
+   * The evidence proved itself, but its single-use authorisation identifier has
+   * already been claimed by an entry. Distinct from UNVERIFIED so an operator
+   * can tell "something presented a decision it could not prove" apart from
+   * "something presented a decision that was already spent" — the second is a
+   * replay of a genuine Platform authorisation and means a signed payload has
+   * been observed in flight.
+   */
+  "SHARIAH_EVIDENCE_REPLAYED",
 ] as const;
 export type ShariahRejectionCode = (typeof SHARIAH_REJECTION_CODES)[number];
 
@@ -385,32 +431,63 @@ export function shariahBlockCodeFor(
  * sender asserts that arithmetic against this constant in its own test suite,
  * so the two cannot drift apart silently.
  *
- * The window is deliberately not much larger than that. Everything it buys is
- * paid for twice over:
+ * ── What this window is FOR, as of v5 ───────────────────────────────────────
  *
- *   * a decision signed at T and delivered at T+w is w milliseconds stale, so a
- *     status that changed in between is honoured w late;
- *   * and a signature observed in transit can be presented again, with a fresh
- *     `dedupe_key`, for the rest of w. That replay can only ever re-assert a
- *     decision the sender genuinely made — it cannot manufacture an ELIGIBLE
- *     for an asset the sender never cleared — but it can stretch one cleared
- *     decision into more exposure than the sender intended.
+ * It used to be carrying two jobs. It is now carrying one.
  *
- * 120 seconds leaves ~3.4x the measured delivery worst case and cuts both of
- * those exposures by a factor of five against the 10 minutes this started at.
- * It is not replay PREVENTION: single-use evidence would need a nonce store on
- * this path, as the manual channel already has. See the receiver's notes.
+ * Before v5 this was the ONLY thing bounding replay, which made its length a
+ * direct exposure dial: a signature observed in transit could be re-presented
+ * under a fresh `dedupe_key` for the rest of the window, and the only way to
+ * shrink that was to shrink the window — trading replay exposure against
+ * delivery reliability, with no setting that gave both.
+ *
+ * `shariah_nonce` takes that job. One signed decision now authorises at most one
+ * entry, whatever the window says, so shortening this no longer buys replay
+ * safety and lengthening it no longer sells any.
+ *
+ * What remains is the job it was always better suited to, and it is kept at
+ * exactly the same 120 seconds for it:
+ *
+ *   * STALENESS. A decision signed at T and applied at T+w is w milliseconds
+ *     old, so a status that changed in between is honoured w late. That is
+ *     unaffected by the nonce and still wants a short bound.
+ *   * DEFENCE IN DEPTH. Ancient signed evidence is refused on its face, before
+ *     any storage is consulted, so the replay store never has to be the first
+ *     line and never has to be trusted to be complete.
+ *   * A RETENTION HORIZON. It is what makes "how long must a claimed nonce stay
+ *     rejectable" a bounded question rather than an open-ended one.
+ *
+ * Not lengthened, because nothing here asks for a longer one — 120 seconds is
+ * already ~3.4x the measured delivery worst case. Not shortened either: with
+ * replay handled properly, squeezing the timing window is defending the wrong
+ * thing, and every millisecond taken off it is taken off a legitimate sender's
+ * retry budget.
  */
 export const SHARIAH_EVIDENCE_MAX_AGE_MS = 120 * 1000;
 
-/** Wire field carrying the detached signature, and the time it was produced. */
+/**
+ * Wire fields carrying the detached signature, the time it was produced, and the
+ * one-shot identity of the authorisation it grants.
+ *
+ * The three are emitted together or not at all. A signature without its nonce is
+ * not a weaker authorisation, it is an unusable one: the nonce is inside the
+ * signed bytes, so evidence missing it cannot verify anyway. Requiring them as a
+ * set makes that a shape error rather than a confusing signature mismatch.
+ */
 export const SHARIAH_SIGNATURE_FIELD = "shariah_sig";
 export const SHARIAH_TIMESTAMP_FIELD = "shariah_ts";
+export const SHARIAH_NONCE_FIELD = "shariah_nonce";
 
 /** `v1=` plus 64 lowercase hex characters. */
 const SHARIAH_SIGNATURE_RE = /^v1=[0-9a-f]{64}$/;
 /** Milliseconds since the epoch, as digits. */
 const SHARIAH_TIMESTAMP_RE = /^[0-9]{10,17}$/;
+/**
+ * base64url, bounded. Deliberately the same alphabet the manual control
+ * channel's nonces already use, so the two are the same kind of object and the
+ * receiver's shape rule reads the same way in both places.
+ */
+const SHARIAH_NONCE_RE = /^[A-Za-z0-9_-]{22,128}$/;
 
 export function isShariahSignatureShaped(value: unknown): value is string {
   return typeof value === "string" && SHARIAH_SIGNATURE_RE.test(value);
@@ -421,20 +498,51 @@ export function isShariahTimestampShaped(value: unknown): value is string {
 }
 
 /**
+ * SHAPE only. Whether this particular nonce has already been spent is a durable
+ * question the receiver answers against its own storage, and nothing in a
+ * payload can answer it.
+ */
+export function isShariahNonceShaped(value: unknown): value is string {
+  return typeof value === "string" && SHARIAH_NONCE_RE.test(value);
+}
+
+/**
  * Canonical bytes both sides sign and verify. Defined here so the sender and
  * the receiver cannot disagree about them.
  *
- * It binds the decision to the exact SYMBOL and SIDE of the order carrying it,
- * so a signature captured from an ELIGIBLE BUY of one asset cannot be lifted
- * onto a BUY of another, and to a TIMESTAMP, so it expires. The block itself is
- * serialised field-by-field in the fixed `SHARIAH_FIELDS` order rather than
- * with `JSON.stringify`, so key order in the transmitted JSON cannot change
- * what was signed.
+ * It binds the decision to four things:
+ *
+ *   SYMBOL and SIDE — so a signature captured from an ELIGIBLE BUY of one asset
+ *                     cannot be lifted onto a BUY of another, or onto an exit.
+ *   TIMESTAMP       — so it expires.
+ *   NONCE           — so it names ONE authorisation rather than a standing
+ *                     permission. Without it the same bytes describe every
+ *                     order with the same symbol, side and decision inside the
+ *                     freshness window, which is precisely what made a captured
+ *                     payload replayable under a fresh `dedupe_key`.
+ *
+ * The nonce is inside the signed bytes, not merely alongside them, so a replayer
+ * cannot swap in an unspent one: changing it invalidates the signature, and the
+ * signing key is the one thing a signal source does not have.
+ *
+ * The block itself is serialised field-by-field in the fixed `SHARIAH_FIELDS`
+ * order rather than with `JSON.stringify`, so key order in the transmitted JSON
+ * cannot change what was signed.
+ *
+ * ── Why the domain tag is V2 ────────────────────────────────────────────────
+ *
+ * The line count and the meaning of line 5 both changed. Keeping the V1 tag
+ * would leave two different layouts claiming the same name, and the failure mode
+ * of that is a signature that verifies against bytes nobody intended. The tag is
+ * inside the signed material, so a v4 signature and a v5 signature simply cannot
+ * be confused for one another.
  */
 export function shariahEvidenceCanonical(input: {
   symbol: string;
   side: ContractAction;
   timestamp: string;
+  /** The one-shot authorisation identity. "" only for pre-v5 comparison. */
+  nonce: string;
   context: ShariahContext;
 }): string {
   const context = input.context as unknown as Record<string, unknown>;
@@ -443,10 +551,11 @@ export function shariahEvidenceCanonical(input: {
     return `${field}=${value === undefined || value === null ? "" : String(value)}`;
   });
   return [
-    "TS_SHARIAH_EVIDENCE_V1",
+    "TS_SHARIAH_EVIDENCE_V2",
     input.symbol.toUpperCase().replace(/[^A-Z0-9]/g, ""),
     input.side,
     input.timestamp,
+    input.nonce,
     ...fields,
   ].join("\n");
 }
@@ -473,13 +582,16 @@ export interface CustomBotPayload {
    */
   shariah?: ShariahContext;
   /**
-   * Detached sender signature over `shariahEvidenceCanonical`, and the
-   * timestamp it covers. Required alongside an `enforce` block on this path,
-   * because the body itself is authenticated only by the shared secret it
-   * carries — see the v4 changelog entry.
+   * Detached sender signature over `shariahEvidenceCanonical`, the timestamp it
+   * covers, and the single-use identity of the authorisation it grants. Required
+   * alongside an `enforce` block on this path, because the body itself is
+   * authenticated only by the shared secret it carries — see the v4 changelog
+   * entry — and single-use because authenticating the decision is not the same
+   * as authorising one occasion of acting on it (v5).
    */
   shariah_sig?: string;
   shariah_ts?: string;
+  shariah_nonce?: string;
 }
 
 /** Bounds, in one place, so both sides cannot disagree about them. */
@@ -511,6 +623,7 @@ export const ALLOWED_FIELDS = [
   "shariah",
   SHARIAH_SIGNATURE_FIELD,
   SHARIAH_TIMESTAMP_FIELD,
+  SHARIAH_NONCE_FIELD,
 ] as const;
 
 // ── Validation ──────────────────────────────────────────────────────────────
@@ -665,9 +778,24 @@ export function validateCustomBotPayload(input: unknown): ValidationResult {
   if (shariahTs !== undefined && !isShariahTimestampShaped(shariahTs)) {
     return fail("shariah_signature", `${SHARIAH_TIMESTAMP_FIELD} must be epoch milliseconds`);
   }
-  if ((shariahSig === undefined) !== (shariahTs === undefined)) {
+  const shariahNonce = body[SHARIAH_NONCE_FIELD];
+  if (shariahNonce !== undefined && !isShariahNonceShaped(shariahNonce)) {
     return fail("shariah_signature",
-      `${SHARIAH_SIGNATURE_FIELD} and ${SHARIAH_TIMESTAMP_FIELD} are emitted together or not at all`);
+      `${SHARIAH_NONCE_FIELD} must be ${SHARIAH_LIMITS.nonceMin}-${SHARIAH_LIMITS.nonceMax} base64url characters`);
+  }
+  /*
+   * All three or none. The nonce is inside the signed bytes, so a partial set
+   * can never verify; saying so here makes an incomplete sender fail with a
+   * shape error naming the missing field instead of an opaque signature
+   * mismatch. It remains legal to send none of them — that is a sender that is
+   * not certifying anything, which the receiver refuses under enforcement on
+   * its own terms.
+   */
+  const detached = [shariahSig, shariahTs, shariahNonce];
+  if (detached.some((v) => v !== undefined) && detached.some((v) => v === undefined)) {
+    return fail("shariah_signature",
+      `${SHARIAH_SIGNATURE_FIELD}, ${SHARIAH_TIMESTAMP_FIELD} and ${SHARIAH_NONCE_FIELD} ` +
+      "are emitted together or not at all");
   }
 
   return { ok: true, payload: body as unknown as CustomBotPayload };
@@ -895,6 +1023,9 @@ export function emittablePayloads(secret: string): CustomBotPayload[] {
     const signed = {
       [SHARIAH_SIGNATURE_FIELD]: `v1=${"0".repeat(64)}`,
       [SHARIAH_TIMESTAMP_FIELD]: String(barTime),
+      // Shape-representative, not a real nonce: this generator feeds the
+      // round-trip validator, which checks shape and never verifies a MAC.
+      [SHARIAH_NONCE_FIELD]: "A".repeat(SHARIAH_LIMITS.nonceMin),
     };
     for (const extra of [{}, signed]) {
       out.push({

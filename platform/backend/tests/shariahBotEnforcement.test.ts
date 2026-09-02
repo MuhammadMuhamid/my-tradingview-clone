@@ -32,7 +32,8 @@ import {
 } from "../src/shariah/botEnforcement";
 import {
   httpStatusFor, mayAdvanceLocalState, shariahEvidenceCanonical,
-  SHARIAH_EVIDENCE_MAX_AGE_MS, SHARIAH_POLICY_VERSION,
+  SHARIAH_EVIDENCE_MAX_AGE_MS, SHARIAH_LIMITS, SHARIAH_POLICY_VERSION,
+  validateCustomBotPayload,
 } from "../src/contract/webhookContract";
 import type { ShariahRequestContext } from "../src/shariah/gate";
 import type { DeploymentRow } from "../src/types/deployments";
@@ -255,7 +256,7 @@ test("an unreachable bot reads as unknown, never as agreement and never as prote
 
 // ── The detached signature on the automated path ────────────────────────────
 
-test("a custom-bot BUY carries the decision and a signature that verifies", () => {
+test("a custom-bot BUY carries the decision, a nonce and a signature that verifies", () => {
   const context = eligible();
   const built = withShariahEvidence(buildPayload(dep(), ctx("buy")),
     { symbol: "APTUSDT", side: "buy", context }, SECRET);
@@ -263,27 +264,67 @@ test("a custom-bot BUY carries the decision and a signature that verifies", () =
 
   assert.deepEqual(payload.shariah, context);
   assert.match(String(payload.shariah_ts), /^[0-9]{10,17}$/);
+  assert.match(String(payload.shariah_nonce), /^[A-Za-z0-9_-]{22,128}$/);
 
   const expected = `v1=${createHmac("sha256", SECRET).update(shariahEvidenceCanonical({
-    symbol: "APTUSDT", side: "buy", timestamp: String(payload.shariah_ts), context,
+    symbol: "APTUSDT", side: "buy", timestamp: String(payload.shariah_ts),
+    nonce: String(payload.shariah_nonce), context,
   })).digest("hex")}`;
   assert.equal(payload.shariah_sig, expected);
+});
+
+test("every authorisation gets its own nonce, and the nonce is unpredictable", () => {
+  const context = eligible();
+  const mint = () => String((withShariahEvidence(buildPayload(dep(), ctx("buy")),
+    { symbol: "APTUSDT", side: "buy", context }, SECRET)
+    .payload as CustomBotAlertPayload).shariah_nonce);
+
+  /*
+   * Two deliveries of the SAME decision for the SAME symbol on the SAME side
+   * must not share an authorisation. This is the property the whole replay
+   * defence rests on: if the nonce were derived from anything in the payload,
+   * two legitimate entries would collide and the second would be refused as a
+   * replay of the first.
+   */
+  const minted = new Set(Array.from({ length: 256 }, mint));
+  assert.equal(minted.size, 256, "a nonce was reused across authorisations");
+
+  // Entropy, crudely: 24 random bytes is 32 base64url characters, and the
+  // contract's floor is 22. A generator that fell back to a counter, a
+  // timestamp or a hash of the payload would not clear this.
+  for (const nonce of minted) {
+    assert.ok(nonce.length >= SHARIAH_LIMITS.nonceMin, "nonce is below the contract floor");
+    assert.equal(nonce.length, 32);
+  }
+  // And nothing about the order is recoverable from it.
+  for (const nonce of minted) {
+    assert.equal(nonce.includes("APT"), false);
+    assert.equal(/^[0-9]{10,17}$/.test(nonce), false);
+  }
 });
 
 test("the signature covers every field of the decision, plus the symbol, side and time", () => {
   const context = eligible();
   const timestamp = "1700000000000";
-  const base = shariahEvidenceCanonical({ symbol: "APTUSDT", side: "buy", timestamp, context });
+  const nonce = "AAAAAAAAAAAAAAAAAAAAAA";
+  const base = shariahEvidenceCanonical({
+    symbol: "APTUSDT", side: "buy", timestamp, nonce, context });
   const variants: Array<[string, string]> = [
-    ["symbol", shariahEvidenceCanonical({ symbol: "BTCUSDT", side: "buy", timestamp, context })],
-    ["side", shariahEvidenceCanonical({ symbol: "APTUSDT", side: "sell", timestamp, context })],
+    ["symbol", shariahEvidenceCanonical({
+      symbol: "BTCUSDT", side: "buy", timestamp, nonce, context })],
+    ["side", shariahEvidenceCanonical({
+      symbol: "APTUSDT", side: "sell", timestamp, nonce, context })],
     ["timestamp", shariahEvidenceCanonical({ symbol: "APTUSDT", side: "buy",
-      timestamp: "1700000000001", context })],
+      timestamp: "1700000000001", nonce, context })],
+    // The v5 line. Without this the signature says nothing about WHICH entry it
+    // authorises, which is exactly how a captured payload became replayable.
+    ["nonce", shariahEvidenceCanonical({ symbol: "APTUSDT", side: "buy", timestamp,
+      nonce: "BBBBBBBBBBBBBBBBBBBBBB", context })],
   ];
   for (const field of
     ["mode", "policyVersion", "assetId", "baseAsset", "effectiveStatus", "publicationId"] as const) {
     variants.push([field, shariahEvidenceCanonical({ symbol: "APTUSDT", side: "buy", timestamp,
-      context: { ...context, [field]: field === "mode" ? "off" : "TAMPERED" } })]);
+      nonce, context: { ...context, [field]: field === "mode" ? "off" : "TAMPERED" } })]);
   }
   for (const [name, canonical] of variants) {
     assert.notEqual(canonical, base, `${name} is not covered by the signed bytes`);
@@ -296,8 +337,10 @@ test("key ORDER in the transmitted block cannot change what was signed", () => {
     Object.entries(forward).reverse()) as unknown as ShariahRequestContext;
   assert.notDeepEqual(Object.keys(forward), Object.keys(reversed));
   assert.equal(
-    shariahEvidenceCanonical({ symbol: "APTUSDT", side: "buy", timestamp: "1", context: forward }),
-    shariahEvidenceCanonical({ symbol: "APTUSDT", side: "buy", timestamp: "1", context: reversed }));
+    shariahEvidenceCanonical({
+      symbol: "APTUSDT", side: "buy", timestamp: "1", nonce: "n".repeat(22), context: forward }),
+    shariahEvidenceCanonical({
+      symbol: "APTUSDT", side: "buy", timestamp: "1", nonce: "n".repeat(22), context: reversed }));
 });
 
 test("3Commas and the no-delivery modes never carry a Shariah block", () => {
@@ -322,6 +365,13 @@ test("an installation with no shared secret still ships the block, unsigned", ()
   assert.equal(payload.shariah_sig, undefined);
   // Unsigned, the receiver treats it as unproven — which can only ever be
   // stricter than omitting it, never more permissive.
+  //
+  // The rest of the detached set goes with it. There is no authorisation to
+  // mint when there is nothing to certify, and a partial set is one the shared
+  // validator calls invalid.
+  assert.equal(payload.shariah_ts, undefined);
+  assert.equal(payload.shariah_nonce, undefined);
+  assert.equal(validateCustomBotPayload({ ...payload, secret: "s".repeat(40) }).ok, true);
 });
 
 test("a SELL still carries its evidence, and carrying it never gates the exit", () => {
@@ -332,6 +382,10 @@ test("a SELL still carries its evidence, and carrying it never gates the exit", 
   assert.equal(payload.action, "sell");
   assert.equal(payload.shariah?.effectiveStatus, "EXCLUDED");
   assert.ok(payload.shariah_sig);
+  // A SELL carries a nonce for protocol consistency — the sender signs every
+  // delivery the same way — and the receiver never claims it. An exit cannot be
+  // trapped by an authorisation having been spent.
+  assert.ok(payload.shariah_nonce);
 });
 
 // ── The signature has to outlive delivery, and a refusal has to be terminal ─
