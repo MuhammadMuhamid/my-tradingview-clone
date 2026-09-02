@@ -7,6 +7,7 @@ import { COLUMNS } from "@/lib/scanner/columns";
 import { api } from "@/lib/scanner/api";
 import { fmtAge } from "@/lib/scanner/format";
 import { INDICATOR_KEYS, TIMEFRAMES, type IndicatorKey, type Snapshot } from "@/lib/scanner/types";
+import { shariahApi, type ShariahClassification, type ShariahMode } from "@/lib/shariah";
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -23,6 +24,9 @@ export default function ScannerPage() {
   const [presets, setPresets] = useState<string[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [newSymbol, setNewSymbol] = useState("");
+  /** baseAsset -> effective status, joined onto rows below. */
+  const [shariahStatuses, setShariahStatuses] = useState<Map<string, ShariahClassification> | null>(null);
+  const [shariahMode, setShariahMode] = useState<ShariahMode | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -30,6 +34,23 @@ export default function ScannerPage() {
       setError(null);
     } catch (nextError) {
       setError(message(nextError));
+    }
+  }, []);
+
+  /**
+   * The scanner service knows nothing about Shariah, so the status is joined in
+   * here from the registry rather than pushed into that service. Read once per
+   * page load, not per 15-second refresh: classifications change on publication,
+   * not on price ticks.
+   */
+  const loadShariah = useCallback(async () => {
+    try {
+      const [universe, mode] = await Promise.all([shariahApi.universe(), shariahApi.mode()]);
+      setShariahStatuses(new Map(universe.assets.map((a) => [a.baseAsset, a.effectiveStatus])));
+      setShariahMode(mode.mode);
+    } catch {
+      // The scanner stays fully usable without it; the column simply reads "—".
+      setShariahStatuses(null);
     }
   }, []);
 
@@ -41,11 +62,12 @@ export default function ScannerPage() {
   useEffect(() => {
     void load();
     void loadPresets();
+    void loadShariah();
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, 15_000);
     return () => window.clearInterval(id);
-  }, [load, loadPresets]);
+  }, [load, loadPresets, loadShariah]);
 
   const run = async (label: string, operation: () => Promise<unknown>, after?: () => void) => {
     setBusy(label);
@@ -85,6 +107,23 @@ export default function ScannerPage() {
       stale: rows.filter((row) => Object.values(row.series ?? {}).some((series) => series.stale)).length,
     };
   }, [snapshot]);
+  /**
+   * The snapshot the table renders, with the Shariah status joined onto each
+   * row. The base asset is the symbol minus its USDT quote — the same identity
+   * the registry screens. A base asset absent from the registry reads UNKNOWN,
+   * never a permitted status.
+   */
+  const shariahSnapshot = useMemo(() => {
+    if (!snapshot || !shariahStatuses) return snapshot;
+    return {
+      ...snapshot,
+      rows: snapshot.rows.map((row) => {
+        const base = row.symbol.replace(/[/-]?USDT$/i, "").toUpperCase();
+        return { ...row, shariah: shariahStatuses.get(base) ?? ("UNKNOWN" as const) };
+      }),
+    };
+  }, [snapshot, shariahStatuses]);
+
   const marketLabel = snapshot?.market.spot
     ? `${snapshot.market.exchange === "binance" ? "Binance" : snapshot.market.exchange} Spot`
     : "Binance Spot";
@@ -186,6 +225,27 @@ export default function ScannerPage() {
           </span>
         </div>
 
+        {shariahStatuses && (
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+            <span>
+              Shariah Mode is {shariahMode === "enforce" ? <span className="text-up">ON</span> : "OFF"}
+              {shariahMode === "enforce" ? " — only ELIGIBLE assets can be bought." : ""}
+            </span>
+            <button
+              className="scanner-control"
+              onClick={() => setFilters((old) => {
+                const showingEligibleOnly = old.categorical.shariah?.length === 1
+                  && old.categorical.shariah[0] === "ELIGIBLE";
+                const next = { ...old.categorical };
+                if (showingEligibleOnly) delete next.shariah; else next.shariah = ["ELIGIBLE"];
+                return { ...old, categorical: next };
+              })}
+            >
+              {filters.categorical.shariah?.length === 1 && filters.categorical.shariah[0] === "ELIGIBLE"
+                ? "Show all statuses" : "Shariah-eligible only"}
+            </button>
+          </p>
+        )}
         {busy && busy !== "Refreshing" && <p role="status" className="mt-1 text-xs text-ink-muted">{busy}…</p>}
         {error && <p role="alert" className="mt-1 text-xs text-down">Scanner: {error}</p>}
         {snapshot?.last_refresh_error && <p className="mt-1 text-xs text-down">Last refresh: {snapshot.last_refresh_error}</p>}
@@ -195,8 +255,8 @@ export default function ScannerPage() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {snapshot ? (
-          <ScreenerTable snapshot={snapshot} filters={filters} hiddenGroups={hiddenGroups}
+        {shariahSnapshot ? (
+          <ScreenerTable snapshot={shariahSnapshot} filters={filters} hiddenGroups={hiddenGroups}
             showExtras={showExtras} onToggleGroup={toggleGroup}
             onTimeframeChange={changeIndicatorTimeframe} busy={busy !== null}
             onRemoveSymbol={removeSymbol} />

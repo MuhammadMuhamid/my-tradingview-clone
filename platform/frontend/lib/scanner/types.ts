@@ -183,6 +183,14 @@ export interface ScreenerRow {
   /** Every indicator at each strategy timeframe: mtf[slot][indicator][field]. */
   mtf: Record<string, Record<string, IndicatorResult | null>>;
   note: string | null;
+  /**
+   * Effective Shariah status of the row's base asset, joined in by the page
+   * from the Shariah registry — the scanner service knows nothing about it.
+   * Absent (undefined) means "not joined yet"; "UNKNOWN" means the base asset
+   * is not in the Binance Spot USDT registry at all, which is not the same
+   * thing as permitted.
+   */
+  shariah?: "ELIGIBLE" | "EXCLUDED" | "REVIEW" | "UNKNOWN";
 }
 
 export interface IndicatorSpec {

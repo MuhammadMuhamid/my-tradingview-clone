@@ -19,7 +19,7 @@ import { shariahRoutes } from "../src/api/routes/shariah";
 import { SESSION_COOKIE, signSession } from "../src/security/session";
 import type { LiveRunner } from "../src/engine/liveRunner";
 
-const SHARIAH_PATHS: Array<{ method: "GET" | "POST"; url: string }> = [
+const SHARIAH_PATHS: Array<{ method: "GET" | "POST" | "PUT"; url: string }> = [
   { method: "GET", url: "/api/shariah/universe" },
   { method: "GET", url: "/api/shariah/assets/1" },
   { method: "POST", url: "/api/shariah/assets/1/evidence" },
@@ -34,6 +34,9 @@ const SHARIAH_PATHS: Array<{ method: "GET" | "POST"; url: string }> = [
   { method: "GET", url: "/api/shariah/review-pack" },
   { method: "POST", url: "/api/shariah/review-results/preview" },
   { method: "POST", url: "/api/shariah/review-results/import" },
+  { method: "GET", url: "/api/shariah/mode" },
+  { method: "PUT", url: "/api/shariah/mode" },
+  { method: "GET", url: "/api/shariah/status" },
 ];
 
 test("every Shariah route — snapshot reads included — requires a session", async (t) => {

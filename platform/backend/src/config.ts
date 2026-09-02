@@ -30,6 +30,8 @@ export interface AppConfig {
   manualTradingEnabled: boolean;
   manualTradingBotUrl: string;
   manualTradingHmacSecret: string;
+  /** Paired-release switch for the signed Platform->Bot `shariah` context block. */
+  shariahBotContextEnabled: boolean;
   realizationIngestionEnabled: boolean;
   realizationHmacSecret: string;
   /** Canonical Scanner service. Browser code never receives this address. */
@@ -168,6 +170,21 @@ export const config: AppConfig = {
   manualTradingEnabled: process.env.MANUAL_TRADING_ENABLED === "true",
   manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
+  /**
+   * Whether the Platform->Bot manual execution request carries the signed
+   * `shariah` context block (see shariah/gate.ts `ShariahRequestContext`).
+   *
+   * Default OFF, and deliberately so: the Bot's manual submit schema is
+   * `.strict()` (bot backend/src/routes/manualTrading.ts), so a Bot that has
+   * not yet been released with the field would reject EVERY manual order the
+   * moment Platform started sending it. This is the paired-release switch —
+   * ship the Bot side first, then set SHARIAH_BOT_CONTEXT_ENABLED=true.
+   *
+   * Enforcement does NOT depend on this flag. The gate runs Platform-side
+   * before the request is built either way; the flag only controls whether the
+   * decision travels to the Bot as signed evidence.
+   */
+  shariahBotContextEnabled: process.env.SHARIAH_BOT_CONTEXT_ENABLED === "true",
   realizationIngestionEnabled: process.env.REALIZATION_INGESTION_ENABLED === "true",
   realizationHmacSecret: process.env.REALIZATION_HMAC_SECRET ?? "",
   scannerServiceUrl: (process.env.SCANNER_SERVICE_URL ?? (

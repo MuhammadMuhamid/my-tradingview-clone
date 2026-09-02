@@ -93,6 +93,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Batch review workflow (SH-3) ────────────────────────────────────────────
 
+export type ShariahMode = "off" | "enforce";
+
 export interface ShariahReviewPackAsset {
   assetId: string;
   baseAsset: string;
@@ -146,6 +148,31 @@ export interface ShariahImportSummary {
     assetId: string; baseAsset: string;
     classification: ShariahClassification; publicationId: string; evidenceIds: string[];
   }>;
+}
+
+/**
+ * The one status answer every trading surface reads.
+ *
+ * It is the BACKEND GATE's own decision, not raw registry fields for a
+ * component to interpret: `buyAllowed` is what the backend would actually do
+ * with a BUY right now, so a screener cell, a chart badge and the order panel
+ * cannot disagree with enforcement or with each other. `sellAllowed` is always
+ * true and is stated rather than inferred.
+ */
+export interface ShariahSymbolStatus {
+  symbol: string;
+  mode: ShariahMode;
+  shariah: {
+    mode: ShariahMode;
+    policyVersion: string | null;
+    assetId: string | null;
+    baseAsset: string | null;
+    effectiveStatus: ShariahClassification;
+    publicationId: string | null;
+  };
+  buyAllowed: boolean;
+  buyBlockedReason: string | null;
+  sellAllowed: true;
 }
 
 /** An import rejection carries every problem in the file, not just the first. */
@@ -203,6 +230,13 @@ export const shariahApi = {
     reqWithIssues<ShariahImportPreview>("/api/shariah/review-results/preview", document),
   importResults: (document: unknown) =>
     reqWithIssues<ShariahImportSummary>("/api/shariah/review-results/import", document),
+
+  mode: () => req<{ mode: ShariahMode }>("/api/shariah/mode"),
+  setMode: (mode: ShariahMode) =>
+    req<{ mode: ShariahMode }>("/api/shariah/mode", { method: "PUT", body: JSON.stringify({ mode }) }),
+
+  status: (symbol: string) =>
+    req<ShariahSymbolStatus>(`/api/shariah/status?symbol=${encodeURIComponent(symbol)}`),
 };
 
 /**

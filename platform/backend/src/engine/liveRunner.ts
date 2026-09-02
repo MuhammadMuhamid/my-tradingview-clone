@@ -42,6 +42,7 @@ import { evaluateMtfLeanBar, type MtfLeanDecision } from "./mtfLeanLiveEvaluator
 import { INTERVAL_MS } from "../types/market";
 import { deliversLiveOrders } from "../types/deployments";
 import { applyPaperSignal } from "./paperBroker";
+import { evaluateShariahGate, type ShariahGateDeps } from "../shariah/gate";
 import * as paperRepo from "../repositories/paperFills";
 
 /**
@@ -99,9 +100,12 @@ export class LiveRunner {
   /** False whenever this process does not hold the emitter lease. */
   private holdsLease = false;
   private log: FastifyBaseLogger;
+  /** Injectable only so the gate's behaviour is testable without a database. */
+  private shariahDeps: ShariahGateDeps;
 
-  constructor(log: FastifyBaseLogger) {
+  constructor(log: FastifyBaseLogger, dependencies: { shariah?: ShariahGateDeps } = {}) {
     this.log = log;
+    this.shariahDeps = dependencies.shariah ?? {};
     this.ws.on("barClose", (e) => void this.onBarClose(e));
     this.ws.on("open", () => this.log.info({ streams: this.ws.subscriptionCount }, "binance ws open"));
     this.ws.on("close", () => this.log.warn("binance ws closed"));
@@ -585,6 +589,47 @@ export class LiveRunner {
         this.log.error({ by: latch }, "kill switch LATCHED by a risk limit breach");
       }
       // Never advance state on a blocked order: the receiver did not act.
+      return false;
+    }
+
+    /*
+     * The Shariah gate, deliberately at the SAME chokepoint as the risk gate
+     * and before the intent claim.
+     *
+     * Every delivery mode passes through here — `custom`, `3commas`, `paper`
+     * and `off` — because the branches that separate them are all downstream.
+     * That is what makes Paper and live agree by construction rather than by
+     * two implementations that must be kept in step: there is one gate, and
+     * Paper cannot be more or less permissive than live because it is not a
+     * different code path.
+     *
+     * A BUY into a non-ELIGIBLE asset is refused while Shariah Mode is on. A
+     * SELL is never refused — an asset re-screened EXCLUDED must still be
+     * exitable, and nothing here generates an exit either: a status change
+     * blocks the next entry, it never liquidates a position.
+     */
+    const shariah = await evaluateShariahGate(
+      { symbol: dep.symbol, side: decision.action === "buy" ? "BUY" : "SELL" },
+      this.shariahDeps
+    );
+    if (!shariah.allowed) {
+      this.log.error(
+        { deploymentId: dep.id, symbol: dep.symbol, effectiveStatus: shariah.context.effectiveStatus },
+        `signal BLOCKED by Shariah Mode: ${shariah.reason}`
+      );
+      await alertRepo.createAlert({
+        deploymentId: dep.id,
+        barTime: decision.barTime,
+        action: decision.action,
+        marketPosition: ctx.marketPosition,
+        positionSize: ctx.positionSize,
+        triggerPrice: decision.price,
+        reason: `${decision.reason} [blocked: shariah_${shariah.context.effectiveStatus.toLowerCase()}]`,
+        payload: built.payload,
+        dedupeKey: built.dedupeKey,
+        deliveryStatus: "blocked",
+      });
+      // Same rule as the risk gate: nothing was sent, so nothing advances.
       return false;
     }
 

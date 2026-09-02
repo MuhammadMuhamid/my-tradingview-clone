@@ -3,9 +3,10 @@
 **Status:** SH-3. Screening registry + Binance Spot USDT universe sync (SH-1);
 explicit review/publication, immutable published-decision history, and immutable
 universe snapshots with a Research-facing read contract (SH-2); the manual
-batch-research workflow (SH-3). No trading/Bot/Paper enforcement, no Research
-integration, no automated evidence collection, no AI classification, and **no
-model API, paid search API or web crawler of any kind**.
+batch-research workflow and Shariah Mode exposure enforcement across Platform's
+Spot BUY paths (SH-3). No Research integration, no automated evidence
+collection, no AI classification, and **no model API, paid search API or web
+crawler of any kind**.
 
 ## Purpose and fixed premises
 
@@ -391,6 +392,119 @@ A `STALE` result must cite at least one evidence entry retrieved **at or after**
 pre-staleness research to restore the old classification is refused. Combined
 with the closed schema, there is no reconfirm path at all — only a fresh review.
 
+## Shariah Mode (SH-3)
+
+Persistent server-side setting in `app_settings` under `shariah.mode`
+(`src/shariah/mode.ts`), read and written through `GET`/`PUT
+/api/shariah/mode` and toggled on the `/shariah` console. **Default `off`.** It
+lives on the server because the gate that enforces it lives on the server; the
+browser toggle renders what the server reports and never holds the authoritative
+value. Mode and classification are read fresh per intent — there is no cache, so
+a re-screening or a mode change is in force immediately.
+
+- **`off`** — behaviour is exactly as before. Nothing is blocked.
+- **`enforce`** — **new exposure** requires `ELIGIBLE`.
+
+### What "new exposure" means
+
+Spot only. There are no futures, margin or short semantics.
+
+| Side | Effect | Gate |
+| --- | --- | --- |
+| `BUY` | creates or increases exposure | applies |
+| `SELL` | reduces or exits exposure | **never applies** |
+
+`REVIEW`, `EXCLUDED`, `UNSCREENED`, `STALE` and an unresolvable registry
+identity all block a BUY when enforcing. `UNSCREENED`/`STALE` have already
+collapsed to `REVIEW` in `policy.ts`; a symbol with no registry identity (a
+non-USDT quote, an unknown base asset) fails closed to `REVIEW` rather than
+being treated as unclassified-therefore-fine.
+
+**SELL, reduce and exit are always allowed**, in every status and every mode,
+including for an asset whose identity cannot be resolved. An asset re-screened
+`EXCLUDED` must remain exitable.
+
+**A status change never liquidates anything.** The gate returns allow/deny for
+an intent the caller already had; it constructs no order, closes no position and
+cannot reach an execution path. Turning Shariah Mode on blocks the next entry —
+it does not sell what you hold.
+
+### One gate, every path
+
+`src/shariah/gate.ts` is the single backend authority
+(`assertShariahExposureAllowed` / `evaluateShariahGate`), called from every
+Platform path that can create Spot exposure:
+
+- **manual chart trading** — `POST /api/manual-trading/orders`, gated before the
+  Bot is contacted. A blocked BUY is a `403` with an operator-readable reason,
+  not a generic failure. Any client-supplied `shariah` key is discarded.
+- **automated live, Paper, and `off` delivery** — `LiveRunner.fireAlert()`, at
+  the same chokepoint as the risk gate and above the branch that separates the
+  delivery modes. **Paper and live therefore agree by construction**: there is
+  one gate call, not two implementations to keep in step. A blocked signal is
+  recorded as a `blocked` alert and never advances runtime state.
+- **live test-signal** — `POST /api/deployments/:id/test-signal`, which places a
+  real order through the same dispatcher.
+
+Order cancellation and stop-loss/take-profit protection edits are not gated:
+neither can create exposure, and an `EXCLUDED` position must stay exitable.
+
+Frontend disabling is UX. The backend gate is the enforcement.
+
+### Screener, chart and manual trading
+
+`GET /api/shariah/status?symbol=` returns the **gate's own decision** for a
+hypothetical BUY (`buyAllowed`, `buyBlockedReason`, `sellAllowed: true`) rather
+than raw registry fields. Every surface renders that one answer, so no component
+re-derives the rule or can disagree with enforcement:
+
+- **Screener** — a `Shariah` column (`ELIGIBLE`/`REVIEW`/`EXCLUDED`/`UNKNOWN`)
+  joined from the registry, plus a one-click "Shariah-eligible only" filter.
+- **Chart / manual trading panel** — the current asset's status, and, when a BUY
+  is blocked, the reason; the SELL side stays available.
+
+## Platform → Bot signed Shariah context (SH-3)
+
+Every manual Platform → Bot execution request can carry a `shariah` block with
+exactly these keys:
+
+```json
+{ "shariah": {
+    "mode": "off" | "enforce",
+    "policyVersion": "TS_SHARIAH_V1" | null,
+    "assetId": "123" | null,
+    "baseAsset": "BTC" | null,
+    "effectiveStatus": "ELIGIBLE" | "REVIEW" | "EXCLUDED",
+    "publicationId": "456" | null } }
+```
+
+`policyVersion` is `TS_SHARIAH_V1` whenever `mode` is `enforce`.
+`effectiveStatus` is always one of the three public answers — `UNSCREENED` and
+`STALE` are resolved to `REVIEW` by Platform before sending. `publicationId` is
+the current publication when one exists, and `null` only where the state
+legitimately has none. `assetId` is the registry's own scalar identity,
+unconverted. The block is computed by the backend gate; a client-supplied
+`shariah` key is stripped and never forwarded.
+
+The block travels **inside the request body**, which
+`manualTrading/client.ts` canonicalises in full (recursively, keys sorted at
+every level) into the HMAC. It is therefore signed evidence, not an unsigned
+advisory field: adding, removing or editing any key in it invalidates
+`x-manual-signature`.
+
+**Paired-release flag.** Sending the block is gated by
+`SHARIAH_BOT_CONTEXT_ENABLED` (default `false`) because the Bot's manual submit
+schema is `.strict()` and would reject an unrecognised field, failing every
+manual order. Ship the Bot side first, then enable it. **Enforcement does not
+depend on this flag** — the gate runs Platform-side before the request is built
+either way; the flag only controls whether the decision travels to the Bot.
+
+The automated webhook dispatcher (`alerts/dispatcher.ts`) does **not** carry the
+block: its payload is the vendored, fingerprinted `webhookContract.ts` shared
+byte-for-byte with the Bot, and extending it is a paired contract change.
+Enforcement on that path is unaffected — the gate refuses the signal before
+`deliver()` is reached.
+
 ## Read boundary
 
 `platform/backend/src/repositories/shariah.ts` is the one authoritative
@@ -416,17 +530,20 @@ snapshot read contract, and the minimal private operator review surface.
 Migration `023_shariah_publication_and_snapshots.sql` is additive; migration
 022 and earlier are untouched apart from one new nullable column.
 
-**SH-3 (batch review) delivered:** the `TS_SHARIAH_REVIEW_PACK_V1` batch export
-(default 20, deterministic order) and the strict
-`TS_SHARIAH_REVIEW_RESULTS_V1` import, routed through the existing publication
-authority, with no model API, paid search API or crawler anywhere.
+**SH-3 delivered:** the `TS_SHARIAH_REVIEW_PACK_V1` batch export (default 20,
+deterministic order), the strict `TS_SHARIAH_REVIEW_RESULTS_V1` import routed
+through the existing publication authority, Shariah Mode, the single backend
+exposure gate across every Platform Spot BUY path (manual, automated live,
+Paper, live test-signal), the Screener column and filter, the chart/manual-trade
+status and blocked-BUY reason, and the signed Platform → Bot Shariah context.
 
-**Still explicitly deferred:** trading/Bot/Paper/live/manual-trade enforcement,
-Screener filtering, chart badges, Backtester consumption, the actual Research
-integration (Research is untouched), AI evidence research / web scraping /
-monitoring, scholar engines, numeric halal/confidence scores, autonomous or
-automatic classification of any kind, a general historical ticker/project
-identity resolver, and Strategy Discovery.
+**Still explicitly deferred:** the Bot-side handling of the signed `shariah`
+block (a paired release; Bot is untouched here), the same block on the vendored
+webhook contract, Backtester consumption, the actual Research integration
+(Research is untouched), AI evidence research / web scraping / monitoring,
+scholar engines, numeric halal/confidence scores, autonomous or automatic
+classification of any kind, a general historical ticker/project identity
+resolver, and Strategy Discovery.
 
 ## Known V1 identity limit
 

@@ -41,6 +41,8 @@ import {
 import {
   ShariahReviewImportError, importShariahReviewResults, previewShariahReviewResults,
 } from "../../shariah/reviewImport";
+import { getShariahMode, isShariahMode, setShariahMode } from "../../shariah/mode";
+import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
 import type { PoolClient } from "pg";
 
 /**
@@ -65,9 +67,10 @@ const isDigits = (v: string): boolean => /^[0-9]+$/.test(v);
 
 export async function shariahRoutes(
   app: FastifyInstance,
-  dependencies: { connect?: () => Promise<PoolClient> } = {}
+  dependencies: { connect?: () => Promise<PoolClient>; shariah?: ShariahGateDeps } = {}
 ): Promise<void> {
   const connect = dependencies.connect ?? (() => pool.connect());
+  const gateDeps = dependencies.shariah ?? {};
 
   /** The whole registry, including delisted assets (`binanceAvailable: false`). */
   app.get("/api/shariah/universe", async () => {
@@ -271,6 +274,48 @@ export async function shariahRoutes(
     } finally {
       client.release();
     }
+  });
+
+  // ── Shariah Mode ──────────────────────────────────────────────────────────
+
+  app.get("/api/shariah/mode", async () => ({ mode: await getShariahMode(), policyVersion: TS_SHARIAH_V1 }));
+
+  /**
+   * The mode lives server-side because the gate is server-side. The browser
+   * toggle calls this and then renders whatever the server reports; it never
+   * holds the authoritative value.
+   */
+  app.put("/api/shariah/mode", async (req, reply) => {
+    const mode = (req.body as { mode?: unknown } | null)?.mode;
+    if (!isShariahMode(mode)) {
+      return reply.code(400).send({ error: 'mode must be "off" or "enforce"' });
+    }
+    return { mode: await setShariahMode(mode), policyVersion: TS_SHARIAH_V1 };
+  });
+
+  /**
+   * The one status answer the trading surfaces read.
+   *
+   * It returns the GATE's own decision for a hypothetical BUY, not raw registry
+   * fields for a component to interpret: Screener, chart and the manual panel
+   * all show what the backend would actually do, so a UI can never disagree
+   * with enforcement. `sellAllowed` is a constant true and is stated explicitly
+   * so no surface has to infer it.
+   */
+  app.get("/api/shariah/status", async (req, reply) => {
+    const symbol = (req.query as { symbol?: unknown }).symbol;
+    if (typeof symbol !== "string" || symbol.trim().length === 0) {
+      return reply.code(400).send({ error: "symbol is required" });
+    }
+    const decision = await evaluateShariahGate({ symbol, side: "BUY" }, gateDeps);
+    return {
+      symbol: symbol.trim().toUpperCase(),
+      mode: decision.context.mode,
+      shariah: decision.context,
+      buyAllowed: decision.allowed,
+      buyBlockedReason: decision.reason,
+      sellAllowed: true,
+    };
   });
 
   // ── Research-facing read contract ─────────────────────────────────────────

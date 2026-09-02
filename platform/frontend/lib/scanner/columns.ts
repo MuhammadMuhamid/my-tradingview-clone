@@ -63,6 +63,11 @@ export const COLUMNS: ColumnSpec[] = [
   { id: "change_24h", group: "Symbol", slot: null, indicator: null, header: "24h %",
     title: "Change over the last 24 hours of closed bars",
     kind: "signed", digits: 2, saturateAt: 8, accessor: (r) => r.change_24h_pct },
+  { id: "shariah", group: "Symbol", slot: null, indicator: null, header: "Shariah",
+    title: "Effective TS_SHARIAH_V1 status of the base asset. UNSCREENED and STALE read as "
+         + "REVIEW; UNKNOWN means the asset is not in the screened Binance Spot USDT registry. "
+         + "Filter to ELIGIBLE to see only what Shariah Mode would let you buy.",
+    kind: "category", accessor: (r) => r.shariah ?? null },
 
   // --- Strategy ------------------------------------------------------
   { id: "mtf_bias", group: "Strategy", slot: null, indicator: null, header: "Bias",
@@ -229,6 +234,7 @@ export const COLUMNS: ColumnSpec[] = [
 ];
 
 export const CATEGORY_OPTIONS: Record<string, string[]> = {
+  shariah: ["ELIGIBLE", "REVIEW", "EXCLUDED", "UNKNOWN"],
   mtf_bias: ["bull", "bear", "none"],
   mtf_setup: ["bull", "bear"],
   ema_1h_stack: ["bull", "bear", "mixed"],

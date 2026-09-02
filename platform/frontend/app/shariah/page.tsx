@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ShariahImportError, downloadReviewPack, parseResultsFile, shariahApi,
   type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
-  type ShariahImportPreview, type ShariahSnapshotMeta, type ShariahUniverse,
+  type ShariahImportPreview, type ShariahMode, type ShariahSnapshotMeta,
+  type ShariahUniverse,
 } from "@/lib/shariah";
 import { Button, Card, CardHeader, Empty, Field, Select, TextInput } from "@/components/ui";
 
@@ -62,12 +63,16 @@ export default function ShariahPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<ShariahMode | null>(null);
 
   const loadUniverse = useCallback(async () => {
     try {
-      const [u, s] = await Promise.all([shariahApi.universe(), shariahApi.snapshots()]);
+      const [u, s, m] = await Promise.all([
+        shariahApi.universe(), shariahApi.snapshots(), shariahApi.mode(),
+      ]);
       setUniverse(u);
       setSnapshots(s.snapshots);
+      setMode(m.mode);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -90,6 +95,28 @@ export default function ShariahPage() {
       ? all
       : all.filter((a) => a.binanceAvailable && a.lifecycle !== "SCREENED");
   }, [universe, filter]);
+
+  /**
+   * The toggle writes to the server and then renders what the server reports
+   * back. The browser never holds the authoritative value — the gate that
+   * actually refuses a BUY runs in the backend and reads the same setting.
+   */
+  const toggleMode = async () => {
+    const next: ShariahMode = mode === "enforce" ? "off" : "enforce";
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const saved = await shariahApi.setMode(next);
+      setMode(saved.mode);
+      setNotice(saved.mode === "enforce"
+        ? "Shariah Mode is ON. New exposure (BUY) is allowed only for ELIGIBLE assets. "
+          + "Selling or reducing a position is always allowed, and no position was changed."
+        : "Shariah Mode is OFF. Trading behaviour is unchanged.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const createSnapshot = async () => {
     setBusy(true); setError(null); setNotice(null);
@@ -115,10 +142,28 @@ export default function ShariahPage() {
             deliberately by you. Nothing here is decided automatically.
           </p>
         </div>
-        <Button variant="primary" onClick={createSnapshot} disabled={busy}>
-          Create universe snapshot
-        </Button>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
+            mode === "enforce" ? "bg-up/15 text-up border-up/30" : "bg-surface-2 text-ink-muted border-border"
+          }`}>
+            Shariah Mode: {mode === null ? "…" : mode === "enforce" ? "ON" : "OFF"}
+          </span>
+          <Button onClick={toggleMode} disabled={busy || mode === null}>
+            {mode === "enforce" ? "Turn off" : "Turn on"}
+          </Button>
+          <Button variant="primary" onClick={createSnapshot} disabled={busy}>
+            Create universe snapshot
+          </Button>
+        </div>
       </div>
+
+      {mode === "enforce" && (
+        <div className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+          Enforcement is on. A BUY is refused unless the asset is ELIGIBLE; UNSCREENED and STALE
+          count as REVIEW and are refused. SELL, reduce and exit are never blocked, and turning
+          this on never sells anything you already hold.
+        </div>
+      )}
 
       {error && (
         <div className="mb-3 rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</div>

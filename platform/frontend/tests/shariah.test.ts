@@ -2,9 +2,10 @@
  * The browser side of the Shariah workflow.
  *
  * The one property worth pinning here is a negative: the browser must not
- * decide anything. `parseResultsFile` only parses — it does not validate the
- * contract, repair a field, or judge what is publishable. A UI that quietly
- * disagreed with the backend import boundary would be worse than no preview.
+ * decide anything. `parseResultsFile` only parses, the status a component
+ * renders is the backend gate's own answer, and the exposure rule is not
+ * reimplemented client-side. A UI that quietly disagreed with the backend
+ * would be worse than one that showed nothing.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -39,6 +40,17 @@ test("downloading a pack is a no-op without a DOM rather than a crash", () => {
   assert.equal(downloadReviewPack(pack), false);
 });
 
+test("the browser never re-derives the exposure rule", () => {
+  const panel = read("components/tv/ManualTradingPanel.tsx");
+  // It asks the backend and renders the answer.
+  assert.match(panel, /shariahApi\.status\(symbol\)/);
+  assert.match(panel, /!shariah\.buyAllowed/);
+  // It must not decide eligibility from a raw classification of its own.
+  assert.doesNotMatch(panel, /effectiveStatus\s*===\s*"ELIGIBLE"/);
+  // And SELL is never gated: the block is scoped to BUY only.
+  assert.match(panel, /side === "BUY" && shariah !== null && !shariah\.buyAllowed/);
+});
+
 test("the review console treats importing as the batch approval, and says so", () => {
   const page = read("app/shariah/page.tsx");
   assert.match(page, /Download next 20 for ChatGPT/);
@@ -47,4 +59,14 @@ test("the review console treats importing as the batch approval, and says so", (
   assert.match(page, /STALE asset always needs a full\s*\n?\s*fresh screening/);
   // Editing the pasted text invalidates a checked preview.
   assert.match(page, /setPreview\(null\);/);
+});
+
+test("the Shariah Mode toggle renders the server's value, never a local one", () => {
+  const page = read("app/shariah/page.tsx");
+  assert.match(page, /const saved = await shariahApi\.setMode\(next\);/);
+  assert.match(page, /setMode\(saved\.mode\)/);
+  // No localStorage anywhere in the Shariah surface: the mode is backend state,
+  // because the gate that enforces it is backend code.
+  assert.doesNotMatch(page, /localStorage/);
+  assert.doesNotMatch(read("lib/shariah.ts"), /localStorage/);
 });

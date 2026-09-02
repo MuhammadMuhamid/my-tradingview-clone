@@ -5,6 +5,7 @@ import { Button, StatusBadge } from "@/components/ui";
 import { TradeOrderTimeline } from "@/components/TradeOrderTimeline";
 import { api, type ManualAccount, type ManualOrder, type ManualPosition, type ManualTradingState } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
+import { shariahApi, type ShariahSymbolStatus } from "@/lib/shariah";
 
 const newRequestId = (): string => window.crypto.randomUUID();
 const n = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
@@ -89,6 +90,13 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
   const [state, setState] = useState<ManualTradingState | null>(null);
   const [accountId, setAccountId] = useState("");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
+  /**
+   * The backend gate's own answer for this symbol, not a locally derived one.
+   * It is refreshed whenever the symbol changes, and it is only ever used to
+   * EXPLAIN and to disable — the backend refuses the order regardless, so a
+   * stale badge here can mislead but can never permit.
+   */
+  const [shariah, setShariah] = useState<ShariahSymbolStatus | null>(null);
   const [orderType, setOrderType] = useState<"MARKET" | "LIMIT">("MARKET");
   const [amount, setAmount] = useState("");
   const [limitPrice, setLimitPrice] = useState("");
@@ -118,6 +126,18 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
   useEffect(() => { void refresh(); const id = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(id); }, [refresh]);
 
+  // Re-asked on every symbol change, and again after a successful order, so the
+  // badge cannot go on claiming ELIGIBLE after a re-screening. A failure here
+  // leaves it null: unknown, which shows nothing and blocks nothing, because
+  // the authority is the backend.
+  useEffect(() => {
+    let cancelled = false;
+    shariahApi.status(symbol)
+      .then((status) => { if (!cancelled) setShariah(status); })
+      .catch(() => { if (!cancelled) setShariah(null); });
+    return () => { cancelled = true; };
+  }, [symbol]);
+
   const account = state?.accounts.find((a) => a.id === accountId) ?? null;
   const activePositions = useMemo(() => state?.positions.filter((p) =>
     p.status === "active" && p.exchangeAccountId === accountId) ?? [], [state, accountId]);
@@ -126,8 +146,16 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
   const amountLabel = side === "BUY" ? "Quote amount" : "Base quantity";
   const amountInvalid = amount.trim() !== "" && !(Number(amount) > 0);
   const priceInvalid = orderType === "LIMIT" && limitPrice.trim() !== "" && !(Number(limitPrice) > 0);
+  /**
+   * SELL is never gated — an asset that has just been re-screened EXCLUDED must
+   * still be exitable, and this panel must never be the reason a position is
+   * stuck. Only a BUY consults the gate, and only to stop a pointless round
+   * trip to a backend that would refuse it anyway.
+   */
+  const shariahBlocksBuy = side === "BUY" && shariah !== null && !shariah.buyAllowed;
   const valid = !!account && (account.testnet || !!state?.mainnetEnabled) && Number(amount) > 0 &&
     (orderType === "MARKET" || Number(limitPrice) > 0)
+    && !shariahBlocksBuy
     && (side === "BUY" || !positionId || activePositions.some((p) => p.id === positionId));
   const mode = account ? `${state?.dryRun ? "dry run · " : ""}${account.mode}` : "unknown";
   const accountLabel = (id: string): string => {
@@ -316,6 +344,21 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
         the way the reference does. Nothing is sent from here — the review
         dialog is still the only place an order can be confirmed.
       */}
+      {shariah && shariah.mode === "enforce" && (
+        <div className={`rounded-md border px-2.5 py-2 text-[11px] leading-4 ${
+          shariah.buyAllowed
+            ? "border-up/30 bg-up/10 text-up"
+            : "border-warn/30 bg-warn/10 text-warn"}`}>
+          <span className="font-semibold">
+            Shariah {shariah.shariah.effectiveStatus}
+          </span>
+          {shariah.buyBlockedReason
+            ? <span className="block text-ink-muted">{shariah.buyBlockedReason}</span>
+            : <span className="block text-ink-muted">
+                New exposure is allowed under {shariah.shariah.policyVersion}.
+              </span>}
+        </div>
+      )}
       <button
         type="button"
         disabled={!valid || pending}
