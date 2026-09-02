@@ -124,7 +124,7 @@ export const CONTRACT_VERSION = 4;
  * hash it prints, and paste it here in BOTH repositories.
  */
 export const CONTRACT_FINGERPRINT =
-  "sha256:v4:8f57c21b5d3e381fb1902d38a5f502179afbbb1ce52181e82c8e22bb53a356b7";
+  "sha256:v4:c51cc0411b1e3d75c5e6b14ea113ae7f47d5cab7cae562e508c991939b0914fb";
 
 // ── Payload shapes ──────────────────────────────────────────────────────────
 
@@ -380,12 +380,28 @@ export function shariahBlockCodeFor(
 /**
  * How long a signed decision stays usable, in milliseconds.
  *
- * Long enough to cover the sender's delivery retries with backoff, short enough
- * that a captured ELIGIBLE cannot be replayed weeks later against an asset that
- * has since been excluded. The receiver's own duplicate suppression is what
- * stops replay INSIDE the window.
+ * Derived, not guessed. The sender's worst-case delivery is four attempts at an
+ * eight-second timeout plus 0.5s/1s/2s of backoff — 35.5 seconds — and the
+ * sender asserts that arithmetic against this constant in its own test suite,
+ * so the two cannot drift apart silently.
+ *
+ * The window is deliberately not much larger than that. Everything it buys is
+ * paid for twice over:
+ *
+ *   * a decision signed at T and delivered at T+w is w milliseconds stale, so a
+ *     status that changed in between is honoured w late;
+ *   * and a signature observed in transit can be presented again, with a fresh
+ *     `dedupe_key`, for the rest of w. That replay can only ever re-assert a
+ *     decision the sender genuinely made — it cannot manufacture an ELIGIBLE
+ *     for an asset the sender never cleared — but it can stretch one cleared
+ *     decision into more exposure than the sender intended.
+ *
+ * 120 seconds leaves ~3.4x the measured delivery worst case and cuts both of
+ * those exposures by a factor of five against the 10 minutes this started at.
+ * It is not replay PREVENTION: single-use evidence would need a nonce store on
+ * this path, as the manual channel already has. See the receiver's notes.
  */
-export const SHARIAH_EVIDENCE_MAX_AGE_MS = 10 * 60 * 1000;
+export const SHARIAH_EVIDENCE_MAX_AGE_MS = 120 * 1000;
 
 /** Wire field carrying the detached signature, and the time it was produced. */
 export const SHARIAH_SIGNATURE_FIELD = "shariah_sig";

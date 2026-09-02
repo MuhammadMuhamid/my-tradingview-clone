@@ -46,7 +46,8 @@ import {
 } from "../../shariah/mode";
 import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
 import {
-  pushShariahModeToBot, ShariahBotSyncError, type BotEnforcementDeps,
+  pushShariahModeToBot, readBotShariahMode, ShariahBotSyncError, ShariahModeDriftError,
+  type BotEnforcementDeps,
 } from "../../shariah/botEnforcement";
 import type { PoolClient } from "pg";
 
@@ -292,7 +293,25 @@ export async function shariahRoutes(
 
   // ── Shariah Mode ──────────────────────────────────────────────────────────
 
-  app.get("/api/shariah/mode", async () => ({ mode: await readMode(), policyVersion: TS_SHARIAH_V1 }));
+  /*
+   * The stored mode, plus what the execution bot says its own floor is.
+   *
+   * The two are set together and should agree; they can come apart if a mode
+   * change half-applied, and nothing re-converges them on its own. Reporting
+   * the bot's answer here is what turns that from silent drift into something
+   * an operator can see and fix — without any polling loop, because this is
+   * read only when someone asks. `botMode: null` means unreachable, which is
+   * "unknown", not "off".
+   */
+  app.get("/api/shariah/mode", async () => {
+    const [mode, bot] = await Promise.all([readMode(), readBotShariahMode(botEnforcementDeps)]);
+    return {
+      mode,
+      policyVersion: TS_SHARIAH_V1,
+      botMode: bot?.mode ?? null,
+      inSync: bot === null ? null : bot.mode === mode,
+    };
+  });
 
   /**
    * The mode lives server-side because the gate is server-side. The browser
@@ -323,7 +342,20 @@ export async function shariahRoutes(
     try {
       if (mode === "enforce") {
         await pushShariahModeToBot("enforce", botEnforcementDeps);
-        return { mode: await writeMode(mode), policyVersion: TS_SHARIAH_V1 };
+        try {
+          return { mode: await writeMode(mode), policyVersion: TS_SHARIAH_V1 };
+        } catch (storeError) {
+          /*
+           * The bot is now armed and this Platform is not. That is the SAFE
+           * direction — the webhook path the push exists to protect is closed,
+           * and every Platform-originated path keeps the behaviour it had — but
+           * the operator asked for a change that only half happened, and a
+           * generic 500 would not tell them that. Naming both sides is what
+           * makes it fixable.
+           */
+          throw new ShariahModeDriftError("enforce", await readMode(),
+            storeError instanceof Error ? storeError.message : String(storeError));
+        }
       }
       const stored = await writeMode(mode);
       await pushShariahModeToBot("off", botEnforcementDeps);
@@ -331,6 +363,10 @@ export async function shariahRoutes(
     } catch (error) {
       if (error instanceof ShariahBotSyncError) {
         return reply.code(error.status).send({ error: error.message, mode: await readMode() });
+      }
+      if (error instanceof ShariahModeDriftError) {
+        return reply.code(error.status).send({
+          error: error.message, mode: error.storedMode, botMode: error.botMode, inSync: false });
       }
       throw error;
     }

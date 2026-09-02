@@ -27,8 +27,13 @@ import { createHmac } from "node:crypto";
 import Fastify from "fastify";
 import { shariahRoutes } from "../src/api/routes/shariah";
 import { buildPayload, withShariahEvidence } from "../src/alerts/dispatcher";
-import { pushShariahModeToBot, ShariahBotSyncError } from "../src/shariah/botEnforcement";
-import { shariahEvidenceCanonical, SHARIAH_POLICY_VERSION } from "../src/contract/webhookContract";
+import {
+  pushShariahModeToBot, readBotShariahMode, ShariahBotSyncError,
+} from "../src/shariah/botEnforcement";
+import {
+  httpStatusFor, mayAdvanceLocalState, shariahEvidenceCanonical,
+  SHARIAH_EVIDENCE_MAX_AGE_MS, SHARIAH_POLICY_VERSION,
+} from "../src/contract/webhookContract";
 import type { ShariahRequestContext } from "../src/shariah/gate";
 import type { DeploymentRow } from "../src/types/deployments";
 import { initialRuntimeState } from "../src/types/deployments";
@@ -116,6 +121,8 @@ async function modeApp(over: {
   push?: (mode: string) => Promise<unknown>;
   stored?: "off" | "enforce";
   onStore?: (mode: string) => void;
+  storeThrows?: boolean;
+  botReports?: "off" | "enforce" | "unreachable";
 } = {}) {
   let stored: "off" | "enforce" = over.stored ?? "off";
   const app = Fastify();
@@ -123,11 +130,17 @@ async function modeApp(over: {
     mode: {
       get: async () => stored,
       set: async (mode: "off" | "enforce") => {
-        over.onStore?.(mode); stored = mode; return mode; },
+        over.onStore?.(mode);
+        if (over.storeThrows) throw new Error("connection terminated unexpectedly");
+        stored = mode; return mode; },
     },
     botEnforcement: {
       manualTradingEnabled: true,
-      request: (async (input: { body?: { mode?: string } }) => {
+      request: (async (input: { method: string; body?: { mode?: string } }) => {
+        if (input.method === "GET") {
+          if (over.botReports === "unreachable") throw new Error("bot unreachable");
+          return { mode: over.botReports ?? "off", policyVersion: null };
+        }
         if (over.push) return over.push(String(input.body?.mode));
         return {};
       }) as never,
@@ -188,6 +201,57 @@ test("the route still refuses a mode that is not off or enforce", async (t) => {
     assert.equal(response.statusCode, 400, JSON.stringify(mode));
   }
 });
+
+test("a mode change that arms the bot but cannot be stored is reported as drift, not as a 500",
+  async (t) => {
+    /*
+     * The safe direction — the webhook path the push exists to protect is
+     * closed, and every Platform path keeps the behaviour it had — but the
+     * operator asked for something that only half happened, and a bare 500
+     * would not tell them which half.
+     */
+    const { app, read } = await modeApp({ storeThrows: true, botReports: "enforce" });
+    t.after(() => app.close());
+    const response = await app.inject({ method: "PUT", url: "/api/shariah/mode",
+      payload: { mode: "enforce" } });
+    assert.equal(response.statusCode, 500);
+    const body = JSON.parse(response.body);
+    assert.equal(body.mode, "off", "it must report what this Platform actually stored");
+    assert.equal(body.botMode, "enforce", "and what the bot was actually set to");
+    assert.equal(body.inSync, false);
+    assert.match(body.error, /Retry the mode change/);
+    assert.equal(read(), "off");
+  });
+
+test("the mode reading reports the bot's own floor, so drift is visible", async (t) => {
+  const agreed = await modeApp({ stored: "enforce", botReports: "enforce" });
+  t.after(() => agreed.app.close());
+  const inSync = JSON.parse(
+    (await agreed.app.inject({ method: "GET", url: "/api/shariah/mode" })).body);
+  assert.deepEqual(inSync,
+    { mode: "enforce", policyVersion: SHARIAH_POLICY_VERSION, botMode: "enforce", inSync: true });
+
+  const drifted = await modeApp({ stored: "enforce", botReports: "off" });
+  t.after(() => drifted.app.close());
+  const out = JSON.parse(
+    (await drifted.app.inject({ method: "GET", url: "/api/shariah/mode" })).body);
+  assert.equal(out.botMode, "off");
+  assert.equal(out.inSync, false);
+});
+
+test("an unreachable bot reads as unknown, never as agreement and never as protection",
+  async (t) => {
+    const { app } = await modeApp({ stored: "enforce", botReports: "unreachable" });
+    t.after(() => app.close());
+    const body = JSON.parse((await app.inject({ method: "GET", url: "/api/shariah/mode" })).body);
+    assert.equal(body.botMode, null);
+    assert.equal(body.inSync, null, "unknown must not be reported as either true or false");
+
+    assert.equal(await readBotShariahMode({
+      manualTradingEnabled: true,
+      request: (async () => { throw new Error("down"); }) as never,
+    }), null);
+  });
 
 // ── The detached signature on the automated path ────────────────────────────
 
@@ -268,6 +332,43 @@ test("a SELL still carries its evidence, and carrying it never gates the exit", 
   assert.equal(payload.action, "sell");
   assert.equal(payload.shariah?.effectiveStatus, "EXCLUDED");
   assert.ok(payload.shariah_sig);
+});
+
+// ── The signature has to outlive delivery, and a refusal has to be terminal ─
+
+test("delivery cannot outlive the signature's freshness window", () => {
+  /*
+   * The signature is stamped when the payload is built and verified when the
+   * Bot receives it, so the sender's whole retry schedule has to fit inside the
+   * receiver's freshness window. If it ever stopped fitting, a delivery that
+   * succeeded on a late attempt would be refused as expired — and the operator
+   * would see a Shariah refusal for an asset that is ELIGIBLE.
+   */
+  const src = read("alerts/dispatcher.ts");
+  const attempts = Number(/opts\.maxAttempts \?\? (\d+)/.exec(src)?.[1]);
+  const timeoutMs = Number(/opts\.timeoutMs \?\? (\d+)/.exec(src)?.[1]);
+  const backoff = /await sleep\((\d+) \* 2 \*\* \(attempt - 1\)\)/.exec(src)?.[1];
+  assert.ok(Number.isFinite(attempts) && Number.isFinite(timeoutMs) && backoff,
+    "the retry schedule is no longer readable from the source; re-derive this bound");
+
+  const base = Number(backoff);
+  let worstCase = attempts * timeoutMs;
+  for (let attempt = 1; attempt < attempts; attempt++) worstCase += base * 2 ** (attempt - 1);
+
+  assert.ok(worstCase < SHARIAH_EVIDENCE_MAX_AGE_MS,
+    `the worst-case delivery takes ${worstCase}ms, past the receiver's `
+    + `${SHARIAH_EVIDENCE_MAX_AGE_MS}ms freshness window`);
+});
+
+test("a Shariah refusal from the Bot is terminal and never advances local state", () => {
+  assert.equal(httpStatusFor("shariah_blocked"), 409);
+  assert.equal(mayAdvanceLocalState("shariah_blocked"), false);
+  // 409 + a receiver outcome that may not advance state is the branch that
+  // returns `blocked` without retrying — retrying a policy refusal would be
+  // pointless, and recording it as `sent` would claim a position that is not
+  // there.
+  const src = read("alerts/dispatcher.ts");
+  assert.match(src, /res\.status === 409 && outcome && !mayAdvanceLocalState\(outcome\)/);
 });
 
 // ── Source pins: what must not come back ────────────────────────────────────

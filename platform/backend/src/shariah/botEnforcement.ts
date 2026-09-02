@@ -35,6 +35,17 @@ import type { ShariahMode } from "./mode";
 
 const PATH = "/api/manual-trading/shariah-enforcement";
 
+export class ShariahModeDriftError extends Error {
+  readonly status = 500;
+  constructor(readonly botMode: ShariahMode, readonly storedMode: ShariahMode, cause: string) {
+    super(
+      `the execution bot was set to "${botMode}" but this Platform could not record the ` +
+      `change, so it still reports "${storedMode}". Retry the mode change: the two must ` +
+      `agree before either can be trusted. Underlying failure: ${cause}`);
+    this.name = "ShariahModeDriftError";
+  }
+}
+
 export class ShariahBotSyncError extends Error {
   readonly status = 502;
   constructor(message: string) {
@@ -48,6 +59,30 @@ export interface BotEnforcementDeps {
   request?: typeof manualBotRequest;
   /** Injected in tests; production reads config. */
   manualTradingEnabled?: boolean;
+}
+
+/** What the Bot currently believes, so drift is visible rather than silent. */
+export async function readBotShariahMode(
+  deps: BotEnforcementDeps = {}
+): Promise<{ mode: ShariahMode; policyVersion: string | null } | null> {
+  const enabled = deps.manualTradingEnabled ?? config.manualTradingEnabled;
+  if (!enabled) return null;
+  const request = deps.request ?? manualBotRequest;
+  try {
+    const body = await request<{ mode?: unknown; policyVersion?: unknown }>(
+      { method: "GET", path: PATH });
+    return {
+      mode: body.mode === "enforce" ? "enforce" : "off",
+      policyVersion: typeof body.policyVersion === "string" ? body.policyVersion : null,
+    };
+  } catch {
+    /*
+     * Unreachable is not the same as `off`. Returning null lets the caller say
+     * "unknown", which is honest; claiming `off` would invent agreement, and
+     * claiming `enforce` would invent protection.
+     */
+    return null;
+  }
 }
 
 /**
