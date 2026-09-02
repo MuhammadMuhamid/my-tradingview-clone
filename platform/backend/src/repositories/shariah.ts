@@ -20,6 +20,9 @@ import {
   type ProhibitedCategory,
 } from "../shariah/policy";
 import type { ShariahSnapshot, ShariahSnapshotMeta } from "../shariah/snapshot";
+import type {
+  ReviewPackPriorEvidence, ReviewPackPriorPublication,
+} from "../shariah/reviewPack";
 
 export interface ShariahAssetState {
   assetId: string;
@@ -34,6 +37,10 @@ export interface ShariahAssetState {
   prohibitedCategories: ProhibitedCategory[];
   reviewedAt: string | null;
   publishedAt: string | null;
+  /** When the current registry row last changed. For STALE, when the prior decision was withdrawn. */
+  updatedAt: string | null;
+  /** The immutable publication the current state came from, when it came from one. */
+  currentPublicationId: string | null;
 }
 
 interface AssetStateRow {
@@ -48,12 +55,15 @@ interface AssetStateRow {
   prohibited_categories: ProhibitedCategory[] | null;
   reviewed_at: string | null;
   published_at: string | null;
+  updated_at: string | Date | null;
+  current_publication_id: string | number | null;
 }
 
 const SELECT_ASSET_STATE = `
   SELECT m.asset_id, m.base_asset, a.project_name, m.binance_available,
          r.classification, r.lifecycle, r.policy_version, r.reason,
-         r.prohibited_categories, r.reviewed_at, r.published_at
+         r.prohibited_categories, r.reviewed_at, r.published_at,
+         r.updated_at, r.current_publication_id
     FROM shariah_asset_binance_mappings m
     JOIN shariah_assets a ON a.asset_id = m.asset_id
     LEFT JOIN shariah_records r ON r.asset_id = m.asset_id
@@ -75,6 +85,9 @@ function toAssetState(row: AssetStateRow): ShariahAssetState {
     prohibitedCategories: row.prohibited_categories ?? [],
     reviewedAt: row.reviewed_at,
     publishedAt: row.published_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString()
+      : row.updated_at === null ? null : String(row.updated_at),
+    currentPublicationId: row.current_publication_id === null ? null : String(row.current_publication_id),
   };
 }
 
@@ -336,4 +349,66 @@ export async function getSnapshot(snapshotId: string): Promise<ShariahSnapshot |
       publicationId: e.publication_id === null ? null : String(e.publication_id),
     })),
   };
+}
+
+// ── Batch review workflow (review pack export) ──────────────────────────────
+
+/**
+ * The prior context a `TS_SHARIAH_REVIEW_PACK_V1` batch carries: the latest
+ * published decision per asset, and a reference list of the evidence already on
+ * file. Both are CONTEXT FOR A RESEARCHER, never an answer to copy forward —
+ * reviewImport.ts has no field that can cite either of them, and a STALE asset
+ * additionally requires evidence retrieved after it went stale.
+ */
+export async function loadReviewPackContext(assetIds: readonly string[]): Promise<{
+  publications: Map<string, ReviewPackPriorPublication>;
+  evidence: Map<string, ReviewPackPriorEvidence[]>;
+}> {
+  const publications = new Map<string, ReviewPackPriorPublication>();
+  const evidence = new Map<string, ReviewPackPriorEvidence[]>();
+  const ids = [...new Set(assetIds.filter((id) => /^[0-9]+$/.test(id)))];
+  if (ids.length === 0) return { publications, evidence };
+
+  // DISTINCT ON keeps only the newest publication per asset — the pack shows
+  // what Trading Scene last said, not the whole history.
+  const latest = await query<PublicationRow>(
+    `SELECT DISTINCT ON (p.asset_id) p.*, '{}'::bigint[] AS evidence_ids
+       FROM shariah_publications p
+      WHERE p.asset_id = ANY($1::bigint[])
+      ORDER BY p.asset_id, p.published_at DESC, p.publication_id DESC`,
+    [ids]
+  );
+  for (const row of latest.rows) {
+    publications.set(String(row.asset_id), {
+      publicationId: String(row.publication_id),
+      classification: row.classification,
+      policyVersion: row.policy_version,
+      reason: row.reason,
+      prohibitedCategories: row.prohibited_categories ?? [],
+      reviewedAt: String(row.reviewed_at),
+      publishedAt: String(row.published_at),
+    });
+  }
+
+  const cited = await query<EvidenceRow>(
+    `SELECT * FROM shariah_evidence
+      WHERE asset_id = ANY($1::bigint[])
+      ORDER BY asset_id, created_at, id`,
+    [ids]
+  );
+  for (const row of cited.rows) {
+    const list = evidence.get(String(row.asset_id)) ?? [];
+    // Reference only: no excerpt body. A researcher must re-verify and cite for
+    // themselves; there is no import field that can reuse an evidence id.
+    list.push({
+      evidenceId: String(row.id),
+      url: row.url,
+      title: row.title,
+      publisher: row.publisher,
+      retrievedAt: row.retrieved_at,
+    });
+    evidence.set(String(row.asset_id), list);
+  }
+
+  return { publications, evidence };
 }

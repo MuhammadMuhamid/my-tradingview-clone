@@ -28,6 +28,12 @@ const SHARIAH_PATHS: Array<{ method: "GET" | "POST"; url: string }> = [
   { method: "GET", url: "/api/shariah/snapshots" },
   { method: "GET", url: "/api/shariah/snapshots/latest" },
   { method: "GET", url: "/api/shariah/snapshots/1" },
+  // The batch review workflow. The pack is the one route that produces a file
+  // intended to leave the machine, so it being behind the session gate matters
+  // as much as the publication routes do.
+  { method: "GET", url: "/api/shariah/review-pack" },
+  { method: "POST", url: "/api/shariah/review-results/preview" },
+  { method: "POST", url: "/api/shariah/review-results/import" },
 ];
 
 test("every Shariah route — snapshot reads included — requires a session", async (t) => {
@@ -41,7 +47,7 @@ test("every Shariah route — snapshot reads included — requires a session", a
   t.after(() => app.close());
 
   for (const route of SHARIAH_PATHS) {
-    const denied = await app.inject({ ...route, payload: route.method === "POST" ? {} : undefined });
+    const denied = await app.inject({ ...route, payload: route.method === "GET" ? undefined : {} });
     assert.equal(denied.statusCode, 401, `${route.method} ${route.url} was reachable without a session`);
     assert.deepEqual(denied.json(), { error: "not authenticated" });
   }

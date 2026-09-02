@@ -1,10 +1,11 @@
 # Trading Scene Shariah Universe
 
-**Status:** SH-2. Screening registry + Binance Spot USDT universe sync (SH-1),
-plus explicit review/publication, immutable published-decision history, and
-immutable universe snapshots with a Research-facing read contract (SH-2). No
-trading/Bot/Paper enforcement, no Research integration, no automated evidence
-collection, no AI classification.
+**Status:** SH-3. Screening registry + Binance Spot USDT universe sync (SH-1);
+explicit review/publication, immutable published-decision history, and immutable
+universe snapshots with a Research-facing read contract (SH-2); the manual
+batch-research workflow (SH-3). No trading/Bot/Paper enforcement, no Research
+integration, no automated evidence collection, no AI classification, and **no
+model API, paid search API or web crawler of any kind**.
 
 ## Purpose and fixed premises
 
@@ -303,6 +304,93 @@ It is deliberately small: no classification logic runs in the browser, nothing
 is preselected, and the backend's refusal of an incomplete review is shown
 verbatim so the rule has exactly one home. It is not a compliance dashboard.
 
+## Batch review with ChatGPT (SH-3)
+
+The research step deliberately runs **outside** Trading Scene, in a ChatGPT
+subscription the operator already pays for. Trading Scene calls no model API, no
+paid search API and no crawler, and adds no recurring cost. It exports a bounded
+JSON pack, and imports a strict JSON result:
+
+```
+Trading Scene  --  TS_SHARIAH_REVIEW_PACK_V1 (20 assets)  -->  operator
+operator       --  uploads the pack                       -->  ChatGPT
+ChatGPT        --  researches the web, answers            -->  operator
+operator       --  TS_SHARIAH_REVIEW_RESULTS_V1           -->  Trading Scene
+Trading Scene  --  validate, record evidence, publish     -->  registry
+```
+
+### `TS_SHARIAH_REVIEW_PACK_V1` (export)
+
+`platform/backend/src/shariah/reviewPack.ts`, served by
+`GET /api/shariah/review-pack` and downloaded from the `/shariah` console.
+
+**Default batch size is 20 assets** (`?size=` overrides, capped at 100).
+The default batch is the work that is actually outstanding — assets that are
+`STALE`, `UNSCREENED`, or a published `REVIEW` — and excludes settled
+`ELIGIBLE`/`EXCLUDED` assets and assets Binance no longer lists
+(`?includeSettled=true` / `?includeUnavailable=true` override).
+
+Ordering is deterministic: **`STALE` → `UNSCREENED` → `REVIEW`**, then by base
+symbol, then by numeric asset id. `STALE` comes first because it is the only
+bucket where a real published answer was withdrawn. Downloading twice against
+unchanged state yields the same batch.
+
+Each asset carries `assetId`, `baseAsset`, `projectName`, `binanceAvailable`,
+`lifecycle`, `classification`, `effectiveStatus`, `policyVersion`, a plain-language
+`reviewReason`, `requiresFullFreshScreening`, `staleSince`, the prior publication
+summary, and a reference list of prior evidence. The pack also embeds the fixed
+`TS_SHARIAH_V1` premises, the six research questions, the eight prohibited
+categories, the interpretation rules, and the exact result contract.
+
+The pack contains **no** secret, credential, session, cookie, user identity,
+balance, position, order, trading history or unrelated database state. It is
+written to be handed to a third party, and a test asserts the closed field set.
+
+### `TS_SHARIAH_REVIEW_RESULTS_V1` (import)
+
+`platform/backend/src/shariah/reviewImport.ts`, served by
+`POST /api/shariah/review-results/preview` (dry run, writes nothing) and
+`POST /api/shariah/review-results/import`.
+
+Per result: `assetId`, `baseAsset`, `policyVersion`, `classification`, the six
+`answers`, `reason`, `prohibitedCategories`, `evidence[]` (`url`, `title`,
+`publisher`, `retrievedAt`, `note`) and `unresolvedUncertainties[]`. The document
+carries `format`, `policyVersion` and `researchCompletedAt`.
+
+The schema is **closed**: any unrecognised key is an error. That is what
+enforces "imported content is data, not instructions" — there is deliberately no
+`evidenceIds`, `publicationId`, `lifecycle` or `reconfirm` field, so the file has
+no vocabulary for naming a database row to mutate or for restating a prior
+decision. Rejected: unknown asset ids, asset/base mismatch, the wrong policy
+version, duplicate entries, unsupported classifications, non-http(s) or malformed
+evidence URLs, future retrieval times, invented prohibited categories, `EXCLUDED`
+without a category and evidence, and `ELIGIBLE` without evidence. Every problem
+in a file is reported at once; nothing is executed, fetched or rendered as markup.
+
+### One import, one approval
+
+The import request **is** the human publication approval for the whole batch —
+the operator approves 20 researched assets once, not one at a time. It is
+all-or-nothing: validation completes first, so a file with one bad entry
+publishes nothing, and the whole batch then commits in a single transaction.
+
+Every decision goes through `src/shariah/publication.ts`, the same and only
+publication authority a hand-entered decision uses (the import calls
+`publishShariahDecisionWithin`, which is that function's body inside the
+caller's transaction). So a batch import produces exactly the normal footprint:
+evidence rows, an immutable `shariah_publications` row, publication-evidence
+links, and the updated current pointer. History remains append-only.
+
+Snapshots are **not** taken per imported asset. The operator creates one
+snapshot when they have finished importing, using the existing capability.
+
+### `STALE` is still a full re-screen
+
+A `STALE` result must cite at least one evidence entry retrieved **at or after**
+`staleSince`, for every classification including `REVIEW`. Pasting back
+pre-staleness research to restore the old classification is refused. Combined
+with the closed schema, there is no reconfirm path at all — only a fresh review.
+
 ## Read boundary
 
 `platform/backend/src/repositories/shariah.ts` is the one authoritative
@@ -328,12 +416,17 @@ snapshot read contract, and the minimal private operator review surface.
 Migration `023_shariah_publication_and_snapshots.sql` is additive; migration
 022 and earlier are untouched apart from one new nullable column.
 
+**SH-3 (batch review) delivered:** the `TS_SHARIAH_REVIEW_PACK_V1` batch export
+(default 20, deterministic order) and the strict
+`TS_SHARIAH_REVIEW_RESULTS_V1` import, routed through the existing publication
+authority, with no model API, paid search API or crawler anywhere.
+
 **Still explicitly deferred:** trading/Bot/Paper/live/manual-trade enforcement,
 Screener filtering, chart badges, Backtester consumption, the actual Research
-integration (Research is untouched in SH-2), AI evidence research / web
-scraping / monitoring, scholar engines, numeric halal/confidence scores,
-autonomous or automatic classification of any kind, a general historical
-ticker/project identity resolver, and Strategy Discovery.
+integration (Research is untouched), AI evidence research / web scraping /
+monitoring, scholar engines, numeric halal/confidence scores, autonomous or
+automatic classification of any kind, a general historical ticker/project
+identity resolver, and Strategy Discovery.
 
 ## Known V1 identity limit
 

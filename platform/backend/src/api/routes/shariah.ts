@@ -34,6 +34,13 @@ import {
   type PublishShariahDecisionInput,
 } from "../../shariah/publication";
 import { createShariahUniverseSnapshot } from "../../shariah/snapshot";
+import {
+  DEFAULT_REVIEW_BATCH_SIZE, buildReviewPack, normalizeBatchSize, selectReviewBatch,
+  type ReviewPackSource,
+} from "../../shariah/reviewPack";
+import {
+  ShariahReviewImportError, importShariahReviewResults, previewShariahReviewResults,
+} from "../../shariah/reviewImport";
 import type { PoolClient } from "pg";
 
 /**
@@ -176,6 +183,91 @@ export async function shariahRoutes(
     try {
       const snapshot = await createShariahUniverseSnapshot(client, { createdBy });
       return reply.code(201).send(snapshot);
+    } finally {
+      client.release();
+    }
+  });
+
+  // ── Batch review workflow: export a pack, import the researched results ───
+
+  /**
+   * Download the next batch to research. Defaults to 20 assets, ordered
+   * STALE -> UNSCREENED -> REVIEW, and by construction carries only registry
+   * facts and the TS_SHARIAH_V1 instructions — no session, credential, user
+   * identity, position or unrelated database state. It is written to be handed
+   * to a third party.
+   */
+  app.get("/api/shariah/review-pack", async (req) => {
+    const q = req.query as { size?: string; includeSettled?: string; includeUnavailable?: string };
+    const assets = await shariah.listAllAssets();
+    const { batch, needsReviewTotal, batchSize } = selectReviewBatch(assets as ReviewPackSource[], {
+      batchSize: q.size === undefined ? DEFAULT_REVIEW_BATCH_SIZE : normalizeBatchSize(Number(q.size)),
+      includeSettled: q.includeSettled === "true",
+      includeUnavailable: q.includeUnavailable === "true",
+    });
+
+    const { publications, evidence } = await shariah.loadReviewPackContext(batch.map((a) => a.assetId));
+    return buildReviewPack(
+      batch.map((asset) => ({
+        ...asset,
+        priorPublication: publications.get(asset.assetId) ?? null,
+        priorEvidence: evidence.get(asset.assetId) ?? [],
+      })),
+      { generatedAt: new Date().toISOString(), batchSize, needsReviewTotal }
+    );
+  });
+
+  /**
+   * Dry run. Validates the researched file against the live registry and
+   * reports what WOULD be published, so the operator sees the counts and any
+   * problems before approving. Writes nothing.
+   */
+  app.post("/api/shariah/review-results/preview", async (req, reply) => {
+    const client = await connect();
+    try {
+      const { parsed, counts } = await previewShariahReviewResults(client, req.body);
+      return {
+        policyVersion: parsed.policyVersion,
+        researchCompletedAt: parsed.researchCompletedAt,
+        assetCount: parsed.results.length,
+        counts,
+        results: parsed.results.map((r) => ({
+          assetId: r.assetId, baseAsset: r.baseAsset, classification: r.classification,
+          prohibitedCategories: r.prohibitedCategories, evidenceCount: r.evidence.length,
+          unresolvedUncertainties: r.unresolvedUncertainties,
+        })),
+      };
+    } catch (error) {
+      if (error instanceof ShariahReviewImportError) {
+        return reply.code(400).send({ error: error.message, issues: error.issues });
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  /**
+   * IMPORT & PUBLISH. This single request is the explicit human approval for
+   * the whole researched batch — the operator approves 20 assets once, not 20
+   * times — and every decision in it goes through the same publication
+   * authority a hand-entered one does.
+   */
+  app.post("/api/shariah/review-results/import", async (req, reply) => {
+    const publishedBy = operatorIdentity(req);
+    if (!publishedBy) return reply.code(401).send({ error: "not authenticated" });
+    const client = await connect();
+    try {
+      const summary = await importShariahReviewResults(client, { document: req.body, publishedBy });
+      return reply.code(201).send(summary);
+    } catch (error) {
+      if (error instanceof ShariahReviewImportError) {
+        return reply.code(400).send({ error: error.message, issues: error.issues });
+      }
+      if (error instanceof ShariahPublicationError) {
+        return reply.code(400).send({ error: error.message });
+      }
+      throw error;
     } finally {
       client.release();
     }

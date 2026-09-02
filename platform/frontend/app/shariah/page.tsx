@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  shariahApi, type ShariahAssetDetail, type ShariahClassification,
-  type ShariahSnapshotMeta, type ShariahUniverse,
+  ShariahImportError, downloadReviewPack, parseResultsFile, shariahApi,
+  type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
+  type ShariahImportPreview, type ShariahSnapshotMeta, type ShariahUniverse,
 } from "@/lib/shariah";
 import { Button, Card, CardHeader, Empty, Field, Select, TextInput } from "@/components/ui";
 
@@ -126,6 +127,13 @@ export default function ShariahPage() {
         <div className="mb-3 rounded-md border border-up/30 bg-up/10 px-3 py-2 text-sm text-up">{notice}</div>
       )}
 
+      <BatchReviewCard
+        needsReview={universe ? universe.counts.review : null}
+        onError={setError}
+        onNotice={setNotice}
+        onImported={loadUniverse}
+      />
+
       <div className="grid gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
           <Card>
@@ -207,6 +215,189 @@ export default function ShariahPage() {
           : <Card><Empty>Select an asset to review.</Empty></Card>}
       </div>
     </main>
+  );
+}
+
+/**
+ * The batch review workflow: export a pack, research it elsewhere, import the
+ * results.
+ *
+ * The whole point of this card is that the research step costs nothing. Trading
+ * Scene calls no model API, no paid search API and no crawler; the operator
+ * uploads the pack to a ChatGPT session they already pay for, and brings the
+ * JSON back.
+ *
+ * Importing IS the approval. One "Import & publish" click publishes the whole
+ * researched batch, rather than making the operator approve twenty assets one
+ * at a time — which is why the preview above it exists: it is the last look
+ * before a batch of real, immutable publications.
+ */
+function BatchReviewCard({ needsReview, onError, onNotice, onImported }: {
+  needsReview: number | null;
+  onError: (message: string | null) => void;
+  onNotice: (message: string | null) => void;
+  onImported: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [resultsText, setResultsText] = useState("");
+  const [preview, setPreview] = useState<ShariahImportPreview | null>(null);
+  const [issues, setIssues] = useState<ShariahImportIssue[]>([]);
+
+  /** Any edit invalidates a checked preview: you cannot approve text you did not check. */
+  const editResults = (text: string) => {
+    setResultsText(text);
+    setPreview(null);
+    setIssues([]);
+  };
+
+  const download = async () => {
+    setBusy(true); onError(null); onNotice(null);
+    try {
+      const pack = await shariahApi.reviewPack();
+      if (pack.assetCount === 0) {
+        onNotice("Nothing needs review — every active asset carries a settled classification.");
+        return;
+      }
+      downloadReviewPack(pack);
+      onNotice(`Downloaded ${pack.assetCount} asset${pack.assetCount === 1 ? "" : "s"} `
+        + `(${pack.needsReviewTotal} still need review). Upload the file to ChatGPT and ask it to `
+        + "follow the instructions inside, then paste the JSON it returns below.");
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chooseFile = async (file: File | undefined) => {
+    if (!file) return;
+    editResults(await file.text());
+  };
+
+  const check = async () => {
+    setBusy(true); onError(null); onNotice(null); setPreview(null); setIssues([]);
+    try {
+      setPreview(await shariahApi.previewResults(parseResultsFile(resultsText)));
+    } catch (e) {
+      if (e instanceof ShariahImportError) setIssues(e.issues);
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const publish = async () => {
+    setBusy(true); onError(null); onNotice(null); setIssues([]);
+    try {
+      const summary = await shariahApi.importResults(parseResultsFile(resultsText));
+      onNotice(`Published ${summary.importedCount} decision${summary.importedCount === 1 ? "" : "s"} `
+        + `— ${summary.counts.ELIGIBLE} ELIGIBLE, ${summary.counts.EXCLUDED} EXCLUDED, `
+        + `${summary.counts.REVIEW} REVIEW. Each one is an immutable publication with its own evidence. `
+        + "Create a universe snapshot when you have finished importing for now.");
+      editResults("");
+      await onImported();
+    } catch (e) {
+      if (e instanceof ShariahImportError) setIssues(e.issues);
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="mb-3">
+      <CardHeader
+        title="Batch review with ChatGPT"
+        right={
+          <span className="text-xs text-ink-muted">
+            Needs review: <span className="font-semibold text-ink">{needsReview ?? "…"}</span>
+          </span>
+        }
+      />
+      <div className="px-3 py-3">
+        <ol className="mb-3 grid gap-1 text-xs text-ink-muted sm:grid-cols-3">
+          <li><span className="font-semibold text-ink">1.</span> Download the next 20 assets.</li>
+          <li><span className="font-semibold text-ink">2.</span> Upload that file to ChatGPT and let it research.</li>
+          <li><span className="font-semibold text-ink">3.</span> Paste the JSON back here and publish.</li>
+        </ol>
+
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Button variant="primary" onClick={download} disabled={busy}>
+            Download next 20 for ChatGPT
+          </Button>
+          <input
+            type="file"
+            accept="application/json,.json"
+            onChange={(e) => void chooseFile(e.target.files?.[0])}
+            className="text-xs text-ink-muted file:mr-2 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-ink"
+          />
+        </div>
+
+        <Field label="ChatGPT results (TS_SHARIAH_REVIEW_RESULTS_V1)"
+          help="Paste only the JSON document — no markdown fence, no commentary. Nothing is published until you press Import & publish.">
+          <textarea
+            value={resultsText}
+            onChange={(e) => editResults(e.target.value)}
+            rows={6}
+            spellCheck={false}
+            placeholder='{ "format": "TS_SHARIAH_REVIEW_RESULTS_V1", ... }'
+            className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-xs text-ink outline-none focus:border-accent"
+          />
+        </Field>
+
+        {preview && (
+          <div className="mt-3 rounded-md border border-border bg-surface-2 px-3 py-2">
+            <div className="mb-1 text-xs text-ink-muted">
+              {preview.assetCount} asset{preview.assetCount === 1 ? "" : "s"} · researched{" "}
+              {new Date(preview.researchCompletedAt).toLocaleString()}
+            </div>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <span className="text-up">{preview.counts.ELIGIBLE} ELIGIBLE</span>
+              <span className="text-down">{preview.counts.EXCLUDED} EXCLUDED</span>
+              <span className="text-warn">{preview.counts.REVIEW} REVIEW</span>
+            </div>
+            <div className="mt-2 max-h-40 overflow-y-auto text-[11px] text-ink-muted">
+              {preview.results.map((r) => (
+                <div key={r.assetId} className="flex items-center justify-between gap-2 border-t border-border py-1">
+                  <span className="font-medium text-ink">{r.baseAsset}</span>
+                  <span>{r.evidenceCount} evidence</span>
+                  <StatusPill status={r.classification} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {issues.length > 0 && (
+          <div className="mt-3 rounded-md border border-down/30 bg-down/10 px-3 py-2">
+            <div className="mb-1 text-xs font-semibold text-down">
+              Nothing was published. Fix the file and check again.
+            </div>
+            <ul className="max-h-40 overflow-y-auto text-[11px] text-down">
+              {issues.map((issue, i) => (
+                <li key={i} className="border-t border-down/20 py-1">
+                  {issue.baseAsset ? `${issue.baseAsset}: ` : issue.index !== null ? `results[${issue.index}]: ` : ""}
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button onClick={check} disabled={busy || resultsText.trim().length === 0}>
+            Check results
+          </Button>
+          <Button variant="primary" onClick={publish} disabled={busy || preview === null}>
+            Import &amp; publish {preview ? `${preview.assetCount} decisions` : ""}
+          </Button>
+          <span className="text-[11px] text-ink-faint">
+            This one action is your approval for the whole batch. A STALE asset always needs a full
+            fresh screening — its old classification can never be reconfirmed.
+          </span>
+        </div>
+      </div>
+    </Card>
   );
 }
 

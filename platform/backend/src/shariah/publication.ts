@@ -153,6 +153,36 @@ export async function publishShariahDecision(
   db: ShariahDbClient,
   input: PublishShariahDecisionInput
 ): Promise<PublishedShariahDecision> {
+  await db.query("BEGIN");
+  try {
+    const published = await publishShariahDecisionWithin(db, input);
+    await db.query("COMMIT");
+    return published;
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
+/**
+ * The same publication, performed inside a transaction the CALLER owns.
+ *
+ * This exists for the batch review import (`reviewImport.ts`), which publishes
+ * a whole reviewed batch all-or-nothing: a partially applied import of a
+ * malformed research file is worse for an operator than a rejected one. It is
+ * NOT a second classification writer — it is this function's body, and
+ * `publishShariahDecision` above is now just the single-decision BEGIN/COMMIT
+ * wrapper around it. Every rule (the completeness gate, evidence ownership,
+ * the immutable history row, the evidence links, the current-record mirror)
+ * applies identically, because it is the same code.
+ *
+ * The caller MUST have an open transaction on `db`, and MUST roll it back if
+ * this throws.
+ */
+export async function publishShariahDecisionWithin(
+  db: ShariahDbClient,
+  input: PublishShariahDecisionInput
+): Promise<PublishedShariahDecision> {
   assertPublishableDecision(input);
 
   const assetId = String(input.assetId);
@@ -185,71 +215,63 @@ export async function publishShariahDecision(
     }
   }
 
-  await db.query("BEGIN");
-  try {
-    const inserted = await db.query<{
-      publication_id: string; published_at: string; reviewed_at: string;
-    }>(
-      `INSERT INTO shariah_publications (
-         asset_id, policy_version, classification, lifecycle, reason,
-         prohibited_categories, base_asset_at_publication, project_name_at_publication,
-         reviewed_at, published_by)
-       VALUES ($1, $2, $3, 'SCREENED', $4, $5, $6, $7, $8, $9)
-       RETURNING publication_id, published_at, reviewed_at`,
-      [assetId, input.policyVersion, input.classification, input.reason.trim(),
-        categories.length > 0 ? categories : null, asset.base_asset, asset.project_name,
-        input.reviewedAt, input.publishedBy.trim()]
-    );
-    const publication = inserted.rows[0]!;
-    const publicationId = String(publication.publication_id);
+  const inserted = await db.query<{
+    publication_id: string; published_at: string; reviewed_at: string;
+  }>(
+    `INSERT INTO shariah_publications (
+       asset_id, policy_version, classification, lifecycle, reason,
+       prohibited_categories, base_asset_at_publication, project_name_at_publication,
+       reviewed_at, published_by)
+     VALUES ($1, $2, $3, 'SCREENED', $4, $5, $6, $7, $8, $9)
+     RETURNING publication_id, published_at, reviewed_at`,
+    [assetId, input.policyVersion, input.classification, input.reason.trim(),
+      categories.length > 0 ? categories : null, asset.base_asset, asset.project_name,
+      input.reviewedAt, input.publishedBy.trim()]
+  );
+  const publication = inserted.rows[0]!;
+  const publicationId = String(publication.publication_id);
 
-    for (const evidenceId of evidenceIds) {
-      await db.query(
-        "INSERT INTO shariah_publication_evidence (publication_id, evidence_id) VALUES ($1, $2)",
-        [publicationId, evidenceId]
-      );
-    }
-
-    // The mutable current record now mirrors the immutable row just appended.
-    // It is a cache of the latest publication, never an independent decision.
+  for (const evidenceId of evidenceIds) {
     await db.query(
-      `INSERT INTO shariah_records (
-         asset_id, classification, lifecycle, policy_version, reason,
-         prohibited_categories, reviewed_at, published_at, updated_at, current_publication_id)
-       VALUES ($1, $2, 'SCREENED', $3, $4, $5, $6, $7, now(), $8)
-       ON CONFLICT (asset_id) DO UPDATE SET
-         classification = EXCLUDED.classification,
-         lifecycle = 'SCREENED',
-         policy_version = EXCLUDED.policy_version,
-         reason = EXCLUDED.reason,
-         prohibited_categories = EXCLUDED.prohibited_categories,
-         reviewed_at = EXCLUDED.reviewed_at,
-         published_at = EXCLUDED.published_at,
-         updated_at = now(),
-         current_publication_id = EXCLUDED.current_publication_id`,
-      [assetId, input.classification, input.policyVersion, input.reason.trim(),
-        categories.length > 0 ? categories : null, input.reviewedAt,
-        publication.published_at, publicationId]
+      "INSERT INTO shariah_publication_evidence (publication_id, evidence_id) VALUES ($1, $2)",
+      [publicationId, evidenceId]
     );
-
-    await db.query("COMMIT");
-
-    return {
-      publicationId,
-      assetId,
-      policyVersion: input.policyVersion,
-      classification: input.classification,
-      lifecycle: "SCREENED",
-      reason: input.reason.trim(),
-      prohibitedCategories: categories,
-      evidenceIds,
-      baseAssetAtPublication: asset.base_asset,
-      reviewedAt: iso(publication.reviewed_at),
-      publishedAt: iso(publication.published_at),
-      publishedBy: input.publishedBy.trim(),
-    };
-  } catch (error) {
-    await db.query("ROLLBACK");
-    throw error;
   }
+
+  // The mutable current record now mirrors the immutable row just appended.
+  // It is a cache of the latest publication, never an independent decision.
+  await db.query(
+    `INSERT INTO shariah_records (
+       asset_id, classification, lifecycle, policy_version, reason,
+       prohibited_categories, reviewed_at, published_at, updated_at, current_publication_id)
+     VALUES ($1, $2, 'SCREENED', $3, $4, $5, $6, $7, now(), $8)
+     ON CONFLICT (asset_id) DO UPDATE SET
+       classification = EXCLUDED.classification,
+       lifecycle = 'SCREENED',
+       policy_version = EXCLUDED.policy_version,
+       reason = EXCLUDED.reason,
+       prohibited_categories = EXCLUDED.prohibited_categories,
+       reviewed_at = EXCLUDED.reviewed_at,
+       published_at = EXCLUDED.published_at,
+       updated_at = now(),
+       current_publication_id = EXCLUDED.current_publication_id`,
+    [assetId, input.classification, input.policyVersion, input.reason.trim(),
+      categories.length > 0 ? categories : null, input.reviewedAt,
+      publication.published_at, publicationId]
+  );
+
+  return {
+    publicationId,
+    assetId,
+    policyVersion: input.policyVersion,
+    classification: input.classification,
+    lifecycle: "SCREENED",
+    reason: input.reason.trim(),
+    prohibitedCategories: categories,
+    evidenceIds,
+    baseAssetAtPublication: asset.base_asset,
+    reviewedAt: iso(publication.reviewed_at),
+    publishedAt: iso(publication.published_at),
+    publishedBy: input.publishedBy.trim(),
+  };
 }
