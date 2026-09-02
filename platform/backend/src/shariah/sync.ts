@@ -66,6 +66,18 @@ async function upsertMapping(
       "UPDATE shariah_asset_binance_mappings SET binance_available = true, last_seen_at = now() WHERE base_asset = $1",
       [baseAsset]
     );
+    if (wasInactive) {
+      // A base symbol reappearing after being delisted may now belong to a
+      // genuinely different project (ticker reuse). SH-1 has no evidence
+      // path to tell "same project, briefly delisted" apart from "different
+      // project reusing the ticker", so a previously published classification
+      // must not keep silently applying. Fail closed: SCREENED -> STALE
+      // forces effectiveShariahStatus back to REVIEW until manually re-screened.
+      await db.query(
+        "UPDATE shariah_records SET lifecycle = 'STALE', updated_at = now() WHERE asset_id = $1 AND lifecycle = 'SCREENED'",
+        [row.asset_id]
+      );
+    }
     return { created: false, reactivated: wasInactive };
   }
 
@@ -95,7 +107,9 @@ async function upsertMapping(
  * key), and a base asset already known never gets a second shariah_assets row.
  *
  * Delisting only flips `binance_available`; it never deletes an asset,
- * mapping, or Shariah record.
+ * mapping, or Shariah record. A base asset reactivated after being delisted
+ * has any SCREENED record forced to STALE (fail-closed for ticker reuse —
+ * see upsertMapping).
  */
 export async function syncShariahUniverse(
   db: ShariahDbClient,

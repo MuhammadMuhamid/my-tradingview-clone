@@ -64,6 +64,12 @@ class FakeShariahDb implements ShariahDbClient {
       }
       return one(deactivated);
     }
+    if (sql.startsWith("UPDATE shariah_records SET lifecycle = 'STALE'")) {
+      const [assetId] = values as [string];
+      const record = this.records.get(assetId);
+      if (record && record.lifecycle === "SCREENED") record.lifecycle = "STALE";
+      return one([]);
+    }
     throw new Error(`FakeShariahDb: unhandled query: ${sql}`);
   }
 }
@@ -155,6 +161,28 @@ test("delisting marks availability inactive without deleting asset or Shariah hi
   assert.deepEqual(relisted.created, []);
   assert.deepEqual(relisted.reactivated, ["ETH"]);
   assert.equal(db.mappings.get("ETH")!.assetId, ethAssetId, "relisting must reuse the stable asset_id");
+});
+
+test("ticker reuse fails closed: reactivating a delisted base symbol demotes a SCREENED record to STALE, never silently ELIGIBLE", async () => {
+  const db = new FakeShariahDb();
+  await syncShariahUniverse(db, ["XYZ"]);
+  const assetId = db.mappings.get("XYZ")!.assetId;
+  db.records.set(assetId, { classification: "ELIGIBLE", lifecycle: "SCREENED", policyVersion: "TS_SHARIAH_V1" });
+
+  await syncShariahUniverse(db, []); // delisted
+  assert.equal(db.records.get(assetId)!.lifecycle, "SCREENED", "delisting alone must not touch a published classification");
+
+  // Binance later lists a genuinely unrelated project under the same base symbol.
+  const reused = await syncShariahUniverse(db, ["XYZ"]);
+  assert.deepEqual(reused.reactivated, ["XYZ"]);
+  assert.equal(db.mappings.get("XYZ")!.assetId, assetId, "SH-1 v1 does not distinguish ticker reuse from the same project returning");
+  assert.equal(db.records.get(assetId)!.lifecycle, "STALE", "reactivation after a delist must force re-review, not keep the old published classification");
+  const record = db.records.get(assetId)!;
+  assert.equal(
+    effectiveShariahStatus({ classification: record.classification as "ELIGIBLE", lifecycle: record.lifecycle as "STALE" }),
+    "REVIEW",
+    "a reused ticker must never silently resolve to the prior project's ELIGIBLE status"
+  );
 });
 
 test("UNSCREENED and STALE never resolve to ELIGIBLE even if a stray classification value is stored", () => {
