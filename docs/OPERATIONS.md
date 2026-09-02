@@ -237,7 +237,93 @@ database once sat stopped for four days while the site kept answering.
 
 ---
 
-## 5. What has never been verified here
+## 5. Platform backup and recovery
+
+PostgreSQL is the authoritative recovery store. A complete database backup
+contains strategy/config provenance, deployments and `runtime_state`, order
+intents and dedupe identities, alert/execution history, risk controls and
+realised P&L, paper fills/accounting, notification-alert state and history,
+saved layouts/Pine scripts/watchlists, push subscriptions, database-backed VAPID
+keys, backtest history, feed-health evidence, and `schema_migrations`.
+
+The artifact therefore contains sensitive state: encrypted webhook secrets and
+bot UUIDs, Web Push endpoints/key material, and possibly a database-backed VAPID
+private key. Store it with the same access restrictions as the database. The
+matching `ALERT_ENCRYPTION_KEY` must be re-provisioned separately or encrypted
+deployment credentials cannot be reopened. `SESSION_SECRET`, admin password
+hash, database credentials, TLS keys, manual-Bot HMAC secret, and env-provided
+VAPID keys are configuration/secrets outside PostgreSQL and must also be
+re-provisioned from the existing operator-owned secret store. Sessions are
+stateless cookies, so there is no session table to restore.
+
+PostgreSQL candles are a cache: existing `ensureCandles`/backfill behavior can
+rebuild a requested range from Binance. Scanner OHLCV and `series_meta` in the
+generated `data/ohlcv.sqlite` store are likewise a bounded cache;
+Scanner calibrations in that file are reproducible from the matching candles,
+configuration and current calculation code. Normal disaster recovery does not
+include either candle store: expect a temporarily cold chart/runner/Scanner and
+rehydrate before enabling the LiveRunner. Rehydration contacts Binance and is a
+separate operator action. The Scanner's generated `user.json` under
+`platform/screener/backend/config/`, when present, is authoritative user
+configuration and must be copied separately with mode `0600`; restore it before
+starting the Scanner. Browser-local drawings are not server-backed and are a
+remaining per-browser recovery gap. Other browser pane/selection/display
+preferences are ephemeral.
+
+The current schema requires PostgreSQL 15 or newer (`NULLS NOT DISTINCT`) and
+production uses PostgreSQL 16. Use PostgreSQL 16 `pg_dump`/`pg_restore` and a
+fresh PostgreSQL 16 destination. TimescaleDB is optional: plain PostgreSQL keeps
+`candles` as an ordinary table and is fully supported. If the source has a
+TimescaleDB hypertable, the manifest records the exact extension version and
+restore requires that version to be locally available; the wrapper runs the
+required Timescale pre/post-restore hooks. Other source extensions must also be
+available at their recorded versions.
+
+Create a new artifact in an already secured directory (neither the dump nor its
+manifest is overwritten):
+
+```bash
+BACKUP_DIR=/secure/operator-owned/platform-backup-20260902T120000Z
+mkdir -m 700 "$BACKUP_DIR"
+PLATFORM_BACKUP_SOURCE_URL='postgres://db-user@db-host/platform' \
+  platform/scripts/backup-platform-db.sh \
+  "$BACKUP_DIR/platform.dump"
+if [ -f platform/screener/backend/config/user.json ]; then
+  install -m 600 platform/screener/backend/config/user.json \
+    "$BACKUP_DIR/screener-user.json"
+fi
+```
+
+Restore only into a newly created database. The independently supplied expected
+database name protects against a connection string pointing somewhere else;
+the wrapper also refuses maintenance databases and any destination with user
+relations, user schemas, or non-default extensions. It never drops or cleans a
+destination. A failed restore leaves a disposable partial target: discard it
+and create another fresh database rather than rerunning over it.
+
+```bash
+createdb --host=db-host --username=db-user platform_recovery_20260902
+PLATFORM_RESTORE_DESTINATION_URL="postgres://db-user@db-host/platform_recovery_20260902" \
+PLATFORM_RESTORE_EXPECT_DATABASE=platform_recovery_20260902 \
+  platform/scripts/restore-platform-db.sh \
+  /secure/operator-owned/platform-backup/platform-20260902T120000Z.dump
+if [ -f /secure/operator-owned/platform-backup/screener-user.json ]; then
+  test ! -e platform/screener/backend/config/user.json
+  install -m 600 /secure/operator-owned/platform-backup/screener-user.json \
+    platform/screener/backend/config/user.json
+fi
+```
+
+Both scripts avoid ambient `DATABASE_URL`, fail on PostgreSQL/tool/extension
+incompatibility, and verify the custom archive, SHA-256 integrity, and migration
+identity. After restore, point a stopped/non-emitting Platform backend at the
+new database, run its readiness check, compare recovery-critical state, and
+only then perform the existing single-emitter cutover procedure. An independent
+disposable proof on 2026-09-02 restored a compact representative fixture into a
+second fresh PostgreSQL 16 database and reopened it through current Platform
+repositories; it did not contact Binance, Bot, or any webhook.
+
+## 6. What has never been verified here
 
 Stated because a control that has not been exercised is not a control you can
 count on:
