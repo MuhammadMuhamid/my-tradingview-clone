@@ -2,6 +2,7 @@ import type {
   Alert, Backtest, BacktestStatus, Candle, Deployment, DeliveryMode,
   Interval, Strategy, StrategyConfig, StrategyParams, SymbolInfo, Trade,
 } from "./types";
+import type { TradingOverlayResponse } from "./tradingOverlays";
 
 export interface OptimizerBest {
   symbol: string;
@@ -939,6 +940,16 @@ export const api = {
       if (value !== "" && value !== undefined) params.set(key, String(value));
     }
     return req<JournalResponse>(`/api/journal?${params.toString()}`);
+  },
+  tradingOverlays: (query: {
+    symbol: string; from: number; to: number; replayCutoff?: number;
+    limit?: number; scope?: "all" | "historical" | "current";
+  }, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) params.set(key, String(value));
+    }
+    return req<TradingOverlayResponse>(`/api/trading-overlays?${params.toString()}`, { signal });
   },
 
   /** Every tree the backend can actually reach, from its own registry. */

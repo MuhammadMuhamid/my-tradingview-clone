@@ -239,6 +239,52 @@ Timeline until it is authoritatively persisted by Platform. Individual exchange
 fills, commissions, historical cumulative snapshots, and manual realized P&L
 remain unavailable rather than inferred.
 
+### Spot chart trading overlays
+
+`GET /api/trading-overlays` is the authenticated, read-only chart projection for
+one exact tracked Spot symbol and an explicit time range (at most 366 days and
+500 returned items). It reuses Journal repository evidence for persisted
+automated execution snapshots, Platform realizations and paper fills, plus one
+bounded Manual state read outside Replay. Current lines use only the newest
+persisted execution observation, explicit ManualPosition state, deployment
+runtime position state, or the paper engine's newest persisted accounting row.
+There is no generic query surface, per-marker Bot lookup, second ledger, or new
+position-accounting policy.
+
+A persisted paper fill is an individual simulated fill. A ManualOrder with
+`completedAt`, cumulative executed quantity and average execution price is one
+order-completion/executed-activity event; it is never expanded or labelled as
+individual exchange fills. Automated `executions` rows likewise remain
+cumulative execution snapshots. Intent-only, rejected/failed, missing-price and
+missing-time records do not become execution markers. Manual BUY and SELL
+orders are never paired: a manual position line exists only for an explicit
+current ManualPosition record, and no manual cost basis is reconstructed.
+
+Historical markers retain their original event timestamp and attach only to the
+loaded candle whose actual open/close interval contains it. Events in gaps or
+outside the loaded range are omitted rather than moved to a nearest or future
+bar. Active LIMIT and position lines are current-state observations with their
+observation timestamp, not proof of every lifecycle transition or a timeless
+exchange guarantee. Real, testnet/dry-run and PAPER labels remain explicit;
+PAPER also uses label/shape text so color is not the only distinction.
+
+The browser settles visible-range changes for 300 ms, requests only the buffered
+loaded range, caches historical responses by symbol/range/Replay cutoff, aborts
+obsolete requests and token-rejects late responses. Historical evidence does
+not poll. Current state uses the same endpoint's `scope=current` branch on the
+existing 30-second cadence. Display toggles are the only overlay data stored in
+`localStorage`; evidence remains server-owned. Truncation is returned and shown.
+
+Replay is enforced before serialization: the server clamps the repository range
+and applies a final projection guard at Replay cutoff T. It performs no Manual
+state read and no current live order/position queries. Manual history is omitted
+in Replay because its present source is a live current-state contract and cannot
+prove what was knowable at T. The client additionally keys and rejects results
+by exact cutoff, so rewinding cannot reuse a later-T response. Existing Replay
+trading restrictions remain unchanged. Overlay selection can open the existing
+Journal or deployment Timeline surfaces, but the chart adds no submit, cancel,
+amend, replace, drag-to-trade or one-click execution behavior.
+
 User-supplied Pine runs on a **worker thread**, not this one
 (`platform/backend/src/pine/runInWorker.ts`): its own heap, a wall clock backed
 by terminating the thread, and a bounded number of concurrent runs. A heavy

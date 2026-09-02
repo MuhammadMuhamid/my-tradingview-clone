@@ -65,6 +65,7 @@ function streamUrl(symbol: string, interval: Interval): string {
 
 /** A horizontal level drawn across the chart (live stop / target / entry). */
 export interface ChartPriceLine {
+  id?: string;
   price: number;
   color: string;
   title: string;
@@ -73,6 +74,7 @@ export interface ChartPriceLine {
 
 /** A bar marker plotted by a script (plotshape / plotchar). */
 export interface ChartMarker {
+  id?: string;
   /** bar open time in seconds */
   time: number;
   position: "aboveBar" | "belowBar";
@@ -251,6 +253,7 @@ export function CandleChart({
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
   magnet = false, drawingsLocked = false, drawingsHidden = false,
   onPriceSelect,
+  onAnnotationSelect,
   compact = false,
   onLiveBarBoundary,
   onCrosshairMove, crosshairTime,
@@ -292,6 +295,8 @@ export function CandleChart({
    * typed from memory.
    */
   onPriceSelect?: (price: number) => void;
+  /** Select a read-only marker or price line by its stable evidence identity. */
+  onAnnotationSelect?: (id: string) => void;
   // ── pane synchronisation (split view) ──
   /** Bar time under this chart's crosshair, or null when the pointer leaves. */
   onCrosshairMove?: (time: number | null) => void;
@@ -665,6 +670,30 @@ export function CandleChart({
     chart.subscribeClick(onClick);
     return () => chart.unsubscribeClick(onClick);
   }, [onPriceSelect, chartReady]);
+
+  // lightweight-charts v4 does not expose a marker identity in click events.
+  // Resolve only exact marker bar times, or a price line within an 8px hit
+  // target; no nearest-bar shifting is used for trading evidence.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series || !onAnnotationSelect || onPriceSelect) return;
+    const onClick = (param: MouseEventParams): void => {
+      const time = typeof param.time === "number" ? param.time : null;
+      const marker = time === null ? undefined : (markers ?? []).find((item) =>
+        item.id && item.time === time);
+      if (marker?.id) { onAnnotationSelect(marker.id); return; }
+      if (!param.point) return;
+      const line = (priceLines ?? []).find((item) => {
+        if (!item.id) return false;
+        const coordinate = series.priceToCoordinate(item.price);
+        return coordinate !== null && Math.abs(coordinate - param.point!.y) <= 8;
+      });
+      if (line?.id) onAnnotationSelect(line.id);
+    };
+    chart.subscribeClick(onClick);
+    return () => chart.unsubscribeClick(onClick);
+  }, [markers, priceLines, onAnnotationSelect, onPriceSelect, chartReady]);
 
   // Pine/MA series are stable by plot id. Gaps stay as whitespace and a
   // last-point change uses update() instead of replaying the full history.

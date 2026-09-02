@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { CandleChart, INTERVAL_MS, type ChartPriceLine } from "@/components/CandleChart";
+import { CandleChart, INTERVAL_MS, type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import { PineEditor } from "@/components/tv/PineEditor";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
 import type { PaneAction } from "@/components/tv/IndicatorPane";
@@ -34,6 +34,7 @@ import { loadChartType, saveChartType, type ChartType } from "@/lib/chartType";
 import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import { ManualTradingPanel } from "@/components/tv/ManualTradingPanel";
 import { ReplayControls } from "@/components/tv/ReplayControls";
+import { TradingOverlayDetails, TradingOverlayMenu } from "@/components/tv/TradingOverlays";
 import * as drawStore from "@/lib/drawings";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import { api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript } from "@/lib/api";
@@ -52,6 +53,12 @@ import {
   replayCandles, replayDelayMs, replayTick, startReplay, stepReplay,
   type ReplaySession, type ReplaySpeed,
 } from "@/lib/replay";
+import {
+  anchorTradingOverlays, compactOverlaySource, DEFAULT_OVERLAY_PREFERENCES, loadOverlayPreferences,
+  mergeOverlayResponses, overlayChartContextKey, overlayItemVisible, overlayRequestKey, requestedOverlayRange,
+  saveOverlayPreferences, splitOverlayResponse, TradingOverlayCache,
+  type TradingOverlayPreferences, type TradingOverlayResponse,
+} from "@/lib/tradingOverlays";
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 const HISTORY_OPTIONS = [
@@ -180,6 +187,170 @@ export default function TvWorkspace() {
     const timer = window.setInterval(() => void refreshManual(), 30_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [symbol, replayActive]);
+
+  // ── authoritative read-only trading overlays ──
+  const [overlayPrefs, setOverlayPrefsState] = useState<TradingOverlayPreferences>(DEFAULT_OVERLAY_PREFERENCES);
+  const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
+  const [overlayViewport, setOverlayViewport] = useState<{ from: number; to: number } | null>(null);
+  const [settledOverlayRange, setSettledOverlayRange] = useState<{ from: number; to: number } | null>(null);
+  const [settledOverlayContext, setSettledOverlayContext] = useState<string | null>(null);
+  const [historicalOverlays, setHistoricalOverlays] = useState<TradingOverlayResponse | null>(null);
+  const [currentOverlays, setCurrentOverlays] = useState<TradingOverlayResponse | null>(null);
+  const [overlaysLoading, setOverlaysLoading] = useState(false);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+  const overlayCache = useRef(new TradingOverlayCache());
+  const overlayHistorySeq = useRef(new LatestRequest());
+  const overlayHistoryFlight = useRef(new CancellableRequest());
+  const overlayCurrentSeq = useRef(new LatestRequest());
+  const overlayCurrentFlight = useRef(new CancellableRequest());
+  const overlayContext = overlayChartContextKey(symbol, interval, replay?.horizonCloseTime ?? null);
+  const overlayContextRef = useRef(overlayContext);
+  overlayContextRef.current = overlayContext;
+
+  const setOverlayPrefs = useCallback((next: TradingOverlayPreferences) => {
+    setOverlayPrefsState(next); saveOverlayPreferences(next);
+  }, []);
+  useEffect(() => { setOverlayPrefsState(loadOverlayPreferences()); }, []);
+
+  const wantedOverlayRange = useMemo(() => requestedOverlayRange(
+    visibleCandles, overlayViewport, INTERVAL_MS[interval], replay?.horizonCloseTime ?? null
+  ), [visibleCandles, overlayViewport, interval, replay?.horizonCloseTime]);
+
+  // Visible-range callbacks fire continuously during drag/zoom. Fetch only
+  // after the range has settled, and skip an unchanged bounded range.
+  useEffect(() => {
+    if (!wantedOverlayRange) { setSettledOverlayRange(null); return; }
+    const context = overlayContext;
+    const timer = window.setTimeout(() => {
+      setSettledOverlayContext(context);
+      setSettledOverlayRange((current) =>
+        current?.from === wantedOverlayRange.from && current.to === wantedOverlayRange.to
+          ? current : wantedOverlayRange);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [wantedOverlayRange, overlayContext]);
+
+  // A symbol/cutoff context change removes old evidence synchronously and
+  // invalidates every response issued for the old chart or later Replay T.
+  useEffect(() => {
+    setHistoricalOverlays(null); setCurrentOverlays(null); setSelectedOverlayId(null);
+    setOverlayError(null);
+    setOverlayViewport(null); setSettledOverlayRange(null); setSettledOverlayContext(null);
+    overlayHistorySeq.current.invalidate(); overlayHistoryFlight.current.cancel();
+    overlayCurrentSeq.current.invalidate(); overlayCurrentFlight.current.cancel();
+  }, [symbol, interval, replay?.horizonCloseTime]);
+
+  useEffect(() => {
+    if (!settledOverlayRange || settledOverlayContext !== overlayContext) return;
+    const requestContext = overlayContext;
+    const replayCutoff = replay?.horizonCloseTime ?? null;
+    const scope = replayCutoff === null ? "all" : "historical";
+    const request = { symbol, ...settledOverlayRange, replayCutoff, scope } as const;
+    const key = overlayRequestKey(request);
+    const cached = overlayCache.current.get(key);
+    if (cached) { setHistoricalOverlays(cached); setOverlaysLoading(false); return; }
+    const token = overlayHistorySeq.current.next();
+    const signal = overlayHistoryFlight.current.start();
+    setOverlaysLoading(true);
+    setOverlayError(null);
+    void api.tradingOverlays({ symbol, ...settledOverlayRange,
+      ...(replayCutoff === null ? {} : { replayCutoff }), limit: 300, scope }, signal)
+      .then((response) => {
+        const responseCutoff = response.range.replayCutoff ? Date.parse(response.range.replayCutoff) : null;
+        if (overlayContextRef.current !== requestContext
+          || !overlayHistorySeq.current.isCurrent(token) || response.symbol !== symbol
+          || responseCutoff !== replayCutoff) return;
+        const { historical, current } = splitOverlayResponse(response);
+        overlayCache.current.set(key, historical); setHistoricalOverlays(historical);
+        if (replayCutoff === null) setCurrentOverlays(current);
+      }).catch((cause) => { if (!isAbortError(cause) && overlayHistorySeq.current.isCurrent(token)) {
+        // Keep the chart usable; the disclosure continues to show no evidence.
+        setHistoricalOverlays(null); setOverlayError("Trading evidence is unavailable for this range.");
+      }}).finally(() => { if (overlayHistorySeq.current.isCurrent(token)) setOverlaysLoading(false); });
+  }, [settledOverlayRange, settledOverlayContext, overlayContext, symbol, replay?.horizonCloseTime]);
+
+  // Current state has its own bounded refresh. Historical evidence is cached
+  // and never polled; Replay clears this branch before any request is made.
+  useEffect(() => {
+    if (!settledOverlayRange || settledOverlayContext !== overlayContext || replayActive) {
+      if (replayActive) setCurrentOverlays(null);
+      return;
+    }
+    const requestContext = overlayContext;
+    const historicalContextReady = historicalOverlays?.symbol === symbol
+      && historicalOverlays.range.replayCutoff === null
+      && Date.parse(historicalOverlays.range.from) === settledOverlayRange.from
+      && Date.parse(historicalOverlays.range.to) === settledOverlayRange.to;
+    // The first live read uses scope=all. Wait for that response (or a cached
+    // historical range) before deciding whether a separate current read is needed.
+    if (!historicalContextReady) return;
+    if (overlaysLoading) return;
+    let active = true;
+    const flight = overlayCurrentFlight.current;
+    const sequence = overlayCurrentSeq.current;
+    const refresh = async () => {
+      const token = sequence.next();
+      const signal = flight.start();
+      try {
+        const response = await api.tradingOverlays({ symbol, ...settledOverlayRange,
+          limit: 300, scope: "current" }, signal);
+        if (!active || overlayContextRef.current !== requestContext
+          || !sequence.isCurrent(token) || response.symbol !== symbol
+          || response.range.replayCutoff !== null) return;
+        setCurrentOverlays(splitOverlayResponse(response).current);
+      } catch (cause) { if (!isAbortError(cause)) { /* retain timestamped last observation */ } }
+    };
+    const hasCurrentContext = currentOverlays?.symbol === symbol
+      && currentOverlays.range.replayCutoff === null;
+    if (!hasCurrentContext) void refresh();
+    const timer = hasCurrentContext ? window.setInterval(() => void refresh(), 30_000) : null;
+    return () => {
+      active = false;
+      if (timer !== null) window.clearInterval(timer);
+      flight.cancel();
+      sequence.invalidate();
+    };
+  }, [settledOverlayRange, settledOverlayContext, overlayContext, symbol, replayActive,
+    overlaysLoading, historicalOverlays, currentOverlays]);
+
+  const tradingOverlayData = useMemo(() => {
+    const cutoff = replay?.horizonCloseTime ?? null;
+    const historical = historicalOverlays?.symbol === symbol
+      && (historicalOverlays.range.replayCutoff ? Date.parse(historicalOverlays.range.replayCutoff) : null) === cutoff
+      ? historicalOverlays : null;
+    const current = !replayActive && currentOverlays?.symbol === symbol
+      && currentOverlays.range.replayCutoff === null ? currentOverlays : null;
+    return mergeOverlayResponses(historical, current);
+  }, [historicalOverlays, currentOverlays, replayActive, replay?.horizonCloseTime, symbol]);
+  const visibleTradingOverlays = useMemo(() =>
+    (tradingOverlayData?.items ?? []).filter((item) => overlayItemVisible(item, overlayPrefs)),
+    [tradingOverlayData, overlayPrefs]);
+  const tradingMarkers = useMemo<ChartMarker[]>(() =>
+    anchorTradingOverlays(visibleTradingOverlays, visibleCandles).map((item) => {
+      const paper = item.environment === "PAPER";
+      const realization = item.kind === "REALIZATION_MARKER";
+      return { id: item.id, time: item.anchorTime,
+        position: item.side === "BUY" && !realization ? "belowBar" : "aboveBar",
+        color: paper ? "#f0b90b" : item.source === "MANUAL" ? "#4f8cff"
+          : item.side === "SELL" ? "#f6465d" : "#2ebd85",
+        shape: realization ? "square" : item.side === "BUY" ? "arrowUp" : "arrowDown",
+        text: `${compactOverlaySource(item)} · ${realization ? "REALIZE" : item.side ?? "EVENT"}` };
+    }), [visibleTradingOverlays, visibleCandles]);
+  const tradingPriceLines = useMemo<ChartPriceLine[]>(() => visibleTradingOverlays
+    .filter((item) => item.kind === "ACTIVE_ORDER_LINE" || item.kind === "POSITION_LINE")
+    .map((item) => ({ id: item.id, price: item.price,
+      color: item.environment === "PAPER" ? "#f0b90b"
+        : item.source === "MANUAL" ? "#4f8cff" : item.kind === "ACTIVE_ORDER_LINE"
+          ? "#a78bfa" : "#2ebd85",
+      title: item.kind === "ACTIVE_ORDER_LINE"
+        ? `${compactOverlaySource(item)} ${item.side ?? ""} ACTIVE`
+        : `${compactOverlaySource(item)} POSITION`,
+      dashed: item.kind === "ACTIVE_ORDER_LINE" })), [visibleTradingOverlays]);
+  const selectedOverlay = useMemo(() => visibleTradingOverlays.find((item) =>
+    item.id === selectedOverlayId) ?? null, [visibleTradingOverlays, selectedOverlayId]);
+  useEffect(() => { if (selectedOverlayId && !selectedOverlay) setSelectedOverlayId(null); },
+    [selectedOverlayId, selectedOverlay]);
   // ── phone chrome: everything optional starts closed so the chart gets the screen ──
   const isMobile = useIsMobile();
   /** Drawing rail — a floating drawer on phones, always-on column on desktop. */
@@ -836,7 +1007,8 @@ export default function TvWorkspace() {
     const lines: ChartPriceLine[] = [];
     for (const position of manualState?.positions.filter((p) => p.pair === symbol && p.status === "active") ?? []) {
       const tag = position.id.slice(0, 4);
-      if (position.entryPrice != null) lines.push({ price: position.entryPrice, color: "#f0b90b", title: `MANUAL ENTRY · ${tag}`, dashed: true });
+      // Entry is rendered by the normalized explicit ManualPosition overlay;
+      // these remain the separate Bot-managed protection levels.
       if (position.manualTpPrice != null) lines.push({ price: position.manualTpPrice, color: "#2ebd85", title: `MANUAL TP · BOT · ${tag}`, dashed: true });
       if (position.manualSlPrice != null) lines.push({ price: position.manualSlPrice, color: "#f6465d", title: `MANUAL SL · BOT · ${tag}`, dashed: true });
     }
@@ -844,8 +1016,8 @@ export default function TvWorkspace() {
   }, [manualState, symbol]);
 
   const allPriceLines = useMemo(
-    () => replayActive ? [] : [...priceLines, ...alertPriceLines, ...manualPriceLines],
-    [replayActive, priceLines, alertPriceLines, manualPriceLines]
+    () => replayActive ? tradingPriceLines : [...priceLines, ...alertPriceLines, ...manualPriceLines, ...tradingPriceLines],
+    [replayActive, priceLines, alertPriceLines, manualPriceLines, tradingPriceLines]
   );
 
   /** MA lines drawn beneath any Pine overlays, so scripts stay on top. */
@@ -989,6 +1161,10 @@ export default function TvWorkspace() {
             </svg>
             Replay
           </button>
+          <TradingOverlayMenu open={overlayMenuOpen} onOpen={setOverlayMenuOpen}
+            value={overlayPrefs} onChange={setOverlayPrefs}
+            data={tradingOverlayData} loading={overlaysLoading} error={overlayError}
+            items={visibleTradingOverlays} onSelect={setSelectedOverlayId} />
           {/* Secondary controls: always inline on desktop, behind ⋯ on phones. */}
           {/*
             Secondary controls: inline on a wide screen, behind ⋯ below it.
@@ -1169,7 +1345,7 @@ export default function TvWorkspace() {
 
         {/* charts — one pane, or two side by side sharing the symbol */}
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative flex min-w-0 flex-1 flex-col">
           {loading && candles.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-ink-faint">
               Loading {symbol} {interval}…
@@ -1192,12 +1368,14 @@ export default function TvWorkspace() {
               overlays={chartOverlays}
               decorations={indicators.decorations}
               barColors={indicators.barColors}
-              markers={indicators.markers}
+              markers={[...indicators.markers, ...tradingMarkers]}
               pineDrawings={indicators.drawings}
               priceLines={allPriceLines} live={!replayActive} fill compact={isMobile}
               chartType={chartType}
               onLiveBarBoundary={replayActive ? undefined : liveBarBoundary}
               onPriceSelect={pickingLevel ? pickLevel : undefined}
+              onAnnotationSelect={setSelectedOverlayId}
+              onVisibleRangeChange={setOverlayViewport}
               drawingTool={tool}
               onDrawingToolDone={() => setTool("cursor")}
               drawings={drawingsAtReplayHorizon(replay, drawings, replayDrawings)}
@@ -1207,6 +1385,8 @@ export default function TvWorkspace() {
               drawingsHidden={drawHidden}
               onIndicatorPaneAction={paneAction}
             />
+            {selectedOverlay && <TradingOverlayDetails item={selectedOverlay}
+              onClose={() => setSelectedOverlayId(null)} />}
             </>
           )}
           </div>
