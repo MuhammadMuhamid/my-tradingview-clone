@@ -362,3 +362,88 @@ than deleted so the change is auditable:
   defects static review had missed — see [ALERTS.md](ALERTS.md) §8.
 - **AWS and production have been operated directly**, including deploys,
   migration application, an instance recovery and a database restart.
+
+## 7. Paired Platform+Bot release and rollback (added 2026-09-02)
+
+Platform and Bot ship as a pair because of the realization-event pipeline
+(§5, and `crossRepositoryRealization.test.ts`): the Bot outbox and this
+service's ingestion route share the vendored `webhookContract.ts` and
+`realizationEventContract.ts` files byte-for-byte. `scripts/release.sh`
+(read/report only — it never touches Git history, a database, or a running
+process) makes that pairing explicit:
+
+```bash
+platform/scripts/release.sh identity
+platform/scripts/release.sh gate --peer-bot-root /path/to/bot
+platform/scripts/release.sh rollback-check --since <platform-git-ref> [--database-url <postgres-url>]
+```
+
+`identity` prints the exact commit, the applied-migration set and its hash,
+and both contract versions/fingerprints — the deterministic pieces of a
+release pair; there is no separate registry to keep in sync. `gate` adds a
+clean-worktree check, tool availability (`psql`/`pg_dump`/`pg_restore`),
+a byte-identical diff of both vendored contract files against a Bot
+checkout, `npm run typecheck`, and the realization-focused test files
+(`realizationEvents.test.ts`, `realizationRecovery.test.ts`, and — with
+`--peer-bot-root` — `crossRepositoryRealization.test.ts`, which spawns the
+real Bot outbox against a loopback Fastify receiver). It exits non-zero on
+any failure.
+
+**Known-good pairs** (Platform commit / Bot commit):
+
+| Pair | Platform | Bot |
+|---|---|---|
+| Previous known-good | `93e7544` | `fda4d1b` |
+| Current accepted | `21bedb1` | `2bc543e` |
+
+**Ingestion is opt-in.** `REALIZATION_INGESTION_ENABLED` (this service) and
+the Bot's `REALIZATION_DELIVERY_ENABLED` both default to `false`. A Platform
+upgrade alone changes nothing until an operator turns ingestion on.
+
+**Schema compatibility.** Migration `021_realization_events.sql` only adds
+nullable columns to `realised_pnl` and two new tables/indexes; the
+`CHECK` constraint permits `source_system IS NULL`, so pre-existing INSERT
+paths (`repositories/liveSafety.ts`) are unaffected, and nothing here ever
+`UPDATE`s or `DELETE`s a `realised_pnl` row. `rollback-check` verifies this
+class of change generically (it fails closed — `ROLLBACK_INCOMPATIBLE` or
+`UNKNOWN` — on any `DROP`/`ALTER COLUMN`/`RENAME` or a bare `NOT NULL`
+without a default introduced since the given ref) rather than assuming
+migrations are safe by convention. This was proven directly, not just by
+inspection: a disposable PostgreSQL 16 cluster was migrated to the current
+head, seeded with one legacy `realised_pnl` row and one `BOT_CUSTOM_V1` row,
+and the **previous** Platform commit's `migrate.ts` and
+`repositories/journal.ts` were run against it unmodified — `migrate.ts`
+reported nothing pending, and `listAutomatedRealizations` returned both rows
+(the Bot-sourced fields simply absent from its narrower `SELECT`) with the
+underlying row byte-for-byte unchanged afterward. Because this holds for any
+current data, **Platform code rollback is classified `BACKWARD_COMPATIBLE`
+without a database restore** — no pending/delivered distinction applies on
+this side, since ingestion is synchronous and durable the moment it is
+accepted.
+
+**Preferred upgrade order:** Platform first, then Bot. New Platform code
+accepts old-Bot payloads unchanged (`CONTRACT_VERSION` 2 is additive over 1),
+so there is no interval where a signal cannot be processed; only after
+Platform is confirmed healthy should an operator set
+`REALIZATION_DELIVERY_ENABLED=true` on Bot. If the second step never
+happens, Platform keeps working exactly as before — the sequence has no
+required completion window.
+
+**Rollback order** (see the Bot README for the pending-realization-event
+rule that governs Bot's half):
+- *Platform bad, Bot healthy:* roll back Platform code directly (see above).
+  Bot keeps queuing/retrying delivery with bounded backoff regardless.
+- *Bot bad, Platform healthy:* see the Bot README — check
+  `bot/scripts/release.sh rollback-check --since <ref> --database <bot.db>`
+  before touching Bot code.
+- *Both must return to the previous pair:* run the Bot check first (it is
+  the one that can fail closed); only after it passes (or after a drain/
+  restore) roll back Bot, then Platform. Platform's own rollback is always
+  safe on the current pipeline, so it is never the blocking side.
+
+**Pre-release backup is mandatory** before any upgrade capable of writing
+new state: `platform/scripts/backup-platform-db.sh` per §5, verified before
+proceeding. If `rollback-check` ever reports `ROLLBACK_INCOMPATIBLE` or
+`UNKNOWN` for a future migration, do not start old Platform code against the
+current database — restore the verified pre-release backup into a fresh
+database (§5) and start old code against that instead.
