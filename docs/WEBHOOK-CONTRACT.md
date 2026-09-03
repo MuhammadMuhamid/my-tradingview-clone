@@ -1,6 +1,6 @@
 # Cross-repository webhook contract
 
-**Status:** current, **`v2`**. The contract is now a real artifact rather than a
+**Status:** current, **`v5`**. The contract is now a real artifact rather than a
 description: `platform/backend/src/contract/webhookContract.ts` is vendored
 byte-for-byte into both repositories, carries a `CONTRACT_FINGERPRINT`, and both
 test suites hash their own copy against it. Editing one side turns both builds

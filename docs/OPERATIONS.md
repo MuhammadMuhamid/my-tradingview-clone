@@ -422,9 +422,10 @@ this side, since ingestion is synchronous and durable the moment it is
 accepted.
 
 **Preferred upgrade order:** Platform first, then Bot. New Platform code
-accepts old-Bot payloads unchanged (`CONTRACT_VERSION` 2 is additive over 1),
-so there is no interval where a signal cannot be processed; only after
-Platform is confirmed healthy should an operator set
+accepts old-Bot payloads unchanged (every `CONTRACT_VERSION` bump through the
+current 5 has been additive over its predecessor), so there is no interval
+where a signal cannot be processed; only after Platform is confirmed healthy
+should an operator set
 `REALIZATION_DELIVERY_ENABLED=true` on Bot. If the second step never
 happens, Platform keeps working exactly as before — the sequence has no
 required completion window.

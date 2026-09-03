@@ -1,6 +1,6 @@
 /**
  * ════════════════════════════════════════════════════════════════════════════
- *  SHARED CROSS-REPOSITORY WEBHOOK CONTRACT — v2
+ *  SHARED CROSS-REPOSITORY WEBHOOK CONTRACT — v5
  * ════════════════════════════════════════════════════════════════════════════
  *
  * This file is VENDORED, byte-for-byte, into both repositories:
@@ -152,7 +152,7 @@ export const CONTRACT_VERSION = 5;
  * hash it prints, and paste it here in BOTH repositories.
  */
 export const CONTRACT_FINGERPRINT =
-  "sha256:v5:a12dc909f4e8c252634561c1757c1811b19d3dcdb9eaae5e82eae8de2a89899c";
+  "sha256:v5:ca4d29365fee945384d9b60994813817a3a1e1ba28b167cd90b91815cd32f031";
 
 // ── Payload shapes ──────────────────────────────────────────────────────────
 
