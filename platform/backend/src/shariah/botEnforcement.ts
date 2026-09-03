@@ -27,9 +27,27 @@
  *               executing side still admits webhook BUYs.
  * Turning OFF : persist locally first, disarm the Bot after. Every intermediate
  *               state is the stricter one.
+ *
+ * ── What the channel depends on, and what it must NOT depend on (BOT-P1-4) ──
+ *
+ * This push used to be skipped entirely when MANUAL_TRADING_ENABLED was false,
+ * on both sides. That flag governs manual ORDER submission. Coupling the floor
+ * to it meant an operator running with manual trading deliberately off could
+ * switch Shariah Mode on, be told it worked, and have the Bot's floor stay
+ * `off` — leaving every direct webhook BUY ungated. The push now depends on the
+ * control CHANNEL being configured (URL + HMAC key), which is the only thing it
+ * actually needs, and on nothing else.
+ *
+ * ── A 200 is not proof ──────────────────────────────────────────────────────
+ *
+ * The Bot answers with the floor it applied. That answer is checked against
+ * what was asked for, because the failure this module exists to prevent is
+ * precisely a receiver that accepts the request and does nothing: an older Bot
+ * that ignores the field, a proxy that swallows it, a wrong route that happens
+ * to return 200. Treating any of those as "armed" is the fail-open again, one
+ * layer up.
  */
-import { manualBotRequest } from "../manualTrading/client";
-import { config } from "../config";
+import { isManualControlChannelConfigured, manualBotControlRequest } from "../manualTrading/client";
 import { TS_SHARIAH_V1 } from "./policy";
 import type { ShariahMode } from "./mode";
 
@@ -55,22 +73,31 @@ export class ShariahBotSyncError extends Error {
 }
 
 export interface BotEnforcementDeps {
-  /** Injected in tests; production uses the real HMAC client. */
-  request?: typeof manualBotRequest;
-  /** Injected in tests; production reads config. */
-  manualTradingEnabled?: boolean;
+  /** Injected in tests; production uses the real HMAC control client. */
+  request?: typeof manualBotControlRequest;
+  /**
+   * Whether a Bot control channel exists at all. Injected in tests; production
+   * reads config. Deliberately NOT `manualTradingEnabled` — see the header.
+   */
+  controlChannelConfigured?: boolean;
+}
+
+/** What the Bot reports back on the control path. Nothing here is trusted blindly. */
+interface BotFloorReply {
+  mode?: unknown;
+  policyVersion?: unknown;
+  supportedPolicyVersion?: unknown;
 }
 
 /** What the Bot currently believes, so drift is visible rather than silent. */
 export async function readBotShariahMode(
   deps: BotEnforcementDeps = {}
 ): Promise<{ mode: ShariahMode; policyVersion: string | null } | null> {
-  const enabled = deps.manualTradingEnabled ?? config.manualTradingEnabled;
-  if (!enabled) return null;
-  const request = deps.request ?? manualBotRequest;
+  const configured = deps.controlChannelConfigured ?? isManualControlChannelConfigured();
+  if (!configured) return null;
+  const request = deps.request ?? manualBotControlRequest;
   try {
-    const body = await request<{ mode?: unknown; policyVersion?: unknown }>(
-      { method: "GET", path: PATH });
+    const body = await request<BotFloorReply>({ method: "GET", path: PATH });
     return {
       mode: body.mode === "enforce" ? "enforce" : "off",
       policyVersion: typeof body.policyVersion === "string" ? body.policyVersion : null,
@@ -86,20 +113,27 @@ export async function readBotShariahMode(
 }
 
 /**
- * Push the mode to the Bot.
+ * Push the mode to the Bot, and prove it landed.
  *
- * When manual trading is not configured there is no HMAC channel and no Bot to
- * talk to, so this is a no-op rather than an error: an installation that never
- * wired an execution Bot has no webhook path to protect.
+ * When no control channel is configured at all there is no Bot to talk to, so
+ * this is a no-op rather than an error: an installation that never wired an
+ * execution Bot has no webhook path to protect. `pushed: false` says exactly
+ * that, and the caller reports it — it is never dressed up as an arming.
+ *
+ * When a channel IS configured, the only successful outcome is a Bot that
+ * answers with the floor that was asked for. Anything else raises
+ * `ShariahBotSyncError`, which the route turns into a 502 with the mode
+ * unchanged.
  */
 export async function pushShariahModeToBot(
   mode: ShariahMode, deps: BotEnforcementDeps = {}
 ): Promise<{ pushed: boolean }> {
-  const enabled = deps.manualTradingEnabled ?? config.manualTradingEnabled;
-  if (!enabled) return { pushed: false };
-  const request = deps.request ?? manualBotRequest;
+  const configured = deps.controlChannelConfigured ?? isManualControlChannelConfigured();
+  if (!configured) return { pushed: false };
+  const request = deps.request ?? manualBotControlRequest;
+  let reply: BotFloorReply;
   try {
-    await request({
+    reply = await request<BotFloorReply>({
       method: "PUT",
       path: PATH,
       body: { mode, policyVersion: mode === "enforce" ? TS_SHARIAH_V1 : null },
@@ -108,6 +142,27 @@ export async function pushShariahModeToBot(
     throw new ShariahBotSyncError(
       "the execution bot could not be told about this Shariah mode change, so the " +
       "change was not applied: " + (error instanceof Error ? error.message : String(error))
+    );
+  }
+  const applied = (reply ?? {}).mode;
+  if (applied !== mode) {
+    throw new ShariahBotSyncError(
+      `the execution bot answered with floor ${JSON.stringify(applied ?? null)} after being ` +
+      `asked to set "${mode}", so the change was not applied. The two must agree before ` +
+      "either can be trusted."
+    );
+  }
+  /*
+   * Arming under an unrecognised policy identity is not arming. The Bot's
+   * `.strict()` schema refuses `enforce` without the exact version, so a reply
+   * naming a different one means the receiver is not the contract this Platform
+   * is written against.
+   */
+  if (mode === "enforce" && reply.policyVersion !== TS_SHARIAH_V1) {
+    throw new ShariahBotSyncError(
+      `the execution bot reports its floor under policy ` +
+      `${JSON.stringify(reply.policyVersion ?? null)}, not ${TS_SHARIAH_V1}, so this ` +
+      "Platform cannot treat the installation as enforcing."
     );
   }
   return { pushed: true };

@@ -223,11 +223,27 @@ if (config.isProduction && isPublishedPlaceholder(config.alertEncryptionKey)) {
   throw new Error("ALERT_ENCRYPTION_KEY is a published placeholder value — generate a real one");
 }
 
-if (config.manualTradingEnabled && config.manualTradingHmacSecret.length < 32) {
-  throw new Error("MANUAL_TRADING_HMAC_SECRET must be at least 32 characters when manual trading is enabled");
+/*
+ * MANUAL_TRADING_HMAC_SECRET is the Bot CONTROL-PLANE key, not a manual-order
+ * key. It signs manual orders AND the Shariah installation-floor push, and the
+ * floor is armed whether or not manual order submission is enabled — so a
+ * malformed key must fail startup regardless of MANUAL_TRADING_ENABLED. It was
+ * validated only when manual trading was on, which left the control plane
+ * holding a key nothing had checked.
+ *
+ * Presence stays required only for manual trading: an installation with no
+ * execution Bot needs no key, and `manualBotControlRequest` refuses with a 503
+ * rather than signing with a missing one.
+ */
+if (config.manualTradingHmacSecret.length > 0 && config.manualTradingHmacSecret.length < 32) {
+  throw new Error("MANUAL_TRADING_HMAC_SECRET must be at least 32 characters");
 }
-if (config.manualTradingEnabled && isPublishedPlaceholder(config.manualTradingHmacSecret)) {
+if (config.manualTradingHmacSecret.length >= 32
+    && isPublishedPlaceholder(config.manualTradingHmacSecret)) {
   throw new Error("MANUAL_TRADING_HMAC_SECRET is a published placeholder value — generate a real one");
+}
+if (config.manualTradingEnabled && config.manualTradingHmacSecret.length === 0) {
+  throw new Error("MANUAL_TRADING_HMAC_SECRET must be set when manual trading is enabled");
 }
 if (config.realizationIngestionEnabled && config.realizationHmacSecret.length < 32) {
   throw new Error("REALIZATION_HMAC_SECRET must be at least 32 characters when realization ingestion is enabled");

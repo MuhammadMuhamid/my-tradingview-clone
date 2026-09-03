@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
-import { config } from "../config";
+import { config, isPublishedPlaceholder } from "../config";
 
 export function canonicalJson(value: unknown): string {
   if (value === undefined) return "";
@@ -30,9 +30,68 @@ export class ManualBotError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
-export async function manualBotRequest<T>(input: { method: "GET" | "POST" | "PUT" | "PATCH";
-  path: string; body?: unknown; requestId?: string }, fetchImpl: typeof fetch = fetch): Promise<T> {
+export interface ManualBotRequestInput {
+  method: "GET" | "POST" | "PUT" | "PATCH";
+  path: string;
+  body?: unknown;
+  requestId?: string;
+}
+
+/**
+ * Whether this Platform holds a usable Bot CONTROL channel.
+ *
+ * MANUAL_TRADING_HMAC_SECRET is a control-plane key, not a manual-order key: it
+ * signs manual orders AND the Shariah installation-floor push, and the floor is
+ * armed whether or not manual order submission is enabled. So the question
+ * "can I talk to the execution Bot's control plane at all" is answered by the
+ * key and the URL — never by MANUAL_TRADING_ENABLED, which answers a different
+ * question entirely.
+ *
+ * A key that is missing, too short, or one of this repository's published
+ * placeholders is not a channel. Signing with `""` would not authenticate
+ * anything; it would just produce a MAC anyone who guessed the key is unset
+ * could produce too.
+ */
+export function isManualControlChannelConfigured(): boolean {
+  return config.manualTradingBotUrl.length > 0
+    && config.manualTradingHmacSecret.length >= 32
+    && !isPublishedPlaceholder(config.manualTradingHmacSecret);
+}
+
+/**
+ * The Platform -> Bot CONTROL-PLANE call.
+ *
+ * Identical transport and identical HMAC to `manualBotRequest`; the ONLY
+ * difference is which precondition it asks about. Arming the Shariah floor is
+ * not a manual order and must not be disabled by the manual-order feature flag
+ * (BOT-P1-4) — an operator who runs with MANUAL_TRADING_ENABLED=false still has
+ * a Bot accepting direct webhook BUYs, and that is precisely the traffic the
+ * floor exists to gate.
+ *
+ * It refuses rather than degrading: with no channel configured the caller gets
+ * a 503 it can report, never a silent success.
+ */
+export async function manualBotControlRequest<T>(
+  input: ManualBotRequestInput, fetchImpl: typeof fetch = fetch
+): Promise<T> {
+  if (!isManualControlChannelConfigured()) {
+    throw new ManualBotError(
+      "no execution bot control channel is configured (MANUAL_TRADING_HMAC_SECRET)", 503);
+  }
+  return sendManualBotRequest<T>(input, fetchImpl);
+}
+
+/** Manual ORDER traffic. Gated by the manual-order feature flag, as it always was. */
+export async function manualBotRequest<T>(
+  input: ManualBotRequestInput, fetchImpl: typeof fetch = fetch
+): Promise<T> {
   if (!config.manualTradingEnabled) throw new ManualBotError("manual trading is disabled", 404);
+  return sendManualBotRequest<T>(input, fetchImpl);
+}
+
+async function sendManualBotRequest<T>(
+  input: ManualBotRequestInput, fetchImpl: typeof fetch
+): Promise<T> {
   const timestamp = String(Date.now());
   const nonce = randomBytes(24).toString("base64url");
   const requestId = input.requestId ?? randomUUID();

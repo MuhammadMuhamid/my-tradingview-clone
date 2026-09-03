@@ -39,6 +39,10 @@ import type { ShariahRequestContext } from "../src/shariah/gate";
 import type { DeploymentRow } from "../src/types/deployments";
 import { initialRuntimeState } from "../src/types/deployments";
 import type { CustomBotAlertPayload } from "../src/types/alerts";
+import { config } from "../src/config";
+import {
+  isManualControlChannelConfigured, ManualBotError, manualBotControlRequest,
+} from "../src/manualTrading/client";
 
 const SRC = path.join(__dirname, "..", "src");
 const read = (rel: string): string => fs.readFileSync(path.join(SRC, rel), "utf8");
@@ -72,10 +76,10 @@ const ctx = (action: "buy" | "sell" = "buy") => ({
 test("the mode push carries the mode and the policy identity, and nothing else", async () => {
   const sent: Array<{ method: string; path: string; body: unknown }> = [];
   await pushShariahModeToBot("enforce", {
-    manualTradingEnabled: true,
+    controlChannelConfigured: true,
     request: (async (input: { method: string; path: string; body?: unknown }) => {
       sent.push({ method: input.method, path: input.path, body: input.body });
-      return {};
+      return { mode: "enforce", policyVersion: SHARIAH_POLICY_VERSION };
     }) as never,
   });
   assert.deepEqual(sent, [{
@@ -91,29 +95,101 @@ test("the mode push carries the mode and the policy identity, and nothing else",
 test("turning enforcement off sends a null policy version", async () => {
   const bodies: unknown[] = [];
   await pushShariahModeToBot("off", {
-    manualTradingEnabled: true,
-    request: (async (input: { body?: unknown }) => { bodies.push(input.body); return {}; }) as never,
+    controlChannelConfigured: true,
+    request: (async (input: { body?: unknown }) => {
+      bodies.push(input.body); return { mode: "off", policyVersion: null };
+    }) as never,
   });
   assert.deepEqual(bodies, [{ mode: "off", policyVersion: null }]);
 });
 
-test("an installation with no execution bot has no webhook path to protect, so the push is a no-op", async () => {
-  let called = false;
-  const result = await pushShariahModeToBot("enforce", {
-    manualTradingEnabled: false,
-    request: (async () => { called = true; return {}; }) as never,
+test("an installation with no control channel has no bot to talk to, so the push is a no-op",
+  async () => {
+    let called = false;
+    const result = await pushShariahModeToBot("enforce", {
+      controlChannelConfigured: false,
+      request: (async () => { called = true; return {}; }) as never,
+    });
+    assert.deepEqual(result, { pushed: false });
+    assert.equal(called, false);
   });
-  assert.deepEqual(result, { pushed: false });
-  assert.equal(called, false);
+
+/*
+ * BOT-P1-4. MANUAL_TRADING_ENABLED governs manual ORDER submission. Reading it
+ * here is what let an operator who had deliberately disabled manual trading —
+ * the safe posture, and the one most likely to be running purely on direct
+ * TradingView webhooks — switch Shariah Mode on, be told it worked, and leave
+ * the Bot floor `off` with every webhook BUY still admitted ungated.
+ *
+ * The push now asks only whether a control channel exists. `isManualControlChannelConfigured`
+ * reads the URL and the HMAC key and nothing else; this test pins that the flag
+ * is not consulted, in either direction.
+ */
+test("manual trading being disabled does not disable the Shariah floor push", async () => {
+  const priorEnabled = config.manualTradingEnabled;
+  const priorSecret = config.manualTradingHmacSecret;
+  const priorUrl = config.manualTradingBotUrl;
+  try {
+    config.manualTradingEnabled = false;
+    config.manualTradingHmacSecret = "f".repeat(64);
+    config.manualTradingBotUrl = "http://127.0.0.1:4001";
+    assert.equal(isManualControlChannelConfigured(), true,
+      "the channel is a URL and a key — never the manual-order feature flag");
+
+    const sent: unknown[] = [];
+    const result = await pushShariahModeToBot("enforce", {
+      request: (async (input: { body?: unknown }) => {
+        sent.push(input.body);
+        return { mode: "enforce", policyVersion: SHARIAH_POLICY_VERSION };
+      }) as never,
+    });
+    assert.deepEqual(result, { pushed: true });
+    assert.deepEqual(sent, [{ mode: "enforce", policyVersion: SHARIAH_POLICY_VERSION }]);
+
+    // ...and an absent key is a refusal, never a silent unenforced fallback.
+    config.manualTradingHmacSecret = "";
+    assert.equal(isManualControlChannelConfigured(), false);
+    await assert.rejects(() => manualBotControlRequest({ method: "GET", path: "/x" }),
+      (error: unknown) => error instanceof ManualBotError && error.status === 503);
+  } finally {
+    config.manualTradingEnabled = priorEnabled;
+    config.manualTradingHmacSecret = priorSecret;
+    config.manualTradingBotUrl = priorUrl;
+  }
 });
 
 test("a bot that cannot be reached makes the push an error, not a shrug", async () => {
   await assert.rejects(
     () => pushShariahModeToBot("enforce", {
-      manualTradingEnabled: true,
+      controlChannelConfigured: true,
       request: (async () => { throw new Error("connect ECONNREFUSED"); }) as never,
     }),
     (error: unknown) => error instanceof ShariahBotSyncError && error.status === 502);
+});
+
+/*
+ * The failure this whole module exists to prevent, one layer up: a receiver
+ * that accepts the request and does nothing. An old Bot that ignores the field,
+ * a proxy that swallows it, a wrong route that happens to answer 200 — every
+ * one of those used to be recorded as "armed" because only the status was read.
+ */
+test("a 200 that does not name the requested floor is a sync failure, not an arming", async () => {
+  for (const reply of [{}, { mode: "off" }, { mode: null }, { mode: "enforce", policyVersion: "TS_SHARIAH_V0" }]) {
+    await assert.rejects(
+      () => pushShariahModeToBot("enforce", {
+        controlChannelConfigured: true,
+        request: (async () => reply) as never,
+      }),
+      (error: unknown) => error instanceof ShariahBotSyncError && error.status === 502,
+      JSON.stringify(reply));
+  }
+  // The truthful answer, and the only one accepted.
+  assert.deepEqual(
+    await pushShariahModeToBot("enforce", {
+      controlChannelConfigured: true,
+      request: (async () => ({ mode: "enforce", policyVersion: SHARIAH_POLICY_VERSION })) as never,
+    }),
+    { pushed: true });
 });
 
 // ── The route, which is where the ordering guarantee lives ──────────────────
@@ -124,6 +200,8 @@ async function modeApp(over: {
   onStore?: (mode: string) => void;
   storeThrows?: boolean;
   botReports?: "off" | "enforce" | "unreachable";
+  /** What the bot CLAIMS it applied, when that differs from what was asked. */
+  botApplies?: "off" | "enforce";
 } = {}) {
   let stored: "off" | "enforce" = over.stored ?? "off";
   const app = Fastify();
@@ -136,14 +214,23 @@ async function modeApp(over: {
         stored = mode; return mode; },
     },
     botEnforcement: {
-      manualTradingEnabled: true,
+      controlChannelConfigured: true,
       request: (async (input: { method: string; body?: { mode?: string } }) => {
         if (input.method === "GET") {
           if (over.botReports === "unreachable") throw new Error("bot unreachable");
           return { mode: over.botReports ?? "off", policyVersion: null };
         }
-        if (over.push) return over.push(String(input.body?.mode));
-        return {};
+        const asked = String(input.body?.mode);
+        if (over.push) await over.push(asked);
+        /*
+         * A truthful receiver echoes the floor it actually applied. The harness
+         * defaults to truthful so the ORDERING tests below test ordering; a
+         * lying receiver is `botApplies`, covered above.
+         */
+        const applied = over.botApplies ?? asked;
+        return { mode: applied,
+          policyVersion: applied === "enforce" ? SHARIAH_POLICY_VERSION : null,
+          supportedPolicyVersion: SHARIAH_POLICY_VERSION };
       }) as never,
     },
   });
@@ -249,7 +336,7 @@ test("an unreachable bot reads as unknown, never as agreement and never as prote
     assert.equal(body.inSync, null, "unknown must not be reported as either true or false");
 
     assert.equal(await readBotShariahMode({
-      manualTradingEnabled: true,
+      controlChannelConfigured: true,
       request: (async () => { throw new Error("down"); }) as never,
     }), null);
   });

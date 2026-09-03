@@ -341,9 +341,17 @@ export async function shariahRoutes(
      */
     try {
       if (mode === "enforce") {
-        await pushShariahModeToBot("enforce", botEnforcementDeps);
+        /*
+         * `pushed` is reported, never assumed. It is true only when the Bot
+         * answered with the floor it was actually asked for; it is false only
+         * when this installation has no Bot control channel configured at all,
+         * which is a real deployment and not a success to be claimed. Anything
+         * in between raises, below. Callers therefore never have to guess
+         * whether "200" meant the executing side is armed.
+         */
+        const { pushed } = await pushShariahModeToBot("enforce", botEnforcementDeps);
         try {
-          return { mode: await writeMode(mode), policyVersion: TS_SHARIAH_V1 };
+          return { mode: await writeMode(mode), policyVersion: TS_SHARIAH_V1, botFloorPushed: pushed };
         } catch (storeError) {
           /*
            * The bot is now armed and this Platform is not. That is the SAFE
@@ -358,8 +366,8 @@ export async function shariahRoutes(
         }
       }
       const stored = await writeMode(mode);
-      await pushShariahModeToBot("off", botEnforcementDeps);
-      return { mode: stored, policyVersion: TS_SHARIAH_V1 };
+      const { pushed } = await pushShariahModeToBot("off", botEnforcementDeps);
+      return { mode: stored, policyVersion: TS_SHARIAH_V1, botFloorPushed: pushed };
     } catch (error) {
       if (error instanceof ShariahBotSyncError) {
         return reply.code(error.status).send({ error: error.message, mode: await readMode() });
