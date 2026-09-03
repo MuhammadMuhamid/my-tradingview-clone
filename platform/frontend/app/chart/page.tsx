@@ -49,6 +49,7 @@ import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import { ReplayControls } from "@/components/tv/ReplayControls";
 import { TradingOverlayDetails } from "@/components/tv/TradingOverlays";
 import { drawingStore } from "@/lib/drawingStore";
+import { useFullscreen } from "@/lib/fullscreen";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import { api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript } from "@/lib/api";
 import { currentMaValues, defaultMaLines, type MaType } from "@/lib/movingAverages";
@@ -259,8 +260,17 @@ export default function TvWorkspace() {
   const isMobile = useIsMobile();
   /** Drawing rail — a floating drawer on phones, always-on column on desktop. */
   const [toolsOpen, setToolsOpen] = useState(false);
-  /** Second row of the toolbar (history depth, layouts, strategy…). */
+  /** Second row of the toolbar (history depth, overlays, automation, strategy). */
   const [moreOpen, setMoreOpen] = useState(false);
+  /** The indicator library dialog. Separate from the applied-studies panel. */
+  const [indicatorBrowserOpen, setIndicatorBrowserOpen] = useState(false);
+  /*
+   * Fullscreen for the chart workspace — the drawing rail, the charts and the
+   * side panels, but not the site's own navigation bar, which is chrome the
+   * chart does not need. The browser's own API, so Escape and the OS
+   * affordance both work and the page is told when they are used.
+   */
+  const fullscreen = useFullscreen<HTMLDivElement>();
   /** Site navigation, which is hidden on the phone chart to reclaim a whole row. */
   const [navOpen, setNavOpen] = useState(false);
 
@@ -872,7 +882,7 @@ export default function TvWorkspace() {
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport]);
 
   return (
-    <div className="flex h-full pb-[52px] md:pb-0">
+    <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">
       {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
       <div className="hidden md:flex">
         <DrawingToolbar {...drawingToolbarProps} />
@@ -918,11 +928,14 @@ export default function TvWorkspace() {
           bars={bars}
           onBars={changeBars}
           indicatorCount={activeIndicatorList.length}
-          onOpenIndicators={() => setPanel((p) => (p === "indicators" ? null : "indicators"))}
+          onOpenIndicators={() => setIndicatorBrowserOpen(true)}
           replayActive={replayActive}
           replayPickerOpen={replayPickerOpen}
           onToggleReplayPicker={() => setReplayPickerOpen((open) => replayActive ? open : !open)}
           replayBlocksLiveActions={replayBlocksLiveActions}
+          fullscreen={fullscreen.active}
+          fullscreenSupported={fullscreen.supported}
+          onToggleFullscreen={fullscreen.toggle}
           overlayMenuOpen={overlays.menuOpen}
           onOverlayMenuOpen={overlays.setMenuOpen}
           overlayPrefs={overlays.prefs}
@@ -1104,6 +1117,10 @@ export default function TvWorkspace() {
         params={params}
         properties={properties}
         onApplyStrategy={(p, props) => { setParams(p); setProperties(props); }}
+        indicatorBrowserOpen={indicatorBrowserOpen}
+        onCloseIndicatorBrowser={() => setIndicatorBrowserOpen(false)}
+        indicators={activeIndicators}
+        onOpenInEditor={openInEditor}
         searchPaneId={searchPaneId}
         searchSymbol={(searchPaneId ? paneById(workspace, searchPaneId)?.symbol : symbol) ?? symbol}
         onCloseSearch={() => setSearchPaneId(null)}

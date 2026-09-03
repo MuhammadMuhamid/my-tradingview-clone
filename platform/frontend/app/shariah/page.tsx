@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  ShariahImportError, downloadReviewPack, parseResultsFile, shariahApi,
+  ShariahImportError, describeShariahSync, downloadReviewPack, normalizeShariahMode,
+  parseResultsFile, shariahApi,
   type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
-  type ShariahImportPreview, type ShariahMode, type ShariahSnapshotMeta,
-  type ShariahUniverse,
+  type ShariahImportPreview, type ShariahMode, type ShariahModeState, type ShariahSnapshotMeta,
+  type ShariahSyncLevel, type ShariahUniverse,
 } from "@/lib/shariah";
 import { Button, Card, CardHeader, Empty, Field, Select, TextInput } from "@/components/ui";
 
@@ -49,6 +50,72 @@ function StatusPill({ status }: { status: ShariahClassification }) {
   );
 }
 
+/**
+ * How the four Platform/Bot enforcement states look.
+ *
+ * Each carries a SHAPE as well as a colour, because "is the executing side
+ * armed" is exactly the kind of state that must not be told by a shade of
+ * green: an operator who cannot separate these two greens would read an
+ * unknown Bot floor as a confirmed one. Drawn rather than typed, so the mark
+ * is one size at one weight whatever font the platform substitutes.
+ */
+const SYNC_STYLE: Record<ShariahSyncLevel, { box: string; mark: ReactNode }> = {
+  confirmed: {
+    box: "border-up/30 bg-up/10 text-up",
+    mark: <path d="M3 8.5l3.5 3.5L13 4" />,
+  },
+  drift: {
+    box: "border-down/30 bg-down/10 text-down",
+    mark: <><path d="M4 4l8 8M12 4l-8 8" /></>,
+  },
+  unknown: {
+    box: "border-warn/30 bg-warn/10 text-warn",
+    mark: <><path d="M5.6 5.6a2.4 2.4 0 113.2 2.3c-.6.3-1 .8-1 1.5v.3" /><path d="M8 12.4h.01" /></>,
+  },
+  off: {
+    box: "border-border bg-surface-2 text-ink-muted",
+    mark: <path d="M4 8h8" />,
+  },
+};
+
+/**
+ * Whether the execution Bot is enforcing, stated rather than assumed.
+ *
+ * ── Why this panel exists ──────────────────────────────────────────────────
+ *
+ * "Shariah Mode: ON" describes THIS PLATFORM's stored setting. The Bot also
+ * accepts signals the Platform never sees, on its own webhook, and only the
+ * Bot's own floor gates those. The backend already reports the Bot's answer
+ * (`botMode`, `inSync`, and `botFloorPushed` on a change) precisely so that an
+ * operator is never shown a green ON over an executing side that is not armed
+ * — this renders it. `describeShariahSync` owns the rules; nothing is decided
+ * here.
+ *
+ * Read once, when the page loads and after a mode change. There is no poll:
+ * the answer only moves when someone changes it, and a background loop
+ * hammering a Bot control channel would be a cost with no reader.
+ */
+function BotFloorPanel({ state }: { state: ShariahModeState | null }) {
+  const view = describeShariahSync(state);
+  const style = SYNC_STYLE[view.level];
+  return (
+    <div
+      role={view.level === "drift" ? "alert" : "status"}
+      className={`mb-3 flex items-start gap-2.5 rounded-md border px-3 py-2 text-xs ${style.box}`}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+        className="mt-px shrink-0" aria-hidden="true">
+        {style.mark}
+      </svg>
+      <span className="min-w-0">
+        <span className="block font-semibold">{view.label}</span>
+        <span className="mt-0.5 block leading-snug opacity-90">{view.detail}</span>
+      </span>
+    </div>
+  );
+}
+
 /** ISO date-time for the reviewed_at field, defaulted to now but always editable. */
 function nowIso(): string {
   return new Date().toISOString();
@@ -63,7 +130,15 @@ export default function ShariahPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<ShariahMode | null>(null);
+  /**
+   * The whole enforcement answer, not just this Platform's stored setting.
+   *
+   * It used to be `ShariahMode | null` — one field of the four the backend
+   * reports — so the console could say ON while the execution Bot's floor was
+   * unknown, out of sync, or never armed at all.
+   */
+  const [modeState, setModeState] = useState<ShariahModeState | null>(null);
+  const mode: ShariahMode | null = modeState?.mode ?? null;
 
   const loadUniverse = useCallback(async () => {
     try {
@@ -72,9 +147,31 @@ export default function ShariahPage() {
       ]);
       setUniverse(u);
       setSnapshots(s.snapshots);
-      setMode(m.mode);
+      setModeState(normalizeShariahMode(m));
     } catch (e) {
       setError((e as Error).message);
+    }
+  }, []);
+
+  /**
+   * Re-read the mode after a change, success or failure.
+   *
+   * A PUT answers with `botFloorPushed` but not with the Bot's own current
+   * floor, and a REFUSED change leaves this page holding whatever it had
+   * before — which is the exact moment drift becomes possible. One extra read,
+   * triggered by an operator action. Not a poll, and not a loop.
+   */
+  const rereadMode = useCallback(async (fallback: ShariahModeState | null) => {
+    try {
+      const fresh = normalizeShariahMode(await shariahApi.mode());
+      // The PUT's `botFloorPushed` is the only place that field is ever
+      // reported, so it is carried onto the fresh read rather than dropped:
+      // "no control channel is configured" stays true until it is not.
+      setModeState({ ...fresh, botFloorPushed: fallback?.botFloorPushed ?? fresh.botFloorPushed });
+    } catch {
+      // The mode endpoint is unreachable. Keep what the mutation itself said
+      // rather than inventing a state; it is the more recent of the two.
+      if (fallback) setModeState(fallback);
     }
   }, []);
 
@@ -105,14 +202,20 @@ export default function ShariahPage() {
     const next: ShariahMode = mode === "enforce" ? "off" : "enforce";
     setBusy(true); setError(null); setNotice(null);
     try {
-      const saved = await shariahApi.setMode(next);
-      setMode(saved.mode);
+      const saved = normalizeShariahMode(await shariahApi.setMode(next));
+      setModeState(saved);
       setNotice(saved.mode === "enforce"
         ? "Shariah Mode is ON. New exposure (BUY) is allowed only for ELIGIBLE assets. "
           + "Selling or reducing a position is always allowed, and no position was changed."
         : "Shariah Mode is OFF. Trading behaviour is unchanged.");
+      // The PUT does not report the Bot's own floor, so ask for it once.
+      await rereadMode(saved);
     } catch (e) {
       setError((e as Error).message);
+      // A refusal is exactly when the two sides can disagree — the 502 and the
+      // 500 drift error both mean "one side moved and the other did not". Show
+      // what the server says now rather than the stale value this page held.
+      await rereadMode(modeState);
     } finally {
       setBusy(false);
     }
@@ -146,7 +249,13 @@ export default function ShariahPage() {
           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
             mode === "enforce" ? "bg-up/15 text-up border-up/30" : "bg-surface-2 text-ink-muted border-border"
           }`}>
-            Shariah Mode: {mode === null ? "…" : mode === "enforce" ? "ON" : "OFF"}
+            {/*
+              This badge is about THIS PLATFORM only, and now says so. It used
+              to be the page's single answer to "are we enforcing", which is a
+              question one installation cannot answer alone — the Bot floor
+              panel below carries the other half.
+            */}
+            Platform mode: {mode === null ? "…" : mode === "enforce" ? "ON" : "OFF"}
           </span>
           <Button onClick={toggleMode} disabled={busy || mode === null}>
             {mode === "enforce" ? "Turn off" : "Turn on"}
@@ -156,6 +265,8 @@ export default function ShariahPage() {
           </Button>
         </div>
       </div>
+
+      <BotFloorPanel state={modeState} />
 
       {mode === "enforce" && (
         <div className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-ink-muted">

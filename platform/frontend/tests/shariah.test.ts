@@ -63,8 +63,12 @@ test("the review console treats importing as the batch approval, and says so", (
 
 test("the Shariah Mode toggle renders the server's value, never a local one", () => {
   const page = read("app/shariah/page.tsx");
-  assert.match(page, /const saved = await shariahApi\.setMode\(next\);/);
-  assert.match(page, /setMode\(saved\.mode\)/);
+  // `normalizeShariahMode` widens the response into a total record — it fills
+  // an absent field with "not stated" and never with a value. The page still
+  // renders exactly what the server sent and holds no authoritative copy.
+  assert.match(page, /const saved = normalizeShariahMode\(await shariahApi\.setMode\(next\)\);/);
+  assert.match(page, /setModeState\(saved\)/);
+  assert.match(page, /const mode: ShariahMode \| null = modeState\?\.mode \?\? null;/);
   // No localStorage anywhere in the Shariah surface: the mode is backend state,
   // because the gate that enforces it is backend code.
   assert.doesNotMatch(page, /localStorage/);

@@ -14,13 +14,15 @@
 import { AlertEditor } from "@/components/tv/AlertEditor";
 import { AlertModal } from "@/components/tv/AlertModal";
 import { IndicatorAlertModal, type IndicatorKind } from "@/components/tv/IndicatorAlertModal";
+import { IndicatorBrowser } from "@/components/tv/IndicatorBrowser";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { StrategySettingsModal, type StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
-import type { MaAlert } from "@/lib/api";
+import type { MaAlert, PineScript } from "@/lib/api";
 import type { MaType } from "@/lib/movingAverages";
+import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { Interval, Strategy, StrategyParams } from "@/lib/types";
 
 export interface ChartDialogsProps {
@@ -36,6 +38,12 @@ export interface ChartDialogsProps {
   params: StrategyParams;
   properties: StrategyProperties;
   onApplyStrategy: (params: StrategyParams, properties: StrategyProperties) => void;
+
+  /** The indicator library dialog, and the focused pane's studies it adds to. */
+  indicatorBrowserOpen: boolean;
+  onCloseIndicatorBrowser: () => void;
+  indicators: IndicatorsApi | null;
+  onOpenInEditor: (script: PineScript) => void;
 
   /** Which pane the symbol dialog retargets, or null when it is closed. */
   searchPaneId: string | null;
@@ -86,6 +94,14 @@ export function ChartDialogs(props: ChartDialogsProps) {
       params={params}
       properties={properties}
       onApply={props.onApplyStrategy}
+    />
+    <IndicatorBrowser
+      open={props.indicatorBrowserOpen}
+      onClose={props.onCloseIndicatorBrowser}
+      symbol={symbol}
+      interval={interval}
+      indicators={props.indicators}
+      onOpenInEditor={props.onOpenInEditor}
     />
     <SymbolSearch
       open={props.searchPaneId !== null}

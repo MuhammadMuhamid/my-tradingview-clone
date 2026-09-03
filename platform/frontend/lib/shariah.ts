@@ -175,6 +175,175 @@ export interface ShariahSymbolStatus {
   sellAllowed: true;
 }
 
+// ── Shariah Mode, and whether the executing side agrees ─────────────────────
+
+/**
+ * What `/api/shariah/mode` answers, in full.
+ *
+ * ── The gap this type closes ───────────────────────────────────────────────
+ *
+ * The backend reports four things about enforcement, and the browser used to
+ * be typed for one of them: `{ mode }`. So a console that read "Shariah Mode:
+ * ON" was reporting THIS PLATFORM's stored setting and nothing else, while the
+ * three fields that say whether the executing Bot is actually enforcing —
+ * `botMode`, `inSync`, and `botFloorPushed` on a mutation — were fetched over
+ * the wire, discarded by the type, and never rendered.
+ *
+ * That is not a cosmetic omission. The Bot accepts direct TradingView webhook
+ * signals this Platform never sees, and only the Bot's own floor gates those.
+ * An operator shown a green "ON" while the Bot's floor was unknown, off, or
+ * never armed at all would believe the installation was protected on a path it
+ * was not. The backend already refuses to claim otherwise (see
+ * `shariah/botEnforcement.ts`); this is the browser catching up.
+ *
+ * Every field beyond `mode` is optional, because the GET and the PUT answer
+ * with different subsets and an error body answers with fewer still.
+ */
+export interface ShariahModeResponse {
+  mode: ShariahMode;
+  policyVersion?: string | null;
+  /** The Bot's own floor. `null` means unreachable — which is unknown, not off. */
+  botMode?: ShariahMode | null;
+  /** Whether the two agree. `null` when the Bot's answer is unknown. */
+  inSync?: boolean | null;
+  /**
+   * Mutations only: whether a floor was actually pushed to a Bot.
+   *
+   * `false` means this installation has no Bot control channel configured, so
+   * nothing was armed. It is a real deployment and a truthful answer — and it
+   * must never be rendered as confirmed enforcement.
+   */
+  botFloorPushed?: boolean;
+}
+
+/** The same answer with every field present, so readers never branch on undefined. */
+export interface ShariahModeState {
+  mode: ShariahMode;
+  policyVersion: string | null;
+  botMode: ShariahMode | null;
+  inSync: boolean | null;
+  botFloorPushed: boolean | null;
+}
+
+/**
+ * Widen a response into a total state.
+ *
+ * An absent field becomes `null` — "not stated" — never `false` and never
+ * `off`. Inventing agreement is the exact failure this whole path exists to
+ * prevent, and a defaulted `false` reads as a claim.
+ */
+export function normalizeShariahMode(
+  response: ShariahModeResponse | null | undefined,
+  previous: ShariahModeState | null = null
+): ShariahModeState {
+  if (!response) return previous ?? { mode: "off", policyVersion: null, botMode: null, inSync: null, botFloorPushed: null };
+  const mode: ShariahMode = response.mode === "enforce" ? "enforce" : "off";
+  const botMode = response.botMode === "enforce" || response.botMode === "off"
+    ? response.botMode : null;
+  return {
+    mode,
+    policyVersion: typeof response.policyVersion === "string" ? response.policyVersion : null,
+    botMode,
+    inSync: typeof response.inSync === "boolean" ? response.inSync : null,
+    botFloorPushed: typeof response.botFloorPushed === "boolean" ? response.botFloorPushed : null,
+  };
+}
+
+export type ShariahSyncLevel =
+  /** Platform enforcement is off, so no Bot floor is claimed or required. */
+  | "off"
+  /** Platform enforces and the Bot confirms the same floor. */
+  | "confirmed"
+  /** Platform enforces; the Bot's floor could not be established. */
+  | "unknown"
+  /** Platform and Bot disagree. */
+  | "drift";
+
+export interface ShariahSyncView {
+  level: ShariahSyncLevel;
+  /** Short badge text. Never colour alone — the word carries the state. */
+  label: string;
+  /** The sentence an operator can act on. */
+  detail: string;
+  /** True ONLY when the Bot's floor is confirmed armed. Nothing else sets it. */
+  botEnforcing: boolean;
+}
+
+/**
+ * What to show the operator about Platform/Bot enforcement agreement.
+ *
+ * The order of the checks is the safety argument:
+ *
+ *   1. Not enforcing here → nothing to confirm.
+ *   2. A mutation that reported `botFloorPushed: false` → no channel, no floor.
+ *      This is checked before anything else because it is the one case that
+ *      returns 200 with nothing armed, and it must never reach "confirmed".
+ *   3. The Bot's answer is missing → unknown. Not off, not confirmed.
+ *   4. The two disagree → drift, named on both sides.
+ *   5. Only then, and only when both fields positively agree → confirmed.
+ */
+export function describeShariahSync(state: ShariahModeState | null): ShariahSyncView {
+  if (!state) {
+    return {
+      level: "unknown",
+      label: "Bot floor: checking",
+      detail: "The execution Bot's enforcement floor has not been read yet.",
+      botEnforcing: false,
+    };
+  }
+
+  if (state.mode !== "enforce") {
+    return {
+      level: "off",
+      label: "Bot floor: not required",
+      detail: "Shariah Mode is OFF on this Platform, so no Bot enforcement floor is claimed. "
+        + "Trading behaviour is unchanged.",
+      botEnforcing: false,
+    };
+  }
+
+  if (state.botFloorPushed === false) {
+    return {
+      level: "unknown",
+      label: "Bot floor: not armed",
+      detail: "This Platform enforces, but no execution Bot control channel is configured, so "
+        + "no floor was pushed to a Bot. Every path this Platform originates is gated; a signal "
+        + "sent straight to a Bot webhook is not gated by this Platform.",
+      botEnforcing: false,
+    };
+  }
+
+  if (state.botMode === null || state.inSync === null) {
+    return {
+      level: "unknown",
+      label: "Bot floor: unknown",
+      detail: "This Platform enforces. The execution Bot could not be reached, so its floor is "
+        + "unknown — which is not the same as off, and not a confirmation. Re-apply the mode "
+        + "change once the Bot is reachable.",
+      botEnforcing: false,
+    };
+  }
+
+  if (state.inSync !== true || state.botMode !== state.mode) {
+    return {
+      level: "drift",
+      label: "Bot floor: out of sync",
+      detail: `This Platform enforces but the execution Bot reports its floor as `
+        + `"${state.botMode}". The two must agree before either can be trusted — re-apply the `
+        + "mode change to converge them.",
+      botEnforcing: false,
+    };
+  }
+
+  return {
+    level: "confirmed",
+    label: "Bot floor: enforcing",
+    detail: "This Platform enforces and the execution Bot confirms the same floor, so a signal "
+      + "sent straight to a Bot webhook is gated too.",
+    botEnforcing: true,
+  };
+}
+
 /** An import rejection carries every problem in the file, not just the first. */
 export class ShariahImportError extends Error {
   constructor(message: string, readonly issues: ShariahImportIssue[]) {
@@ -231,9 +400,9 @@ export const shariahApi = {
   importResults: (document: unknown) =>
     reqWithIssues<ShariahImportSummary>("/api/shariah/review-results/import", document),
 
-  mode: () => req<{ mode: ShariahMode }>("/api/shariah/mode"),
+  mode: () => req<ShariahModeResponse>("/api/shariah/mode"),
   setMode: (mode: ShariahMode) =>
-    req<{ mode: ShariahMode }>("/api/shariah/mode", { method: "PUT", body: JSON.stringify({ mode }) }),
+    req<ShariahModeResponse>("/api/shariah/mode", { method: "PUT", body: JSON.stringify({ mode }) }),
 
   status: (symbol: string) =>
     req<ShariahSymbolStatus>(`/api/shariah/status?symbol=${encodeURIComponent(symbol)}`),
