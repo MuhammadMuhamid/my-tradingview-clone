@@ -177,3 +177,30 @@ export function snapToBarIndexBy<T>(
   }
   return found;
 }
+
+/**
+ * Whether a visible range is different enough from the last one published to
+ * be worth publishing again.
+ *
+ * Mirroring is already loop-free by construction — `visibleRangeForPane` never
+ * hands a pane its own signal back. This is the second, quieter guard: two
+ * panes on different resolutions do not land on byte-identical spans, so a
+ * range applied to pane B can come back out of the library a fraction of a
+ * second different, be republished, and set the pair oscillating around a
+ * fixed point instead of settling on it.
+ *
+ * A bar boundary is the natural resolution of a chart viewport, so half a
+ * second is below anything a user can see and above the float noise the
+ * library's own coordinate round-trip produces.
+ */
+export const RANGE_EPSILON_SEC = 0.5;
+
+export function rangeChanged(
+  previous: { from: number; to: number } | null,
+  next: { from: number; to: number },
+  epsilonSec: number = RANGE_EPSILON_SEC
+): boolean {
+  if (!previous) return true;
+  return Math.abs(previous.from - next.from) > epsilonSec
+    || Math.abs(previous.to - next.to) > epsilonSec;
+}

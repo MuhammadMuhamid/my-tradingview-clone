@@ -218,3 +218,45 @@ export function mainSeriesDatum(
     ? { ...ohlc, color, borderColor: color, wickColor: color }
     : { ...ohlc, color };
 }
+
+/**
+ * Which bars the OHLC legend is describing.
+ *
+ * The legend used to read the canonical candles whatever was drawn, which for
+ * Heikin Ashi meant the numbers named O/H/L/C did not match the body the user
+ * was pointing at, and for Renko meant a time-candle readout was printed over
+ * a chart that has no time candles. Both are answered here rather than in the
+ * renderer, so "what does the legend claim" is a property of the chart type.
+ */
+export type LegendSource = "canonical" | "heikinAshi" | "renkoBrick";
+
+export function legendSource(type: ChartType): LegendSource {
+  const transform = chartTransform(type);
+  if (transform === "heikinAshi") return "heikinAshi";
+  if (transform === "renko") return "renkoBrick";
+  return "canonical";
+}
+
+/**
+ * Whether anything anchored to a canonical timestamp can be drawn truthfully
+ * on top of this presentation.
+ *
+ * True for every canonical presentation, and true for Heikin Ashi, which emits
+ * exactly one bar per canonical bar at that bar's own timestamp — so a script
+ * plot, a trade marker or a drawing lands on the bar it belongs to.
+ *
+ * False for Renko. A brick is not a bar: one canonical candle can complete
+ * several bricks and hundreds can complete none, so a plot drawn at canonical
+ * times against a brick axis would *look* aligned to bricks it has no
+ * relationship with. Wave 2 left that as an approximation; the resolution here
+ * is to draw none of it rather than to draw it wrong, and to say so.
+ */
+export function timeAnchoredVisualsTruthful(type: ChartType): boolean {
+  return chartTransform(type) !== "renko";
+}
+
+/** Shown wherever Renko has suppressed a time-anchored layer. */
+export const RENKO_ALIGNMENT_NOTE =
+  "Bricks are not time bars, so script plots, markers, drawings and indicator "
+  + "panes are hidden here rather than drawn at times they do not line up with. "
+  + "They are unchanged and return on any other chart type.";

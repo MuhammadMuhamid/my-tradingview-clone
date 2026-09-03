@@ -2,15 +2,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
-  SeriesMarker, MouseEventParams, LineStyle, LineType,
+  SeriesMarker, MouseEventParams, LineStyle, LineType, PriceScaleMode,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type LineData, type WhitespaceData,
 } from "lightweight-charts";
 import { INTERVAL_MS, type Candle, type Interval, type Trade } from "@/lib/types";
-import { snapToBarIndexBy } from "@/lib/paneSync";
+import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type KlineTick } from "@/lib/marketFeed";
 import { baseChartOptions } from "@/lib/chartTheme";
-import { useDetachChartObserver } from "@/lib/chartLifecycle";
+import {
+  createDisposalGuard, useChartMeasuring, useDetachChartObserver,
+} from "@/lib/chartLifecycle";
 import { fmtPrice, fmtPriceDelta } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
@@ -24,27 +26,68 @@ import {
   type ChartBarColor, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import {
-  chartTransform, mainSeriesDatum, renderKind, renkoParams, syntheticDisclosure,
-  SYNTHETIC_DISCLOSURE_HINT,
-  type ChartRenderKind, type ChartType, type MainSeriesDatum, type OhlcBar,
+  chartTransform, legendSource, mainSeriesDatum, renderKind, renkoParams,
+  syntheticDisclosure, timeAnchoredVisualsTruthful,
+  RENKO_ALIGNMENT_NOTE, SYNTHETIC_DISCLOSURE_HINT,
+  type ChartRenderKind, type ChartType, type LegendSource, type MainSeriesDatum,
+  type OhlcBar,
 } from "@/lib/chartType";
 import {
-  transformAll, transformStep,
+  canonicalOpenTime, isRenkoBrick, transformAll, transformStep,
   DEFAULT_RENKO_ATR_PERIOD, type TransformCursor, type TransformKind,
 } from "@/lib/chartTransforms";
+import {
+  DEFAULT_PRICE_SCALE, priceScaleLabel, resetPriceScale, setPriceScaleAuto,
+  togglePriceScaleAuto, togglePriceScaleMode, type PriceScaleState,
+} from "@/lib/priceScale";
+import {
+  availableRangeShortcuts, loadedWindow, resolveRangeShortcut, sameViewport,
+  type LoadedWindow, type RangeShortcutId,
+} from "@/lib/rangeShortcuts";
+import {
+  canMovePane, COLLAPSED_PANE_HEIGHT, EMPTY_PANE_LAYOUT, isPaneCollapsed,
+  isPaneMaximized, movePane, orderedPanes, paneHeight, reconcilePaneLayout,
+  setPaneHeight, togglePaneCollapsed, togglePaneMaximized,
+  type PaneLayoutState,
+} from "@/lib/indicatorPaneLayout";
+import { CHART_TIME_ZONE, CHART_TIME_ZONE_NOTE, fmtChartBarTime, fmtChartClock } from "@/lib/chartClock";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
 
-/** TradingView-style legend readout for the candle under the crosshair. */
+/**
+ * The legend readout for whatever bar the crosshair is on.
+ *
+ * ── What `kind` decides ────────────────────────────────────────────────────
+ *
+ * The legend used to print the canonical candle whatever the chart drew, which
+ * was wrong in two different ways at once. On Heikin Ashi the four numbers
+ * labelled O/H/L/C did not describe the body under the pointer — they
+ * described a bar that is not on screen. On Renko they described a time candle
+ * on a chart that has no time candles at all.
+ *
+ * So the readout says which bars it is reading, and the renderer says so on
+ * screen too. `canonical` is the only kind whose numbers are exchange prices;
+ * the other two are display values and are labelled as such wherever they are
+ * shown. NOTHING downstream of this component reads a `LegendBar`.
+ */
 interface LegendBar {
+  kind: LegendSource;
   open: number;
   high: number;
   low: number;
   close: number;
+  /**
+   * Exchange traded volume for the canonical bar, or null when there is no
+   * honest figure — a Renko brick is not a bar and has no volume of its own.
+   * Heikin Ashi keeps the canonical figure: the transform reshapes price and
+   * says nothing whatever about size.
+   */
   volume: number | null;
-  /** change vs the previous candle's close (falls back to the bar's open) */
+  /** change vs the previous drawn bar's close (falls back to this bar's open) */
   chg: number;
   chgPct: number;
+  /** Present only for `renkoBrick`: what the brick itself is. */
+  brick?: { direction: 1 | -1; size: number; sourceOpenTime: number };
 }
 
 /**
@@ -332,6 +375,7 @@ export function CandleChart({
   onCrosshairMove, crosshairTime,
   onVisibleRangeChange, visibleRange, followEdgeTime,
   onIndicatorPaneAction,
+  priceScale, onPriceScaleChange,
 }: {
   symbol: string;
   interval: Interval;
@@ -397,6 +441,17 @@ export function CandleChart({
    */
   onIndicatorPaneAction?: (paneId: string, action: PaneAction) => void;
   /**
+   * The price scale's mode, if a surface outside this chart owns it.
+   *
+   * Omitted, the chart keeps its own — which is the normal case, because the
+   * scale is a per-pane reading choice and a sixteen-pane workspace has
+   * sixteen of them. The pair exists as a seam: a settings popover elsewhere
+   * can drive and observe the scale without this component learning anything
+   * about that popover. See `lib/priceScale`.
+   */
+  priceScale?: PriceScaleState;
+  onPriceScaleChange?: (next: PriceScaleState) => void;
+  /**
    * Phone layout: drop the per-series price-axis badges and shorten the
    * legend. Ten moving averages each stamp a label on the scale, which on a
    * 390px screen covers most of the price column.
@@ -456,10 +511,35 @@ export function CandleChart({
   onLiveBoundaryRef.current = onLiveBarBoundary;
   /** Set while applying a range from the other pane, to break the feedback loop. */
   const applyingRangeRef = useRef(false);
+  /** Timers that clear `applyingRangeRef`, cancelled if the pane goes first. */
+  const rangeReleaseRef = useRef<number[]>([]);
+  /** The last span published upwards, so an unchanged one is not republished. */
+  const publishedRangeRef = useRef<{ from: number; to: number } | null>(null);
+  /** Live once the chart exists; false again the moment it is destroyed. */
+  const disposalRef = useRef<{ disposed: boolean }>({ disposed: true });
   /** Internal price/indicator-pane range propagation, throttled to one frame. */
   const syncingPaneRangeRef = useRef(false);
   const syncPaneRangesRef = useRef<(source: string, range: { from: number; to: number }) => void>(() => {});
   const [legend, setLegend] = useState<LegendBar | null>(null);
+  /**
+   * The price scale, when nothing outside owns it.
+   *
+   * Held here rather than in `lib/workspace` deliberately: the workspace
+   * record is persisted and versioned, and a reading preference is not worth
+   * a schema migration. It survives everything that actually happens to a
+   * chart — candle updates, presentation changes, series recreation — because
+   * the effect that applies it re-runs on `chartReady`, and it is reset only
+   * by the user asking for that.
+   */
+  const [ownPriceScale, setOwnPriceScale] = useState<PriceScaleState>(DEFAULT_PRICE_SCALE);
+  /** Which range shortcut produced the current viewport, if one did. */
+  const [activeRange, setActiveRange] = useState<RangeShortcutId | null>(null);
+  /** The window a shortcut asked for, so a pan away from it clears the badge. */
+  const shortcutRangeRef = useRef<{ from: number; to: number } | null>(null);
+  /** Layout of the indicator stack: order, collapse, heights, maximise. */
+  const [paneLayout, setPaneLayout] = useState<PaneLayoutState>(EMPTY_PANE_LAYOUT);
+  /** A live UTC clock beside the time axis; only mounted when it is shown. */
+  const [clock, setClock] = useState<string | null>(null);
   const [indicatorHoverTime, setIndicatorHoverTime] = useState<number | null>(null);
   /** FE-09: what the live feed is actually doing, so the UI can say so. */
   const [feedState, setFeedState] = useState<ChartFeedState>("idle");
@@ -473,8 +553,74 @@ export function CandleChart({
     [overlays, decorations]
   );
 
+  // ── the price scale ──────────────────────────────────────────────────────
+
+  /** Controlled if a caller supplied one; this chart's own otherwise. */
+  const scale = priceScale ?? ownPriceScale;
+  const applyScale = useCallback((next: PriceScaleState) => {
+    setOwnPriceScale(next);
+    onPriceScaleChange?.(next);
+  }, [onPriceScaleChange]);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const applyScaleRef = useRef(applyScale);
+  applyScaleRef.current = applyScale;
+
+  /**
+   * Bring our record of the scale back into line with the library's.
+   *
+   * Dragging the price axis and double-clicking it are the library's own
+   * behaviours — `handleScale.axisPressedMouseMove.price` and
+   * `axisDoubleClickReset.price`, both on by default and both deliberately
+   * left alone rather than reimplemented. Neither raises an event, and the
+   * first of them switches `autoScale` off. Without this the badge would keep
+   * claiming "Auto" over a scale the user had dragged, and the next time the
+   * state was re-applied the drag would be silently thrown away.
+   */
+  const reconcileScaleRef = useRef<() => void>(() => {});
+  reconcileScaleRef.current = () => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    let auto: boolean;
+    try { auto = chart.priceScale("right").options().autoScale; }
+    catch { return; }
+    if (auto !== scaleRef.current.autoScale) {
+      applyScaleRef.current(setPriceScaleAuto(scaleRef.current, auto));
+    }
+  };
+
+  /*
+   * Apply the scale to the chart.
+   *
+   * Keyed on `chartReady`, which is bumped when the chart is created AND when
+   * the main series is swapped for a presentation change — the two moments a
+   * price scale can lose what it was told. A candle arriving is neither, so a
+   * live update cannot reset the scale; and nothing here recreates a chart to
+   * change a mode.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    try {
+      chart.priceScale("right").applyOptions({
+        mode: scale.mode === "logarithmic"
+          ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+        autoScale: scale.autoScale,
+      });
+    } catch { /* the chart went away between render and effect */ }
+  }, [scale, chartReady]);
+
+  /** Auto-fit both axes and return the scale to its default. */
+  const resetView = useCallback(() => {
+    applyScale(resetPriceScale());
+    shortcutRangeRef.current = null;
+    setActiveRange(null);
+    try { chartRef.current?.timeScale().fitContent(); }
+    catch { /* nothing loaded yet */ }
+  }, [applyScale]);
+
   syncPaneRangesRef.current = (source, range) => {
-    if (syncingPaneRangeRef.current) return;
+    if (syncingPaneRangeRef.current || disposalRef.current.disposed) return;
     syncingPaneRangeRef.current = true;
     const targets: Array<[string, IChartApi]> = [
       ...(chartRef.current ? [["price", chartRef.current] as [string, IChartApi]] : []),
@@ -490,6 +636,25 @@ export function CandleChart({
     }
     requestAnimationFrame(() => { syncingPaneRangeRef.current = false; });
   };
+
+  /** Publish a span upwards, unless it is the one already published. */
+  const publishRange = useCallback((range: { from: number; to: number }) => {
+    if (!rangeChanged(publishedRangeRef.current, range)) return;
+    publishedRangeRef.current = range;
+    onRangeRef.current?.(range);
+  }, []);
+
+  /**
+   * Release `applyingRangeRef` after the library has emitted its own change
+   * event, and remember the timer so a pane that closes first can cancel it.
+   */
+  const releaseAppliedRange = useCallback(() => {
+    const timer = window.setTimeout(() => {
+      applyingRangeRef.current = false;
+      rangeReleaseRef.current = rangeReleaseRef.current.filter((t) => t !== timer);
+    }, 0);
+    rangeReleaseRef.current.push(timer);
+  }, []);
 
   const registerIndicatorPane = useCallback((id: string, chart: IChartApi | null) => {
     if (!chart) {
@@ -526,23 +691,90 @@ export function CandleChart({
     chart.setCrosshairPosition(bar.close, (bar.openTime / 1000) as UTCTimestamp, series);
   }, []);
 
-  const legendFromIndex = useCallback((i: number): LegendBar | null => {
-    const list = candlesRef.current;
-    const c = list[i];
-    if (!c) return null;
-    const prevClose = i > 0 ? list[i - 1]!.close : c.open;
-    const chg = c.close - prevClose;
-    return {
-      open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
-      chg, chgPct: prevClose !== 0 ? (chg / prevClose) * 100 : 0,
-    };
+  /**
+   * The readout for one bar, taken from whichever series is actually drawn.
+   *
+   * `canonicalIndex` indexes the exchange candles and `displayIndex` the
+   * transform output; a caller supplies whichever it knows and this resolves
+   * the rest. The two are the same number for Heikin Ashi, which emits one bar
+   * per canonical bar, and unrelated for Renko, which emits bricks.
+   */
+  const buildLegend = useCallback(
+    (canonicalIndex: number, displayIndex: number): LegendBar | null => {
+      const kind = legendSource(mainKindRef.current);
+      const list = candlesRef.current;
+      if (kind === "canonical") {
+        const c = list[canonicalIndex];
+        if (!c) return null;
+        const prevClose = canonicalIndex > 0 ? list[canonicalIndex - 1]!.close : c.open;
+        const chg = c.close - prevClose;
+        return {
+          kind, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
+          chg, chgPct: prevClose !== 0 ? (chg / prevClose) * 100 : 0,
+        };
+      }
+      const display = displayRef.current;
+      const bar = display[displayIndex];
+      if (!bar) return null;
+      const prevClose = displayIndex > 0 ? display[displayIndex - 1]!.close : bar.open;
+      const chg = bar.close - prevClose;
+      const chgPct = prevClose !== 0 ? (chg / prevClose) * 100 : 0;
+      if (kind === "heikinAshi") {
+        // The body on screen, described by its own numbers — and the canonical
+        // traded volume, which the transform has not touched and must not
+        // pretend to have.
+        const canonical = list[canonicalIndex];
+        return {
+          kind, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+          volume: canonical ? canonical.volume : null, chg, chgPct,
+        };
+      }
+      // Renko. A brick has an open and a close and nothing else that a candle
+      // readout would name: its "high" and "low" are the same two numbers, it
+      // spans no period, and it has no volume. So the renderer is given the
+      // brick itself and prints a brick, not a fabricated OHLC row.
+      if (!isRenkoBrick(bar)) return null;
+      return {
+        kind, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+        volume: null, chg, chgPct,
+        brick: { direction: bar.direction, size: bar.size, sourceOpenTime: bar.sourceOpenTime },
+      };
+    }, []);
+
+  /** The drawn bar standing for a canonical bar, or -1 when there is none. */
+  const displayIndexFor = useCallback((canonicalIndex: number): number => {
+    const kind = legendSource(mainKindRef.current);
+    if (kind === "canonical") return -1;
+    if (kind === "heikinAshi") return canonicalIndex;
+    const candle = candlesRef.current[canonicalIndex];
+    if (!candle) return -1;
+    return snapToBarIndexBy(
+      displayRef.current, Math.floor(candle.openTime / 1000),
+      (bar) => Math.floor(canonicalOpenTime(bar) / 1000)
+    );
   }, []);
+
+  const legendAtCanonical = useCallback((i: number): LegendBar | null =>
+    buildLegend(i, displayIndexFor(i)), [buildLegend, displayIndexFor]);
+
+  /** The readout shown when the pointer is not on the plot: the newest bar. */
+  const latestLegend = useCallback((): LegendBar | null => {
+    const n = candlesRef.current.length;
+    if (n === 0) return null;
+    if (legendSource(mainKindRef.current) === "renkoBrick") {
+      const last = displayRef.current.length - 1;
+      return last < 0 ? null : buildLegend(n - 1, last);
+    }
+    return legendAtCanonical(n - 1);
+  }, [buildLegend, legendAtCanonical]);
 
   // Create the chart once.
   useEffect(() => {
     if (!containerRef.current) return;
     const overlayEntries = overlayRefs.current;
     const paneCharts = paneChartRefs.current;
+    const guard = createDisposalGuard();
+    disposalRef.current = guard;
     const chart = createChart(containerRef.current, baseChartOptions());
     const vol = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
@@ -556,41 +788,89 @@ export function CandleChart({
     });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
-    // OHLC legend follows the crosshair; off-chart it shows the latest bar.
+    /*
+     * The crosshair, and the one place a synthetic time could escape.
+     *
+     * `param.time` is a position on the axis the chart is currently drawing.
+     * For every presentation and for Heikin Ashi that axis is canonical
+     * exchange time and the value can be published as-is. For Renko it is a
+     * RENDERING time: bricks are anchored to the bar that completed them and
+     * stepped forward a second at a time when one bar completes several, so
+     * the number under the pointer is not a market timestamp and must never
+     * reach another pane, an indicator pane, or anything else that will treat
+     * it as one. What leaves here is `sourceOpenTime` — the canonical bar —
+     * or nothing at all.
+     */
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
-      const t = param.time as number | undefined;
-      hoverTimeRef.current = t ?? null;
-      setIndicatorHoverTime((current) => current === (t ?? null) ? current : (t ?? null));
-      // Tell the other pane where the pointer is. Guarded by a ref so the
-      // subscription does not have to be torn down when the callback changes.
-      onCrosshairRef.current?.(t ?? null);
-      if (t != null) {
-        const i = timeIndexRef.current.get(t);
-        if (i !== undefined) {
-          setLegend(legendFromIndex(i));
-          return;
-        }
+      if (guard.disposed) return;
+      // The library's own axis drag turns auto-fit off without telling anyone.
+      // Reading it back on pointer activity keeps the badge honest about what
+      // the scale is actually doing, rather than about what was last asked for.
+      reconcileScaleRef.current();
+      const raw = param.time as number | undefined;
+      const publish = (canonical: number | null): void => {
+        hoverTimeRef.current = canonical;
+        setIndicatorHoverTime((current) => current === canonical ? current : canonical);
+        // Guarded by a ref so the subscription does not have to be torn down
+        // when the callback changes.
+        onCrosshairRef.current?.(canonical);
+      };
+      if (raw == null) {
+        publish(null);
+        setLegend(latestLegend());
+        return;
       }
-      const n = candlesRef.current.length;
-      setLegend(n > 0 ? legendFromIndex(n - 1) : null);
+      if (chartTransform(mainKindRef.current) === "renko") {
+        const display = displayRef.current;
+        const brickIndex = snapToBarIndexBy(
+          display, raw, (bar) => Math.floor(bar.openTime / 1000));
+        const brick = brickIndex >= 0 ? display[brickIndex] : undefined;
+        const canonical = brick ? Math.floor(canonicalOpenTime(brick) / 1000) : null;
+        publish(canonical);
+        setLegend(brickIndex < 0 ? latestLegend() : buildLegend(
+          canonical === null ? -1
+            : snapToBarIndexBy(candlesRef.current, canonical,
+              (c) => Math.floor(c.openTime / 1000)),
+          brickIndex
+        ));
+        return;
+      }
+      publish(raw);
+      const i = timeIndexRef.current.get(raw);
+      setLegend(i === undefined ? latestLegend() : legendAtCanonical(i));
     });
 
     chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       // A range we just applied ourselves would otherwise bounce back to the
       // pane that sent it, and the two would chase each other.
+      if (guard.disposed) return;
       if (applyingRangeRef.current || syncingPaneRangeRef.current || !range) return;
       const from = range.from as number;
       const to = range.to as number;
-      if (Number.isFinite(from) && Number.isFinite(to)) {
-        onRangeRef.current?.({ from, to });
-        syncPaneRangesRef.current("price", { from, to });
+      if (!Number.isFinite(from) || !Number.isFinite(to)) return;
+      // A viewport the user has panned away from is no longer the shortcut's —
+      // but the library's own snap-to-bars on the way in is not a pan.
+      if (shortcutRangeRef.current !== null
+        && !sameViewport(shortcutRangeRef.current, { from, to })) {
+        shortcutRangeRef.current = null;
+        setActiveRange((current) => current === null ? current : null);
       }
+      publishRange({ from, to });
+      syncPaneRangesRef.current("price", { from, to });
     });
 
     chartRef.current = chart;
     volRef.current = vol;
     setChartCreated((n) => n + 1);
     return () => {
+      // Nothing that was already in flight — a queued frame, a pending
+      // release timer, a crosshair event mid-delivery — may run against the
+      // chart after this line.
+      guard.dispose();
+      for (const timer of rangeReleaseRef.current) window.clearTimeout(timer);
+      rangeReleaseRef.current = [];
+      applyingRangeRef.current = false;
+      publishedRangeRef.current = null;
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -648,7 +928,6 @@ export function CandleChart({
     candlesRef.current = [...candles];
     barColorRef.current = nextColors;
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
-    setLegend(candles.length > 0 ? legendFromIndex(candles.length - 1) : null);
     const kind = mainKindRef.current;
     const transform = chartTransform(kind);
     const candleDatum = (c: Candle) =>
@@ -713,16 +992,38 @@ export function CandleChart({
       }
       displayRef.current = display;
     }
+    // Refreshed only now: a transform's legend reads the bars it just drew,
+    // so it cannot be computed before `displayRef` has been brought up to date.
+    setLegend(latestLegend());
     if (datasetKeyRef.current !== datasetKey) {
       datasetKeyRef.current = datasetKey;
       chartRef.current?.timeScale().fitContent();
+      shortcutRangeRef.current = null;
+      setActiveRange(null);
     }
-  }, [candles, symbol, interval, legendFromIndex, barColors, chartReady]);
+  }, [candles, symbol, interval, latestLegend, barColors, chartReady]);
+
+  /**
+   * Whether anything anchored to a canonical timestamp can be drawn on this
+   * presentation at all. False under Renko — see `lib/chartType`.
+   */
+  const timeAnchored = timeAnchoredVisualsTruthful(chartType);
 
   // Markers update independently: adding an indicator must not reset zoom.
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
+    /*
+     * Renko draws no markers at all.
+     *
+     * A marker is placed at a canonical bar time. The Renko axis is brick
+     * positions, so the library would pin every marker to whichever brick
+     * happens to sit nearest that number — a BUY arrow under a brick the trade
+     * has no relationship with, which reads as evidence and is not. Nothing is
+     * changed about the trades or the script output; they are simply not drawn
+     * here. Every other presentation, Heikin Ashi included, keeps them.
+     */
+    if (!timeAnchored) { series.setMarkers([]); return; }
 
     // Entry/exit markers only: BUY at the fill, and the exit reason (TP / SL /
     // whatever the strategy named it) at the close. Nothing else is marked.
@@ -774,7 +1075,7 @@ export function CandleChart({
     } else {
       series.setMarkers([]);
     }
-  }, [candles, trades, markers, chartReady]);
+  }, [candles, trades, markers, chartReady, timeAnchored]);
 
   // Live stop / target / entry levels for a running position.
   useEffect(() => {
@@ -840,6 +1141,19 @@ export function CandleChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    /*
+     * Script plots are time series and Renko has no time axis, so under Renko
+     * the price overlays are removed rather than redrawn at brick positions.
+     * The scripts still run and their output is untouched; this is a decision
+     * about what may be drawn on top of bricks.
+     */
+    if (!timeAnchored) {
+      for (const [id, entry] of overlayRefs.current) {
+        chart.removeSeries(entry.api);
+        overlayRefs.current.delete(id);
+      }
+      return;
+    }
     // Clip to the loaded candle window, so a script run over more history than
     // the chart holds doesn't stretch the time scale past the candles.
     const first = candles[0] ? candles[0].openTime / 1000 : -Infinity;
@@ -942,7 +1256,7 @@ export function CandleChart({
       if (plan === "replace") replaceOverlayData(entry, points);
       else if (plan === "update") updateOverlayData(entry, points[points.length - 1]!);
     }
-  }, [groupedOverlays.price, chartReady, candles, compact]);
+  }, [groupedOverlays.price, chartReady, candles, compact, timeAnchored]);
 
   const pinePriceToCoordinate = useCallback((overlayId: string, value: number): number | null => {
     const entry = overlayRefs.current.get(overlayId);
@@ -1038,9 +1352,10 @@ export function CandleChart({
       }
 
       const hover = hoverTimeRef.current;
-      if (hover === null || hover === timeSec) {
+      if (hover === null) setLegend(latestLegend());
+      else if (hover === timeSec) {
         const i = timeIndexRef.current.get(timeSec);
-        if (i !== undefined) setLegend(legendFromIndex(i));
+        if (i !== undefined) setLegend(legendAtCanonical(i));
       }
     };
 
@@ -1052,7 +1367,7 @@ export function CandleChart({
       release();
       setFeedState("idle");
     };
-  }, [symbol, interval, live, legendFromIndex]);
+  }, [symbol, interval, live, latestLegend, legendAtCanonical]);
 
   /**
    * Mirror another pane's crosshair.
@@ -1073,6 +1388,25 @@ export function CandleChart({
       chart.clearCrosshairPosition();
       return;
     }
+    const transform = chartTransform(chartType);
+    if (transform === "renko") {
+      /*
+       * The incoming time is canonical, because that is the only kind this
+       * chart ever publishes. It is mapped onto the LAST brick that canonical
+       * bar completed — through `canonicalOpenTime`, never by comparing the
+       * brick's own rendering time with another pane's market timestamps. A
+       * moment that completed no brick draws nothing, which is the same
+       * "no bar here" answer a pane on another instrument gives.
+       */
+      const display = displayRef.current;
+      const brickIndex = snapToBarIndexBy(
+        display, crosshairTime, (bar) => Math.floor(canonicalOpenTime(bar) / 1000));
+      if (brickIndex < 0) { chart.clearCrosshairPosition(); return; }
+      const brick = display[brickIndex]!;
+      chart.setCrosshairPosition(
+        brick.close, Math.floor(brick.openTime / 1000) as UTCTimestamp, series);
+      return;
+    }
     const list = candlesRef.current;
     if (list.length === 0) return;
 
@@ -1080,8 +1414,16 @@ export function CandleChart({
     if (found < 0) { chart.clearCrosshairPosition(); return; }
 
     const bar = list[found]!;
-    chart.setCrosshairPosition(bar.close, Math.floor(bar.openTime / 1000) as UTCTimestamp, series);
-  }, [crosshairTime, chartReady]);
+    // Heikin Ashi keeps one bar per canonical timestamp, so the time is the
+    // canonical one; the PRICE the crosshair is anchored at is the drawn bar's,
+    // so the readout describes the body on screen rather than one that is not.
+    const drawn = transform === "heikinAshi" ? displayRef.current[found] : undefined;
+    chart.setCrosshairPosition(
+      drawn ? drawn.close : bar.close,
+      Math.floor(bar.openTime / 1000) as UTCTimestamp,
+      series
+    );
+  }, [crosshairTime, chartReady, chartType]);
 
   /** Adopt the other pane's exact visible span (date-range sync). */
   useEffect(() => {
@@ -1097,9 +1439,9 @@ export function CandleChart({
       // Outside this pane's loaded history — leave the range where it is.
     } finally {
       // Cleared after the library has emitted its own change event.
-      setTimeout(() => { applyingRangeRef.current = false; }, 0);
+      releaseAppliedRange();
     }
-  }, [visibleRange, chartReady]);
+  }, [visibleRange, chartReady, releaseAppliedRange]);
 
   /**
    * Time sync: keep this pane's right edge at the other's latest visible bar
@@ -1123,62 +1465,196 @@ export function CandleChart({
     } catch {
       // Ignore ranges this pane cannot show.
     } finally {
-      setTimeout(() => { applyingRangeRef.current = false; }, 0);
+      releaseAppliedRange();
     }
-  }, [followEdgeTime, visibleRange, chartReady]);
+  }, [followEdgeTime, visibleRange, chartReady, releaseAppliedRange]);
 
   /*
    * The panes are horizontally locked to the price chart, so only the bottom
    * one needs an axis. Repeating it under every pane cost a row of pixels each
    * and drew the same numbers three times; TradingView draws it once.
    */
-  const hasPanes = groupedOverlays.panes.length > 0;
+  // ── the indicator pane stack ─────────────────────────────────────────────
+
+  /*
+   * Renko takes the stack down with the rest of the time-anchored layers.
+   *
+   * An oscillator pane is a second chart on canonical time, locked to this
+   * one's viewport. Under a brick axis the two are not the same axis, and a
+   * stack of studies drawn beneath bricks they were not computed from is the
+   * clearest possible statement of an alignment that does not exist. The
+   * studies are untouched and return on any other presentation.
+   */
+  const stackAvailable = timeAnchored;
+  const paneIds = useMemo(
+    () => groupedOverlays.panes.map((pane) => pane.id), [groupedOverlays.panes]);
   useEffect(() => {
-    chartRef.current?.timeScale().applyOptions({ visible: !hasPanes });
-  }, [hasPanes, chartCreated]);
+    // Returns the same object when nothing moved, so this cannot loop.
+    setPaneLayout((current) => reconcilePaneLayout(current, paneIds));
+  }, [paneIds]);
+  const stackPanes = useMemo(
+    () => orderedPanes(paneLayout, groupedOverlays.panes),
+    [paneLayout, groupedOverlays.panes]);
+  const maximizedPaneId = stackAvailable ? paneLayout.maximizedId : null;
+  const hasPanes = stackAvailable && stackPanes.length > 0;
+  /** The price chart gives up the column while a study is maximised. */
+  const priceHidden = hasPanes && maximizedPaneId !== null;
+  /** Collapsed here means "showing only its header", for whichever reason. */
+  const paneCollapsed = useCallback((paneId: string): boolean =>
+    isPaneCollapsed(paneLayout, paneId)
+    || (maximizedPaneId !== null && paneId !== maximizedPaneId),
+    [paneLayout, maximizedPaneId]);
+  /*
+   * The time axis is drawn exactly once, under the lowest pane that is
+   * actually showing a plot. A collapsed pane cannot carry it — the axis would
+   * be behind the header — and when every pane is collapsed the axis goes back
+   * to the price chart, which is the only thing left with a plot.
+   */
+  const axisPaneId = hasPanes
+    ? (maximizedPaneId
+      ?? [...stackPanes].reverse().find((pane) => !paneCollapsed(pane.id))?.id
+      ?? null)
+    : null;
+
+  const togglePaneCollapse = useCallback((paneId: string) => {
+    setPaneLayout((current) => togglePaneCollapsed(current, paneId));
+  }, []);
+  const togglePaneMaximize = useCallback((paneId: string) => {
+    setPaneLayout((current) => togglePaneMaximized(current, paneId));
+  }, []);
+  const moveIndicatorPane = useCallback((paneId: string, direction: -1 | 1) => {
+    setPaneLayout((current) => movePane(current, paneId, direction));
+  }, []);
+  const resizeIndicatorPane = useCallback((paneId: string, height: number) => {
+    setPaneLayout((current) => setPaneHeight(current, paneId, height));
+  }, []);
+
+  /*
+   * A hidden container measures 0 x 0, and a live chart that is told so throws
+   * inside the library's own resize path. Measurement is switched off in the
+   * same commit that hides the price chart, which is strictly before the
+   * browser delivers the resize — see `lib/chartLifecycle`.
+   */
+  useChartMeasuring(chartRef, !priceHidden);
+
+  useEffect(() => {
+    chartRef.current?.timeScale().applyOptions({ visible: axisPaneId === null });
+  }, [axisPaneId, chartCreated]);
+
+  // ── the bottom range bar ─────────────────────────────────────────────────
+
+  /**
+   * The window this pane actually holds — under replay, already clipped to the
+   * horizon, because `candles` is what the pane is drawing and nothing here
+   * consults a clock.
+   */
+  const window_: LoadedWindow | null = useMemo(
+    () => loadedWindow(candles, INTERVAL_MS[interval]), [candles, interval]);
+  const shortcuts = useMemo(
+    () => (window_ ? availableRangeShortcuts(window_) : []), [window_]);
+  /*
+   * Ranges are a statement about a time axis, and Renko does not have one, so
+   * the shortcuts go with the rest of the time-anchored layers. The price
+   * scale is a different question — it is about price, which every
+   * presentation has — so the bar itself stays.
+   */
+  const showRanges = timeAnchored && shortcuts.length > 0;
+  /*
+   * Below `large` density there is no room: a pane at 480x250 in a 4x4
+   * workspace would spend a tenth of its height on chrome. The library's own
+   * axis drag and double-click-to-reset still work on those panes, and
+   * maximising one brings the bar back.
+   */
+  const showBottomBar = !compact;
+
+  const applyRangeShortcut = useCallback((id: RangeShortcutId) => {
+    const chart = chartRef.current;
+    if (!chart || !window_) return;
+    const resolved = resolveRangeShortcut(id, window_);
+    if (!resolved) return;
+    setActiveRange(id);
+    shortcutRangeRef.current = resolved;
+    try {
+      chart.timeScale().setVisibleRange({
+        from: resolved.from as UTCTimestamp, to: resolved.to as UTCTimestamp,
+      });
+    } catch {
+      // The pane cannot show this window after all; leave the viewport alone.
+      shortcutRangeRef.current = null;
+      setActiveRange(null);
+    }
+  }, [window_]);
+
+  /*
+   * A clock, only while there is somewhere to put it. UTC, because that is
+   * what the chart's own axis has always been — see `lib/chartClock`.
+   */
+  useEffect(() => {
+    if (!showBottomBar) { setClock(null); return; }
+    const tick = (): void => setClock(fmtChartClock(Date.now()));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [showBottomBar]);
 
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
   const px = up ? "text-up" : "text-down";
+  const legendLabel = legend?.kind === "heikinAshi" ? "HA"
+    : legend?.kind === "renkoBrick" ? "Brick" : null;
 
   return (
     <div className={`flex ${fill ? "h-full" : "h-[520px]"} w-full flex-col overflow-hidden`}>
-      <div className="relative min-h-0 flex-1 bg-surface">
+      <div
+        className={`relative bg-surface ${priceHidden ? "hidden" : "min-h-0 flex-1"}`}
+        {...(priceHidden ? { "aria-hidden": true } : {})}
+      >
       <div ref={containerRef} className="absolute inset-0 z-[1]" />
-      <PineVisualLayer
-        container={containerRef.current}
-        chart={chartRef.current}
-        overlays={groupedOverlays.price}
-        decorations={groupedOverlays.priceDecorations}
-        priceToCoordinate={pinePriceToCoordinate}
-      />
-      {/* Script drawings sit under the user's own drawing layer, so the
-          user's tools keep priority for clicks and hit-testing. */}
-      <PineDrawingLayer
-        key={chartReady}
-        container={containerRef.current}
-        chart={chartRef.current}
-        series={seriesRef.current}
-        candles={candles}
-        drawings={pineDrawings ?? null}
-      />
-      <PineTables drawings={pineDrawings ?? null} />
-      {drawings && onDrawingsChange && (
-        <DrawingCanvas
-          key={chartReady}
-          container={containerRef.current}
-          chart={chartRef.current}
-          series={seriesRef.current}
-          candles={candles}
-          interval={interval}
-          tool={drawingTool}
-          onToolDone={onDrawingToolDone ?? (() => {})}
-          drawings={drawings}
-          onChange={onDrawingsChange}
-          magnet={magnet}
-          locked={drawingsLocked}
-          hidden={drawingsHidden}
-        />
+      {/*
+        Everything below is anchored to a canonical bar time, and under Renko
+        none of it is drawn — the bricks are not those bars. See
+        `timeAnchoredVisualsTruthful` in `lib/chartType`. Nothing is deleted or
+        recomputed: the drawings stay in their per-symbol store, the scripts
+        keep their output, and all of it returns on any other chart type.
+      */}
+      {timeAnchored && !priceHidden && (
+        <>
+          <PineVisualLayer
+            container={containerRef.current}
+            chart={chartRef.current}
+            overlays={groupedOverlays.price}
+            decorations={groupedOverlays.priceDecorations}
+            priceToCoordinate={pinePriceToCoordinate}
+          />
+          {/* Script drawings sit under the user's own drawing layer, so the
+              user's tools keep priority for clicks and hit-testing. */}
+          <PineDrawingLayer
+            key={chartReady}
+            container={containerRef.current}
+            chart={chartRef.current}
+            series={seriesRef.current}
+            candles={candles}
+            drawings={pineDrawings ?? null}
+          />
+          <PineTables drawings={pineDrawings ?? null} />
+          {drawings && onDrawingsChange && (
+            <DrawingCanvas
+              key={chartReady}
+              container={containerRef.current}
+              chart={chartRef.current}
+              series={seriesRef.current}
+              candles={candles}
+              interval={interval}
+              tool={drawingTool}
+              onToolDone={onDrawingToolDone ?? (() => {})}
+              drawings={drawings}
+              onChange={onDrawingsChange}
+              magnet={magnet}
+              locked={drawingsLocked}
+              hidden={drawingsHidden}
+            />
+          )}
+        </>
       )}
       {/*
         One stacked column, not two independently positioned overlays. The OHLC
@@ -1210,17 +1686,58 @@ export function CandleChart({
         <div className="flex flex-wrap items-baseline gap-x-2 rounded bg-surface/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-ink-muted sm:text-[11px]">
           <span className="font-semibold text-ink">{symbol}</span>
           <span>· {interval} ·</span>
-          {/* O/H/L and volume are the first things to go on a phone: the close
-              and the change are what the eye actually reads at a glance. */}
-          <span className="hidden sm:inline">O <span className={px}>{fmtPrice(legend.open)}</span></span>
-          <span className="hidden sm:inline">H <span className={px}>{fmtPrice(legend.high)}</span></span>
-          <span className="hidden sm:inline">L <span className={px}>{fmtPrice(legend.low)}</span></span>
-          <span>C <span className={px}>{fmtPrice(legend.close)}</span></span>
-          <span className={chgUp ? "text-up" : "text-down"}>
-            {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
-          </span>
-          {legend.volume !== null && (
-            <span className="hidden xl:inline">Vol <span className="text-ink">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
+          {/*
+            The readout names its own source whenever it is not the exchange's
+            candles. Without it "O 843.11" beside a Heikin-Ashi body is a
+            price the instrument never traded, presented in the place a user
+            reads traded prices from.
+          */}
+          {legendLabel && (
+            <span
+              className="rounded border border-warn/40 px-1 text-warn"
+              title={SYNTHETIC_DISCLOSURE_HINT}
+            >
+              {legendLabel}
+              <span className="sr-only"> — displayed values, not exchange prices</span>
+            </span>
+          )}
+          {legend.kind === "renkoBrick" && legend.brick ? (
+            <>
+              {/*
+                A brick, described as a brick. It has an open and a close and a
+                size, it spans no period, and it has neither a high and a low
+                that differ from those two nor a volume — so no O/H/L/C row is
+                printed. The time shown is the CANONICAL bar whose close
+                completed it, which is the only timestamp a brick has that
+                means anything off this chart.
+              */}
+              <span className={legend.brick.direction > 0 ? "text-up" : "text-down"}>
+                {legend.brick.direction > 0 ? "▲" : "▼"} {fmtPrice(legend.open)} → {fmtPrice(legend.close)}
+              </span>
+              <span className="hidden sm:inline">
+                size <span className="text-ink">{fmtPrice(legend.brick.size)}</span>
+              </span>
+              <span className="hidden lg:inline">
+                from <span className="text-ink">
+                  {fmtChartBarTime(legend.brick.sourceOpenTime, INTERVAL_MS[interval])}
+                </span> {CHART_TIME_ZONE}
+              </span>
+            </>
+          ) : (
+            <>
+              {/* O/H/L and volume are the first things to go on a phone: the close
+                  and the change are what the eye actually reads at a glance. */}
+              <span className="hidden sm:inline">O <span className={px}>{fmtPrice(legend.open)}</span></span>
+              <span className="hidden sm:inline">H <span className={px}>{fmtPrice(legend.high)}</span></span>
+              <span className="hidden sm:inline">L <span className={px}>{fmtPrice(legend.low)}</span></span>
+              <span>C <span className={px}>{fmtPrice(legend.close)}</span></span>
+              <span className={chgUp ? "text-up" : "text-down"}>
+                {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
+              </span>
+              {legend.volume !== null && (
+                <span className="hidden xl:inline">Vol <span className="text-ink">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1232,12 +1749,28 @@ export function CandleChart({
         chevron brings the values back. The moving-average panel carries the
         same numbers in a form built to be read.
       */}
-      <IndicatorLegend
-        overlays={groupedOverlays.price}
-        time={indicatorHoverTime}
-        startCollapsed={compact || groupedOverlays.price.length > 6}
-        className="max-w-full rounded bg-surface/75 px-1 py-0.5"
-      />
+      {timeAnchored ? (
+        <IndicatorLegend
+          overlays={groupedOverlays.price}
+          time={indicatorHoverTime}
+          startCollapsed={compact || groupedOverlays.price.length > 6}
+          className="max-w-full rounded bg-surface/75 px-1 py-0.5"
+        />
+      ) : (groupedOverlays.price.length > 0 || groupedOverlays.panes.length > 0
+        || (markers?.length ?? 0) > 0 || (trades?.length ?? 0) > 0
+        || (drawings?.length ?? 0) > 0) && (
+        /*
+          Said out loud, not silently done. A user who has applied three
+          studies and then switched to Renko must be able to see that the
+          studies are still applied and are deliberately not drawn, rather
+          than conclude the chart lost them.
+        */
+        <div className="max-w-full rounded border border-warn/30 bg-surface/90 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-ink-muted">
+          Time-anchored layers hidden
+          <span className="hidden md:inline"> — {RENKO_ALIGNMENT_NOTE}</span>
+          <span className="sr-only md:hidden"> — {RENKO_ALIGNMENT_NOTE}</span>
+        </div>
+      )}
       </div>
       {/*
         FE-09: the feed's real state, next to the price it is supposed to be
@@ -1257,26 +1790,150 @@ export function CandleChart({
         </div>
       )}
       </div>
-      {groupedOverlays.panes.length > 0 && (
-        <div className="max-h-[38%] shrink-0 overflow-y-auto bg-surface">
-          {groupedOverlays.panes.map((pane, index) => (
-            <IndicatorPane
-              key={pane.id}
-              id={pane.id}
-              title={pane.title}
-              params={pane.params}
-              overlays={pane.overlays}
-              decorations={pane.decorations}
-              hoverTime={indicatorHoverTime}
-              onHover={indicatorPaneHover}
-              onReady={registerIndicatorPane}
-              onRangeChange={indicatorPaneRange}
-              onAction={onIndicatorPaneAction}
-              defaultHeight={defaultPaneHeight(groupedOverlays.panes.length)}
-              showTimeAxis={index === groupedOverlays.panes.length - 1}
-              compact={compact}
-            />
-          ))}
+      {hasPanes && (
+        /*
+          Normally a capped strip under the chart; while one study is maximised
+          it takes the column, and the panes that are not maximised drop to
+          their header. Nothing is unmounted either way, so every study keeps
+          its configuration, its series and its place in the stack, and
+          restoring is one field back.
+        */
+        <div className={`shrink-0 bg-surface ${
+          maximizedPaneId === null
+            ? "max-h-[38%] overflow-y-auto"
+            : "flex min-h-0 flex-1 flex-col overflow-hidden"
+        }`}>
+          {stackPanes.map((pane) => {
+            const maximized = isPaneMaximized(paneLayout, pane.id);
+            // While a study is maximised, the rest of the stack is its header
+            // row: still there, still ordered, still one click from coming back.
+            const collapsed = paneCollapsed(pane.id);
+            return (
+              <IndicatorPane
+                key={pane.id}
+                id={pane.id}
+                title={pane.title}
+                params={pane.params}
+                overlays={pane.overlays}
+                decorations={pane.decorations}
+                hoverTime={indicatorHoverTime}
+                onHover={indicatorPaneHover}
+                onReady={registerIndicatorPane}
+                onRangeChange={indicatorPaneRange}
+                onAction={onIndicatorPaneAction}
+                collapsed={collapsed}
+                onToggleCollapsed={togglePaneCollapse}
+                maximized={maximized}
+                canMaximize
+                onToggleMaximized={togglePaneMaximize}
+                canMoveUp={canMovePane(paneLayout, pane.id, -1)}
+                canMoveDown={canMovePane(paneLayout, pane.id, 1)}
+                onMove={moveIndicatorPane}
+                height={collapsed
+                  ? COLLAPSED_PANE_HEIGHT
+                  : paneHeight(paneLayout, pane.id, defaultPaneHeight(stackPanes.length))}
+                fill={maximized}
+                onHeightChange={resizeIndicatorPane}
+                defaultHeight={defaultPaneHeight(stackPanes.length)}
+                showTimeAxis={pane.id === axisPaneId}
+                compact={compact}
+              />
+            );
+          })}
+        </div>
+      )}
+      {showBottomBar && (
+        /*
+          The range bar, on the pane it acts on.
+
+          Each shortcut is a VIEWPORT, never a timeframe — `1D` on a 5-minute
+          chart shows one day of five-minute bars. Only the ranges this pane's
+          loaded history can actually fill are offered, so a button never
+          scrolls to an empty window and presents it as a quiet market; and the
+          window always ends at the newest bar the pane holds, which under Bar
+          Replay is the horizon, so no shortcut can reveal a hidden bar.
+        */
+        <div className="flex shrink-0 items-center gap-1 border-t border-border bg-surface px-1.5 py-0.5">
+          {showRanges && (
+          <div role="group" aria-label="Visible range" className="flex items-center gap-0.5">
+            {shortcuts.map((shortcut) => (
+              <button
+                key={shortcut.id}
+                type="button"
+                onClick={() => applyRangeShortcut(shortcut.id)}
+                aria-pressed={activeRange === shortcut.id}
+                title={`${shortcut.hint} — the visible range only; the timeframe stays ${interval}`}
+                className={`rounded px-1.5 py-0.5 font-mono text-[10px] leading-4 transition-colors ${
+                  activeRange === shortcut.id
+                    ? "bg-surface-2 font-semibold text-ink"
+                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                }`}
+              >
+                {shortcut.label}
+              </button>
+            ))}
+          </div>
+          )}
+          <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] leading-4 text-ink-faint">
+            {/*
+              The clock names the zone the axis beside it is already in. It is
+              a label on an existing authority, not a new one: lightweight-
+              charts formats from the UTC fields of the timestamp and Binance
+              stamps its klines in UTC. See `lib/chartClock`.
+            */}
+            {clock !== null && (
+              <span className="hidden lg:inline" title={CHART_TIME_ZONE_NOTE}>
+                {clock} {CHART_TIME_ZONE}
+                <span className="sr-only"> — {CHART_TIME_ZONE_NOTE}</span>
+              </span>
+            )}
+            {/*
+              The price scale — the one control on this bar that is not about
+              time. Its current mode is always identifiable: a chart on a
+              logarithmic axis that does not say so is a chart whose shape is
+              lying about the moves on it.
+            */}
+            <span
+              role="group"
+              aria-label={`Price scale — ${priceScaleLabel(scale)}`}
+              className="flex items-center gap-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => applyScale(togglePriceScaleMode(scale))}
+                aria-pressed={scale.mode === "logarithmic"}
+                title="Logarithmic price scale — equal percentage moves take equal vertical space"
+                className={`rounded px-1.5 py-0.5 transition-colors ${
+                  scale.mode === "logarithmic"
+                    ? "bg-surface-2 font-semibold text-ink"
+                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                }`}
+              >
+                log
+              </button>
+              <button
+                type="button"
+                onClick={() => applyScale(togglePriceScaleAuto(scale))}
+                aria-pressed={scale.autoScale}
+                title="Auto-fit the price scale to the bars in view"
+                className={`rounded px-1.5 py-0.5 transition-colors ${
+                  scale.autoScale
+                    ? "bg-surface-2 font-semibold text-ink"
+                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                }`}
+              >
+                auto
+              </button>
+              <button
+                type="button"
+                onClick={resetView}
+                title="Reset — fit every loaded bar and return the price scale to linear auto"
+                className="rounded px-1.5 py-0.5 text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
+              >
+                reset
+              </button>
+            </span>
+          </span>
         </div>
       )}
     </div>

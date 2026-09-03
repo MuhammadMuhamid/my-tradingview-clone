@@ -155,9 +155,14 @@ test("an oscillator pane spends no height on a header row", () => {
    * bar that would cost every pane ~20px of the oscillator it exists to show.
    */
   const pane = fs.readFileSync(path.join(ROOT, "components", "tv", "IndicatorPane.tsx"), "utf8");
-  assert.match(pane, /absolute left-2 top-1 z-10/, "the pane's control row is no longer overlaid");
+  // The z-index moved above the collapsed-pane cover; the position, which is
+  // what this test is about, is unchanged.
+  assert.match(pane, /absolute left-2 top-1 z-\[?\d/, "the pane's control row is no longer overlaid");
   assert.match(pane, /group-hover\/pane:opacity-100/, "the controls are always-on, or gone");
   for (const action of ["hide", "settings", "remove"]) {
     assert.match(pane, new RegExp(`"${action}"`), `the pane cannot ${action} its indicator`);
   }
+  // The collapse, move and maximise controls added later share that same
+  // overlaid row rather than earning one of their own.
+  assert.equal((pane.match(/absolute left-2 top-1 z-/g) ?? []).length, 1);
 });

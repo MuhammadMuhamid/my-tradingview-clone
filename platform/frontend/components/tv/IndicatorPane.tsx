@@ -10,7 +10,8 @@ import {
   planSeriesMutation, plotValueAt, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { baseChartOptions } from "@/lib/chartTheme";
-import { useDetachChartObserver } from "@/lib/chartLifecycle";
+import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
+import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicatorPaneLayout";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 
@@ -20,9 +21,6 @@ type SeriesEntry =
   | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] }
   | { kind: "Candlestick"; api: ISeriesApi<"Candlestick">; data: ChartPoint[] }
   | { kind: "Bar"; api: ISeriesApi<"Bar">; data: ChartPoint[] };
-
-const MIN_HEIGHT = 72;
-const MAX_HEIGHT = 360;
 
 function seriesKind(overlay: ChartOverlay): SeriesEntry["kind"] {
   if (overlay.style === "histogram" || overlay.style === "columns") return "Histogram";
@@ -114,6 +112,10 @@ export type PaneAction = "hide" | "settings" | "remove";
 export function IndicatorPane({
   id, title, params, overlays, decorations, hoverTime, onHover, onReady, onRangeChange,
   onAction,
+  collapsed = false, onToggleCollapsed,
+  maximized = false, canMaximize = false, onToggleMaximized,
+  canMoveUp = false, canMoveDown = false, onMove,
+  height: controlledHeight, fill = false, onHeightChange,
   showTimeAxis = true,
   defaultHeight = 144,
   compact = false,
@@ -133,6 +135,33 @@ export function IndicatorPane({
    * split-view panes want.
    */
   onAction?: (paneId: string, action: PaneAction) => void;
+  /**
+   * Show only the header, keeping the pane in the stack.
+   *
+   * The chart is NOT torn down — the section keeps a small non-zero height and
+   * the header is painted over it. A collapsed pane whose container went to
+   * 0 x 0 would take the library's own resize path down with it; see
+   * `lib/chartLifecycle`.
+   */
+  collapsed?: boolean;
+  onToggleCollapsed?: (paneId: string) => void;
+  /** This pane currently has the whole chart column. */
+  maximized?: boolean;
+  /** False when maximising would mean nothing — a single, uncollapsed pane. */
+  canMaximize?: boolean;
+  onToggleMaximized?: (paneId: string) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMove?: (paneId: string, direction: -1 | 1) => void;
+  /**
+   * The pane's height in pixels. Owned by the chart rather than by this
+   * component so that a pane which unmounts — a presentation change, a study
+   * removed and re-added — comes back the size the user left it.
+   */
+  height?: number;
+  /** Take the remaining column height instead of a fixed one (maximised). */
+  fill?: boolean;
+  onHeightChange?: (paneId: string, height: number) => void;
   /**
    * Draw the time axis under this pane. Only the bottom-most pane does: the
    * panes are horizontally locked to the price chart, so repeating the same
@@ -158,12 +187,17 @@ export function IndicatorPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef(new Map<string, SeriesEntry>());
-  const [height, setHeight] = useState(defaultHeight);
-  /** Once the user drags the handle, the pane count stops moving the height. */
+  /**
+   * The chart normally supplies the height. The local fallback keeps this
+   * component usable on its own, and stops the pane count moving a height the
+   * user has dragged.
+   */
+  const [ownHeight, setOwnHeight] = useState(defaultHeight);
   const resizedRef = useRef(false);
   useEffect(() => {
-    if (!resizedRef.current) setHeight(defaultHeight);
+    if (!resizedRef.current) setOwnHeight(defaultHeight);
   }, [defaultHeight]);
+  const height = controlledHeight ?? ownHeight;
   const [ready, setReady] = useState(0);
   const onHoverRef = useRef(onHover);
   onHoverRef.current = onHover;
@@ -183,9 +217,13 @@ export function IndicatorPane({
       rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top: 0.12, bottom: 0.12 } },
       timeScale: { ...base.timeScale, visible: showTimeAxisRef.current },
     });
-    const crosshair = (param: { time?: Time }): void =>
+    const guard = createDisposalGuard();
+    const crosshair = (param: { time?: Time }): void => {
+      if (guard.disposed) return;
       onHoverRef.current(typeof param.time === "number" ? param.time : null);
+    };
     const range = (next: { from: Time; to: Time } | null): void => {
+      if (guard.disposed) return;
       if (!next || typeof next.from !== "number" || typeof next.to !== "number") return;
       /*
        * A pane that holds no points yet must not move anybody else.
@@ -214,6 +252,8 @@ export function IndicatorPane({
     onReady(id, chart);
     setReady((value) => value + 1);
     return () => {
+      // Nothing already in flight may reach the workspace after this point.
+      guard.dispose();
       onReady(id, null);
       chart.unsubscribeCrosshairMove(crosshair);
       chart.timeScale().unsubscribeVisibleTimeRangeChange(range);
@@ -346,20 +386,27 @@ export function IndicatorPane({
     resizedRef.current = true;
     const startY = event.clientY;
     const startHeight = height;
-    const move = (next: PointerEvent): void =>
-      setHeight(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, startHeight - (next.clientY - startY))));
+    const move = (next: PointerEvent): void => {
+      const value = clampPaneHeight(startHeight - (next.clientY - startY));
+      setOwnHeight(value);
+      onHeightChange?.(id, value);
+    };
     const stop = (): void => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
-  }, [height]);
+  }, [height, id, onHeightChange]);
+
+  const resizable = !collapsed && !fill;
 
   return (
     <section
-      className="group/pane relative shrink-0 border-t border-border bg-surface"
-      style={{ height }}
+      className={`group/pane relative border-t border-border bg-surface ${
+        fill ? "min-h-0 flex-1" : "shrink-0"
+      }`}
+      style={fill ? undefined : { height }}
       aria-label={`${title} indicator pane`}
     >
       {/*
@@ -367,57 +414,118 @@ export function IndicatorPane({
         A pane is 96–360px tall; spending 20 of them on a bar whose only job is
         to be draggable is 20 pixels of oscillator the user came here to read.
       */}
-      <button
-        type="button"
-        aria-label={`Resize ${title} pane`}
-        title="Drag to resize pane"
-        onPointerDown={beginResize}
-        className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent hover:bg-accent/25 focus-visible:bg-accent/30"
-      />
+      {resizable && (
+        <button
+          type="button"
+          aria-label={`Resize ${title} pane`}
+          title={`Drag to resize pane (${MIN_PANE_HEIGHT}–${MAX_PANE_HEIGHT}px)`}
+          onPointerDown={beginResize}
+          className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent hover:bg-accent/25 focus-visible:bg-accent/30"
+        />
+      )}
       <div ref={containerRef} className="absolute inset-0 z-[1]" />
-      <PineVisualLayer
-        container={containerRef.current}
-        chart={chartRef.current}
-        overlays={overlays}
-        decorations={decorations}
-        priceToCoordinate={priceToCoordinate}
-      />
+      {/*
+        Collapsed panes keep their chart: it is squashed to the header's own
+        height, which is small but never zero, and covered. Unmounting it here
+        would take the container out from under a live chart mid-commit — the
+        crash `lib/chartLifecycle` exists to prevent — and recreating it on
+        expand would lose the series the study has already drawn.
+      */}
+      {collapsed && <div className="absolute inset-0 z-[2] bg-surface" />}
+      {!collapsed && (
+        <PineVisualLayer
+          container={containerRef.current}
+          chart={chartRef.current}
+          overlays={overlays}
+          decorations={decorations}
+          priceToCoordinate={priceToCoordinate}
+        />
+      )}
       {/*
         Legend and controls share one overlaid row, the way TradingView does it:
         the pane's identity and its actions are in the same place, and neither
         costs the pane any height.
       */}
-      <div className="absolute left-2 top-1 z-10 flex max-w-[calc(100%-64px)] items-start gap-1">
+      <div className="absolute left-2 top-1 z-[3] flex max-w-[calc(100%-16px)] items-start gap-1">
         <IndicatorLegend
           overlays={overlays}
-          time={hoverTime}
+          time={collapsed ? null : hoverTime}
           title={title}
-          collapsible={compact}
-          startCollapsed={compact}
+          collapsible={compact || collapsed}
+          startCollapsed={compact || collapsed}
           className="min-w-0 rounded bg-surface/80 px-1.5 py-0.5"
         />
-        {onAction && (
-          <span className="flex shrink-0 items-center gap-0.5 rounded bg-surface/85 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
+        {/*
+          Every control here does something to THIS pane, and each is a real
+          button so the stack can be rearranged from the keyboard. They are
+          revealed on hover or focus rather than reserving a row: a pane is
+          94–144px tall by default and a permanent toolbar would be a tenth of
+          the oscillator it sits on.
+        */}
+        <span className="flex shrink-0 items-center gap-0.5 rounded bg-surface/85 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
+          {onToggleCollapsed && (
             <PaneButton
-              label={`Hide ${title} — it stays in the Indicators panel`}
-              onClick={() => onAction(id, "hide")}
+              label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+              pressed={collapsed}
+              onClick={() => onToggleCollapsed(id)}
             >
-              <path d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z" />
-              <circle cx="7" cy="7" r="1.6" />
+              {collapsed
+                ? <path d="M3.5 8.5L7 5l3.5 3.5" />
+                : <path d="M3.5 5.5L7 9l3.5-3.5" />}
             </PaneButton>
-            <PaneButton label={`${title} settings`} onClick={() => onAction(id, "settings")}>
-              <circle cx="7" cy="7" r="2" />
-              <path d="M7 1.5v1.8M7 10.7v1.8M1.5 7h1.8M10.7 7h1.8M3.1 3.1l1.3 1.3M9.6 9.6l1.3 1.3M10.9 3.1L9.6 4.4M4.4 9.6l-1.3 1.3" />
-            </PaneButton>
+          )}
+          {onMove && (canMoveUp || canMoveDown) && (
+            <>
+              <PaneButton
+                label={`Move ${title} up`}
+                disabled={!canMoveUp}
+                onClick={() => onMove(id, -1)}
+              >
+                <path d="M7 11V3M3.5 6.5L7 3l3.5 3.5" />
+              </PaneButton>
+              <PaneButton
+                label={`Move ${title} down`}
+                disabled={!canMoveDown}
+                onClick={() => onMove(id, 1)}
+              >
+                <path d="M7 3v8M3.5 7.5L7 11l3.5-3.5" />
+              </PaneButton>
+            </>
+          )}
+          {onToggleMaximized && canMaximize && (
             <PaneButton
-              label={`Remove ${title} from the chart`}
-              danger
-              onClick={() => onAction(id, "remove")}
+              label={maximized ? `Restore ${title} to the pane stack` : `Maximize ${title}`}
+              pressed={maximized}
+              onClick={() => onToggleMaximized(id)}
             >
-              <path d="M3 3l8 8M11 3l-8 8" />
+              {maximized
+                ? <path d="M5.5 2.5v3h-3M8.5 11.5v-3h3" />
+                : <path d="M2.5 5.5v-3h3M11.5 8.5v3h-3" />}
             </PaneButton>
-          </span>
-        )}
+          )}
+          {onAction && (
+            <>
+              <PaneButton
+                label={`Hide ${title} — it stays in the Indicators panel`}
+                onClick={() => onAction(id, "hide")}
+              >
+                <path d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z" />
+                <circle cx="7" cy="7" r="1.6" />
+              </PaneButton>
+              <PaneButton label={`${title} settings`} onClick={() => onAction(id, "settings")}>
+                <circle cx="7" cy="7" r="2" />
+                <path d="M7 1.5v1.8M7 10.7v1.8M1.5 7h1.8M10.7 7h1.8M3.1 3.1l1.3 1.3M9.6 9.6l1.3 1.3M10.9 3.1L9.6 4.4M4.4 9.6l-1.3 1.3" />
+              </PaneButton>
+              <PaneButton
+                label={`Remove ${title} from the chart`}
+                danger
+                onClick={() => onAction(id, "remove")}
+              >
+                <path d="M3 3l8 8M11 3l-8 8" />
+              </PaneButton>
+            </>
+          )}
+        </span>
       </div>
       {params && <span className="sr-only">{params}</span>}
     </section>
@@ -432,11 +540,14 @@ export function IndicatorPane({
  * else, which on a control that removes an indicator is not acceptable.
  */
 function PaneButton({
-  label, onClick, danger = false, children,
+  label, onClick, danger = false, pressed, disabled = false, children,
 }: {
   label: string;
   onClick: () => void;
   danger?: boolean;
+  /** Set on the toggles, so their state is announced and not only drawn. */
+  pressed?: boolean;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -445,8 +556,13 @@ function PaneButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`flex h-5 w-5 items-center justify-center rounded text-ink-faint transition-colors ${
-        danger ? "hover:bg-down/20 hover:text-down" : "hover:bg-surface-2 hover:text-ink"
+      disabled={disabled}
+      {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
+      className={`flex h-5 w-5 items-center justify-center rounded transition-colors ${
+        disabled ? "cursor-default text-ink-faint/30"
+          : danger ? "text-ink-faint hover:bg-down/20 hover:text-down"
+          : pressed ? "bg-surface-2 text-ink"
+          : "text-ink-faint hover:bg-surface-2 hover:text-ink"
       }`}
     >
       <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor"

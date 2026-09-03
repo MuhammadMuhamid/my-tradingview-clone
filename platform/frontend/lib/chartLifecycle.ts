@@ -54,3 +54,70 @@ export function useDetachChartObserver(
     catch { /* the chart is already gone; there is nothing left to detach */ }
   }, []);
 }
+
+/**
+ * Turn the library's own container measurement on or off.
+ *
+ * The same lever `useDetachChartObserver` pulls on unmount, exposed because
+ * unmounting is not the only time a live chart's container stops having a
+ * size. Maximising an indicator pane hides the price chart, which takes its
+ * container to 0 × 0 while the chart is still alive — the exact shape of the
+ * crash documented at the top of this file.
+ *
+ * Safe to call on a chart that has already gone.
+ */
+export function setChartMeasuring(chart: AutoSizedChart | null, enabled: boolean): void {
+  try { chart?.applyOptions({ autoSize: enabled }); }
+  catch { /* the chart is already gone; there is nothing left to measure */ }
+}
+
+/**
+ * Keep a chart measured only while its container is on screen.
+ *
+ * A LAYOUT effect, for the ordering: React mutates the DOM, then runs layout
+ * effects, and only then does the browser deliver `ResizeObserver` callbacks
+ * at the end of the frame. Switching measurement off here therefore happens
+ * strictly between the container being hidden and the library being told
+ * about it — so it is never told.
+ */
+export function useChartMeasuring(
+  chartRef: MutableRefObject<AutoSizedChart | null>, visible: boolean
+): void {
+  const ref = useRef(chartRef);
+  ref.current = chartRef;
+  useIsomorphicLayoutEffect(() => {
+    setChartMeasuring(ref.current.current, visible);
+  }, [visible]);
+}
+
+/**
+ * A one-way "this chart is gone" flag.
+ *
+ * lightweight-charts subscriptions are torn down by `chart.remove()`, but the
+ * callbacks we install also reach React state, other panes and a
+ * `requestAnimationFrame` continuation — none of which the library knows
+ * about. A disposal guard is checked at the top of each of those, so nothing
+ * that was already in flight when the pane closed can run against a chart that
+ * no longer exists.
+ *
+ * Deliberately not a React hook: the guard is created and disposed inside the
+ * effect that creates and destroys the chart, so its lifetime is the chart's
+ * and not the component's.
+ */
+export interface DisposalGuard {
+  readonly disposed: boolean;
+  dispose(): void;
+  /** Run `fn` unless the chart has gone. Returns undefined when it has. */
+  run<T>(fn: () => T): T | undefined;
+}
+
+export function createDisposalGuard(): DisposalGuard {
+  let disposed = false;
+  return {
+    get disposed() { return disposed; },
+    dispose() { disposed = true; },
+    run<T>(fn: () => T): T | undefined {
+      return disposed ? undefined : fn();
+    },
+  };
+}

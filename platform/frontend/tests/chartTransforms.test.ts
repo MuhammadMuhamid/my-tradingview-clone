@@ -444,10 +444,34 @@ test("NO TRADING, ALERT, STRATEGY OR SCIENTIFIC PATH DRAWS FROM A TRANSFORM", ()
   ]) {
     assert.match(chart, canonical, `a canonical-price surface stopped reading the canonical candles`);
   }
-  // The transformed array is written to the price series and to nothing else.
+  /*
+   * The transformed array reaches the price series, the OHLC legend and the
+   * crosshair's brick-to-canonical mapping — three display surfaces — and
+   * nothing else. The cap is a tripwire on that list growing; the checks
+   * under it are the actual rule.
+   */
   const sinks = chart.match(/displayRef\.current/g) ?? [];
-  assert.ok(sinks.length > 0 && sinks.length <= 6,
-    "the transformed series grew more consumers than the price series");
+  assert.ok(sinks.length > 0 && sinks.length <= 12,
+    "the transformed series grew more consumers than the display surfaces");
   assert.ok(!/priceLines[\s\S]{0,120}display/.test(chart),
     "an order/price line was derived from transformed bars");
+
+  // The two effects that place trading evidence read the canonical candles
+  // and never the transform output.
+  const markerEffect = chart.slice(
+    chart.indexOf("// Markers update independently"),
+    chart.indexOf("// Live stop / target / entry levels"));
+  assert.ok(markerEffect.length > 200);
+  assert.equal(markerEffect.includes("displayRef"), false,
+    "a marker was placed from transformed bars");
+  const levelsAt = chart.indexOf("// Live stop / target / entry levels");
+  const levelEffect = chart.slice(levelsAt, levelsAt + 900);
+  assert.equal(levelEffect.includes("displayRef"), false,
+    "a stop/target/entry level was placed from transformed bars");
+
+  // What the crosshair publishes upwards is a canonical bar time, resolved
+  // through `canonicalOpenTime`, never a brick's own rendering position.
+  assert.match(chart, /canonicalOpenTime\(brick\)/);
+  assert.equal(/onCrosshairRef\.current\?\.\(\s*(param|raw)?\.?time/.test(chart), false,
+    "the raw axis position must not be published while a transform is active");
 });

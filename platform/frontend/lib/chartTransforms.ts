@@ -379,3 +379,38 @@ export function transformAll(
   }
   return { cursor, output };
 }
+
+// ── Reading a display bar back ─────────────────────────────────────────────
+
+/**
+ * Whether a drawn bar is a Renko brick.
+ *
+ * `transformStep` is typed as emitting `OhlcBar`, which is what every consumer
+ * that only draws them needs. A brick carries three more fields — its
+ * direction, the ATR size that set it, and the canonical bar that completed it
+ * — and the two places that must not treat a brick as a time candle (the OHLC
+ * legend, and the crosshair time published to other panes) ask here first.
+ */
+export function isRenkoBrick(bar: OhlcBar): bar is RenkoBrick {
+  const candidate = bar as Partial<RenkoBrick>;
+  return typeof candidate.sourceOpenTime === "number"
+    && typeof candidate.size === "number"
+    && (candidate.direction === 1 || candidate.direction === -1);
+}
+
+/**
+ * The canonical exchange timestamp a drawn bar stands for, in milliseconds.
+ *
+ * For a canonical candle and for a Heikin-Ashi bar this is simply its own open
+ * time: Heikin Ashi re-shapes bars without re-timing them. For a Renko brick
+ * it is `sourceOpenTime` — the bar whose close completed the brick — because
+ * the brick's own `openTime` is a rendering position that may have been
+ * stepped forward a second at a time to keep the series strictly increasing.
+ *
+ * This is THE function that keeps a synthetic display time from escaping the
+ * chart it was invented for. Anything leaving the renderer — a crosshair time
+ * published to another pane, a legend timestamp — goes through it.
+ */
+export function canonicalOpenTime(bar: OhlcBar): number {
+  return isRenkoBrick(bar) ? bar.sourceOpenTime : bar.openTime;
+}
