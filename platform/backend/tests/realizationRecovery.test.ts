@@ -20,7 +20,20 @@ const sourceUrl = `postgres://postgres@127.0.0.1:${port}/realization_source`;
 const restoreUrl = `postgres://postgres@127.0.0.1:${port}/realization_restore`;
 let started = false;
 
-const run = (command: string, args: string[], env: NodeJS.ProcessEnv = process.env): string =>
+/*
+ * PostgreSQL 16 on macOS refuses to start with
+ *   FATAL: postmaster became multithreaded during startup
+ *   HINT:  Set the LC_ALL environment variable to a valid locale.
+ * whenever LC_ALL is unset, because resolving the system locale itself spawns
+ * threads before the postmaster forks. That is every shell that has not
+ * exported it, so without this the whole suite is red on a stock Mac — the one
+ * platform this product is developed and handed over on. `--no-locale` below
+ * already asks for the C collation, so pinning LC_ALL=C states the same intent
+ * to the postmaster rather than changing what the cluster is.
+ */
+const clusterEnv: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C" };
+
+const run = (command: string, args: string[], env: NodeJS.ProcessEnv = clusterEnv): string =>
   execFileSync(command, args, { cwd: repositoryRoot, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 const sql = (url: string, statement: string): string =>
   run("psql", ["--dbname", url, "-XAtq", "-v", "ON_ERROR_STOP=1", "-c", statement]);
@@ -40,7 +53,7 @@ before(() => {
 
 after(() => {
   if (started) spawnSync("pg_ctl", ["-D", cluster, "-m", "fast", "-w", "stop"],
-    { cwd: repositoryRoot, stdio: "ignore" });
+    { cwd: repositoryRoot, env: clusterEnv, stdio: "ignore" });
   fs.rmSync(socket, { recursive: true, force: true });
   fs.rmSync(scratch, { recursive: true, force: true });
 });
