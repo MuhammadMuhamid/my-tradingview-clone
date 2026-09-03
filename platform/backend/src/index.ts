@@ -5,6 +5,7 @@ import { buildServer } from "./api/server";
 import { startBacktestWorker } from "./engine/worker";
 import { LiveRunner } from "./engine/liveRunner";
 import { MaAlertRunner } from "./engine/maAlertRunner";
+import * as pushRepo from "./repositories/pushSubscriptions";
 import { encryptLegacySecrets } from "./repositories/deployments";
 
 async function main(): Promise<void> {
@@ -49,10 +50,40 @@ async function main(): Promise<void> {
     await maAlerts.start();
   }
 
+  /**
+   * Age out subscriptions that have stopped re-registering.
+   *
+   * Runs beside the alert runner rather than inside it: pruning is about the
+   * device list, not about evaluating a bar, and a failure here must never
+   * take the runner down with it.
+   */
+  const staleDays = Number(process.env.PUSH_STALE_DAYS ?? 30);
+  let pruneTimer: NodeJS.Timeout | undefined;
+  if (Number.isFinite(staleDays) && staleDays > 0) {
+    const prune = async () => {
+      try {
+        const removed = await pushRepo.pruneUnseen(staleDays);
+        if (removed > 0) {
+          app.log.warn(
+            { removed, staleDays },
+            "pruned push subscriptions that stopped re-registering"
+          );
+        }
+      } catch (err) {
+        // A prune that fails is a stale device list, not an outage.
+        app.log.warn({ err: (err as Error).message }, "push subscription prune failed");
+      }
+    };
+    void prune();
+    pruneTimer = setInterval(() => void prune(), 24 * 60 * 60 * 1000);
+    pruneTimer.unref();
+  }
+
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, "shutting down");
     runner?.stop();
     maAlerts?.stop();
+    if (pruneTimer) clearInterval(pruneTimer);
     await app.close();
     await closePool();
     process.exit(0);

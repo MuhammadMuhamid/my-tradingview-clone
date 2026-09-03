@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
-  disablePush, enablePush, iosNeedsInstall, pushState, pushSupported, subscribedHere,
+  disablePush, enablePush, iosNeedsInstall, pushState, pushSupported,
+  refreshSubscription, subscribedHere,
 } from "@/lib/push";
 
 /**
@@ -28,7 +29,13 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
   // to keep the server-rendered markup stable.
   useEffect(() => {
     setState(pushState());
-    void subscribedHere().then(setHere);
+    void subscribedHere().then(async (enrolled) => {
+      setHere(enrolled);
+      // Heartbeat. The server ages out subscriptions that stop re-registering,
+      // because that is the only thing a dead endpoint cannot do — so a live
+      // device has to say hello or it will eventually be pruned.
+      if (enrolled) await refreshSubscription();
+    });
     api.vapidKey().then((r) => setDevices(r.devices)).catch(() => setDevices(null));
   }, []);
 

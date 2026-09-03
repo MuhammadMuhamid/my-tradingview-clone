@@ -281,6 +281,34 @@ place, and the ones above were only caught by the second.
 
 ---
 
+## 8b. Push subscriptions go stale silently
+
+A subscription can be dead while every server-side signal says it is healthy.
+Apple keeps accepting notifications for endpoints belonging to apps that were
+uninstalled weeks ago, returning success and only 404/410 much later, if ever.
+
+That is not a hypothetical. Four dead iPhone subscriptions once sat in
+`push_subscriptions` with `last_ok_at` timestamps minutes old while the phone
+received nothing; every alert reported `pushedTo: 4` and no failures. The
+outage was invisible from the server for days.
+
+**`last_ok_at` therefore cannot measure liveness** — it records that the push
+service accepted bytes, not that a device displayed anything. `last_seen_at`
+(migration 018) records the one thing a ghost cannot do: come back and
+re-register. The app re-POSTs its own subscription on load
+(`refreshSubscription`, which never prompts), and `pruneUnseen` ages out rows
+that stop doing so, daily, at `PUSH_STALE_DAYS` (default 30).
+
+The window is generous on purpose. The costs are asymmetric: pruning a live
+device silently stops its alerts until someone notices, while keeping a dead
+one only inflates a counter.
+
+**Four independent facts get confused here, and every one of them has caused a
+bug:** browser permission, a subscription in *this* browser, a row in the
+table, and acceptance by the push service. The UI once read permission alone
+and declared a desktop browser enrolled that had never subscribed — offering
+Test/Off and no way to reach Enable.
+
 ## 9. What is still not verified
 
 - **Live Binance websocket behaviour.** The intrabar path is exercised through

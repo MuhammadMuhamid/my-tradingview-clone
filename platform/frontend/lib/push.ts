@@ -108,6 +108,32 @@ export async function enablePush(): Promise<{ devices: number }> {
   return api.subscribePush(subscription.toJSON() as PushSubscriptionJSON);
 }
 
+/**
+ * Re-register the subscription this browser already holds, quietly.
+ *
+ * This is what keeps `last_seen_at` current, and it is the only evidence the
+ * server can get that a device is still real — the push service accepting a
+ * notification proves nothing, because Apple accepts endpoints belonging to
+ * apps that were deleted weeks ago.
+ *
+ * Never prompts: it returns without doing anything unless permission is
+ * already granted AND a subscription already exists, so calling it on load
+ * cannot produce a permission dialog the user did not ask for.
+ */
+export async function refreshSubscription(): Promise<void> {
+  if (!pushSupported() || iosNeedsInstall()) return;
+  if (Notification.permission !== "granted") return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration("/");
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) return;
+    await api.subscribePush(subscription.toJSON() as PushSubscriptionJSON);
+  } catch {
+    // Offline, or the server is down. The next load tries again; a missed
+    // heartbeat must never surface as an error in the UI.
+  }
+}
+
 export async function disablePush(): Promise<void> {
   if (!pushSupported()) return;
   const registration = await navigator.serviceWorker.getRegistration("/");

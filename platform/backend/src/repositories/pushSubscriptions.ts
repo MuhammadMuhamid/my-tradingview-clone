@@ -35,12 +35,15 @@ export async function saveSubscription(input: {
   userAgent?: string | null;
 }): Promise<PushSubscriptionRow> {
   const { rows } = await query<DbRow>(
-    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent)
-     VALUES ($1,$2,$3,$4)
+    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, last_seen_at)
+     VALUES ($1,$2,$3,$4, now())
      ON CONFLICT (endpoint) DO UPDATE
        SET p256dh = EXCLUDED.p256dh,
            auth = EXCLUDED.auth,
-           user_agent = EXCLUDED.user_agent
+           user_agent = EXCLUDED.user_agent,
+           -- Re-registering IS the liveness signal: only a browser that still
+           -- holds this subscription can send it back.
+           last_seen_at = now()
      RETURNING *`,
     [input.endpoint, input.p256dh, input.auth, input.userAgent ?? null]
   );
@@ -63,6 +66,30 @@ export async function countSubscriptions(): Promise<number> {
 
 export async function deleteByEndpoint(endpoint: string): Promise<void> {
   await query("DELETE FROM push_subscriptions WHERE endpoint = $1", [endpoint]);
+}
+
+/**
+ * Forget devices that have not re-registered in `days`.
+ *
+ * `last_ok_at` is deliberately NOT the signal. It records that the push
+ * SERVICE accepted a message, and Apple keeps accepting endpoints for apps
+ * that were uninstalled long ago, so a table full of ghosts reports perfect
+ * health: four dead subscriptions once showed a `last_ok_at` of minutes ago
+ * while the phone received nothing, and every alert claimed four deliveries.
+ *
+ * Re-registration is the one thing a ghost cannot fake, so that is what ages
+ * out here. The window is generous because the cost of being wrong is
+ * asymmetric: pruning a live device silently stops its alerts until someone
+ * notices, while keeping a dead one only inflates a counter.
+ */
+export async function pruneUnseen(days: number): Promise<number> {
+  const { rowCount } = await query(
+    `DELETE FROM push_subscriptions
+      WHERE last_seen_at IS NOT NULL
+        AND last_seen_at < now() - make_interval(days => $1)`,
+    [days]
+  );
+  return rowCount ?? 0;
 }
 
 export async function markDelivered(endpoint: string): Promise<void> {

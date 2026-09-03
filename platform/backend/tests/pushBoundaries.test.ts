@@ -8,6 +8,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   isAllowedPushHost, isDiscardedSubscription, MAX_PUSH_PAYLOAD_BYTES, validatePushEndpoint,
 } from "../src/alerts/webPush";
@@ -120,4 +122,49 @@ test("a bare push-service domain is not itself an endpoint host match", () => {
   // careless endsWith on a string without the leading dot.
   assert.equal(isAllowedPushHost("web.push.apple.com"), true);
   assert.equal(isAllowedPushHost("xpush.apple.com"), false);
+});
+
+// ── liveness, and why last_ok_at cannot provide it ─────────────────────────
+
+/**
+ * The distinction this whole mechanism rests on, pinned as a fact about the
+ * code rather than a comment.
+ *
+ * `markDelivered` runs when `webpush.sendNotification` RESOLVES — that is the
+ * push service accepting the message, not a device displaying it. Apple keeps
+ * accepting endpoints for apps uninstalled weeks earlier, so a ghost's
+ * `last_ok_at` stays permanently fresh. Ageing rows out on `last_ok_at` would
+ * therefore prune nothing, which is exactly the rule that was proposed and
+ * rejected: four dead subscriptions once reported `last_ok_at` of minutes ago
+ * while the phone received nothing at all.
+ */
+test("liveness is pruned on re-registration, never on delivery acceptance", () => {
+  const repo = fs.readFileSync(
+    path.join(__dirname, "..", "src", "repositories", "pushSubscriptions.ts"), "utf8"
+  );
+
+  const prune = repo.slice(repo.indexOf("export async function pruneUnseen"));
+  const body = prune.slice(0, prune.indexOf("export async function markDelivered"));
+  assert.match(body, /last_seen_at/, "prune must age out on last_seen_at");
+  assert.doesNotMatch(
+    body.replace(/\/\*[\s\S]*?\*\//g, ""),
+    /last_ok_at/,
+    "prune must NOT use last_ok_at: the push service accepts dead endpoints"
+  );
+
+  // And the upsert must refresh liveness, or a live device ages out.
+  const save = repo.slice(repo.indexOf("export async function saveSubscription"));
+  assert.match(
+    save.slice(0, save.indexOf("export async function listSubscriptions")),
+    /last_seen_at = now\(\)/,
+    "re-registering must refresh last_seen_at"
+  );
+});
+
+test("the prune window is a whole number of days and cannot be inverted", () => {
+  // `make_interval(days => $1)` with a negative value would delete everything
+  // newer than now, i.e. the live device. The caller guards on > 0.
+  const index = fs.readFileSync(path.join(__dirname, "..", "src", "index.ts"), "utf8");
+  assert.match(index, /staleDays > 0/, "a non-positive window must disable pruning");
+  assert.match(index, /PUSH_STALE_DAYS/);
 });
