@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { disablePush, enablePush, iosNeedsInstall, pushState, pushSupported } from "@/lib/push";
+import {
+  disablePush, enablePush, iosNeedsInstall, pushState, pushSupported, subscribedHere,
+} from "@/lib/push";
 
 /**
  * Notification enrolment. Alerts are useless if the phone was never
@@ -10,6 +12,14 @@ import { disablePush, enablePush, iosNeedsInstall, pushState, pushSupported } fr
  */
 export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
   const [state, setState] = useState<ReturnType<typeof pushState> | null>(null);
+  /**
+   * Whether THIS browser is enrolled. Permission alone is not enrolment: a
+   * desktop browser can hold a granted permission with no subscription, and
+   * reading only the permission left it showing Test/Off with no way back to
+   * Enable.
+   */
+  const [here, setHere] = useState<boolean | null>(null);
+  /** Server-wide subscription count — every device, not this one. */
   const [devices, setDevices] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -18,11 +28,13 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
   // to keep the server-rendered markup stable.
   useEffect(() => {
     setState(pushState());
+    void subscribedHere().then(setHere);
     api.vapidKey().then((r) => setDevices(r.devices)).catch(() => setDevices(null));
   }, []);
 
   const refresh = async () => {
     setState(pushState());
+    setHere(await subscribedHere());
     try { setDevices((await api.vapidKey()).devices); } catch { /* offline */ }
   };
 
@@ -39,7 +51,9 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
     }
   };
 
-  if (state === null) return null;
+  // Both facts are resolved after mount. Rendering on the permission alone
+  // would flash "Enable" at an already-enrolled device on every load.
+  if (state === null || here === null) return null;
 
   if (state === "needs-install") {
     return (
@@ -68,16 +82,16 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
     <Box>
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-xs font-medium text-ink">Mobile notifications</div>
+          <div className="text-xs font-medium text-ink">Notifications on this device</div>
           <div className="text-[11px] text-ink-faint">
-            {state === "granted"
-              ? `${devices ?? "?"} device${devices === 1 ? "" : "s"} registered`
-              : state === "denied"
-                ? "Blocked in browser settings"
-                : "Not enabled on this device"}
+            {state === "denied"
+              ? "Blocked in browser settings"
+              : here
+                ? `On · ${devices ?? "?"} device${devices === 1 ? "" : "s"} registered in total`
+                : `Not enabled here${devices ? ` · ${devices} elsewhere` : ""}`}
           </div>
         </div>
-        {state === "granted" ? (
+        {state === "granted" && here ? (
           <div className="flex shrink-0 gap-1">
             <button disabled={busy}
               onClick={() => void run(async () => {

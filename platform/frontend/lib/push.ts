@@ -43,6 +43,27 @@ export function pushState(): PushState {
   return Notification.permission as PushState;
 }
 
+/**
+ * Whether THIS browser holds a push subscription.
+ *
+ * Permission and subscription are different facts, and conflating them left a
+ * desktop browser unable to enrol at all: permission survives in the browser
+ * long after the subscription is gone (or was never made on this device), so
+ * `pushState()` read "granted", the UI offered only Test/Off, and there was no
+ * way to reach Enable. A device is registered only if it has a subscription
+ * object of its own — nothing about the server's total says anything about
+ * this machine.
+ */
+export async function subscribedHere(): Promise<boolean> {
+  if (!pushSupported()) return false;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration("/");
+    return (await registration?.pushManager.getSubscription()) != null;
+  } catch {
+    return false;
+  }
+}
+
 /** VAPID keys travel as base64url; PushManager wants raw bytes. */
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padded = (base64 + "=".repeat((4 - (base64.length % 4)) % 4))
