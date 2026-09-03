@@ -128,14 +128,14 @@ export function LayoutMenu({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
+        className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
         title={`${current?.name ?? "Unnamed layout"} — ${status.help}`}
         aria-label={`Saved layouts — ${current?.name ?? "not saved"}, ${status.label}`}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h18M12 3v18" />
         </svg>
-        <span className="max-w-[130px] truncate">{current?.name ?? "Unnamed"}</span>
+        <span className="min-w-0 max-w-[130px] truncate">{current?.name ?? "Unnamed"}</span>
         <span className={`hidden shrink-0 text-[10px] font-medium uppercase tracking-wide 2xl:inline ${status.tone}`}>
           {status.label}
         </span>

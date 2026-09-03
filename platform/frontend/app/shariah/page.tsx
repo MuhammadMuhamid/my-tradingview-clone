@@ -95,9 +95,31 @@ const SYNC_STYLE: Record<ShariahSyncLevel, { box: string; mark: ReactNode }> = {
  * the answer only moves when someone changes it, and a background loop
  * hammering a Bot control channel would be a cost with no reader.
  */
-function BotFloorPanel({ state }: { state: ShariahModeState | null }) {
+function BotFloorPanel({ state, unreadable }: {
+  state: ShariahModeState | null;
+  /*
+   * The mode read came back and did not produce a state.
+   *
+   * `describeShariahSync(null)` says "Bot floor: checking", which is true for
+   * the first second and a lie thereafter — after a failure this panel sat on
+   * "checking" indefinitely, on the one card that answers whether real-money
+   * enforcement is armed. "Checking" is a claim that an answer is coming.
+   */
+  unreadable: boolean;
+}) {
   const view = describeShariahSync(state);
   const style = SYNC_STYLE[view.level];
+  if (!state && unreadable) {
+    return (
+      <div role="alert" className={`mb-3 rounded-md border px-3 py-2 text-xs ${SYNC_STYLE.unknown.box}`}>
+        <span className="block font-semibold">Bot floor: could not be read</span>
+        <span className="mt-0.5 block leading-snug opacity-90">
+          This Platform could not read the enforcement state, so it cannot tell you whether the
+          execution Bot&apos;s floor is armed. Treat it as unknown, not as off.
+        </span>
+      </div>
+    );
+  }
   return (
     <div
       role={view.level === "drift" ? "alert" : "status"}
@@ -138,6 +160,8 @@ export default function ShariahPage() {
    * unknown, out of sync, or never armed at all.
    */
   const [modeState, setModeState] = useState<ShariahModeState | null>(null);
+  /** False until the first universe/mode read has come back, either way. */
+  const [loaded, setLoaded] = useState(false);
   const mode: ShariahMode | null = modeState?.mode ?? null;
 
   const loadUniverse = useCallback(async () => {
@@ -149,7 +173,18 @@ export default function ShariahPage() {
       setSnapshots(s.snapshots);
       setModeState(normalizeShariahMode(m));
     } catch (e) {
+      /*
+       * `loaded` is what separates "not answered yet" from "answered, and the
+       * answer is nothing". Without it every placeholder on this page was a
+       * permanent one: the mode badge sat on "…", the review count sat on "…",
+       * the Bot floor sat on "checking", and the two lists claimed "Nothing to
+       * review" / "No snapshot has been created yet" — a confident empty state
+       * for a question that failed. On the page that says whether the product
+       * is enforcing Shariah, that is the worst place in the product to guess.
+       */
       setError((e as Error).message);
+    } finally {
+      setLoaded(true);
     }
   }, []);
 
@@ -255,7 +290,8 @@ export default function ShariahPage() {
               question one installation cannot answer alone — the Bot floor
               panel below carries the other half.
             */}
-            Platform mode: {mode === null ? "…" : mode === "enforce" ? "ON" : "OFF"}
+            Platform mode: {mode !== null ? (mode === "enforce" ? "ON" : "OFF")
+              : loaded ? "unknown" : "…"}
           </span>
           <Button onClick={toggleMode} disabled={busy || mode === null}>
             {mode === "enforce" ? "Turn off" : "Turn on"}
@@ -266,7 +302,7 @@ export default function ShariahPage() {
         </div>
       </div>
 
-      <BotFloorPanel state={modeState} />
+      <BotFloorPanel state={modeState} unreadable={loaded} />
 
       {mode === "enforce" && (
         <div className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-ink-muted">
@@ -277,14 +313,15 @@ export default function ShariahPage() {
       )}
 
       {error && (
-        <div className="mb-3 rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</div>
+        <div role="alert" className="mb-3 rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</div>
       )}
       {notice && (
-        <div className="mb-3 rounded-md border border-up/30 bg-up/10 px-3 py-2 text-sm text-up">{notice}</div>
+        <div role="status" className="mb-3 rounded-md border border-up/30 bg-up/10 px-3 py-2 text-sm text-up">{notice}</div>
       )}
 
       <BatchReviewCard
         needsReview={universe ? universe.counts.review : null}
+        universeLoaded={loaded}
         onError={setError}
         onNotice={setNotice}
         onImported={loadUniverse}
@@ -296,7 +333,8 @@ export default function ShariahPage() {
             <CardHeader
               title="Universe"
               right={
-                <Select value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+                <Select aria-label="Filter the screening universe"
+                  value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
                   <option value="needs-review">Needs review</option>
                   <option value="all">All assets</option>
                 </Select>
@@ -315,7 +353,11 @@ export default function ShariahPage() {
               </div>
             )}
             <div className="max-h-[520px] overflow-y-auto">
-              {assets.length === 0 && <Empty>Nothing to review.</Empty>}
+              {assets.length === 0 && (universe
+                ? <Empty>Nothing to review.</Empty>
+                : <Empty>{loaded
+                    ? "The screening universe could not be read, so this is not a statement that it is empty."
+                    : "Loading the screening universe…"}</Empty>)}
               {assets.map((asset) => (
                 <button
                   key={asset.assetId}
@@ -340,7 +382,11 @@ export default function ShariahPage() {
 
           <Card>
             <CardHeader title="Snapshots" />
-            {snapshots.length === 0 && <Empty>No snapshot has been created yet.</Empty>}
+            {snapshots.length === 0 && (universe
+              ? <Empty>No snapshot has been created yet.</Empty>
+              : <Empty>{loaded
+                  ? "Snapshots could not be read, so this is not a statement that there are none."
+                  : "Loading snapshots…"}</Empty>)}
             {snapshots.slice(0, 8).map((s) => (
               <div key={s.snapshotId} className="border-b border-border px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
@@ -388,8 +434,10 @@ export default function ShariahPage() {
  * at a time — which is why the preview above it exists: it is the last look
  * before a batch of real, immutable publications.
  */
-function BatchReviewCard({ needsReview, onError, onNotice, onImported }: {
+function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImported }: {
   needsReview: number | null;
+  /** The universe read has come back — so a null count is unknown, not pending. */
+  universeLoaded: boolean;
   onError: (message: string | null) => void;
   onNotice: (message: string | null) => void;
   onImported: () => Promise<void>;
@@ -466,7 +514,7 @@ function BatchReviewCard({ needsReview, onError, onNotice, onImported }: {
         title="Batch review with ChatGPT"
         right={
           <span className="text-xs text-ink-muted">
-            Needs review: <span className="font-semibold text-ink">{needsReview ?? "…"}</span>
+            Needs review: <span className="font-semibold text-ink">{needsReview ?? (universeLoaded ? "unknown" : "…")}</span>
           </span>
         }
       />
@@ -481,9 +529,12 @@ function BatchReviewCard({ needsReview, onError, onNotice, onImported }: {
           <Button variant="primary" onClick={download} disabled={busy}>
             Download next 20 for ChatGPT
           </Button>
+          {/* Announced as a bare "file upload button" until it was named. */}
           <input
+            id="shariah-results-file"
             type="file"
             accept="application/json,.json"
+            aria-label="Load a ChatGPT review results JSON file"
             onChange={(e) => void chooseFile(e.target.files?.[0])}
             className="text-xs text-ink-muted file:mr-2 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-ink"
           />

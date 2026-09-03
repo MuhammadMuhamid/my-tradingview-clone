@@ -97,7 +97,7 @@ function Owner({ of }: { of: "platform" | "bot" }) {
           : "bg-surface-2 text-ink-faint"
       }`}
       title={of === "bot"
-        ? "Read from the execution bot. Authoritative for fills, exposure and realised P/L."
+        ? "Read from the execution bot. Authoritative for fills, exposure and realized P/L."
         : "Known to this platform only. It says what was emitted, never what the exchange did."}
     >
       {of === "bot" ? "Bot" : "Platform"}
@@ -138,6 +138,15 @@ export default function OperationsPage() {
   const [status, setStatus] = useState<OpsStatus | null>(null);
   const [intents, setIntents] = useState<UnresolvedIntents | null>(null);
   const [error, setError] = useState("");
+  /*
+   * An ACTION that failed, kept apart from the status read.
+   *
+   * Both used to write `error`, and the 10s poll clears `error` on every
+   * successful read — so "could not halt trading" disappeared within ten
+   * seconds of being shown, on this page, about that control. It is dismissed
+   * by the operator or replaced by the next action, never by a timer.
+   */
+  const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [haltReason, setHaltReason] = useState("");
@@ -163,6 +172,7 @@ export default function OperationsPage() {
   const act = async (fn: () => Promise<unknown>, done: string): Promise<void> => {
     setBusy(true);
     setNotice("");
+    setActionError("");
     try {
       await fn();
       setNotice(done);
@@ -170,7 +180,7 @@ export default function OperationsPage() {
       setConfirmResume(false);
       refresh();
     } catch (e) {
-      setError((e as Error).message);
+      setActionError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -219,9 +229,18 @@ export default function OperationsPage() {
           {notice}
         </p>
       )}
+      {actionError && (
+        <p role="alert" className="rounded border border-down/30 bg-down/10 px-3 py-2 text-sm text-ink">
+          That control did not take effect: {actionError}
+          <button onClick={() => setActionError("")}
+            className="ml-2 rounded text-xs text-ink-muted underline underline-offset-2 hover:text-ink">
+            Dismiss
+          </button>
+        </p>
+      )}
       {error && (
         <p role="alert" className="rounded border border-down/30 bg-down/10 px-3 py-2 text-sm text-ink">
-          {error}
+          Operator status is not updating: {error}
         </p>
       )}
 
@@ -314,7 +333,7 @@ export default function OperationsPage() {
         </div>
       </Card>
 
-      {/* The execution bot owns fills, exchange routing and realised P/L. */}
+      {/* The execution bot owns fills, exchange routing and realized P/L. */}
       <Card>
         <CardHeader
           title={<><Owner of="bot" />Execution bot — authoritative</>}
@@ -331,7 +350,7 @@ export default function OperationsPage() {
               <dd className="text-right font-medium text-ink">{status.bot.status.execution.mode}</dd>
               <dt>Exchange routing</dt>
               <dd className="text-right font-medium text-ink">{status.bot.status.exchange.mode}</dd>
-              <dt>Realised today (UTC)</dt>
+              <dt>Realized today (UTC)</dt>
               <dd className={`text-right font-medium ${status.bot.status.realisedPnl.today < 0 ? "text-down" : "text-up"}`}>
                 {status.bot.status.realisedPnl.today.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
               </dd>
@@ -416,7 +435,7 @@ export default function OperationsPage() {
         {/* ── Delivery ─────────────────────────────────────────────────── */}
         <Card>
           <CardHeader
-            title={<><Owner of="platform" />Signal delivery</>}
+            title={<><Owner of="platform" />Webhook delivery</>}
             right={
               <span className={`text-xs font-medium uppercase ${DELIVERY_STYLE[status.delivery.state] ?? ""}`}>
                 {status.delivery.state}
@@ -441,7 +460,7 @@ export default function OperationsPage() {
       {/* ── Feeds ──────────────────────────────────────────────────────── */}
       <Card>
         <CardHeader
-          title={<><Owner of="platform" />Market-data integrity</>}
+          title={<><Owner of="platform" />Market data</>}
           right={
             <span className={`text-xs font-medium uppercase ${FEED_STYLE[status.feeds.worst] ?? ""}`}>
               {overview.items.find((item) => item.id === "market-data")?.status}
@@ -506,9 +525,9 @@ export default function OperationsPage() {
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {/* ── Emitter ──────────────────────────────────────────────────── */}
+        {/* ── Live runner ──────────────────────────────────────────────── */}
         <Card>
-          <CardHeader title={<><Owner of="platform" />Emitter</>} />
+          <CardHeader title={<><Owner of="platform" />Live runner</>} />
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 px-4 pb-4 text-xs text-ink-muted">
             <dt>This process</dt>
             <dd className="text-right font-mono text-ink">{status.emitter.thisProcess}</dd>

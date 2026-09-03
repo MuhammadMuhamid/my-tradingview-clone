@@ -17,7 +17,9 @@ test("Journal is navigable and uses the bounded authenticated Platform API", () 
 
 test("real and paper known results are visually and numerically separate", () => {
   assert.match(page, /title="Real money evidence" scope=\{data\.summary\.real\}/);
-  assert.match(page, /title="Simulation evidence" scope=\{data\.summary\.paper\} paper/);
+  // Renamed in the 02A terminology pass: the badge, the filter option and the
+  // delivery mode all say PAPER, and this card is the same idea.
+  assert.match(page, /title="Paper evidence" scope=\{data\.summary\.paper\} paper/);
   assert.match(page, /paper \? "PAPER" : "REAL"/);
   assert.match(page, /All · separated/);
 });

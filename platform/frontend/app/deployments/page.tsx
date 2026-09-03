@@ -13,6 +13,8 @@ import { deliversLiveOrders } from "@/lib/types";
 import { activationAcknowledgement } from "@/lib/deploymentConsent";
 import type { Alert, Deployment, SymbolInfo } from "@/lib/types";
 import { fmtAgo, fmtPrice } from "@/lib/format";
+import { fmtChartBarTime, CHART_TIME_ZONE } from "@/lib/chartClock";
+import { INTERVAL_MS } from "@/lib/types";
 
 export default function DeploymentsPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
@@ -170,7 +172,7 @@ export default function DeploymentsPage() {
               {paper.caveat}
             </p>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
-              <dt className="text-ink-muted">Realised</dt>
+              <dt className="text-ink-muted">Realized</dt>
               <dd className={`text-right tabular ${paper.summary.realisedPnl >= 0 ? "text-up" : "text-down"}`}>
                 {paper.summary.realisedPnl >= 0 ? "+" : ""}
                 {paper.summary.realisedPnl.toFixed(2)} USDT
@@ -201,19 +203,21 @@ export default function DeploymentsPage() {
                 <table className="w-full min-w-[560px] text-sm tabular">
                   <thead>
                     <tr className="border-b border-border text-xs text-ink-muted">
-                      <th className="px-2 py-1.5 text-left">Bar</th>
+                      <th className="px-2 py-1.5 text-left">Bar ({CHART_TIME_ZONE})</th>
                       <th className="px-2 py-1.5 text-left">Action</th>
                       <th className="px-2 py-1.5 text-right">Price</th>
                       <th className="px-2 py-1.5 text-right">Qty</th>
                       <th className="px-2 py-1.5 text-right">Fee</th>
-                      <th className="px-2 py-1.5 text-right">Realised</th>
+                      <th className="px-2 py-1.5 text-right">Realized</th>
                       <th className="px-2 py-1.5 text-left">Reason</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paper.fills.slice(0, 50).map((f) => (
                       <tr key={f.id} className="border-b border-border/50">
-                        <td className="px-2 py-1.5 text-ink-faint">{new Date(f.barTime).toLocaleString()}</td>
+                        <td className="px-2 py-1.5 text-ink-faint">
+                          {fmtChartBarTime(new Date(f.barTime).getTime(), INTERVAL_MS[paper.timeframe])}
+                        </td>
                         <td className="px-2 py-1.5 font-medium">{f.action}</td>
                         <td className="px-2 py-1.5 text-right">{f.price}</td>
                         <td className="px-2 py-1.5 text-right">{f.qty.toFixed(6)}</td>
@@ -234,7 +238,20 @@ export default function DeploymentsPage() {
 
       <Card>
         <CardHeader title="Deployments" right={<span className="text-xs text-ink-faint">{deps.length}</span>} />
-        {deps.length === 0 ? (
+        {/*
+          A list that has never been answered is not an empty list. On a first
+          load that failed, this printed "No deployments yet. Create one to
+          start live streaming" directly beneath a notice saying the page could
+          not read anything — an invitation to create a second live deployment
+          because the first one had become invisible.
+        */}
+        {deps.length === 0 && freshness.lastOkAt === null && freshness.lastError !== null ? (
+          <div role="alert" className="px-4 py-8 text-center text-sm text-down">
+            Deployments could not be read, so this is not a statement that you have none.
+          </div>
+        ) : deps.length === 0 && freshness.lastOkAt === null ? (
+          <div role="status" className="px-4 py-8 text-center text-sm text-ink-faint">Loading deployments…</div>
+        ) : deps.length === 0 ? (
           <Empty>No deployments yet. Create one to start live streaming + alerting.</Empty>
         ) : (
           <div className="divide-y divide-border">

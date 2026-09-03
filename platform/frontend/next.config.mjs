@@ -17,6 +17,24 @@ const BACKEND = process.env.BACKEND_URL ?? "http://localhost:4000";
  *
  * `connect-src` names the two Binance origins the chart and the watchlist open
  * websockets to directly, plus `'self'` for the proxied API.
+ *
+ * ── Why the data-api.binance.vision mirror is NOT listed ───────────────────
+ *
+ * Phase 01 raised this: the backend can be pointed at
+ * `https://data-api.binance.vision` (BINANCE_MARKET_DATA_BASE_URL) where
+ * `api.binance.com` is geo-blocked, and the mirror is absent from this policy.
+ * It is absent because the browser never calls a Binance REST origin at all —
+ * every candle, symbol and history read goes through `'self'` to the Next proxy
+ * and on to the backend, so the mirror is a BACKEND setting and needs no
+ * browser permission. Adding it would grant a capability nothing uses.
+ *
+ * What the browser does open directly is the kline and bookTicker websockets,
+ * and that host is hard-coded in `lib/marketFeed.ts`, `lib/useBookQuote.ts` and
+ * `components/tv/Watchlist.tsx` — there is no mirror for it and no setting for
+ * it. In a region where `stream.binance.com` is blocked, the charts fall back
+ * to their polled REST history and every pane shows `reconnecting…`; the data
+ * on screen stays correct and is simply not streaming. Making that origin
+ * configurable is a deployment concern, not a V1 UI one.
  */
 const CSP = [
   "default-src 'self'",

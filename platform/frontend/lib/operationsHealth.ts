@@ -55,7 +55,7 @@ function marketData(status: OpsStatus): HealthItem {
   const rows = status.feeds.rows;
   if (rows.length === 0) {
     return {
-      id: "market-data", name: "Market Data", status: "Unknown", tone: "neutral",
+      id: "market-data", name: "Market data", status: "Unknown", tone: "neutral",
       impact: "attention", summary: "No feed has been assessed yet.", facts: [],
       source: "Incremental feed_health evidence from /api/ops/status",
     };
@@ -80,27 +80,27 @@ function marketData(status: OpsStatus): HealthItem {
   ];
   if (state === "invalid") {
     return {
-      id: "market-data", name: "Market Data", status: "Invalid", tone: "critical",
+      id: "market-data", name: "Market data", status: "Invalid", tone: "critical",
       impact: "degraded", summary: issueSummary, facts,
       source: "Incremental candle-integrity evidence from /api/ops/status",
     };
   }
   if (state === "degraded") {
     return {
-      id: "market-data", name: "Market Data", status: "Degraded", tone: "warning",
+      id: "market-data", name: "Market data", status: "Degraded", tone: "warning",
       impact: "attention", summary: issueSummary, facts,
       source: "Incremental candle-integrity evidence from /api/ops/status",
     };
   }
   if (state !== "healthy" || rows.some((row) => row.integrity.state !== "healthy")) {
     return {
-      id: "market-data", name: "Market Data", status: "Unknown", tone: "neutral",
+      id: "market-data", name: "Market data", status: "Unknown", tone: "neutral",
       impact: "attention", summary: "At least one assessed feed lacks conclusive integrity evidence.", facts,
       source: "Incremental candle-integrity evidence from /api/ops/status",
     };
   }
   return {
-    id: "market-data", name: "Market Data", status: "Healthy", tone: "positive",
+    id: "market-data", name: "Market data", status: "Healthy", tone: "positive",
     impact: "normal", summary: `${rows.length} feed${rows.length === 1 ? "" : "s"} current and structurally valid.`,
     facts, source: "Incremental candle-integrity evidence from /api/ops/status",
   };
@@ -109,35 +109,35 @@ function marketData(status: OpsStatus): HealthItem {
 function liveRunner(status: OpsStatus): HealthItem {
   if (!status.emitter.liveRunnerEnabled) {
     return {
-      id: "live-runner", name: "LiveRunner", status: "Disabled", tone: "neutral",
+      id: "live-runner", name: "Live runner", status: "Disabled", tone: "neutral",
       impact: "neutral", summary: "Live emission is intentionally disabled by configuration.",
       facts: [`${status.deployments.active} active deployment(s)`],
-      source: "LiveRunner configuration and emitter lease from /api/ops/status",
+      source: "Live runner configuration and emitter lease from /api/ops/status",
     };
   }
   if (status.emitter.holdsLease) {
     return {
-      id: "live-runner", name: "LiveRunner", status: "Healthy", tone: "positive",
+      id: "live-runner", name: "Live runner", status: "Healthy", tone: "positive",
       impact: "normal", summary: "This process holds the emitter lease.",
       facts: [
         `${status.deployments.active} active · ${status.deployments.paused} paused`,
         `Lease expires: ${formatTimestamp(status.emitter.lease?.expiresAt ?? null)}`,
-      ], source: "LiveRunner configuration and emitter lease from /api/ops/status",
+      ], source: "Live runner configuration and emitter lease from /api/ops/status",
     };
   }
   if (status.emitter.lease) {
     return {
-      id: "live-runner", name: "LiveRunner", status: "Standby", tone: "neutral",
+      id: "live-runner", name: "Live runner", status: "Standby", tone: "neutral",
       impact: "neutral", summary: "Another process holds the emitter lease; this process will not emit.",
       facts: [`Lease holder: ${status.emitter.lease.holder}`],
-      source: "LiveRunner configuration and emitter lease from /api/ops/status",
+      source: "Live runner configuration and emitter lease from /api/ops/status",
     };
   }
   return {
-    id: "live-runner", name: "LiveRunner", status: "Attention", tone: "warning",
-    impact: "attention", summary: "LiveRunner is enabled, but no emitter lease is visible.",
+    id: "live-runner", name: "Live runner", status: "Attention", tone: "warning",
+    impact: "attention", summary: "The live runner is enabled, but no emitter lease is visible.",
     facts: [`${status.deployments.active} active deployment(s)`],
-    source: "LiveRunner configuration and emitter lease from /api/ops/status",
+    source: "Live runner configuration and emitter lease from /api/ops/status",
   };
 }
 
@@ -291,8 +291,14 @@ function tradingMode(status: OpsStatus): HealthItem {
     };
   }
   const botMode = status.bot.state === "CONNECTED" ? status.bot.status.execution.mode : "Unknown bot mode";
+  /*
+   * "Dry run" was this product's fourth name for one idea. Deployments say
+   * "paper (simulated)", the Journal badges "PAPER", the delivery mode in
+   * `lib/types` is `paper`, and only this line said "Dry run" — as the visible
+   * Trading Mode, directly above facts that count "… paper" in the same card.
+   */
   const visibleMode = status.bot.state === "CONNECTED" && status.bot.status.execution.dryRun
-    ? "Dry run"
+    ? "Paper"
     : status.mode === "LIVE" ? "Live" : status.mode;
   return {
     id: "trading-mode", name: "Trading Mode", status: visibleMode,

@@ -1,18 +1,32 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, StatusBadge, Empty } from "@/components/ui";
 import { BacktestForm } from "@/components/BacktestForm";
 import { api } from "@/lib/api";
 import type { Backtest, SymbolInfo } from "@/lib/types";
-import { fmtPct, fmtDate, fmtAgo, signClass } from "@/lib/format";
+import { fmtPct, fmtDate, fmtAgo, signClass, UTC_DATE_NOTE } from "@/lib/format";
 
 export default function BacktestsPage() {
   const router = useRouter();
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
   const [rows, setRows] = useState<Backtest[]>([]);
+  /*
+   * Null until the list has been answered once.
+   *
+   * The failure was swallowed (`.catch(() => {})`), so `rows` stayed `[]` and a
+   * backend that was down rendered as "No backtests yet. Configure one above" —
+   * a confident empty state for a question that was never answered. An operator
+   * reading that concludes their runs are gone.
+   */
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
-  const refresh = () => api.listBacktests().then(setRows).catch(() => {});
+  const refresh = () => api.listBacktests()
+    .then((r) => { setRows(r); setError(null); })
+    .catch((e) => setError((e as Error).message))
+    .finally(() => setLoaded(true));
 
   useEffect(() => {
     api.listSymbols().then(setSymbols).catch(() => {});
@@ -39,7 +53,14 @@ export default function BacktestsPage() {
 
       <Card>
         <CardHeader title="Backtests" right={<span className="text-xs text-ink-faint">{rows.length} runs</span>} />
-        {rows.length === 0 ? (
+        {error && rows.length === 0 ? (
+          <div role="alert" className="px-4 py-8 text-center text-sm text-down">
+            The backtest list could not be loaded, so this is not a statement that you have none.
+            <span className="mt-1 block font-mono text-xs text-ink-faint">{error}</span>
+          </div>
+        ) : !loaded ? (
+          <div role="status" className="px-4 py-8 text-center text-sm text-ink-faint">Loading backtests…</div>
+        ) : rows.length === 0 ? (
           <Empty>No backtests yet. Configure one above and hit “Run backtest”.</Empty>
         ) : (
           <div className="overflow-x-auto">
@@ -48,7 +69,7 @@ export default function BacktestsPage() {
                 <tr className="border-b border-border text-left text-xs text-ink-muted">
                   <th className="px-4 py-2 font-medium">Symbol</th>
                   <th className="px-4 py-2 font-medium">TF</th>
-                  <th className="px-4 py-2 font-medium">Window</th>
+                  <th className="px-4 py-2 font-medium" title={UTC_DATE_NOTE}>Window (UTC)</th>
                   <th className="px-4 py-2 font-medium">Status</th>
                   <th className="px-4 py-2 font-medium text-right">Net %</th>
                   <th className="px-4 py-2 font-medium text-right">PF</th>
@@ -67,7 +88,23 @@ export default function BacktestsPage() {
                       onClick={() => clickable && router.push(`/backtests/${r.id}`)}
                       className={`border-b border-border/50 ${clickable ? "hover:bg-surface-2 cursor-pointer" : ""}`}
                     >
-                      <td className="px-4 py-2 font-medium">{r.symbol}</td>
+                      {/*
+                        The symbol is the link, not just the row.
+
+                        Row click stays — it is the pointer affordance the table
+                        was built around — but a `<tr onClick>` has no tab stop
+                        and no Enter handler, so opening a result was impossible
+                        without a mouse, and this is the ONLY route to one.
+                      */}
+                      <td className="px-4 py-2 font-medium">
+                        {clickable ? (
+                          <Link href={`/backtests/${r.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+                            {r.symbol}
+                          </Link>
+                        ) : r.symbol}
+                      </td>
                       <td className="px-4 py-2 text-ink-muted">{r.timeframe}</td>
                       <td className="px-4 py-2 text-ink-muted">{fmtDate(r.startTime)} → {fmtDate(r.endTime)}</td>
                       <td className="px-4 py-2">

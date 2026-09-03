@@ -1003,6 +1003,7 @@ export function CandleChart({
     }
   }, [candles, symbol, interval, latestLegend, barColors, chartReady]);
 
+
   /**
    * Whether anything anchored to a canonical timestamp can be drawn on this
    * presentation at all. False under Renko — see `lib/chartType`.
@@ -1039,6 +1040,22 @@ export function CandleChart({
 
     if (candles.length > 0 && ((trades?.length ?? 0) > 0 || (markers?.length ?? 0) > 0)) {
       const drawn: SeriesMarker<Time>[] = [];
+      /*
+       * Past a point, a label stops being a label.
+       *
+       * Every trade printed `BUY 100.35` / `TP 96.39` beside its arrow. On a
+       * real 321-trade backtest that is 600+ text runs across one plot: a solid
+       * overlapping block of red and green in which no individual price can be
+       * read and the price action itself is hidden — on the panel whose stated
+       * job is "inspect every trade it took".
+       *
+       * Above the limit the arrows stay (position, direction and win/loss
+       * colour are what the eye actually uses at that density) and the text is
+       * dropped. The prices were never only here: the Trades tab lists all of
+       * them, and a handful of trades — the chart page's own strategy tester,
+       * which is the case the labels were designed for — is still labelled.
+       */
+      const labelled = tradeMarkerCount(trades, inWindow) <= TRADE_LABEL_LIMIT;
       for (const t of trades ?? []) {
         const open = t.exitTime === null;
         if (inWindow(t.entryTime / 1000)) {
@@ -1047,7 +1064,7 @@ export function CandleChart({
             position: "belowBar",
             color: open ? "#f0b90b" : "#2ebd85",
             shape: "arrowUp",
-            text: `BUY ${fmtPrice(t.entryPrice)}${open ? " ●" : ""}`,
+            ...(labelled ? { text: `BUY ${fmtPrice(t.entryPrice)}${open ? " ●" : ""}` } : {}),
           });
         }
         if (t.exitTime !== null && inWindow(t.exitTime / 1000)) {
@@ -1056,7 +1073,9 @@ export function CandleChart({
           drawn.push({
             time: (t.exitTime / 1000) as UTCTimestamp,
             position: "aboveBar", color: win ? "#2ebd85" : "#f6465d", shape: "arrowDown",
-            text: t.exitPrice !== null ? `${reason} ${fmtPrice(t.exitPrice)}` : reason,
+            ...(labelled
+              ? { text: t.exitPrice !== null ? `${reason} ${fmtPrice(t.exitPrice)}` : reason }
+              : {}),
           });
         }
       }
@@ -1771,24 +1790,32 @@ export function CandleChart({
           <span className="sr-only md:hidden"> — {RENKO_ALIGNMENT_NOTE}</span>
         </div>
       )}
-      </div>
       {/*
         FE-09: the feed's real state, next to the price it is supposed to be
         updating. A frozen price used to look exactly like a live one.
         `live` is not rendered — a green dot beside every chart is noise, and
         the states worth interrupting for are the ones where the number on
         screen is NOT current.
+
+        It sits at the FOOT of this column rather than opposite it. Pinned to
+        `right-2` it was drawn on top of the price scale — the one strip of the
+        chart whose whole job is to say what the numbers are — and at four- and
+        eight-pane widths a 60%-capped badge covered the scale outright. Last in
+        the column keeps the symbol/OHLC readout where it was (no jitter when a
+        socket drops) while putting the badge somewhere it can never obscure a
+        price.
       */}
       {live && feedState !== "live" && (
         <div
           role="status"
           aria-live="polite"
-          className={`pointer-events-none absolute right-2 top-1.5 z-10 flex max-w-[60%] items-center gap-1.5 rounded px-2 py-0.5 text-right font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState].className}`}
+          className={`flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState].className}`}
         >
           <span aria-hidden="true">●</span>
           {FEED_BADGE[feedState].label}
         </div>
       )}
+      </div>
       </div>
       {hasPanes && (
         /*
@@ -1958,5 +1985,26 @@ const FEED_BADGE: Record<ChartFeedState, { label: string; className: string }> =
   reconnecting: { label: "reconnecting…", className: "border border-warn/40 bg-surface/90 text-warn" },
   stale: { label: "feed stalled — price is not current", className: "border border-down/40 bg-surface/90 text-down" },
 };
+
+/**
+ * How many trade arrows may still carry a price label.
+ *
+ * Counted in MARKERS, not trades: a closed trade draws two. Forty is roughly
+ * where lightweight-charts stops being able to place the text without
+ * collisions on a typical desktop plot.
+ */
+export const TRADE_LABEL_LIMIT = 40;
+
+/** Entry and exit markers a trade list will actually draw on the loaded bars. */
+export function tradeMarkerCount(
+  trades: readonly Trade[] | undefined, inWindow: (t: number) => boolean
+): number {
+  let n = 0;
+  for (const t of trades ?? []) {
+    if (inWindow(t.entryTime / 1000)) n += 1;
+    if (t.exitTime !== null && inWindow(t.exitTime / 1000)) n += 1;
+  }
+  return n;
+}
 
 export { INTERVAL_MS };

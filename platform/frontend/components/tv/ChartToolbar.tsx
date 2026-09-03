@@ -46,6 +46,14 @@
  * the one element allowed to scroll. Nothing wraps, so the row is always one
  * row.
  *
+ * That absorber is `flex-initial`, not `flex-none`. `flex-none` pins the strip
+ * at its content width, which made the row incompressible: with the manual
+ * trading panel open the main column loses 341px, the row overflowed it, and
+ * the saved-layout button was painted straight through the ticket's own
+ * instrument header — two live controls drawn on top of each other. It must be
+ * able to give width back (it never GROWS into free space, which is what keeps
+ * the saved-layout identity pinned right by `ml-auto`).
+ *
  * Every control that was here before is still here. Nothing was dropped to
  * make the row fit, and nothing decorative was added to make it look like some
  * other product.
@@ -337,7 +345,14 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
 /** The saved layout this workspace is on, and whether it is behind. */
 function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
   return (
-    <div {...ctl("savedLayouts")} className={`shrink-0 items-center ${props.className}`}>
+    /*
+      Second absorber, after the timeframe strip.
+      At 1024 with the 341px ticket open the strip alone was 6px short, and two
+      live controls still touched. The layout NAME truncates — it is the only
+      text left on the row at that width — so the identity keeps its badge, its
+      chevron and its click target while giving the row the last few pixels.
+    */
+    <div {...ctl("savedLayouts")} className={`min-w-0 items-center ${props.className}`}>
       <LayoutMenu
         autosaveError={props.autosaveError}
         layouts={props.layouts}
@@ -402,7 +417,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           the bar, which is what keeps this a single row at every width.
         */}
         <div {...ctl("timeframe")} role="group" aria-label="Timeframe"
-          className="flex min-w-0 flex-1 items-center gap-0.5 sm:flex-none">
+          className="flex min-w-0 flex-1 items-center gap-0.5 sm:flex-initial">
           <div className="no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto">
             {strip.quick.map((i) => (
               <button key={i} onClick={() => props.onInterval(i)}

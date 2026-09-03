@@ -161,10 +161,13 @@ test("normalising nothing is total and safe", () => {
 
 test("the console renders the Bot floor, and the mode badge no longer claims to be the whole answer", () => {
   const source = read(PAGE);
-  assert.match(source, /<BotFloorPanel state=\{modeState\} \/>/);
+  assert.match(source, /<BotFloorPanel state=\{modeState\} unreadable=\{loaded\} \/>/);
   assert.match(source, /describeShariahSync\(state\)/);
-  assert.match(source, /Platform mode: \{mode === null/,
+  assert.match(source, /Platform mode: \{mode !== null/,
     "the badge is about this Platform's stored setting and must say so");
+  // …and after a failed read it says "unknown" rather than sitting on an
+  // ellipsis that promises an answer which is not coming.
+  assert.match(source, /loaded \? "unknown" : "…"/);
   assert.doesNotMatch(source, /Shariah Mode: \{mode === null/);
 });
 

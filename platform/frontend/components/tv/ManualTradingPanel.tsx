@@ -407,6 +407,49 @@ export function ManualTradingPanel({
   const shownOrders = orders.filter(
     ORDER_FILTERS.find((f) => f.id === orderFilter)?.match ?? (() => true));
 
+  /**
+   * Why this panel cannot be used right now, in the operator's terms.
+   *
+   * Three genuinely different situations reached the user as one undifferentiated
+   * failure, two of them as raw transport text:
+   *
+   *   - the install does not offer manual trading at all (a deliberate
+   *     configuration, not a fault, and nothing here will change it);
+   *   - manual trading is on but the execution Bot did not answer (a fault,
+   *     and one an operator can actually act on);
+   *   - it answered, and said manual trading is off on ITS side.
+   *
+   * `raw` keeps the underlying message rather than hiding it — an operator
+   * chasing this needs the string — but it is subordinate to a sentence that
+   * names the situation and the next step.
+   */
+  const unavailable = useMemo((): { title: string; detail: string; raw?: string } | null => {
+    if (state) {
+      if (state.enabled) return null;
+      return {
+        title: "Manual trading is switched off",
+        detail: "The execution bot reports manual order entry as disabled. Charts, alerts and "
+          + "the Journal are unaffected.",
+      };
+    }
+    if (!error) return null;
+    if (/manual trading is disabled/i.test(error)) {
+      return {
+        title: "Manual trading is not enabled on this install",
+        detail: "MANUAL_TRADING_ENABLED is off, so this Platform will not send orders. Nothing "
+          + "is wrong with the chart, the alerts or the Journal — this panel is simply not "
+          + "part of how this install is configured.",
+      };
+    }
+    return {
+      title: "The execution bot could not be reached",
+      detail: "Nothing was sent and no order was placed. Check that the bot is running and that "
+        + "this Platform points at it, then reopen this panel. Balances and orders shown "
+        + "elsewhere may be behind until it answers.",
+      raw: error,
+    };
+  }, [state, error]);
+
   return <aside className="flex h-full w-[90vw] max-w-[340px] shrink-0 flex-col border-l border-border bg-surface md:w-[340px]"
     aria-label="Manual Binance Spot trading">
     {/*
@@ -437,10 +480,39 @@ export function ManualTradingPanel({
           tab === id ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"}`}>
         {id === "ticket" ? "Order" : `Orders${orders.length ? ` ${orders.length}` : ""}`}</button>)}
     </div>
-    {error && <div role="alert" className="border-b border-down/30 bg-down/10 px-3 py-2 text-xs text-down">{error}</div>}
+    {/*
+      An error about the ticket, not about the panel.
+
+      When the panel has never loaded, `unavailable` below owns the whole body
+      and says so once. This banner is for the case that matters while trading:
+      state is on screen, and an action against it failed.
+    */}
+    {error && state && <div role="alert" className="border-b border-down/30 bg-down/10 px-3 py-2 text-xs text-down">{error}</div>}
     {notice && <div role="status" className="border-b border-up/30 bg-up/10 px-3 py-2 text-xs text-up">{notice}</div>}
-    {!state ? <div className="p-4 text-sm text-ink-faint">Loading manual trading…</div>
-    : !state.enabled ? <div className="p-4 text-sm text-ink-faint">Manual trading is disabled by server configuration.</div>
+    {/*
+      The panel used to render its error banner AND `Loading manual trading…`
+      at the same time, forever: `state` stays null on any failure, and the
+      loading line was the else-branch of `state` alone. So a disabled install
+      read "manual trading is disabled" over a spinner that never stopped, and
+      an unreachable execution bot read "internal server error" over the same.
+      Neither told an operator what to do, and both implied work in progress
+      that was not happening.
+
+      One state at a time now: loading, or a named unavailable reason, or the
+      ticket.
+    */}
+    {unavailable ? <div className="space-y-1.5 p-4">
+      <p role="alert" className="text-sm font-medium text-ink">{unavailable.title}</p>
+      <p className="text-xs leading-5 text-ink-muted">{unavailable.detail}</p>
+      {/*
+        Only when it adds something. The backend now names this failure in the
+        same words as the sentence above, so printing both just said it twice.
+      */}
+      {unavailable.raw && unavailable.raw.toLowerCase() !== unavailable.title.toLowerCase() && (
+        <p className="pt-1 font-mono text-[11px] leading-4 text-ink-faint">{unavailable.raw}</p>
+      )}
+    </div>
+    : !state ? <div role="status" className="p-4 text-sm text-ink-faint">Loading manual trading…</div>
     : tab === "ticket" ? <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
       {/*
         Real funds versus testnet is the single most consequential fact in this

@@ -7,7 +7,7 @@ import {
   api, type JournalResponse, type JournalRow, type JournalSource,
   type JournalSummarySlice,
 } from "@/lib/api";
-import { fmtDateTime, fmtNum, fmtPrice, signClass } from "@/lib/format";
+import { fmtDateTime, fmtNum, fmtPrice, signClass, LOCAL_TIME_NOTE } from "@/lib/format";
 
 const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
 const today = () => {
@@ -177,6 +177,19 @@ export default function JournalPage() {
           Chronological Spot activity and known realized performance from persisted evidence. Journal shows what accumulated;
           Timeline explains what happened to one order. Unknown economics stay unknown.
         </p>
+        {/*
+          The one zone statement this page needs.
+
+          Row times are the reader's own — that is the right authority for "when
+          did this happen to me" and it is not being changed here — but the
+          From/Through filter is built from the UTC date, and the chart this
+          product ships states that its own axis is UTC. Two zones on one screen
+          are fine; two unlabelled zones are not.
+        */}
+        <p className="mt-1 text-xs text-ink-faint">
+          {LOCAL_TIME_NOTE} The From / Through filter is inclusive and uses the UTC date, matching
+          the exchange bar timestamps on the chart.
+        </p>
       </header>
 
       <Card>
@@ -203,7 +216,9 @@ export default function JournalPage() {
       {data && <>
         <section aria-label="Known realized summaries" className="grid gap-3 sm:grid-cols-2">
           <SummaryCard title="Real money evidence" scope={data.summary.real} />
-          <SummaryCard title="Simulation evidence" scope={data.summary.paper} paper />
+          {/* "Simulation" was this card's own word for what its badge, its
+              filter option and the delivery mode itself all call PAPER. */}
+          <SummaryCard title="Paper evidence" scope={data.summary.paper} paper />
         </section>
 
         {(data.summary.byPeriod.length > 0 || data.summary.bySymbol.length > 0) && <div className="grid gap-3 lg:grid-cols-2">

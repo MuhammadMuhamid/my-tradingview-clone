@@ -219,7 +219,23 @@ function ChartPaneImpl(props: ChartPaneProps) {
       data-active={active ? "true" : "false"}
       onFocusCapture={() => props.onActivate(pane.id)}
       onPointerDownCapture={() => props.onActivate(pane.id)}
-      className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border bg-surface transition-colors ${
+      /*
+        `flex-1` is load-bearing, not decoration.
+
+        The workspace hands every pane a grid cell that is itself a flex row
+        (`ChartWorkspace`). A flex item defaults to `flex: 0 1 auto`, so without
+        this the pane took its width from its CONTENT — a ~128px sliver of
+        unreadable candles at the far left of a 1044px cell, identical at 1024,
+        1440, 1920 and 2560, and identical again at 2, 4, 8 and 16 panes. The
+        collapse also hid every control that only renders once the pane is wide
+        enough: the synthetic-transform banner, the range shortcuts, the scale
+        controls, the UTC clock and the history-depth readout.
+
+        No automated test caught it because none of them measure rendered
+        width. `tests/chartWorkspace.test.ts` now asserts this pairing so the
+        class cannot be dropped again.
+      */
+      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-sm border bg-surface transition-colors ${
         active ? "border-accent/70" : "border-border"
       }`}
     >

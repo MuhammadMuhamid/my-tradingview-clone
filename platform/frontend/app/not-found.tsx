@@ -9,8 +9,12 @@ export default function NotFound() {
         That address does not match any page in this application.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {[["/chart", "Chart"], ["/scanner", "Scanner"], ["/alerts", "Alerts"], ["/backtests", "Backtests"],
-          ["/deployments", "Live trading"]].map(([href, label]) => (
+        {/* Every destination the global nav has — four of them used to be
+            missing here, so a stale /journal link dead-ended. */}
+        {[["/chart", "Chart"], ["/scanner", "Scanner"], ["/alerts", "Alerts"],
+          ["/optimizers", "Optimizers"], ["/backtests", "Backtests"],
+          ["/deployments", "Live trading"], ["/journal", "Journal"],
+          ["/operations", "Operations"], ["/shariah", "Shariah"]].map(([href, label]) => (
           <Link
             key={href}
             href={href}

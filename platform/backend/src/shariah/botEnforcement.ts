@@ -139,9 +139,18 @@ export async function pushShariahModeToBot(
       body: { mode, policyVersion: mode === "enforce" ? TS_SHARIAH_V1 : null },
     });
   } catch (error) {
+    /*
+     * The refusal itself is correct and unchanged — the mode does not move
+     * unless the Bot confirms it. Only the sentence is different: this used to
+     * end in a bare transport string ("…was not applied: fetch failed"), which
+     * told an operator nothing about what is now true or what to do. The cause
+     * is kept, after a statement of state and before a next step.
+     */
     throw new ShariahBotSyncError(
-      "the execution bot could not be told about this Shariah mode change, so the " +
-      "change was not applied: " + (error instanceof Error ? error.message : String(error))
+      "the execution bot could not be told about this Shariah mode change, so the change " +
+      "was not applied and Platform Shariah Mode is unchanged. Cause: " +
+      (error instanceof Error ? error.message : String(error)) +
+      ". Check that the execution bot is running and reachable from this Platform, then try again."
     );
   }
   const applied = (reply ?? {}).mode;

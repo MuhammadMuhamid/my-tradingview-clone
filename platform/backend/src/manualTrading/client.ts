@@ -96,14 +96,36 @@ async function sendManualBotRequest<T>(
   const nonce = randomBytes(24).toString("base64url");
   const requestId = input.requestId ?? randomUUID();
   const signature = signManualCommand({ ...input, timestamp, nonce, requestId });
-  const response = await fetchImpl(`${config.manualTradingBotUrl}${input.path}`, {
-    method: input.method,
-    headers: { "content-type": "application/json", "x-manual-timestamp": timestamp,
-      "x-manual-nonce": nonce, "x-manual-request-id": requestId,
-      "x-manual-signature": signature },
-    ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
-    signal: AbortSignal.timeout(10_000),
-  });
+  /*
+   * A bot that never answered is not an internal error of THIS service.
+   *
+   * `fetch` rejects on a refused connection, a DNS failure or the 10s timeout,
+   * and that rejection is not a `ManualBotError`, so it fell through the
+   * route's handler to Fastify's generic 500 — reaching the operator as
+   * "internal server error" on the manual trading panel, which is both wrong
+   * about whose fault it is and useless about what to do next. 502 with the
+   * cause named is the truthful answer: an upstream this service depends on
+   * did not respond.
+   *
+   * Nothing about what executes changes. The request had already failed; only
+   * the status and the sentence are different.
+   */
+  let response: Response;
+  try {
+    response = await fetchImpl(`${config.manualTradingBotUrl}${input.path}`, {
+      method: input.method,
+      headers: { "content-type": "application/json", "x-manual-timestamp": timestamp,
+        "x-manual-nonce": nonce, "x-manual-request-id": requestId,
+        "x-manual-signature": signature },
+      ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (cause) {
+    const reason = cause instanceof Error && cause.name === "TimeoutError"
+      ? "did not respond within 10s"
+      : "could not be reached";
+    throw new ManualBotError(`the execution bot ${reason}`, 502);
+  }
   if (!response.ok) {
     let message = `execution bot returned ${response.status}`;
     try { message = ((await response.json()) as { error?: string }).error ?? message; } catch { /* status only */ }

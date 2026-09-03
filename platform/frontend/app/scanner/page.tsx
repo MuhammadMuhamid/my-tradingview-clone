@@ -26,6 +26,7 @@ export default function ScannerPage() {
   const [newSymbol, setNewSymbol] = useState("");
   /** baseAsset -> effective status, joined onto rows below. */
   const [shariahStatuses, setShariahStatuses] = useState<Map<string, ShariahClassification> | null>(null);
+  const [shariahError, setShariahError] = useState<string | null>(null);
   const [shariahMode, setShariahMode] = useState<ShariahMode | null>(null);
 
   const load = useCallback(async () => {
@@ -48,9 +49,19 @@ export default function ScannerPage() {
       const [universe, mode] = await Promise.all([shariahApi.universe(), shariahApi.mode()]);
       setShariahStatuses(new Map(universe.assets.map((a) => [a.baseAsset, a.effectiveStatus])));
       setShariahMode(mode.mode);
-    } catch {
-      // The scanner stays fully usable without it; the column simply reads "—".
+      setShariahError(null);
+    } catch (e) {
+      /*
+       * The scanner stays fully usable without it — but it must SAY so.
+       *
+       * A silent null removed the Shariah Mode line and the whole status column
+       * from the screen, on a product where "may I buy this" is the question
+       * that line answers. Absence read as "not applicable". The enforcement
+       * itself is the backend's and is unaffected either way; what was missing
+       * was the statement that this screen cannot show it.
+       */
       setShariahStatuses(null);
+      setShariahError((e as Error).message);
     }
   }, []);
 
@@ -139,13 +150,23 @@ export default function ScannerPage() {
                 {marketLabel}
               </span>
             </div>
+            {/*
+              "market identity loading" is a claim that something is still
+              happening. Once the scanner service has failed, nothing is: the
+              snapshot stays null, and this line sat next to a "Scanner service
+              unavailable" banner insisting it was still loading.
+            */}
             <p className="mt-0.5 text-[11px] text-ink-muted">
-              Exact Spot instruments · {snapshot?.market.spot ? "API provenance verified" : "market identity loading"}
+              Exact Spot instruments · {snapshot?.market.spot
+                ? "API provenance verified"
+                : error ? "market identity unknown" : "market identity loading"}
             </p>
           </div>
 
           <span className="text-ink-muted">
-            {snapshot ? `${snapshot.rows.length} symbols · refreshed ${fmtAge(snapshot.last_refresh_at)}` : "Loading cached snapshot…"}
+            {snapshot
+              ? `${snapshot.rows.length} symbols · refreshed ${fmtAge(snapshot.last_refresh_at)}`
+              : error ? "No snapshot loaded" : "Loading cached snapshot…"}
           </span>
           {state.partial > 0 && <span className="text-warn">Partial/no data {state.partial}</span>}
           {state.unresolved > 0 && <span className="text-warn">Unresolved {state.unresolved}</span>}
@@ -225,6 +246,13 @@ export default function ScannerPage() {
           </span>
         </div>
 
+        {!shariahStatuses && shariahError && (
+          <p role="alert" className="mt-1 text-xs text-warn">
+            Shariah classifications could not be read, so the status column and Shariah Mode are
+            not shown here. This screen only reports them — buying is gated by the server either
+            way. <span className="font-mono text-ink-faint">{shariahError}</span>
+          </p>
+        )}
         {shariahStatuses && (
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
             <span>
@@ -248,10 +276,14 @@ export default function ScannerPage() {
         )}
         {busy && busy !== "Refreshing" && <p role="status" className="mt-1 text-xs text-ink-muted">{busy}…</p>}
         {error && <p role="alert" className="mt-1 text-xs text-down">Scanner: {error}</p>}
-        {snapshot?.last_refresh_error && <p className="mt-1 text-xs text-down">Last refresh: {snapshot.last_refresh_error}</p>}
-        {snapshot?.unverified_symbols.map((item) => (
-          <p key={item.raw} className="mt-1 text-xs text-warn">Unverified {item.raw} — {item.note}</p>
-        ))}
+        {snapshot?.last_refresh_error && <p role="alert" className="mt-1 text-xs text-down">Last refresh: {snapshot.last_refresh_error}</p>}
+        {(snapshot?.unverified_symbols.length ?? 0) > 0 && (
+          <div role="status" aria-live="polite">
+            {snapshot?.unverified_symbols.map((item) => (
+              <p key={item.raw} className="mt-1 text-xs text-warn">Unverified {item.raw} — {item.note}</p>
+            ))}
+          </div>
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1">
