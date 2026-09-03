@@ -79,14 +79,29 @@ interface StoredIndicator {
 
 const STORAGE_KEY = "tv.indicators.v1";
 
+/**
+ * Applied studies are per pane, so their storage is too.
+ *
+ * The first pane keeps the original unsuffixed key, which is what makes an
+ * existing user's studies survive the move to a multi-pane workspace: their
+ * chart is pane `p1`, and it reads exactly the entry it wrote before this
+ * change existed. Every other pane gets its own suffixed entry, so adding a
+ * study to the fourth chart cannot appear on the first.
+ */
+export const PRIMARY_INDICATOR_SCOPE = "p1";
+
+export function indicatorStorageKey(scope: string): string {
+  return scope === PRIMARY_INDICATOR_SCOPE ? STORAGE_KEY : `${STORAGE_KEY}.${scope}`;
+}
+
 export function newKey(): string {
   return `ind_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function loadStored(): StoredIndicator[] {
+export function loadStored(scope: string = PRIMARY_INDICATOR_SCOPE): StoredIndicator[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(indicatorStorageKey(scope));
     const list = raw ? (JSON.parse(raw) as StoredIndicator[]) : [];
     return Array.isArray(list) ? list.filter((s) => typeof s?.source === "string") : [];
   } catch {
@@ -94,15 +109,39 @@ export function loadStored(): StoredIndicator[] {
   }
 }
 
-export function saveStored(list: AppliedIndicator[]): void {
+export function saveStored(
+  list: AppliedIndicator[], scope: string = PRIMARY_INDICATOR_SCOPE
+): void {
   if (typeof window === "undefined") return;
   const slim: StoredIndicator[] = list.map((i) => ({
     key: i.key, scriptId: i.scriptId, name: i.name,
     source: i.source, params: i.params, visible: i.visible,
   }));
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    window.localStorage.setItem(indicatorStorageKey(scope), JSON.stringify(slim));
   } catch { /* quota — the list is a convenience, not the source of truth */ }
+}
+
+/** Forget one pane's stored studies, when that pane is closed for good. */
+export function clearStored(scope: string): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(indicatorStorageKey(scope)); } catch { /* nothing to do */ }
+}
+
+/**
+ * A copy of one pane's studies for another pane.
+ *
+ * `params` is copied rather than referenced: a cloned pane that shared its
+ * source pane's params object would retune both charts from one dialog.
+ */
+export function copyStoredForScope(from: string, to: string): void {
+  if (typeof window === "undefined" || from === to) return;
+  const source = loadStored(from);
+  try {
+    window.localStorage.setItem(indicatorStorageKey(to), JSON.stringify(
+      source.map((s) => ({ ...s, params: { ...s.params } }))
+    ));
+  } catch { /* quota — the new pane simply starts with no studies */ }
 }
 
 /** Rehydrate a stored entry into a not-yet-run instance. */

@@ -302,11 +302,15 @@ test("an edit that leaves the current filter is detectable", () => {
 const read = (file: string): string => fs.readFileSync(path.join(ROOT, file), "utf8");
 
 test("the Alerts page and the chart rail both open the shared editor", () => {
-  for (const file of ["app/alerts/page.tsx", "app/chart/page.tsx"]) {
+  // The chart's dialogs were extracted out of its page; the editor it reaches
+  // is still the one shared with the Alerts page, which is the invariant.
+  for (const file of ["app/alerts/page.tsx", "components/tv/ChartDialogs.tsx"]) {
     const source = read(file);
     assert.match(source, /<AlertEditor\b/, `${file} does not mount the alert editor`);
     assert.match(source, /from "@\/components\/tv\/AlertEditor"/, file);
   }
+  // And the chart page still routes an armed alert into that surface.
+  assert.match(read("app/chart/page.tsx"), /editingAlert=\{editingAlert\}/);
 });
 
 test("clicking an armed alert in the rail opens THAT alert", () => {

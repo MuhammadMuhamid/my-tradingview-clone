@@ -15,7 +15,8 @@ import {
 import type { PineDrawings } from "@/lib/api";
 import type { Interval, Trade } from "@/lib/types";
 import {
-  NO_DRAWINGS, hydrate, invalidateReplayOutput, loadStored, newKey, runIndicator, saveStored,
+  NO_DRAWINGS, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput, loadStored, newKey,
+  runIndicator, saveStored,
   type AppliedIndicator, type PineParams,
 } from "@/lib/indicators";
 
@@ -25,6 +26,12 @@ export interface IndicatorContext {
   startTime: string;
   endTime: string;
   replay?: boolean;
+  /**
+   * Which pane's study list this is. Studies are per pane, so the stored list
+   * is too — see `indicatorStorageKey`. Omitted means the primary pane, which
+   * keeps the original storage entry.
+   */
+  scope?: string;
 }
 
 export interface AddIndicatorInput {
@@ -35,6 +42,7 @@ export interface AddIndicatorInput {
 }
 
 export function useIndicators(ctx: IndicatorContext) {
+  const scope = ctx.scope ?? PRIMARY_INDICATOR_SCOPE;
   const [list, setList] = useState<AppliedIndicator[]>([]);
   const [preparedContextKey, setPreparedContextKey] = useState("");
   const runToken = useRef(0);
@@ -46,10 +54,13 @@ export function useIndicators(ctx: IndicatorContext) {
   // Restore the previous session's studies once, on mount, then queue them —
   // stored rows carry no run output, so each needs a first run to draw.
   useEffect(() => {
-    const restored = loadStored().map(hydrate);
+    const restored = loadStored(scope).map(hydrate);
     if (restored.length === 0) return;
     setList(restored);
     setDirtyKeys(restored.map((i) => i.key));
+    // Restoring is a mount-time act for one pane; the scope cannot change
+    // under a mounted pane, because a pane's id is its identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Skip the first pass: on mount `list` is still empty while the restore
@@ -57,8 +68,8 @@ export function useIndicators(ctx: IndicatorContext) {
   const restored = useRef(false);
   useEffect(() => {
     if (!restored.current) { restored.current = true; return; }
-    saveStored(list);
-  }, [list]);
+    saveStored(list, scope);
+  }, [list, scope]);
 
   /** Replace one instance in place, ignoring stale results for removed rows. */
   const settle = useCallback((next: AppliedIndicator, token: number, version: number) => {

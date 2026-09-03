@@ -3,17 +3,20 @@ import { useEffect, useRef, useState } from "react";
 import { SYNC_LABELS, type SyncOptions } from "@/lib/paneSync";
 
 /**
- * TradingView's "Sync in layout" menu: which properties the second chart
- * follows from the first. Each row is an independent toggle, because the
- * useful combinations are not nested — syncing the crosshair while keeping
- * two different timeframes is the whole point of a split.
+ * TradingView's "Sync in layout" menu: which properties panes follow from one
+ * another. Each row is an independent toggle, because the useful combinations
+ * are not nested — syncing the crosshair while keeping several different
+ * timeframes is the whole point of a multi-chart layout.
+ *
+ * Every switch here now changes behaviour. Four of the five used to be
+ * decorative; see `lib/paneSync` for what was wrong and what replaced it.
  */
 export function SyncMenu({
   value, onChange, disabled = false,
 }: {
   value: SyncOptions;
   onChange: (next: SyncOptions) => void;
-  /** No second pane open, so there is nothing to synchronise with. */
+  /** Only one pane in the layout, so there is nothing to synchronise with. */
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,7 +43,7 @@ export function SyncMenu({
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
-        title={disabled ? "Open a split pane to synchronise it" : "Sync in layout"}
+        title={disabled ? "Add a second pane to synchronise it" : "Sync in layout"}
         className={`flex items-center gap-1.5 rounded px-2 py-1 text-[13px] transition-colors disabled:opacity-40 ${
           open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
         }`}

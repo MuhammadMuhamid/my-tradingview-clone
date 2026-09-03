@@ -90,7 +90,16 @@ test("Scanner navigation prefills existing Spot workflows without direct mutatio
   const links = read("lib/spotScene.ts");
   assert.match(chart, /parseScannerChartTarget\(window\.location\.search\)/);
   assert.match(chart, /target\.panel === "manual"/);
-  assert.match(chart, /<ManualTradingPanel symbol=\{symbol\}/);
+  // The ticket's instrument is the workspace's resolved trading target rather
+  // than a raw `symbol`, now that a workspace can show sixteen of them. It is
+  // still the focused chart's symbol whenever nothing is staged, which is the
+  // case a scanner hand-off always lands in; `lib/tradingTarget` is what makes
+  // the multi-pane case safe as well. The panel itself is mounted by the side
+  // panel, so the binding is checked along the whole chain.
+  assert.match(chart, /resolveTradingTarget\(/);
+  assert.match(chart, /tradingSymbol=\{tradingSymbol\}/);
+  assert.match(read("components/tv/ChartSidePanel.tsx"),
+    /<ManualTradingPanel symbol=\{props\.tradingSymbol\}/);
   assert.match(alerts, /parseScannerAlertTarget\(window\.location\.search\)/);
   assert.match(alerts, /setNewSymbol\(target\.symbol\)/);
   assert.match(alerts, /setLevelOpen\(true\)/);

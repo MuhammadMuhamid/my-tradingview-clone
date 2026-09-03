@@ -99,12 +99,32 @@ function UnitField({
   );
 }
 
-export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateChange }: {
+export function ManualTradingPanel({
+  symbol, lastPrice = null, targetNotice = null, onClose, onStateChange, onStagedChange,
+}: {
   symbol: string;
   /** Latest close from the chart. Presentational context only — never submitted. */
   lastPrice?: number | null;
+  /**
+   * Why this ticket is on an instrument other than the focused chart's.
+   *
+   * The workspace holds the ticket on the symbol it was staged for when the
+   * user focuses a different pane, rather than retargeting a live order
+   * silently. That decision is made in `lib/tradingTarget`; this panel's job
+   * is to say it out loud, because an order pointing somewhere other than the
+   * chart in front of you must never be a surprise.
+   */
+  targetNotice?: string | null;
   onClose?: () => void;
   onStateChange: (state: ManualTradingState | null) => void;
+  /**
+   * Reports whether the ticket currently holds anything staged.
+   *
+   * The workspace needs this to decide whether the trading target may follow
+   * the focused pane. It is derived from the same `isTicketStaged` rule the
+   * disarm and the submit guard use, so all three can never disagree.
+   */
+  onStagedChange?: (staged: boolean) => void;
 }) {
   const [state, setState] = useState<ManualTradingState | null>(null);
   const [accountId, setAccountId] = useState("");
@@ -178,6 +198,17 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
       .catch(() => { if (!cancelled) setShariah(null); });
     return () => { cancelled = true; };
   }, [symbol]);
+
+  /**
+   * Tell the workspace whether anything is staged.
+   *
+   * Same rule, same module as the disarm and the submit guard — a fourth
+   * definition of "staged" is exactly how these three drift apart.
+   */
+  const ticketStaged = isTicketStaged({ amount, limitPrice, tp, sl, positionId,
+    mainnetConfirmed, orderRequestId, confirming });
+  useEffect(() => { onStagedChange?.(ticketStaged); }, [ticketStaged, onStagedChange]);
+  useEffect(() => () => { onStagedChange?.(false); }, [onStagedChange]);
 
   /*
    * A symbol change disarms the ticket.
@@ -433,6 +464,16 @@ export function ManualTradingPanel({ symbol, lastPrice = null, onClose, onStateC
         <span className="text-[11px] uppercase tracking-wide text-ink-muted">Trading</span>
         <span className="text-sm font-semibold text-ink">{symbol}</span>
       </div>
+      {/*
+        * Held on this instrument while another pane is focused.
+        *
+        * Clicking a different chart in a multi-pane workspace is not a
+        * decision to trade a different instrument, so the ticket does not
+        * follow focus while anything is staged. Saying so is the whole point:
+        * the alternative is an order that quietly points somewhere else.
+        */}
+      {targetNotice && <p role="status" data-testid="manual-ticket-pinned"
+        className="text-xs text-warn">{targetNotice}</p>}
       {disarmedFrom && <p role="status" className="text-xs text-warn">
         Ticket cleared: it was prepared for {disarmedFrom}, and the chart now shows {symbol}.
       </p>}
