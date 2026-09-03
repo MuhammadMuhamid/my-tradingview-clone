@@ -2,9 +2,13 @@ import type {
   AutomatedActivityEvidence, AutomatedRealizationEvidence, ManualActivityEvidence,
   PaperFillEvidence, ProvenanceEvidence,
 } from "../journal/projection";
+import type { BotOperationalStatus } from "../operations/botStatus";
 import type {
   TradingOverlayEnvironment, TradingOverlayItem, TradingOverlayProvenance,
 } from "./types";
+
+/** The Bot's own `exchange.mode`, absent when the Bot was not read or not reached. */
+export type BotExchangeMode = BotOperationalStatus["exchange"]["mode"] | null | undefined;
 
 export interface ManualOverlayOrderEvidence extends ManualActivityEvidence {
   exchangeAccountId: string | null;
@@ -81,6 +85,26 @@ function manualEnvironment(state: ManualOverlayStateEvidence, accountId: string 
   return "UNKNOWN";
 }
 
+/**
+ * Automated overlays carry no environment of their own: they are projected from
+ * Platform-persisted executions, realizations and runtime positions, none of
+ * which record which exchange the order actually reached. The only authority on
+ * that is the Bot that submitted them, exactly as `manualEnvironment` above
+ * defers to the Bot's per-account state for the manual path.
+ *
+ * `MIXED` — the Bot holds both testnet and mainnet accounts — proves nothing
+ * about which one a given persisted order used, and an unreachable or
+ * unrecognised Bot proves nothing at all. Both answer `UNKNOWN`. The one answer
+ * that must never be a default is `REAL`: a testnet marker labelled REAL is
+ * read as real money by the operator performing exactly the testnet validation
+ * this product asks them to perform.
+ */
+export function automatedEnvironment(mode: BotExchangeMode): TradingOverlayEnvironment {
+  if (mode === "TESTNET") return "TESTNET";
+  if (mode === "MAINNET") return "REAL";
+  return "UNKNOWN";
+}
+
 const ACTIVE_ORDER_STATES = new Set([
   "requested", "pending", "submitted", "new", "open", "partially_filled", "working",
 ]);
@@ -108,7 +132,9 @@ export function projectHistoricalOverlays(input: {
   automatedRealizations: readonly AutomatedRealizationEvidence[];
   paperFills: readonly PaperFillEvidence[];
   limit: number;
+  botExchangeMode?: BotExchangeMode;
 }): { items: TradingOverlayItem[]; truncated: boolean } {
+  const automated = automatedEnvironment(input.botExchangeMode);
   const output: TradingOverlayItem[] = [];
   const seen = new Set<string>();
   const push = (item: TradingOverlayItem): void => {
@@ -149,7 +175,7 @@ export function projectHistoricalOverlays(input: {
     push({
       id: `automated-execution:${row.executionId ?? row.id}`,
       kind: "HISTORICAL_ACTIVITY_MARKER", evidenceClass: "AUTHORITATIVE_HISTORICAL_EVENT",
-      evidenceKind: "PERSISTED_EXECUTION_SNAPSHOT", source: "AUTOMATED", environment: "REAL",
+      evidenceKind: "PERSISTED_EXECUTION_SNAPSHOT", source: "AUTOMATED", environment: automated,
       symbol: row.symbol, side: row.side, eventTime: iso(row.occurredAt), observedAt: null,
       price: row.price!, quantity: row.quantity, state: row.state, orderType: null,
       completeness: "INCOMPLETE",
@@ -165,7 +191,7 @@ export function projectHistoricalOverlays(input: {
     push({
       id: `automated-realization:${row.id}`, kind: "REALIZATION_MARKER",
       evidenceClass: "AUTHORITATIVE_HISTORICAL_EVENT", evidenceKind: "PERSISTED_REALIZATION",
-      source: "AUTOMATED", environment: "REAL", symbol: row.symbol, side: "SELL",
+      source: "AUTOMATED", environment: automated, symbol: row.symbol, side: "SELL",
       eventTime: iso(row.closedAt), observedAt: null, price: row.exitPrice,
       quantity: row.quantity, state: row.reason, orderType: null, completeness: "INCOMPLETE",
       detail: row.accountingBasis === "modeled_fee_adjusted"
@@ -205,7 +231,9 @@ export function projectCurrentOverlays(input: {
   manual?: ManualOverlayStateEvidence;
   automatedOrders: readonly CurrentAutomatedOrderEvidence[];
   positions: readonly CurrentPositionEvidence[];
+  botExchangeMode?: BotExchangeMode;
 }): TradingOverlayItem[] {
+  const automated = automatedEnvironment(input.botExchangeMode);
   const output: TradingOverlayItem[] = [];
   for (const order of input.manual?.orders ?? []) {
     if (order.symbol !== input.symbol || order.orderType?.toUpperCase() !== "LIMIT"
@@ -232,7 +260,7 @@ export function projectCurrentOverlays(input: {
       id: `automated-order:${order.deploymentId}:${order.exchangeOrderId}:active`,
       kind: "ACTIVE_ORDER_LINE",
       evidenceClass: "CURRENT_AUTHORITATIVE_STATE", evidenceKind: "CURRENT_ORDER_SNAPSHOT",
-      source: "AUTOMATED", environment: "REAL", symbol: order.symbol, side: order.side,
+      source: "AUTOMATED", environment: automated, symbol: order.symbol, side: order.side,
       eventTime: null, observedAt: iso(order.observedAt), price: order.price,
       quantity: order.quantity, state: order.state, orderType: order.orderType,
       completeness: "INCOMPLETE",
@@ -264,7 +292,7 @@ export function projectCurrentOverlays(input: {
       id: `${position.source.toLowerCase()}-position:${position.deploymentId}`,
       kind: "POSITION_LINE", evidenceClass: "CURRENT_AUTHORITATIVE_STATE",
       evidenceKind: position.source === "PAPER" ? "PAPER_ACCOUNTING_POSITION" : "DEPLOYMENT_RUNTIME_POSITION",
-      source: position.source, environment: position.source === "PAPER" ? "PAPER" : "REAL",
+      source: position.source, environment: position.source === "PAPER" ? "PAPER" : automated,
       symbol: position.symbol, side: "BUY", eventTime: null, observedAt: iso(position.observedAt),
       price: position.price, quantity: position.quantity, state: "long", orderType: null,
       completeness: position.quantity === null ? "INCOMPLETE" : "COMPLETE",

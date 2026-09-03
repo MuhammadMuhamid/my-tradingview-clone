@@ -7,8 +7,9 @@ import {
   MAX_OVERLAY_ITEMS, MAX_OVERLAY_RANGE_MS, overlayReadPlan, parseTradingOverlayQuery,
 } from "../src/api/routes/tradingOverlays";
 import {
-  isActiveOrderState, overlaysWithinRange, projectCurrentOverlays, projectHistoricalOverlays,
-  type ManualOverlayStateEvidence,
+  automatedEnvironment, isActiveOrderState, overlaysWithinRange, projectCurrentOverlays,
+  projectHistoricalOverlays,
+  type BotExchangeMode, type ManualOverlayStateEvidence,
 } from "../src/overlays/projection";
 
 const T0 = Date.UTC(2026, 8, 1, 12);
@@ -121,10 +122,43 @@ test("positions come only from explicit existing models and preserve REAL versus
         costBasis: null, observedAt: T0 + 6000 },
       { ...provenance, deploymentId: "22222222-2222-4222-8222-222222222222",
         source: "PAPER", price: 102, quantity: 2, costBasis: 204, observedAt: T0 + 6000 },
-    ] });
+    ], botExchangeMode: "MAINNET" });
   assert.deepEqual(items.filter((item) => item.kind === "POSITION_LINE").map((item) => item.environment).sort(),
     ["REAL", "PAPER", "REAL"].sort());
   assert.match(items.find((item) => item.id.startsWith("manual-position"))?.detail ?? "", /never|No position was reconstructed/i);
+});
+
+test("automated overlays take their environment from the Bot and never default to REAL", () => {
+  const execution = { ...provenance, kind: "EXECUTION_SNAPSHOT" as const, id: 30,
+    occurredAt: T0, side: "BUY" as const, state: "FILLED", quantity: 1, price: 100,
+    intentId: null, executionId: 30, exchangeOrderId: "exchange-30" };
+  const realization = { ...provenance, id: 31, closedAt: T0 + 1000, pnlQuote: 5,
+    entryPrice: 90, exitPrice: 105, quantity: 0.5, reason: "TP1" };
+  const activeOrder = { ...provenance, executionId: 32, alertId: null,
+    exchangeOrderId: "exchange-32", side: "SELL" as const, orderType: "LIMIT",
+    quantity: 0.2, price: 120, state: "NEW", observedAt: T0 + 2000 };
+  const position = { ...provenance, source: "AUTOMATED" as const, price: 101,
+    quantity: null, costBasis: null, observedAt: T0 + 2000 };
+  const environments = (botExchangeMode: BotExchangeMode): string[] => [
+    ...projectHistoricalOverlays({ symbol: "BTCUSDT", automatedActivity: [execution],
+      automatedRealizations: [realization], paperFills: [], limit: 50, botExchangeMode }).items,
+    ...projectCurrentOverlays({ symbol: "BTCUSDT", automatedOrders: [activeOrder],
+      positions: [position], botExchangeMode }),
+  ].map((item) => item.environment);
+
+  // A Bot on BINANCE_TESTNET=true must not label its markers as real money
+  // during exactly the testnet validation this product asks an operator to do.
+  assert.deepEqual(environments("TESTNET"), ["TESTNET", "TESTNET", "TESTNET", "TESTNET"]);
+  assert.deepEqual(environments("MAINNET"), ["REAL", "REAL", "REAL", "REAL"]);
+  // MIXED proves nothing about which account a persisted order used; an
+  // unreachable Bot, and Replay which never reads one, prove nothing at all.
+  for (const unknown of ["MIXED" as const, null, undefined]) {
+    assert.deepEqual(environments(unknown), ["UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN"]);
+  }
+  assert.equal(automatedEnvironment(undefined), "UNKNOWN");
+  // Only a CONNECTED Bot may speak; every other connection state is UNKNOWN.
+  assert.match(readFileSync("src/api/routes/tradingOverlays.ts", "utf8"),
+    /bot\.state === "CONNECTED" \? bot\.status\.exchange\.mode : null/);
 });
 
 test("API parsing enforces exact range/cutoff/limit bounds before reads", () => {

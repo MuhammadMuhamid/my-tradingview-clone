@@ -5,6 +5,9 @@ import {
   type ManualOverlayStateEvidence,
 } from "../../overlays/projection";
 import type { TradingOverlayResponse } from "../../overlays/types";
+import { readBotStatus } from "../../operations/botStatus";
+import type { BotExchangeMode } from "../../overlays/projection";
+import * as deploymentRepo from "../../repositories/deployments";
 import * as journalRepo from "../../repositories/journal";
 import * as overlayRepo from "../../repositories/tradingOverlays";
 import * as symbolRepo from "../../repositories/symbols";
@@ -126,7 +129,12 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
     const wantsHistorical = plan.historical;
     const wantsCurrent = plan.current;
     const wantsManual = plan.manualState;
-    const [realizations, activity, paper, manualRead] = await Promise.all([
+    // Automated overlays carry no environment of their own; the Bot that
+    // submitted them does. Read it alongside the Manual state read rather than
+    // after it, and treat any failure as UNKNOWN — this must never fall back to
+    // REAL. In Replay the Bot is not contacted at all, for the same reason
+    // Manual state is not: a current-state read cannot prove what held at T.
+    const [realizations, activity, paper, manualRead, botExchangeMode] = await Promise.all([
       wantsHistorical ? journalRepo.listAutomatedRealizations(filter) : Promise.resolve([]),
       wantsHistorical ? journalRepo.listAutomatedActivity(filter) : Promise.resolve([]),
       wantsHistorical ? journalRepo.listPaperFills(filter) : Promise.resolve([]),
@@ -135,6 +143,11 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
           path: `/api/manual-trading/state?symbol=${encodeURIComponent(q.symbol)}` })
           .then((state) => ({ state, unavailable: false }))
           .catch(() => ({ state: undefined, unavailable: true })),
+      !wantsManual ? Promise.resolve(null as BotExchangeMode)
+        : deploymentRepo.listDeployments()
+          .then((rows) => readBotStatus(rows))
+          .then((bot) => bot.state === "CONNECTED" ? bot.status.exchange.mode : null)
+          .catch(() => null),
     ]);
     const manual = manualRead.state ? manualState(manualRead.state, q.symbol, Date.now()) : undefined;
     const historicalManual = wantsHistorical && manual ? { ...manual, positions: [], orders: manual.orders.filter((order) =>
@@ -143,7 +156,7 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
     const projectedHistorical = wantsHistorical
       ? projectHistoricalOverlays({ symbol: q.symbol, manual: historicalManual,
         automatedActivity: activity, automatedRealizations: realizations, paperFills: paper,
-        limit: q.limit })
+        limit: q.limit, botExchangeMode })
       : { items: [], truncated: false };
     const historical = { ...projectedHistorical, items: overlaysWithinRange(
       projectedHistorical.items, q.from.getTime(), q.to.getTime()) };
@@ -156,7 +169,8 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
         overlayRepo.listCurrentPaperPositions(q.symbol, sourceLimit),
       ]);
       currentItems = projectCurrentOverlays({ symbol: q.symbol, manual,
-        automatedOrders: orders, positions: [...automatedPositions, ...paperPositions] });
+        automatedOrders: orders, positions: [...automatedPositions, ...paperPositions],
+        botExchangeMode });
     }
     const room = Math.max(0, q.limit - historical.items.length);
     const currentTruncated = currentItems.length > room;
