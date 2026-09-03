@@ -42,6 +42,12 @@
  * overflow below. They are rendered from one component either way, so the two
  * placements cannot drift apart.
  *
+ * `md` there means md OF THE ROW, not of the screen. The manual ticket is a
+ * static flex sibling of this column once it is open, so it subtracts its own
+ * width from the row while every viewport query stays where it was. See
+ * `toolbarDensityClasses` below: that mismatch is what drew the saved-layout
+ * identity on top of the ticket's instrument header at 1024 and at 1280.
+ *
  * Pressure inside the primary row is absorbed by the timeframe strip, which is
  * the one element allowed to scroll. Nothing wraps, so the row is always one
  * row.
@@ -52,7 +58,10 @@
  * the saved-layout button was painted straight through the ticket's own
  * instrument header — two live controls drawn on top of each other. It must be
  * able to give width back (it never GROWS into free space, which is what keeps
- * the saved-layout identity pinned right by `ml-auto`).
+ * the saved-layout identity pinned right by `ml-auto`). Absorbing pressure is
+ * not the same as never receiving it, though: the strip can only give back the
+ * width it has, so the breakpoints themselves also have to know about the
+ * ticket. Both are needed.
  *
  * Every control that was here before is still here. Nothing was dropped to
  * make the row fit, and nothing decorative was added to make it look like some
@@ -94,8 +103,45 @@ export const TOOL_BUTTON =
   "text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink " +
   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-muted";
 
-/** Text that collapses to its icon before the row would have to scroll. */
-const TOOL_LABEL = "hidden xl:inline";
+/**
+ * The bar's two collapse decisions, as class names.
+ *
+ * `md:` and `xl:` ask about the VIEWPORT. This row is not the viewport: open
+ * the manual ticket and `ChartSidePanel` becomes a static flex sibling that
+ * takes 341px out of this column, so at a 1280px screen the row is 939px wide
+ * while `xl:` has already turned every text label on. The row then overflowed
+ * its column and the saved-layout identity was painted over the ticket's own
+ * instrument header — two live controls, one on top of the other.
+ *
+ * So when the ticket is open the same two decisions are made against the same
+ * two widths shifted by the ticket's own width: `md` at 768+341=1109 and `xl`
+ * at 1280+341=1621. With the ticket closed nothing changes at all.
+ *
+ * The literals live here rather than in `lib/toolbarLayout` because
+ * tailwind.config.ts only scans app/ and components/, so a class name written
+ * anywhere else emits no CSS. `toolbarDensity` there is the same rule as a
+ * function, and chartToolbar.test.ts pins the two against each other.
+ */
+export function toolbarDensityClasses(ticketOpen: boolean): {
+  label: string; cluster: string; clusterInMore: string;
+  separator: string; separatorInMore: string;
+} {
+  return ticketOpen
+    ? {
+      label: "hidden min-[1621px]:inline",
+      cluster: "hidden min-[1109px]:flex",
+      clusterInMore: "flex min-[1109px]:hidden",
+      separator: "hidden min-[1109px]:inline-block",
+      separatorInMore: "min-[1109px]:hidden",
+    }
+    : {
+      label: "hidden xl:inline",
+      cluster: "hidden md:flex",
+      clusterInMore: "flex md:hidden",
+      separator: "hidden md:inline-block",
+      separatorInMore: "md:hidden",
+    };
+}
 
 /**
  * The tier marker every control carries.
@@ -155,6 +201,12 @@ export interface ChartToolbarProps {
   onOpenPriceAlert: () => void;
   onOpenAutomation: () => void;
   onOpenManual: () => void;
+  /**
+   * The manual-trading ticket is open, so it is taking its own width out of
+   * this bar's row. Not cosmetic: it is what the collapse breakpoints above
+   * are measured against.
+   */
+  ticketOpen: boolean;
   onOpenStrategy: () => void;
   onApplyBest: () => void;
   loadingBest: boolean;
@@ -269,8 +321,9 @@ function TimeframeMenu({
  * strip on a phone, so the two placements cannot drift apart and no control
  * exists in one and not the other.
  */
-function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
+function WorkspaceActions(props: ChartToolbarProps & { className: string; labelClass: string }) {
   const { replayActive, replayBlocksLiveActions } = props;
+  const TOOL_LABEL = props.labelClass;
   return (
     <div className={`items-center gap-1.5 ${props.className}`}>
       {/*
@@ -351,6 +404,9 @@ function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
       live controls still touched. The layout NAME truncates — it is the only
       text left on the row at that width — so the identity keeps its badge, its
       chevron and its click target while giving the row the last few pixels.
+      At 1024 it now leaves the primary row entirely, because a 683px row is
+      below `md` however wide the screen is; the caller decides that, so this
+      component renders identically in both places.
     */
     <div {...ctl("savedLayouts")} className={`min-w-0 items-center ${props.className}`}>
       <LayoutMenu
@@ -369,6 +425,8 @@ export function ChartToolbar(props: ChartToolbarProps) {
   const { symbol, interval, replayActive } = props;
   const strip = timeframeStrip(interval);
   const { moreOpen, onMoreOpen } = props;
+  const density = toolbarDensityClasses(props.ticketOpen);
+  const TOOL_LABEL = density.label;
 
   // Escape closes the More strip, like every other overlay in the workspace.
   useEffect(() => {
@@ -479,9 +537,9 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <span className={TOOL_LABEL}>Replay</span>
         </button>
 
-        <Separator className="hidden md:inline-block" />
+        <Separator className={density.separator} />
 
-        <WorkspaceActions {...props} className="hidden md:flex" />
+        <WorkspaceActions {...props} className={density.cluster} labelClass={density.label} />
 
         <button
           {...ctl("more")}
@@ -504,7 +562,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           {props.readout}
         </div>
 
-        <SavedLayoutIdentity {...props} className="ml-auto hidden md:flex 2xl:ml-0" />
+        <SavedLayoutIdentity {...props} className={`ml-auto ${density.cluster} 2xl:ml-0`} />
       </div>
 
       {/*
@@ -522,9 +580,9 @@ export function ChartToolbar(props: ChartToolbarProps) {
           className="flex flex-wrap items-center gap-1.5 border-t border-border px-2 py-1.5 sm:px-2.5"
         >
           {/* Phone: the workspace actions and the saved layout live here. */}
-          <WorkspaceActions {...props} className="flex md:hidden" />
-          <SavedLayoutIdentity {...props} className="flex md:hidden" />
-          <Separator className="md:hidden" />
+          <WorkspaceActions {...props} className={density.clusterInMore} labelClass={density.label} />
+          <SavedLayoutIdentity {...props} className={density.clusterInMore} />
+          <Separator className={density.separatorInMore} />
 
           <div {...ctl("history")} role="group" aria-label="History depth" className="flex items-center gap-0.5">
             <span className="mr-1 hidden text-[10px] uppercase tracking-wide text-ink-faint sm:inline">

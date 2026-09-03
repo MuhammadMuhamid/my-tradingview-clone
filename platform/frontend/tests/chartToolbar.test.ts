@@ -24,8 +24,10 @@ import {
   MORE_INTERVALS, QUICK_INTERVALS, isQuickInterval, timeframeStrip,
 } from "../lib/timeframes";
 import {
-  TOOLBAR_CONTROLS, controlsInGroup, isPrimaryControl, primaryControls, secondaryControls,
-  toolbarControl, toolbarGroup, type ToolbarControlId,
+  MANUAL_TICKET_ROW_WIDTH, TOOLBAR_CLUSTER_WIDTH, TOOLBAR_CLUSTER_WIDTH_WITH_TICKET,
+  TOOLBAR_CONTROLS, TOOLBAR_LABEL_WIDTH, TOOLBAR_LABEL_WIDTH_WITH_TICKET,
+  controlsInGroup, isPrimaryControl, primaryControls, secondaryControls,
+  toolbarControl, toolbarDensity, toolbarGroup, toolbarRowWidth, type ToolbarControlId,
 } from "../lib/toolbarLayout";
 import {
   enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen, toggleFullscreen,
@@ -162,6 +164,102 @@ test("the primary row never wraps — the timeframe strip absorbs the pressure",
   assert.doesNotMatch(className, /flex-wrap/);
   // The scroller is what lets it stay one row without pushing controls off.
   assert.match(source, /overflow-x-auto/);
+});
+
+// ── the collapse breakpoints measure the row, not the screen ───────────────
+
+/**
+ * The seven widths Phase 02E measured live with the ticket open. 1024 and 1280
+ * overprinted the saved-layout label onto the ticket's instrument header;
+ * 1152, 1366, 1440, 1512 and 1680 were clean. The behaviour was non-monotonic,
+ * which is what identified a breakpoint compared against the wrong number
+ * rather than a separate defect at each width.
+ */
+const MEASURED_VIEWPORTS = [1024, 1152, 1280, 1366, 1440, 1512, 1680];
+
+test("the toolbar's row is the viewport minus the ticket, and only when the ticket is static", () => {
+  assert.equal(MANUAL_TICKET_ROW_WIDTH, 341, "340px panel plus its own left border");
+  for (const viewport of MEASURED_VIEWPORTS) {
+    assert.equal(toolbarRowWidth(viewport, false), viewport,
+      "a closed ticket takes no width from the row");
+    assert.equal(toolbarRowWidth(viewport, true), viewport - MANUAL_TICKET_ROW_WIDTH);
+  }
+  // Below md the ticket is a fixed overlay (ChartSidePanel's `fixed … md:static`),
+  // so it is not a flex sibling and subtracts nothing.
+  assert.equal(toolbarRowWidth(600, true), 600);
+});
+
+test("no measured viewport asks for labels the row cannot hold", () => {
+  // The defect, stated as an invariant: the label decision must never be true
+  // while the row is narrower than the width labels need.
+  for (const viewport of MEASURED_VIEWPORTS) {
+    for (const ticketOpen of [false, true]) {
+      const density = toolbarDensity(viewport, ticketOpen);
+      const row = toolbarRowWidth(viewport, ticketOpen);
+      assert.equal(density.labels, row >= TOOLBAR_LABEL_WIDTH,
+        `labels at ${viewport}px with ticket ${ticketOpen} disagree with a ${row}px row`);
+      assert.equal(density.clusterOnPrimaryRow, row >= TOOLBAR_CLUSTER_WIDTH);
+    }
+  }
+
+  // The two widths that overprinted. 1280 kept its labels because xl had fired
+  // on a 939px row; 1024 kept the saved-layout identity on a 683px row.
+  assert.deepEqual(toolbarDensity(1280, true), { labels: false, clusterOnPrimaryRow: true });
+  assert.deepEqual(toolbarDensity(1024, true), { labels: false, clusterOnPrimaryRow: false });
+  // The clean ones stay exactly as they were measured.
+  assert.deepEqual(toolbarDensity(1152, true), { labels: false, clusterOnPrimaryRow: true });
+  assert.deepEqual(toolbarDensity(1680, true), { labels: true, clusterOnPrimaryRow: true });
+});
+
+test("closing the ticket restores the plain viewport breakpoints exactly", () => {
+  // Nothing about the bar changes on a screen with no ticket open: this repair
+  // may not move a breakpoint anyone has already lived with.
+  for (const viewport of [320, 640, 767, 768, 1023, 1024, 1279, 1280, 1536, 1920]) {
+    assert.deepEqual(toolbarDensity(viewport, false), {
+      labels: viewport >= 1280,
+      clusterOnPrimaryRow: viewport >= 768,
+    }, `${viewport}px with the ticket closed must behave as md/xl always did`);
+  }
+});
+
+test("the classes the bar actually ships are the shifted breakpoints, not a second opinion", () => {
+  // tailwind.config.ts scans only app/ and components/, so the class names have
+  // to live in the component. This is what keeps them and toolbarLayout's
+  // arithmetic from drifting apart.
+  const source = read(TOOLBAR);
+  assert.equal(TOOLBAR_CLUSTER_WIDTH_WITH_TICKET, 1109);
+  assert.equal(TOOLBAR_LABEL_WIDTH_WITH_TICKET, 1621);
+  for (const variant of [
+    `min-[${TOOLBAR_LABEL_WIDTH_WITH_TICKET}px]:inline`,
+    `min-[${TOOLBAR_CLUSTER_WIDTH_WITH_TICKET}px]:flex`,
+    `min-[${TOOLBAR_CLUSTER_WIDTH_WITH_TICKET}px]:hidden`,
+    `min-[${TOOLBAR_CLUSTER_WIDTH_WITH_TICKET}px]:inline-block`,
+  ]) {
+    assert.ok(source.includes(variant), `${variant} is not what the bar renders`);
+  }
+  // And the ticket-closed set is untouched Tailwind.
+  assert.match(source, /label: "hidden xl:inline"/);
+  assert.match(source, /cluster: "hidden md:flex"/);
+
+  // The bar can only make this decision if it is told; the page is the only
+  // place that knows the ticket is open.
+  assert.match(source, /ticketOpen: boolean;/);
+  assert.match(read("app/chart/page.tsx"),
+    /ticketOpen=\{panel === "manual" && !replayActive\}/,
+    "the flag must be exactly the condition under which the ticket takes row width");
+});
+
+test("the saved-layout identity and the workspace cluster share one placement decision", () => {
+  // These are the two elements that overprinted, so the fix has to reach both
+  // placements of each — the primary row and the More strip — from one source.
+  const source = read(TOOLBAR);
+  assert.equal((source.match(/<SavedLayoutIdentity /g) ?? []).length, 2);
+  assert.equal((source.match(/<WorkspaceActions /g) ?? []).length, 2);
+  assert.match(source, /className=\{`ml-auto \$\{density\.cluster\} 2xl:ml-0`\}/);
+  assert.match(source, /<SavedLayoutIdentity \{\.\.\.props\} className=\{density\.clusterInMore\} \/>/);
+  assert.doesNotMatch(source, /className="hidden md:flex"/,
+    "a hard-coded viewport placement is the defect coming back");
+  assert.doesNotMatch(source, /className="flex md:hidden"/);
 });
 
 test("the toolbar acts on the focused pane, never on a pane it resolves itself", () => {

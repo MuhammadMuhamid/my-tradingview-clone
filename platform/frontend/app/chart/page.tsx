@@ -948,6 +948,10 @@ export default function TvWorkspace() {
           onOpenPriceAlert={openPriceAlert}
           onOpenAutomation={() => setAlertOpen(true)}
           onOpenManual={() => setPanel((p) => p === "manual" ? null : "manual")}
+          /* Exactly the condition under which ChartSidePanel renders the
+             ticket, and therefore under which the toolbar's row is 341px
+             narrower than the viewport it is measured against. */
+          ticketOpen={panel === "manual" && !replayActive}
           onOpenStrategy={() => setSettingsOpen(true)}
           onApplyBest={() => void applyBestConfig()}
           loadingBest={loadingBest}

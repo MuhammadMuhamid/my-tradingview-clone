@@ -102,3 +102,64 @@ export function secondaryControls(): ToolbarControl[] {
 export function isPrimaryControl(id: ToolbarControlId): boolean {
   return toolbarGroup(id) !== "secondary";
 }
+
+/**
+ * ── Why the toolbar's breakpoints are not the viewport's ───────────────────
+ *
+ * Every collapse decision on the bar was a Tailwind viewport query, and the bar
+ * is not the viewport. Open the manual-trading ticket and `ChartSidePanel`
+ * stops being a phone overlay and becomes a STATIC flex sibling of the chart
+ * column (`fixed … md:static`), so the toolbar's row loses the ticket's whole
+ * width. At a 1280px viewport that leaves a 939px row — but `xl:` had already
+ * fired, so every control's text label rendered, the row overflowed its column,
+ * and the saved-layout identity was painted over the ticket's own instrument
+ * header. Two live controls, one on top of the other, at a mainstream laptop
+ * size. The same arithmetic explains 1024 (a 683px row) and why 1152 and 1366
+ * were clean: it is not a new defect at each width, it is one comparison made
+ * against the wrong number.
+ *
+ * The fix is to make the comparison against the width the row actually has.
+ * These are the only two numbers that need to be shared between that decision
+ * and the class names that express it in `ChartToolbar`.
+ */
+
+/** `w-[340px]` plus its own left border, from `ManualTradingPanel`. */
+export const MANUAL_TICKET_ROW_WIDTH = 341;
+
+/** Tailwind's `md` and `xl`, in pixels, because the row has to do the sum itself. */
+export const TOOLBAR_CLUSTER_WIDTH = 768;
+export const TOOLBAR_LABEL_WIDTH = 1280;
+
+/** The viewports at which the ROW reaches those widths with the ticket open. */
+export const TOOLBAR_CLUSTER_WIDTH_WITH_TICKET = TOOLBAR_CLUSTER_WIDTH + MANUAL_TICKET_ROW_WIDTH;
+export const TOOLBAR_LABEL_WIDTH_WITH_TICKET = TOOLBAR_LABEL_WIDTH + MANUAL_TICKET_ROW_WIDTH;
+
+/**
+ * How wide the toolbar's own row is. Below `md` the ticket is a fixed overlay
+ * rather than a flex sibling, so it takes no width out of the row.
+ */
+export function toolbarRowWidth(viewport: number, ticketOpen: boolean): number {
+  return ticketOpen && viewport >= TOOLBAR_CLUSTER_WIDTH
+    ? viewport - MANUAL_TICKET_ROW_WIDTH
+    : viewport;
+}
+
+export interface ToolbarDensity {
+  /** Control labels sit beside their icons instead of collapsing to them. */
+  labels: boolean;
+  /** The workspace-action cluster and the saved-layout identity are on the primary row. */
+  clusterOnPrimaryRow: boolean;
+}
+
+/**
+ * The bar's two collapse decisions, resolved against the row rather than the
+ * screen. `ChartToolbar` expresses exactly this in CSS; this function is what
+ * makes it assertable without a browser.
+ */
+export function toolbarDensity(viewport: number, ticketOpen: boolean): ToolbarDensity {
+  const row = toolbarRowWidth(viewport, ticketOpen);
+  return {
+    labels: row >= TOOLBAR_LABEL_WIDTH,
+    clusterOnPrimaryRow: row >= TOOLBAR_CLUSTER_WIDTH,
+  };
+}
