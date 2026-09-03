@@ -21,6 +21,9 @@ import type { LiveRunner } from "../src/engine/liveRunner";
 
 const SHARIAH_PATHS: Array<{ method: "GET" | "POST" | "PUT"; url: string }> = [
   { method: "GET", url: "/api/shariah/universe" },
+  // The registry's only production population path. It writes, so it being
+  // absent from PUBLIC_PATHS is not a formality.
+  { method: "POST", url: "/api/shariah/universe/sync" },
   { method: "GET", url: "/api/shariah/assets/1" },
   { method: "POST", url: "/api/shariah/assets/1/evidence" },
   { method: "POST", url: "/api/shariah/assets/1/publications" },

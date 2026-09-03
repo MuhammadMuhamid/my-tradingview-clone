@@ -27,7 +27,9 @@ import { pool } from "../../db/pool";
 import {
   SESSION_COOKIE, readCookie, verifySession,
 } from "../../security/session";
+import { listExchangeSymbols } from "../../data/binanceRest";
 import * as shariah from "../../repositories/shariah";
+import * as symbolRepo from "../../repositories/symbols";
 import { TS_SHARIAH_V1, PROHIBITED_CATEGORIES, type Classification } from "../../shariah/policy";
 import {
   ShariahPublicationError, assertPublishableDecision, publishShariahDecision,
@@ -45,6 +47,9 @@ import {
   getShariahMode, isShariahMode, setShariahMode, type ShariahMode,
 } from "../../shariah/mode";
 import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
+import {
+  qualifyingBaseAssets, syncShariahUniverse, type BinanceSpotSymbolMeta,
+} from "../../shariah/sync";
 import {
   pushShariahModeToBot, readBotShariahMode, ShariahBotSyncError, ShariahModeDriftError,
   type BotEnforcementDeps,
@@ -79,9 +84,12 @@ export async function shariahRoutes(
     botEnforcement?: BotEnforcementDeps;
     /** The stored mode, injectable so the arm-then-store ORDER can be tested. */
     mode?: { get?: () => Promise<ShariahMode>; set?: (mode: ShariahMode) => Promise<ShariahMode> };
+    /** Binance SPOT metadata, injectable so the sync is provable without a network call. */
+    exchangeSymbols?: () => Promise<readonly BinanceSpotSymbolMeta[]>;
   } = {}
 ): Promise<void> {
   const connect = dependencies.connect ?? (() => pool.connect());
+  const readExchangeSymbols = dependencies.exchangeSymbols ?? listExchangeSymbols;
   const gateDeps = dependencies.shariah ?? {};
   const botEnforcementDeps = dependencies.botEnforcement ?? {};
   const readMode = dependencies.mode?.get ?? getShariahMode;
@@ -102,6 +110,79 @@ export async function shariahRoutes(
       },
       assets,
     };
+  });
+
+  /**
+   * POPULATE. The registry's only production entry point.
+   *
+   * Nothing else creates a shariah_assets row: review, publication and
+   * snapshots all resolve against rows that must already exist. Without this
+   * route a fresh install has an empty registry, so `effectiveShariahStatus`
+   * answers REVIEW for every symbol and turning Shariah Mode on is a total BUY
+   * stop with no action inside the product that can lift it.
+   *
+   * Discovery is not classification. `syncShariahUniverse` creates every newly
+   * seen base asset UNSCREENED, which reads as REVIEW under policy.ts, and has
+   * no path that writes ELIGIBLE or EXCLUDED. Publication remains the only act
+   * that can allow a BUY, so running this can never widen what may be bought.
+   *
+   * Operator-triggered, not scheduled: there is no background job here. An
+   * unattended sync is what would make the mass-demotion below dangerous.
+   */
+  app.post("/api/shariah/universe/sync", async (_req, reply) => {
+    let exchangeSymbols: readonly BinanceSpotSymbolMeta[];
+    try {
+      exchangeSymbols = await readExchangeSymbols();
+    } catch (error) {
+      return reply.code(502).send({
+        error: `symbol directory unavailable: ${(error as Error).message}`,
+      });
+    }
+    const supported = new Set((await symbolRepo.listSymbols()).map((s) => s.symbol));
+    const qualifying = qualifyingBaseAssets(exchangeSymbols, supported);
+
+    /*
+     * REFUSE AN EMPTY SET BEFORE ANY WRITE.
+     *
+     * syncShariahUniverse deactivates every mapping that is not in the
+     * qualifying set, so an empty set — a degraded exchange directory, or an
+     * emptied `symbols` table — deactivates the entire registry. That alone
+     * is fail-safe. What is not recoverable is the NEXT healthy sync: every
+     * asset reappears as previously-inactive, and upsertMapping then forces
+     * each SCREENED record to STALE for ticker-reuse safety, so every
+     * published operator decision is silently thrown back to REVIEW.
+     *
+     * A universe that legitimately qualifies nothing is indistinguishable
+     * from that failure at this boundary, and refusing costs an operator one
+     * message while the alternative costs them all of their review work. The
+     * guard lives here, at the caller, so sync.ts keeps exactly the
+     * "apply this set" contract its own tests pin.
+     */
+    if (qualifying.length === 0) {
+      return reply.code(409).send({
+        error: "refusing to sync an empty qualifying set: this would deactivate the "
+          + "whole registry and send every published decision back to REVIEW on the "
+          + "next healthy sync. Check that Binance spot metadata is reachable and "
+          + "that this installation tracks at least one active USDT spot pair.",
+        qualifying: 0,
+        exchangeSymbols: exchangeSymbols.length,
+        supportedSymbols: supported.size,
+      });
+    }
+
+    const client = await connect();
+    try {
+      const result = await syncShariahUniverse(client, qualifying);
+      return {
+        policyVersion: TS_SHARIAH_V1,
+        qualifying: qualifying.length,
+        created: result.created,
+        reactivated: result.reactivated,
+        deactivated: result.deactivated,
+      };
+    } finally {
+      client.release();
+    }
   });
 
   /** One asset with the facts a reviewer needs: evidence, and the full immutable decision history. */

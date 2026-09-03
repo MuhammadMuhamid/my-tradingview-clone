@@ -16,8 +16,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Pool } from "pg";
+import Fastify from "fastify";
+import { Pool, type PoolClient } from "pg";
 import { config } from "../src/config";
+import { shariahRoutes } from "../src/api/routes/shariah";
 import { migrate } from "../src/db/migrate";
 import { pool, closePool, query } from "../src/db/pool";
 import * as shariah from "../src/repositories/shariah";
@@ -29,7 +31,9 @@ import {
   canonicalSnapshotEntries, createShariahUniverseSnapshot, snapshotContentHash,
   type ShariahSnapshotSource,
 } from "../src/shariah/snapshot";
-import { syncShariahUniverse } from "../src/shariah/sync";
+import {
+  syncShariahUniverse, type BinanceSpotSymbolMeta,
+} from "../src/shariah/sync";
 
 /** Synthetic only. Nothing here names a real project or a real Binance asset. */
 const SYNTH = { A: "SYNTHAA", B: "SYNTHBB", C: "SYNTHCC", D: "SYNTHDD", E: "SYNTHEE" };
@@ -75,12 +79,122 @@ async function evidence(assetId: string, note: string): Promise<string> {
 const assetIdOf = async (baseAsset: string): Promise<string> =>
   String((await shariah.getAssetByBaseSymbol(baseAsset))!.assetId);
 
+/** Binance spot metadata as `listExchangeSymbols` returns it, synthetic only. */
+const spotMeta = (baseAsset: string, over: Partial<BinanceSpotSymbolMeta> = {}): BinanceSpotSymbolMeta =>
+  ({ symbol: `${baseAsset}USDT`, baseAsset, quoteAsset: "USDT", status: "TRADING", ...over });
+
+/** The Shariah HTTP boundary over the real pool, with the exchange stubbed. */
+async function syncRouteApp(exchangeSymbols: () => Promise<readonly BinanceSpotSymbolMeta[]>) {
+  const app = Fastify({ logger: false });
+  await app.register(shariahRoutes, {
+    connect: () => pool.connect() as Promise<PoolClient>,
+    exchangeSymbols,
+  });
+  return app;
+}
+
 test("SH-2 publication, history and snapshot behaviour on real PostgreSQL", async (t) => {
   const unavailable = await prepareDatabase().catch((error: Error) => error.message);
   if (unavailable) return t.skip(unavailable);
 
   const client = await pool.connect();
   t.after(async () => { client.release(); await closePool(); });
+
+  /*
+   * ── P1-4: the registry's production population path ──────────────────────
+   *
+   * Nothing in production called syncShariahUniverse: no route, no npm script,
+   * no migration INSERT. A fresh install therefore had an empty registry, and
+   * because the gate is correctly fail-closed, turning Shariah Mode on was a
+   * total BUY stop that no action inside the product could lift. This proves
+   * the new operator-triggered route is that action — and that it stays
+   * discovery-only.
+   *
+   * It runs FIRST, on the freshly migrated database, because "the registry is
+   * empty before" is half of what is being proved.
+   */
+  await t.test("P1-4: POST /api/shariah/universe/sync is the registry's production entry point", async () => {
+    for (const baseAsset of Object.values(SYNTH)) {
+      await query(
+        `INSERT INTO symbols (symbol, base_asset, quote_asset, is_active)
+         VALUES ($1, $2, 'USDT', true) ON CONFLICT (symbol) DO NOTHING`,
+        [`${baseAsset}USDT`, baseAsset]
+      );
+    }
+    // Nothing this installation does not track, and nothing halted, may enter.
+    const directory = [
+      ...Object.values(SYNTH).map((base) => spotMeta(base)),
+      spotMeta("SYNTHZZ"),                                  // real pair, untracked here
+      spotMeta(SYNTH.A, { symbol: `${SYNTH.A}BTC`, quoteAsset: "BTC" }), // not USDT-quoted
+      spotMeta("SYNTHHH", { status: "BREAK" }),             // not TRADING
+    ];
+    const app = await syncRouteApp(async () => directory);
+
+    const before = await app.inject({ method: "GET", url: "/api/shariah/universe" });
+    assert.equal(before.json().counts.total, 0,
+      "the registry must start empty — that is the defect this route exists to fix");
+
+    const synced = await app.inject({ method: "POST", url: "/api/shariah/universe/sync" });
+    assert.equal(synced.statusCode, 200);
+    assert.deepEqual(synced.json().created.sort(), Object.values(SYNTH).sort());
+    assert.deepEqual(synced.json().deactivated, []);
+
+    const after = (await app.inject({ method: "GET", url: "/api/shariah/universe" })).json();
+    assert.equal(after.counts.total, 5);
+    assert.equal(after.counts.eligible, 0, "discovery must never classify anything ELIGIBLE");
+    assert.equal(after.counts.review, 5);
+    for (const asset of after.assets) {
+      assert.equal(asset.lifecycle, "UNSCREENED", asset.baseAsset);
+      assert.equal(asset.effectiveStatus, "REVIEW", asset.baseAsset);
+    }
+
+    // The gate's own answer, which is what every trading surface reads. Even
+    // with enforcement on, a synced-but-unreviewed asset is still refused: the
+    // sync populates the review queue, it does not shorten it.
+    const enforcing = Fastify({ logger: false });
+    await enforcing.register(shariahRoutes, { shariah: { readMode: async () => "enforce" } });
+    const status = (await enforcing.inject({
+      method: "GET", url: `/api/shariah/status?symbol=${SYNTH.A}USDT` })).json();
+    await enforcing.close();
+    assert.notEqual(status.shariah.effectiveStatus, "ELIGIBLE");
+    assert.equal(status.shariah.effectiveStatus, "REVIEW");
+    assert.equal(status.buyAllowed, false);
+    assert.equal(status.sellAllowed, true, "a SELL is never gated");
+
+    /*
+     * ── P2-6: the empty-set guard ──
+     *
+     * A degraded exchange directory would otherwise deactivate every mapping,
+     * and the NEXT healthy sync would then force every SCREENED record to
+     * STALE — destroying all published review work. The refusal must happen
+     * before any write, so the registry is byte-identical afterwards.
+     */
+    const snapshotOfRegistry = async (): Promise<string> => JSON.stringify(
+      (await query<{ base_asset: string; binance_available: boolean; lifecycle: string }>(
+        `SELECT m.base_asset, m.binance_available, r.lifecycle
+           FROM shariah_asset_binance_mappings m
+           JOIN shariah_records r ON r.asset_id = m.asset_id
+          ORDER BY m.base_asset`)).rows);
+    const untouched = await snapshotOfRegistry();
+
+    const starved = await syncRouteApp(async () => []);
+    const refused = await starved.inject({ method: "POST", url: "/api/shariah/universe/sync" });
+    await starved.close();
+    assert.equal(refused.statusCode, 409);
+    assert.match(refused.json().error, /empty qualifying set/);
+    assert.equal(refused.json().qualifying, 0);
+    assert.equal(await snapshotOfRegistry(), untouched,
+      "an empty qualifying set must not deactivate or demote anything");
+
+    // Same refusal when the exchange is fine but this install tracks nothing.
+    const untracked = await syncRouteApp(async () => [spotMeta("SYNTHQQ")]);
+    const alsoRefused = await untracked.inject({ method: "POST", url: "/api/shariah/universe/sync" });
+    await untracked.close();
+    assert.equal(alsoRefused.statusCode, 409);
+    assert.equal(await snapshotOfRegistry(), untouched);
+
+    await app.close();
+  });
 
   // ── Discovery: universe sync produces UNSCREENED/REVIEW and nothing else ──
   await syncShariahUniverse(client, Object.values(SYNTH).sort());

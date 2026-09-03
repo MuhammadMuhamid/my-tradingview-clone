@@ -127,6 +127,21 @@ one base asset always resolves to the same `asset_id` even across repeated
 qualifying-symbol processing (`base_asset` is the mappings table's primary
 key). See `tests/shariahUniverse.test.ts`.
 
+**How sync is run.** `POST /api/shariah/universe/sync` is the only production
+caller, and it is operator-triggered — there is no scheduler and no background
+job. It reads `listExchangeSymbols()` and the `symbols` table, computes the
+qualifying set, and applies it. A **fresh install must run it once**, otherwise
+the registry is empty, every symbol reads `REVIEW`, and turning Shariah Mode on
+refuses every Spot BUY with nothing in the product able to lift it.
+
+**The sync refuses an empty qualifying set** (409, before any write). An empty
+set means either a degraded exchange directory or an empty `symbols` table, and
+applying it would deactivate every mapping — after which the next healthy sync
+would reactivate them all and force each `SCREENED` record to `STALE` under the
+ticker-reuse rule below, silently returning every published decision to
+`REVIEW`. The guard lives in the route, not in `sync.ts`, whose contract stays
+"apply exactly this set".
+
 **New listing:** discovered → `UNSCREENED` → effective `REVIEW`. Sync never
 writes `ELIGIBLE` or `EXCLUDED` — there is no code path in `sync.ts` that
 produces either. A real asset is never auto-classified.
@@ -274,6 +289,7 @@ server's global session gate (`api/server.ts`), including the read routes:
 | Route | Purpose |
 |---|---|
 | `GET /api/shariah/universe` | Current registry + effective statuses + counts (operator view). |
+| `POST /api/shariah/universe/sync` | Populate/refresh the registry from current Binance SPOT metadata. Discovery only; refuses an empty qualifying set. |
 | `GET /api/shariah/assets/:assetId` | One asset with its evidence and full immutable decision history. |
 | `POST /api/shariah/assets/:assetId/evidence` | Record a factual evidence note. |
 | `POST /api/shariah/assets/:assetId/publications` | **Publish** a decision. |
