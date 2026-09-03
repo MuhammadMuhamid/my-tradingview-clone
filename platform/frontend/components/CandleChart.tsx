@@ -6,9 +6,11 @@ import {
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type LineData, type WhitespaceData,
 } from "lightweight-charts";
-import type { Candle, Interval, Trade } from "@/lib/types";
-import { snapToBarIndex } from "@/lib/paneSync";
+import { INTERVAL_MS, type Candle, type Interval, type Trade } from "@/lib/types";
+import { snapToBarIndexBy } from "@/lib/paneSync";
+import { marketFeed, WS_SILENCE_TIMEOUT_MS, type KlineTick } from "@/lib/marketFeed";
 import { baseChartOptions } from "@/lib/chartTheme";
+import { useDetachChartObserver } from "@/lib/chartLifecycle";
 import { fmtPrice, fmtPriceDelta } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
@@ -39,11 +41,6 @@ interface LegendBar {
   chgPct: number;
 }
 
-const INTERVAL_MS: Record<Interval, number> = {
-  "1m": 60000, "3m": 180000, "5m": 300000, "15m": 900000, "30m": 1800000,
-  "1h": 3600000, "2h": 7200000, "4h": 14400000, "6h": 21600000, "12h": 43200000, "1d": 86400000,
-};
-
 /**
  * The states the live feed can be in. `stale` and `unknown` exist so the chart
  * never presents a frozen price as current — which is precisely what FE-09
@@ -52,16 +49,14 @@ const INTERVAL_MS: Record<Interval, number> = {
 export type ChartFeedState = "idle" | "connecting" | "live" | "reconnecting" | "stale";
 
 /**
- * Silence after which an open socket is treated as dead and rebuilt. An active
- * kline stream updates about once a second; 45 s of nothing is not a lull.
+ * Silence after which an open socket is treated as dead and rebuilt.
+ *
+ * The socket itself — and the reconnect ladder and watchdog that enforce this
+ * — moved to `lib/marketFeed`, so sixteen panes on one instrument share one
+ * connection instead of opening sixteen. Re-exported here because callers and
+ * tests have always read this constant from the chart.
  */
-export const WS_SILENCE_TIMEOUT_MS = 45_000;
-const WS_WATCHDOG_INTERVAL_MS = 5_000;
-
-/** Binance combined stream for one symbol/interval; updates the forming candle live. */
-function streamUrl(symbol: string, interval: Interval): string {
-  return `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
-}
+export { WS_SILENCE_TIMEOUT_MS };
 
 /** A horizontal level drawn across the chart (live stop / target / entry). */
 export interface ChartPriceLine {
@@ -430,7 +425,7 @@ export function CandleChart({
       return;
     }
     const list = candlesRef.current;
-    const index = snapToBarIndex(list.map((bar) => bar.openTime / 1000), time);
+    const index = snapToBarIndexBy(list, time, (bar) => bar.openTime / 1000);
     if (index < 0) {
       chart.clearCrosshairPosition();
       return;
@@ -512,6 +507,10 @@ export function CandleChart({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The container is detached before the cleanup above runs; stop the library
+  // measuring it in between. See `lib/chartLifecycle`.
+  useDetachChartObserver(chartRef);
 
   /*
    * The main price series lives in its own effect so the presentation can be
@@ -810,149 +809,85 @@ export function CandleChart({
   }, []);
 
   /*
-   * Live: update the forming candle from the Binance kline websocket.
+   * Live: update the forming candle from the shared Binance kline feed.
    *
-   * FE-09: this had `onmessage` and nothing else — no `onerror`, no `onclose`,
-   * no reconnect and no watchdog. When the socket dropped, or stayed open while
-   * delivering nothing (a half-open TCP connection, or a server that has
-   * stopped sending), the last price simply froze on screen and kept being
-   * displayed as if it were current. There was no way for a user to tell.
-   *
-   * Now: exponential-backoff reconnect, a silence watchdog, and a feed state
-   * the caller can render. `unknown` and `stale` are real answers — nothing
-   * here reports "live" without a recent message to justify it.
+   * FE-09 gave this an exponential-backoff reconnect, a silence watchdog and a
+   * reportable feed state, because the original had `onmessage` and nothing
+   * else: a dropped or half-open socket simply froze the last price on screen
+   * and kept presenting it as current. All of that behaviour is unchanged — it
+   * moved to `lib/marketFeed`, where it runs once per distinct feed instead of
+   * once per chart, and `onStatus` still delivers the same honest answers.
    */
   useEffect(() => {
     if (!live) { setFeedState("idle"); return; }
 
-    let socket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let watchdog: ReturnType<typeof setInterval> | null = null;
-    let attempt = 0;
-    let lastMessageAt = 0;
+    // One tick handler per pane, attached to a feed that is shared by every
+    // pane on this instrument and resolution. The parse, the reconnect ladder
+    // and the watchdog all happen once upstream, in `lib/marketFeed`.
     let previousStreamBar: Candle | null = null;
-    let closed = false;
 
-    const connect = (): void => {
-      if (closed) return;
-      setFeedState(attempt === 0 ? "connecting" : "reconnecting");
-      const ws = new WebSocket(streamUrl(symbol, interval));
-      socket = ws;
-      wireHandlers(ws);
+    const onTick = (tick: KlineTick): void => {
+      // Read through the refs: the main series is replaced when the user
+      // changes presentation, and capturing it here would leave the feed
+      // writing into a series that is no longer on the chart.
+      const series = seriesRef.current;
+      const vol = volRef.current;
+      if (!series || !vol) return;
+      const timeSec = tick.openTime / 1000;
+      const time = timeSec as UTCTimestamp;
+      const override = barColorRef.current.get(timeSec) ?? null;
+      updateMainSeries(series, mainKindRef.current, mainSeriesDatum(mainKindRef.current, {
+        openTime: tick.openTime, open: tick.open, high: tick.high,
+        low: tick.low, close: tick.close,
+      }, override));
+      vol.update({
+        time, value: tick.volume,
+        color: tick.close >= tick.open ? "#1c3a30" : "#3a1c24",
+      });
+
+      // Mirror the forming candle into the legend source so the readout stays
+      // live; only refresh the display when the user isn't pointing at an
+      // older candle.
+      const list = candlesRef.current;
+      const liveBar: Candle = {
+        symbol, interval, openTime: tick.openTime, closeTime: tick.closeTime,
+        open: tick.open, high: tick.high, low: tick.low, close: tick.close,
+        volume: tick.volume,
+      };
+      const idx = timeIndexRef.current.get(timeSec);
+      if (idx !== undefined) list[idx] = liveBar;
+      else if (list.length === 0 || tick.openTime > list[list.length - 1]!.openTime) {
+        list.push(liveBar);
+        timeIndexRef.current.set(timeSec, list.length - 1);
+        onLiveBoundaryRef.current?.(previousStreamBar, liveBar);
+      }
+      previousStreamBar = liveBar;
+      const hover = hoverTimeRef.current;
+      if (hover === null || hover === timeSec) {
+        const i = timeIndexRef.current.get(timeSec);
+        if (i !== undefined) setLegend(legendFromIndex(i));
+      }
     };
 
-    const scheduleReconnect = (): void => {
-      if (closed) return;
-      attempt += 1;
-      setFeedState("reconnecting");
-      // Capped exponential backoff: a Binance outage must not become a
-      // reconnect storm from every open chart tab.
-      const delay = Math.min(1000 * 2 ** Math.min(attempt, 5), 30_000);
-      reconnectTimer = setTimeout(connect, delay);
-    };
-
-    const wireHandlers = (ws: WebSocket): void => {
-    ws.onopen = () => {
-      attempt = 0;
-      lastMessageAt = Date.now();
-      setFeedState("live");
-    };
-    ws.onerror = () => {
-      // `onerror` is always followed by `onclose`, which does the reconnecting.
-      setFeedState("reconnecting");
-    };
-    ws.onclose = () => {
-      if (closed || socket !== ws) return;
-      socket = null;
-      scheduleReconnect();
-    };
-    ws.onmessage = (ev) => {
-      lastMessageAt = Date.now();
-      setFeedState("live");
-      try {
-        const msg = JSON.parse(ev.data as string) as {
-          k?: { t: number; o: string; h: string; l: string; c: string; v: string };
-        };
-        if (!msg.k) return;
-        const k = msg.k;
-        const time = (k.t / 1000) as UTCTimestamp;
-        // Read through the refs: the main series is replaced when the user
-        // changes presentation, and capturing it here would leave the feed
-        // writing into a series that is no longer on the chart.
-        const series = seriesRef.current;
-        const vol = volRef.current;
-        if (!series || !vol) return;
-        const override = barColorRef.current.get(k.t / 1000) ?? null;
-        updateMainSeries(series, mainKindRef.current, mainSeriesDatum(mainKindRef.current, {
-          openTime: k.t, open: +k.o, high: +k.h, low: +k.l, close: +k.c,
-        }, override));
-        vol.update({ time, value: +k.v, color: +k.c >= +k.o ? "#1c3a30" : "#3a1c24" });
-
-        // Mirror the forming candle into the legend source so the readout
-        // stays live; only refresh the display when the user isn't pointing
-        // at an older candle.
-        const list = candlesRef.current;
-        const liveBar: Candle = {
-          symbol, interval, openTime: k.t, closeTime: k.t + INTERVAL_MS[interval] - 1,
-          open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v,
-        };
-        const idx = timeIndexRef.current.get(k.t / 1000);
-        if (idx !== undefined) list[idx] = liveBar;
-        else if (list.length === 0 || k.t > list[list.length - 1]!.openTime) {
-          list.push(liveBar);
-          timeIndexRef.current.set(k.t / 1000, list.length - 1);
-          onLiveBoundaryRef.current?.(previousStreamBar, liveBar);
-        }
-        previousStreamBar = liveBar;
-        const hover = hoverTimeRef.current;
-        if (hover === null || hover === k.t / 1000) {
-          const i = timeIndexRef.current.get(k.t / 1000);
-          if (i !== undefined) setLegend(legendFromIndex(i));
-        }
-      } catch { /* ignore malformed frames */ }
-    };
-    };
-
-    connect();
-
-    /*
-     * The watchdog is the half of this that `isConnected()`-style checks miss:
-     * a socket can sit in readyState OPEN and deliver nothing at all. An active
-     * kline stream updates roughly once a second, so 45 seconds of complete
-     * silence means the connection is not carrying data whatever its state
-     * says.
-     */
-    watchdog = setInterval(() => {
-      if (closed || lastMessageAt === 0) return;
-      const silentFor = Date.now() - lastMessageAt;
-      if (silentFor <= WS_SILENCE_TIMEOUT_MS) return;
-      setFeedState("stale");
-      // Rebuild rather than wait: the socket is not going to recover on its own.
-      const dead = socket;
-      socket = null;
-      try { dead?.close(); } catch { /* already gone */ }
-      lastMessageAt = Date.now();
-      scheduleReconnect();
-    }, WS_WATCHDOG_INTERVAL_MS);
-
+    const release = marketFeed.subscribe(symbol, interval, {
+      onTick,
+      onStatus: (status) => setFeedState(status),
+    });
     return () => {
-      closed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (watchdog) clearInterval(watchdog);
-      const open = socket;
-      socket = null;
-      try { open?.close(); } catch { /* already gone */ }
+      release();
       setFeedState("idle");
     };
   }, [symbol, interval, live, legendFromIndex]);
 
   /**
-   * Mirror the other pane's crosshair.
+   * Mirror another pane's crosshair.
    *
-   * The panes are usually on different resolutions, so an exact time match is
-   * the exception: 14:07 on a 15m chart has to land on the 14:00 bar of a 1h
-   * one. We take the newest bar at or before the incoming time, which is the
-   * bar that was actually forming at that moment.
+   * Panes are usually on different resolutions, so an exact time match is the
+   * exception: 14:07 on a 15m chart has to land on the 14:00 bar of a 1h one.
+   * We take the newest bar at or before the incoming time, which is the bar
+   * that was actually forming at that moment. When this pane has no such bar —
+   * a different instrument, or history that starts later — the crosshair is
+   * cleared rather than clamped to a bar the moment does not belong to.
    */
   useEffect(() => {
     const chart = chartRef.current;
@@ -966,9 +901,7 @@ export function CandleChart({
     const list = candlesRef.current;
     if (list.length === 0) return;
 
-    const found = snapToBarIndex(
-      list.map((c) => Math.floor(c.openTime / 1000)), crosshairTime
-    );
+    const found = snapToBarIndexBy(list, crosshairTime, (c) => Math.floor(c.openTime / 1000));
     if (found < 0) { chart.clearCrosshairPosition(); return; }
 
     const bar = list[found]!;

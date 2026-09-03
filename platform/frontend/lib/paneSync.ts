@@ -1,29 +1,41 @@
 "use client";
 
 /**
- * What the second chart follows from the first, mirroring TradingView's
- * "Sync in layout" menu.
+ * What panes follow from one another, mirroring TradingView's "Sync in layout"
+ * menu.
  *
- * Each is independent on purpose: the common split is the SAME symbol at a
- * different resolution, so `interval` is normally off while `symbol` is on.
+ * ── Every toggle here does something ───────────────────────────────────────
+ *
+ * That is worth stating because it was not true. In the two-pane design, four
+ * of these five were dead: `symbol` was never read at all (the second pane was
+ * handed pane 1's symbol unconditionally, so turning it off changed nothing),
+ * and `crosshair`, `time` and `dateRange` were written into state tagged
+ * `pane: 2` that only a `pane === 1` reader consumed — a reader that could
+ * never fire, because pane 1 was never given the emitting props. The menu
+ * showed five switches and one of them worked.
+ *
+ * The helpers below are the whole mechanism now, and they take pane ids rather
+ * than the literals 1 and 2, so a signal from the ninth pane reaches the other
+ * fifteen the same way the second one reached the first.
  */
+
 export interface SyncOptions {
-  /** Split pane adopts pane 1's symbol. */
+  /** A symbol change in one pane applies to the others. */
   symbol: boolean;
-  /** Split pane adopts pane 1's timeframe. */
+  /** A timeframe change in one pane applies to the others. */
   interval: boolean;
-  /** Crosshair position mirrors between panes. */
+  /** Crosshair position is mirrored across panes. */
   crosshair: boolean;
-  /** Right edge tracks the other pane, each keeping its own zoom. */
+  /** Panes track the same right edge, each keeping its own zoom. */
   time: boolean;
-  /** Both panes show the exact same visible span. */
+  /** Panes show the exact same visible span. */
   dateRange: boolean;
 }
 
 /**
- * Crosshair on by default and the rest off — matching TradingView, and the
- * only combination that is useful without first being configured: reading two
- * resolutions of one symbol at the same instant.
+ * Symbol and crosshair on, the rest off — matching TradingView, and the only
+ * combination that is useful without first being configured: reading several
+ * resolutions of one instrument at the same instant.
  */
 export const DEFAULT_SYNC: SyncOptions = {
   symbol: true,
@@ -34,11 +46,11 @@ export const DEFAULT_SYNC: SyncOptions = {
 };
 
 export const SYNC_LABELS: { id: keyof SyncOptions; label: string; help: string }[] = [
-  { id: "symbol", label: "Symbol", help: "Both panes show the same instrument" },
-  { id: "interval", label: "Interval", help: "Both panes use the same timeframe" },
+  { id: "symbol", label: "Symbol", help: "Every pane shows the same instrument" },
+  { id: "interval", label: "Interval", help: "Every pane uses the same timeframe" },
   { id: "crosshair", label: "Crosshair", help: "The crosshair position is mirrored" },
   { id: "time", label: "Time", help: "Panes stay on the same moment, each keeping its own zoom" },
-  { id: "dateRange", label: "Date range", help: "Both panes show the same visible span" },
+  { id: "dateRange", label: "Date range", help: "Every pane shows the same visible span" },
 ];
 
 const KEY = "tv.paneSync.v1";
@@ -63,6 +75,63 @@ export function saveSync(value: SyncOptions): void {
   } catch { /* quota — the panes still sync for this session */ }
 }
 
+// ── view mirroring, by pane id ─────────────────────────────────────────────
+
+/** Where the pointer is, and which pane it is in. */
+export interface CrosshairSignal {
+  paneId: string;
+  /** Bar time in seconds, or null when the pointer left the plot. */
+  time: number | null;
+}
+
+/** A visible span, and the pane that produced it. */
+export interface RangeSignal {
+  paneId: string;
+  from: number;
+  to: number;
+}
+
+/**
+ * The crosshair time a pane should draw, or null for none.
+ *
+ * A pane never receives its own signal back. That single rule is what makes
+ * mirroring safe for any number of panes: the source is excluded at the point
+ * of read, so there is no echo to damp and no oscillation to break.
+ */
+export function crosshairForPane(
+  signal: CrosshairSignal | null, paneId: string, sync: SyncOptions
+): number | null {
+  if (!sync.crosshair || !signal || signal.paneId === paneId) return null;
+  return signal.time;
+}
+
+/**
+ * The exact span a pane should adopt, or null.
+ *
+ * `dateRange` wins over `time`: showing the same span already implies sharing
+ * the right edge, and applying both would fight over the zoom.
+ */
+export function visibleRangeForPane(
+  signal: RangeSignal | null, paneId: string, sync: SyncOptions
+): { from: number; to: number } | null {
+  if (!sync.dateRange || !signal || signal.paneId === paneId) return null;
+  return { from: signal.from, to: signal.to };
+}
+
+/** The right edge a pane should track while keeping its own zoom, or null. */
+export function followEdgeForPane(
+  signal: RangeSignal | null, paneId: string, sync: SyncOptions
+): number | null {
+  if (!sync.time || sync.dateRange || !signal || signal.paneId === paneId) return null;
+  return signal.to;
+}
+
+/** Whether any pane needs to publish its crosshair at all. */
+export const crosshairSyncActive = (sync: SyncOptions): boolean => sync.crosshair;
+
+/** Whether any pane needs to publish its visible range at all. */
+export const rangeSyncActive = (sync: SyncOptions): boolean => sync.time || sync.dateRange;
+
 /**
  * The bar in `openTimesSec` that was forming at `timeSec` — the newest one at
  * or before it.
@@ -70,7 +139,9 @@ export function saveSync(value: SyncOptions): void {
  * This is what makes crosshair sync work across resolutions. Hovering 14:07 on
  * a 15m chart must light up the 14:00 bar of a 1h chart, so an exact time
  * match is the exception rather than the rule. Returns -1 when the time
- * predates every loaded bar, which is a "draw nothing", not a clamp to bar 0.
+ * predates every loaded bar, which is a "draw nothing", not a clamp to bar 0 —
+ * and that is also how panes on different symbols degrade: a pane with no bar
+ * at that moment simply draws no crosshair instead of guessing one.
  *
  * `openTimesSec` must be ascending; binary search assumes it.
  */
@@ -81,6 +152,27 @@ export function snapToBarIndex(openTimesSec: number[], timeSec: number): number 
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     if (openTimesSec[mid]! <= timeSec) { found = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return found;
+}
+
+/**
+ * The same search over the candles themselves.
+ *
+ * The array-of-times form allocated a fresh `number[]` of every loaded bar on
+ * each crosshair event — ten thousand numbers per mouse move, per pane, to
+ * perform a binary search that only ever reads a handful of them.
+ */
+export function snapToBarIndexBy<T>(
+  bars: readonly T[], timeSec: number, timeOf: (bar: T) => number
+): number {
+  let lo = 0;
+  let hi = bars.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (timeOf(bars[mid]!) <= timeSec) { found = mid; lo = mid + 1; }
     else hi = mid - 1;
   }
   return found;

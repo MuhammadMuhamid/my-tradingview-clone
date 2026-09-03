@@ -4,6 +4,33 @@ export type Interval =
   | "1m" | "3m" | "5m" | "15m" | "30m"
   | "1h" | "2h" | "4h" | "6h" | "12h" | "1d";
 
+/**
+ * Every interval the backend serves, as a value list.
+ *
+ * Persisted workspace state names an interval as a plain string, so restoring
+ * it needs a runtime guard — a stored `"7m"` from a hand-edited or corrupted
+ * entry must be rejected rather than handed to the chart as an `Interval`.
+ */
+export const INTERVAL_VALUES: readonly Interval[] = [
+  "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d",
+];
+
+export function isInterval(value: unknown): value is Interval {
+  return typeof value === "string" && (INTERVAL_VALUES as readonly string[]).includes(value);
+}
+
+/**
+ * One bar's duration, per interval.
+ *
+ * Here rather than in the chart component because the history loader, the
+ * overlay range and the backfill window all need it, and none of them should
+ * have to import a React component to do arithmetic.
+ */
+export const INTERVAL_MS: Record<Interval, number> = {
+  "1m": 60000, "3m": 180000, "5m": 300000, "15m": 900000, "30m": 1800000,
+  "1h": 3600000, "2h": 7200000, "4h": 14400000, "6h": 21600000, "12h": 43200000, "1d": 86400000,
+};
+
 export interface SymbolInfo {
   symbol: string;
   baseAsset: string;

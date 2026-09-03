@@ -10,6 +10,7 @@ import {
   planSeriesMutation, plotValueAt, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { baseChartOptions } from "@/lib/chartTheme";
+import { useDetachChartObserver } from "@/lib/chartLifecycle";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 
@@ -221,6 +222,10 @@ export function IndicatorPane({
       seriesEntries.clear();
     };
   }, [id, onReady]);
+
+  // Oscillator panes come and go with their studies and with the chart that
+  // hosts them, so they need the same detach as the price chart.
+  useDetachChartObserver(chartRef);
 
   useEffect(() => {
     const chart = chartRef.current;

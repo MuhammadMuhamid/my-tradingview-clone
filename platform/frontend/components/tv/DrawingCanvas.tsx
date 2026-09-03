@@ -36,6 +36,30 @@ interface Drag {
  * (so dragging a trend line never pans the chart), and everything else falls
  * through untouched.
  */
+/**
+ * A number that changes when any anchor moves.
+ *
+ * This is sampled every animation frame, so it must not allocate. It replaced
+ * `JSON.stringify(drawings.map((d) => d.points))`, which built an array and a
+ * string of every anchor on the chart sixty times a second whether or not
+ * anything had moved — while a drag was in progress, on top of the drag's own
+ * work. A drawing's own points array is replaced on edit, so identity would
+ * usually be enough; the digest also catches an in-place edit, which is what
+ * the stringify was really guarding against.
+ */
+function geometryDigest(drawings: Drawing[]): number {
+  let digest = drawings.length;
+  for (const drawing of drawings) {
+    for (const point of drawing.points) {
+      // Mixed with a prime and wrapped to 32 bits so distinct geometries do
+      // not collapse onto one another through plain addition.
+      digest = (Math.imul(digest, 31) + (point.time | 0)) | 0;
+      digest = (Math.imul(digest, 31) + Math.round(point.price * 1e6)) | 0;
+    }
+  }
+  return digest;
+}
+
 export function DrawingCanvas({
   container, chart, series, candles, interval,
   tool, onToolDone, drawings, onChange, magnet, locked, hidden,
@@ -408,7 +432,7 @@ export function DrawingCanvas({
       const x1 = chart.timeScale().logicalToCoordinate(100 as Logical);
       const fp = `${w}|${h}|${x0}|${x1}|${y0}|${drawings.length}|${selected}|${hidden}` +
         `|${draftRef.current?.points.length ?? -1}|${previewRef.current?.time ?? 0}` +
-        `|${previewRef.current?.price ?? 0}|${hoverRef.current}|${JSON.stringify(drawings.map((d) => d.points))}`;
+        `|${previewRef.current?.price ?? 0}|${hoverRef.current}|${geometryDigest(drawings)}`;
       if (fp === last) return;
       last = fp;
       paint(canvas, w, h);
