@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   groupChartOverlays, mergeBarColorLayers, planCandleMutation,
-  planColoredCandleMutation, planSeriesMutation, plotValueAt, shiftedPlotTime,
+  planColoredCandleMutation, planOhlcMutation, planSeriesMutation, plotValueAt, shiftedPlotTime,
   type ChartOverlay,
 } from "../lib/chartSeries";
 import { toChartOutput } from "../lib/indicators";
@@ -221,4 +221,40 @@ test("only instances a reader could not otherwise tell apart get an ordinal", ()
   assert.deepEqual(grouped.panes.map((p) => p.title), [
     "RSI (1)", "RSI", "RSI (2)", "MACD",
   ]);
+});
+
+/**
+ * The transformed main series has its own mutation planner, because neither
+ * candle planner can speak for it: a Heikin-Ashi bar carries no volume, and a
+ * Renko brick has no fixed relationship to the canonical bar count at all.
+ *
+ * The Renko cases below are the ones that matter. `update()` can rewrite the
+ * last bar or append one; it cannot REMOVE a bar. So a forming candle that
+ * retraces and un-completes a brick it had already produced, and one that
+ * completes two bricks between ticks, both have to fall back to a full
+ * repaint — drawing them incrementally would leave a brick on screen that the
+ * data no longer contains.
+ */
+test("the transformed series is planned by its own rules", () => {
+  const bar = (t: number, c: number) =>
+    ({ openTime: t, open: c - 1, high: c + 1, low: c - 2, close: c });
+  const before = [bar(60_000, 10), bar(120_000, 11)];
+
+  assert.equal(planOhlcMutation(before, [...before]), "none");
+  assert.equal(planOhlcMutation([], []), "none");
+  assert.equal(planOhlcMutation([], before), "replace");
+  assert.equal(planOhlcMutation(before, []), "replace");
+
+  // Heikin Ashi's live case: the last bar is rewritten in place every tick.
+  assert.equal(planOhlcMutation(before, [before[0]!, bar(120_000, 12)]), "update");
+  // A closed bar, then one new brick or bar appended.
+  assert.equal(planOhlcMutation(before, [...before, bar(180_000, 13)]), "update");
+
+  // Renko: two bricks at once cannot be one update.
+  assert.equal(
+    planOhlcMutation(before, [...before, bar(180_000, 13), bar(181_000, 14)]), "replace");
+  // Renko: a retrace that un-completes the newest brick.
+  assert.equal(planOhlcMutation(before, [before[0]!]), "replace");
+  // Any disagreement about already-drawn history is a repaint, never an update.
+  assert.equal(planOhlcMutation(before, [bar(60_000, 99), before[1]!]), "replace");
 });

@@ -30,6 +30,7 @@ import {
   crosshairForPane, DEFAULT_SYNC, followEdgeForPane, SYNC_LABELS, visibleRangeForPane,
   type SyncOptions,
 } from "../lib/paneSync";
+import { chartTypeLabel } from "../lib/chartType";
 
 const ROOT = path.join(__dirname, "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -476,7 +477,7 @@ test("A MALFORMED WORKSPACE FAILS SAFE TO ONE PANE", () => {
     { ...good, activePaneId: "p9" },
     { ...good, maximizedPaneId: "p9" },
     { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "7m" }] },
-    { ...good, panes: [good.panes[0], { ...good.panes[1], chartType: "renko" }] },
+    { ...good, panes: [good.panes[0], { ...good.panes[1], chartType: "kagi" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], bars: -5 }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], symbol: "" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], maLines: "all" }] },
@@ -558,4 +559,115 @@ test("a pane keeps its instrument legible at every size", () => {
   assert.match(pane, /showIntervals \? \(/);
   assert.ok(!/density === "tiny" && [\s\S]{0,80}pane\.symbol/.test(pane),
     "the instrument must never be hidden by the density policy");
+});
+
+// ── chart-only transforms in the workspace ─────────────────────────────────
+
+/**
+ * Heikin Ashi and Renko are per-pane display state and nothing more. The tests
+ * below hold the three facts that keeps true: one pane's lens does not reach
+ * another's, the lens is not part of the upstream feed's identity, and a lens
+ * survives a reload without ever being able to survive as garbage.
+ */
+
+test("CANONICAL, HEIKIN ASHI AND RENKO COEXIST ON ONE INSTRUMENT", () => {
+  let ws = setPaneCount(createWorkspace({ symbol: "BTCUSDT", interval: "15m" }), 3);
+  ws = updatePane(ws, "p2", { chartType: "heikinAshi" });
+  ws = updatePane(ws, "p3", { chartType: "renko" });
+
+  assert.deepEqual(ws.panes.map((p) => p.chartType), ["candles", "heikinAshi", "renko"]);
+  assert.deepEqual(ws.panes.map((p) => `${p.symbol}|${p.interval}`),
+    ["BTCUSDT|15m", "BTCUSDT|15m", "BTCUSDT|15m"]);
+
+  // Three lenses on one instrument is still ONE upstream feed. Presentation is
+  // not part of feed identity, and if it ever became part of it this is the
+  // assertion that would say so.
+  assert.deepEqual(feedKeys(ws), ["BTCUSDT|15m"],
+    "a chart-only transform opened a second upstream feed");
+});
+
+test("CHANGING A PANE'S TRANSFORM CHANGES NOTHING ELSE", () => {
+  const start = setPaneCount(createWorkspace({ symbol: "BTCUSDT", interval: "15m" }), 4);
+  let ws = start;
+
+  // Candles → Heikin Ashi → Renko → Candles, on one pane only.
+  for (const type of ["heikinAshi", "renko", "candles"] as const) {
+    ws = updatePane(ws, "p2", { chartType: type });
+    assert.equal(paneById(ws, "p2")!.chartType, type);
+    for (const other of ["p1", "p3", "p4"]) {
+      assert.deepEqual(paneById(ws, other), paneById(start, other),
+        `changing p2's chart type disturbed ${other}`);
+    }
+    assert.deepEqual(feedKeys(ws), ["BTCUSDT|15m"],
+      "switching presentation changed which feeds the workspace needs");
+  }
+
+  // And a full round trip lands exactly where it started.
+  assert.deepEqual(ws, start);
+});
+
+test("A TRANSFORM IS NOT PROPAGATED BY SYNCHRONISATION", () => {
+  // Symbol and interval are the only field-propagating sync toggles; a chart
+  // lens is a per-pane reading choice and must not travel with them.
+  let ws = setPaneCount(createWorkspace(SEED), 3);
+  ws = updatePane(ws, "p1", { chartType: "renko" });
+  ws = applyPaneSymbol(ws, "p1", "ETHUSDT", sync({ symbol: true }));
+  ws = applyPaneInterval(ws, "p1", "1h", sync({ interval: true }));
+
+  assert.deepEqual(ws.panes.map((p) => p.chartType), ["renko", "candles", "candles"]);
+  assert.deepEqual(ws.panes.map((p) => p.symbol), ["ETHUSDT", "ETHUSDT", "ETHUSDT"]);
+});
+
+test("A SYNTHETIC PANE SURVIVES A RELOAD, AND A DAMAGED ONE DOES NOT COME BACK WRONG", () => {
+  let ws = setPaneCount(createWorkspace({ symbol: "BTCUSDT", interval: "15m" }), 3);
+  ws = updatePane(ws, "p2", { chartType: "heikinAshi" });
+  ws = updatePane(ws, "p3", { chartType: "renko" });
+
+  // Round-trip through the storage format, not through the objects.
+  const stored = JSON.parse(JSON.stringify(ws)) as unknown;
+  const restored = restoreWorkspace({ stored, legacySplit: null, seed: SEED });
+  assert.equal(restored.source, "stored");
+  assert.deepEqual(restored.workspace, ws);
+  assert.deepEqual(restored.workspace.panes.map((p) => p.chartType),
+    ["candles", "heikinAshi", "renko"]);
+
+  // Renko's only parameter is fixed at ATR(14) and is carried by the type, so
+  // restoring the type restores the parameters — there is nothing else to lose.
+  assert.equal(chartTypeLabel(restored.workspace.panes[2]!.chartType), "Renko · ATR(14)");
+
+  // A record naming a transform this build does not have is a damaged record,
+  // and a damaged record lands on a clean canonical pane rather than on a
+  // half-restored workspace.
+  const bogus = JSON.parse(JSON.stringify(ws)) as { panes: { chartType: string }[] };
+  bogus.panes[1]!.chartType = "kagi";
+  assert.equal(parseWorkspace(bogus), null);
+  const fallback = restoreWorkspace({ stored: bogus, legacySplit: null, seed: SEED });
+  assert.equal(fallback.source, "default");
+  assert.deepEqual(fallback.workspace.panes.map((p) => p.chartType), ["candles"]);
+});
+
+test("A TRANSFORM CANNOT REACH TRADING, ALERTS, STRATEGIES OR STORED CANDLES", () => {
+  // Manual execution targets a pane's SYMBOL. It has never known about
+  // presentation and must not learn: this is the assertion that fails if a
+  // chart lens is ever threaded into the trading target.
+  const target = read("lib/tradingTarget.ts");
+  assert.ok(!/chartType|heikinAshi|renko|chartTransforms/i.test(target),
+    "the manual trading target grew an opinion about how the chart is drawn");
+
+  // The pane hands the chart its CANONICAL candles; the transform happens
+  // inside the renderer, downstream of everything else the pane computes.
+  const pane = read("components/tv/ChartPane.tsx");
+  assert.match(pane, /candles=\{visibleCandles\}/);
+  assert.match(pane, /buildMaOverlays\(visibleCandles, pane\.maLines\)/);
+  assert.ok(!/chartTransforms|heikinAshi|renkoBricks/.test(pane),
+    "a pane started transforming candles before handing them on");
+
+  // And nothing outside the chart imports the transforms at all.
+  for (const file of [
+    "lib/workspace.ts", "lib/marketFeed.ts", "lib/candleHistory.ts", "lib/replay.ts",
+    "lib/alerts.ts", "lib/manualTicket.ts", "lib/tradingOverlays.ts", "lib/drawings.ts",
+  ]) {
+    assert.ok(!/chartTransforms/.test(read(file)),
+      `${file} reads the synthetic transforms; only the renderer may`);
+  }
 });

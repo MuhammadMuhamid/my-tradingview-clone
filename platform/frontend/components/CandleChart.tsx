@@ -20,12 +20,18 @@ import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 import type { PineDrawings } from "@/lib/api";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import {
-  groupChartOverlays, planColoredCandleMutation, planSeriesMutation,
+  groupChartOverlays, planColoredCandleMutation, planOhlcMutation, planSeriesMutation,
   type ChartBarColor, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import {
-  mainSeriesDatum, type ChartType, type MainSeriesDatum,
+  chartTransform, mainSeriesDatum, renderKind, renkoParams, syntheticDisclosure,
+  SYNTHETIC_DISCLOSURE_HINT,
+  type ChartRenderKind, type ChartType, type MainSeriesDatum, type OhlcBar,
 } from "@/lib/chartType";
+import {
+  transformAll, transformStep,
+  DEFAULT_RENKO_ATR_PERIOD, type TransformCursor, type TransformKind,
+} from "@/lib/chartTransforms";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
 
@@ -168,20 +174,26 @@ function customCandleDatum(point: ChartPoint): CandlestickData<Time> | Whitespac
  * helpers below are the single place the datum shape is reconciled with the
  * series that receives it. Everything else — markers, price lines, the
  * crosshair, the drawing layers — uses only methods every series kind shares.
+ *
+ * They switch on the RENDER kind rather than the chart type, because Heikin
+ * Ashi and Renko are both drawn by a candlestick series; what differs about
+ * them is the bars they are handed, not the series that receives them.
  */
 type MainSeriesApi =
   | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line"> | ISeriesApi<"Area">;
 
-function setMainSeriesData(api: MainSeriesApi, kind: ChartType, rows: MainSeriesDatum[]): void {
+function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[]): void {
   const data = rows as unknown;
+  const kind = renderKind(type);
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).setData(data as CandlestickData<Time>[]);
   else if (kind === "bars") (api as ISeriesApi<"Bar">).setData(data as BarData<Time>[]);
   else if (kind === "area") (api as ISeriesApi<"Area">).setData(data as AreaData<Time>[]);
   else (api as ISeriesApi<"Line">).setData(data as LineData<Time>[]);
 }
 
-function updateMainSeries(api: MainSeriesApi, kind: ChartType, row: MainSeriesDatum): void {
+function updateMainSeries(api: MainSeriesApi, type: ChartType, row: MainSeriesDatum): void {
   const datum = row as unknown;
+  const kind = renderKind(type);
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).update(datum as CandlestickData<Time>);
   else if (kind === "bars") (api as ISeriesApi<"Bar">).update(datum as BarData<Time>);
   else if (kind === "area") (api as ISeriesApi<"Area">).update(datum as AreaData<Time>);
@@ -189,7 +201,8 @@ function updateMainSeries(api: MainSeriesApi, kind: ChartType, row: MainSeriesDa
 }
 
 /** Create the main series for a presentation, in the shared price palette. */
-function addMainSeries(chart: IChartApi, kind: ChartType): MainSeriesApi {
+function addMainSeries(chart: IChartApi, type: ChartType): MainSeriesApi {
+  const kind: ChartRenderKind = renderKind(type);
   if (kind === "candles") {
     return chart.addCandlestickSeries({
       upColor: "#2ebd85", downColor: "#f6465d",
@@ -208,6 +221,71 @@ function addMainSeries(chart: IChartApi, kind: ChartType): MainSeriesApi {
     });
   }
   return chart.addLineSeries({ color: "#4f8cff", lineWidth: 2, priceLineVisible: false });
+}
+
+/**
+ * A transform's position part-way through the canonical series.
+ *
+ * `cursor` has folded every bar EXCEPT the last one the chart holds, because
+ * the last one is still forming: a tick rewrites it several times a second,
+ * and Heikin Ashi and Renko are both recursive, so re-stepping just that bar
+ * from a fixed cursor is the only way the drawn history stays identical to a
+ * clean recomputation while the live bar keeps changing. `output` is what the
+ * folded bars produced — one bar each for Heikin Ashi, zero or more bricks for
+ * Renko.
+ */
+interface TransformHead {
+  kind: TransformKind;
+  atrPeriod: number;
+  /** Canonical bars already folded into `cursor`. */
+  bars: number;
+  cursor: TransformCursor;
+  output: OhlcBar[];
+}
+
+/** The head's output plus whatever the forming bar currently produces. */
+function withFormingBar(head: TransformHead, candles: readonly Candle[]): OhlcBar[] {
+  const forming = candles[candles.length - 1];
+  if (!forming || head.bars !== candles.length - 1) return [...head.output];
+  return [...head.output, ...transformStep(head.cursor, forming).emitted];
+}
+
+/** Fold the whole canonical series from scratch. */
+function rebuildTransform(
+  kind: TransformKind, atrPeriod: number, candles: readonly Candle[]
+): { head: TransformHead; display: OhlcBar[] } {
+  const closed = candles.length > 0 ? candles.slice(0, -1) : [];
+  const { cursor, output } = transformAll(kind, closed, { atrPeriod });
+  const head: TransformHead = { kind, atrPeriod, bars: closed.length, cursor, output };
+  return { head, display: withFormingBar(head, candles) };
+}
+
+/**
+ * The live path: fold the bar that just closed, if one did, and re-step the
+ * forming bar.
+ *
+ * Anything it cannot reconcile — a different transform, a head from another
+ * dataset, more than one new closed bar — falls back to a full rebuild, so the
+ * fast path can only ever be taken when it is exactly equal to the slow one.
+ */
+function advanceTransform(
+  head: TransformHead | null, kind: TransformKind, atrPeriod: number,
+  candles: readonly Candle[]
+): { head: TransformHead; display: OhlcBar[] } {
+  const closedCount = candles.length - 1;
+  if (!head || head.kind !== kind || head.atrPeriod !== atrPeriod
+    || head.bars > closedCount || closedCount - head.bars > 1) {
+    return rebuildTransform(kind, atrPeriod, candles);
+  }
+  let next = head;
+  if (head.bars === closedCount - 1) {
+    const stepped = transformStep(head.cursor, candles[head.bars]!);
+    next = {
+      ...head, bars: head.bars + 1, cursor: stepped.cursor,
+      output: [...head.output, ...stepped.emitted],
+    };
+  }
+  return { head: next, display: withFormingBar(next, candles) };
 }
 
 function customBarDatum(point: ChartPoint): BarData<Time> | WhitespaceData<Time> {
@@ -343,6 +421,20 @@ export function CandleChart({
    * that assumes the previous series is still on screen.
    */
   const mainSeriesDirtyRef = useRef(true);
+  /**
+   * Chart-only transform state. `headRef` is the fold over every closed bar;
+   * `displayRef` is what is currently drawn, so the next update can be planned
+   * against it. Both are null/empty whenever the canonical candles are being
+   * drawn directly.
+   */
+  const transformHeadRef = useRef<TransformHead | null>(null);
+  const displayRef = useRef<OhlcBar[]>([]);
+  /**
+   * Whether the volume histogram currently holds data. Renko has no time axis
+   * of its own, so per-bar volume cannot be drawn under it truthfully and is
+   * omitted; this remembers to put it back on the way out.
+   */
+  const volumeDrawnRef = useRef(false);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const overlayRefs = useRef<Map<string, OverlaySeriesEntry>>(new Map());
   const paneChartRefs = useRef<Map<string, IChartApi>>(new Map());
@@ -549,14 +641,16 @@ export function CandleChart({
     // A freshly created series holds nothing, so it must be filled from
     // scratch — but that is not a reason to refit the time scale, which is
     // what makes a presentation change viewport-preserving.
-    const mutation = mainSeriesDirtyRef.current || datasetKeyRef.current !== datasetKey
-      ? "replace"
-      : planColoredCandleMutation(candlesRef.current, candles, barColorRef.current, nextColors);
+    const forced = mainSeriesDirtyRef.current || datasetKeyRef.current !== datasetKey;
+    const canonicalPlan =
+      planColoredCandleMutation(candlesRef.current, candles, barColorRef.current, nextColors);
+    const mutation = forced ? "replace" : canonicalPlan;
     candlesRef.current = [...candles];
     barColorRef.current = nextColors;
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
     setLegend(candles.length > 0 ? legendFromIndex(candles.length - 1) : null);
     const kind = mainKindRef.current;
+    const transform = chartTransform(kind);
     const candleDatum = (c: Candle) =>
       mainSeriesDatum(kind, c, nextColors.get(c.openTime / 1000) ?? null);
     const volumeDatum = (c: Candle) => ({
@@ -564,13 +658,60 @@ export function CandleChart({
       value: c.volume,
       color: c.close >= c.open ? "#1c3a30" : "#3a1c24",
     });
-    if (mutation === "replace") {
-      setMainSeriesData(series, kind, candles.map(candleDatum));
+
+    /*
+     * Volume is canonical and stays canonical: it is the exchange's own figure
+     * at the exchange's own bar times, whatever the price series is drawing.
+     * Renko is the one exception, and it is an omission rather than a
+     * reinterpretation — a brick is not a time bar, so there is no honest
+     * volume to put under it and none is drawn.
+     */
+    if (transform === "renko") {
+      if (volumeDrawnRef.current) {
+        vol.setData([]);
+        volumeDrawnRef.current = false;
+      }
+    } else if (mutation === "replace" || !volumeDrawnRef.current) {
       vol.setData(candles.map(volumeDatum));
-      mainSeriesDirtyRef.current = false;
+      volumeDrawnRef.current = true;
     } else if (mutation === "update" && candles.length > 0) {
-      updateMainSeries(series, kind, candleDatum(candles[candles.length - 1]!));
       vol.update(volumeDatum(candles[candles.length - 1]!));
+    }
+
+    if (transform === null) {
+      transformHeadRef.current = null;
+      displayRef.current = [];
+      if (mutation === "replace") {
+        setMainSeriesData(series, kind, candles.map(candleDatum));
+        mainSeriesDirtyRef.current = false;
+      } else if (mutation === "update" && candles.length > 0) {
+        updateMainSeries(series, kind, candleDatum(candles[candles.length - 1]!));
+      }
+    } else {
+      /*
+       * A chart-only transform. The canonical candles above are untouched and
+       * still drive the legend, the volume, the markers, the drawings and
+       * everything downstream of this component; only the bars handed to the
+       * price series are derived.
+       */
+      const atrPeriod = renkoParams(kind)?.atrPeriod ?? DEFAULT_RENKO_ATR_PERIOD;
+      const rebuilt = rebuildTransform(transform, atrPeriod, candles);
+      transformHeadRef.current = rebuilt.head;
+      const display = rebuilt.display;
+      // A `barcolor()` override describes one canonical bar. Heikin Ashi keeps
+      // that bar's identity and its timestamp, so the override still applies;
+      // a Renko brick is not a bar and does not inherit one.
+      const transformedDatum = (b: OhlcBar) => mainSeriesDatum(
+        kind, b, transform === "heikinAshi" ? nextColors.get(b.openTime / 1000) ?? null : null
+      );
+      const plan = forced ? "replace" : planOhlcMutation(displayRef.current, display);
+      if (plan === "replace") {
+        setMainSeriesData(series, kind, display.map(transformedDatum));
+        mainSeriesDirtyRef.current = false;
+      } else if (plan === "update" && display.length > 0) {
+        updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!));
+      }
+      displayRef.current = display;
     }
     if (datasetKeyRef.current !== datasetKey) {
       datasetKeyRef.current = datasetKey;
@@ -836,18 +977,15 @@ export function CandleChart({
       const timeSec = tick.openTime / 1000;
       const time = timeSec as UTCTimestamp;
       const override = barColorRef.current.get(timeSec) ?? null;
-      updateMainSeries(series, mainKindRef.current, mainSeriesDatum(mainKindRef.current, {
-        openTime: tick.openTime, open: tick.open, high: tick.high,
-        low: tick.low, close: tick.close,
-      }, override));
-      vol.update({
-        time, value: tick.volume,
-        color: tick.close >= tick.open ? "#1c3a30" : "#3a1c24",
-      });
 
       // Mirror the forming candle into the legend source so the readout stays
       // live; only refresh the display when the user isn't pointing at an
       // older candle.
+      //
+      // This happens BEFORE the series is written, because a transform draws
+      // from the canonical series rather than from the tick: Heikin Ashi and
+      // Renko both need the forming bar in its place among the closed ones
+      // before they can say what it looks like.
       const list = candlesRef.current;
       const liveBar: Candle = {
         symbol, interval, openTime: tick.openTime, closeTime: tick.closeTime,
@@ -862,6 +1000,43 @@ export function CandleChart({
         onLiveBoundaryRef.current?.(previousStreamBar, liveBar);
       }
       previousStreamBar = liveBar;
+
+      const kind = mainKindRef.current;
+      const transform = chartTransform(kind);
+      if (transform === null) {
+        updateMainSeries(series, kind, mainSeriesDatum(kind, {
+          openTime: tick.openTime, open: tick.open, high: tick.high,
+          low: tick.low, close: tick.close,
+        }, override));
+      } else {
+        const atrPeriod = renkoParams(kind)?.atrPeriod ?? DEFAULT_RENKO_ATR_PERIOD;
+        const advanced = advanceTransform(
+          transformHeadRef.current, transform, atrPeriod, list
+        );
+        transformHeadRef.current = advanced.head;
+        const display = advanced.display;
+        const transformedDatum = (b: OhlcBar) => mainSeriesDatum(
+          kind, b,
+          transform === "heikinAshi" ? barColorRef.current.get(b.openTime / 1000) ?? null : null
+        );
+        // A retrace that un-completes a Renko brick, or a bar that completes
+        // two at once, cannot be expressed as one `update()`; both fail the
+        // prefix test and get a full repaint instead of a wrong one.
+        const plan = planOhlcMutation(displayRef.current, display);
+        if (plan === "replace") {
+          setMainSeriesData(series, kind, display.map(transformedDatum));
+        } else if (plan === "update" && display.length > 0) {
+          updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!));
+        }
+        displayRef.current = display;
+      }
+      if (transform !== "renko") {
+        vol.update({
+          time, value: tick.volume,
+          color: tick.close >= tick.open ? "#1c3a30" : "#3a1c24",
+        });
+      }
+
       const hover = hoverTimeRef.current;
       if (hover === null || hover === timeSec) {
         const i = timeIndexRef.current.get(timeSec);
@@ -1014,6 +1189,23 @@ export function CandleChart({
         would have been drawn straight through it.
       */}
       <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex max-w-[min(60%,760px)] flex-col items-start gap-0.5">
+      {/*
+        The synthetic disclosure, on the chart itself rather than only in the
+        toolbar. The toolbar describes the ACTIVE pane; in a sixteen-pane
+        workspace fifteen charts would otherwise be drawing derived bars with
+        nothing on them to say so. Absent for every canonical presentation —
+        a label that appears on ordinary candles stops carrying a warning.
+      */}
+      {syntheticDisclosure(chartType) && (
+        <div
+          title={SYNTHETIC_DISCLOSURE_HINT}
+          className="rounded border border-warn/40 bg-surface/90 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-warn sm:text-[11px]"
+        >
+          <span aria-hidden="true">◆ </span>
+          {syntheticDisclosure(chartType)}
+          <span className="sr-only"> — {SYNTHETIC_DISCLOSURE_HINT}</span>
+        </div>
+      )}
       {legend && (
         <div className="flex flex-wrap items-baseline gap-x-2 rounded bg-surface/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-ink-muted sm:text-[11px]">
           <span className="font-semibold text-ink">{symbol}</span>

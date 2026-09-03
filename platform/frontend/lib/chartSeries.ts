@@ -264,3 +264,47 @@ export function formatPlotValue(value: number | null, precision?: number | null)
     maximumFractionDigits: Math.max(0, Math.min(12, digits)),
   });
 }
+
+/**
+ * The same plan as `planCandleMutation`, for the bars a chart-only transform
+ * produces.
+ *
+ * Transformed bars carry no volume and — for Renko — no relationship to the
+ * canonical bar count, so neither candle planner can speak for them. The rule
+ * is the one lightweight-charts can actually honour: everything before the
+ * last drawn bar must be identical, and then the tail is either unchanged,
+ * rewritten in place, or extended by one.
+ *
+ * Renko's awkward cases fall out correctly. A forming bar that completes two
+ * bricks at once, or one that retraces and un-completes a brick it had already
+ * produced, both fail the prefix check and get a full `setData` — which is the
+ * honest answer, because `update()` cannot remove a bar.
+ */
+export function planOhlcMutation(
+  previous: readonly TransformedBar[], next: readonly TransformedBar[]
+): "none" | "update" | "replace" {
+  if (previous.length === 0 || next.length === 0) {
+    return previous.length === next.length ? "none" : "replace";
+  }
+  if (next.length !== previous.length && next.length !== previous.length + 1) return "replace";
+  for (let i = 0; i < next.length - 1; i++) {
+    if (!sameTransformedBar(previous[i]!, next[i]!)) return "replace";
+  }
+  if (next.length === previous.length
+    && sameTransformedBar(previous[previous.length - 1]!, next[next.length - 1]!)) return "none";
+  return "update";
+}
+
+/** The shape `planOhlcMutation` compares. Matches `OhlcBar` structurally. */
+interface TransformedBar {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+function sameTransformedBar(a: TransformedBar, b: TransformedBar): boolean {
+  return a.openTime === b.openTime && a.open === b.open && a.high === b.high &&
+    a.low === b.low && a.close === b.close;
+}
