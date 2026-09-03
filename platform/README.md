@@ -272,6 +272,18 @@ Open http://localhost:3000 — three pages: **Chart** (live Binance candles),
 **Backtests** (configure/run, metrics + equity curve + trade list + markers),
 **Live & Alerts** (deploy a strategy, watch alert telemetry).
 
+**Running the execution bot on the same Mac.** The bot's own `.env.example`
+also defaults to `PORT=4000`, so it collides with the backend started above.
+The bot is the side that moves: give it `PORT=4001`,
+`PUBLIC_URL=http://localhost:4001`, and repoint the bot frontend's dev proxy at
+4001. This Platform keeps 4000 and keeps its
+`MANUAL_TRADING_BOT_URL=http://localhost:4001` default, which already assumes
+that layout. This is worth getting right rather than discovering later: the
+endpoints behind that URL are the real-money manual Spot order path and the
+Shariah installation-floor push, so a Platform pointed at the wrong port either
+fails every manual order or reports the Shariah floor as unknown instead of
+armed.
+
 ## API (Stage 1 surface)
 
 | Method | Path | Purpose |
