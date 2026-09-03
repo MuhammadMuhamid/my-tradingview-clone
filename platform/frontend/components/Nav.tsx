@@ -21,6 +21,12 @@ const LINKS = [
   { href: "/shariah", label: "Shariah" },
 ];
 
+/**
+ * The in-product manual. Not one of `LINKS`: it is help, not a workspace, and
+ * it sits in the account cluster where a reader looks for help.
+ */
+const HELP_HREF = "/getting-started";
+
 export function Nav() {
   const path = usePathname();
   const [username, setUsername] = useState<string | null>(null);
@@ -84,6 +90,30 @@ export function Nav() {
           <span className="hidden text-xs text-ink-faint sm:block">
             Binance Spot
           </span>
+          {/*
+            Help lives beside the account controls rather than in the workspace
+            row, because "Getting started" is not a place you trade — it is the
+            one page that explains the other nine. It is permanent and never
+            forced: nothing here opens it on first launch.
+          */}
+          <Link
+            href={HELP_HREF}
+            aria-current={path === HELP_HREF ? "page" : undefined}
+            aria-label="Getting started — what this application is and how to operate it"
+            title="Getting started — what this application is and how to operate it"
+            className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors ${
+              path === HELP_HREF
+                ? "bg-surface-2 font-medium text-ink"
+                : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M9.4 9.2a2.7 2.7 0 015.2.9c0 1.8-2.6 2.2-2.6 3.9" />
+              <path d="M12 17.2h.01" />
+            </svg>
+            <span className="hidden sm:inline">Getting started</span>
+          </Link>
           {username && (
             <button onClick={signOut} title={`Signed in as ${username}`}
               className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">

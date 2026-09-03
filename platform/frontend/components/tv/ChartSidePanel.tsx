@@ -275,7 +275,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
             </button>
           </div>
           {[["/chart", "Chart"], ["/alerts", "Alerts"], ["/optimizers", "Optimizers"],
-            ["/backtests", "Backtests"], ["/deployments", "Live trading"]].map(([href, label]) => (
+            ["/backtests", "Backtests"], ["/deployments", "Live trading"],
+            ["/getting-started", "Getting started"]].map(([href, label]) => (
             <a key={href} href={href}
               className="rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">
               {label}

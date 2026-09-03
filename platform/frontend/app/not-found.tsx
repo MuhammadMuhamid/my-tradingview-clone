@@ -14,7 +14,8 @@ export default function NotFound() {
         {[["/chart", "Chart"], ["/scanner", "Scanner"], ["/alerts", "Alerts"],
           ["/optimizers", "Optimizers"], ["/backtests", "Backtests"],
           ["/deployments", "Live trading"], ["/journal", "Journal"],
-          ["/operations", "Operations"], ["/shariah", "Shariah"]].map(([href, label]) => (
+          ["/operations", "Operations"], ["/shariah", "Shariah"],
+          ["/getting-started", "Getting started"]].map(([href, label]) => (
           <Link
             key={href}
             href={href}
