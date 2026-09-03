@@ -368,7 +368,7 @@ than deleted so the change is auditable:
 Platform and Bot ship as a pair because of the realization-event pipeline
 (§5, and `crossRepositoryRealization.test.ts`): the Bot outbox and this
 service's ingestion route share the vendored `webhookContract.ts` and
-`realizationEventContract.ts` files byte-for-byte. `scripts/release.sh`
+`realizationEventContract.ts` files byte-for-byte. `platform/scripts/release.sh`
 (read/report only — it never touches Git history, a database, or a running
 process) makes that pairing explicit:
 
@@ -403,7 +403,7 @@ upgrade alone changes nothing until an operator turns ingestion on.
 **Schema compatibility.** Migration `021_realization_events.sql` only adds
 nullable columns to `realised_pnl` and two new tables/indexes; the
 `CHECK` constraint permits `source_system IS NULL`, so pre-existing INSERT
-paths (`repositories/liveSafety.ts`) are unaffected, and nothing here ever
+paths (`platform/backend/src/repositories/liveSafety.ts`) are unaffected, and nothing here ever
 `UPDATE`s or `DELETE`s a `realised_pnl` row. `rollback-check` verifies this
 class of change generically (it fails closed — `ROLLBACK_INCOMPATIBLE` or
 `UNKNOWN` — on any `DROP`/`ALTER COLUMN`/`RENAME` or a bare `NOT NULL`
@@ -412,7 +412,7 @@ migrations are safe by convention. This was proven directly, not just by
 inspection: a disposable PostgreSQL 16 cluster was migrated to the current
 head, seeded with one legacy `realised_pnl` row and one `BOT_CUSTOM_V1` row,
 and the **previous** Platform commit's `migrate.ts` and
-`repositories/journal.ts` were run against it unmodified — `migrate.ts`
+`platform/backend/src/repositories/journal.ts` were run against it unmodified — `migrate.ts`
 reported nothing pending, and `listAutomatedRealizations` returned both rows
 (the Bot-sourced fields simply absent from its narrower `SELECT`) with the
 underlying row byte-for-byte unchanged afterward. Because this holds for any
@@ -474,7 +474,7 @@ BINANCE_MARKET_DATA_BASE_URL=https://data-api.binance.vision
 ```
 
 The value is validated at boot against the official-host allowlist in
-`src/config.ts`: HTTPS on port 443, no credentials, no path, query or fragment,
+`platform/backend/src/config.ts`: HTTPS on port 443, no credentials, no path, query or fragment,
 and a hostname Binance actually operates. Anything else is a startup failure
 rather than a silently redirected price feed. This setting never affects manual
 trading — those commands go to the execution bot, not to Binance.
