@@ -98,6 +98,26 @@ The durable fix is to stop building on the instance at all: build the images
 in CI, push to ECR, and have the box only pull. That removes the memory
 ceiling from the deploy path entirely.
 
+### Caddy is reloaded, not recreated
+
+`update-app.sh` rolls only `backend` and `frontend`; Caddy holds the TLS
+certificates and every live connection, so recreating it on each release would
+drop traffic for no reason. But the script also **copies a new Caddyfile**, and
+a running Caddy keeps serving the config it parsed at startup — so before this
+was fixed a routing change landed on disk and did nothing.
+
+That is not hypothetical: the release that added the `/readyz` route shipped
+with `caddy` showing `Up 4 days`, and `/readyz` kept falling through to the
+frontend and redirecting to `/login`. The stack was healthy; the check this
+runbook tells you to trust was answering from a stale config.
+
+The script now runs `caddy reload` after the backend is healthy. The reload
+validates first and keeps the old config if the new one is broken — verified
+against production by reloading a deliberately invalid file: the reload was
+refused, Caddy never restarted, and the site served 200 throughout. A failed
+reload is therefore loud but **not** fatal to the deploy: the app has already
+rolled, and the previous routing stays live until someone fixes the Caddyfile.
+
 ### If the site is down mid-deploy
 
 1. `aws rds describe-db-instances` — check `DBInstanceStatus` first. The app
