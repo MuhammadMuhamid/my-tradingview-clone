@@ -48,7 +48,7 @@ import {
   planAlert, stateAfterPlan, type AlertSpec, type FeedSample,
 } from "../alerts/alertPlan";
 import { formatAlertPush } from "../alerts/alertMessage";
-import { sendPush } from "../alerts/webPush";
+import { sendPush, type PushResult } from "../alerts/webPush";
 
 /** Bars of history pulled per evaluation: enough to seed the longest MA. */
 const HISTORY_BARS = 1200;
@@ -66,6 +66,34 @@ const REFRESH_MS = 30_000;
 const INTRABAR_MIN_MS = 2_000;
 
 const feedKey = (symbol: string, interval: Interval): string => `${symbol}|${interval}`;
+
+export interface MaAlertRunnerDependencies {
+  listAlerts: typeof maAlertRepo.listAlerts;
+  recordEvaluation: typeof maAlertRepo.recordEvaluation;
+  createEvent: typeof maAlertRepo.createEvent;
+  sendPush: typeof sendPush;
+  now: () => number;
+}
+
+const DEFAULT_DEPENDENCIES: MaAlertRunnerDependencies = {
+  listAlerts: maAlertRepo.listAlerts,
+  recordEvaluation: maAlertRepo.recordEvaluation,
+  createEvent: maAlertRepo.createEvent,
+  sendPush,
+  now: Date.now,
+};
+
+/** A deterministic local frame that enters the same evaluator as live bars. */
+export interface AlertReplayFrame {
+  symbol: string;
+  interval: Interval;
+  bars: Candle[];
+  sampleBar: Candle;
+  isClosedBar: boolean;
+  now?: number;
+  /** Completed pivot-anchor periods keyed by interval, e.g. `{ "1d": ... }`. */
+  anchorPeriods?: Partial<Record<Interval, Period>>;
+}
 
 /** One alert, resolved into the pure planner's view of it. */
 function toSpec(alert: MaAlertRow, condition: AlertCondition): AlertSpec {
@@ -109,9 +137,11 @@ export class MaAlertRunner {
    */
   private anchorPeriods = new Map<string, Period>();
   private log: FastifyBaseLogger;
+  private dependencies: MaAlertRunnerDependencies;
 
-  constructor(log: FastifyBaseLogger) {
+  constructor(log: FastifyBaseLogger, dependencies: Partial<MaAlertRunnerDependencies> = {}) {
     this.log = log;
+    this.dependencies = { ...DEFAULT_DEPENDENCIES, ...dependencies };
     this.ws.on("barClose", (e) => void this.onBarClose(e));
     this.ws.on("barUpdate", (e) => void this.onBarUpdate(e));
     this.ws.on("error", (err) => this.log.error({ err: err.message }, "alert ws error"));
@@ -143,7 +173,7 @@ export class MaAlertRunner {
   async syncFeeds(): Promise<void> {
     let alerts: MaAlertRow[];
     try {
-      alerts = await maAlertRepo.listAlerts({ activeOnly: true });
+      alerts = await this.dependencies.listAlerts({ activeOnly: true });
     } catch (err) {
       this.log.error({ err: (err as Error).message }, "alert feed sync failed");
       return;
@@ -274,6 +304,24 @@ export class MaAlertRunner {
   }
 
   /**
+   * Replay a synthetic/local bar through real runner orchestration.
+   *
+   * No websocket, REST backfill, database, or Web Push service is contacted
+   * when repository and transport fakes are supplied to the constructor. The
+   * condition resolution, frequency transition, event/persistence writes, and
+   * payload formatting remain the production implementations.
+   */
+  async replay(frame: AlertReplayFrame): Promise<void> {
+    for (const [anchor, period] of Object.entries(frame.anchorPeriods ?? {})) {
+      if (period) this.anchorPeriods.set(`${frame.symbol}|${anchor}`, period);
+    }
+    await this.evaluate(
+      frame.symbol, frame.interval, frame.bars, frame.sampleBar,
+      frame.isClosedBar, frame.now
+    );
+  }
+
+  /**
    * Evaluate every alert on one feed against one sample.
    *
    * `isClosedBar` is passed through rather than inferred, because it is the
@@ -282,9 +330,10 @@ export class MaAlertRunner {
    * affordable.
    */
   private async evaluate(
-    symbol: string, interval: Interval, bars: Candle[], sampleBar: Candle, isClosedBar: boolean
+    symbol: string, interval: Interval, bars: Candle[], sampleBar: Candle,
+    isClosedBar: boolean, replayNow?: number
   ): Promise<void> {
-    const alerts = await maAlertRepo.listAlerts({
+    const alerts = await this.dependencies.listAlerts({
       symbol, timeframe: interval, activeOnly: true,
     });
     const relevant = isClosedBar
@@ -416,7 +465,7 @@ export class MaAlertRunner {
       rsi: rsiFor,
       macd: macdFor,
     };
-    const now = Date.now();
+    const now = replayNow ?? this.dependencies.now();
 
     for (const alert of relevant) {
       const condition = conditionFromRow(alert);
@@ -438,7 +487,7 @@ export class MaAlertRunner {
       const next = stateAfterPlan(spec, plan, {
         barTime: sampleBar.openTime, now, delivered,
       });
-      await maAlertRepo.recordEvaluation({
+      await this.dependencies.recordEvaluation({
         id: alert.id,
         side: next.lastSide,
         barTime: next.lastBarTime,
@@ -478,17 +527,27 @@ export class MaAlertRunner {
       alert, condition, bar, reference, distancePct, intrabar, label ?? undefined
     );
 
-    let pushedTo = 0;
+    let delivery: PushResult = { sent: 0, pruned: 0, failed: 0 };
     try {
-      const res = await sendPush({ title, body, tag, url }, this.log);
-      pushedTo = res.sent;
+      delivery = await this.dependencies.sendPush({ title, body, tag, url }, this.log);
     } catch (err) {
+      // A failure before fan-out (VAPID setup or subscription lookup) has no
+      // per-device count. Persist one failure without storing the raw error,
+      // endpoint, or any credential-bearing transport detail.
+      delivery.failed = Math.max(1, delivery.failed);
       this.log.error({ alertId: alert.id, err: (err as Error).message }, "alert push failed");
     }
 
+    const deliveryStatus: "delivered" | "partial_failure" | "failed" | "no_devices" =
+      delivery.sent > 0
+        ? (delivery.failed > 0 || delivery.pruned > 0 ? "partial_failure" : "delivered")
+        : delivery.failed > 0
+          ? "failed"
+          : "no_devices";
+
     // The event row is written whether or not a device was reachable, so the
     // in-app feed still shows what fired when the phone was offline.
-    await maAlertRepo.createEvent({
+    await this.dependencies.createEvent({
       alertId: alert.id,
       barTime: bar.openTime,
       price: bar.close,
@@ -496,14 +555,21 @@ export class MaAlertRunner {
       distancePct,
       title,
       body,
-      pushedTo,
+      pushedTo: delivery.sent,
+      pushFailed: delivery.failed,
+      pushPruned: delivery.pruned,
+      deliveryStatus,
       intrabar,
       frequency: alert.frequency,
     });
     this.log.info(
-      { alertId: alert.id, symbol: alert.symbol, kind: alert.conditionKind, intrabar, pushedTo },
+      {
+        alertId: alert.id, symbol: alert.symbol, kind: alert.conditionKind,
+        intrabar, pushedTo: delivery.sent, pushFailed: delivery.failed,
+        pushPruned: delivery.pruned, deliveryStatus,
+      },
       "alert fired"
     );
-    return pushedTo > 0;
+    return delivery.sent > 0;
   }
 }

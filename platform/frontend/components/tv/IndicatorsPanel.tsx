@@ -13,11 +13,19 @@ import type { AppliedIndicator } from "@/lib/indicators";
  * which is most of them.
  */
 export function IndicatorsPanel({
-  indicators, onOpenInEditor,
+  indicators, onOpenInEditor, onEditIndicator, focusKey = null,
 }: {
   indicators: IndicatorsApi;
   /** load a saved script into the Pine Editor tab for editing */
   onOpenInEditor: (script: PineScript) => void;
+  /** edit one applied instance without changing its stable chart identity */
+  onEditIndicator: (indicator: AppliedIndicator) => void;
+  /**
+   * Open this instance's settings when the panel appears. Set by the gear on a
+   * pane, so "settings" from the chart lands on the fields rather than on a
+   * panel the user then has to search.
+   */
+  focusKey?: string | null;
 }) {
   const [library, setLibrary] = useState<PineScript[]>([]);
   const [q, setQ] = useState("");
@@ -25,6 +33,10 @@ export function IndicatorsPanel({
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // A second click of the same pane's gear should re-open it, so this follows
+  // the prop rather than only seeding from it.
+  useEffect(() => { if (focusKey) setExpanded(focusKey); }, [focusKey]);
 
   const refresh = useCallback(async () => {
     try { setLibrary(await api.listPineScripts()); } catch { /* backend offline */ }
@@ -144,20 +156,23 @@ export function IndicatorsPanel({
               }`}>
                 {s.kind === "strategy" ? "str" : "ind"}
               </span>
-              <button
-                onClick={() => void api.getPineScript(s.id).then(onOpenInEditor)}
-                className="text-[11px] text-ink-faint opacity-0 hover:text-ink group-hover:opacity-100"
-                title="Open in the Pine Editor"
-              >
-                ✎
-              </button>
-              <button
-                onClick={() => void removeFromLibrary(s)}
-                className="text-[11px] text-ink-faint opacity-0 hover:text-down group-hover:opacity-100"
-                title="Delete from the library"
-              >
-                ✕
-              </button>
+              <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <RowButton
+                  onClick={() => void api.getPineScript(s.id).then(onOpenInEditor)}
+                  label={`Open ${s.name} in the Pine Editor`}
+                  title="Open in the Pine Editor"
+                >
+                  <path d="M8.6 2.4l3 3L5 12H2V9l6.6-6.6Z" />
+                </RowButton>
+                <RowButton
+                  onClick={() => void removeFromLibrary(s)}
+                  label={`Delete ${s.name} from the library`}
+                  title="Delete from the library"
+                  danger
+                >
+                  <path d="M3 3l8 8M11 3l-8 8" />
+                </RowButton>
+              </span>
             </div>
           ))}
         </div>
@@ -187,6 +202,7 @@ export function IndicatorsPanel({
               open={expanded === ind.key}
               onToggleOpen={() => setExpanded((k) => (k === ind.key ? null : ind.key))}
               indicators={indicators}
+              onEdit={() => onEditIndicator(ind)}
             />
           ))}
         </div>
@@ -197,26 +213,39 @@ export function IndicatorsPanel({
 
 /** One applied study: visibility, error state, and its input() settings. */
 function IndicatorRow({
-  ind, open, onToggleOpen, indicators,
+  ind, open, onToggleOpen, indicators, onEdit,
 }: {
   ind: AppliedIndicator;
   open: boolean;
   onToggleOpen: () => void;
   indicators: IndicatorsApi;
+  onEdit: () => void;
 }) {
   const overridden = Object.keys(ind.params).length;
   return (
     <div className="mb-1 rounded border border-border bg-surface-2/40">
-      <div className="flex items-center gap-1.5 px-1.5 py-1">
+      <div className="flex items-center gap-1 px-1.5 py-1">
         <button
           onClick={() => indicators.toggleVisible(ind.key)}
-          className={`text-[11px] ${ind.visible ? "text-ink" : "text-ink-faint"}`}
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+            ind.visible ? "text-ink hover:bg-border" : "text-ink-faint hover:bg-border hover:text-ink"
+          }`}
+          aria-pressed={ind.visible}
+          aria-label={`${ind.visible ? "Hide" : "Show"} ${ind.shortTitle || ind.name}`}
           title={ind.visible ? "Hide" : "Show"}
         >
-          {ind.visible ? "👁" : "◻"}
+          {/*
+            Filled versus outlined, not merely a different shade: visibility was
+            a ● and a ○ in two greys, which is a state told by colour alone and
+            unreadable at a glance on a dark panel.
+          */}
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+            <circle cx="6" cy="6" r="4.2" fill={ind.visible ? "currentColor" : "none"}
+              stroke="currentColor" strokeWidth="1.2" />
+          </svg>
         </button>
         <button onClick={onToggleOpen} className="min-w-0 flex-1 truncate text-left text-xs text-ink">
-          {ind.name}
+          {ind.shortTitle || ind.name} · {ind.key.slice(-5)}
           {ind.loading && <span className="ml-1 text-[10px] text-ink-faint">running…</span>}
           {!ind.loading && !ind.error && (
             <span className="ml-1 text-[10px] text-ink-faint">
@@ -225,25 +254,44 @@ function IndicatorRow({
             </span>
           )}
         </button>
-        <button
+        <RowButton
+          onClick={onEdit}
+          label={`Edit ${ind.shortTitle || ind.name} source in the Pine Editor`}
+          title="Edit source in Pine Editor"
+        >
+          <path d="M8.6 2.4l3 3L5 12H2V9l6.6-6.6Z" />
+        </RowButton>
+        <RowButton
           onClick={() => indicators.rerun(ind.key)}
-          className="text-[11px] text-ink-faint hover:text-ink"
+          label={`Re-run ${ind.shortTitle || ind.name}`}
           title="Re-run"
         >
-          ↻
-        </button>
-        <button
+          <path d="M12 7a5 5 0 1 1-1.5-3.5" />
+          <path d="M12 1.6V4H9.6" />
+        </RowButton>
+        <RowButton
           onClick={() => indicators.remove(ind.key)}
-          className="text-[11px] text-ink-faint hover:text-down"
+          label={`Remove ${ind.shortTitle || ind.name} from the chart`}
           title="Remove from chart"
+          danger
         >
-          ✕
-        </button>
+          <path d="M3 3l8 8M11 3l-8 8" />
+        </RowButton>
       </div>
 
       {ind.error && (
         <div className="border-t border-down/25 bg-down/10 px-2 py-1 font-mono text-[10px] text-down">
           {ind.error}
+        </div>
+      )}
+
+      {ind.warnings.length > 0 && (
+        <div className="border-t border-warn/25 bg-warn/10 px-2 py-1 font-mono text-[10px] text-warn">
+          {ind.warnings.map((warning) => (
+            <div key={`${warning.line}:${warning.message}`}>
+              line {warning.line}: {warning.message}
+            </div>
+          ))}
         </div>
       )}
 
@@ -262,7 +310,7 @@ function IndicatorRow({
                       type="checkbox"
                       checked={Boolean(value)}
                       onChange={(e) => indicators.setParam(ind.key, inp.key, e.target.checked)}
-                      className="h-3.5 w-3.5 accent-[#4f8cff]"
+                      className="h-3.5 w-3.5 accent-accent"
                     />
                   ) : inp.options ? (
                     <select
@@ -301,5 +349,39 @@ function IndicatorRow({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One icon action on an applied study.
+ *
+ * These were `✎`, `↻` and `✕` typed as text: three different glyph widths, no
+ * accessible name beyond a tooltip, and a size decided by whichever font the
+ * platform substituted.
+ */
+function RowButton({
+  onClick, label, title, danger = false, children,
+}: {
+  onClick: () => void;
+  label: string;
+  title: string;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={title}
+      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors ${
+        danger ? "hover:bg-down/20 hover:text-down" : "hover:bg-border hover:text-ink"
+      }`}
+    >
+      <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+        strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {children}
+      </svg>
+    </button>
   );
 }

@@ -10,6 +10,10 @@ import { query } from "../db/pool";
 import type { RiskLimits, HaltSource } from "../engine/riskControls";
 import { DEFAULT_RISK_LIMITS } from "../engine/riskControls";
 import type { FeedState } from "../data/feedHealth";
+import {
+  issueCounts, type CandleIntegrityReport, type CandleIntegrityState,
+  type CandleIntegrityIssueCode,
+} from "../data/candleIntegrity";
 import type { DeliveryRow } from "../engine/deliveryHealth";
 
 // ── Order intent (BE-13, BE-16) ─────────────────────────────────────────────
@@ -155,6 +159,16 @@ export async function listUnresolvedIntents(deploymentId?: string): Promise<Orde
   return rows.map(toIntent);
 }
 
+/** Newest durable intents for one deployment, bounded for read projections. */
+export async function listOrderIntents(deploymentId: string, limit = 50): Promise<OrderIntent[]> {
+  const bounded = Math.max(1, Math.min(100, Math.trunc(limit)));
+  const { rows } = await query<DbIntent>(
+    "SELECT * FROM order_intents WHERE deployment_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2",
+    [deploymentId, bounded]
+  );
+  return rows.map(toIntent);
+}
+
 // ── Risk controls (BE-11) ───────────────────────────────────────────────────
 
 interface DbRisk {
@@ -180,7 +194,10 @@ export async function getRiskLimits(): Promise<RiskLimits> {
     haltedBy: r.halted_by,
     maxTotalExposureQuote: num(r.max_total_exposure_quote),
     maxConcurrentPositions: r.max_concurrent_positions,
-    maxDailyLossQuote: num(r.max_daily_loss_quote),
+    // This repository does not receive authoritative exchange fills. Keeping a
+    // configured number active against an always-empty ledger is misleading;
+    // the execution bot owns and enforces daily realised-loss protection.
+    maxDailyLossQuote: null,
     dailyLossWindowHours: r.daily_loss_window_hours,
   };
 }
@@ -362,6 +379,43 @@ export async function releaseEmitterLease(holder: string): Promise<void> {
 
 // ── Feed health ─────────────────────────────────────────────────────────────
 
+function feedStateForIntegrity(report: CandleIntegrityReport): FeedState {
+  if (report.state === "healthy") return "live";
+  if (report.state === "invalid") return "error";
+  const codes = new Set(report.issues.map((issue) => issue.code));
+  if (codes.has("missing_completed_interval") || codes.has("backfill_live_discontinuity")) return "gap";
+  if (codes.has("stale_latest_completed_bar")) return "delayed";
+  return "error";
+}
+
+/** Persist one incremental/bounded integrity report on the existing health row. */
+export async function recordFeedIntegrity(report: CandleIntegrityReport): Promise<void> {
+  const codes = report.issues.map((issue) => issue.code);
+  const missingBars = issueCounts(report).missing_completed_interval ?? 0;
+  const detail = codes.length === 0 ? "candle integrity healthy" : codes.join(", ");
+  await query(
+    `INSERT INTO feed_health
+       (symbol, interval, state, last_bar_time, missing_bars, detail, last_checked_at,
+        integrity_state, issue_codes, issue_counts)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+     ON CONFLICT (symbol, interval) DO UPDATE
+       SET state = EXCLUDED.state,
+           last_bar_time = EXCLUDED.last_bar_time,
+           missing_bars = EXCLUDED.missing_bars,
+           detail = EXCLUDED.detail,
+           last_checked_at = EXCLUDED.last_checked_at,
+           integrity_state = EXCLUDED.integrity_state,
+           issue_codes = EXCLUDED.issue_codes,
+           issue_counts = EXCLUDED.issue_counts`,
+    [
+      report.symbol, report.interval, feedStateForIntegrity(report),
+      report.latestCompletedBarOpenTime === null ? null : new Date(report.latestCompletedBarOpenTime),
+      missingBars, detail, new Date(report.checkedAt), report.state, codes,
+      JSON.stringify(issueCounts(report)),
+    ]
+  );
+}
+
 export async function recordFeedHealth(input: {
   symbol: string;
   interval: string;
@@ -391,13 +445,15 @@ export async function listFeedHealth(): Promise<
   {
     symbol: string; interval: string; state: FeedState;
     lastBarTime: number | null; missingBars: number; detail: string | null;
-    lastCheckedAt: number;
+    lastCheckedAt: number; integrityState: CandleIntegrityState | null;
+    issueCodes: CandleIntegrityIssueCode[]; issueCounts: Record<string, number>;
   }[]
 > {
   const { rows } = await query<{
     symbol: string; interval: string; state: FeedState;
     last_bar_time: Date | null; missing_bars: number; detail: string | null;
-    last_checked_at: Date;
+    last_checked_at: Date; integrity_state: CandleIntegrityState | null;
+    issue_codes: CandleIntegrityIssueCode[]; issue_counts: Record<string, number>;
   }>("SELECT * FROM feed_health ORDER BY symbol, interval");
   return rows.map((r) => ({
     symbol: r.symbol,
@@ -407,5 +463,8 @@ export async function listFeedHealth(): Promise<
     missingBars: r.missing_bars,
     detail: r.detail,
     lastCheckedAt: r.last_checked_at.getTime(),
+    integrityState: r.integrity_state,
+    issueCodes: r.issue_codes ?? [],
+    issueCounts: r.issue_counts ?? {},
   }));
 }

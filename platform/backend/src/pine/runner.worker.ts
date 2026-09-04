@@ -67,6 +67,10 @@ export function executePine(req: PineWorkerRequest): PineWorkerResponse {
         times: out.times,
         plots: out.plots,
         hlines: out.hlines,
+        fills: out.fills,
+        backgrounds: out.backgrounds,
+        barColors: out.barColors,
+        ohlcPlots: out.ohlcPlots,
         shapes: out.shapes,
         drawings: out.drawings,
         ...(broker

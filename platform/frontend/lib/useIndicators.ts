@@ -8,11 +8,15 @@
  * an old symbol can never overwrite a newer one.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChartMarker, ChartOverlay } from "@/components/CandleChart";
+import type { ChartMarker } from "@/components/CandleChart";
+import {
+  mergeBarColorLayers, type ChartBarColor, type ChartDecoration, type ChartOverlay,
+} from "@/lib/chartSeries";
 import type { PineDrawings } from "@/lib/api";
 import type { Interval, Trade } from "@/lib/types";
 import {
-  NO_DRAWINGS, hydrate, loadStored, newKey, runIndicator, saveStored,
+  NO_DRAWINGS, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput, loadStored, newKey,
+  runIndicator, saveStored,
   type AppliedIndicator, type PineParams,
 } from "@/lib/indicators";
 
@@ -21,6 +25,13 @@ export interface IndicatorContext {
   timeframe: Interval;
   startTime: string;
   endTime: string;
+  replay?: boolean;
+  /**
+   * Which pane's study list this is. Studies are per pane, so the stored list
+   * is too — see `indicatorStorageKey`. Omitted means the primary pane, which
+   * keeps the original storage entry.
+   */
+  scope?: string;
 }
 
 export interface AddIndicatorInput {
@@ -31,18 +42,25 @@ export interface AddIndicatorInput {
 }
 
 export function useIndicators(ctx: IndicatorContext) {
+  const scope = ctx.scope ?? PRIMARY_INDICATOR_SCOPE;
   const [list, setList] = useState<AppliedIndicator[]>([]);
+  const [preparedContextKey, setPreparedContextKey] = useState("");
   const runToken = useRef(0);
+  /** Per-instance generation prevents an older same-context run settling last. */
+  const runVersions = useRef(new Map<string, number>());
   /** keys whose inputs changed and therefore need a re-run */
   const [dirtyKeys, setDirtyKeys] = useState<string[]>([]);
 
   // Restore the previous session's studies once, on mount, then queue them —
   // stored rows carry no run output, so each needs a first run to draw.
   useEffect(() => {
-    const restored = loadStored().map(hydrate);
+    const restored = loadStored(scope).map(hydrate);
     if (restored.length === 0) return;
     setList(restored);
     setDirtyKeys(restored.map((i) => i.key));
+    // Restoring is a mount-time act for one pane; the scope cannot change
+    // under a mounted pane, because a pane's id is its identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Skip the first pass: on mount `list` is still empty while the restore
@@ -50,17 +68,19 @@ export function useIndicators(ctx: IndicatorContext) {
   const restored = useRef(false);
   useEffect(() => {
     if (!restored.current) { restored.current = true; return; }
-    saveStored(list);
-  }, [list]);
+    saveStored(list, scope);
+  }, [list, scope]);
 
   /** Replace one instance in place, ignoring stale results for removed rows. */
-  const settle = useCallback((next: AppliedIndicator, token: number) => {
-    if (token !== runToken.current) return;
+  const settle = useCallback((next: AppliedIndicator, token: number, version: number) => {
+    if (token !== runToken.current || runVersions.current.get(next.key) !== version) return;
     setList((cur) => cur.map((i) => (i.key === next.key ? next : i)));
   }, []);
 
   const runOne = useCallback((ind: AppliedIndicator, token: number) => {
-    void runIndicator(ind, ctx).then((res) => settle(res, token));
+    const version = (runVersions.current.get(ind.key) ?? 0) + 1;
+    runVersions.current.set(ind.key, version);
+    void runIndicator(ind, ctx).then((res) => settle(res, token, version));
   }, [ctx, settle]);
 
   // A ref mirror of the list, so the run effects can read the current
@@ -70,26 +90,40 @@ export function useIndicators(ctx: IndicatorContext) {
   useEffect(() => { listRef.current = list; }, [list]);
 
   // Chart context changed: re-run everything under a fresh token.
-  const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}`;
+  const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}|${ctx.replay ? "replay" : "live"}`;
   useEffect(() => {
     const pending = listRef.current;
-    if (pending.length === 0) return;
     const token = ++runToken.current;
-    setList((cur) => cur.map((i) => ({ ...i, loading: true, error: null })));
+    setPreparedContextKey(ctxKey);
+    if (pending.length === 0) return;
+    setList((cur) => cur.map((i) => ctx.replay
+      ? invalidateReplayOutput(i)
+      : { ...i, loading: true, error: null }));
     for (const ind of pending) runOne(ind, token);
     // runOne closes over ctx, which ctxKey already covers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctxKey]);
 
+  // React paints once before effects clear stale state. Suppress the old
+  // output synchronously on that render so rewind has no later-horizon flash.
+  const outputList = useMemo(
+    () => ctx.replay && preparedContextKey !== ctxKey ? [] : list,
+    [ctx.replay, preparedContextKey, ctxKey, list]
+  );
+
   // Inputs changed on specific instances: re-run just those.
   useEffect(() => {
     if (dirtyKeys.length === 0) return;
-    const wanted = new Set(dirtyKeys);
-    const token = runToken.current;
-    const pending = listRef.current.filter((i) => wanted.has(i.key));
-    setList((cur) => cur.map((i) => (wanted.has(i.key) ? { ...i, loading: true, error: null } : i)));
-    setDirtyKeys([]);
-    for (const ind of pending) runOne(ind, token);
+    const timer = setTimeout(() => {
+      const wanted = new Set(dirtyKeys);
+      const token = runToken.current;
+      const pending = listRef.current.filter((i) => wanted.has(i.key));
+      setList((cur) => cur.map((i) => (wanted.has(i.key)
+        ? { ...i, loading: true, error: null } : i)));
+      setDirtyKeys([]);
+      for (const ind of pending) runOne(ind, token);
+    }, 250);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirtyKeys]);
 
@@ -99,13 +133,17 @@ export function useIndicators(ctx: IndicatorContext) {
       scriptId: input.scriptId,
       name: input.name,
       kind: "indicator",
+      shortTitle: "",
+      overlay: true,
+      precision: null,
       source: input.source,
       inputs: [],
       params: input.params ?? {},
       visible: true,
       loading: true,
       error: null,
-      overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+      warnings: [],
+      overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
     };
     setList((cur) => [...cur, ind]);
     runOne(ind, runToken.current);
@@ -113,10 +151,14 @@ export function useIndicators(ctx: IndicatorContext) {
   }, [runOne]);
 
   const remove = useCallback((key: string) => {
+    runVersions.current.delete(key);
     setList((cur) => cur.filter((i) => i.key !== key));
   }, []);
 
-  const clear = useCallback(() => setList([]), []);
+  const clear = useCallback(() => {
+    runVersions.current.clear();
+    setList([]);
+  }, []);
 
   const toggleVisible = useCallback((key: string) => {
     setList((cur) => cur.map((i) => (i.key === key ? { ...i, visible: !i.visible } : i)));
@@ -133,38 +175,71 @@ export function useIndicators(ctx: IndicatorContext) {
     setDirtyKeys((d) => (d.includes(key) ? d : [...d, key]));
   }, []);
 
+  /** Recompile an edited script into the same instance/pane/series namespace. */
+  const updateSource = useCallback((
+    key: string,
+    input: { name: string; source: string; params: PineParams }
+  ) => {
+    setList((cur) => cur.map((item) => item.key === key ? {
+      ...item,
+      name: input.name,
+      source: input.source,
+      params: input.params,
+      loading: true,
+      error: null,
+      warnings: [],
+    } : item));
+    setDirtyKeys((dirty) => dirty.includes(key) ? dirty : [...dirty, key]);
+  }, []);
+
   const rerun = useCallback((key: string) => {
     setDirtyKeys((d) => (d.includes(key) ? d : [...d, key]));
   }, []);
 
+  /** Refresh every visible instance, used once at a completed live-bar boundary. */
+  const rerunAll = useCallback(() => {
+    setDirtyKeys((current) => {
+      const keys = listRef.current.filter((i) => i.visible).map((i) => i.key);
+      return [...new Set([...current, ...keys])];
+    });
+  }, []);
+
   /** Union of every visible instance's output, for the chart. */
   const overlays = useMemo<ChartOverlay[]>(
-    () => list.filter((i) => i.visible).flatMap((i) => i.overlays),
-    [list]
+    () => outputList.filter((i) => i.visible).flatMap((i) => i.overlays),
+    [outputList]
+  );
+  const decorations = useMemo<ChartDecoration[]>(
+    () => outputList.filter((i) => i.visible).flatMap((i) => i.decorations),
+    [outputList]
+  );
+  const barColors = useMemo<ChartBarColor[]>(
+    () => mergeBarColorLayers(outputList.filter((i) => i.visible).map((i) => i.barColors)),
+    [outputList]
   );
   const markers = useMemo<ChartMarker[]>(
-    () => list.filter((i) => i.visible).flatMap((i) => i.markers),
-    [list]
+    () => outputList.filter((i) => i.visible).flatMap((i) => i.markers),
+    [outputList]
   );
   /** Union of every visible instance's drawing objects. */
   const drawings = useMemo<PineDrawings>(() => {
-    const vis = list.filter((i) => i.visible);
+    const vis = outputList.filter((i) => i.visible);
     return {
       lines: vis.flatMap((i) => i.drawings.lines),
       boxes: vis.flatMap((i) => i.drawings.boxes),
       labels: vis.flatMap((i) => i.drawings.labels),
       tables: vis.flatMap((i) => i.drawings.tables),
     };
-  }, [list]);
+  }, [outputList]);
 
   /** Trades come from strategy instances only; the newest applied one wins. */
   const trades = useMemo<Trade[] | null>(() => {
-    const withTrades = list.filter((i) => i.visible && i.trades.length > 0);
+    const withTrades = outputList.filter((i) => i.visible && i.trades.length > 0);
     return withTrades.length > 0 ? withTrades[withTrades.length - 1]!.trades : null;
-  }, [list]);
+  }, [outputList]);
 
-  return { list, add, remove, clear, toggleVisible, setParam, resetParams, rerun,
-    overlays, markers, drawings, trades };
+  return { list, add, remove, clear, toggleVisible, setParam, resetParams, updateSource, rerun,
+    rerunAll, overlays, decorations, barColors, markers, drawings, trades };
 }
 
 export type IndicatorsApi = ReturnType<typeof useIndicators>;

@@ -57,7 +57,7 @@ can fire on a different line each time.
 Support/resistance comes from **confirmed** swing pivots, so a pivot at bar `i`
 is only knowable at `i + length` — the detector never sees a level before the
 chart could have. Pivot levels are computed from the last **completed** anchor
-period, never the forming one, and share `engine/pivotLevels.ts` with the Pine
+period, never the forming one, and share `platform/backend/src/engine/pivotLevels.ts` with the Pine
 indicator so the alert and the drawn line cannot disagree.
 
 ### Oscillators cross a reading, not a price
@@ -87,7 +87,7 @@ is above 50" is one alert rather than two to correlate by hand. Both gates are
 measured on the alert's **own** symbol and timeframe, on the same bar as the
 level test.
 
-Three properties, all pinned by `tests/levelAlertFilters.test.ts`:
+Three properties, all pinned by `platform/backend/tests/levelAlertFilters.test.ts`:
 
 - **A gate can only subtract.** It suppresses `triggered` and nothing else; it
   cannot turn an untriggered level event on.

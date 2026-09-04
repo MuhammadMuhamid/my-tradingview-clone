@@ -2,47 +2,24 @@
  * Multi-timeframe machinery — the local equivalent of Pine's
  * request.security(sym, tf, expr, barmerge.gaps_off, barmerge.lookahead_off).
  *
- * ── UNRESOLVED: which cutoff does TradingView actually use? (BE-08) ───────
+ * ── BE-08 RESOLVED: historical lookahead_off uses the chart close ────────
  *
- * This header used to assert TWO DIFFERENT conventions, and the implementation
- * followed only one of them:
+ * TradingView's Pine v6 documentation states that a `lookahead_off` series has
+ * a new historical value at the END of each HTF period. On a 15m chart
+ * requesting 60m data, the 60m value is therefore first visible on the 15m bar
+ * that closes with it (for example, the 00:45 bar closing at 01:00 UTC).
  *
- *   claimed for a higher TF : last HTF bar with closeTime <= chart bar's OPEN
- *                             (the classic one-bar delay — hour-10's value
- *                             first appears on the chart bar opening at 11:00)
- *   claimed for lower/equal : last bar with closeTime <= chart bar's CLOSE
- *   actually implemented    : closeTime <= chart bar's CLOSE, for ALL timeframes
+ * That is the `chartClose` convention implemented here: the latest feed bar
+ * with `closeTime <= chart.closeTime`. It does not leak future data because a
+ * selected feed bar has closed no later than the chart bar itself.
  *
- * If the header was right and the code is wrong, every `ma_rr_v9` and
- * `srtrend_v10` result carries one bar of higher-timeframe LOOK-AHEAD, because
- * neither strategy applies a compensating shift. `mtf_lean` does — it gates on
- * `htfClosed` and then `shift(src, 1)` — which is why it is unaffected either
- * way, and why the two families cannot be compared until this is settled.
+ * The alternate `chartOpen` convention is retained as an explicit diagnostic
+ * option. It delays the new value until the next chart bar and does not match
+ * TradingView's documented historical `lookahead_off` boundary.
  *
- * The inline comment at `buildMergeIndex` cited a "DEXE parity run 2026-07-11"
- * as verification. Those artifacts lived in `platform/backend/parity/`, which is
- * gitignored and absent from every clone, so the claim cannot be checked from
- * source. `platform/README.md` separately records the parity run as "deferred".
- *
- * **Nothing here guesses.** The convention is an explicit parameter, the
- * default is exactly what the code did before, and both conventions are
- * implemented and tested. Resolving BE-08 is a one-line change to that default
- * with visible, tested consequences.
- *
- * ── The test that settles it ──────────────────────────────────────────────
- *
- * In TradingView, on a 15m chart:
- *
- *     plot(request.security(syminfo.tickerid, "60", close))
- *
- * Read the plotted value on the bar CLOSING at 10:00. Then compare against
- * `mergeValues(buildMergeIndex(chart15m, feed1h, convention), feed1h.close)[i]`
- * for the same bar under each convention. Whichever matches is the answer.
- *
- * Needs a TradingView account. See docs/RESEARCH-METHODOLOGY.md.
- *
- * Live/realtime TV behaves differently again (developing HTF values) — the
- * Stage 3 live runner implements that mode on top of the same feeds.
+ * See `docs/BE-08-VALIDATION.md` and `tests/securityHtf.test.ts`. Realtime
+ * developing HTF values are separate semantics and are not synthesized by the
+ * historical merge or Pine interpreter.
  */
 import type { Candle, Interval } from "../types/market";
 
@@ -133,7 +110,8 @@ export class FeedStore {
  * O(n + m) two-pointer sweep.
  */
 /**
- * The two candidate cutoffs. See the BE-08 note in this file's header.
+ * The supported cutoff and the retained diagnostic alternative. See the BE-08
+ * note in this file's header.
  *
  *   `chartClose` — a chart bar sees the last feed bar that closed by the chart
  *                  bar's CLOSE. The final constituent bar of a higher-timeframe
@@ -147,9 +125,8 @@ export const MERGE_CONVENTIONS = ["chartClose", "chartOpen"] as const;
 export type MergeConvention = (typeof MERGE_CONVENTIONS)[number];
 
 /**
- * The default is `chartClose` because that is what the code has always done,
- * and every stored result was produced under it. It is NOT asserted to be
- * correct — see BE-08.
+ * The default is `chartClose`: the documented TradingView historical
+ * `lookahead_off` boundary and the convention used by existing stored results.
  */
 export const DEFAULT_MERGE_CONVENTION: MergeConvention =
   (process.env.MTF_MERGE_CONVENTION as MergeConvention | undefined) ?? "chartClose";

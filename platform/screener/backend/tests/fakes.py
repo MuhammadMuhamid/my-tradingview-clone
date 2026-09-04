@@ -24,7 +24,16 @@ class FakeFeed:
 
     async def load_markets(self) -> dict[str, dict]:
         self.load_markets_calls += 1
-        return {s: {"symbol": s, "active": True} for s in self._symbols}
+        return {
+            s: {
+                "symbol": s,
+                "base": s.partition("/")[0],
+                "quote": s.partition("/")[2],
+                "spot": True,
+                "active": True,
+            }
+            for s in self._symbols
+        }
 
     async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> list[list[float]]:
         self.calls[(symbol, timeframe)] += 1

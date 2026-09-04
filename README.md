@@ -1,4 +1,4 @@
-# Crypto research and signalling platform
+# Live charting, backtesting and signalling platform
 
 Charting, backtesting, parameter optimization and live signal emission for
 Binance spot markets. **This repository decides. It does not place orders.**
@@ -13,13 +13,13 @@ merged — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 > production-sensitive. Read [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md)
 > before touching either side of it.
 
-## Repository status
+## Repository architecture
 
 | | |
 |---|---|
-| Authoritative platform repository | `MuhammadMuhamid/pythoncryptobacktesingsystems` — **this one** |
-| Authoritative execution bot | `MuhammadMuhamid/3commabotclone` |
-| Superseded | `MuhammadMuhamid/my-tradingview-clone` — a byte-identical older copy. Do not develop against it. |
+| Live platform + canonical backtest engine | `MuhammadMuhamid/my-tradingview-clone` — **this repository** |
+| Separate research + optimizers | `MuhammadMuhamid/pythoncryptobacktesingsystems` — consumes this repository's canonical engine through `PLATFORM_BACKEND` |
+| Exchange execution + Binance credential owner | `MuhammadMuhamid/3commabotclone` — receives webhooks and places orders |
 
 ## Layout
 
@@ -30,8 +30,8 @@ merged — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | `platform/deployment` | AWS deployment scripts. Run by the owner only; nothing here is executed by CI. |
 | `docs` | Source-of-truth documentation. Machine-checked by `scripts/ci/check-docs.sh`. |
 | `scripts` | Repository tooling, including the CI hygiene checks. |
-| the optimizer trees | Moved to the [backtesting-systems repository](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems) under `backtesting:trees/`. Each owns a `tree.json` the application routes through. Point `OPTIMIZER_ROOT` at a checkout of that repository to serve them from here; with no trees present the optimizer API reports an empty registry rather than failing. |
-| the retired research archive | Also in the backtesting-systems repository, under `backtesting:legacy/`. Nothing there runs, and no live code path may depend on it. |
+| the optimizer trees | Live in the [research repository](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems) under `research:trees/`. Each owns a `tree.json` the application routes through. Point `OPTIMIZER_ROOT` at that checkout to serve them; with no trees present the optimizer API reports an empty registry rather than failing. |
+| the retired research archive | Also in the research repository, under `research:legacy/`. Nothing there runs, and no live code path may depend on it. |
 
 ## Local development
 
@@ -86,12 +86,12 @@ it reports file and line only, never the value.
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What each system owns, and how a signal reaches an order. |
 | [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md) | The cross-repository payload contract, versioned. |
-| [docs/COST-MODELS.md](docs/COST-MODELS.md) | The cost model each research tree actually ran. |
+| [research/docs/COST-MODELS.md](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems/blob/main/docs/COST-MODELS.md) | The cost model each research tree actually ran (research repository). |
 | [docs/ALERTS.md](docs/ALERTS.md) | Notification alerts: all seven condition families, the trend gates, and the four frequency modes. |
 | [docs/CANDLE-PERFORMANCE.md](docs/CANDLE-PERFORMANCE.md) | Candle and chart loading: what was measured, and what was not. |
 | [docs/WEB-QA.md](docs/WEB-QA.md) | Desktop and mobile browser QA: what was exercised, and what was not. |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator console, the halt control, paper mode, testnet, and what has never been verified here. |
-| [docs/RESEARCH-METHODOLOGY.md](docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected. |
+| [research/docs/RESEARCH-METHODOLOGY.md](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems/blob/main/docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected (research repository). |
 | [docs/REMEDIATION-LEDGER.md](docs/REMEDIATION-LEDGER.md) | Every finding of the 2026-08-23 audit and its disposition. Generated — do not hand-edit. |
 | [docs/SECURITY-AUDIT-2026-08-31.md](docs/SECURITY-AUDIT-2026-08-31.md) | A later, separate audit: an SSRF fix, two corrections to earlier claims, and the AWS cost answer. |
 | `BACKTESTING_SYSTEMS.md` (backtesting repository) | Metric definitions and per-tree research notes. |
@@ -110,7 +110,7 @@ cannot quietly come back:
 | Check | Refuses |
 |---|---|
 | `scripts/ci/scan-secrets.sh` | Credential-shaped literals in tracked source. Reports file and line, never the value. |
-| `scripts/ci/check-docs.sh` | A documented path that does not exist, a cost-model figure that disagrees with a tree's `config.json`, a tree with no registry entry, a documented search-space size that disagrees with `params.json`, and a walk-forward tree whose divergence claim disagrees with the two parameter lists. |
+| `scripts/ci/check-docs.sh` | Broken internal Markdown links and missing repository file citations in current docs. Research cost/registry/search-space checks run in the research repository. |
 | `scripts/ci/check-repo-hygiene.sh` | An absolute home directory in tracked source, TradingView login automation, a browser remote-debugging port, a live code path depending on the research archive, and a tree re-declaring its own GA driver or objective. |
 
 `python3 scripts/ledger/render.py --check` fails when the rendered ledger and

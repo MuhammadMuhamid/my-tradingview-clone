@@ -15,16 +15,136 @@ import type { FastifyInstance } from "fastify";
 import * as liveSafety from "../../repositories/liveSafety";
 import * as deploymentRepo from "../../repositories/deployments";
 import {
-  countOpenPositions, describeRiskState, intendedExposure, realisedPnlInWindow,
+  countOpenPositions, intendedExposure, realisedPnlInWindow,
 } from "../../engine/riskControls";
-import { worstFeedState, type FeedState } from "../../data/feedHealth";
+import { newestClosedBarOpenTime, worstFeedState, type FeedState } from "../../data/feedHealth";
 import { summariseDelivery } from "../../engine/deliveryHealth";
 import { config } from "../../config";
 import type { LiveRunner } from "../../engine/liveRunner";
+import { readBotStatus } from "../../operations/botStatus";
+import { INTERVAL_MS, isInterval } from "../../types/market";
+import type { CandleIntegrityState, CandleIntegrityIssueCode } from "../../data/candleIntegrity";
+import * as maAlertRepo from "../../repositories/maAlerts";
+import { readReadiness } from "./health";
+import type { MaAlertRow } from "../../types/maAlerts";
 
 /** The word an operator must send to arm or disarm trading. */
 const HALT_CONFIRMATION = "HALT_TRADING";
 const RESUME_CONFIRMATION = "RESUME_TRADING";
+
+interface FeedIntegrityStatusInput {
+  symbol: string;
+  interval: string;
+  state: FeedState;
+  lastBarTime: number | null;
+  lastCheckedAt: number;
+  integrityState: CandleIntegrityState | null;
+  issueCodes: CandleIntegrityIssueCode[];
+  issueCounts: Record<string, number>;
+}
+
+/** Cheap status projection over the already-incremental feed-health row. */
+export function formatFeedIntegrityStatus(feed: FeedIntegrityStatusInput, now: number) {
+  const interval = isInterval(feed.interval) ? feed.interval : null;
+  const latestCompletedBarAgeMs = feed.lastBarTime === null || interval === null
+    ? null
+    : Math.max(0, now - (feed.lastBarTime + INTERVAL_MS[interval]));
+  const fallback: CandleIntegrityState | null = feed.state === "live"
+    ? "healthy"
+    : feed.state === "unknown"
+      ? null
+      : feed.state === "error"
+        ? "invalid"
+        : "degraded";
+  let state = feed.integrityState ?? fallback;
+  const issueCodes = [...feed.issueCodes];
+  const issueCounts = { ...feed.issueCounts };
+  if (feed.lastBarTime !== null && interval !== null) {
+    const expected = newestClosedBarOpenTime(interval, now);
+    const barsBehind = Math.max(0, Math.round((expected - feed.lastBarTime) / INTERVAL_MS[interval]));
+    if (barsBehind > 1) {
+      if (!issueCodes.includes("stale_latest_completed_bar")) {
+        issueCodes.push("stale_latest_completed_bar");
+      }
+      issueCounts.stale_latest_completed_bar = barsBehind;
+      if (state !== "invalid") state = "degraded";
+    }
+  }
+  return {
+    state,
+    market: "spot" as const,
+    symbol: feed.symbol,
+    interval: feed.interval,
+    latestCompletedBarTime: feed.lastBarTime === null ? null : new Date(feed.lastBarTime).toISOString(),
+    latestCompletedBarAgeMs,
+    lastCheckedAt: new Date(feed.lastCheckedAt).toISOString(),
+    issueCodes,
+    issueCounts,
+  };
+}
+
+/**
+ * Read-only alert-runner evidence. Configuration or saved alerts alone never
+ * become "healthy": an active alert must carry a recent evaluation watermark.
+ */
+export function formatAlertRunnerStatus(
+  enabled: boolean,
+  alerts: readonly Pick<MaAlertRow, "timeframe" | "lastBarTime">[],
+  now: number
+) {
+  if (!enabled) {
+    return {
+      state: "disabled" as const, active: alerts.length, recent: 0, stale: 0,
+      withoutEvidence: 0, lastEvaluatedAt: null,
+      reason: "MA_ALERTS_ENABLED is false; notification alerts are intentionally disabled.",
+    };
+  }
+  if (alerts.length === 0) {
+    return {
+      state: "not_configured" as const, active: 0, recent: 0, stale: 0,
+      withoutEvidence: 0, lastEvaluatedAt: null,
+      reason: "No active notification alerts are configured.",
+    };
+  }
+
+  let recent = 0;
+  let stale = 0;
+  let withoutEvidence = 0;
+  let lastEvaluatedAt: number | null = null;
+  for (const alert of alerts) {
+    const evaluatedAt = alert.lastBarTime === null ? NaN : Date.parse(alert.lastBarTime);
+    if (!Number.isFinite(evaluatedAt) || !isInterval(alert.timeframe)) {
+      withoutEvidence += 1;
+      continue;
+    }
+    lastEvaluatedAt = lastEvaluatedAt === null
+      ? evaluatedAt
+      : Math.max(lastEvaluatedAt, evaluatedAt);
+    const expected = newestClosedBarOpenTime(alert.timeframe, now);
+    if (expected - evaluatedAt > INTERVAL_MS[alert.timeframe]) stale += 1;
+    else recent += 1;
+  }
+
+  if (stale > 0) {
+    return {
+      state: "degraded" as const, active: alerts.length, recent, stale, withoutEvidence,
+      lastEvaluatedAt: lastEvaluatedAt === null ? null : new Date(lastEvaluatedAt).toISOString(),
+      reason: `${stale} active alert(s) have not evaluated within their expected cadence.`,
+    };
+  }
+  if (withoutEvidence > 0) {
+    return {
+      state: "unknown" as const, active: alerts.length, recent, stale, withoutEvidence,
+      lastEvaluatedAt: lastEvaluatedAt === null ? null : new Date(lastEvaluatedAt).toISOString(),
+      reason: `${withoutEvidence} active alert(s) have no completed evaluation evidence yet.`,
+    };
+  }
+  return {
+    state: "healthy" as const, active: alerts.length, recent, stale, withoutEvidence,
+    lastEvaluatedAt: lastEvaluatedAt === null ? null : new Date(lastEvaluatedAt).toISOString(),
+    reason: `${recent} active alert(s) have recent evaluation evidence.`,
+  };
+}
 
 export function operationsRoutes(getRunner: () => LiveRunner) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -40,12 +160,22 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         position: (d.runtimeState.position ?? "flat") as "flat" | "long",
         buyQuoteQty: d.buyQuoteQty,
       }));
-      const pnlRows = await liveSafety.listRealisedPnl(limits.dailyLossWindowHours);
       const snapshot = {
         currentExposureQuote: intendedExposure(positions),
         openPositions: countOpenPositions(positions),
-        realisedPnlInWindow: realisedPnlInWindow(pnlRows, limits.dailyLossWindowHours),
+        // The execution bot owns fills. This platform ledger has no production
+        // writer, so zero is not presented as an observation or enforced.
+        realisedPnlInWindow: null,
       };
+      const platformRiskSummary = limits.tradingHalted
+        ? `HALTED${limits.haltedBy ? ` (${limits.haltedBy})` : ""}${
+            limits.haltedReason ? `: ${limits.haltedReason}` : ""
+          }`
+        : `ACTIVE — configured exposure ${snapshot.currentExposureQuote.toFixed(2)}${
+            limits.maxTotalExposureQuote !== null ? `/${limits.maxTotalExposureQuote.toFixed(2)}` : ""
+          }, positions ${snapshot.openPositions}${
+            limits.maxConcurrentPositions !== null ? `/${limits.maxConcurrentPositions}` : ""
+          }, platform daily-loss control disabled`;
 
       const feeds = await liveSafety.listFeedHealth();
       const lease = await liveSafety.getEmitterLease();
@@ -53,6 +183,13 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
       const delivery = summariseDelivery(
         await liveSafety.listDeliveryOutcomes(deliveryWindowHours),
         { now: Date.now(), windowHours: deliveryWindowHours }
+      );
+      const bot = await readBotStatus([...active, ...deployments.filter((d) => d.status !== "active")]);
+      const database = await readReadiness();
+      const alertRunner = formatAlertRunnerStatus(
+        process.env.MA_ALERTS_ENABLED !== "false",
+        await maAlertRepo.listAlerts({ activeOnly: true }),
+        Date.now()
       );
 
       let runnerIsEmitter = false;
@@ -63,6 +200,7 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         // not the emitter. Never let this route 500 because of ordering.
       }
 
+      const statusNow = Date.now();
       return {
         /*
          * Three states, and `unknown` is a real answer rather than a guess. A
@@ -94,13 +232,25 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         risk: {
           ...limits,
           snapshot,
-          summary: describeRiskState(limits, snapshot),
+          summary: platformRiskSummary,
+          dailyLossControl: {
+            state: "DISABLED_UNFED",
+            authority: "BOT",
+            note: "Platform daily-loss enforcement is disabled because this process does not own "
+              + "exchange fills. Bot status below reports authoritative realised P/L and bot-side protection.",
+          },
         },
+        bot,
+        database,
+        alertRunner,
         deployments: {
           total: deployments.length,
           active: active.length,
           long: snapshot.openPositions,
           paused: deployments.filter((d) => d.status === "paused").length,
+          paper: deployments.filter((d) => d.delivery === "paper").length,
+          automated: deployments.filter((d) => d.delivery === "custom" || d.delivery === "3commas").length,
+          signalOnly: deployments.filter((d) => d.delivery === "off").length,
         },
         /**
          * Are the signals this system produced actually reaching the bot? Before
@@ -128,9 +278,10 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
             ...f,
             lastBarTime: f.lastBarTime === null ? null : new Date(f.lastBarTime).toISOString(),
             lastCheckedAt: new Date(f.lastCheckedAt).toISOString(),
+            integrity: formatFeedIntegrityStatus(f, statusNow),
           })),
         },
-        time: new Date().toISOString(),
+        time: new Date(statusNow).toISOString(),
       };
     });
 
@@ -209,9 +360,19 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
         const patch = {
           maxTotalExposureQuote: optionalPositive("maxTotalExposureQuote"),
           maxConcurrentPositions: optionalPositive("maxConcurrentPositions"),
-          maxDailyLossQuote: optionalPositive("maxDailyLossQuote"),
+          maxDailyLossQuote: undefined as number | null | undefined,
           dailyLossWindowHours: undefined as number | undefined,
         };
+        if ("maxDailyLossQuote" in b) {
+          if (b.maxDailyLossQuote !== null) {
+            return reply.code(409).send({
+              error: "platform daily-loss control is disabled because the bot owns realised fills; "
+                + "configure the bot-side daily-loss protection instead",
+            });
+          }
+          // Allow an old, misleading value to be explicitly cleared.
+          patch.maxDailyLossQuote = null;
+        }
         if ("dailyLossWindowHours" in b) {
           const v = b.dailyLossWindowHours;
           if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 720) {

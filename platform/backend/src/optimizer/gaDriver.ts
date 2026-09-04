@@ -7,8 +7,8 @@
  * in all five search trees' `optimizer.ts` — verified by hashing each function
  * across the five files before this module was created. `tests/gaDriver.test.ts`
  * keeps a verbatim copy of the original implementation and asserts the shared
- * one produces the same candidate sequence and the same scores, so the
- * consolidation is provably behaviour-preserving rather than assumed to be.
+ * one produces the same candidate sequence and preserves every objective
+ * branch outside explicitly tested contract repairs.
  *
  * Two defects are fixed here, in one place instead of five:
  *
@@ -123,7 +123,7 @@ export class Driver {
   }
 }
 
-/** The one objective. Preserved exactly as all five trees computed it. */
+/** The one objective shared by every optimizer tree. */
 export function scoreMetrics(
   m: Record<string, number | null>,
   obj: Record<string, number>
@@ -134,7 +134,7 @@ export function scoreMetrics(
   const pf = m.profit_factor;
   if ((obj.min_profit_factor ?? 0) > 0 && (pf ?? 0) < obj.min_profit_factor!) return -Infinity;
   const ddPen = (obj.dd_weight ?? 1) * Math.max(0, dd ?? 0);
-  const overtrade = (obj.overtrade_weight ?? 0) * Math.max(0, (trades ?? 0) - (obj.trade_soft_cap ?? 1e9));
+  const overtrade = (obj.overtrade_penalty ?? 0) * Math.max(0, (trades ?? 0) - (obj.overtrade_cap ?? 1e9));
   return net - ddPen - overtrade;
 }
 

@@ -2,6 +2,7 @@ import type {
   Alert, Backtest, BacktestStatus, Candle, Deployment, DeliveryMode,
   Interval, Strategy, StrategyConfig, StrategyParams, SymbolInfo, Trade,
 } from "./types";
+import type { TradingOverlayResponse } from "./tradingOverlays";
 
 export interface OptimizerBest {
   symbol: string;
@@ -79,7 +80,10 @@ export interface PineMeta {
   title: string;
   shortTitle: string;
   overlay: boolean;
+  format: string;
+  precision: number | null;
   inputs: PineInputDef[];
+  warnings: { line: number; message: string }[];
 }
 
 export interface PineCompileError { line: number; col: number; message: string }
@@ -90,7 +94,50 @@ export interface PinePlotSeries {
   color: string;
   width: number;
   style: string;
+  offset: number;
+  forceOverlay: boolean;
+  renderable: boolean;
+  colors: (string | null)[];
   data: (number | null)[];
+}
+
+export interface PineFillSeries {
+  id: string;
+  title: string;
+  firstId: string;
+  secondId: string;
+  forceOverlay: boolean;
+  renderable: boolean;
+  fillgaps: boolean;
+  colors: (string | null)[];
+}
+
+export interface PineBackgroundSeries {
+  id: string;
+  title: string;
+  offset: number;
+  forceOverlay: boolean;
+  colors: (string | null)[];
+}
+
+export interface PineBarColorSeries {
+  id: string;
+  title: string;
+  offset: number;
+  colors: (string | null)[];
+}
+
+export interface PineOhlcSeries {
+  id: string;
+  title: string;
+  style: "candles" | "bars";
+  color: string;
+  forceOverlay: boolean;
+  renderable: boolean;
+  data: ({ open: number; high: number; low: number; close: number } | null)[];
+  colors: (string | null)[];
+  wickColors: (string | null)[];
+  borderColors: (string | null)[];
 }
 
 export interface PineShapeMark {
@@ -120,7 +167,12 @@ export interface PineRunResult {
   meta: PineMeta;
   times?: number[];
   plots?: PinePlotSeries[];
-  hlines?: { price: number; color: string; title: string }[];
+  fills?: PineFillSeries[];
+  backgrounds?: PineBackgroundSeries[];
+  barColors?: PineBarColorSeries[];
+  ohlcPlots?: PineOhlcSeries[];
+  hlines?: { id: string; price: number; color: string; title: string;
+    width: number; style: "solid" | "dashed" | "dotted"; renderable: boolean }[];
   shapes?: PineShapeMark[];
   drawings?: PineDrawings;
   trades?: Trade[];
@@ -269,8 +321,42 @@ export function expandCompact(payload: CompactCandles): Candle[] {
  * live runner is off by configuration rather than by an operator's decision.
  */
 export type OpsMode = "LIVE" | "STANDBY" | "HALTED" | "DISABLED";
-export type FeedState = "live" | "lagging" | "stale" | "gapped" | "unknown";
+export type FeedState = "live" | "delayed" | "reconnecting" | "gap" | "error" | "unknown";
 export type DeliveryState = "failing" | "stalled" | "degraded" | "idle" | "healthy";
+
+export interface BotOperationalStatus {
+  service: { reachable: true; name: string; version: string | null };
+  execution: {
+    mode: "DRY_RUN" | "HALTED" | "LIVE";
+    dryRun: boolean;
+    halted: boolean;
+    haltedBy: string | null;
+    haltedReason: string | null;
+  };
+  exchange: {
+    mode: "TESTNET" | "MAINNET" | "MIXED";
+    processDefault: "TESTNET" | "MAINNET";
+    configuredAccounts: { total: number; testnet: number; mainnet: number };
+  };
+  realisedPnl: {
+    currency: "USDT"; today: number; dayStart: string; timezone: "UTC";
+    rollingWindowHours: number; rolling: number;
+  };
+  openTrades: { count: number; exposureQuote: number; currency: "USDT" };
+  dailyLossProtection: {
+    authority: "BOT"; limitQuote: number | null; windowHours: number;
+    realisedPnlInWindow: number; enabled: boolean;
+  };
+  time: string;
+}
+
+export type BotStatusConnection =
+  | { state: "CONNECTED"; configuredEndpoints: number; status: BotOperationalStatus }
+  | { state: "NOT_CONFIGURED"; configuredEndpoints: 0; reason: "no_custom_bot_deployment" }
+  | {
+      state: "UNAVAILABLE"; configuredEndpoints: number;
+      reason: "authentication_rejected" | "request_failed" | "invalid_response";
+    };
 
 export interface OpsStatus {
   mode: OpsMode;
@@ -295,11 +381,42 @@ export interface OpsStatus {
     snapshot: {
       currentExposureQuote: number;
       openPositions: number;
-      realisedPnlInWindow: number;
+      realisedPnlInWindow: null;
     };
     summary: string;
+    dailyLossControl: {
+      state: "DISABLED_UNFED";
+      authority: "BOT";
+      note: string;
+    };
   };
-  deployments: { total: number; active: number; long: number; paused: number };
+  bot: BotStatusConnection;
+  database:
+    | {
+        ready: true;
+        checks: { database: "ok"; schema: "current" };
+        schema: { expected: number; applied: number; missing: string[] };
+        time: string;
+      }
+    | {
+        ready: false;
+        checks: { database: "unavailable" | "ok"; schema: "unknown" | "unavailable" | "behind" };
+        schema?: { expected: number; applied: number; missing: string[] };
+        time: string;
+      };
+  alertRunner: {
+    state: "healthy" | "degraded" | "unknown" | "disabled" | "not_configured";
+    active: number;
+    recent: number;
+    stale: number;
+    withoutEvidence: number;
+    lastEvaluatedAt: string | null;
+    reason: string;
+  };
+  deployments: {
+    total: number; active: number; long: number; paused: number;
+    paper: number; automated: number; signalOnly: number;
+  };
   delivery: {
     state: DeliveryState;
     summary: string;
@@ -315,9 +432,20 @@ export interface OpsStatus {
   feeds: {
     worst: FeedState;
     rows: Array<{
-      symbol: string; interval: string; state: string;
+      symbol: string; interval: string; state: FeedState;
       lastBarTime: string | null; lastCheckedAt: string;
-      barsBehind: number | null; gapCount?: number | null; detail?: string | null;
+      barsBehind?: number | null; missingBars: number; detail?: string | null;
+      integrity: {
+        state: "healthy" | "degraded" | "invalid" | null;
+        market: "spot";
+        symbol: string;
+        interval: string;
+        latestCompletedBarTime: string | null;
+        latestCompletedBarAgeMs: number | null;
+        lastCheckedAt: string;
+        issueCodes: string[];
+        issueCounts: Record<string, number>;
+      };
     }>;
   };
   time: string;
@@ -493,6 +621,9 @@ export interface MaAlertEvent {
   title: string;
   body: string;
   pushedTo: number;
+  pushFailed: number;
+  pushPruned: number;
+  deliveryStatus: "delivered" | "partial_failure" | "failed" | "no_devices";
   /** Whether this fired on a candle that had not closed yet. */
   intrabar: boolean;
   frequency: AlertFrequency | null;
@@ -518,12 +649,202 @@ export interface MaAlertOptions {
   frequencies: AlertFrequencyOption[];
 }
 
+/**
+ * What a single alert edit may change.
+ *
+ * Every key here is one the server also accepts at creation, read back through
+ * the same validators — an edit cannot store a configuration the create route
+ * would have refused. The alert's `conditionKind` is deliberately absent: a
+ * family is fixed for the life of a row, because its id carries the event log
+ * and the per-kind uniqueness rule.
+ *
+ * Nothing about firing state (`lastSide`, `lastFiredAt`, `completedAt`) appears
+ * either. Those belong to the runner, and the server refuses them outright
+ * rather than ignoring them.
+ */
+export interface MaAlertUpdate {
+  // ── common to every family ──
+  symbol?: string;
+  timeframe?: Interval;
+  frequency?: AlertFrequency;
+  cooldownMin?: number;
+  note?: string | null;
+  enabled?: boolean;
+  /** Echoed back on save so the server can confirm the family is unchanged. */
+  conditionKind?: ConditionKind;
+  // ── price ──
+  targetPrice?: number;
+  priceDirection?: PriceDirection;
+  // ── ma / ma_vs_ma ──
+  maType?: MaType;
+  maLength?: number;
+  ma2Type?: MaType;
+  ma2Length?: number;
+  mode?: MaAlertMode;
+  nearMinPct?: number;
+  nearMaxPct?: number;
+  // ── sr_zone ──
+  srSide?: SrSide;
+  pivotLength?: number;
+  invalidation?: "close" | "wick";
+  // ── pivot_level ──
+  pivotType?: PivotType;
+  levelName?: string;
+  anchor?: string;
+  // ── rsi / macd ──
+  rsiLength?: number;
+  rsiLevel?: number;
+  rsiMaLength?: number;
+  macdFast?: number;
+  macdSlow?: number;
+  macdSignal?: number;
+  /** `RsiTarget` for an RSI alert, `MacdTarget` for a MACD one. */
+  target?: RsiTarget | MacdTarget;
+  // ── optional trend gates on the two level families ──
+  filterRsi?: boolean;
+  filterRsiLength?: number;
+  filterRsiLevel?: number;
+  filterRsiSide?: FilterSide;
+  filterMa?: boolean;
+  filterMaType?: MaType;
+  filterMaLength?: number;
+  filterMaSide?: FilterSide;
+}
+
+export type BulkAlertAction = "pause" | "resume" | "delete";
+export interface BulkAlertResult {
+  action: BulkAlertAction;
+  requested: number;
+  affected: number;
+  missingIds: string[];
+}
+
 export interface ServerWatchlist {
   id: string;
   name: string;
   symbols: string[];
   position: number;
   updatedAt: string;
+}
+
+export interface ManualAccount {
+  id: string; name: string; exchange: string; marketType: string;
+  testnet: boolean; mode: "testnet" | "mainnet";
+}
+export interface ManualOrder {
+  id: string; requestId: string; exchangeAccountId: string; linkedPositionId: string | null;
+  symbol: string; side: "BUY" | "SELL"; orderType: "MARKET" | "LIMIT";
+  quantityType: "quote" | "base"; requestedBaseQty: number | null;
+  requestedQuoteQty: number | null; limitPrice: number | null;
+  takeProfitPrice: number | null; stopLossPrice: number | null;
+  protectionType: string | null; protectionState: string | null; status: string;
+  exchangeOrderId: string | null; clientOrderId: string | null;
+  filledBaseQty: number; filledQuoteQty: number;
+  averageFillPrice: number | null; error: string | null; submittedAt: string | null;
+  completedAt: string | null; createdAt: string; updatedAt: string;
+}
+export interface ManualPosition {
+  id: string; exchangeAccountId: string; pair: string; status: string;
+  entryPrice: number | null; currentPrice: number | null; quantity: number; quoteSpent: number;
+  pnlUsdt: number; pnlPct: number; manualTpPrice: number | null; manualSlPrice: number | null;
+  protectionType: string | null; protectionState: string | null;
+  createdAt: string; closedAt: string | null; closedReason: string | null;
+}
+export interface ManualAssetBalance { asset: string; free: number; locked: number }
+export interface ManualAccountStateView {
+  symbol: string;
+  base: ManualAssetBalance;
+  quote: ManualAssetBalance;
+  rules: { lotStep: number; minQty: number; priceTick: number; minNotional: number };
+  simulated: boolean;
+}
+export interface ManualTradingState {
+  enabled: boolean; mainnetEnabled: boolean; dryRun: boolean; mixed: boolean;
+  accounts: ManualAccount[]; orders: ManualOrder[]; positions: ManualPosition[];
+  protection: { type: "bot-managed"; exchangeResting: false; note: string };
+}
+
+export type TimelineEvidenceClass =
+  | "AUTHORITATIVE_EVENT"
+  | "AUTHORITATIVE_HISTORICAL_EVENT"
+  | "CURRENT_AUTHORITATIVE_STATE"
+  | "SAFE_DERIVATION";
+
+export interface TimelineItem {
+  key: string;
+  timestamp: string;
+  kind: string;
+  state?: string;
+  evidenceClass: TimelineEvidenceClass;
+  title: string;
+  description: string;
+  source: "MANUAL" | "AUTOMATED" | "PAPER" | "UNKNOWN";
+  evidenceSource: string;
+  linkageEvidenceClass?: "AUTHORITATIVE_LINKAGE";
+  identifiers: Partial<Record<
+    "requestId" | "clientOrderId" | "exchangeOrderId" | "deploymentId"
+    | "strategyId" | "signalId" | "alertId" | "intentId" | "strategyOrderIntentId"
+    | "sourceKey" | "callerDedupeKey" | "botId" | "manualOrderId" | "manualCommandId"
+    | "commandRequestId" | "targetManualOrderId" | "partialCloseId", string
+  >>;
+  quantity?: Partial<Record<
+    "requestedBase" | "requestedQuote" | "filledBase" | "filledQuote" | "price" | "averagePrice"
+    | "reportedQuantity" | "baseQuantity" | "quoteRevenue" | "realizedPnlQuote"
+    | "cumulativeExecutedBaseQuantity" | "cumulativeExecutedQuoteQuantity", number
+  >>;
+}
+
+export interface TradingTimeline {
+  scope: {
+    kind: "manual_order" | "deployment";
+    id: string;
+    source: "MANUAL" | "AUTOMATED" | "PAPER" | "UNKNOWN";
+    symbol: string | null;
+    side: string | null;
+    executionMode: string;
+    delivery?: string;
+    strategyId?: string;
+    configId?: string | null;
+  };
+  finalKnownState: string | null;
+  items: TimelineItem[];
+  gaps: string[];
+  truncated: boolean;
+}
+
+export type JournalSource = "MANUAL" | "AUTOMATED" | "PAPER";
+export interface JournalSummarySlice {
+  knownRealizedPnl: number; knownRealizedRows: number; realizationRows: number;
+  knownFees: number; feeKnownRows: number; wins: number; losses: number; scratches: number;
+  incompleteRows: number; unknownEconomicRows: number; durationKnownRows: number;
+  averageDurationMs: number | null;
+}
+export interface JournalRow {
+  id: string; kind: "ACTIVITY" | "REALIZATION" | "CLOSED_TRADE";
+  source: JournalSource; environment: "REAL" | "PAPER"; symbol: string;
+  side: "BUY" | "SELL" | null; title: string; occurredAt: string;
+  entryAt: string | null; realizationAt: string | null; durationMs: number | null;
+  quantity: number | null; entryPrice: number | null; exitPrice: number | null;
+  grossRealizedPnl: number | null; fees: number | null; realizedPnl: number | null;
+  netRealizedPnl: number | null;
+  economicsState: "KNOWN" | "UNKNOWN"; feeState: "KNOWN" | "UNKNOWN";
+  evidenceState: "COMPLETE" | "INCOMPLETE"; evidenceDetail: string;
+  strategy: { id: string; key: string | null; name: string | null } | null;
+  deploymentId: string | null; config: { id: string; name: string | null } | null;
+  reason: string | null; identifiers: Record<string, string | undefined>;
+}
+export interface JournalResponse {
+  rows: JournalRow[];
+  page: { number: number; limit: number; hasNext: boolean };
+  range: { from: string; toExclusive: string; period: "day" | "week" | "month" };
+  summary: JournalSummarySlice & {
+    real: JournalSummarySlice; paper: JournalSummarySlice;
+    bySource: Array<{ source: JournalSource; summary: JournalSummarySlice }>;
+    bySymbol: Array<{ symbol: string; source: JournalSource; summary: JournalSummarySlice }>;
+    byPeriod: Array<{ bucket: string; source: JournalSource; summary: JournalSummarySlice }>;
+    evidenceRowsScanned: number; truncated: boolean;
+  };
+  limitations: string[];
 }
 
 export const api = {
@@ -603,6 +924,49 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+
+  // Manual Binance Spot commands (platform session -> HMAC service channel -> bot).
+  /**
+   * Advisory account context for the ticket. Bound to one symbol and one
+   * account, and read-only: the execution Bot re-derives everything at
+   * submission, so this can inform a human but never widen what executes.
+   */
+  manualAccountState: (symbol: string, accountId: string) => req<ManualAccountStateView>(
+    `/api/manual-trading/account-state?symbol=${encodeURIComponent(symbol)}`
+    + `&accountId=${encodeURIComponent(accountId)}`),
+  manualState: (symbol?: string) => req<ManualTradingState>(
+    `/api/manual-trading/state${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`),
+  submitManualOrder: (body: Record<string, unknown>) => req<ManualOrder>(
+    "/api/manual-trading/orders", { method: "POST", body: JSON.stringify(body) }),
+  cancelManualOrder: (id: string, body: Record<string, unknown>) => req<ManualOrder>(
+    `/api/manual-trading/orders/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),
+  updateManualProtection: (id: string, body: Record<string, unknown>) => req<ManualPosition>(
+    `/api/manual-trading/positions/${id}/protection`, { method: "PATCH", body: JSON.stringify(body) }),
+  manualOrderTimeline: (id: string) => req<TradingTimeline>(
+    `/api/trading-timeline/manual-orders/${encodeURIComponent(id)}`),
+  deploymentTimeline: (id: string, limit = 50) => req<TradingTimeline>(
+    `/api/trading-timeline/deployments/${encodeURIComponent(id)}?limit=${limit}`),
+  journal: (query: {
+    from: string; to: string; source?: JournalSource | ""; symbol?: string;
+    deploymentId?: string; strategyId?: string; period: "day" | "week" | "month";
+    page: number; limit?: number;
+  }) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== "" && value !== undefined) params.set(key, String(value));
+    }
+    return req<JournalResponse>(`/api/journal?${params.toString()}`);
+  },
+  tradingOverlays: (query: {
+    symbol: string; from: number; to: number; replayCutoff?: number;
+    limit?: number; scope?: "all" | "historical" | "current";
+  }, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) params.set(key, String(value));
+    }
+    return req<TradingOverlayResponse>(`/api/trading-overlays?${params.toString()}`, { signal });
+  },
 
   /** Every tree the backend can actually reach, from its own registry. */
   optimizerTrees: () => req<{ root: string; trees: OptimizerTree[] }>(`/api/optimizer/trees`),
@@ -707,12 +1071,13 @@ export const api = {
     nearMinPct?: number; nearMaxPct?: number;
     cooldownMin?: number; note?: string | null;
   }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
-  updateMaAlert: (id: string, body: Partial<{
-    enabled: boolean; cooldownMin: number; nearMinPct: number;
-    nearMaxPct: number; mode: MaAlertMode; timeframe: Interval; note: string | null;
-    frequency: AlertFrequency; targetPrice: number; priceDirection: PriceDirection;
-  }>) => req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  updateMaAlert: (id: string, body: MaAlertUpdate) =>
+    req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
+  bulkMaAlerts: (action: BulkAlertAction, ids: string[]) =>
+    req<BulkAlertResult>("/api/ma-alerts/bulk", {
+      method: "POST", body: JSON.stringify({ action, ids }),
+    }),
   maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),
 
   // watchlists (server-side, so the same lists appear on the phone)

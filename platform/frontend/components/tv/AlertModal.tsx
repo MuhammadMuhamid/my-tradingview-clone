@@ -159,7 +159,7 @@ export function AlertModal({
             type="checkbox"
             checked={acknowledged}
             onChange={(e) => setAcknowledged(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent,#f0b90b)]"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-warn"
           />
           <span>
             {delivery === "off"

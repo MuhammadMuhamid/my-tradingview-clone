@@ -1,14 +1,24 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Card, CardHeader, Button, Empty } from "@/components/ui";
+import { Card, CardHeader, Button, Empty, Select, TextInput } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
-import { api, DEFAULT_ALERT_FREQUENCY, type MaAlert, type MaAlertEvent } from "@/lib/api";
+import { AlertEditor } from "@/components/tv/AlertEditor";
+import {
+  api, DEFAULT_ALERT_FREQUENCY, type BulkAlertAction, type MaAlert, type MaAlertEvent,
+} from "@/lib/api";
 import {
   alertColor, alertInactiveReason, alertLineLabel, describeAlert,
   FREQUENCY_LABELS, isAlertActive,
 } from "@/lib/alerts";
 import { fmtAgo, fmtPrice } from "@/lib/format";
+import {
+  ALERT_STATUS_FILTERS, ALERT_TYPE_FILTERS, buildBulkRequest, bulkCompletionMessage,
+  deleteConfirmation, describeAlertScope, filterAlerts, type AlertStatusFilter,
+  type AlertTypeFilter,
+} from "@/lib/alertManagement";
+import { leavesFilteredView } from "@/lib/alertEditing";
+import { parseScannerAlertTarget } from "@/lib/spotScene";
 
 /**
  * Every alert across every coin, in one place.
@@ -26,6 +36,11 @@ export default function AlertsPage() {
   /** Support/resistance and pivot alerts are armed from here, not the chart. */
   const [levelOpen, setLevelOpen] = useState(false);
   const [newSymbol, setNewSymbol] = useState("SOLUSDT");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<AlertStatusFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<AlertTypeFilter>("all");
+  /** The alert open in the shared editor, or null. */
+  const [editing, setEditing] = useState<MaAlert | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -40,6 +55,12 @@ export default function AlertsPage() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    const target = parseScannerAlertTarget(window.location.search);
+    if (!target) return;
+    setNewSymbol(target.symbol);
+    setLevelOpen(true);
+  }, []);
   // A fired alert should show up here without a manual reload.
   useEffect(() => {
     const t = setInterval(() => void refresh(), 15_000);
@@ -52,10 +73,18 @@ export default function AlertsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  /** Grouped by coin, each coin's lines ordered longest-period first. */
+  const filters = useMemo(() => ({
+    search, status: statusFilter, type: typeFilter,
+  }), [search, statusFilter, typeFilter]);
+  const filteredAlerts = useMemo(
+    () => filterAlerts(alerts ?? [], filters),
+    [alerts, filters]
+  );
+
+  /** Filtered and grouped by coin, each coin's lines ordered longest-period first. */
   const bySymbol = useMemo(() => {
     const map = new Map<string, MaAlert[]>();
-    for (const a of alerts ?? []) {
+    for (const a of filteredAlerts) {
       const list = map.get(a.symbol) ?? [];
       list.push(a);
       map.set(a.symbol, list);
@@ -69,7 +98,7 @@ export default function AlertsPage() {
       );
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [alerts]);
+  }, [filteredAlerts]);
 
   // "Active" rather than "enabled": a spent once_only alert is still enabled
   // but will never fire again, and counting it as armed would overstate what is
@@ -89,20 +118,22 @@ export default function AlertsPage() {
     }
   };
 
-  const deleteAll = async () => {
-    const list = alerts ?? [];
-    if (list.length === 0) return;
-    if (!window.confirm(
-      `Delete all ${list.length} alerts?\n\n` +
-      `This cannot be undone. Fired-alert history is kept.`
-    )) return;
-    setBusy("all");
+  const bulkAct = async (action: BulkAlertAction) => {
+    // Snapshot the exact IDs shown at click time. The server never interprets
+    // search/filter semantics, so a refresh cannot widen this operation.
+    const request = buildBulkRequest(action, filteredAlerts);
+    if (!request) return;
+    const { ids } = request;
+    if (action === "delete") {
+      const message = deleteConfirmation(filters, ids.length);
+      if (!message || !window.confirm(message)) return;
+    }
+    setBusy(`bulk-${action}`);
     try {
-      // Sequential rather than parallel: 80 concurrent deletes would hammer
-      // the API for no benefit, and a partial failure stays easy to read.
-      for (const a of list) await api.deleteMaAlert(a.id);
+      const result = await api.bulkMaAlerts(request.action, request.ids);
+      const completion = bulkCompletionMessage(action, ids.length, result);
       await refresh();
-      setToast(`Deleted ${list.length} alerts`);
+      setToast(completion);
     } catch (e) {
       setErr((e as Error).message);
       await refresh();
@@ -146,7 +177,7 @@ export default function AlertsPage() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
+        <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
           {err}
         </div>
       )}
@@ -156,7 +187,7 @@ export default function AlertsPage() {
           title={
             alerts === null
               ? "Active alerts"
-              : `Active alerts · ${activeCount} of ${alerts.length} armed · ${bySymbol.length} coin${bySymbol.length === 1 ? "" : "s"}`
+              : `Notification alerts · ${activeCount} of ${alerts.length} armed`
           }
           right={
             <div className="flex items-center gap-2">
@@ -170,20 +201,101 @@ export default function AlertsPage() {
               <Button variant="primary" onClick={() => setLevelOpen(true)} disabled={!newSymbol.trim()}>
                 Add level alert
               </Button>
-              <Button variant="danger" onClick={deleteAll}
-                disabled={busy !== null || (alerts?.length ?? 0) === 0}>
-                {busy === "all" ? "Deleting…" : "Delete all"}
-              </Button>
             </div>
           }
         />
+        {/*
+          Two rows, not one wrapping row. The bulk buttons act on whatever the
+          filters above them currently select, and at a narrow width a single
+          flex row put "Delete 42" beside an unrelated control — the one place
+          in this page where proximity has to mean "these belong together".
+        */}
+        {alerts !== null && alerts.length > 0 && (
+          <div className="space-y-2 border-b border-border bg-surface-2/20 px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="min-w-[170px] flex-1 sm:max-w-[260px]">
+                <span className="sr-only">Search alert symbols</span>
+                <TextInput
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search coin (BTCUSDT or btc)"
+                  aria-label="Search alert symbols"
+                  className="w-full"
+                />
+              </label>
+              <Select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as AlertStatusFilter)}
+                aria-label="Filter alerts by status"
+                className="min-w-0 flex-1 sm:flex-none"
+              >
+                {ALERT_STATUS_FILTERS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </Select>
+              <Select
+                value={typeFilter}
+                onChange={(event) => setTypeFilter(event.target.value as AlertTypeFilter)}
+                aria-label="Filter alerts by type"
+                className="min-w-0 flex-1 sm:flex-none"
+              >
+                {ALERT_TYPE_FILTERS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </Select>
+              {(search.trim() !== "" || statusFilter !== "all" || typeFilter !== "all") && (
+                <Button
+                  variant="ghost"
+                  onClick={() => { setSearch(""); setStatusFilter("all"); setTypeFilter("all"); }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {/*
+                The count is stated before the buttons that act on it, and named
+                in full, so "Delete 42" is never read without knowing what the
+                42 are.
+              */}
+              <span className="mr-auto whitespace-nowrap text-xs text-ink-faint" aria-live="polite">
+                {describeAlertScope(filters, filteredAlerts.length)} of {alerts.length}
+              </span>
+              <Button
+                onClick={() => void bulkAct("resume")}
+                disabled={busy !== null || filteredAlerts.length === 0}
+                label={`Resume ${describeAlertScope(filters, filteredAlerts.length)}`}
+              >
+                {busy === "bulk-resume" ? "Resuming…" : `Resume ${filteredAlerts.length}`}
+              </Button>
+              <Button
+                onClick={() => void bulkAct("pause")}
+                disabled={busy !== null || filteredAlerts.length === 0}
+                label={`Pause ${describeAlertScope(filters, filteredAlerts.length)}`}
+              >
+                {busy === "bulk-pause" ? "Pausing…" : `Pause ${filteredAlerts.length}`}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void bulkAct("delete")}
+                disabled={busy !== null || filteredAlerts.length === 0}
+                label={`Delete ${describeAlertScope(filters, filteredAlerts.length)}`}
+              >
+                {busy === "bulk-delete" ? "Deleting…" : `Delete ${filteredAlerts.length}`}
+              </Button>
+            </div>
+          </div>
+        )}
         {alerts === null ? (
           <Empty>Loading…</Empty>
         ) : alerts.length === 0 ? (
           <Empty>
-            No alerts yet. Open a chart, click a price on the scale or the 🔔 next to any SMA or
+            No alerts yet. Open a chart, click a price on the scale or the bell next to any SMA or
             EMA, and it will appear here.
           </Empty>
+        ) : filteredAlerts.length === 0 ? (
+          <Empty>No alerts match the current search and filters.</Empty>
         ) : (
           <div className="divide-y divide-border">
             {bySymbol.map(([symbol, list]) => (
@@ -196,31 +308,53 @@ export default function AlertsPage() {
                 </div>
                 {list.map((a) => (
                   <div key={a.id}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[13px] hover:bg-surface-2/40">
-                    <span className="inline-block h-[3px] w-4 shrink-0 rounded-full"
-                      style={{ background: alertColor(a), opacity: isAlertActive(a) ? 1 : 0.3 }} />
-                    <span className={`w-[88px] shrink-0 truncate font-medium ${isAlertActive(a) ? "text-ink" : "text-ink-faint"}`}>
-                      {alertLineLabel(a)}
-                    </span>
-                    <span className={isAlertActive(a) ? "text-ink-muted" : "text-ink-faint"}>
-                      {describeAlert(a)}
-                    </span>
-                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">
-                      {a.timeframe}
-                    </span>
-                    {a.frequency !== DEFAULT_ALERT_FREQUENCY && (
-                      <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
-                        {FREQUENCY_LABELS[a.frequency]}
+                    className="group flex items-center gap-2 pr-2 text-[13px] hover:bg-surface-2/40">
+                    {/*
+                      The description is the edit affordance. Making the whole
+                      row a button would swallow the pause and delete controls
+                      inside it; making only a pencil icon clickable would hide
+                      the primary action of the row behind a 15px target.
+                    */}
+                    <button
+                      type="button"
+                      onClick={() => setEditing(a)}
+                      aria-label={`Edit alert — ${a.symbol} ${alertLineLabel(a)}, ${describeAlert(a)}`}
+                      className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5 px-4 py-2 text-left"
+                    >
+                      <span className="inline-block h-[3px] w-4 shrink-0 rounded-full"
+                        style={{ background: alertColor(a), opacity: isAlertActive(a) ? 1 : 0.3 }}
+                        aria-hidden="true" />
+                      <span className={`w-[84px] shrink-0 truncate font-medium ${isAlertActive(a) ? "text-ink" : "text-ink-faint"}`}>
+                        {alertLineLabel(a)}
                       </span>
-                    )}
-                    <span className="text-[11px] text-ink-faint">
-                      {/* The cooldown only throttles the bar-close mode; showing
-                          it beside an intrabar alert would describe a rule that
-                          is not applied to it. */}
-                      {a.frequency === DEFAULT_ALERT_FREQUENCY && `cooldown ${a.cooldownMin}m`}
-                      {a.lastFiredAt && `${a.frequency === DEFAULT_ALERT_FREQUENCY ? " · " : ""}last fired ${fmtAgo(a.lastFiredAt)}`}
-                    </span>
-                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                      <span className={`truncate ${isAlertActive(a) ? "text-ink-muted" : "text-ink-faint"}`}>
+                        {describeAlert(a)}
+                      </span>
+                      <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] tabular text-ink-muted">
+                        {a.timeframe}
+                      </span>
+                      {a.frequency !== DEFAULT_ALERT_FREQUENCY && (
+                        <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
+                          {FREQUENCY_LABELS[a.frequency]}
+                        </span>
+                      )}
+                      <span className="shrink-0 text-[11px] text-ink-faint">
+                        {/* The cooldown only throttles the bar-close mode; showing
+                            it beside an intrabar alert would describe a rule that
+                            is not applied to it. */}
+                        {a.frequency === DEFAULT_ALERT_FREQUENCY && `cooldown ${a.cooldownMin}m`}
+                        {a.lastFiredAt && `${a.frequency === DEFAULT_ALERT_FREQUENCY ? " · " : ""}last fired ${fmtAgo(a.lastFiredAt)}`}
+                      </span>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(a)}
+                        aria-label={`Edit ${a.symbol} ${alertLineLabel(a)}`}
+                        className="rounded px-2 py-1 text-[11px] text-ink-faint opacity-0 transition-opacity hover:bg-surface-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                      >
+                        Edit
+                      </button>
                       <button
                         disabled={busy !== null}
                         // Re-enabling also re-arms a spent once_only alert, which
@@ -229,6 +363,7 @@ export default function AlertsPage() {
                         onClick={() => void act(a.id,
                           () => api.updateMaAlert(a.id, { enabled: !a.enabled }),
                           `${a.symbol} ${alertLineLabel(a)} ${a.enabled ? "paused" : "re-armed"}`)}
+                        aria-label={`${isAlertActive(a) ? "Pause" : "Re-arm"} ${a.symbol} ${alertLineLabel(a)}`}
                         className={`rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40 ${
                           isAlertActive(a)
                             ? "bg-up/15 text-up hover:bg-up/25"
@@ -242,10 +377,12 @@ export default function AlertsPage() {
                         onClick={() => void act(a.id,
                           () => api.deleteMaAlert(a.id),
                           `Deleted ${a.symbol} ${alertLineLabel(a)}`)}
-                        aria-label="Delete alert"
-                        className="rounded px-2 py-1 text-[11px] text-ink-faint hover:bg-down/15 hover:text-down disabled:opacity-40"
+                        aria-label={`Delete ${a.symbol} ${alertLineLabel(a)}`}
+                        className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-down/15 hover:text-down disabled:opacity-40"
                       >
-                        ✕
+                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+                          <path d="M1 1l9 9M10 1l-9 9" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
                       </button>
                     </div>
                   </div>
@@ -287,10 +424,16 @@ export default function AlertsPage() {
                 <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px]">
                   {/* Whether it actually reached a phone is the thing worth
                       surfacing — a fired alert nobody saw is a silent failure. */}
-                  <span className={e.pushedTo > 0 ? "text-ink-faint" : "text-down"}>
-                    {e.pushedTo > 0
+                  <span className={e.deliveryStatus === "delivered" ? "text-ink-faint" : "text-down"}>
+                    {e.deliveryStatus === "delivered"
                       ? `sent to ${e.pushedTo} device${e.pushedTo === 1 ? "" : "s"}`
-                      : "no device registered"}
+                      : e.deliveryStatus === "partial_failure"
+                        ? `sent to ${e.pushedTo} · ${e.pushFailed} failed · ${e.pushPruned} pruned`
+                        : e.deliveryStatus === "failed"
+                          ? `delivery failed${e.pushFailed > 1 ? ` on ${e.pushFailed} devices` : ""}`
+                          : e.pushPruned > 0
+                            ? `no reachable device · ${e.pushPruned} pruned`
+                            : "no device registered"}
                   </span>
                   <span className="text-ink-faint">{fmtAgo(e.firedAt)}</span>
                 </span>
@@ -308,8 +451,24 @@ export default function AlertsPage() {
         onSaved={(m) => { setToast(m); void refresh(); }}
       />
 
+      <AlertEditor
+        alert={editing}
+        onClose={() => setEditing(null)}
+        onSaved={(updated, message) => {
+          // An edit can move an alert out of the list it was opened from — a
+          // renamed symbol under an active search, a pause under "Active".
+          // Vanishing silently is indistinguishable from a failed save, so it
+          // is said out loud.
+          const left = editing !== null &&
+            leavesFilteredView(editing, updated, (x) => filterAlerts([x], filters).length === 1);
+          setToast(left ? `${message} — no longer matches the current filters` : message);
+          void refresh();
+        }}
+        onDeleted={(_deleted, message) => { setToast(message); void refresh(); }}
+      />
+
       {toast && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 text-sm text-ink shadow-xl">
+        <div role="status" className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 text-sm text-ink shadow-xl">
           {toast}
         </div>
       )}

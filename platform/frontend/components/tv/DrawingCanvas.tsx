@@ -36,13 +36,38 @@ interface Drag {
  * (so dragging a trend line never pans the chart), and everything else falls
  * through untouched.
  */
+/**
+ * A number that changes when any anchor moves.
+ *
+ * This is sampled every animation frame, so it must not allocate. It replaced
+ * `JSON.stringify(drawings.map((d) => d.points))`, which built an array and a
+ * string of every anchor on the chart sixty times a second whether or not
+ * anything had moved — while a drag was in progress, on top of the drag's own
+ * work. A drawing's own points array is replaced on edit, so identity would
+ * usually be enough; the digest also catches an in-place edit, which is what
+ * the stringify was really guarding against.
+ */
+function geometryDigest(drawings: Drawing[]): number {
+  let digest = drawings.length;
+  for (const drawing of drawings) {
+    for (const point of drawing.points) {
+      // Mixed with a prime and wrapped to 32 bits so distinct geometries do
+      // not collapse onto one another through plain addition.
+      digest = (Math.imul(digest, 31) + (point.time | 0)) | 0;
+      digest = (Math.imul(digest, 31) + Math.round(point.price * 1e6)) | 0;
+    }
+  }
+  return digest;
+}
+
 export function DrawingCanvas({
   container, chart, series, candles, interval,
   tool, onToolDone, drawings, onChange, magnet, locked, hidden,
 }: {
   container: HTMLDivElement | null;
   chart: IChartApi | null;
-  series: ISeriesApi<"Candlestick"> | null;
+  /** Any main-series presentation: only price/coordinate conversion is used. */
+  series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line"> | ISeriesApi<"Area"> | null;
   candles: Candle[];
   interval: Interval;
   tool: DrawingTool;
@@ -407,7 +432,7 @@ export function DrawingCanvas({
       const x1 = chart.timeScale().logicalToCoordinate(100 as Logical);
       const fp = `${w}|${h}|${x0}|${x1}|${y0}|${drawings.length}|${selected}|${hidden}` +
         `|${draftRef.current?.points.length ?? -1}|${previewRef.current?.time ?? 0}` +
-        `|${previewRef.current?.price ?? 0}|${hoverRef.current}|${JSON.stringify(drawings.map((d) => d.points))}`;
+        `|${previewRef.current?.price ?? 0}|${hoverRef.current}|${geometryDigest(drawings)}`;
       if (fp === last) return;
       last = fp;
       paint(canvas, w, h);
@@ -509,25 +534,42 @@ export function DrawingCanvas({
           </button>
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
-            className={`px-1 text-[11px] ${sel.style.filled ? "text-accent" : "text-ink-muted hover:text-ink"}`}
+            className={`flex h-5 w-5 items-center justify-center rounded ${sel.style.filled ? "text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
             title="Fill"
+            aria-label={sel.style.filled ? "Remove the fill" : "Fill the shape"}
+            aria-pressed={Boolean(sel.style.filled)}
           >
-            ▣
+            <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+              <rect x="1.5" y="1.5" width="9" height="9" rx="1"
+                fill={sel.style.filled ? "currentColor" : "none"}
+                stroke="currentColor" strokeWidth="1.2" />
+            </svg>
           </button>
           <span className="mx-0.5 h-4 w-px bg-border" />
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
-            className={`px-1 text-[11px] ${sel.locked ? "text-accent" : "text-ink-muted hover:text-ink"}`}
+            className={`flex h-5 w-5 items-center justify-center rounded ${sel.locked ? "text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
             title={sel.locked ? "Unlock" : "Lock"}
+            aria-label={sel.locked ? "Unlock this drawing" : "Lock this drawing"}
+            aria-pressed={Boolean(sel.locked)}
           >
-            {sel.locked ? "🔒" : "🔓"}
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+              strokeWidth="1.2" aria-hidden="true">
+              <rect x="2" y="5.4" width="8" height="5.1" rx="1" />
+              {/* An open shackle leans clear of the body, so locked and unlocked
+                  differ in SHAPE and not only in tint. */}
+              <path d={sel.locked ? "M4 5.4V3.9a2 2 0 0 1 4 0v1.5" : "M4 5.4V3.9a2 2 0 0 1 3.9-.5"} />
+            </svg>
           </button>
           <button
             onClick={() => { onChange(drawings.filter((d) => d.id !== selected)); setSelected(null); }}
-            className="px-1 text-[11px] text-ink-muted hover:text-down"
+            className="flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-down/15 hover:text-down"
             title="Delete (Del)"
+            aria-label="Delete this drawing"
           >
-            ✕
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
           </button>
         </div>
       )}

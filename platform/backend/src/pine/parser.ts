@@ -348,8 +348,26 @@ class Parser {
     const params: { name: string; def: Expr | null; type?: string }[] = [];
     while (!this.at("op", ")") && !this.at("eof")) {
       let type: string | undefined;
+      const typeStart = this.p;
+      let qualified = false;
+      while (this.at("kw") && QUALIFIERS.has(this.cur.value)) {
+        qualified = true;
+        this.p++;
+      }
+      if (qualified) {
+        // Pine permits declaration qualifiers before a parameter type, e.g.
+        // `simple string timeframe`. Qualifiers affect compile-time type
+        // checking, while this runtime only needs the underlying type.
+        if (this.isTypeStart()) {
+          const parsed = this.parseTypeName();
+          if (this.at("ident")) type = parsed;
+          else this.p = typeStart;
+        } else {
+          this.p = typeStart;
+        }
+      }
       // A type prefix is only a type when an identifier follows it.
-      if (this.isTypeStart() && (this.peek(1).type === "ident" || this.peek(1).value === "<" ||
+      if (!qualified && this.isTypeStart() && (this.peek(1).type === "ident" || this.peek(1).value === "<" ||
           (this.peek(1).value === "[" && this.peek(2).value === "]"))) {
         const save = this.p;
         const parsed = this.parseTypeName();

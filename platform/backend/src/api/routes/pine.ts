@@ -20,6 +20,7 @@ import { PineInterpreter } from "../../pine/interpreter";
 import { PineBusyError, runPineInWorker } from "../../pine/runInWorker";
 import type { BrokerOptions } from "../../engine/broker";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
+import { completedAtOrBefore } from "../../pine/horizon";
 
 /** Bars of history loaded before the requested start so indicators settle. */
 const WARMUP_BARS = 1500;
@@ -181,7 +182,9 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       return reply.code(502).send({ error: `market data unavailable: ${(err as Error).message}` });
     }
-    const candles = await candleRepo.getCandles(symbol, interval, { from: warmupFrom, to: endMs });
+    const candles = completedAtOrBefore(
+      await candleRepo.getCandles(symbol, interval, { from: warmupFrom, to: endMs }), endMs
+    );
     if (candles.length === 0) {
       return reply.code(404).send({ error: `no ${interval} data for ${symbol}` });
     }
@@ -211,7 +214,9 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
       } catch {
         continue;
       }
-      const rows = await candleRepo.getCandles(symbol, tf, { from: warmupFrom, to: endMs });
+      const rows = completedAtOrBefore(
+        await candleRepo.getCandles(symbol, tf, { from: warmupFrom, to: endMs }), endMs
+      );
       if (rows.length > 0) htf[raw] = toBars(rows);
     }
 

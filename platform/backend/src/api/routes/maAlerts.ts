@@ -11,20 +11,213 @@
  * alert did before frequencies existed. Nothing an existing client sends
  * changes meaning.
  */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import * as maAlertRepo from "../../repositories/maAlerts";
+import { AlertConflictError } from "../../repositories/maAlerts";
 import { assertSymbol } from "../../data/binanceRest";
 import { isInterval } from "../../types/market";
 import {
   CONDITION_KINDS, MA_ALERT_MODES, MA_LENGTHS, MA_TYPES, PRICE_DIRECTIONS,
-  isConditionKind, isMaAlertMode, isPriceDirection,
+  BULK_ALERT_ACTIONS, isBulkAlertAction, isConditionKind,
 } from "../../types/maAlerts";
+import type { MaAlertRow } from "../../types/maAlerts";
 import { bad, readCondition, toColumns } from "../../alerts/alertRequest";
+import {
+  COMMON_EDITABLE_FIELDS, EDITABLE_CONDITION_FIELDS, INTERNAL_ALERT_FIELDS,
+  mergeConditionRequest, referenceChanged,
+} from "../../alerts/alertEdit";
 import {
   ALERT_FREQUENCIES, DEFAULT_ALERT_FREQUENCY, INTRABAR_WARNING,
   describeFrequency, explainFrequency, isAlertFrequency, isIntrabar,
 } from "../../alerts/alertFrequency";
 import { validateCondition } from "../../alerts/alertConditions";
+
+export const MAX_BULK_ALERTS = 200;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type BulkExecutor = typeof maAlertRepo.bulkActAlerts;
+
+/** Exported so the HTTP contract can be tested with a local repository fake. */
+export function bulkAlertHandler(execute: BulkExecutor = maAlertRepo.bulkActAlerts) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const action = String(body.action ?? "");
+    if (!isBulkAlertAction(action)) {
+      return reply.code(400).send(bad(
+        `action must be one of ${BULK_ALERT_ACTIONS.join(", ")}`
+      ));
+    }
+    if (!Array.isArray(body.ids)) {
+      return reply.code(400).send(bad("ids must be a non-empty array"));
+    }
+    const rawIds = body.ids;
+    if (rawIds.length === 0) {
+      return reply.code(400).send(bad("ids must not be empty"));
+    }
+    if (rawIds.length > MAX_BULK_ALERTS) {
+      return reply.code(400).send(bad(`at most ${MAX_BULK_ALERTS} alert IDs may be changed at once`));
+    }
+    if (rawIds.some((id) => typeof id !== "string" || !UUID.test(id))) {
+      return reply.code(400).send(bad("every id must be a UUID"));
+    }
+
+    const ids = [...new Set(rawIds as string[])];
+    const result = await execute(ids, action);
+    if (result.missingIds.length > 0) {
+      return reply.code(409).send({
+        error: "one or more alerts no longer exist in the current admin scope",
+        ...result,
+      });
+    }
+    return result;
+  };
+}
+
+export interface AlertPatchDeps {
+  getAlert: (id: string) => Promise<MaAlertRow | null>;
+  updateAlert: (
+    id: string, patch: maAlertRepo.MaAlertPatch
+  ) => Promise<MaAlertRow | null>;
+}
+
+/**
+ * Edit one alert in place.
+ *
+ * ── Why this is one endpoint and not two ───────────────────────────────────
+ *
+ * A body that names no condition field — `{ enabled: false }`, the pause
+ * button — takes the narrow path and writes only what it named. A body that
+ * names any condition field is re-read through the SAME functions creation
+ * uses: the row is turned back into the request it would have been created
+ * from, the client's keys are overlaid, and the result goes through
+ * `readCondition` → `validateCondition` → `toColumns`. That is what makes an
+ * edit unable to store a configuration the create route would have refused,
+ * and what stops an unmentioned field being reset to a default.
+ *
+ * The alert's FAMILY is fixed, and its runtime and delivery state belong to the
+ * runner — both are refused rather than ignored, because a UI that believes it
+ * changed one of them is worse off than one told it cannot.
+ *
+ * Exported with injectable dependencies so the whole accept/reject matrix is
+ * testable without a database.
+ */
+export function alertPatchHandler(deps: AlertPatchDeps = {
+  getAlert: maAlertRepo.getAlert,
+  updateAlert: maAlertRepo.updateAlert,
+}) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const { id } = req.params as { id: string };
+    if (!UUID.test(id)) return reply.code(400).send(bad("id must be a UUID"));
+    const b = (req.body ?? {}) as Record<string, unknown>;
+
+    const row = await deps.getAlert(id);
+    if (!row) return reply.code(404).send(bad("alert not found"));
+
+    // An alert's family is fixed. Converting one would keep the id and the
+    // event log while making every historical entry describe something the
+    // alert no longer is, and the per-kind unique indexes would change meaning
+    // underneath a live row.
+    if (b.conditionKind !== undefined && String(b.conditionKind) !== row.conditionKind) {
+      return reply.code(400).send(bad(
+        `an alert's type cannot be changed (this one is ${row.conditionKind}); ` +
+        "delete it and create the alert you want instead"
+      ));
+    }
+    const internal = INTERNAL_ALERT_FIELDS.filter(
+      (field) => field !== "conditionKind" && b[field] !== undefined
+    );
+    if (internal.length > 0) {
+      return reply.code(400).send(bad(
+        `${internal.join(", ")} ${internal.length === 1 ? "is" : "are"} maintained by the ` +
+        "alert runner and cannot be edited"
+      ));
+    }
+
+    const known = new Set<string>([
+      ...COMMON_EDITABLE_FIELDS,
+      ...EDITABLE_CONDITION_FIELDS[row.conditionKind],
+      "conditionKind",
+    ]);
+    // A field that belongs to a DIFFERENT family is refused rather than
+    // dropped: silently ignoring `rsiLevel` on a MACD alert is how a UI ends up
+    // showing a saved value the server never stored.
+    const foreign = Object.keys(b).filter((key) => !known.has(key));
+    if (foreign.length > 0) {
+      return reply.code(400).send(bad(
+        `${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} not editable on a ` +
+        `${row.conditionKind} alert`
+      ));
+    }
+
+    const patch: maAlertRepo.MaAlertPatch = {};
+
+    if (b.symbol !== undefined) {
+      // Same choke point every market-data call uses: the symbol is
+      // interpolated into a Binance stream name.
+      try {
+        patch.symbol = assertSymbol(String(b.symbol));
+      } catch {
+        return reply.code(400).send(bad("symbol must be 2-24 uppercase letters or digits"));
+      }
+    }
+    if (b.timeframe !== undefined) {
+      const tf = String(b.timeframe);
+      if (!isInterval(tf)) return reply.code(400).send(bad("invalid timeframe"));
+      patch.timeframe = tf;
+    }
+    if (b.frequency !== undefined) {
+      const f = String(b.frequency);
+      if (!isAlertFrequency(f)) {
+        return reply.code(400).send(bad(`frequency must be one of ${ALERT_FREQUENCIES.join(", ")}`));
+      }
+      patch.frequency = f;
+    }
+    if (b.cooldownMin !== undefined) {
+      const cooldownMin = Number(b.cooldownMin);
+      if (!Number.isInteger(cooldownMin) || cooldownMin < 0) {
+        return reply.code(400).send(bad("cooldownMin must be a non-negative integer"));
+      }
+      patch.cooldownMin = cooldownMin;
+    }
+    if (b.enabled !== undefined) patch.enabled = Boolean(b.enabled);
+    if (b.note !== undefined) patch.note = b.note === null ? null : String(b.note);
+
+    const merged = mergeConditionRequest(row, b);
+    let columns: ReturnType<typeof toColumns> | null = null;
+    if (merged) {
+      const read = readCondition(row.conditionKind, merged);
+      if ("error" in read) return reply.code(400).send(read);
+      const invalid = validateCondition(read.condition);
+      if (invalid) return reply.code(400).send(bad(invalid));
+      columns = toColumns(read.condition);
+      // Everything the condition owns is written together, including the
+      // columns the edit did not name — they came out of the row itself, so
+      // this restates them rather than resetting them.
+      const { conditionKind: _kind, ...conditionColumns } = columns;
+      Object.assign(patch, conditionColumns);
+    }
+
+    // The cross memory is only cleared when the thing it was recorded against
+    // moved. A different symbol or timeframe is a different series; a different
+    // reference is a different comparison. A new mode or cadence is neither.
+    patch.resetLastSide =
+      (patch.symbol !== undefined && patch.symbol !== row.symbol) ||
+      (patch.timeframe !== undefined && patch.timeframe !== row.timeframe) ||
+      (columns !== null && referenceChanged(row.conditionKind, row, columns));
+
+    let updated: MaAlertRow | null;
+    try {
+      updated = await deps.updateAlert(id, patch);
+    } catch (error) {
+      if (error instanceof AlertConflictError) {
+        return reply.code(409).send(bad(error.message));
+      }
+      throw error;
+    }
+    if (!updated) return reply.code(404).send(bad("alert not found"));
+    return { ...updated, warning: isIntrabar(updated.frequency) ? INTRABAR_WARNING : null };
+  };
+}
 
 export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -116,54 +309,9 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.patch("/api/ma-alerts/:id", async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const b = (req.body ?? {}) as Record<string, unknown>;
-    const patch: maAlertRepo.MaAlertPatch = {};
-    if (b.enabled !== undefined) patch.enabled = Boolean(b.enabled);
-    if (b.cooldownMin !== undefined) patch.cooldownMin = Number(b.cooldownMin);
-    if (b.nearMinPct !== undefined) patch.nearMinPct = Number(b.nearMinPct);
-    if (b.nearMaxPct !== undefined) patch.nearMaxPct = Number(b.nearMaxPct);
-    if (b.note !== undefined) patch.note = b.note === null ? null : String(b.note);
-    if (b.mode !== undefined) {
-      const mode = String(b.mode);
-      if (!isMaAlertMode(mode)) return reply.code(400).send(bad("invalid mode"));
-      patch.mode = mode;
-    }
-    if (b.timeframe !== undefined) {
-      const tf = String(b.timeframe);
-      if (!isInterval(tf)) return reply.code(400).send(bad("invalid timeframe"));
-      patch.timeframe = tf;
-    }
-    if (b.frequency !== undefined) {
-      const f = String(b.frequency);
-      if (!isAlertFrequency(f)) {
-        return reply.code(400).send(bad(`frequency must be one of ${ALERT_FREQUENCIES.join(", ")}`));
-      }
-      patch.frequency = f;
-    }
-    if (b.targetPrice !== undefined) {
-      const t = Number(b.targetPrice);
-      if (!Number.isFinite(t) || t <= 0) {
-        return reply.code(400).send(bad("targetPrice must be a positive number"));
-      }
-      patch.targetPrice = t;
-    }
-    if (b.priceDirection !== undefined) {
-      const d = String(b.priceDirection);
-      if (!isPriceDirection(d)) {
-        return reply.code(400).send(bad(`priceDirection must be one of ${PRICE_DIRECTIONS.join(", ")}`));
-      }
-      patch.priceDirection = d;
-    }
-    if (patch.nearMinPct !== undefined && patch.nearMaxPct !== undefined &&
-        patch.nearMaxPct <= patch.nearMinPct) {
-      return reply.code(400).send(bad("nearMaxPct must be greater than nearMinPct"));
-    }
-    const row = await maAlertRepo.updateAlert(id, patch);
-    if (!row) return reply.code(404).send(bad("alert not found"));
-    return { ...row, warning: isIntrabar(row.frequency) ? INTRABAR_WARNING : null };
-  });
+  app.post("/api/ma-alerts/bulk", bulkAlertHandler());
+
+  app.patch("/api/ma-alerts/:id", alertPatchHandler());
 
   app.delete("/api/ma-alerts/:id", async (req, reply) => {
     const { id } = req.params as { id: string };

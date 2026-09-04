@@ -118,6 +118,33 @@ export async function latestOpenTime(
   return rows[0] ? rows[0].open_time.getTime() : null;
 }
 
+/**
+ * Stored row count and first/last open time inside an explicit window.
+ *
+ * Operator backfills need to report what actually landed for the range they
+ * asked for, not the whole table; this keeps that single aggregate in the
+ * repository rather than growing another ad-hoc query in a script.
+ */
+export async function coverage(
+  symbol: string,
+  interval: Interval,
+  from: number,
+  to: number
+): Promise<{ rows: number; firstOpenTime: number | null; lastOpenTime: number | null }> {
+  const { rows } = await query<{ n: number; first: Date | null; last: Date | null }>(
+    `SELECT count(*)::bigint AS n, min(open_time) AS first, max(open_time) AS last
+       FROM candles
+      WHERE symbol = $1 AND interval = $2 AND open_time >= $3 AND open_time <= $4`,
+    [symbol, interval, new Date(from), new Date(to)]
+  );
+  const r = rows[0];
+  return {
+    rows: r?.n ?? 0,
+    firstOpenTime: r?.first ? r.first.getTime() : null,
+    lastOpenTime: r?.last ? r.last.getTime() : null,
+  };
+}
+
 export async function countCandles(
   symbol: string,
   interval: Interval

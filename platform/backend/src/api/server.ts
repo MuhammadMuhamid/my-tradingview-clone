@@ -15,6 +15,13 @@ import { authRoutes } from "./routes/auth";
 import { watchlistRoutes } from "./routes/watchlists";
 import { maAlertRoutes } from "./routes/maAlerts";
 import { operationsRoutes } from "./routes/operations";
+import { manualTradingRoutes } from "./routes/manualTrading";
+import { scannerRoutes } from "./routes/scanner";
+import { tradingTimelineRoutes } from "./routes/tradingTimeline";
+import { journalRoutes } from "./routes/journal";
+import { tradingOverlayRoutes } from "./routes/tradingOverlays";
+import { realizationEventRoutes } from "./routes/realizationEvents";
+import { shariahRoutes } from "./routes/shariah";
 import type { LiveRunner } from "../engine/liveRunner";
 import {
   SESSION_COOKIE, readCookie, sessionCookie, signSession, verifySession,
@@ -22,7 +29,8 @@ import {
 
 /** Reachable without a session: health probes and the sign-in flow itself. */
 const PUBLIC_PATHS = new Set([
-  "/health", "/healthz", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+  "/health", "/healthz", "/readyz", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+  "/api/internal/realization-events/v1",
 ]);
 
 /**
@@ -144,6 +152,13 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(maAlertRoutes);
   app.register(watchlistRoutes);
   app.register(operationsRoutes(getRunner));
+  app.register(manualTradingRoutes);
+  app.register(scannerRoutes);
+  app.register(tradingTimelineRoutes);
+  app.register(journalRoutes);
+  app.register(tradingOverlayRoutes);
+  app.register(realizationEventRoutes);
+  app.register(shariahRoutes);
 
   return app;
 }

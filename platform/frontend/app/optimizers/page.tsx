@@ -8,7 +8,7 @@ type Metric = "score" | "net" | "dd" | "wr" | "pf" | "trades"
   | "oos" | "oosdd" | "ooswr" | "oostrades" | "held" | "sl" | "oossl";
 
 /**
- * Did the in-sample edge survive on data the optimiser never saw?
+ * Did the in-sample edge survive on data the optimizer never saw?
  * A row that is green in-sample and red out-of-sample was fitted to noise,
  * however good its headline numbers look.
  */
@@ -215,7 +215,7 @@ export default function OptimizersPage() {
             onChange={(e) => setSelected(e.target.value)}
             disabled={!trees || trees.length === 0}
           >
-            {!trees && <option value="">Loading trees…</option>}
+            {!trees && <option value="">{treesError ? "Optimizer trees unavailable" : "Loading trees…"}</option>}
             {trees?.length === 0 && <option value="">No optimizer tree is registered</option>}
             {trees?.map((t) => <option value={t.id} key={t.id}>{t.label}</option>)}
           </Select>
@@ -246,7 +246,9 @@ export default function OptimizersPage() {
           right={<span className="text-xs text-ink-faint">
             Total backtests: {data?.testsState === "pending"
               ? "counting…"
-              : (data?.totalBacktests ?? 0).toLocaleString()}
+              : data ? data.totalBacktests.toLocaleString()
+              : (error || treesError) ? "unknown"
+              : "…"}
           </span>}
         />
         {current && STATUS_NOTE[current.status] && (
@@ -274,7 +276,7 @@ export default function OptimizersPage() {
           </p>
         )}
         <p className="px-4 pb-2 text-xs text-ink-faint">
-          Left of the divider is <strong>in-sample</strong> — the window the optimiser searched.
+          Left of the divider is <strong>in-sample</strong> — the window the optimizer searched.
           Right is <strong>out-of-sample</strong>, which it never saw. Only trust a row where both
           halves are green: <span className="text-down">FAILED</span> means the edge did not survive
           on unseen data.

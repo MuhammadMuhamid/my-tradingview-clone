@@ -12,6 +12,7 @@
     "verify": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
     "lightweight-charts": "^4.2.0",
     "next": "^16.2.10",
     "react": "^18.3.1",

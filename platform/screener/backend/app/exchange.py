@@ -1,9 +1,8 @@
-"""Exchange abstraction.
+"""Exchange abstraction for the canonical Binance Spot Scanner feed.
 
-Everything above this module talks to `MarketFeed`, never to ccxt. That is what
-makes the exchange swappable per §1 (Binance may be unreachable from the deploy
-region; Bybit and OKX are the fallbacks) and what lets the cache tests count
-fetches against a fake without touching the network.
+Everything above this module talks to `MarketFeed`, never to ccxt. That keeps
+network behavior testable with a fake while the production adapter remains
+explicitly pinned to the product's Binance Spot market identity.
 """
 
 from __future__ import annotations
@@ -16,12 +15,12 @@ from .timeframes import duration_ms as timeframe_ms
 
 log = logging.getLogger(__name__)
 
-FALLBACK_EXCHANGES = ("binanceusdm", "bybit", "okx")
+BINANCE_SPOT = "binance"
 
 # Bars returned per `fetch_ohlcv` call, measured — ccxt does not expose these
 # uniformly. Asking for more is silently truncated, which is how a "750-bar"
 # series quietly becomes a 500-bar one.
-_PAGE_CAPS = {"binanceusdm": 1000, "binance": 1000, "bybit": 1000, "okx": 300}
+_PAGE_CAPS = {BINANCE_SPOT: 1000}
 
 
 @runtime_checkable
@@ -39,10 +38,9 @@ class MarketFeed(Protocol):
 class SymbolResolution:
     """Outcome of validating the configured symbol list against `load_markets()`.
 
-    Config carries plain `BASE/QUOTE` symbols (§3). Exchanges do not all speak
-    that: ccxt's unified symbol for a linear perpetual is `BASE/QUOTE:SETTLE`,
-    so `BTC/USDT` on `binanceusdm` is really `BTC/USDT:USDT`. `native` holds that
-    translation so the rest of the app never has to know.
+    Config carries ccxt's unified Spot `BASE/QUOTE` symbols (§3). `native` is
+    retained as an explicit mapping so callers can prove that the represented
+    instrument is the exact configured Spot pair, never a substituted contract.
     """
 
     native: dict[str, str] = field(default_factory=dict)   # config symbol -> exchange symbol
@@ -60,61 +58,50 @@ _DENOM_PREFIXES = ("1000", "10000", "1000000", "1M")
 
 
 def _near_match_hint(markets: dict[str, dict], base: str, quote: str) -> str:
-    """Suggest a denominated contract without adopting it.
-
-    Binance lists low-priced assets as `1000PEPE/USDT:USDT` — a different quote
-    unit for the same asset. Percentage-based outputs would survive the swap but
-    price levels would not, so the substitution is the user's call, not ours.
-    """
+    """Suggest a denominated Spot market without adopting it."""
     for prefix in _DENOM_PREFIXES:
         alt = f"{prefix}{base}"
         for m in markets.values():
-            if m.get("base") == alt and m.get("quote") == quote and m.get("active") is not False:
-                return f" — did you mean {alt}/{quote}? (denominated contract, different price scale)"
+            if (m.get("base") == alt and m.get("quote") == quote
+                    and m.get("spot") is True and m.get("active") is not False):
+                return f" — did you mean {alt}/{quote}? (denominated market, different price scale)"
     return ""
 
 
 def _match_market(markets: dict[str, dict], symbol: str) -> tuple[str | None, str | None]:
-    """Resolve one `BASE/QUOTE` symbol to an exchange-native symbol.
-
-    Preference order: an exact match (spot exchanges), then the perpetual swap
-    settled in the quote currency, then any active linear swap on that pair.
-    Dated futures (`BTC/USDT:USDT-260925`) are never chosen implicitly — they
-    expire, and a screener silently tracking an expiring contract is a trap.
-    """
+    """Resolve only the exact active Spot `BASE/QUOTE` instrument."""
     market = markets.get(symbol)
     if market is not None:
         if market.get("active") is False:
             return None, "market is inactive (delisted or halted)"
-        return symbol, None
+        if market.get("spot") is not True:
+            return None, "exact symbol is not a Spot market"
+        native = market.get("symbol")
+        if native != symbol:
+            return None, "exchange market identity does not match the configured Spot symbol"
+        return native, None
 
     base, _, quote = symbol.partition("/")
-    candidates = [
-        m for m in markets.values()
-        if m.get("base") == base and m.get("quote") == quote
-        and m.get("swap") and m.get("linear") and m.get("settle") == quote
-    ]
-    if not candidates:
-        return None, "not listed on this exchange" + _near_match_hint(markets, base, quote)
-
-    active = [m for m in candidates if m.get("active") is not False]
-    if not active:
-        return None, "market is inactive (delisted or halted)"
-    return active[0]["symbol"], None
+    return None, "not listed as an exact Spot market on this exchange" + _near_match_hint(
+        markets, base, quote
+    )
 
 
 class CcxtFeed:
     """`ccxt.async_support` adapter. Rate limiting is delegated to ccxt itself."""
 
-    def __init__(self, exchange_id: str = "binanceusdm", options: dict | None = None) -> None:
+    def __init__(self, exchange_id: str = BINANCE_SPOT, options: dict | None = None) -> None:
         import ccxt.async_support as ccxt_async
 
         if not hasattr(ccxt_async, exchange_id):
             raise ValueError(f"unknown exchange id: {exchange_id!r}")
+        if exchange_id != BINANCE_SPOT:
+            raise ValueError("Scanner market feed must be Binance Spot")
         self.id = exchange_id
-        self._client = getattr(ccxt_async, exchange_id)(
-            {"enableRateLimit": True, **(options or {})}
-        )
+        client_options = dict((options or {}).get("options") or {})
+        client_options["defaultType"] = "spot"
+        config = {"enableRateLimit": True, **(options or {}), "options": client_options}
+        self._client = getattr(ccxt_async, exchange_id)(config)
         self._markets: dict[str, dict] | None = None
 
     async def load_markets(self) -> dict[str, dict]:
@@ -125,7 +112,7 @@ class CcxtFeed:
     async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> list[list[float]]:
         """Fetch `limit` bars, paginating backwards when the exchange caps a page.
 
-        Binance USDⓈ-M returns at most 1000 bars per call regardless of what you
+        Binance returns at most 1000 Spot bars per call regardless of what you
         ask for, and the screener needs more than that: Pine seeds `ta.ema` with
         an SMA, and a 200-period EMA carries ~0.4% of that seed after 550 bars.
         Two pages put it under 1e-7, which is what the §8.1 tolerance needs.

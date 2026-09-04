@@ -7,11 +7,14 @@ import { isInterval } from "../../types/market";
 import { deliversLiveOrders, type DeliveryMode } from "../../types/deployments";
 import type { StrategyParams } from "../../types/strategy";
 import type { LiveRunner } from "../../engine/liveRunner";
-import { buildPayload, deliver, validateWebhookUrl, type SignalContext } from "../../alerts/dispatcher";
+import {
+  buildPayload, deliver, validateWebhookUrl, withShariahEvidence, type SignalContext,
+} from "../../alerts/dispatcher";
 import { validateDeploymentPatch, type DeploymentPatchInput } from "../deploymentPatch";
 import { config as appConfig } from "../../config";
 import * as paperRepo from "../../repositories/paperFills";
 import { PAPER_COMMISSION_PCT, summarisePaper } from "../../engine/paperBroker";
+import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
 
 const DELIVERY_MODES: DeliveryMode[] = ["3commas", "custom", "off", "paper"];
 const publicDeployment = <T extends { secret: string | null; botUuid: string | null }>(d: T) => ({
@@ -20,7 +23,10 @@ const publicDeployment = <T extends { secret: string | null; botUuid: string | n
   botUuid: d.botUuid ? "[CONFIGURED]" : null,
 });
 
-export function deploymentRoutes(getRunner: () => LiveRunner) {
+export function deploymentRoutes(
+  getRunner: () => LiveRunner,
+  deps: { shariah?: ShariahGateDeps } = {}
+) {
   return async function (app: FastifyInstance): Promise<void> {
     const runner = { activate: (id: string) => getRunner().activate(id), deactivate: (id: string) => getRunner().deactivate(id) };
     app.post("/api/deployments", async (req, reply) => {
@@ -191,6 +197,20 @@ export function deploymentRoutes(getRunner: () => LiveRunner) {
         return reply.code(409).send({ error: "test buy must be greater than 0 and at most 20 USDT" });
       }
 
+      /*
+       * This route places a REAL order through the same dispatcher the live
+       * runner uses, so it is a real new-exposure path and is gated like one.
+       * A $20 ceiling bounds the size of a mistake; it does not make buying a
+       * non-ELIGIBLE asset acceptable while Shariah Mode is on.
+       */
+      const shariah = await evaluateShariahGate(
+        { symbol: dep.symbol, side: body.action === "buy" ? "BUY" : "SELL" },
+        deps.shariah ?? {}
+      );
+      if (!shariah.allowed) {
+        return reply.code(403).send({ error: shariah.reason, shariah: shariah.context });
+      }
+
       const tickerRes = await fetch(
         `https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(dep.symbol)}`
       );
@@ -217,7 +237,10 @@ export function deploymentRoutes(getRunner: () => LiveRunner) {
         prevPositionSize: body.action === "buy" ? 0 : estimatedQty,
         contracts: estimatedQty,
       };
-      const built = buildPayload(dep, ctx);
+      // Same reasoning as LiveRunner: the gate above decided, and the decision
+      // has to travel with the order so the receiver can apply it too.
+      const built = withShariahEvidence(buildPayload(dep, ctx),
+        { symbol: dep.symbol, side: body.action, context: shariah.context });
       if (built.dedupeKey && await alertRepo.dedupeKeyExists(dep.id, built.dedupeKey)) {
         return reply.code(409).send({ error: "duplicate test signal" });
       }

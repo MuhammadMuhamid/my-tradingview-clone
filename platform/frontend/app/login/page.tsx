@@ -58,7 +58,7 @@ function LoginForm() {
           value={password} onChange={(e) => setPassword(e.target.value)}
           className={`mt-1 ${box}`} />
 
-        {err && <p className="mt-3 text-sm text-down">{err}</p>}
+        {err && <p role="alert" className="mt-3 text-sm text-down">{err}</p>}
 
         <button type="submit" disabled={busy || !username || !password}
           className="mt-5 w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-40">

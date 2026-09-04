@@ -8,7 +8,7 @@ import pytest
 
 from app.cache import CandleCache, drop_forming_bar, now_ms
 from app.config import ConfigStore
-from app.exchange import resolve_symbols
+from app.exchange import CcxtFeed, resolve_symbols
 from app.timeframes import duration_ms
 from tests.fakes import FakeFeed
 
@@ -171,6 +171,24 @@ def test_unknown_symbols_are_reported_not_dropped():
     assert "not listed" in res.unresolved["NOPE/USDT"]
 
 
+def test_exact_spot_symbol_wins_without_contract_substitution():
+    class MixedFeed(FakeFeed):
+        async def load_markets(self):
+            return {
+                "BTC/USDT": {
+                    "symbol": "BTC/USDT", "base": "BTC", "quote": "USDT",
+                    "spot": True, "active": True,
+                },
+                "BTC/USDT:USDT": {
+                    "symbol": "BTC/USDT:USDT", "base": "BTC", "quote": "USDT",
+                    "spot": False, "swap": True, "linear": True, "active": True,
+                },
+            }
+
+    res = asyncio.run(resolve_symbols(MixedFeed([]), ["BTC/USDT"]))
+    assert res.native == {"BTC/USDT": "BTC/USDT"}
+
+
 def test_unreachable_exchange_marks_every_symbol_unresolved():
     class Dead(FakeFeed):
         async def load_markets(self):
@@ -182,8 +200,8 @@ def test_unreachable_exchange_marks_every_symbol_unresolved():
     assert "geo-blocked" in res.unresolved["BTC/USDT"]
 
 
-def test_settle_suffixed_perpetuals_resolve_from_plain_symbols():
-    """`binanceusdm` lists `BTC/USDT:USDT`; config says `BTC/USDT`. Bridge it."""
+def test_spot_resolution_never_falls_back_to_a_perpetual():
+    """A Futures contract with the same base/quote is not the configured Spot pair."""
 
     class PerpFeed(FakeFeed):
         async def load_markets(self):
@@ -199,31 +217,81 @@ def test_settle_suffixed_perpetuals_resolve_from_plain_symbols():
             }
 
     res = asyncio.run(resolve_symbols(PerpFeed([]), ["BTC/USDT", "DEAD/USDT", "GONE/USDT"]))
-    assert res.native == {"BTC/USDT": "BTC/USDT:USDT"}, "dated futures must not be picked"
-    assert "inactive" in res.unresolved["DEAD/USDT"]
+    assert res.native == {}
+    assert "Spot" in res.unresolved["BTC/USDT"]
+    assert "Spot" in res.unresolved["DEAD/USDT"]
     assert "not listed" in res.unresolved["GONE/USDT"]
 
 
-def test_cache_fetches_under_the_native_symbol_but_keys_on_the_config_symbol(store):
-    feed = FakeFeed(["BTC/USDT:USDT"])
-    cache = CandleCache(feed, store, symbol_map={"BTC/USDT": "BTC/USDT:USDT"})
+def test_cache_fetches_the_exact_spot_symbol(store):
+    feed = FakeFeed(["BTC/USDT"])
+    feed.id = "binance"
+    cache = CandleCache(feed, store, symbol_map={"BTC/USDT": "BTC/USDT"})
     asyncio.run(cache.refresh([("BTC/USDT", "1h")]))
 
-    assert feed.calls == {("BTC/USDT:USDT", "1h"): 1}
+    assert feed.calls == {("BTC/USDT", "1h"): 1}
     assert len(cache.get("BTC/USDT", "1h")) > 0
 
 
-def test_denominated_contract_is_suggested_never_substituted():
-    """`PEPE/USDT` is `1000PEPE/USDT:USDT` on Binance — a different price scale."""
+def test_denominated_spot_market_is_suggested_never_substituted():
 
     class DenomFeed(FakeFeed):
         async def load_markets(self):
             return {
-                "1000PEPE/USDT:USDT": {"symbol": "1000PEPE/USDT:USDT", "base": "1000PEPE",
-                                       "quote": "USDT", "settle": "USDT", "swap": True,
-                                       "linear": True, "active": True},
+                "1000PEPE/USDT": {"symbol": "1000PEPE/USDT", "base": "1000PEPE",
+                                  "quote": "USDT", "spot": True, "active": True},
             }
 
     res = asyncio.run(resolve_symbols(DenomFeed([]), ["PEPE/USDT"]))
     assert res.native == {}
     assert "1000PEPE/USDT" in res.unresolved["PEPE/USDT"]
+
+
+def test_ccxt_adapter_forces_binance_spot_configuration(monkeypatch):
+    import ccxt.async_support as ccxt_async
+
+    received = {}
+
+    class Client:
+        options = {}
+
+        def __init__(self, config):
+            received.update(config)
+
+    monkeypatch.setattr(ccxt_async, "binance", Client)
+    feed = CcxtFeed("binance", {"options": {"adjustForTimeDifference": True}})
+
+    assert feed.id == "binance"
+    assert received["enableRateLimit"] is True
+    assert received["options"] == {
+        "adjustForTimeDifference": True,
+        "defaultType": "spot",
+    }
+    with pytest.raises(ValueError, match="Binance Spot"):
+        CcxtFeed("binanceusdm")
+
+
+def test_legacy_futures_rows_and_metadata_are_invisible_to_spot_cache(store):
+    rows = [[1_700_000_000_000, 10, 11, 9, 10.5, 100]]
+    store.upsert("binanceusdm", "BTC/USDT", "1h", rows)
+    store.set_meta("binanceusdm", "BTC/USDT", "1h", 1_700_000_000_001, rows[0][0])
+
+    feed = FakeFeed(["BTC/USDT"])
+    feed.id = "binance"
+    spot = CandleCache(feed, store)
+
+    assert spot.get("BTC/USDT", "1h").empty
+    assert spot.store.get_meta("binance", "BTC/USDT", "1h") is None
+    assert spot.is_fresh("BTC/USDT", "1h") is False
+
+
+def test_legacy_futures_calibration_storage_is_invisible_to_spot(store):
+    historical = {
+        "symbol": "BTC/USDT", "timeframe": "1h", "generated_at": 1,
+        "available": True, "fingerprint": "usd-m-fingerprint",
+    }
+    store.save_calibration("binanceusdm", "BTC/USDT", "1h", historical)
+
+    assert store.load_calibration("binance", "BTC/USDT", "1h") is None
+    assert store.list_calibrations("binance") == []
+    assert store.load_calibration("binanceusdm", "BTC/USDT", "1h") == historical

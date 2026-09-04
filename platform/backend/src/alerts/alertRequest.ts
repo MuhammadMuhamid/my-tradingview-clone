@@ -203,8 +203,14 @@ export function readCondition(
   return { condition: { kind: "ma_vs_ma", maType, maLength, ma2Type, ma2Length, mode } };
 }
 
-/** Flatten a condition back into the column shape the repository writes. */
-export function toColumns(condition: AlertCondition): {
+/**
+ * The flat column shape a condition is stored as.
+ *
+ * Named so the edit path can talk about "the columns this alert would have"
+ * without restating the list, and so a family added here cannot be forgotten
+ * by `alerts/alertEdit.ts`.
+ */
+export type AlertColumns = {
   conditionKind: ConditionKind;
   maType: MaType | null; maLength: number | null; mode: MaAlertMode | null;
   ma2Type: MaType | null; ma2Length: number | null;
@@ -219,7 +225,10 @@ export function toColumns(condition: AlertCondition): {
   filterRsiSide: string | null;
   filterMaType: MaType | null; filterMaLength: number | null;
   filterMaSide: string | null;
-} {
+};
+
+/** Flatten a condition back into the column shape the repository writes. */
+export function toColumns(condition: AlertCondition): AlertColumns {
   // Columns that belong to no kind are null, so a row never carries another
   // kind's settings for an operator to misread.
   const empty = {

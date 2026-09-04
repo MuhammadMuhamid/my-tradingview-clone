@@ -3,6 +3,7 @@ import { ensureCandles, fetchKlines, syncExchangeFilters } from "../../data/bina
 import * as candleRepo from "../../repositories/candles";
 import * as symbolRepo from "../../repositories/symbols";
 import { isInterval } from "../../types/market";
+import { inspectCandleIntegrity } from "../../data/candleIntegrity";
 
 export async function dataRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -33,7 +34,10 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     }
     const fetched = await fetchKlines(symbol, body.interval, startMs, endMs);
     await candleRepo.upsertCandles(fetched);
-    return { symbol, interval: body.interval, fetched: fetched.length };
+    const integrity = inspectCandleIntegrity(fetched, {
+      symbol, interval: body.interval, now: endMs, checkFreshness: false,
+    });
+    return { symbol, interval: body.interval, fetched: fetched.length, integrity };
   });
 
   /** Ensure coverage without necessarily refetching (used before backtests). */

@@ -103,6 +103,32 @@ export function missingBarCount(candles: Candle[], interval: Interval): number {
 }
 
 /**
+ * Refuse to turn a truly gapped candle range into a packed bar array.
+ *
+ * Only consecutive candles are compared. A range that starts after the
+ * requested warmup/listing boundary or ends before the requested window edge
+ * is therefore valid; there is no fabricated expectation outside the data we
+ * actually received. A missing slot between two present candles is different:
+ * packing those rows would silently make indicators advance across less time
+ * than the timestamps say elapsed.
+ */
+export function assertNoInternalCandleGaps(
+  candles: Candle[],
+  interval: Interval,
+  label = `${candles[0]?.symbol ?? "unknown symbol"} ${interval}`
+): void {
+  const gaps = checkSeries(candles, interval).gaps;
+  if (gaps.length === 0) return;
+  const total = gaps.reduce((n, gap) => n + gap.missingBars, 0);
+  const first = gaps[0]!;
+  throw new Error(
+    `internal candle gap in ${label}: ${total} ${interval} bar(s) missing; ` +
+    `first gap is after ${new Date(first.afterOpenTime).toISOString()} and before ` +
+    `${new Date(first.beforeOpenTime).toISOString()}. Refusing to compress time.`
+  );
+}
+
+/**
  * Keep the last-seen row for each open time and return them ascending. Mirrors
  * the database's `ON CONFLICT (symbol, interval, open_time) DO UPDATE`, which
  * is what makes re-fetching a range idempotent.

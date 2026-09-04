@@ -5,8 +5,8 @@
  * `Driver`, `loadDriver`, `seedDone` and `scoreMetrics` were byte-identical in
  * all five search trees. Consolidation is only safe if it is provably
  * behaviour-preserving, so the ORIGINAL implementation is reproduced verbatim
- * below and the shared one is required to agree with it — candidate for
- * candidate, score for score.
+ * below. The shared one must agree candidate for candidate and on every
+ * objective branch outside the explicitly tested overtrade contract repair.
  *
  * If a future change to the shared driver is intended to change search
  * behaviour, these tests are supposed to fail. That is the point: a silent
@@ -165,10 +165,10 @@ test("genomeToParams is unchanged", () => {
   }
 });
 
-test("the objective is unchanged across every branch", () => {
+test("the objective is unchanged outside the repaired overtrade contract", () => {
   const objectives: Record<string, number>[] = [
     {}, { min_trades: 30 }, { min_trades: 0, dd_weight: 2 },
-    { min_profit_factor: 1.1 }, { overtrade_weight: 0.05, trade_soft_cap: 100 },
+    { min_profit_factor: 1.1 },
   ];
   const metrics: Record<string, number | null>[] = [
     { net_pct: 120, dd_pct: 8, trades: 55, profit_factor: 1.4 },
@@ -184,6 +184,36 @@ test("the objective is unchanged across every branch", () => {
         `${JSON.stringify(obj)} / ${JSON.stringify(m)}`);
     }
   }
+});
+
+test("Research overtrade configuration reaches the shared objective", () => {
+  const objective = {
+    min_trades: 0,
+    dd_weight: 2,
+    overtrade_penalty: 0.05,
+    overtrade_cap: 600,
+  };
+  const metrics = { net_pct: 100, dd_pct: 4, trades: 600, profit_factor: 1.5 };
+
+  assert.equal(scoreMetrics(metrics, objective), 92, "no penalty applies at the cap");
+  assert.equal(scoreMetrics({ ...metrics, trades: 580 }, objective), 92,
+    "no penalty applies below the cap");
+  assert.equal(scoreMetrics({ ...metrics, trades: 620 }, objective), 100 - 8 - (0.05 * 20),
+    "the configured per-trade penalty applies above the configured cap");
+});
+
+test("overtrade values and absence preserve their exact configured behavior", () => {
+  const metrics = { net_pct: 50, dd_pct: 0, trades: 20, profit_factor: 1.5 };
+
+  assert.equal(scoreMetrics(metrics, {
+    min_trades: 0,
+    overtrade_penalty: 1.25,
+    overtrade_cap: 12,
+  }), 40, "custom penalty and cap values are used without translation");
+  assert.equal(scoreMetrics(metrics, { min_trades: 0 }), 50,
+    "an absent overtrade configuration retains the zero-penalty default");
+  assert.equal(scoreMetrics(metrics, { min_trades: 0, overtrade_penalty: 1.25 }), 50,
+    "an absent cap retains the existing one-billion-trade default");
 });
 
 test("the per-coin seed offset is unchanged", () => {

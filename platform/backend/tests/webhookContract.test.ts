@@ -9,7 +9,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPayload, customDedupeKey, deliveryAdvancesState } from "../src/alerts/dispatcher";
+import { buildPayload, customDedupeKey, platformCorrelationHeaders,
+  deliveryAdvancesState } from "../src/alerts/dispatcher";
 import type { CustomBotAlertPayload, ThreeCommasAlertPayload } from "../src/types/alerts";
 import type { DeploymentRow } from "../src/types/deployments";
 import { initialRuntimeState } from "../src/types/deployments";
@@ -84,6 +85,15 @@ test("the custom BUY payload the platform emits is accepted by the receiver", ()
   assert.deepEqual(receiverAccepts(p as unknown as Record<string, unknown>), { ok: true });
   assert.equal(receiverResolveAction(p.action), "buy");
   assert.equal(receiverNormalizeSymbol(p.symbol), "APTUSDT");
+});
+
+test("v2 correlation uses headers so a staged old Bot keeps receiving the strict v1 body", () => {
+  const built = buildPayload(dep(), ctx());
+  const headers = platformCorrelationHeaders({ deploymentId: dep().id, orderIntentId: 41 });
+  assert.equal("platform_deployment_id" in built.payload, false);
+  assert.deepEqual(headers, { "x-platform-deployment-id": dep().id,
+    "x-platform-order-intent-id": "41" });
+  assert.equal(receiverAccepts(built.payload as unknown as Record<string, unknown>).ok, true);
 });
 
 test("a full-close SELL carries no sell_percent and is accepted", () => {

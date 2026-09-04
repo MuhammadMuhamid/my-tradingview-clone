@@ -14,9 +14,33 @@ import {
   legacyDedupeKey,
   mayAdvanceLocalState,
   orderPlaced,
+  PLATFORM_DEPLOYMENT_ID_HEADER,
+  PLATFORM_ORDER_INTENT_ID_HEADER,
+  shariahEvidenceCanonical,
   type ExitLeg,
   type ReceiverOutcome,
+  type ShariahContext,
 } from "../contract/webhookContract";
+import { createHmac, randomBytes } from "node:crypto";
+
+/**
+ * Mint the single-use identity of one Shariah authorisation.
+ *
+ * 24 bytes from the platform CSPRNG, base64url — 192 bits in 32 characters,
+ * which is the same generator and the same encoding the manual control channel
+ * already uses for its request nonces (`manualTrading/client.ts`). Reusing it
+ * keeps one answer in this repository to "where does an unguessable identifier
+ * come from", and puts this comfortably above the contract's 132-bit floor.
+ *
+ * It is minted per DELIVERY, not per bar and not per deployment. Nothing about
+ * the order it authorises is derivable from it: not the symbol, not the time,
+ * not the decision. That is the point — a nonce a replayer can predict is not a
+ * nonce, and one derived from the timestamp would simply reintroduce the
+ * problem v5 exists to fix.
+ */
+function mintShariahNonce(): string {
+  return randomBytes(24).toString("base64url");
+}
 
 export interface SignalContext {
   action: "buy" | "sell";
@@ -39,6 +63,75 @@ export interface BuiltAlert {
   payload: AlertPayload;
   dedupeKey: string | null;
   url: string | null;
+}
+
+/**
+ * Attach the Shariah decision to an automated custom-bot alert, with a detached
+ * signature proving the Platform made it.
+ *
+ * ── Why the manual path needs no equivalent ─────────────────────────────────
+ *
+ * A manual order is delivered over the HMAC channel, whose signature covers a
+ * canonical hash of the ENTIRE body; the block is authenticated there for free.
+ * This path is different. Its only authentication is the per-deployment webhook
+ * secret carried inside the body — which authorises placing an order and says
+ * nothing about who screened the asset. A block sent bare here would be exactly
+ * the "arbitrary unsigned client classification field" the receiver must not
+ * trust, so it travels with its own signature over the symbol, the side, the
+ * decision and the time.
+ *
+ * The key is the manual HMAC secret the Platform already shares with the Bot. A
+ * TradingView alert firing at the same endpoint has the webhook secret but not
+ * this one, which is precisely why it cannot certify its own BUY.
+ *
+ * 3Commas is left alone: it is a third party with no Shariah contract, and the
+ * gate has already refused anything it must not receive.
+ */
+export function withShariahEvidence(
+  built: BuiltAlert,
+  input: { symbol: string; side: "buy" | "sell"; context: ShariahContext },
+  secret = config.manualTradingHmacSecret
+): BuiltAlert {
+  const payload = built.payload;
+  // Only the custom shape carries it. `3commas` has no such field, and the
+  // off/paper shapes make no outbound call at all.
+  if (!("dedupe_key" in payload) || built.url === null) return built;
+  /*
+   * An installation with no shared secret has no execution Bot to sign for, so
+   * there is nothing to certify and no authorisation to mint. The block still
+   * ships as evidence; unproven, the receiver treats it as strictly no weaker
+   * than omitting it.
+   *
+   * The detached trio ships whole or not at all. It used to emit `shariah_ts`
+   * even with no `shariah_sig`, which the shared validator's pairing rule
+   * rejects — harmless in practice, because a receiver that cannot verify a
+   * signature reaches the same refusal either way, but it meant the sender
+   * could emit a payload the contract calls invalid. Since the nonce joins the
+   * same set, the set is now assembled in one place.
+   */
+  if (!secret) {
+    return { ...built, payload: { ...(payload as CustomBotAlertPayload), shariah: input.context } };
+  }
+  const timestamp = String(Date.now());
+  const nonce = mintShariahNonce();
+  const canonical = shariahEvidenceCanonical({
+    symbol: input.symbol, side: input.side, timestamp, nonce, context: input.context });
+  const signed: CustomBotAlertPayload = {
+    ...(payload as CustomBotAlertPayload),
+    shariah: input.context,
+    shariah_ts: timestamp,
+    shariah_nonce: nonce,
+    shariah_sig: `v1=${createHmac("sha256", secret).update(canonical).digest("hex")}`,
+  };
+  return { ...built, payload: signed };
+}
+
+/** Exact v2 provenance in headers that an old Bot safely ignores. */
+export function platformCorrelationHeaders(
+  input: { deploymentId: string; orderIntentId: number }
+): Record<string, string> {
+  return { [PLATFORM_DEPLOYMENT_ID_HEADER]: input.deploymentId,
+    [PLATFORM_ORDER_INTENT_ID_HEADER]: String(input.orderIntentId) };
 }
 
 export function validateWebhookUrl(value: string): string {
@@ -206,6 +299,8 @@ export async function deliver(
     allowUnsafeTestUrl?: boolean;
     /** False when the payload carries no idempotency key — then never retry. */
     idempotent?: boolean;
+    /** Server-to-server provenance headers. Never include webhook credentials. */
+    headers?: Readonly<Record<string, string>>;
   } = {}
 ): Promise<DeliveryResult> {
   if (!url) return { status: "skipped", attempts: 0 };
@@ -232,7 +327,7 @@ export async function deliver(
     try {
       const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...opts.headers },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });

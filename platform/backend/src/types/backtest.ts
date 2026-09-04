@@ -127,6 +127,8 @@ export interface BacktestRow {
   error: string | null;
   metrics: BacktestMetrics | null;
   equityCurve: EquityPoint[] | null;
+  /** Engine/correction-set identity that produced the stored result. */
+  engineFingerprint: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;

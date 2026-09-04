@@ -1,26 +1,16 @@
 /**
- * `BE-08` — the multi-timeframe merge convention, and the tooling that settles
- * it.
+ * `BE-08` — the multi-timeframe merge convention and its no-future-data guard.
  *
- * The finding is a contradiction between `mtf.ts`'s header comment (higher-TF
- * cutoff at the chart bar's OPEN) and its implementation (cutoff at the chart
- * bar's CLOSE for all timeframes). If the header was right, every `ma_rr_v9` and
- * `srtrend_v10` result carries one bar of higher-timeframe look-ahead, because
- * neither applies a compensating shift.
+ * TradingView's Pine v6 documentation resolves the former OPEN-vs-CLOSE
+ * question: a `lookahead_off` request gets its new historical value at the end
+ * of the HTF period, so `chartClose` is the supported convention.
  *
- * **It is not resolved here, and nothing below guesses.** Settling it needs a
- * side-by-side TradingView comparison: no TradingView account is available in
- * this workspace, and `platform/backend/parity/` — which the code's own inline
- * comment cited as verification — is gitignored and absent from every clone.
+ * These tests:
  *
- * What these tests do instead:
- *
- *   * pin the DEFAULT to today's behaviour, so no stored result is invalidated;
+ *   * pin the DEFAULT to the documented behavior;
  *   * assert both conventions are implemented and differ where they should;
- *   * assert that NEITHER leaks the future, which reduces BE-08 from "does the
- *     code cheat" to "does TradingView delay by one bar" — a question a single
- *     comparison answers;
- *   * produce the exact bar-by-bar table that comparison should be run against.
+ *   * assert that neither convention leaks the future;
+ *   * preserve the comparison table that exposed the former one-bar mismatch.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -48,9 +38,7 @@ function bars(interval: Interval, count: number, startOpen = 0): Bars {
 
 // ── The default is today's behaviour ────────────────────────────────────────
 
-test("the default convention is `chartClose` — exactly what the code always did", () => {
-  // Every stored leaderboard number was produced under it. Changing the default
-  // is the act of resolving BE-08, and it must be deliberate.
+test("the default convention is TradingView's historical `chartClose` boundary", () => {
   assert.equal(DEFAULT_MERGE_CONVENTION, "chartClose");
   assert.deepEqual([...MERGE_CONVENTIONS], ["chartClose", "chartOpen"]);
 });
@@ -104,9 +92,8 @@ test("a same-timeframe feed is delayed by one bar under `chartOpen`", () => {
 });
 
 test("neither convention ever sees a feed bar that closed after the chart bar", () => {
-  // This is the substance of BE-08: the question is not whether the code cheats
-  // — it does not, under either convention — but whether TradingView delays by
-  // one bar. That is a comparison, not an argument.
+  // The supported chartClose convention is safe at chart-bar close. The more
+  // conservative diagnostic alternative is safe as well.
   const chart = bars("15m", 200);
   for (const feedTf of ["5m", "15m", "1h", "4h"] as const) {
     const feed = bars(feedTf, 200);
@@ -134,7 +121,7 @@ test("the analyser DOES detect look-ahead when it is present", () => {
   assert.equal(analyseLookahead(chart, feed, "chartClose").violations.length, 0);
 });
 
-test("the disagreement count measures how much BE-08 actually matters here", () => {
+test("the disagreement count measures the former BE-08 one-bar delay", () => {
   const chart = bars("15m", 100);
   const feed = bars("1h", 30);
   const report = analyseLookahead(chart, feed, "chartClose");

@@ -50,6 +50,7 @@ class RowSeries:
 class ScreenerRow:
     symbol: str
     state: str                       # ok | unresolved | no_data | partial
+    market: dict[str, Any] = field(default_factory=dict)
     price: float | None = None
     change_24h_pct: float | None = None
     indicators: dict[str, Any] = field(default_factory=dict)
@@ -68,6 +69,7 @@ class ScreenerRow:
     def to_json(self) -> dict:
         return {
             "symbol": self.symbol,
+            "market": self.market,
             "state": self.state,
             "price": self.price,
             "change_24h_pct": self.change_24h_pct,
@@ -184,6 +186,25 @@ class ScreenerService:
         tfs = self.config.active_timeframes()
         return [(s, tf) for s in self.resolution.native for tf in tfs]
 
+    # --- market identity ----------------------------------------------
+
+    def market_contract(self) -> dict[str, Any]:
+        """Stable Spot identity for downstream Platform consumers."""
+        return {
+            "exchange": self.cache.exchange_id,
+            "market_type": "spot",
+            "contract_type": None,
+            "linear": False,
+            "spot": True,
+        }
+
+    def market_identity(self, symbol: str) -> dict[str, Any]:
+        return {
+            **self.market_contract(),
+            "config_symbol": symbol,
+            "native_symbol": self.resolution.native.get(symbol),
+        }
+
     # --- rows ----------------------------------------------------------
 
     def _price_and_change(self, symbol: str, tfs: list[str]) -> tuple[float | None, float | None]:
@@ -203,14 +224,14 @@ class ScreenerService:
     def build_row(self, symbol: str) -> ScreenerRow:
         if symbol in self.resolution.unresolved:
             return ScreenerRow(
-                symbol=symbol, state="unresolved",
+                symbol=symbol, state="unresolved", market=self.market_identity(symbol),
                 note=self.resolution.unresolved[symbol],
             )
 
         enabled = {k: v for k, v in self.config.doc["indicators"].items() if v["enabled"]}
         tfs = self.config.active_timeframes()
 
-        row = ScreenerRow(symbol=symbol, state="ok")
+        row = ScreenerRow(symbol=symbol, state="ok", market=self.market_identity(symbol))
         row.price, row.change_24h_pct = self._price_and_change(symbol, tfs)
 
         frames: dict[str, pd.DataFrame] = {}
@@ -255,8 +276,9 @@ class ScreenerService:
         empirical = (self.config.doc.get("scoring", {}).get("empirical") or {})
         if empirical.get("enabled"):
             stored = self.store.load_calibration(self.cache.exchange_id, symbol, tfs[0])
+            expected = self._calibration_fingerprint(symbol, tfs[0])
             row.empirical = (
-                calib.lookup(stored, row.score.get("score")) if stored
+                calib.lookup(stored, row.score.get("score"), expected) if stored
                 else {"available": False, "display": "not calibrated", "hit_rate": None, "n": 0}
             )
 
@@ -291,6 +313,7 @@ class ScreenerService:
         rows = self.rows()
         return {
             "exchange": self.cache.exchange_id,
+            "market": self.market_contract(),
             "generated_at": now_ms(),
             "last_refresh_at": self.last_refresh_ms,
             "last_refresh_error": self.last_refresh_error,
@@ -395,6 +418,32 @@ class ScreenerService:
 
     # --- calibration (§6.2) --------------------------------------------
 
+    def _calibration_fingerprint(self, symbol: str, timeframe: str) -> str:
+        fingerprint, _ = calib.calibration_fingerprint(
+            self.config.doc,
+            symbol,
+            timeframe,
+            exchange=self.cache.exchange_id,
+            native_symbol=self.resolution.native.get(symbol),
+            with_sr=True,
+        )
+        return fingerprint
+
+    def _assess_calibration(self, payload: dict) -> dict:
+        symbol = payload.get("symbol")
+        timeframe = payload.get("timeframe")
+        if not isinstance(symbol, str) or not isinstance(timeframe, str):
+            return {
+                **payload,
+                "available": False,
+                "current": False,
+                "stale": True,
+                "stale_reason": "legacy calibration lacks symbol/timeframe provenance",
+            }
+        return calib.assess_provenance(
+            payload, self._calibration_fingerprint(symbol, timeframe)
+        )
+
     async def calibrate(self, symbol: str, with_sr: bool = True) -> dict:
         """Run the walk-forward calibration for one symbol, off the event loop."""
         if symbol not in self.resolution.native:
@@ -402,17 +451,35 @@ class ScreenerService:
         if symbol in self._calibrating:
             raise ValueError(f"{symbol} is already being calibrated")
 
+        doc = self.config.doc
         tf = self.config.active_timeframes()[0]
-        df = self.cache.get(symbol, tf)
-        if df.empty:
+        needed = {tf} | {
+            spec["timeframe"] for spec in doc["indicators"].values() if spec["enabled"]
+        }
+        frames = {source_tf: self.cache.get(symbol, source_tf) for source_tf in needed}
+        if frames[tf].empty:
             raise ValueError(f"no cached candles for {symbol} at {tf}")
+        missing = sorted(source_tf for source_tf, frame in frames.items() if frame.empty)
+        if missing:
+            raise ValueError(
+                f"no cached candles for {symbol} at configured timeframe(s): "
+                + ", ".join(missing)
+            )
 
         self._calibrating.add(symbol)
         try:
             loop = asyncio.get_running_loop()
             payload = await loop.run_in_executor(
                 None,
-                lambda: calib.calibrate(df, self.config.doc, symbol, tf, with_sr=with_sr),
+                lambda: calib.calibrate(
+                    frames,
+                    doc,
+                    symbol,
+                    tf,
+                    with_sr=with_sr,
+                    exchange=self.cache.exchange_id,
+                    native_symbol=self.resolution.native.get(symbol),
+                ),
             )
         finally:
             self._calibrating.discard(symbol)
@@ -420,14 +487,18 @@ class ScreenerService:
         payload["generated_at"] = now_ms()
         self._snapshot = None
         self.store.save_calibration(self.cache.exchange_id, symbol, tf, payload)
-        return payload
+        return self._assess_calibration(payload)
 
     def calibration(self, symbol: str) -> dict | None:
         tf = self.config.active_timeframes()[0]
-        return self.store.load_calibration(self.cache.exchange_id, symbol, tf)
+        payload = self.store.load_calibration(self.cache.exchange_id, symbol, tf)
+        return self._assess_calibration(payload) if payload else None
 
     def calibrations(self) -> list[dict]:
-        return self.store.list_calibrations(self.cache.exchange_id)
+        return [
+            self._assess_calibration(payload)
+            for payload in self.store.list_calibrations(self.cache.exchange_id)
+        ]
 
     # --- symbols -------------------------------------------------------
 

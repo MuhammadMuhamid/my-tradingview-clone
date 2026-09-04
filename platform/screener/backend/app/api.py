@@ -51,6 +51,7 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
         return {
             "ok": True,
             "exchange": svc.cache.exchange_id,
+            "market": svc.market_contract(),
             "symbols": len(svc.config.doc["symbols"]),
             "resolved": len(svc.resolution.native),
             "unresolved": len(svc.resolution.unresolved),
@@ -70,6 +71,7 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
         snap = svc.snapshot()
         return {
             "generated_at": snap["generated_at"],
+            "market": snap["market"],
             "strategy": snap["strategy"],
             "rows": [
                 {
@@ -88,6 +90,7 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
     @app.get("/api/symbols")
     async def symbols() -> dict:
         return {
+            "market": svc.market_contract(),
             "symbols": svc.config.doc["symbols"],
             "resolved": svc.resolution.native,
             "unresolved": svc.resolution.unresolved,
@@ -160,6 +163,9 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
                     "samples": c.get("samples"),
                     "window_days": (c.get("window") or {}).get("days"),
                     "warnings": len(c.get("warnings", [])),
+                    "current": c.get("current", False),
+                    "stale": c.get("stale", True),
+                    "stale_reason": c.get("stale_reason"),
                 }
                 for c in svc.calibrations()
             ]

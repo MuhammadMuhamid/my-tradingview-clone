@@ -8,6 +8,8 @@ Each of those is asserted *against* below.
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -274,3 +276,188 @@ def test_determinism(btc_1h, cfg):
     a = calibration.calibrate(btc_1h, cfg, "BTC/USDT", "1h", params={"max_bars": 400})
     b = calibration.calibrate(btc_1h, cfg, "BTC/USDT", "1h", params={"max_bars": 400})
     assert a == b
+
+
+# --- configured MTF basis and provenance ------------------------------
+
+
+def _frame(timeframe_ms: int, bars: int, first_close: float) -> pd.DataFrame:
+    close = np.arange(first_close, first_close + bars, dtype="float64")
+    return pd.DataFrame({
+        "ts": np.arange(bars, dtype="int64") * timeframe_ms,
+        "open": close,
+        "high": close + 1.0,
+        "low": close - 1.0,
+        "close": close,
+        "volume": np.full(bars, 1000.0),
+    })
+
+
+def test_higher_timeframe_is_unavailable_until_its_bar_closes():
+    decisions = _frame(300_000, 13, 1.0)
+    hourly = _frame(3_600_000, 2, 1000.0)
+
+    indices = calibration.source_bar_indices(decisions, hourly, "5m", "1h")
+
+    assert indices[10] == -1       # 00:55 decision close
+    assert indices[11] == 0        # 01:00 decision close; 00:00 1h is now confirmed
+    assert indices[12] == 0
+
+
+def test_mtf_alignment_uses_each_configured_indicator_timeframe(cfg, monkeypatch):
+    mixed = deepcopy(cfg)
+    for spec in mixed["indicators"].values():
+        spec["enabled"] = False
+    mixed["indicators"]["rsi"].update({"enabled": True, "timeframe": "1h"})
+    mixed["indicators"]["macd"].update({"enabled": True, "timeframe": "5m"})
+
+    decisions = _frame(300_000, 13, 10.0)
+    hourly = _frame(3_600_000, 2, 1000.0)
+
+    def marker_frames(df, _config):
+        return [
+            {
+                "rsi": {"rsi": float(row.close), "slope": 0.0},
+                "macd": {"hist": float(row.close), "bars_since_cross": 0},
+            }
+            for row in df.itertuples()
+        ]
+
+    monkeypatch.setattr(calibration, "indicator_frames", marker_frames)
+    payloads, sources = calibration.aligned_indicator_frames(
+        {"5m": decisions, "1h": hourly}, mixed, "5m"
+    )
+
+    assert "rsi" not in payloads[10]
+    assert payloads[11]["rsi"]["rsi"] == 1000.0
+    assert payloads[11]["macd"]["hist"] == 21.0
+    assert sources[11] == {"rsi": 0, "macd": 11}
+
+
+def test_current_mtf_payload_scores_exactly_like_live_inputs(btc_1h, cfg):
+    mixed = deepcopy(cfg)
+    mixed["indicators"]["rsi"]["timeframe"] = "5m"
+    mixed["indicators"]["sr"]["enabled"] = False
+
+    five_minute = btc_1h.copy()
+    five_minute["ts"] = np.arange(len(five_minute), dtype="int64") * 300_000
+    hourly = btc_1h.copy()
+    final_decision_close = int(five_minute["ts"].iloc[-1]) + 300_000
+    hourly["ts"] = (
+        final_decision_close
+        - 3_600_000
+        - np.arange(len(hourly) - 1, -1, -1, dtype="int64") * 3_600_000
+    )
+    frames = {"5m": five_minute, "1h": hourly}
+
+    payloads, _ = calibration.aligned_indicator_frames(frames, mixed, "5m")
+    historical_payload = payloads[-1]
+    live_payload = {
+        name: REGISTRY[name].compute(frames[spec["timeframe"]], spec["params"])
+        for name, spec in mixed["indicators"].items()
+        if spec["enabled"]
+    }
+
+    assert set(historical_payload) == set(live_payload)
+    assert compute_score(historical_payload, mixed["scoring"])["score"] == pytest.approx(
+        compute_score(live_payload, mixed["scoring"])["score"], rel=1e-9
+    )
+
+
+def test_matching_fingerprint_is_accepted(result, cfg):
+    expected, _ = calibration.calibration_fingerprint(cfg, "BTC/USDT", "1h")
+    assessed = calibration.assess_provenance(result, expected)
+    assert assessed["current"] is True
+    assert assessed["stale"] is False
+    assert assessed["available"] == result["available"]
+
+
+def test_indicator_timeframe_change_invalidates_calibration(result, cfg):
+    changed = deepcopy(cfg)
+    changed["indicators"]["rsi"]["timeframe"] = "15m"
+    expected, _ = calibration.calibration_fingerprint(changed, "BTC/USDT", "1h")
+    assessed = calibration.assess_provenance(result, expected)
+    assert assessed["current"] is False
+    assert assessed["available"] is False
+    assert "fingerprint" in assessed["stale_reason"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda doc: doc["indicators"]["rsi"]["params"].update({"length": 21}),
+        lambda doc: doc["scoring"].update({"rsi_span": 25.0}),
+    ],
+)
+def test_indicator_or_scoring_parameter_change_invalidates_calibration(
+    result, cfg, mutation
+):
+    changed = deepcopy(cfg)
+    mutation(changed)
+    expected, _ = calibration.calibration_fingerprint(changed, "BTC/USDT", "1h")
+    assert calibration.assess_provenance(result, expected)["stale"] is True
+
+
+def test_calibration_setting_change_invalidates_calibration(result, cfg):
+    changed = deepcopy(cfg)
+    changed["scoring"]["empirical"]["target_atr"] = 3.0
+    expected, _ = calibration.calibration_fingerprint(changed, "BTC/USDT", "1h")
+    assert calibration.assess_provenance(result, expected)["stale"] is True
+
+
+def test_legacy_unfingerprinted_calibration_never_returns_a_rate():
+    legacy = {
+        "available": True,
+        "deciles": [{
+            "index": 0,
+            "score_lo": 0.0,
+            "score_hi": 100.0,
+            "n": 500,
+            "sufficient": True,
+            "hit_rate": 0.75,
+            "display": "75.0% (n=500)",
+        }],
+    }
+    out = calibration.lookup(legacy, 50.0, "current-fingerprint")
+    assert out["current"] is False
+    assert out["stale"] is True
+    assert out["hit_rate"] is None
+    assert "%" not in out["display"]
+
+
+def test_provenance_identifies_binance_spot(cfg):
+    _, provenance = calibration.calibration_fingerprint(
+        cfg, "BTC/USDT", "1h", native_symbol="BTC/USDT"
+    )
+    assert provenance["market"] == {
+        "exchange": "binance",
+        "market_type": "spot",
+        "contract_type": None,
+        "linear": False,
+        "spot": True,
+    }
+    assert provenance["symbol"] == {
+        "config": "BTC/USDT",
+        "native": "BTC/USDT",
+    }
+
+
+def test_futures_calibration_fingerprint_is_stale_for_spot(result, cfg):
+    futures_fingerprint, futures_provenance = calibration.calibration_fingerprint(
+        cfg,
+        "BTC/USDT",
+        "1h",
+        exchange="binanceusdm",
+        native_symbol="BTC/USDT:USDT",
+    )
+    spot_fingerprint, _ = calibration.calibration_fingerprint(
+        cfg, "BTC/USDT", "1h", exchange="binance", native_symbol="BTC/USDT"
+    )
+    legacy = {**result, "fingerprint": futures_fingerprint, "provenance": futures_provenance}
+
+    assessed = calibration.assess_provenance(legacy, spot_fingerprint)
+
+    assert futures_fingerprint != spot_fingerprint
+    assert assessed["current"] is False
+    assert assessed["stale"] is True
+    assert assessed["available"] is False

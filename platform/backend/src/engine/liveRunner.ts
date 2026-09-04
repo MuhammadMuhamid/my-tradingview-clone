@@ -16,6 +16,7 @@ import type { Interval } from "../types/market";
 import type { DeploymentRow } from "../types/deployments";
 import * as deploymentRepo from "../repositories/deployments";
 import * as strategyRepo from "../repositories/strategies";
+import * as symbolRepo from "../repositories/symbols";
 import * as alertRepo from "../repositories/alerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
@@ -23,13 +24,14 @@ import { BinanceWsManager, BarCloseEvent } from "../data/binanceWs";
 import { FeedStore, toBars } from "./mtf";
 import { evaluateBar } from "./liveEvaluator";
 import {
-  buildPayload, deliver, deliveryAdvancesState, deliveryPlacedOrder,
+  buildPayload, deliver, deliveryAdvancesState, deliveryPlacedOrder, platformCorrelationHeaders,
+  withShariahEvidence,
   sellContracts, validateWebhookUrl, type SignalContext,
 } from "../alerts/dispatcher";
 import * as liveSafety from "../repositories/liveSafety";
 import {
   countOpenPositions, describeRiskState, evaluateRisk, intendedExposure,
-  realisedPnlInWindow, shouldLatchHalt, type RiskSnapshot,
+  shouldLatchHalt, type RiskSnapshot,
 } from "./riskControls";
 import { assessForEvaluation } from "../data/feedHealth";
 import { config } from "../config";
@@ -41,6 +43,7 @@ import { evaluateMtfLeanBar, type MtfLeanDecision } from "./mtfLeanLiveEvaluator
 import { INTERVAL_MS } from "../types/market";
 import { deliversLiveOrders } from "../types/deployments";
 import { applyPaperSignal } from "./paperBroker";
+import { evaluateShariahGate, type ShariahGateDeps } from "../shariah/gate";
 import * as paperRepo from "../repositories/paperFills";
 
 /**
@@ -82,6 +85,7 @@ interface ActiveDeployment {
   row: DeploymentRow;
   params: Record<string, unknown>;
   strategyKey: string;
+  priceTick: number;
   feeds: { symbol: string; interval: Interval; warmupBars: number }[];
   barIndexBase: number; // stable-ish bar index for dedupe keys (openTime/intervalMs)
 }
@@ -97,9 +101,12 @@ export class LiveRunner {
   /** False whenever this process does not hold the emitter lease. */
   private holdsLease = false;
   private log: FastifyBaseLogger;
+  /** Injectable only so the gate's behaviour is testable without a database. */
+  private shariahDeps: ShariahGateDeps;
 
-  constructor(log: FastifyBaseLogger) {
+  constructor(log: FastifyBaseLogger, dependencies: { shariah?: ShariahGateDeps } = {}) {
     this.log = log;
+    this.shariahDeps = dependencies.shariah ?? {};
     this.ws.on("barClose", (e) => void this.onBarClose(e));
     this.ws.on("open", () => this.log.info({ streams: this.ws.subscriptionCount }, "binance ws open"));
     this.ws.on("close", () => this.log.warn("binance ws closed"));
@@ -290,6 +297,10 @@ export class LiveRunner {
     const module = (strategy ? MODULES[strategy.key] : undefined) as typeof maRrV9Module | undefined;
     if (!module) throw new Error(`no engine module for strategy id ${dep.strategyId}`);
     const params = module.resolveParams(dep.params);
+    const symbol = await symbolRepo.getSymbol(dep.symbol);
+    if (!symbol?.priceTick || symbol.priceTick <= 0) {
+      throw new Error(`no tick size available for ${dep.symbol}`);
+    }
     const needs = module.requiredFeeds(params, dep.timeframe).map((n) => ({
       symbol: n.symbol ?? dep.symbol,
       interval: n.interval,
@@ -300,6 +311,7 @@ export class LiveRunner {
       row: dep,
       params,
       strategyKey: strategy!.key,
+      priceTick: symbol.priceTick,
       feeds: needs,
       barIndexBase: 0,
     });
@@ -349,6 +361,11 @@ export class LiveRunner {
         this.processing.delete(id);
       }
     }
+    // Write the boundary report after evaluation telemetry so a replay, gap or
+    // out-of-order close is not immediately hidden by the deduplicated DB read.
+    await liveSafety.recordFeedIntegrity(e.integrity).catch(() => {
+      /* integrity status is telemetry; candle validation already happened */
+    });
   }
 
   private async evaluateDeployment(
@@ -426,7 +443,7 @@ export class LiveRunner {
 
     if (dep.strategyKey === mtfLeanModule.key) {
       const result = evaluateMtfLeanBar(
-        feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime
+        feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime, dep.priceTick
       );
       if (result.steps.length === 0) {
         await deploymentRepo.saveRuntimeState(id, result.next, barTime);
@@ -448,8 +465,8 @@ export class LiveRunner {
     }
 
     const { next, decision } = dep.strategyKey === srTrendV10Module.key
-      ? evaluateSrTrendBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime)
-      : evaluateBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime);
+      ? evaluateSrTrendBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime, dep.priceTick)
+      : evaluateBar(feeds, dep.row.symbol, chartTf, dep.params as never, fresh.runtimeState, barTime, dep.priceTick);
     if (!decision) {
       await deploymentRepo.saveRuntimeState(id, next, barTime);
       return;
@@ -462,16 +479,18 @@ export class LiveRunner {
   }
 
   /** The risk picture at this instant, read once per emission. */
-  private async riskSnapshot(limits: { dailyLossWindowHours: number }): Promise<RiskSnapshot> {
+  private async riskSnapshot(_limits: { dailyLossWindowHours: number }): Promise<RiskSnapshot> {
     const deployments = [...this.active.values()].map((d) => ({
       position: (d.row.runtimeState.position ?? "flat") as "flat" | "long",
       buyQuoteQty: d.row.buyQuoteQty,
     }));
-    const pnlRows = await liveSafety.listRealisedPnl(limits.dailyLossWindowHours);
     return {
       currentExposureQuote: intendedExposure(deployments),
       openPositions: countOpenPositions(deployments),
-      realisedPnlInWindow: realisedPnlInWindow(pnlRows, limits.dailyLossWindowHours),
+      // Real fills and realised P/L live in the execution bot. A synchronous
+      // remote dependency here would make signal safety depend on the network,
+      // so platform daily-loss enforcement is deliberately disabled.
+      realisedPnlInWindow: 0,
     };
   }
 
@@ -528,7 +547,7 @@ export class LiveRunner {
       sellPercent: decision.sellPercent,
       exitLeg: decision.exitLeg,
     };
-    const built = buildPayload(dep, ctx);
+    let built = buildPayload(dep, ctx);
 
     /*
      * BE-11: the risk gate, immediately before anything is written or sent.
@@ -575,6 +594,59 @@ export class LiveRunner {
     }
 
     /*
+     * The Shariah gate, deliberately at the SAME chokepoint as the risk gate
+     * and before the intent claim.
+     *
+     * Every delivery mode passes through here — `custom`, `3commas`, `paper`
+     * and `off` — because the branches that separate them are all downstream.
+     * That is what makes Paper and live agree by construction rather than by
+     * two implementations that must be kept in step: there is one gate, and
+     * Paper cannot be more or less permissive than live because it is not a
+     * different code path.
+     *
+     * A BUY into a non-ELIGIBLE asset is refused while Shariah Mode is on. A
+     * SELL is never refused — an asset re-screened EXCLUDED must still be
+     * exitable, and nothing here generates an exit either: a status change
+     * blocks the next entry, it never liquidates a position.
+     */
+    const shariah = await evaluateShariahGate(
+      { symbol: dep.symbol, side: decision.action === "buy" ? "BUY" : "SELL" },
+      this.shariahDeps
+    );
+    if (!shariah.allowed) {
+      this.log.error(
+        { deploymentId: dep.id, symbol: dep.symbol, effectiveStatus: shariah.context.effectiveStatus },
+        `signal BLOCKED by Shariah Mode: ${shariah.reason}`
+      );
+      await alertRepo.createAlert({
+        deploymentId: dep.id,
+        barTime: decision.barTime,
+        action: decision.action,
+        marketPosition: ctx.marketPosition,
+        positionSize: ctx.positionSize,
+        triggerPrice: decision.price,
+        reason: `${decision.reason} [blocked: shariah_${shariah.context.effectiveStatus.toLowerCase()}]`,
+        payload: built.payload,
+        dedupeKey: built.dedupeKey,
+        deliveryStatus: "blocked",
+      });
+      // Same rule as the risk gate: nothing was sent, so nothing advances.
+      return false;
+    }
+
+    /*
+     * The decision now travels WITH the order.
+     *
+     * Gating here is necessary but not sufficient: the Bot also accepts signals
+     * this Platform never sees, and it can only apply the rule to an order it
+     * can prove carries a Platform decision. On this path the body's only
+     * authentication is the webhook secret, so the block is signed separately —
+     * see `withShariahEvidence`.
+     */
+    built = withShariahEvidence(built,
+      { symbol: dep.symbol, side: decision.action, context: shariah.context });
+
+    /*
      * BE-13 / BE-16: claim the intent BEFORE delivering.
      *
      * The old order was deliver-then-persist, so a process death between the
@@ -613,6 +685,12 @@ export class LiveRunner {
       }
       intentId = claim.intent.id;
     }
+
+    // Headers are ignored by an old Bot, so either repository can roll first.
+    // The body remains the strict legacy-compatible custom webhook shape.
+    const correlationHeaders = intentId !== null && dep.delivery === "custom"
+      ? platformCorrelationHeaders({ deploymentId: dep.id, orderIntentId: intentId })
+      : undefined;
 
     const alert = await alertRepo.createAlert({
       deploymentId: dep.id,
@@ -699,6 +777,7 @@ export class LiveRunner {
     // that actually succeeded would be duplicated by a retry (BE-12).
     const result = await deliver(built.url, built.payload, {
       idempotent: built.dedupeKey !== null,
+      headers: correlationHeaders,
     });
     await alertRepo.markDelivery(alert.id, result);
 

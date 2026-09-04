@@ -13,8 +13,11 @@
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import type { Candle, Interval } from "../types/market";
-import { upsertCandles } from "../repositories/candles";
+import { latestOpenTime, upsertCandles } from "../repositories/candles";
 import { WS_SILENCE_TIMEOUT_MS } from "./feedHealth";
+import {
+  inspectBackfillLiveBoundary, type CandleIntegrityReport,
+} from "./candleIntegrity";
 
 const WS_BASE = "wss://stream.binance.com:9443/stream";
 const MAX_STREAMS_PER_CONN = 200; // Binance allows up to 1024; stay conservative
@@ -36,6 +39,7 @@ export interface BarCloseEvent {
   symbol: string;
   interval: Interval;
   candle: Candle;
+  integrity: CandleIntegrityReport;
 }
 
 /**
@@ -92,6 +96,8 @@ export class BinanceWsManager extends EventEmitter {
    */
   private lastMessageAt = 0;
   private watchdogTimer: NodeJS.Timeout | null = null;
+  /** Newest stored/observed completed open per feed; seeded once from storage. */
+  private latestCompleted = new Map<string, number | null>();
 
   /** subscriptions map streamName → set of intervals is implicit in the name. */
   subscribe(symbol: string, interval: Interval): void {
@@ -267,8 +273,26 @@ export class BinanceWsManager extends EventEmitter {
     }
 
     try {
+      const key = `${candle.symbol}|${candle.interval}`;
+      let previous = this.latestCompleted.get(key);
+      if (!this.latestCompleted.has(key)) {
+        previous = await latestOpenTime(candle.symbol, candle.interval);
+      }
+      const integrity = inspectBackfillLiveBoundary(previous ?? null, candle, {
+        symbol: candle.symbol,
+        interval: candle.interval,
+        now: Date.now(),
+      });
+      if (integrity.state === "invalid") {
+        throw new Error(
+          `invalid completed candle ${key}: ${integrity.issues.map((issue) => issue.code).join(", ")}`
+        );
+      }
       await upsertCandles([candle]);
-      this.emit("barClose", { symbol: candle.symbol, interval: candle.interval, candle });
+      this.latestCompleted.set(key, previous === undefined || previous === null
+        ? candle.openTime
+        : Math.max(previous, candle.openTime));
+      this.emit("barClose", { symbol: candle.symbol, interval: candle.interval, candle, integrity });
     } catch (err) {
       this.emit("error", err as Error);
     }
@@ -280,6 +304,7 @@ export class BinanceWsManager extends EventEmitter {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
     this.streams.clear();
+    this.latestCompleted.clear();
     if (this.ws) {
       const old = this.ws;
       this.ws = null;

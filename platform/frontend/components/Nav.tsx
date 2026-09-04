@@ -11,12 +11,21 @@ import { useEffect, useState } from "react";
  */
 const LINKS = [
   { href: "/chart", label: "Chart" },
+  { href: "/scanner", label: "Scanner" },
   { href: "/alerts", label: "Alerts" },
   { href: "/optimizers", label: "Optimizers" },
   { href: "/backtests", label: "Backtests" },
   { href: "/deployments", label: "Live trading" },
+  { href: "/journal", label: "Journal" },
   { href: "/operations", label: "Operations" },
+  { href: "/shariah", label: "Shariah" },
 ];
+
+/**
+ * The in-product manual. Not one of `LINKS`: it is help, not a workspace, and
+ * it sits in the account cluster where a reader looks for help.
+ */
+const HELP_HREF = "/getting-started";
 
 export function Nav() {
   const path = usePathname();
@@ -48,8 +57,13 @@ export function Nav() {
     <header className={`sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur ${
       hideOnMobile ? "hidden md:block" : ""
     }`}>
-      <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-3 py-2.5 sm:gap-6 sm:px-4 sm:py-3">
-        <Link href="/chart" className="flex shrink-0 items-center gap-2 font-semibold">
+      {/*
+        A 40px bar, not 52. This sits above every page including the chart, and
+        a trading workspace's vertical budget is spent on data — the extra
+        12 pixels bought nothing but air.
+      */}
+      <div className="mx-auto flex h-10 max-w-[1400px] items-center gap-3 px-3 sm:gap-5 sm:px-4">
+        <Link href="/chart" className="flex h-7 shrink-0 items-center gap-2 text-[13px] font-semibold">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-accent" />
           <span>SR+Trend</span>
           <span className="hidden text-ink-faint sm:inline">·</span>
@@ -62,8 +76,9 @@ export function Nav() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm transition-colors sm:px-3 ${
-                  active ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink hover:bg-surface"
+                aria-current={active ? "page" : undefined}
+                className={`flex h-7 shrink-0 items-center whitespace-nowrap rounded-md px-2.5 text-[13px] transition-colors sm:px-3 ${
+                  active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
                 }`}
               >
                 {l.label}
@@ -72,10 +87,36 @@ export function Nav() {
           })}
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-3">
-          <span className="hidden text-xs text-ink-faint sm:block">Binance Spot</span>
+          <span className="hidden text-xs text-ink-faint sm:block">
+            Binance Spot
+          </span>
+          {/*
+            Help lives beside the account controls rather than in the workspace
+            row, because "Getting started" is not a place you trade — it is the
+            one page that explains the other nine. It is permanent and never
+            forced: nothing here opens it on first launch.
+          */}
+          <Link
+            href={HELP_HREF}
+            aria-current={path === HELP_HREF ? "page" : undefined}
+            aria-label="Getting started — what this application is and how to operate it"
+            title="Getting started — what this application is and how to operate it"
+            className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors ${
+              path === HELP_HREF
+                ? "bg-surface-2 font-medium text-ink"
+                : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M9.4 9.2a2.7 2.7 0 015.2.9c0 1.8-2.6 2.2-2.6 3.9" />
+              <path d="M12 17.2h.01" />
+            </svg>
+            <span className="hidden sm:inline">Getting started</span>
+          </Link>
           {username && (
             <button onClick={signOut} title={`Signed in as ${username}`}
-              className="rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface hover:text-ink">
+              className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
               Sign out
             </button>
           )}

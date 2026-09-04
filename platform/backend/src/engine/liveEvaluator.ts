@@ -31,6 +31,13 @@ export interface LiveDecision {
   barIndex: number;
 }
 
+/** Match the historical broker's strategy-order normalization. */
+export function roundStrategyPrice(price: number, priceTick: number): number {
+  return Number.isFinite(priceTick) && priceTick > 0
+    ? Math.round(price / priceTick) * priceTick
+    : price;
+}
+
 /**
  * Evaluate the single bar at `barTime` (must be a fully closed chart bar).
  * Mutates and returns the next RuntimeState; returns a decision when a
@@ -42,7 +49,8 @@ export function evaluateBar(
   chartTf: Interval,
   p: MaRrParams,
   state: RuntimeState,
-  barTime: number
+  barTime: number,
+  priceTick = 0,
 ): { next: RuntimeState; decision: LiveDecision | null } {
   const chart = feeds.get(symbol, chartTf);
   const i = chart.time.indexOf(barTime);
@@ -123,8 +131,12 @@ export function evaluateBar(
   let effStop = next.savedLongStop ?? -Infinity;
   if (p.useRR && p.rrUseTrailSl && next.trailAnchor !== null) effStop = Math.max(effStop, next.trailAnchor);
 
-  const stopHit = p.useRR && next.savedLongStop !== null && low <= effStop;
-  const tpHit = p.useRR && next.savedLongTp !== null && high >= next.savedLongTp;
+  const activeStop = roundStrategyPrice(effStop, priceTick);
+  const activeTarget = next.savedLongTp === null
+    ? null
+    : roundStrategyPrice(next.savedLongTp, priceTick);
+  const stopHit = p.useRR && next.savedLongStop !== null && low <= activeStop;
+  const tpHit = p.useRR && activeTarget !== null && high >= activeTarget;
 
   /*
    * BE-03: brackets resolve BEFORE signal exits, and along the broker's
@@ -151,10 +163,10 @@ export function evaluateBar(
     if (exitReason) break;
     if (which === "stop" && stopHit) {
       exitReason = next.trailAnchor !== null && effStop === next.trailAnchor ? "Trail" : "SL";
-      exitPx = effStop;
+      exitPx = activeStop;
     } else if (which === "tp" && tpHit) {
       exitReason = "TP";
-      exitPx = next.savedLongTp!;
+      exitPx = activeTarget!;
     }
   }
 

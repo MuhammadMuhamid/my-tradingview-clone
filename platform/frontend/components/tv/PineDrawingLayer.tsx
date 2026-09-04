@@ -22,7 +22,8 @@ export function PineDrawingLayer({
 }: {
   container: HTMLDivElement | null;
   chart: IChartApi | null;
-  series: ISeriesApi<"Candlestick"> | null;
+  /** Any main-series presentation: only price/coordinate conversion is used. */
+  series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line"> | ISeriesApi<"Area"> | null;
   candles: Candle[];
   drawings: PineDrawings | null;
 }) {
@@ -65,6 +66,14 @@ export function PineDrawingLayer({
     if (!canvas || !chart || !series || !container) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    /*
+     * A chart whose container has left the document has been torn down, or is
+     * about to be: measuring it throws inside lightweight-charts. The observer
+     * below fires on exactly that transition — a pane closing reports 0 × 0 —
+     * and with sixteen panes closing at once it fired sixteen times. There is
+     * also nothing to paint on a canvas nobody can see.
+     */
+    if (!container.isConnected || container.clientWidth === 0 || container.clientHeight === 0) return;
 
     const dpr = window.devicePixelRatio || 1;
     const w = container.clientWidth;

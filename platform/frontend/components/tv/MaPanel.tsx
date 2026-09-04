@@ -52,19 +52,38 @@ const LEVEL_ROWS: { kind: LevelKind; label: string; hint: string; color: string 
 ];
 
 /**
+ * The alert bell.
+ *
+ * An SVG rather than the 🔔 emoji it replaced: an emoji renders at whatever
+ * size and hue the platform font decides, so the rail's controls were three
+ * different sizes on macOS, Windows and Android, and none of them inherited
+ * the disabled or accent colour the row was trying to express.
+ */
+const BellIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path
+      d="M7 1.5a3.5 3.5 0 0 0-3.5 3.5v2.2L2.4 9.1a.5.5 0 0 0 .43.76h8.34a.5.5 0 0 0 .43-.76L10.5 7.2V5A3.5 3.5 0 0 0 7 1.5Z"
+      stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"
+    />
+    <path d="M5.6 11.2a1.5 1.5 0 0 0 2.8 0" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+  </svg>
+);
+
+/**
  * One non-MA family row: swatch, name, armed count, bell.
  *
  * Shared by the Levels and Oscillators sections so the two cannot drift into
  * looking like different kinds of control — they are the same affordance.
  */
 function FamilyRow({
-  label, hint, color, count, onArm,
+  label, hint, color, count, onArm, disabled = false,
 }: {
   label: string;
   hint: string;
   color: string;
   count: number;
   onArm: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-surface-2/60">
@@ -80,12 +99,15 @@ function FamilyRow({
       </span>
       <button
         onClick={onArm}
-        title={count ? `${count} alert(s) — click to add another` : hint}
-        className={`w-6 text-center ${
-          count ? "text-accent" : "invisible text-ink-faint group-hover:visible hover:text-ink"
+        disabled={disabled}
+        title={disabled ? "Exit Replay to create live alerts" : count ? `${count} alert(s) — click to add another` : hint}
+        aria-label={count ? `Add another ${label} alert (${count} armed)` : hint}
+        className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
+          count ? "text-accent" : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
         }`}
       >
-        {count > 1 ? `🔔${count}` : "🔔"}
+        <BellIcon />
+        {count > 1 && <span className="text-[10px] tabular leading-none">{count}</span>}
       </button>
     </div>
   );
@@ -99,7 +121,7 @@ function FamilyRow({
  */
 export function MaPanel({
   lines, values, alerts, timeframe, onToggle, onToggleAll, onArm, onArmPrice,
-  onArmLevel, onArmOscillator, onOpenAlert, push,
+  onArmLevel, onArmOscillator, onOpenAlert, push, liveActionsDisabled = false,
 }: {
   lines: MaLine[];
   /** Latest value per line id, for the price column. */
@@ -117,6 +139,7 @@ export function MaPanel({
   onArmOscillator: (kind: OscillatorKind) => void;
   onOpenAlert: (alert: MaAlert) => void;
   push: React.ReactNode;
+  liveActionsDisabled?: boolean;
 }) {
   /**
    * Alerts grouped by the line they watch, across all timeframes. Only the `ma`
@@ -158,7 +181,9 @@ export function MaPanel({
         <button
           onClick={() => onToggle(line.type, line.length)}
           title={line.visible ? "Hide line" : "Show line"}
-          className="flex h-4 w-4 items-center justify-center"
+          aria-label={`${line.visible ? "Hide" : "Show"} ${maLabel(line.type, line.length)}`}
+          aria-pressed={line.visible}
+          className="flex h-5 w-5 items-center justify-center rounded hover:bg-surface-2"
         >
           <span
             className="inline-block h-[3px] w-4 rounded-full"
@@ -177,10 +202,23 @@ export function MaPanel({
         </span>
         <button
           onClick={() => onArm(line.type, line.length)}
-          title={armed.length ? `${armed.length} alert(s) — click to add or edit` : "Add alert on this line"}
-          className={`w-6 text-center ${armed.length ? "text-accent" : "invisible text-ink-faint group-hover:visible hover:text-ink"}`}
+          disabled={liveActionsDisabled}
+          title={liveActionsDisabled ? "Exit Replay to create live alerts" : armed.length ? `${armed.length} alert(s) — click to add another` : "Add alert on this line"}
+          aria-label={
+            armed.length
+              ? `Add another alert on ${maLabel(line.type, line.length)} (${armed.length} armed)`
+              : `Add alert on ${maLabel(line.type, line.length)}`
+          }
+          className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
+            armed.length
+              ? "text-accent"
+              : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+          }`}
         >
-          {armed.length ? `🔔${armed.length > 1 ? armed.length : ""}` : "🔔"}
+          <BellIcon />
+          {armed.length > 1 && (
+            <span className="text-[10px] tabular leading-none">{armed.length}</span>
+          )}
         </button>
       </div>
     );
@@ -202,13 +240,18 @@ export function MaPanel({
         <span className="text-sm font-semibold">Moving averages</span>
         <button
           onClick={() => onToggleAll(!allVisible)}
-          className="rounded px-2 py-1 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+          className="flex h-6 items-center rounded px-2 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
         >
           {allVisible ? "Hide all" : "Show all"}
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {liveActionsDisabled && (
+          <div className="border-b border-accent/30 bg-accent/10 px-3 py-2 text-[11px] text-accent">
+            Exit Replay to create or edit live alerts. Historical MA values remain available.
+          </div>
+        )}
         {(["sma", "ema"] as MaType[]).map((type) => (
           <div key={type}>
             <div className="border-b border-border/60 bg-surface-2/40 px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">
@@ -232,6 +275,7 @@ export function MaPanel({
             color={row.color}
             count={byKind.get(row.kind) ?? 0}
             onArm={() => onArmLevel(row.kind)}
+            disabled={liveActionsDisabled}
           />
         ))}
 
@@ -246,15 +290,19 @@ export function MaPanel({
             color={row.color}
             count={byKind.get(row.kind) ?? 0}
             onArm={() => onArmOscillator(row.kind)}
+            disabled={liveActionsDisabled}
           />
         ))}
 
         <div className="flex items-center justify-between border-y border-border bg-surface-2/40 px-3 py-1">
-          <span className="text-[10px] uppercase tracking-wide text-ink-faint">Armed alerts</span>
+          <span className="text-[10px] uppercase tracking-wide text-ink-faint">
+            Armed alerts <span className="normal-case tracking-normal">— click to edit</span>
+          </span>
           <button
             onClick={onArmPrice}
+            disabled={liveActionsDisabled}
             title="Alert on a price level"
-            className="rounded px-1.5 py-0.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+            className="flex h-6 items-center rounded px-1.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
           >
             + Price
           </button>
@@ -263,15 +311,17 @@ export function MaPanel({
           <div className="px-4 py-6 text-center text-xs text-ink-faint">
             No alerts on this symbol yet.
             <br />
-            Click the 🔔 on a line or a level, or + Price.
+            Use the bell on a line or a level, or + Price.
           </div>
         ) : (
           armedList.map((a) => (
             <button
               key={a.id}
               onClick={() => onOpenAlert(a)}
-              title={`${describeAlert(a)} · ${FREQUENCY_LABELS[a.frequency]}`}
-              className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-surface-2/60"
+              disabled={liveActionsDisabled}
+              title={`Edit — ${describeAlert(a)} · ${FREQUENCY_LABELS[a.frequency]}`}
+              aria-label={`Edit alert — ${alertLineLabel(a)}, ${describeAlert(a)}, ${a.timeframe}`}
+              className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-surface-2/60 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span
                 className="inline-block h-[3px] w-3 shrink-0 rounded-full"
@@ -298,7 +348,7 @@ export function MaPanel({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-border p-3">{push}</div>
+      {!liveActionsDisabled && <div className="shrink-0 border-t border-border p-3">{push}</div>}
     </div>
   );
 }

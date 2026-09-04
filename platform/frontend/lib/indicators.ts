@@ -10,7 +10,11 @@
  * applied straight from the editor (never saved) behaves like any other.
  */
 import { api, type PineDrawings, type PineInputDef, type PineRunResult } from "@/lib/api";
-import type { ChartMarker, ChartOverlay } from "@/components/CandleChart";
+import type { ChartMarker } from "@/components/CandleChart";
+import {
+  PRICE_PANE_ID, shiftedPlotTime, type ChartBarColor, type ChartDecoration,
+  type ChartOverlay, type ChartSeriesStyle,
+} from "@/lib/chartSeries";
 import type { Interval, Trade } from "@/lib/types";
 
 export type PineParams = Record<string, number | string | boolean>;
@@ -22,6 +26,9 @@ export interface AppliedIndicator {
   scriptId: string | null;
   name: string;
   kind: "indicator" | "strategy";
+  shortTitle: string;
+  overlay: boolean;
+  precision: number | null;
   source: string;
   inputs: PineInputDef[];
   params: PineParams;
@@ -30,7 +37,10 @@ export interface AppliedIndicator {
   loading: boolean;
   /** first compile/run error, shown on the instance row */
   error: string | null;
+  warnings: { line: number; message: string }[];
   overlays: ChartOverlay[];
+  decorations: ChartDecoration[];
+  barColors: ChartBarColor[];
   markers: ChartMarker[];
   drawings: PineDrawings;
   trades: Trade[];
@@ -38,6 +48,24 @@ export interface AppliedIndicator {
 
 /** Empty drawing set, so callers never branch on null. */
 export const NO_DRAWINGS: PineDrawings = { lines: [], boxes: [], labels: [], tables: [] };
+
+/** Drop every horizon-derived byte before a replay re-run is allowed to settle. */
+export function invalidateReplayOutput(indicator: AppliedIndicator): AppliedIndicator {
+  return {
+    ...indicator, loading: true, error: null,
+    overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+  };
+}
+
+/** Exact API boundaries; Replay must never widen a close-time horizon to end-of-day. */
+export function pineRunRange(ctx: { startTime: string; endTime: string }): {
+  startTime: string; endTime: string;
+} {
+  return {
+    startTime: new Date(ctx.startTime).toISOString(),
+    endTime: new Date(ctx.endTime).toISOString(),
+  };
+}
 
 /** What survives a reload — run output is always recomputed. */
 interface StoredIndicator {
@@ -51,14 +79,29 @@ interface StoredIndicator {
 
 const STORAGE_KEY = "tv.indicators.v1";
 
+/**
+ * Applied studies are per pane, so their storage is too.
+ *
+ * The first pane keeps the original unsuffixed key, which is what makes an
+ * existing user's studies survive the move to a multi-pane workspace: their
+ * chart is pane `p1`, and it reads exactly the entry it wrote before this
+ * change existed. Every other pane gets its own suffixed entry, so adding a
+ * study to the fourth chart cannot appear on the first.
+ */
+export const PRIMARY_INDICATOR_SCOPE = "p1";
+
+export function indicatorStorageKey(scope: string): string {
+  return scope === PRIMARY_INDICATOR_SCOPE ? STORAGE_KEY : `${STORAGE_KEY}.${scope}`;
+}
+
 export function newKey(): string {
   return `ind_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function loadStored(): StoredIndicator[] {
+export function loadStored(scope: string = PRIMARY_INDICATOR_SCOPE): StoredIndicator[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(indicatorStorageKey(scope));
     const list = raw ? (JSON.parse(raw) as StoredIndicator[]) : [];
     return Array.isArray(list) ? list.filter((s) => typeof s?.source === "string") : [];
   } catch {
@@ -66,15 +109,39 @@ export function loadStored(): StoredIndicator[] {
   }
 }
 
-export function saveStored(list: AppliedIndicator[]): void {
+export function saveStored(
+  list: AppliedIndicator[], scope: string = PRIMARY_INDICATOR_SCOPE
+): void {
   if (typeof window === "undefined") return;
   const slim: StoredIndicator[] = list.map((i) => ({
     key: i.key, scriptId: i.scriptId, name: i.name,
     source: i.source, params: i.params, visible: i.visible,
   }));
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    window.localStorage.setItem(indicatorStorageKey(scope), JSON.stringify(slim));
   } catch { /* quota — the list is a convenience, not the source of truth */ }
+}
+
+/** Forget one pane's stored studies, when that pane is closed for good. */
+export function clearStored(scope: string): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(indicatorStorageKey(scope)); } catch { /* nothing to do */ }
+}
+
+/**
+ * A copy of one pane's studies for another pane.
+ *
+ * `params` is copied rather than referenced: a cloned pane that shared its
+ * source pane's params object would retune both charts from one dialog.
+ */
+export function copyStoredForScope(from: string, to: string): void {
+  if (typeof window === "undefined" || from === to) return;
+  const source = loadStored(from);
+  try {
+    window.localStorage.setItem(indicatorStorageKey(to), JSON.stringify(
+      source.map((s) => ({ ...s, params: { ...s.params } }))
+    ));
+  } catch { /* quota — the new pane simply starts with no studies */ }
 }
 
 /** Rehydrate a stored entry into a not-yet-run instance. */
@@ -84,13 +151,19 @@ export function hydrate(s: StoredIndicator): AppliedIndicator {
     scriptId: s.scriptId ?? null,
     name: s.name,
     kind: "indicator",
+    shortTitle: "",
+    overlay: true,
+    precision: null,
     source: s.source,
     inputs: [],
     params: s.params ?? {},
     visible: s.visible !== false,
     loading: true,
     error: null,
+    warnings: [],
     overlays: [],
+    decorations: [],
+    barColors: [],
     markers: [],
     drawings: NO_DRAWINGS,
     trades: [],
@@ -103,18 +176,131 @@ export function hydrate(s: StoredIndicator): AppliedIndicator {
  */
 export function toChartOutput(
   key: string,
-  r: PineRunResult
-): Pick<AppliedIndicator, "overlays" | "markers" | "drawings" | "trades"> {
+  r: PineRunResult,
+  params: PineParams = {}
+): Pick<AppliedIndicator, "overlays" | "decorations" | "barColors" | "markers" | "drawings" | "trades"> {
   const times = r.times ?? [];
-  return {
-    overlays: (r.plots ?? []).map((p) => ({
-      id: `${key}:${p.id}`,
-      title: p.title,
-      color: p.color,
-      width: p.width,
-      dashed: p.style === "dashed" || p.style === "dotted",
-      data: p.data.map((v, i) => ({ time: times[i] ?? 0, value: v })),
+  /*
+   * The script's own name, and nothing else. This used to carry the instance
+   * key (`RSI · ind_b`), which put an internal identifier in front of the user
+   * on every indicator whether or not anything needed distinguishing. Two
+   * copies of one script are told apart by their arguments — which is what the
+   * parameter summary beside the name is for — and by an ordinal added at
+   * render time when even those match.
+   */
+  const instanceTitle = r.meta.shortTitle || r.meta.title;
+  const activeParams = r.meta.inputs
+    .map((input) => [input.title, params[input.key] ?? input.defval] as const)
+    .filter(([, value]) => value !== "" && value !== undefined)
+    .slice(0, 3)
+    .map(([title, value]) => `${title} ${String(value)}`)
+    .join(" · ");
+  const paneFor = (forceOverlay = false): string =>
+    r.meta.overlay || forceOverlay ? PRICE_PANE_ID : `indicator:${key}`;
+  const plotOverlays: ChartOverlay[] = (r.plots ?? [])
+    .filter((plot) => plot.renderable !== false)
+    .map((plot) => ({
+      id: `${key}:${plot.id}`,
+      title: plot.title,
+      color: plot.color,
+      width: plot.width,
+      style: plot.style as ChartSeriesStyle,
+      paneId: paneFor(plot.forceOverlay),
+      instanceId: key,
+      instanceTitle,
+      instanceParams: activeParams,
+      precision: r.meta.precision,
+      data: plot.data.flatMap((value, i) => {
+        const time = shiftedPlotTime(times, i, plot.offset ?? 0);
+        return time === null ? [] : [{
+          time,
+          value,
+          color: plot.colors?.[i] === undefined ? plot.color : plot.colors[i],
+        }];
+      }),
+    }));
+  const ohlcOverlays: ChartOverlay[] = (r.ohlcPlots ?? [])
+    .filter((plot) => plot.renderable !== false)
+    .map((plot) => ({
+      id: `${key}:${plot.id}`,
+      title: plot.title,
+      color: plot.color,
+      style: plot.style,
+      paneId: paneFor(plot.forceOverlay),
+      instanceId: key,
+      instanceTitle,
+      instanceParams: activeParams,
+      precision: r.meta.precision,
+      data: plot.data.flatMap((value, i) => {
+        const time = times[i];
+        if (time === undefined) return [];
+        return [{
+          time,
+          value: value?.close ?? null,
+          color: plot.colors?.[i] ?? null,
+          ...(value ?? {}),
+          wickColor: plot.wickColors?.[i] ?? null,
+          borderColor: plot.borderColors?.[i] ?? null,
+        }];
+      }),
+    }));
+  const hlineOverlays: ChartOverlay[] = (r.hlines ?? [])
+    .filter((line) => line.renderable !== false && Number.isFinite(line.price) && times.length > 0)
+    .map((line) => ({
+      id: `${key}:${line.id}`,
+      title: line.title || "Level",
+      color: line.color,
+      width: line.width,
+      dashed: line.style !== "solid",
+      lineStyle: line.style,
+      paneId: paneFor(),
+      instanceId: key,
+      instanceTitle,
+      instanceParams: activeParams,
+      precision: r.meta.precision,
+      constantValue: line.price,
+      data: [
+        { time: times[0]!, value: line.price, color: line.color },
+        ...(times.length > 1
+          ? [{ time: times[times.length - 1]!, value: line.price, color: line.color }]
+          : []),
+      ],
+    }));
+  const decorations: ChartDecoration[] = [
+    ...(r.backgrounds ?? []).map((background) => ({
+      kind: "background" as const,
+      id: `${key}:${background.id}`,
+      paneId: paneFor(background.forceOverlay),
+      data: background.colors.flatMap((color, i) => {
+        const time = shiftedPlotTime(times, i, background.offset ?? 0);
+        return time === null ? [] : [{ time, color }];
+      }),
     })),
+    ...(r.fills ?? [])
+      .filter((fill) => fill.renderable !== false)
+      .map((fill) => ({
+        kind: "fill" as const,
+        id: `${key}:${fill.id}`,
+        paneId: paneFor(fill.forceOverlay),
+        firstId: `${key}:${fill.firstId}`,
+        secondId: `${key}:${fill.secondId}`,
+        fillgaps: fill.fillgaps,
+        data: fill.colors.flatMap((color, i) => {
+          const time = times[i];
+          return time === undefined ? [] : [{ time, color }];
+        }),
+      })),
+  ];
+  const barColors: ChartBarColor[] = (r.barColors ?? []).flatMap((call) =>
+    call.colors.flatMap((color, i) => {
+      const time = shiftedPlotTime(times, i, call.offset ?? 0);
+      return time === null ? [] : [{ time, color }];
+    })
+  );
+  return {
+    overlays: [...plotOverlays, ...ohlcOverlays, ...hlineOverlays],
+    decorations,
+    barColors,
     markers: (r.shapes ?? []).map((s) => ({
       time: s.time,
       position: s.position === "above" ? "aboveBar" : "belowBar",
@@ -141,8 +327,7 @@ export async function runIndicator(
       source: ind.source,
       symbol: ctx.symbol,
       timeframe: ctx.timeframe,
-      startTime: new Date(ctx.startTime).toISOString(),
-      endTime: new Date(`${ctx.endTime}T23:59:59Z`).toISOString(),
+      ...pineRunRange(ctx),
       params: ind.params,
     });
     if (!r.ok) {
@@ -151,8 +336,9 @@ export async function runIndicator(
         ...ind,
         loading: false,
         inputs: r.meta?.inputs ?? ind.inputs,
+        warnings: r.meta?.warnings ?? [],
         error: e ? `line ${e.line}: ${e.message}` : "compile failed",
-        overlays: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+        overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
       };
     }
     return {
@@ -161,10 +347,17 @@ export async function runIndicator(
       error: null,
       kind: r.meta.kind,
       name: ind.name || r.meta.title,
+      shortTitle: r.meta.shortTitle,
+      overlay: r.meta.overlay,
+      precision: r.meta.precision,
       inputs: r.meta.inputs,
-      ...toChartOutput(ind.key, r),
+      warnings: r.meta.warnings ?? [],
+      ...toChartOutput(ind.key, r, ind.params),
     };
   } catch (e) {
-    return { ...ind, loading: false, error: (e as Error).message };
+    return {
+      ...ind, loading: false, error: (e as Error).message,
+      overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+    };
   }
 }

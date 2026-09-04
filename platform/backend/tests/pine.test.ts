@@ -73,6 +73,7 @@ plot(ta.lowest(low, 20), "ll")
 plot(ta.stdev(close, 20), "sd")
 plot(ta.linreg(close, 20, 0), "lr")
 plot(ta.change(close), "chg")
+plot(ta.mfi(hlc3, 14), "mfi")
 `);
 
   const { close, high, low } = BARS;
@@ -87,6 +88,11 @@ plot(ta.change(close), "chg")
   assertMatches(plots.sd!, ta.stdev(close, 20), "stdev", 1e-9);
   assertMatches(plots.lr!, ta.linreg(close, 20, 0), "linreg", 1e-8);
   assertMatches(plots.chg!, ta.change(close), "change");
+  assertMatches(
+    plots.mfi!,
+    ta.mfi(BARS.high.map((h, i) => (h + BARS.low[i]! + BARS.close[i]!) / 3), BARS.volume, 14),
+    "mfi"
+  );
 });
 
 test("ta.crossover / crossunder match the array implementations", () => {
@@ -291,6 +297,58 @@ plot(close > open ? 1 : -1, "ternary")
     BARS.close.map((c, i) => (c > BARS.open[i]! ? 1 : -1)),
     "ternary"
   );
+});
+
+test("qualified function parameters and aligned continuations compile", () => {
+  const result = PineInterpreter.compile(`
+indicator("syntax")
+tfSeconds(simple string tf) =>
+    math.max(tf == "60" ? 3600 : 0,
+         1)
+plot(tfSeconds("60"), "seconds")
+`);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.meta.title, "syntax");
+});
+
+test("multiline ternaries and timeframe.in_seconds execute", () => {
+  const plots = plotsOf(`
+indicator("syntax")
+seconds(simple string tf) => timeframe.in_seconds(tf)
+choice = close > open ? (seconds("60") + 1)
+     : seconds(timeframe.period)
+plot(choice, "choice")
+`);
+  assert.equal(plots.choice?.length, BARS.length);
+  assert.ok(plots.choice?.every((v) => v === 3601 || v === 900));
+});
+
+test("a ternary may begin on the following continuation line", () => {
+  const plots = plotsOf(`
+indicator("wrapped")
+value = close > open
+     ? high
+     : low
+plot(value, "value")
+`);
+  assert.deepEqual(plots.value, BARS.close.map((close, i) =>
+    close > BARS.open[i]! ? BARS.high[i]! : BARS.low[i]!));
+});
+
+test("anchored ta.vwap returns its mean and deviation bands", () => {
+  const out = new PineInterpreter(`
+indicator("vwap")
+[v, upper, lower] = ta.vwap(close, bar_index == 0, 1)
+plot(v, "v")
+plot(upper, "upper")
+plot(lower, "lower")
+`).run({ bars: BARS, startIdx: 0, endIdx: BARS.length - 1 });
+  const plots = Object.fromEntries(out.plots.map((p) => [p.title, p.data]));
+  assert.equal(plots.v?.[0], BARS.close[0]);
+  assert.equal(plots.upper?.[0], BARS.close[0]);
+  assert.equal(plots.lower?.[0], BARS.close[0]);
+  assert.ok((plots.upper?.at(-1) ?? 0) >= (plots.v?.at(-1) ?? 0));
+  assert.ok((plots.lower?.at(-1) ?? 0) <= (plots.v?.at(-1) ?? 0));
 });
 
 test("each call site of a user function gets its own series state", () => {
@@ -729,4 +787,147 @@ if barstate.islast
   assert.equal(box.bgColor, "#2962ff1a");
   // transp 0 leaves the colour opaque, with no alpha suffix at all.
   assert.equal(box.borderColor, "#f23645");
+});
+
+test("plot rendering metadata preserves panes, styles, offsets, colours, hlines and explicit warnings", () => {
+  const out = new PineInterpreter(`
+indicator("Render contract", shorttitle="RC", overlay=false, precision=3)
+columns = plot(close, "Columns", color=close > open ? color.green : na,
+     style=plot.style_columns, linewidth=2, offset=1)
+hidden = plot(close, "Hidden", display=display.none)
+level = hline(50, "Middle", color.gray, hline.style_dashed, 2)
+fill(columns, hidden, color=color.new(color.blue, 80))
+barcolor(color.red)
+plotcandle(open, high, low, close)
+`).run({ bars: BARS, startIdx: 0, endIdx: BARS.length - 1 });
+
+  assert.equal(out.meta.overlay, false);
+  assert.equal(out.meta.shortTitle, "RC");
+  assert.equal(out.meta.precision, 3);
+  assert.equal(out.plots[0]!.style, "columns");
+  assert.equal(out.plots[0]!.offset, 1);
+  assert.equal(out.plots[0]!.width, 2);
+  assert.equal(out.plots[0]!.colors.length, BARS.length);
+  assert.ok(out.plots[1]!.data.every((value) => value === null));
+  assert.equal(out.plots[1]!.renderable, false);
+  assert.deepEqual(
+    out.hlines.map((line) => [line.title, line.style, line.width]),
+    [["Middle", "dashed", 2]]
+  );
+  assert.deepEqual(
+    out.meta.warnings.map((warning) => warning.message.split(" ")[0]),
+    ["fill()"]
+  );
+  assert.equal(out.barColors.length, 1);
+  assert.equal(out.ohlcPlots[0]!.style, "candles");
+  assert.equal(out.ohlcPlots[0]!.data.length, BARS.length);
+});
+
+test("fill, bgcolor, barcolor, cross and custom OHLC emit isolated render contracts", () => {
+  const out = new PineInterpreter(`
+indicator("Visuals", overlay=false)
+upper = plot(high, "Upper")
+lower = plot(low, "Lower")
+fill(upper, lower, close > open ? color.new(color.green, 80) : na, "Dynamic")
+top = hline(80, "Top")
+bottom = hline(20, "Bottom")
+fill(top, bottom, color.rgb(41, 98, 255, 90), "Levels")
+bgcolor(close > open ? color.new(color.blue, 90) : na, title="State")
+barcolor(close < open ? color.red : na, title="Down")
+plot(close, "Cross", style=plot.style_cross, linewidth=3, offset=1)
+plotcandle(bar_index % 2 == 0 ? open : na, high, low, close,
+  "Synthetic candles", color=close > open ? color.lime : color.fuchsia,
+  wickcolor=color.yellow, bordercolor=color.white)
+plotbar(open, high, low, close, "Synthetic bars", color=color.orange)
+`).run({ bars: BARS, startIdx: 0, endIdx: BARS.length - 1 });
+
+  assert.deepEqual(out.meta.warnings, []);
+  assert.equal(out.fills.length, 2);
+  assert.equal(out.fills[0]!.firstId, out.plots[0]!.id);
+  assert.equal(out.fills[0]!.secondId, out.plots[1]!.id);
+  assert.equal(out.fills[0]!.forceOverlay, false);
+  assert.ok(out.fills[0]!.colors.some((color) => color === "#08998133"));
+  assert.ok(out.fills[0]!.colors.some((color) => color === null));
+  assert.ok(out.fills[1]!.colors.every((color) => color === "#2962ff1a"));
+  assert.equal(out.backgrounds[0]!.colors.length, BARS.length);
+  assert.ok(out.backgrounds[0]!.colors.some((color) => color === "#2962ff1a"));
+  assert.equal(out.barColors[0]!.colors.length, BARS.length);
+  assert.ok(out.barColors[0]!.colors.some((color) => color === "#f23645"));
+  const cross = out.plots.find((plot) => plot.title === "Cross")!;
+  assert.equal(cross.style, "cross");
+  assert.equal(cross.renderable, true);
+  assert.equal(cross.offset, 1);
+  assert.deepEqual(out.ohlcPlots.map((plot) => plot.style), ["candles", "bars"]);
+  assert.equal(out.ohlcPlots[0]!.data[1], null);
+  assert.deepEqual(out.ohlcPlots[1]!.data[0], {
+    open: BARS.open[0], high: BARS.high[0], low: BARS.low[0], close: BARS.close[0],
+  });
+});
+
+test("unsupported visual subsets stay explicit instead of drawing approximations", () => {
+  const out = new PineInterpreter(`
+indicator("Boundaries", overlay=false)
+visible = plot(close)
+hidden = plot(open, display=display.none)
+fill(visible, hidden, color.red)
+fill(visible, hidden, high, low, color.green, color.red)
+bgcolor(color.blue, show_last=10)
+plotbar(open, high, low, close, show_last=10)
+`).run({ bars: BARS, startIdx: 0, endIdx: BARS.length - 1 });
+  assert.deepEqual(out.meta.warnings.map((warning) => warning.message), [
+    "fill() with a display.none endpoint is not rendered",
+    "gradient fill() is not rendered; only fill(plot, plot, color) and fill(hline, hline, color) are supported",
+    "bgcolor() show_last is not supported; the background was not rendered",
+    "plotbar() show_last is not supported; the custom OHLC series was not rendered",
+  ]);
+  assert.equal(out.fills[0]!.renderable, false);
+  assert.ok(out.backgrounds[0]!.colors.every((color) => color === null));
+  assert.equal(out.ohlcPlots[0]!.renderable, false);
+});
+
+test("session-aware time supports chart-timeframe UTC, IANA DST and overnight sessions", () => {
+  const times = [
+    Date.UTC(2026, 6, 6, 13, 29),
+    Date.UTC(2026, 6, 6, 13, 30),
+    Date.UTC(2026, 6, 6, 13, 59),
+    Date.UTC(2026, 6, 6, 14, 0),
+  ];
+  const sessionBars: Bars = {
+    symbol: "TESTUSDT", interval: "1m", time: times,
+    closeTime: times.map((time) => time + 59_999),
+    open: [1, 1, 1, 1], high: [2, 2, 2, 2], low: [0, 0, 0, 0],
+    close: [1, 1, 1, 1], volume: [1, 1, 1, 1], length: times.length,
+  };
+  const out = new PineInterpreter(`
+indicator("Sessions")
+plot(time(timeframe.period, "1330-1400:2", "UTC"), "utc")
+plot(time(timeframe.period, "0930-1000:2", "America/New_York"), "new-york")
+`).run({ bars: sessionBars, startIdx: 0, endIdx: times.length - 1 });
+  for (const plot of out.plots) {
+    assert.deepEqual(plot.data, [null, times[1], times[2], null]);
+  }
+
+  const overnightTime = Date.UTC(2026, 6, 4, 1, 0); // Saturday, Friday session still open.
+  const overnight = { ...sessionBars, time: [overnightTime], closeTime: [overnightTime + 59_999],
+    open: [1], high: [2], low: [0], close: [1], volume: [1], length: 1 };
+  const overnightOut = new PineInterpreter(`indicator("Overnight")
+plot(time(timeframe.period, "2200-0200:6", "UTC"))`).run({
+    bars: overnight, startIdx: 0, endIdx: 0,
+  });
+  assert.deepEqual(overnightOut.plots[0]!.data, [overnightTime]);
+});
+
+test("ta.mfi and time reject unsupported overloads explicitly", () => {
+  assert.throws(
+    () => new PineInterpreter(`indicator("x")\nplot(ta.mfi(hlc3, volume, 14))`).run({
+      bars: BARS, startIdx: 0, endIdx: BARS.length - 1,
+    }),
+    /ta\.mfi supports only/
+  );
+  assert.throws(
+    () => new PineInterpreter(`indicator("x")\nplot(time("60", "0900-1000"))`).run({
+      bars: BARS, startIdx: 0, endIdx: BARS.length - 1,
+    }),
+    /supports only the chart timeframe/
+  );
 });

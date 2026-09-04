@@ -1,8 +1,8 @@
-import { query } from "../db/pool";
+import { pool, query } from "../db/pool";
 import type { Interval } from "../types/market";
 import type {
-  ConditionKind, MaAlertEventRow, MaAlertMode, MaAlertRow, MaType, PriceDirection,
-  SrSide,
+  BulkAlertAction, ConditionKind, MaAlertEventRow, MaAlertMode, MaAlertRow, MaType,
+  PriceDirection, SrSide,
 } from "../types/maAlerts";
 import type { AlertFrequency } from "../alerts/alertFrequency";
 
@@ -268,40 +268,176 @@ export async function getAlert(id: string): Promise<MaAlertRow | null> {
   return rows[0] ? toRow(rows[0]) : null;
 }
 
-export type MaAlertPatch = Partial<Pick<MaAlertInput,
-  | "enabled" | "cooldownMin" | "nearMinPct" | "nearMaxPct" | "note"
-  | "mode" | "timeframe" | "frequency" | "targetPrice" | "priceDirection"
->>;
+/**
+ * What an edit may change.
+ *
+ * `conditionKind` is deliberately absent: an alert's FAMILY is fixed for its
+ * lifetime. Turning an RSI alert into a MACD one would keep the id and the
+ * event log while making every historical row in that log describe something
+ * the alert no longer is, and every unique index in the schema is per-kind, so
+ * the "same alert" rule would change underneath a live row.
+ */
+export type MaAlertPatch = Partial<Omit<MaAlertInput, "conditionKind">> & {
+  /**
+   * Forget which side of its reference the alert last sat on, so the next
+   * evaluation re-seeds instead of comparing against a reference that no longer
+   * exists. Set by the API when an edit moves the reference — see
+   * `alerts/alertEdit.ts`, and the seeding rule at the top of
+   * `alerts/alertConditions.ts`.
+   */
+  resetLastSide?: boolean;
+};
 
+/** Patch key → column, for every field an edit may write. */
+const PATCH_COLUMNS: Record<string, string> = {
+  symbol: "symbol",
+  timeframe: "timeframe",
+  enabled: "enabled",
+  frequency: "frequency",
+  cooldownMin: "cooldown_min",
+  note: "note",
+  nearMinPct: "near_min_pct",
+  nearMaxPct: "near_max_pct",
+  maType: "ma_type",
+  maLength: "ma_length",
+  mode: "mode",
+  ma2Type: "ma2_type",
+  ma2Length: "ma2_length",
+  targetPrice: "target_price",
+  priceDirection: "price_direction",
+  srSide: "sr_side",
+  srPivotLength: "sr_pivot_length",
+  srInvalidation: "sr_invalidation",
+  pivotType: "pivot_type",
+  pivotLevelName: "pivot_level_name",
+  pivotAnchor: "pivot_anchor",
+  rsiLength: "rsi_length",
+  rsiLevel: "rsi_level",
+  rsiMaLength: "rsi_ma_length",
+  macdFast: "macd_fast",
+  macdSlow: "macd_slow",
+  macdSignal: "macd_signal",
+  indicatorTarget: "indicator_target",
+  filterRsiLength: "filter_rsi_length",
+  filterRsiLevel: "filter_rsi_level",
+  filterRsiSide: "filter_rsi_side",
+  filterMaType: "filter_ma_type",
+  filterMaLength: "filter_ma_length",
+  filterMaSide: "filter_ma_side",
+};
+
+/**
+ * An edit that would collide with another alert on the same per-kind unique
+ * index.
+ *
+ * Distinguished from a generic failure because the answer is different: the
+ * user has not sent something invalid, they have described an alert that
+ * already exists, and merging them silently would delete one of the two.
+ */
+export class AlertConflictError extends Error {
+  constructor(message = "another alert already watches exactly this condition") {
+    super(message);
+    this.name = "AlertConflictError";
+  }
+}
+
+/**
+ * Update one alert in place, keeping its id, its event history and its
+ * delivery state.
+ *
+ * In place rather than delete-and-recreate: the id is the foreign key
+ * `ma_alert_events` hangs off, and it is what `once_only` retirement,
+ * `last_fired_bar_time` de-duplication and the observability of "has this
+ * alert ever reached a phone?" are all recorded against.
+ */
 export async function updateAlert(id: string, patch: MaAlertPatch): Promise<MaAlertRow | null> {
   const cols: Record<string, unknown> = {};
-  if (patch.enabled !== undefined) cols.enabled = patch.enabled;
-  if (patch.cooldownMin !== undefined) cols.cooldown_min = patch.cooldownMin;
-  if (patch.nearMinPct !== undefined) cols.near_min_pct = patch.nearMinPct;
-  if (patch.nearMaxPct !== undefined) cols.near_max_pct = patch.nearMaxPct;
-  if (patch.note !== undefined) cols.note = patch.note;
-  if (patch.mode !== undefined) cols.mode = patch.mode;
-  if (patch.timeframe !== undefined) cols.timeframe = patch.timeframe;
-  if (patch.frequency !== undefined) cols.frequency = patch.frequency;
-  if (patch.targetPrice !== undefined) cols.target_price = patch.targetPrice;
-  if (patch.priceDirection !== undefined) cols.price_direction = patch.priceDirection;
+  for (const [key, column] of Object.entries(PATCH_COLUMNS)) {
+    const value = (patch as Record<string, unknown>)[key];
+    if (value !== undefined) cols[column] = key === "symbol" ? String(value).toUpperCase() : value;
+  }
   // Re-enabling a retired once_only alert must actually re-arm it. Otherwise the
   // UI shows an enabled alert that can never fire.
   if (patch.enabled === true) cols.completed_at = null;
+  if (patch.resetLastSide) cols.last_side = null;
   const keys = Object.keys(cols);
   if (keys.length === 0) return getAlert(id);
   const sets = keys.map((k, i) => `${k} = $${i + 2}`);
-  const { rows } = await query<DbAlert>(
-    `UPDATE ma_alerts SET ${sets.join(", ")}, updated_at = now()
-     WHERE id = $1 RETURNING *`,
-    [id, ...keys.map((k) => cols[k])]
-  );
-  return rows[0] ? toRow(rows[0]) : null;
+  try {
+    const { rows } = await query<DbAlert>(
+      `UPDATE ma_alerts SET ${sets.join(", ")}, updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [id, ...keys.map((k) => cols[k])]
+    );
+    return rows[0] ? toRow(rows[0]) : null;
+  } catch (error) {
+    // 23505 = unique_violation: the edited configuration is already armed on
+    // another row.
+    if ((error as { code?: string }).code === "23505") throw new AlertConflictError();
+    throw error;
+  }
 }
 
 export async function deleteAlert(id: string): Promise<boolean> {
   const { rowCount } = await query("DELETE FROM ma_alerts WHERE id = $1", [id]);
   return (rowCount ?? 0) > 0;
+}
+
+export interface BulkAlertResult {
+  action: BulkAlertAction;
+  requested: number;
+  affected: number;
+  missingIds: string[];
+}
+
+/**
+ * Apply one action to an explicit, already-deduplicated set of alert IDs.
+ *
+ * The authenticated API is a single-admin scope; there is deliberately no
+ * invented user/tenant column. Locking and validating every row before the
+ * write makes the operation atomic: a stale or foreign-to-scope ID changes
+ * nothing, so the UI can never report a partly-applied bulk action as success.
+ */
+export async function bulkActAlerts(
+  ids: string[], action: BulkAlertAction
+): Promise<BulkAlertResult> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query<{ id: string }>(
+      "SELECT id::text AS id FROM ma_alerts WHERE id = ANY($1::uuid[]) FOR UPDATE",
+      [ids]
+    );
+    const foundIds = new Set(found.rows.map((row) => row.id));
+    const missingIds = ids.filter((id) => !foundIds.has(id));
+    if (missingIds.length > 0) {
+      await client.query("ROLLBACK");
+      return { action, requested: ids.length, affected: 0, missingIds };
+    }
+
+    const result = action === "delete"
+      ? await client.query("DELETE FROM ma_alerts WHERE id = ANY($1::uuid[])", [ids])
+      : await client.query(
+          `UPDATE ma_alerts
+             SET enabled = $2,
+                 completed_at = CASE WHEN $2 THEN NULL ELSE completed_at END,
+                 updated_at = now()
+           WHERE id = ANY($1::uuid[])`,
+          [ids, action === "resume"]
+        );
+    await client.query("COMMIT");
+    return {
+      action,
+      requested: ids.length,
+      affected: result.rowCount ?? 0,
+      missingIds: [],
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -342,17 +478,21 @@ export async function createEvent(input: {
   title: string;
   body: string;
   pushedTo: number;
+  pushFailed: number;
+  pushPruned: number;
+  deliveryStatus: MaAlertEventRow["deliveryStatus"];
   intrabar: boolean;
   frequency: AlertFrequency;
 }): Promise<void> {
   await query(
     `INSERT INTO ma_alert_events
        (alert_id, bar_time, price, ma_value, distance_pct, title, body,
-        pushed_to, intrabar, frequency)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        pushed_to, push_failed, push_pruned, delivery_status, intrabar, frequency)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
       input.alertId, new Date(input.barTime), input.price, input.maValue,
       input.distancePct, input.title, input.body, input.pushedTo,
+      input.pushFailed, input.pushPruned, input.deliveryStatus,
       input.intrabar, input.frequency,
     ]
   );
@@ -362,6 +502,8 @@ interface DbEvent {
   id: string; alert_id: string; fired_at: Date; bar_time: Date;
   price: string; ma_value: string; distance_pct: string;
   title: string; body: string; pushed_to: number;
+  push_failed: number; push_pruned: number;
+  delivery_status: MaAlertEventRow["deliveryStatus"];
   intrabar: boolean; frequency: AlertFrequency | null;
 }
 
@@ -381,6 +523,9 @@ export async function listEvents(limit = 100): Promise<MaAlertEventRow[]> {
     title: r.title,
     body: r.body,
     pushedTo: r.pushed_to,
+    pushFailed: r.push_failed,
+    pushPruned: r.push_pruned,
+    deliveryStatus: r.delivery_status,
     intrabar: r.intrabar,
     frequency: r.frequency,
   }));
