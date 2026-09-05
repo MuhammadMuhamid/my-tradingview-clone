@@ -120,3 +120,8 @@ backtestingsystems/
 platform copy/
 platform [0-9]*/
 *-copy/
+# Finder's own duplicate naming ("screener copy", "screener copy 2"), which is
+# how a 329 MB second copy of platform/screener landed in the tree. The same
+# reasoning applies at any depth, so this is not anchored to the root.
+* copy/
+* copy [0-9]*/
