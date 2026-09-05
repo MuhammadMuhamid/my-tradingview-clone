@@ -89,6 +89,13 @@ export interface ChartPaneProps {
   onAnnotationSelect?: (id: string) => void;
   /** Set only while the workspace is waiting for a price to be clicked. */
   onPriceSelect?: (price: number) => void;
+  /** This pane's drawing selection changed. */
+  onDrawingSelection?: (paneId: string, id: string | null) => void;
+  /** A right-click landed on this pane's plot. */
+  onChartContextMenu?: (
+    paneId: string,
+    event: { x: number; y: number; drawingId: string | null; price: number | null }
+  ) => void;
   /** The active pane reports its viewport so evidence can be fetched for it. */
   onViewportChange?: (range: { from: number; to: number }) => void;
 
@@ -224,8 +231,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
   // ── drawings, shared with every other pane on this instrument ──
   const [drawings, setDrawings] = useState<Drawing[]>(() => drawingStore.get(pane.symbol));
   useEffect(() => drawingStore.subscribe(pane.symbol, setDrawings), [pane.symbol]);
-  const updateDrawings = useCallback((next: Drawing[]) => {
-    drawingStore.set(pane.symbol, next);
+  const updateDrawings = useCallback((next: Drawing[], gesture?: string | null) => {
+    drawingStore.set(pane.symbol, next, gesture ?? null);
   }, [pane.symbol]);
 
   const maOverlays = useMemo(
@@ -459,6 +466,12 @@ function ChartPaneImpl(props: ChartPaneProps) {
             onDrawingToolDone={props.onDrawingToolDone}
             drawings={drawingsAtReplayHorizon(replay, drawings, props.replayDrawings)}
             onDrawingsChange={replayActive ? props.onReplayDrawingsChange : updateDrawings}
+            onDrawingSelection={
+              props.onDrawingSelection
+                ? (id) => props.onDrawingSelection?.(paneId, id) : undefined}
+            onChartContextMenu={
+              props.onChartContextMenu
+                ? (event) => props.onChartContextMenu?.(paneId, event) : undefined}
             magnet={props.magnet}
             drawingsLocked={props.drawingsLocked}
             drawingsHidden={props.drawingsHidden}

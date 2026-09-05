@@ -25,6 +25,7 @@
  * moment, with a flush on page hide so nothing is lost.
  */
 import { loadDrawings, saveDrawings, type Drawing } from "./drawings";
+import { DrawingHistory, type HistoryState } from "./drawingHistory";
 
 type Listener = (drawings: Drawing[]) => void;
 
@@ -34,6 +35,7 @@ class DrawingStore {
   private readonly cache = new Map<string, Drawing[]>();
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly dirty = new Set<string>();
+  private readonly history = new DrawingHistory();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private hideHandlerAttached = false;
 
@@ -43,6 +45,10 @@ class DrawingStore {
     if (existing) return existing;
     const loaded = loadDrawings(symbol);
     this.cache.set(symbol, loaded);
+    // Loading is not an edit: seeding the history rather than recording into
+    // it means the first Cmd+Z after opening a chart does nothing, instead of
+    // "undoing" the arrival of the user's own saved drawings.
+    this.history.reset(symbol, loaded);
     return loaded;
   }
 
@@ -64,8 +70,48 @@ class DrawingStore {
     };
   }
 
-  /** Replace a symbol's drawings and tell everyone watching it. */
-  set(symbol: string, drawings: Drawing[]): void {
+  /**
+   * Replace a symbol's drawings and tell everyone watching it.
+   *
+   * `gesture` collapses consecutive changes into one undo step. Dragging an
+   * anchor emits a change per pointer sample, and recording each would make
+   * one drag consume the whole undo depth — so undo would rewind a few pixels
+   * rather than the drag.
+   */
+  set(symbol: string, drawings: Drawing[], gesture: string | null = null): void {
+    this.history.record(symbol, drawings, gesture);
+    this.write(symbol, drawings);
+  }
+
+  /** Undo one step for this instrument. Returns the restored list, or null. */
+  undo(symbol: string): Drawing[] | null {
+    const restored = this.history.undo(symbol);
+    if (restored) this.write(symbol, restored);
+    return restored;
+  }
+
+  redo(symbol: string): Drawing[] | null {
+    const restored = this.history.redo(symbol);
+    if (restored) this.write(symbol, restored);
+    return restored;
+  }
+
+  /** Whether undo and redo have anything to do, for the toolbar's buttons. */
+  historyState(symbol: string): HistoryState {
+    return this.history.state(symbol);
+  }
+
+  /**
+   * Adopt a list that did NOT come from an edit — a server sync landing, a
+   * layout being restored. It becomes the present without being undoable,
+   * because undoing "the data arrived" is meaningless.
+   */
+  adopt(symbol: string, drawings: Drawing[]): void {
+    this.history.reset(symbol, drawings);
+    this.write(symbol, drawings);
+  }
+
+  private write(symbol: string, drawings: Drawing[]): void {
     this.cache.set(symbol, drawings);
     this.dirty.add(symbol);
     this.schedulePersist();

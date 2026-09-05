@@ -52,15 +52,25 @@ import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
 import { ReplayControls } from "@/components/tv/ReplayControls";
 import { TradingOverlayDetails } from "@/components/tv/TradingOverlays";
 import { drawingStore } from "@/lib/drawingStore";
+import { cloneDrawing } from "@/lib/drawingHistory";
+import { ContextMenu } from "@/components/tv/ContextMenu";
+import type { MenuEntry } from "@/lib/contextMenu";
+import { chartMenu, drawingMenu } from "@/lib/menuPayloads";
+import { useShortcuts } from "@/lib/useShortcuts";
+import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
-import type { Drawing, DrawingTool } from "@/lib/drawings";
+import { newId, type Drawing, type DrawingTool } from "@/lib/drawings";
 import { api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript } from "@/lib/api";
 import { currentMaValues, defaultMaLines, type MaType } from "@/lib/movingAverages";
 import { defaultParamsFor } from "@/lib/paramSchema";
 import * as layoutStore from "@/lib/layouts";
 import type { WorkspaceState } from "@/lib/layouts";
 import { useSavedLayouts } from "@/lib/useSavedLayouts";
-import type { Candle, Interval, OpenTrade, Strategy, StrategyParams, SymbolInfo, Trade } from "@/lib/types";
+import {
+  INTERVAL_MS,
+  type Candle, type Interval, type OpenTrade, type Strategy, type StrategyParams,
+  type SymbolInfo, type Trade,
+} from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
 import { parseScannerChartTarget } from "@/lib/spotScene";
 import { sameSymbol } from "@/lib/manualTicket";
@@ -938,6 +948,221 @@ export default function TvWorkspace() {
     overlays.priceLines, priceLines, alertLinesFor, manualPriceLines, trades]);
 
   /** One definition, rendered twice: as the desktop column and the phone drawer. */
+
+  /* ────────────────────────────────────────────────────────────────────────
+   * Right-click, and the keyboard
+   *
+   * Both are workspace-level for the same reason: what a menu may offer and
+   * what a key may do are decisions about the WORKSPACE — whether Replay is
+   * running, which pane is focused, whether a drawing is selected — and a
+   * component that owns only part of that would have to guess at the rest.
+   *
+   * The menu payloads are pure (`lib/menuPayloads`) and the key table is pure
+   * (`lib/shortcuts`); this is the wiring between them and the state they act
+   * on, and nothing else.
+   * ──────────────────────────────────────────────────────────────────────── */
+
+  /** The open context menu: where it is, what it is about, and its items. */
+  const [menu, setMenu] = useState<
+    | null
+    | { at: { x: number; y: number }; label: string; entries: MenuEntry[];
+        kind: "chart" | "drawing"; paneId: string; price: number | null; drawingId: string | null }
+  >(null);
+  /** Which drawing each pane has selected, so the keyboard can act on it. */
+  const [selectedDrawings, setSelectedDrawings] = useState<Record<string, string | null>>({});
+  /** One clipboard for the workspace, so a copy can be pasted onto any chart. */
+  const clipboard = useRef<Drawing | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  const selectedDrawingId = selectedDrawings[workspace.activePaneId] ?? null;
+  const currentDrawings = replayActive ? replayDrawings : activeDrawings;
+  const selectedDrawing = selectedDrawingId
+    ? currentDrawings.find((d) => d.id === selectedDrawingId) ?? null
+    : null;
+
+  const noteDrawingSelection = useCallback((paneId: string, id: string | null) => {
+    setSelectedDrawings((current) => (current[paneId] === id
+      ? current : { ...current, [paneId]: id }));
+  }, []);
+
+  /** Replace the focused instrument's drawings, through the right authority. */
+  const writeDrawings = useCallback((next: Drawing[], gesture: string | null = null) => {
+    if (replayActive) updateReplayDrawings(next);
+    else drawingStore.set(symbol, next, gesture);
+  }, [replayActive, updateReplayDrawings, symbol]);
+
+  const openChartMenu = useCallback((
+    paneId: string,
+    event: { x: number; y: number; drawingId: string | null; price: number | null }
+  ) => {
+    activatePane(paneId);
+    const pane = paneById(workspace, paneId);
+    const paneSymbol = pane?.symbol ?? symbol;
+    const drawings = replayActive ? replayDrawings : drawingStore.get(paneSymbol);
+    if (event.drawingId) {
+      const drawing = drawings.find((d) => d.id === event.drawingId) ?? null;
+      setMenu({
+        at: { x: event.x, y: event.y },
+        label: "Drawing",
+        kind: "drawing",
+        paneId,
+        price: event.price,
+        drawingId: event.drawingId,
+        entries: drawingMenu({
+          locked: drawing?.locked === true,
+          hidden: drawHidden,
+          // Only a single-anchor horizontal level is a price an alert can watch.
+          alertable: drawing?.tool === "hline" || drawing?.tool === "hray",
+          replayActive,
+          canReorder: true,
+        }),
+      });
+      return;
+    }
+    setMenu({
+      at: { x: event.x, y: event.y },
+      label: `${paneSymbol} chart`,
+      kind: "chart",
+      paneId,
+      price: event.price,
+      drawingId: null,
+      entries: chartMenu({
+        price: event.price,
+        replayActive,
+        autoScale: true,
+        logScale: false,
+        hasDrawings: drawings.length > 0,
+        drawingsHidden: drawHidden,
+        drawingsLocked: drawLocked,
+        tradingEnabled: true,
+      }),
+    });
+  }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked]);
+
+  const onMenuSelect = useCallback((id: string) => {
+    if (!menu) return;
+    const price = menu.price;
+    switch (id) {
+      case "copy-price":
+        if (price !== null) void navigator.clipboard?.writeText(String(price));
+        return;
+      case "add-alert":
+        if (price !== null) pickLevel(price);
+        return;
+      case "trade-at-price":
+        // PREPARES a ticket. It does not submit, and no context-menu item in
+        // this product ever will — that is the alert/automation boundary.
+        setPanel("manual");
+        return;
+      case "indicators": setIndicatorBrowserOpen(true); return;
+      case "chart-settings": setSettingsOpen(true); return;
+      case "toggle-drawings-hidden": setDrawHidden((v) => !v); return;
+      case "toggle-drawings-locked": setDrawLocked((v) => !v); return;
+      default: break;
+    }
+    if (menu.kind !== "drawing" || !menu.drawingId) return;
+    const drawings = currentDrawings;
+    const target = drawings.find((d) => d.id === menu.drawingId);
+    if (!target) return;
+    switch (id) {
+      case "clone": {
+        const copy = cloneDrawing(target, newId, INTERVAL_MS[interval] / 1000);
+        writeDrawings([...drawings, copy]);
+        return;
+      }
+      case "copy": clipboard.current = target; return;
+      case "toggle-lock":
+        writeDrawings(drawings.map((d) =>
+          (d.id === target.id ? { ...d, locked: !d.locked } : d)));
+        return;
+      case "remove":
+        writeDrawings(drawings.filter((d) => d.id !== target.id));
+        return;
+      case "bring-front":
+        writeDrawings([...drawings.filter((d) => d.id !== target.id), target]);
+        return;
+      case "send-back":
+        writeDrawings([target, ...drawings.filter((d) => d.id !== target.id)]);
+        return;
+      case "add-alert": {
+        const level = target.points[0]?.price;
+        if (level !== undefined) pickLevel(level);
+        return;
+      }
+      default: return;
+    }
+  }, [menu, currentDrawings, interval, writeDrawings, pickLevel]);
+
+  const shortcuts = useShortcuts({
+    onAction: (action) => {
+      switch (action) {
+        case "undo": {
+          if (replayActive) return false;
+          return drawingStore.undo(symbol) !== null;
+        }
+        case "redo": {
+          if (replayActive) return false;
+          return drawingStore.redo(symbol) !== null;
+        }
+        case "clone": {
+          if (!selectedDrawing) return false;
+          writeDrawings([
+            ...currentDrawings,
+            cloneDrawing(selectedDrawing, newId, INTERVAL_MS[interval] / 1000),
+          ]);
+          return true;
+        }
+        case "copy":
+          if (!selectedDrawing) return false;
+          clipboard.current = selectedDrawing;
+          return true;
+        case "paste": {
+          const held = clipboard.current;
+          if (!held) return false;
+          writeDrawings([
+            ...currentDrawings,
+            cloneDrawing(held, newId, INTERVAL_MS[interval] / 1000),
+          ]);
+          return true;
+        }
+        case "delete": {
+          // The canvas already deletes its own selection on Delete; returning
+          // false leaves that path alone rather than deleting twice.
+          return false;
+        }
+        case "tool:cursor": setTool("cursor"); return true;
+        case "tool:trend": setTool("trend"); return true;
+        case "tool:horizontal": setTool("hline"); return true;
+        case "tool:vertical": setTool("vline"); return true;
+        case "tool:fib": setTool("fib"); return true;
+        case "tool:text": setTool("text"); return true;
+        case "magnet": setMagnet((v) => !v); return true;
+        case "lock-drawings": setDrawLocked((v) => !v); return true;
+        case "hide-drawings": setDrawHidden((v) => !v); return true;
+        case "symbol-search": setSearchPaneId(workspace.activePaneId); return true;
+        case "indicators": setIndicatorBrowserOpen(true); return true;
+        case "chart-settings": setSettingsOpen(true); return true;
+        case "shortcuts-sheet": setShortcutsOpen(true); return true;
+        case "fullscreen":
+          if (!fullscreen.supported) return false;
+          fullscreen.toggle();
+          return true;
+        case "replay-step-back":
+          setReplay((current) => (current ? stepReplay(current, candles, -1) : null));
+          return true;
+        case "replay-step-forward":
+          setReplay((current) => (current ? stepReplay(current, candles, 1) : null));
+          return true;
+        case "replay-play-pause":
+          setReplayPlaying(!(replay?.playing ?? false));
+          return true;
+        default:
+          return false;
+      }
+    },
+    onInterval: (next) => changePaneInterval(workspace.activePaneId, next),
+  }, { replayActive, enabled: !replayPickerOpen });
+
   const drawingToolbarProps = {
     tool, onTool: setTool,
     magnet, onMagnet: setMagnet,
@@ -994,6 +1219,8 @@ export default function TvWorkspace() {
         onIndicatorsApi={registerIndicatorsApi}
         onNativeStudiesApi={registerNativeApi}
         onNativeStudiesChanged={registerNativeChanged}
+        onDrawingSelection={noteDrawingSelection}
+        onChartContextMenu={openChartMenu}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         compact={isMobile}
@@ -1003,7 +1230,7 @@ export default function TvWorkspace() {
     toggleMaximizePane, closePane, replay, replayDrawings, updateReplayDrawings, cross, range,
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnet, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
-    registerNativeApi, registerNativeChanged,
+    registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport]);
 
   return (
@@ -1252,6 +1479,33 @@ export default function TvWorkspace() {
         Rendered here rather than inside the panel so the gear on a pane can
         open it without the Studies panel having to be open first.
       */}
+      <ShortcutsSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+      {/*
+        What has been typed toward a timeframe.
+        Shown because a buffer the user cannot see is a buffer they cannot
+        correct: typing `1`, `5` and seeing nothing is indistinguishable from
+        the keystrokes having been swallowed.
+      */}
+      {shortcuts.intervalBuffer.length > 0 && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed bottom-16 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 font-mono text-lg text-ink shadow-xl"
+        >
+          {shortcuts.intervalBuffer}
+          <span className="ml-2 text-xs text-ink-faint">Enter to apply</span>
+        </div>
+      )}
+
+      <ContextMenu
+        at={menu?.at ?? null}
+        label={menu?.label ?? "Chart"}
+        entries={menu?.entries ?? []}
+        onSelect={onMenuSelect}
+        onClose={() => setMenu(null)}
+      />
+
       <NativeStudySettings
         study={editingNativeStudy}
         values={editingNativeValues}

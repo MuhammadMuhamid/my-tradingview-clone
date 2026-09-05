@@ -23,6 +23,12 @@ interface Drag {
   startPointer: Anchor;
   startPoints: Anchor[];
   moved: boolean;
+  /**
+   * Identifies this drag to the undo history, so every pointer sample it emits
+   * collapses into one step. Unique per drag rather than per drawing: moving a
+   * trendline, letting go, and moving it again is two undos.
+   */
+  gesture: string;
 }
 
 /**
@@ -63,6 +69,7 @@ function geometryDigest(drawings: Drawing[]): number {
 export function DrawingCanvas({
   container, chart, series, candles, interval,
   tool, onToolDone, drawings, onChange, magnet, locked, hidden,
+  onSelectionChange, onContextMenu,
 }: {
   container: HTMLDivElement | null;
   chart: IChartApi | null;
@@ -74,13 +81,32 @@ export function DrawingCanvas({
   /** creation finished — the caller reverts the rail to the cursor */
   onToolDone: () => void;
   drawings: Drawing[];
-  onChange: (next: Drawing[]) => void;
+  /**
+   * `gesture` groups consecutive changes into one undo step.
+   *
+   * A drag emits a change per pointer sample; recording each would make one
+   * drag consume the whole undo depth, so Cmd+Z would rewind a few pixels
+   * rather than the drag. The store collapses runs that share a gesture id —
+   * see `lib/drawingHistory`.
+   */
+  onChange: (next: Drawing[], gesture?: string | null) => void;
   magnet: boolean;
   locked: boolean;
   hidden: boolean;
+  /**
+   * Which drawing is selected, so the workspace's keyboard and context menu
+   * can act on it. The canvas remains the owner of the selection — this only
+   * reports it.
+   */
+  onSelectionChange?: (id: string | null) => void;
+  /** A right-click landed on a drawing (or on empty chart, with a null id). */
+  onContextMenu?: (event: { x: number; y: number; drawingId: string | null; price: number | null }) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  useEffect(() => { onSelectionChangeRef.current?.(selected); }, [selected]);
   const [style, setStyle] = useState(DEFAULT_STYLE);
 
   // Refs mirror state for use inside the imperative pointer/raf handlers.
@@ -105,6 +131,8 @@ export function DrawingCanvas({
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onContextMenuRef = useRef(onContextMenu);
+  onContextMenuRef.current = onContextMenu;
   const onToolDoneRef = useRef(onToolDone);
   onToolDoneRef.current = onToolDone;
 
@@ -239,6 +267,29 @@ export function DrawingCanvas({
       return p.x >= 0 && p.x <= w && p.y >= 0 && p.y <= h;
     };
 
+    /*
+     * Right-click reports upward rather than opening a menu here.
+     *
+     * The canvas knows what was hit and what price the pointer is over; it
+     * does not know whether Replay is running, whether manual trading is
+     * enabled, or what a menu should offer. Those are workspace facts, so the
+     * workspace builds the payload — see `lib/menuPayloads`.
+     */
+    const onContext = (e: MouseEvent): void => {
+      const handler = onContextMenuRef.current;
+      if (!handler) return;
+      const p = rectOf(e);
+      if (!inPlot(p)) return;
+      e.preventDefault();
+      const hit = hiddenRef.current ? null : hitTest(p);
+      if (hit) setSelected(hit.id);
+      handler({
+        x: e.clientX, y: e.clientY,
+        drawingId: hit?.id ?? null,
+        price: toAnchor(p.x, p.y).price,
+      });
+    };
+
     const onDown = (e: MouseEvent): void => {
       if (e.button !== 0 || hiddenRef.current) return;
       const p = rectOf(e);
@@ -266,6 +317,7 @@ export function DrawingCanvas({
               startPointer: toAnchor(p.x, p.y),
               startPoints: d.points.map((a) => ({ ...a })),
               moved: false,
+              gesture: `drag:${hit.id}:${Date.now()}`,
             };
           }
           e.stopPropagation(); e.preventDefault();
@@ -319,7 +371,9 @@ export function DrawingCanvas({
             points: drag.startPoints.map((a) => ({ time: a.time + dt, price: a.price + dp })),
           };
         });
-        onChangeRef.current(list);
+        // One gesture id for the whole drag, so the sixty changes a drag emits
+        // collapse into the single undo step the user means by "undo that".
+        onChangeRef.current(list, drag.gesture);
         e.stopPropagation(); e.preventDefault();
         return;
       }
@@ -378,6 +432,7 @@ export function DrawingCanvas({
     const onLeave = (): void => { previewRef.current = null; };
 
     container.addEventListener("mousedown", onDown, true);
+    container.addEventListener("contextmenu", onContext, true);
     container.addEventListener("mousemove", onMove, true);
     container.addEventListener("mouseup", onUp, true);
     container.addEventListener("dblclick", onDouble, true);
@@ -386,6 +441,7 @@ export function DrawingCanvas({
     window.addEventListener("mouseup", onUp, true);
     return () => {
       container.removeEventListener("mousedown", onDown, true);
+      container.removeEventListener("contextmenu", onContext, true);
       container.removeEventListener("mousemove", onMove, true);
       container.removeEventListener("mouseup", onUp, true);
       container.removeEventListener("dblclick", onDouble, true);

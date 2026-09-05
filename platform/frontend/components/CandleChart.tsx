@@ -373,6 +373,7 @@ export function CandleChart({
   live = true, fill = false,
   chartType = "candles",
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
+  onDrawingSelection, onChartContextMenu,
   magnet = false, drawingsLocked = false, drawingsHidden = false,
   onPriceSelect,
   onAnnotationSelect,
@@ -412,7 +413,13 @@ export function CandleChart({
   drawingTool?: DrawingTool;
   onDrawingToolDone?: () => void;
   drawings?: Drawing[];
-  onDrawingsChange?: (next: Drawing[]) => void;
+  onDrawingsChange?: (next: Drawing[], gesture?: string | null) => void;
+  /** Reports the drawing selection so the workspace's keyboard can act on it. */
+  onDrawingSelection?: (id: string | null) => void;
+  /** A right-click landed on the plot, with what it hit and the price under it. */
+  onChartContextMenu?: (
+    event: { x: number; y: number; drawingId: string | null; price: number | null }
+  ) => void;
   magnet?: boolean;
   drawingsLocked?: boolean;
   drawingsHidden?: boolean;
@@ -1711,6 +1718,8 @@ export function CandleChart({
               onToolDone={onDrawingToolDone ?? (() => {})}
               drawings={drawings}
               onChange={onDrawingsChange}
+              onSelectionChange={onDrawingSelection}
+              onContextMenu={onChartContextMenu}
               magnet={magnet}
               locked={drawingsLocked}
               hidden={drawingsHidden}

@@ -276,7 +276,9 @@ test("the drawing store is one authority that panes subscribe to", () => {
   const store = read("lib/drawingStore.ts");
   const pane = read("components/tv/ChartPane.tsx");
   assert.match(pane, /drawingStore\.subscribe\(pane\.symbol, setDrawings\)/);
-  assert.match(pane, /drawingStore\.set\(pane\.symbol, next\)/);
+  assert.match(pane, /drawingStore\.set\(pane\.symbol, next, gesture \?\? null\)/,
+    "the pane forwards the canvas's gesture id, so one drag is one undo step " +
+    "rather than sixty");
   // Memory is updated synchronously for the canvas; the disk write is
   // coalesced, because the old path wrote every symbol's drawings to
   // localStorage on every mousemove of a drag.
