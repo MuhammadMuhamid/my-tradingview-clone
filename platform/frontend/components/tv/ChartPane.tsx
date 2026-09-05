@@ -30,6 +30,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CandleChart, type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import type { PaneAction } from "@/components/tv/IndicatorPane";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
+import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { AppliedIndicator } from "@/lib/indicators";
 import { buildMaOverlays } from "@/lib/movingAverages";
 import { drawingStore } from "@/lib/drawingStore";
@@ -40,7 +41,7 @@ import { paneDensity, type PaneDensity } from "@/lib/layoutPresets";
 import type { PaneState } from "@/lib/workspace";
 import { drawingsAtReplayHorizon, replayCandles, type ReplaySession } from "@/lib/replay";
 import { fmtPrice } from "@/lib/format";
-import type { Candle, Interval, Trade } from "@/lib/types";
+import { INTERVAL_MS, type Candle, type Interval, type Trade } from "@/lib/types";
 
 /** The intervals offered in a pane's own header strip. */
 const PANE_INTERVALS: readonly Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
@@ -97,6 +98,8 @@ export interface ChartPaneProps {
 
   /** Registration for the workspace's Indicators panel and Pine editor. */
   onIndicatorsApi: (paneId: string, get: (() => IndicatorsApi) | null) => void;
+  /** The same, for this pane's built-in studies. */
+  onNativeStudiesApi?: (paneId: string, get: (() => NativeStudiesApi) | null) => void;
   onIndicatorList: (paneId: string, list: AppliedIndicator[]) => void;
   /** The pane opens the workspace Indicators panel on one instance. */
   onFocusIndicator: (paneId: string, key: string) => void;
@@ -131,6 +134,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const density: PaneDensity = props.compact
     ? "small" : paneDensity(size.width, size.height);
 
+  /*
+   * How many bars the user can actually see.
+   *
+   * Built-in studies compute their declared warmup plus this, so it must be
+   * the REAL viewport rather than a guess: a user who zooms out to five
+   * thousand bars and finds the study line starts halfway across the screen
+   * has been given a cheaper chart, not a faster one. The chart reports its
+   * range in seconds, so the count follows from the interval.
+   *
+   * It starts generous and is corrected on the first range report, so the
+   * first paint is never short.
+   */
+  const [visibleBarCount, setVisibleBarCount] = useState(1_000);
+
   // ── candles, through the shared cache ──
   const history = useCandleHistory({
     symbol: pane.symbol, interval: pane.interval, bars: pane.bars,
@@ -146,6 +163,19 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const holdingRequested =
     datasetKey(history.dataset) === datasetKey({ symbol: pane.symbol, interval: pane.interval });
   const last = holdingRequested ? visibleCandles[visibleCandles.length - 1] : undefined;
+
+  /*
+   * ── this pane's own BUILT-IN studies ──
+   *
+   * Computed in the browser from the bars above, by the canonical maths the
+   * server alerts on. They update on the forming candle because they cost a
+   * few hundred bars of arithmetic rather than a network round trip — see
+   * `lib/native/compute` for the two bounds that make that true.
+   */
+  const nativeStudies = useNativeStudies({
+    candles: visibleCandles, interval: pane.interval, scope: pane.id,
+    visibleBars: visibleBarCount,
+  });
 
   // ── this pane's own applied studies ──
   const indicators = useIndicators({
@@ -171,6 +201,15 @@ function ChartPaneImpl(props: ChartPaneProps) {
     onIndicatorList(paneId, indicators.list);
   }, [paneId, onIndicatorList, indicators.list]);
 
+  const nativeRef = useRef(nativeStudies);
+  nativeRef.current = nativeStudies;
+  const { onNativeStudiesApi } = props;
+  useEffect(() => {
+    if (!onNativeStudiesApi) return;
+    onNativeStudiesApi(paneId, () => nativeRef.current);
+    return () => onNativeStudiesApi(paneId, null);
+  }, [paneId, onNativeStudiesApi]);
+
   // ── drawings, shared with every other pane on this instrument ──
   const [drawings, setDrawings] = useState<Drawing[]>(() => drawingStore.get(pane.symbol));
   useEffect(() => drawingStore.subscribe(pane.symbol, setDrawings), [pane.symbol]);
@@ -180,8 +219,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
 
   const maOverlays = useMemo(
     () => buildMaOverlays(visibleCandles, pane.maLines), [visibleCandles, pane.maLines]);
+  /*
+   * One chart, two engines, one series map.
+   *
+   * Built-in studies and Pine studies produce the identical `ChartOverlay`
+   * shape, so the renderer has no branch that asks which engine drew a line.
+   * Built-ins are laid down first so a Pine script applied afterwards paints
+   * over them, which matches the order they appear in the panel.
+   */
   const overlays = useMemo(
-    () => [...maOverlays, ...indicators.overlays], [maOverlays, indicators.overlays]);
+    () => [...maOverlays, ...nativeStudies.overlays, ...indicators.overlays],
+    [maOverlays, nativeStudies.overlays, indicators.overlays]);
+  const decorations = useMemo(
+    () => [...nativeStudies.decorations, ...indicators.decorations],
+    [nativeStudies.decorations, indicators.decorations]);
 
   const markers = useMemo(
     () => [...indicators.markers, ...props.markers], [indicators.markers, props.markers]);
@@ -210,12 +261,19 @@ function ChartPaneImpl(props: ChartPaneProps) {
     () => (onCrosshairMove ? (time: number | null) => onCrosshairMove(paneId, time) : undefined),
     [onCrosshairMove, paneId]);
   const emitRange = useMemo(() => {
-    if (!onVisibleRangeChange && !onViewportChange) return undefined;
+    const step = INTERVAL_MS[pane.interval] / 1000;
     return (range: { from: number; to: number }) => {
+      const span = Math.ceil((range.to - range.from) / step);
+      if (Number.isFinite(span) && span > 0) {
+        // Rounded up to a coarse step so an ordinary pan does not invalidate
+        // every study's memoised result on every frame.
+        const rounded = Math.max(200, Math.ceil(span / 200) * 200);
+        setVisibleBarCount((current) => (current === rounded ? current : rounded));
+      }
       onVisibleRangeChange?.(paneId, range);
       onViewportChange?.(range);
     };
-  }, [onVisibleRangeChange, onViewportChange, paneId]);
+  }, [onVisibleRangeChange, onViewportChange, paneId, pane.interval]);
 
   const replayActive = replay !== null;
   const showIntervals = density === "large" || density === "medium";
@@ -370,7 +428,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             chartType={pane.chartType}
             trades={indicators.trades ?? (replayActive ? [] : props.strategyTrades)}
             overlays={overlays}
-            decorations={indicators.decorations}
+            decorations={decorations}
             barColors={indicators.barColors}
             markers={markers}
             pineDrawings={indicators.drawings}

@@ -6,10 +6,12 @@
  * they must be togglable one line at a time so each can be armed with its own
  * alert, and they must be cheap enough to recompute on every candle update.
  *
- * The maths here mirror backend/src/engine/ta.ts exactly — the chart must draw
- * the same number the server alerts on, or a "touch" would appear to fire on
- * the wrong line.
+ * The maths here IS the server's — both call `lib/ta/core`, which exists
+ * byte-identically on both sides. The chart must draw the same number the
+ * server alerts on, or a "touch" would appear to fire on the wrong line, and
+ * "two implementations that agree today" is not a way to guarantee that.
  */
+import * as core from "@/lib/ta/core";
 import type { ChartOverlay } from "@/lib/chartSeries";
 import type { Candle } from "@/lib/types";
 
@@ -53,36 +55,41 @@ export function defaultMaLines(): MaLine[] {
   return lines;
 }
 
-/** Simple moving average; null until `len` bars exist, which breaks the line. */
+/**
+ * `na` is a break in the line; the chart draws a gap rather than a zero.
+ *
+ * The canonical layer speaks Pine's language, where an unavailable value is
+ * NaN. lightweight-charts wants `null`. This is the whole of the difference
+ * between the two, and it is a rendering convention rather than a different
+ * answer — which is why it is one function here instead of a second copy of
+ * the arithmetic.
+ */
+function drawable(series: readonly number[]): (number | null)[] {
+  return series.map((v) => (Number.isFinite(v) ? v : null));
+}
+
+/**
+ * Simple moving average; null until `len` bars exist, which breaks the line.
+ *
+ * The maths is `lib/ta/core`'s, which is the SAME code the server evaluates
+ * alerts with. It used to be a second implementation here, written to agree by
+ * intention: seeded the same way, accumulated the same way, and correct. But
+ * "correct because someone kept the two in step" is a property that expires,
+ * and the failure would be an armed "price touches EMA 200" firing on a
+ * different line from the one on screen. `tests/taCore.test.ts` pins the
+ * equivalence value for value.
+ */
 export function sma(src: number[], len: number): (number | null)[] {
-  const out: (number | null)[] = new Array(src.length).fill(null);
-  if (len <= 0) return out;
-  let sum = 0;
-  for (let i = 0; i < src.length; i++) {
-    sum += src[i]!;
-    if (i >= len) sum -= src[i - len]!;
-    if (i >= len - 1) out[i] = sum / len;
-  }
-  return out;
+  return drawable(core.sma(src, len));
 }
 
 /**
  * Exponential moving average, seeded with the SMA of the first `len` bars —
- * the same seeding Pine's ta.ema and the backend's ema use, so the two agree.
+ * the same seeding Pine's `ta.ema` and the backend's `ema` use, because it is
+ * now literally the same function.
  */
 export function ema(src: number[], len: number): (number | null)[] {
-  const out: (number | null)[] = new Array(src.length).fill(null);
-  if (len <= 0 || src.length < len) return out;
-  const alpha = 2 / (len + 1);
-  let seed = 0;
-  for (let i = 0; i < len; i++) seed += src[i]!;
-  let prev = seed / len;
-  out[len - 1] = prev;
-  for (let i = len; i < src.length; i++) {
-    prev = src[i]! * alpha + prev * (1 - alpha);
-    out[i] = prev;
-  }
-  return out;
+  return drawable(core.ema(src, len));
 }
 
 /**
