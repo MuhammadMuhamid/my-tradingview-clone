@@ -74,10 +74,21 @@ export function BacktestForm({
           </Field>
         </div>
 
-        <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">Strategy parameters</div>
-          <ParamForm value={params} onChange={setParams} />
-        </div>
+        {/*
+          The full parameter tree is the strategy's, not the everyday test's.
+          A quick historical test runs with the strategy's defaults; the tree
+          is there for the person who wants to change one thing before running,
+          and the Backtester application is where parameter spaces, optimizers
+          and walk-forward research live.
+        */}
+        <details className="group rounded-md border border-border/70">
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-faint hover:text-ink">
+            Strategy parameters — defaults apply unless changed
+          </summary>
+          <div className="border-t border-border/70 p-3">
+            <ParamForm value={params} onChange={setParams} />
+          </div>
+        </details>
 
         {err && <div className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{err}</div>}
 

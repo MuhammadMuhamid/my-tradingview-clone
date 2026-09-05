@@ -44,15 +44,17 @@ export default function BacktestsPage() {
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-6">
       <div>
-        <h1 className="text-lg font-semibold text-ink">Backtests</h1>
+        <h1 className="text-lg font-semibold text-ink">Quick backtest</h1>
         <p className="text-xs text-ink-faint">
-          Run a strategy over history and inspect every trade it took.
+          Run the strategy (MA + R:R v9) over one symbol and window and inspect every trade it took.
+          Parameter spaces, optimizers, walk-forward and research trees belong to the Backtester
+          application; this page is the quick historical check.
         </p>
       </div>
       <BacktestForm symbols={symbols} onQueued={() => refresh()} />
 
       <Card>
-        <CardHeader title="Backtests" right={<span className="text-xs text-ink-faint">{rows.length} runs</span>} />
+        <CardHeader title="Recent runs" right={<span className="text-xs text-ink-faint">{rows.length} runs</span>} />
         {error && rows.length === 0 ? (
           <div role="alert" className="px-4 py-8 text-center text-sm text-down">
             The backtest list could not be loaded, so this is not a statement that you have none.

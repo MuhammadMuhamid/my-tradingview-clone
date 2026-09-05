@@ -237,14 +237,22 @@ export default function TvWorkspace() {
   const tradingNotice = tradingTarget ? tradingTargetNotice(tradingTarget, workspace) : null;
 
   const [manualState, setManualState] = useState<ManualTradingState | null>(null);
+  /** Why the state could not be read, for the bottom strip; the ticket has its own. */
+  const [manualUnavailable, setManualUnavailable] = useState<string | null>(null);
   // Read-only state hydration draws existing server-authoritative levels. It
   // never submits, retries, or mutates an order on page load/reconnect.
   useEffect(() => {
     if (replayActive) return;
     let live = true;
     const refreshManual = async () => {
-      try { const next = await api.manualState(tradingSymbol); if (live) setManualState(next); }
-      catch { /* feature is normally disabled; the ticket shows the actionable error */ }
+      try {
+        const next = await api.manualState(tradingSymbol);
+        if (live) { setManualState(next); setManualUnavailable(null); }
+      } catch (e) {
+        // Normally the feature is disabled on this install; the strip says
+        // so in the Bot's own words rather than showing an empty table.
+        if (live) setManualUnavailable((e as Error).message);
+      }
     };
     void refreshManual();
     const timer = window.setInterval(() => void refreshManual(), 30_000);
@@ -1067,6 +1075,10 @@ export default function TvWorkspace() {
           onOpenScriptConsumed={() => setEditorScript(null)}
           onApplyToChart={applyPine}
           editingApplied={editingIndicatorKey !== null}
+          manualState={manualState}
+          manualUnavailable={manualUnavailable}
+          tradingSymbol={tradingSymbol}
+          onOpenTicket={() => setPanel("manual")}
         />
       </div>
 

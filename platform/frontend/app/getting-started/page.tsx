@@ -34,7 +34,7 @@ import type { ReactNode } from "react";
  */
 
 export const metadata: Metadata = {
-  title: "Getting started · SR+Trend Platform",
+  title: "Manual · Trading Scene",
   description:
     "What Trading Scene is, how it relates to the Backtester, the execution Bot "
     + "and the Compute Helper, and how to operate each of its workflows.",

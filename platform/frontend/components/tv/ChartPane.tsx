@@ -259,7 +259,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
       <div className="flex flex-nowrap items-center gap-1.5 border-b border-border px-1.5 py-0.5">
         <button
           onClick={() => props.onOpenSymbolSearch(pane.id)}
-          title={`Change this pane's symbol — currently ${pane.symbol}`}
+          title={`Change this pane's symbol — currently ${pane.symbol} · ${visibleCandles.length.toLocaleString()} bars loaded`}
           aria-label={`Change symbol for the ${pane.symbol} pane`}
           className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-xs font-semibold text-ink hover:bg-surface-2"
         >
@@ -291,9 +291,14 @@ function ChartPaneImpl(props: ChartPaneProps) {
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular text-[11px] text-ink-muted">
           {showReadout && last && <span className="text-ink">{fmtPrice(last.close)}</span>}
-          {density === "large" && (
-            <span className="text-ink-faint">
-              {history.loading ? "loading…" : `${visibleCandles.length.toLocaleString()} bars`}
+          {/*
+            The bar count is an implementation readout, not a trading fact:
+            it lives in the title of the loading indicator (and under More
+            chart controls → History depth), not on the pane's primary row.
+          */}
+          {density === "large" && history.loading && (
+            <span className="text-ink-faint" title={`${visibleCandles.length.toLocaleString()} bars loaded`}>
+              loading…
             </span>
           )}
           {props.canMaximize && (

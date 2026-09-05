@@ -1,6 +1,6 @@
 {
-  "name": "SR+Trend Platform",
-  "short_name": "SR+Trend",
+  "name": "Trading Scene",
+  "short_name": "Trading Scene",
   "description": "Charting and moving-average price alerts for Binance spot pairs",
   "start_url": "/chart",
   "scope": "/",

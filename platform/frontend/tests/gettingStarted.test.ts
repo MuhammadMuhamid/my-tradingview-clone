@@ -23,6 +23,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeStreamState, MARKET_STREAM_ORIGINS, type StreamState } from "../lib/marketStream";
+import { allNavLinks } from "../lib/navigation";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -64,11 +65,14 @@ test("it is reachable from permanent navigation, and forces itself on nobody", (
   assert.ok(read("components/Nav.tsx").includes(href),
     "the header must offer Getting started");
   // The chart's phone drawer, which is the site nav on a phone because the
-  // global bar is hidden there.
-  assert.ok(read("components/tv/ChartSidePanel.tsx").includes(href),
+  // global bar is hidden there, renders every navigation link — including it.
+  assert.match(read("components/tv/ChartSidePanel.tsx"), /allNavLinks\(\)\.map/,
+    "the chart's mobile menu must render the shared navigation list");
+  assert.ok(allNavLinks().some((l) => l.href === "/getting-started"),
     "the chart's mobile menu must offer Getting started");
-  // A stale or mistyped URL should be able to reach it too.
-  assert.ok(read("app/not-found.tsx").includes(href),
+  // A stale or mistyped URL should be able to reach it too: the not-found
+  // page renders the same shared list.
+  assert.match(read("app/not-found.tsx"), /allNavLinks\(\)\.map/,
     "the not-found page must offer Getting started");
 
   // Nothing may send a user here who did not ask. The brief is explicit that
@@ -143,13 +147,12 @@ test("it disclaims being advice, and does not instruct a strategy", () => {
 // ── Drift: the page quotes controls that still exist ────────────────────────
 
 test("EVERY NAV DESTINATION THE PRODUCT HAS IS DESCRIBED", () => {
-  const nav = read("components/Nav.tsx");
   const missing: string[] = [];
-  for (const m of nav.matchAll(/\{ href: "(\/[a-z]+)", label: "([^"]+)" \}/g)) {
-    const [, href, label] = m;
+  for (const { href, label } of allNavLinks()) {
+    if (href === "/getting-started") continue; // this page
     // Either the route is linked, or the label is named. A page the manual does
     // not mention at all is the gap this catches.
-    if (!page.includes(`"${href}"`) && !prose.includes(label!)) missing.push(`${label} (${href})`);
+    if (!page.includes(`"${href}"`) && !prose.includes(label)) missing.push(`${label} (${href})`);
   }
   assert.deepEqual(missing, [], "nav destinations the Getting Started page never mentions");
 });

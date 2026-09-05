@@ -23,6 +23,8 @@ import { SYNC_LABELS, type SyncOptions } from "@/lib/paneSync";
  * would either do nothing or promise a per-pane isolation the store cannot
  * provide. The footnote says so rather than leaving a conspicuous gap.
  */
+const COMMON_SYNC: ReadonlyArray<keyof SyncOptions> = ["symbol", "crosshair"];
+
 export function SyncMenu({
   value, onChange, disabled = false,
 }: {
@@ -54,6 +56,15 @@ export function SyncMenu({
   }, [open]);
 
   const activeCount = SYNC_LABELS.filter((o) => value[o.id]).length;
+  /*
+   * Symbol and crosshair are what a multi-chart layout is for day to day;
+   * interval, time and date-range sync are real but rare. The rare three sit
+   * under Advanced, opened automatically when one of them is already on so a
+   * switch that is doing something is never out of sight.
+   */
+  const common = SYNC_LABELS.filter((o) => COMMON_SYNC.includes(o.id));
+  const advanced = SYNC_LABELS.filter((o) => !COMMON_SYNC.includes(o.id));
+  const [showAdvanced, setShowAdvanced] = useState(advanced.some((o) => value[o.id]));
 
   return (
     <div ref={boxRef} className="relative">
@@ -95,7 +106,7 @@ export function SyncMenu({
               Applies to every chart in this layout, not just the focused one.
             </p>
           </div>
-          {SYNC_LABELS.map((o) => {
+          {[...common, ...(showAdvanced ? advanced : [])].map((o) => {
             const on = value[o.id];
             return (
               <button
@@ -137,6 +148,17 @@ export function SyncMenu({
               </button>
             );
           })}
+          {!showAdvanced && (
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(true)}
+              aria-expanded={false}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+            >
+              <span aria-hidden="true">＋</span>
+              Advanced — {advanced.map((o) => o.label.toLowerCase()).join(", ")}
+            </button>
+          )}
           <p className="border-t border-border px-3 py-2 text-[11px] leading-tight text-ink-faint">
             Drawings are stored per instrument, so every chart on the same symbol already shares
             them — there is nothing to switch.

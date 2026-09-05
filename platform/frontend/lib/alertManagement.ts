@@ -74,6 +74,25 @@ export function deleteConfirmation(filters: AlertFilters, count: number): string
     "Only the current filtered result will be deleted. This cannot be undone.";
 }
 
+/**
+ * The confirmation for a bulk action over SELECTED rows.
+ *
+ * Bulk actions act on an explicit selection, never on "whatever the filter
+ * happens to show": the count the user ticked is the count named here, with
+ * the shown total beside it so "42 of 185" is read before anything is gone.
+ */
+export function selectionConfirmation(
+  action: BulkAlertAction, selected: number, shown: number
+): string | null {
+  if (selected <= 0) return null;
+  const noun = `alert${selected === 1 ? "" : "s"}`;
+  if (action === "delete") {
+    return `Delete ${selected} selected ${noun} (of ${shown} shown)?\n\n` +
+      "Only the ticked rows are deleted. This cannot be undone.";
+  }
+  return null;
+}
+
 export function buildBulkRequest(
   action: BulkAlertAction, alerts: MaAlert[]
 ): { action: BulkAlertAction; ids: string[] } | null {

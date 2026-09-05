@@ -1,31 +1,39 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { api, type OpsStatus } from "@/lib/api";
+import { compactHealth, type HealthTone } from "@/lib/operationsHealth";
+import { describeStreamState, marketStreams, type StreamState } from "@/lib/marketStream";
+import {
+  isSystemPath, PRIMARY_LINKS, primaryFor, PRODUCT_NAME, sectionTabsFor, SYSTEM_LINKS,
+} from "@/lib/navigation";
+import { shariahApi, type ShariahMode } from "@/lib/shariah";
 
 /*
  * FE-01: "Alerts" and "Live & Alerts" were two entries for two unrelated
  * things — notifications, and live automated trading. The second is now named
  * for what it does. A user should never have to click a link to find out
  * whether it spends money.
+ *
+ * V1 repair: five destinations on the row, operator surfaces under System.
+ * The lists live in `lib/navigation`, shared with the chart's phone drawer
+ * and the not-found page.
  */
-const LINKS = [
-  { href: "/chart", label: "Chart" },
-  { href: "/scanner", label: "Scanner" },
-  { href: "/alerts", label: "Alerts" },
-  { href: "/optimizers", label: "Optimizers" },
-  { href: "/backtests", label: "Backtests" },
-  { href: "/deployments", label: "Live trading" },
-  { href: "/journal", label: "Journal" },
-  { href: "/operations", label: "Operations" },
-  { href: "/shariah", label: "Shariah" },
-];
 
 /**
- * The in-product manual. Not one of `LINKS`: it is help, not a workspace, and
- * it sits in the account cluster where a reader looks for help.
+ * The in-product manual. Not a workspace: it sits in the account cluster
+ * where a reader looks for help, and nothing here opens it on first launch.
  */
 const HELP_HREF = "/getting-started";
+
+const DOT_TONE: Record<HealthTone, string> = {
+  positive: "bg-up",
+  neutral: "bg-ink-faint",
+  warning: "bg-warn",
+  critical: "bg-down",
+  halted: "bg-down",
+};
 
 export function Nav() {
   const path = usePathname();
@@ -52,6 +60,8 @@ export function Nav() {
   // The chart carries its own compact header and ☰ drawer on phones; showing
   // this bar too would spend a whole row of a 390px screen on navigation.
   const hideOnMobile = path === "/chart";
+  const primary = primaryFor(path);
+  const tabs = sectionTabsFor(path);
 
   return (
     <header className={`sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur ${
@@ -65,13 +75,11 @@ export function Nav() {
       <div className="mx-auto flex h-10 max-w-[1400px] items-center gap-3 px-3 sm:gap-5 sm:px-4">
         <Link href="/chart" className="flex h-7 shrink-0 items-center gap-2 text-[13px] font-semibold">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-accent" />
-          <span>SR+Trend</span>
-          <span className="hidden text-ink-faint sm:inline">·</span>
-          <span className="hidden font-normal text-ink-muted sm:inline">MA + R:R v9</span>
+          <span>{PRODUCT_NAME}</span>
         </Link>
         <nav className="no-scrollbar -mx-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1">
-          {LINKS.map((l) => {
-            const active = path === l.href || path.startsWith(l.href + "/");
+          {PRIMARY_LINKS.map((l) => {
+            const active = primary?.href === l.href;
             return (
               <Link
                 key={l.href}
@@ -86,21 +94,20 @@ export function Nav() {
             );
           })}
         </nav>
-        <div className="ml-auto flex shrink-0 items-center gap-3">
-          <span className="hidden text-xs text-ink-faint sm:block">
-            Binance Spot
-          </span>
+        <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+          <LiveDataChip />
+          <SystemMenu path={path} />
           {/*
             Help lives beside the account controls rather than in the workspace
-            row, because "Getting started" is not a place you trade — it is the
-            one page that explains the other nine. It is permanent and never
-            forced: nothing here opens it on first launch.
+            row, because the manual is not a place you trade — it is the one
+            page that explains the others. It is permanent and never forced:
+            nothing here opens it on first launch.
           */}
           <Link
             href={HELP_HREF}
             aria-current={path === HELP_HREF ? "page" : undefined}
-            aria-label="Getting started — what this application is and how to operate it"
-            title="Getting started — what this application is and how to operate it"
+            aria-label="Manual — what this application is and how to operate it"
+            title="Manual — what this application is and how to operate it"
             className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors ${
               path === HELP_HREF
                 ? "bg-surface-2 font-medium text-ink"
@@ -112,7 +119,7 @@ export function Nav() {
               <path d="M9.4 9.2a2.7 2.7 0 015.2.9c0 1.8-2.6 2.2-2.6 3.9" />
               <path d="M12 17.2h.01" />
             </svg>
-            <span className="hidden sm:inline">Getting started</span>
+            <span className="hidden sm:inline">Manual</span>
           </Link>
           {username && (
             <button onClick={signOut} title={`Signed in as ${username}`}
@@ -122,6 +129,175 @@ export function Nav() {
           )}
         </div>
       </div>
+      {tabs && (
+        /*
+          The secondary strip. Trading has Automations and the Journal;
+          Research has the quick backtest and optimizer results. The strip is
+          part of the header so every page under a destination gets it
+          without knowing about the others.
+        */
+        <div className="border-t border-border/60 bg-surface/60">
+          <nav aria-label={`${primary?.label ?? ""} sections`}
+            className="no-scrollbar mx-auto flex h-8 max-w-[1400px] items-center gap-1 overflow-x-auto px-3 sm:px-4">
+            {tabs.map((t) => {
+              const active = path === t.href || path.startsWith(`${t.href}/`);
+              return (
+                <Link
+                  key={t.href}
+                  href={t.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex h-6 shrink-0 items-center whitespace-nowrap rounded px-2 text-xs transition-colors ${
+                    active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  {t.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+      )}
     </header>
+  );
+}
+
+/**
+ * Whether prices are streaming into this tab, from the one registry every
+ * market socket goes through. Shown only while a stream is held (the chart,
+ * the watchlist, the ticket), so pages without a market view carry nothing.
+ */
+function LiveDataChip() {
+  const [state, setState] = useState<StreamState | null>(null);
+  useEffect(() => {
+    const summarise = (): void => {
+      const states = [...marketStreams.states().values()];
+      if (states.length === 0) { setState(null); return; }
+      // The worst stream is the tab's answer: one refused socket is a problem
+      // even while another is live.
+      const rank = (s: StreamState): number => ({
+        live: 0, open: 1, connecting: 1, idle: 2, reconnecting: 3, stale: 4,
+      })[s.status];
+      setState(states.reduce((worst, s) => (rank(s) > rank(worst) ? s : worst)));
+    };
+    summarise();
+    return marketStreams.observe(summarise);
+  }, []);
+  if (!state) return null;
+  const words = describeStreamState(state);
+  const tone = state.status === "live" ? "bg-up"
+    : state.status === "stale" ? "bg-down"
+    : state.status === "reconnecting" ? "bg-warn" : "bg-ink-faint";
+  return (
+    <span
+      role="status"
+      title={words.detail}
+      className="hidden items-center gap-1.5 text-[11px] text-ink-muted md:flex"
+    >
+      <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${tone}`} />
+      {state.status === "live" ? "Live data" : words.label}
+    </span>
+  );
+}
+
+/**
+ * The operator surfaces, one menu away, with the one-word health answer a
+ * trader needs from any page. The full runbook stays on Operations.
+ */
+function SystemMenu({ path }: { path: string }) {
+  const [open, setOpen] = useState(false);
+  const [ops, setOps] = useState<OpsStatus | null>(null);
+  const [opsError, setOpsError] = useState<string | null>(null);
+  const [shariahMode, setShariahMode] = useState<ShariahMode | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let live = true;
+    const read = async (): Promise<void> => {
+      try { const next = await api.opsStatus(); if (live) { setOps(next); setOpsError(null); } }
+      catch (e) { if (live) setOpsError((e as Error).message); }
+      try { const m = await shariahApi.mode(); if (live) setShariahMode(m.mode); }
+      catch { if (live) setShariahMode(null); }
+    };
+    void read();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void read();
+    }, 60_000);
+    return () => { live = false; window.clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  const health = ops ? compactHealth(ops) : null;
+  const tone: HealthTone = health ? health.tone : "neutral";
+  const healthLabel = health ? health.status : opsError ? "Unknown" : "…";
+  const active = isSystemPath(path);
+
+  return (
+    <div ref={boxRef} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-current={active ? "page" : undefined}
+        title={health ? health.summary : opsError ? `Operations status could not be read: ${opsError}` : "Reading system status…"}
+        className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors ${
+          open || active ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+        }`}
+      >
+        <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${DOT_TONE[tone]}`} />
+        <span>System</span>
+        <span className="sr-only">— {healthLabel}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      </button>
+      {open && (
+        <div role="menu" aria-label="System"
+          className="absolute right-0 top-[34px] z-50 w-72 rounded-md border border-border bg-surface py-1 shadow-xl">
+          <div className="px-3 pb-2 pt-2">
+            <div className="flex items-center gap-2 text-[13px] text-ink">
+              <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${DOT_TONE[tone]}`} />
+              <span className="font-medium">{healthLabel}</span>
+            </div>
+            <p className="mt-0.5 text-[11px] leading-tight text-ink-faint">
+              {health ? health.summary : opsError ? `Operations status could not be read: ${opsError}` : "Reading system status…"}
+            </p>
+          </div>
+          {SYSTEM_LINKS.map((l) => {
+            const current = path === l.href || path.startsWith(`${l.href}/`);
+            const note = l.href === "/shariah"
+              ? `Platform mode ${shariahMode === null ? "unknown" : shariahMode === "enforce" ? "ON" : "OFF"}`
+              : l.href === "/operations" ? "Runbook, halts, evidence" : "First run, quick start, reference";
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                role="menuitem"
+                aria-current={current ? "page" : undefined}
+                onClick={() => setOpen(false)}
+                className={`flex items-baseline justify-between gap-3 px-3 py-2 text-[13px] hover:bg-surface-2 ${
+                  current ? "text-ink" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                <span>{l.label}</span>
+                <span className="text-[11px] text-ink-faint">{note}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

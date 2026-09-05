@@ -14,7 +14,7 @@ import {
 import { fmtAgo, fmtPrice } from "@/lib/format";
 import {
   ALERT_STATUS_FILTERS, ALERT_TYPE_FILTERS, buildBulkRequest, bulkCompletionMessage,
-  deleteConfirmation, describeAlertScope, filterAlerts, type AlertStatusFilter,
+  describeAlertScope, filterAlerts, selectionConfirmation, type AlertStatusFilter,
   type AlertTypeFilter,
 } from "@/lib/alertManagement";
 import { leavesFilteredView } from "@/lib/alertEditing";
@@ -41,6 +41,14 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState<AlertTypeFilter>("all");
   /** The alert open in the shared editor, or null. */
   const [editing, setEditing] = useState<MaAlert | null>(null);
+  /**
+   * Bulk actions act on ticked rows, never on the whole filtered result. A
+   * primary red "Delete 185" that acted on everything the filter showed was
+   * one accidental click from an empty inventory; now the widest an action can
+   * reach is what has been explicitly selected, and "Select all shown" is the
+   * deliberate step that makes that the whole list.
+   */
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -118,20 +126,35 @@ export default function AlertsPage() {
     }
   };
 
+  const selectedAlerts = useMemo(
+    () => filteredAlerts.filter((a) => selected.has(a.id)), [filteredAlerts, selected]);
+  const allShownSelected = filteredAlerts.length > 0 && selectedAlerts.length === filteredAlerts.length;
+  const toggleSelected = (id: string) => setSelected((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleGroup = (ids: string[]) => setSelected((cur) => {
+    const next = new Set(cur);
+    const every = ids.every((id) => next.has(id));
+    for (const id of ids) { if (every) next.delete(id); else next.add(id); }
+    return next;
+  });
+
   const bulkAct = async (action: BulkAlertAction) => {
-    // Snapshot the exact IDs shown at click time. The server never interprets
-    // search/filter semantics, so a refresh cannot widen this operation.
-    const request = buildBulkRequest(action, filteredAlerts);
+    // Snapshot the exact IDs ticked at click time, restricted to rows that are
+    // still shown. The server never interprets search/filter semantics, so a
+    // refresh cannot widen this operation.
+    const request = buildBulkRequest(action, selectedAlerts);
     if (!request) return;
     const { ids } = request;
-    if (action === "delete") {
-      const message = deleteConfirmation(filters, ids.length);
-      if (!message || !window.confirm(message)) return;
-    }
+    const message = selectionConfirmation(action, ids.length, filteredAlerts.length);
+    if (message && !window.confirm(message)) return;
     setBusy(`bulk-${action}`);
     try {
       const result = await api.bulkMaAlerts(request.action, request.ids);
       const completion = bulkCompletionMessage(action, ids.length, result);
+      setSelected(new Set());
       await refresh();
       setToast(completion);
     } catch (e) {
@@ -164,7 +187,7 @@ export default function AlertsPage() {
                 24 CSS-pixel target minimum the Phase 6 QA measures everything
                 against. A 15px-tall link is a link only a mouse can hit. */}
             <a href="/deployments" className="inline-block py-1.5 underline hover:text-ink">
-              Live trading
+              Trading → Automations
             </a>, and their delivery health is on{" "}
             <a href="/operations" className="inline-block py-1.5 underline hover:text-ink">
               Operations
@@ -255,34 +278,48 @@ export default function AlertsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {/*
-                The count is stated before the buttons that act on it, and named
-                in full, so "Delete 42" is never read without knowing what the
-                42 are.
+                The scope is stated before the buttons that act on it. The
+                buttons act on the ticked rows only; "Select all shown" is the
+                one deliberate step that widens a selection to the filter.
               */}
+              <label className="flex items-center gap-1.5 text-xs text-ink-muted">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={allShownSelected}
+                  onChange={() => setSelected(allShownSelected
+                    ? new Set() : new Set(filteredAlerts.map((a) => a.id)))}
+                  aria-label={allShownSelected ? "Clear selection" : `Select all ${filteredAlerts.length} shown`}
+                />
+                {allShownSelected ? "Clear selection" : "Select all shown"}
+              </label>
               <span className="mr-auto whitespace-nowrap text-xs text-ink-faint" aria-live="polite">
-                {describeAlertScope(filters, filteredAlerts.length)} of {alerts.length}
+                {selectedAlerts.length > 0
+                  ? `${selectedAlerts.length} selected · `
+                  : ""}{describeAlertScope(filters, filteredAlerts.length)} of {alerts.length}
               </span>
               <Button
                 onClick={() => void bulkAct("resume")}
-                disabled={busy !== null || filteredAlerts.length === 0}
-                label={`Resume ${describeAlertScope(filters, filteredAlerts.length)}`}
+                disabled={busy !== null || selectedAlerts.length === 0}
+                label={`Resume ${selectedAlerts.length} selected alerts`}
               >
-                {busy === "bulk-resume" ? "Resuming…" : `Resume ${filteredAlerts.length}`}
+                {busy === "bulk-resume" ? "Resuming…" : `Resume${selectedAlerts.length ? ` ${selectedAlerts.length}` : ""}`}
               </Button>
               <Button
                 onClick={() => void bulkAct("pause")}
-                disabled={busy !== null || filteredAlerts.length === 0}
-                label={`Pause ${describeAlertScope(filters, filteredAlerts.length)}`}
+                disabled={busy !== null || selectedAlerts.length === 0}
+                label={`Pause ${selectedAlerts.length} selected alerts`}
               >
-                {busy === "bulk-pause" ? "Pausing…" : `Pause ${filteredAlerts.length}`}
+                {busy === "bulk-pause" ? "Pausing…" : `Pause${selectedAlerts.length ? ` ${selectedAlerts.length}` : ""}`}
               </Button>
               <Button
-                variant="danger"
+                variant="ghost"
+                className="text-down hover:bg-down/10"
                 onClick={() => void bulkAct("delete")}
-                disabled={busy !== null || filteredAlerts.length === 0}
-                label={`Delete ${describeAlertScope(filters, filteredAlerts.length)}`}
+                disabled={busy !== null || selectedAlerts.length === 0}
+                label={`Delete ${selectedAlerts.length} selected alerts`}
               >
-                {busy === "bulk-delete" ? "Deleting…" : `Delete ${filteredAlerts.length}`}
+                {busy === "bulk-delete" ? "Deleting…" : `Delete${selectedAlerts.length ? ` ${selectedAlerts.length}` : ""}`}
               </Button>
             </div>
           </div>
@@ -301,6 +338,13 @@ export default function AlertsPage() {
             {bySymbol.map(([symbol, list]) => (
               <div key={symbol}>
                 <div className="flex items-baseline gap-2 bg-surface-2/40 px-4 py-1.5">
+                  <input
+                    type="checkbox"
+                    className="relative top-[2px] accent-accent"
+                    checked={list.every((a) => selected.has(a.id))}
+                    onChange={() => toggleGroup(list.map((a) => a.id))}
+                    aria-label={`Select all ${symbol} alerts`}
+                  />
                   <span className="text-xs font-semibold text-ink">{symbol}</span>
                   <span className="text-[11px] text-ink-faint">
                     {list.length} alert{list.length === 1 ? "" : "s"}
@@ -308,7 +352,15 @@ export default function AlertsPage() {
                 </div>
                 {list.map((a) => (
                   <div key={a.id}
-                    className="group flex items-center gap-2 pr-2 text-[13px] hover:bg-surface-2/40">
+                    className={`group flex items-center gap-2 pl-4 pr-2 text-[13px] hover:bg-surface-2/40 ${
+                      selected.has(a.id) ? "bg-accent/5" : ""}`}>
+                    <input
+                      type="checkbox"
+                      className="shrink-0 accent-accent"
+                      checked={selected.has(a.id)}
+                      onChange={() => toggleSelected(a.id)}
+                      aria-label={`Select ${a.symbol} ${alertLineLabel(a)}`}
+                    />
                     {/*
                       The description is the edit affordance. Making the whole
                       row a button would swallow the pause and delete controls
@@ -319,7 +371,7 @@ export default function AlertsPage() {
                       type="button"
                       onClick={() => setEditing(a)}
                       aria-label={`Edit alert — ${a.symbol} ${alertLineLabel(a)}, ${describeAlert(a)}`}
-                      className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5 px-4 py-2 text-left"
+                      className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5 py-2 pl-2 pr-4 text-left"
                     >
                       <span className="inline-block h-[3px] w-4 shrink-0 rounded-full"
                         style={{ background: alertColor(a), opacity: isAlertActive(a) ? 1 : 0.3 }}

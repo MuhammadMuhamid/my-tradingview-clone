@@ -318,6 +318,26 @@ export function buildOperationsOverview(status: OpsStatus, scannerEvidence: Scan
     marketData(status), liveRunner(status), alertRunner(status), scanner(scannerEvidence),
     database(status), delivery(status), tradingMode(status),
   ];
+  return overviewFromItems(status, items);
+}
+
+/**
+ * The one-word answer the header carries on every page.
+ *
+ * Same rules as the Operations page, over the subsystems a trader depends on
+ * from anywhere: the Scanner is left out, because "Degraded" on every page
+ * because the Screener service is not configured is alarm about a feature
+ * the trader may not use. The full page still names it.
+ */
+export function compactHealth(status: OpsStatus): OperationsOverview {
+  const items = [
+    marketData(status), liveRunner(status), alertRunner(status),
+    database(status), delivery(status), tradingMode(status),
+  ];
+  return overviewFromItems(status, items);
+}
+
+function overviewFromItems(status: OpsStatus, items: HealthItem[]): OperationsOverview {
   const botHalted = status.bot.state === "CONNECTED" && status.bot.status.execution.halted;
   if (status.risk.tradingHalted || botHalted) {
     const degraded = items.filter((item) => item.impact === "degraded").length;

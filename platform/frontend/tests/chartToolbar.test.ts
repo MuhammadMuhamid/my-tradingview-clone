@@ -412,7 +412,11 @@ test("the sync menu offers only synchronisation that is implemented", () => {
   const source = read("components/tv/SyncMenu.tsx");
   // The list is SYNC_LABELS and nothing else: a switch cannot be added to the
   // menu without a mechanism in lib/paneSync behind it.
-  assert.match(source, /SYNC_LABELS\.map/);
+  // Rendered as common switches plus an Advanced group, both derived from
+  // SYNC_LABELS — never from a second list.
+  assert.match(source, /SYNC_LABELS\.filter\(\(o\) => COMMON_SYNC\.includes\(o\.id\)\)/);
+  assert.match(source, /SYNC_LABELS\.filter\(\(o\) => !COMMON_SYNC\.includes\(o\.id\)\)/);
+  assert.match(source, /\[\.\.\.common, \.\.\.\(showAdvanced \? advanced : \[\]\)\]\.map/);
   assert.deepEqual(
     SYNC_LABELS.map((o) => o.id),
     ["symbol", "interval", "crosshair", "time", "dateRange"]

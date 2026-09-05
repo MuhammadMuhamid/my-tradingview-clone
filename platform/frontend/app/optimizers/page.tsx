@@ -197,6 +197,31 @@ export default function OptimizersPage() {
     return copy;
   }, [data, metric]);
 
+  /*
+   * No tree is registered on this server — the normal state of a Trading
+   * Scene install, because optimizer runs are produced by the Backtester
+   * application on the research machine. That is one quiet sentence, not a
+   * methodology essay above an empty selector and an empty table.
+   */
+  if (trees && trees.length === 0) {
+    return (
+      <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
+        <div>
+          <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
+          <p className="text-xs text-ink-faint">
+            Read-only leaderboards from optimizer trees registered on this server.
+          </p>
+        </div>
+        <Card>
+          <Empty>
+            No optimizer tree is registered on this server. Optimizer runs are produced and
+            explored in the Backtester application; register a tree here to read its results.
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
       <div>

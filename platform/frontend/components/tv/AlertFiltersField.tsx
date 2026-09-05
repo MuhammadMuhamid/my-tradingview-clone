@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useState } from "react";
 import {
   FILTER_DEFAULTS,
   type FilterSide, type MaAlert, type MaType, type StAtrMethod,
@@ -147,10 +148,46 @@ export function AlertFiltersField({
 }) {
   const set = (patch: Partial<AlertFilterState>): void => onChange({ ...value, ...patch });
   const any = value.rsi || value.ma || value.st;
+  /*
+   * The gates are optional and off by default, so they open only when asked
+   * for. Every dialog used to show all three gate rows (and the Supertrend
+   * method, period and multiplier behind a tick) at once, which doubled the
+   * control count of a price alert that needs a price and nothing else. A
+   * dialog editing an alert that already carries a gate opens expanded, so
+   * nothing an alert does is ever hidden from the person editing it.
+   */
+  const [expanded, setExpanded] = useState(any);
+  useEffect(() => { if (any) setExpanded(true); }, [any]);
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        aria-expanded={false}
+        className="flex items-center gap-1.5 text-left text-sm text-ink-muted hover:text-ink"
+      >
+        <span aria-hidden="true">＋</span>
+        Add a condition (optional) — only fire when RSI, a moving average or Supertrend agrees
+      </button>
+    );
+  }
 
   return (
     <>
-      <div className="text-sm text-ink-muted">Only fire when</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm text-ink-muted">Only fire when</div>
+        {!any && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            aria-expanded={true}
+            className="text-[11px] text-ink-faint hover:text-ink"
+          >
+            Hide conditions
+          </button>
+        )}
+      </div>
 
       <label className="flex items-center gap-2 text-sm text-ink">
         <input type="checkbox" checked={value.rsi}

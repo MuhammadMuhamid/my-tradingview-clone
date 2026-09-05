@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { allNavLinks } from "@/lib/navigation";
 
 /** A mistyped or stale URL should offer a way on, not a bare 404. */
 export default function NotFound() {
@@ -9,13 +10,10 @@ export default function NotFound() {
         That address does not match any page in this application.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {/* Every destination the global nav has — four of them used to be
-            missing here, so a stale /journal link dead-ended. */}
-        {[["/chart", "Chart"], ["/scanner", "Scanner"], ["/alerts", "Alerts"],
-          ["/optimizers", "Optimizers"], ["/backtests", "Backtests"],
-          ["/deployments", "Live trading"], ["/journal", "Journal"],
-          ["/operations", "Operations"], ["/shariah", "Shariah"],
-          ["/getting-started", "Getting started"]].map(([href, label]) => (
+        {/* Every destination the navigation has, from the same list the
+            header renders — four of them used to be missing here, so a stale
+            /journal link dead-ended. */}
+        {allNavLinks().map(({ href, label }) => (
           <Link
             key={href}
             href={href}

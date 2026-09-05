@@ -28,7 +28,7 @@ function row(symbol: string, state: ScreenerRow["state"], bull: number | null): 
 
 test("native Scanner route and navigation preserve visible Binance Spot identity", () => {
   const page = read("app/scanner/page.tsx");
-  const nav = read("components/Nav.tsx");
+  const nav = read("lib/navigation.ts");
   assert.match(page, /Spot Scanner/);
   assert.match(page, /snapshot\?\.market\.spot/);
   assert.match(page, /Binance Spot/);

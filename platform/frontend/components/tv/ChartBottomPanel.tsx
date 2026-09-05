@@ -1,6 +1,12 @@
 "use client";
 /**
- * The workspace's bottom drawer: the Strategy Tester and the Pine Editor.
+ * The workspace's bottom drawer: Positions & Orders, the Strategy Tester and
+ * the Pine Editor.
+ *
+ * Positions & Orders is the trader-state area — what the account holds and
+ * what is in flight, read-only, from the same Bot-authoritative read the
+ * ticket makes. It is the first tab because it is the one a trader looks at
+ * after ordering; the tester and the editor are research tools.
  *
  * One tester and one editor for the whole workspace, both pointed at the
  * FOCUSED pane — testing a strategy is a question about one instrument and one
@@ -15,9 +21,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { PineEditor } from "@/components/tv/PineEditor";
 import { StrategyTester } from "@/components/tv/StrategyTester";
+import { TradingStateStrip } from "@/components/tv/TradingStateStrip";
 import type { StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import type { PineParams } from "@/lib/indicators";
-import type { PineScript } from "@/lib/api";
+import type { ManualTradingState, PineScript } from "@/lib/api";
 import type { Interval, OpenTrade, Strategy, StrategyParams, Trade } from "@/lib/types";
 
 /**
@@ -56,10 +63,17 @@ export interface ChartBottomPanelProps {
   onOpenScriptConsumed: () => void;
   onApplyToChart: (payload: { name: string; source: string; params: PineParams }) => void;
   editingApplied: boolean;
+
+  /** Positions and orders, from the same read the ticket uses. Read-only here. */
+  manualState: ManualTradingState | null;
+  manualUnavailable: string | null;
+  /** The instrument the ticket points at (the focused pane, unless pinned). */
+  tradingSymbol: string;
+  onOpenTicket: () => void;
 }
 
 export function ChartBottomPanel(props: ChartBottomPanelProps) {
-  const [tab, setTab] = useState<"tester" | "pine">("tester");
+  const [tab, setTab] = useState<"trading" | "tester" | "pine">("trading");
   /** Collapsed to just its tab strip, so the chart gets the full height. */
   const [collapsed, setCollapsed] = useState(false);
 
@@ -106,7 +120,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
   return (
     <div className="shrink-0 border-t border-border bg-surface">
       <div className="flex items-center gap-4 border-b border-border px-3 py-1">
-        {([["tester", "Strategy Tester"], ["pine", "Pine Editor"]] as const).map(([id, label]) => (
+        {([["trading", "Positions & Orders"], ["tester", "Strategy Tester"], ["pine", "Pine Editor"]] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => {
@@ -159,7 +173,14 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
       {/* Collapsed: the tab strip stays as the handle to bring it back.
           The body unmounts rather than hiding, so a collapsed Pine Editor
           stops compiling on every keystroke. */}
-      {collapsed ? null : tab === "tester" && props.replayActive ? (
+      {collapsed ? null : tab === "trading" ? (
+        <TradingStateStrip
+          state={props.manualState}
+          symbol={props.tradingSymbol}
+          onOpenTicket={props.onOpenTicket}
+          unavailable={props.manualUnavailable}
+        />
+      ) : tab === "tester" && props.replayActive ? (
         <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-ink-muted">
           Strategy Tester is unavailable during Bar Replay. Exit Replay to run a full-range strategy test.
         </div>

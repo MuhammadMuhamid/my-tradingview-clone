@@ -3,14 +3,14 @@ import "./globals.css";
 import { Nav } from "@/components/Nav";
 
 export const metadata: Metadata = {
-  title: "SR+Trend Platform",
-  description: "Charting, backtesting and live alerting for the MA + R:R strategy on Binance",
+  title: "Trading Scene",
+  description: "Charting, screening, alerts, paper and Spot trading on Binance — the Trading Scene workstation",
   // The manifest is what makes "Add to Home Screen" produce a standalone app —
   // on iOS that installation is a hard prerequisite for Web Push.
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "SR+Trend",
+    title: "Trading Scene",
     statusBarStyle: "black-translucent",
   },
   icons: { icon: "/icon.svg", apple: "/icon.svg" },

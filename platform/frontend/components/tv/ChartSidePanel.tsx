@@ -13,6 +13,7 @@
  * layout with the chart squeezed out of it.
  */
 import type { ReactNode } from "react";
+import { allNavLinks, PRODUCT_NAME } from "@/lib/navigation";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
 import { ManualTradingPanel } from "@/components/tv/ManualTradingPanel";
@@ -265,7 +266,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         <div className="fixed left-0 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-surface p-3 md:hidden">
           <div className="mb-3 flex items-center justify-between">
             <span className="flex items-center gap-2 text-sm font-semibold">
-              <span className="inline-block h-2 w-2 rounded-full bg-accent" />SR+Trend
+              <span className="inline-block h-2 w-2 rounded-full bg-accent" />{PRODUCT_NAME}
             </span>
             <button onClick={props.onCloseNav} aria-label="Close"
               className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink">
@@ -274,9 +275,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
               </svg>
             </button>
           </div>
-          {[["/chart", "Chart"], ["/alerts", "Alerts"], ["/optimizers", "Optimizers"],
-            ["/backtests", "Backtests"], ["/deployments", "Live trading"],
-            ["/getting-started", "Getting started"]].map(([href, label]) => (
+          {allNavLinks().map(({ href, label }) => (
             <a key={href} href={href}
               className="rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">
               {label}

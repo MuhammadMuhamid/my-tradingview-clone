@@ -6,7 +6,7 @@ import path from "node:path";
 const ROOT = path.join(__dirname, "..");
 const page = fs.readFileSync(path.join(ROOT, "app", "journal", "page.tsx"), "utf8");
 const api = fs.readFileSync(path.join(ROOT, "lib", "api.ts"), "utf8");
-const nav = fs.readFileSync(path.join(ROOT, "components", "Nav.tsx"), "utf8");
+const nav = fs.readFileSync(path.join(ROOT, "lib", "navigation.ts"), "utf8");
 
 test("Journal is navigable and uses the bounded authenticated Platform API", () => {
   assert.match(nav, /href: "\/journal", label: "Journal"/);

@@ -139,6 +139,50 @@ export default function ScannerPage() {
     ? `${snapshot.market.exchange === "binance" ? "Binance" : snapshot.market.exchange} Spot`
     : "Binance Spot";
 
+  /*
+   * The service is gone and nothing has ever loaded. One state, said once:
+   * the toolbar of refresh, timeframe, preset and add-symbol controls is
+   * withheld — every one of them would call the same dead service — and the
+   * body explains what is unavailable and offers the one action that can
+   * help. It used to render the whole toolbar over a blank table with the
+   * same failure written in two places.
+   */
+  const unavailable = snapshot === null && error !== null;
+  if (unavailable) {
+    const unconfigured = /not configured/i.test(error);
+    return (
+      <div className="scanner-workspace flex h-full min-h-0 flex-col bg-bg">
+        <header className="border-b border-border bg-surface px-3 py-2">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold text-ink">Spot Scanner</h1>
+            <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
+              {marketLabel}
+            </span>
+          </div>
+        </header>
+        <div className="grid flex-1 place-items-center p-6">
+          <div role="alert" className="max-w-md text-center">
+            <p className="text-sm font-medium text-ink">
+              {unconfigured ? "The Screener is not set up on this install." : "Scanner service unavailable."}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-ink-muted">
+              {unconfigured
+                ? "Screening runs in a separate service that this Platform has not been pointed at. The chart, alerts, trading and the Journal do not depend on it."
+                : "The screening service did not answer. The chart, alerts, trading and the Journal do not depend on it; this page will work again once the service is reachable."}
+            </p>
+            <p className="mt-2 font-mono text-[11px] text-ink-faint">{error}</p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button className="scanner-control" onClick={() => void load()}>Retry</button>
+              {unconfigured && (
+                <a href="/operations" className="scanner-control">Operations</a>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="scanner-workspace flex h-full min-h-0 flex-col bg-bg">
       <header className="border-b border-border bg-surface px-3 py-2">

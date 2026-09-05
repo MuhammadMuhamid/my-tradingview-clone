@@ -135,10 +135,20 @@ export function LayoutMenu({
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h18M12 3v18" />
         </svg>
-        <span className="min-w-0 max-w-[130px] truncate">{current?.name ?? "Unnamed"}</span>
-        <span className={`hidden shrink-0 text-[10px] font-medium uppercase tracking-wide 2xl:inline ${status.tone}`}>
-          {status.label}
-        </span>
+        {/* Below xl the primary row is already full at 1024 with the watchlist
+            open; the name is in the menu and the tooltip, the icon stays. */}
+        <span className="hidden min-w-0 max-w-[130px] truncate xl:inline">{current?.name ?? "Unnamed"}</span>
+        {/*
+          "Not saved" is only worth a word once there is something to save: a
+          fresh workspace with no layouts and no changes is not in a state that
+          needs announcing, and "UNNAMED · NOT SAVED" on the primary row before
+          the feature had ever been used read as an error.
+        */}
+        {(current !== null || dirty || autosaveError || layouts.length > 0) && (
+          <span className={`hidden shrink-0 text-[10px] font-medium uppercase tracking-wide 2xl:inline ${status.tone}`}>
+            {status.label}
+          </span>
+        )}
         {/* Below 2xl the words do not fit, so the state keeps a shape as well
             as a colour rather than disappearing entirely. */}
         {(dirty || autosaveError) && (

@@ -172,10 +172,11 @@ export default function JournalPage() {
   return (
     <div className="mx-auto max-w-[1200px] space-y-4 px-3 py-4 sm:px-4">
       <header>
-        <h1 className="text-lg font-semibold text-ink">Trade Journal</h1>
+        <h1 className="text-lg font-semibold text-ink">Journal</h1>
         <p className="mt-0.5 max-w-3xl text-xs leading-5 text-ink-faint">
-          Chronological Spot activity and known realized performance from persisted evidence. Journal shows what accumulated;
-          Timeline explains what happened to one order. Unknown economics stay unknown.
+          What happened, newest first — manual orders, automated signals and paper fills, with the fill,
+          the position and the result where the record proves them. The sums beneath are known realized
+          performance from persisted evidence; Timeline explains what happened to one order. Unknown economics stay unknown.
         </p>
         {/*
           The one zone statement this page needs.
@@ -214,6 +215,21 @@ export default function JournalPage() {
       {loading && !data && <div role="status" className="rounded-md border border-border bg-surface px-4 py-10 text-center text-sm text-ink-muted">Loading Journal evidence…</div>}
 
       {data && <>
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+            <div><h2 className="text-sm font-semibold text-ink">Activity & realizations</h2>
+              <p className="mt-0.5 text-xs text-ink-faint">Newest first · {data.summary.incompleteRows} incomplete evidence row{data.summary.incompleteRows === 1 ? "" : "s"}</p></div>
+            {data.summary.truncated && <span className="rounded-full border border-warn/30 bg-warn/10 px-2 py-1 text-xs text-warn">Summary bound reached</span>}
+          </div>
+          {data.rows.length === 0 ? <Empty>No authoritative Journal evidence matches this range.</Empty>
+            : <div>{data.rows.map((row) => <JournalItem key={row.id} row={row} />)}</div>}
+          <div className="flex items-center justify-between border-t border-border px-3 py-2 sm:px-4">
+            <Button variant="ghost" disabled={loading || page <= 1} onClick={() => void load(page - 1)} className="min-h-11">Previous</Button>
+            <span className="text-xs text-ink-faint">Page {page}</span>
+            <Button variant="ghost" disabled={loading || !data.page.hasNext} onClick={() => void load(page + 1)} className="min-h-11">Next</Button>
+          </div>
+        </Card>
+
         <section aria-label="Known realized summaries" className="grid gap-3 sm:grid-cols-2">
           <SummaryCard title="Real money evidence" scope={data.summary.real} />
           {/* "Simulation" was this card's own word for what its badge, its
@@ -241,21 +257,6 @@ export default function JournalPage() {
             </div>)}</div>
           </Card>
         </div>}
-
-        <Card>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-            <div><h2 className="text-sm font-semibold text-ink">Activity & realizations</h2>
-              <p className="mt-0.5 text-xs text-ink-faint">Newest first · {data.summary.incompleteRows} incomplete evidence row{data.summary.incompleteRows === 1 ? "" : "s"}</p></div>
-            {data.summary.truncated && <span className="rounded-full border border-warn/30 bg-warn/10 px-2 py-1 text-xs text-warn">Summary bound reached</span>}
-          </div>
-          {data.rows.length === 0 ? <Empty>No authoritative Journal evidence matches this range.</Empty>
-            : <div>{data.rows.map((row) => <JournalItem key={row.id} row={row} />)}</div>}
-          <div className="flex items-center justify-between border-t border-border px-3 py-2 sm:px-4">
-            <Button variant="ghost" disabled={loading || page <= 1} onClick={() => void load(page - 1)} className="min-h-11">Previous</Button>
-            <span className="text-xs text-ink-faint">Page {page}</span>
-            <Button variant="ghost" disabled={loading || !data.page.hasNext} onClick={() => void load(page + 1)} className="min-h-11">Next</Button>
-          </div>
-        </Card>
 
         <details className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-ink-muted">
           <summary className="cursor-pointer font-medium text-ink">Evidence limits</summary>

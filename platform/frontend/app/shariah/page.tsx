@@ -144,6 +144,7 @@ function nowIso(): string {
 }
 
 export default function ShariahPage() {
+  const [view, setView] = useState<"status" | "screening">("status");
   const [universe, setUniverse] = useState<ShariahUniverse | null>(null);
   const [snapshots, setSnapshots] = useState<ShariahSnapshotMeta[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -270,15 +271,40 @@ export default function ShariahPage() {
     }
   };
 
+  /*
+   * Two altitudes on one route. STATUS is the everyday question — is
+   * enforcement on, what does the Bot floor say, how many assets are in each
+   * state — and it is the default. SCREENING is the rare operator workflow:
+   * the batch review pack, the universe list, evidence, publication and
+   * history. The methodology and the fail-closed behaviour are untouched;
+   * only what a visitor sees first has changed.
+   */
+  const screeningView = view === "screening";
+
   return (
     <main className="mx-auto max-w-[1400px] px-3 py-4 sm:px-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-base font-semibold text-ink">Shariah review</h1>
+          <h1 className="text-base font-semibold text-ink">Shariah</h1>
           <p className="text-xs text-ink-muted">
             Policy {universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published
             deliberately by you. Nothing here is decided automatically.
           </p>
+          <div role="tablist" aria-label="Shariah views" className="mt-2 flex gap-1">
+            {([["status", "Status"], ["screening", "Screening & publication"]] as const).map(([id, label]) => (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={view === id}
+                onClick={() => setView(id)}
+                className={`rounded px-2 py-1 text-xs transition-colors ${
+                  view === id ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
@@ -296,9 +322,11 @@ export default function ShariahPage() {
           <Button onClick={toggleMode} disabled={busy || mode === null}>
             {mode === "enforce" ? "Turn off" : "Turn on"}
           </Button>
-          <Button variant="primary" onClick={createSnapshot} disabled={busy}>
-            Create universe snapshot
-          </Button>
+          {screeningView && (
+            <Button variant="primary" onClick={createSnapshot} disabled={busy}>
+              Create universe snapshot
+            </Button>
+          )}
         </div>
       </div>
 
@@ -319,6 +347,36 @@ export default function ShariahPage() {
         <div role="status" className="mb-3 rounded-md border border-up/30 bg-up/10 px-3 py-2 text-sm text-up">{notice}</div>
       )}
 
+      {!screeningView && (
+        <Card>
+          <CardHeader title="Universe at a glance" right={
+            <Button onClick={() => setView("screening")}>Open screening &amp; publication</Button>
+          } />
+          {universe ? (
+            <div className="grid grid-cols-4 gap-px border-b border-border bg-border text-center">
+              {([["Active", universe.counts.active], ["Eligible", universe.counts.eligible],
+                ["Review", universe.counts.review], ["Excluded", universe.counts.excluded]] as const)
+                .map(([label, value]) => (
+                  <div key={label} className="bg-surface px-2 py-2">
+                    <div className="text-sm font-semibold text-ink">{value}</div>
+                    <div className="text-[11px] text-ink-faint">{label}</div>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <Empty>{loaded
+              ? "The screening universe could not be read, so this is not a statement that it is empty."
+              : "Loading the screening universe…"}</Empty>
+          )}
+          <p className="px-4 py-2 text-[11px] leading-5 text-ink-faint">
+            With enforcement on, only ELIGIBLE assets can be bought; REVIEW, UNSCREENED and STALE are refused.
+            Screening, evidence and publication — the work that moves an asset between these states — live
+            under Screening &amp; publication.
+          </p>
+        </Card>
+      )}
+
+      {screeningView && (
       <BatchReviewCard
         needsReview={universe ? universe.counts.review : null}
         universeLoaded={loaded}
@@ -326,7 +384,9 @@ export default function ShariahPage() {
         onNotice={setNotice}
         onImported={loadUniverse}
       />
+      )}
 
+      {screeningView && (
       <div className="grid gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
           <Card>
@@ -416,6 +476,7 @@ export default function ShariahPage() {
             />
           : <Card><Empty>Select an asset to review.</Empty></Card>}
       </div>
+      )}
     </main>
   );
 }

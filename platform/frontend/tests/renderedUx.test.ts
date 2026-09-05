@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fmtDate, fmtDateTime } from "../lib/format";
 import { TRADE_LABEL_LIMIT, tradeMarkerCount } from "../components/CandleChart";
+import { allNavLinks } from "../lib/navigation";
 import type { Trade } from "../lib/types";
 
 const ROOT = path.join(__dirname, "..");
@@ -234,13 +235,15 @@ test("a backtest result can be opened without a mouse", () => {
   assert.match(list, /onClick=\{\(e\) => e\.stopPropagation\(\)\}/);
 });
 
-test("the not-found page offers every destination the nav has", () => {
-  const nav = read("components/Nav.tsx");
-  const notFound = read("app/not-found.tsx");
-  for (const href of nav.match(/href: "\/[a-z]+"/g) ?? []) {
-    const route = href.slice(7, -1);
-    assert.match(notFound, new RegExp(`"${route.replace("/", "\\/")}"`),
-      `${route} is in the nav but not offered on the not-found page`);
+test("the not-found page and the phone drawer offer every destination the nav has", () => {
+  // Both render from `allNavLinks()`, so a destination cannot be in the header
+  // and missing from either. Pinned by source so the shared list stays shared.
+  assert.match(read("app/not-found.tsx"), /allNavLinks\(\)\.map/);
+  assert.match(read("components/tv/ChartSidePanel.tsx"), /allNavLinks\(\)\.map/);
+  const links = allNavLinks().map((l) => l.href);
+  for (const route of ["/chart", "/scanner", "/alerts", "/optimizers", "/backtests",
+    "/deployments", "/journal", "/operations", "/shariah", "/getting-started"]) {
+    assert.ok(links.includes(route), `${route} is no longer reachable from navigation`);
   }
 });
 

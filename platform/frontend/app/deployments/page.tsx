@@ -126,13 +126,16 @@ export default function DeploymentsPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold">Live trading</h1>
-          <p className="text-sm text-ink-faint">{activeCount} active · signals fire on confirmed bar close and POST to your bot</p>
+          <h1 className="text-lg font-semibold">Automations</h1>
+          <p className="text-sm text-ink-faint">
+            {activeCount} running · a strategy watching one symbol and timeframe, acting on each confirmed bar close.
+            Paper simulates fills; Live sends real Spot orders to the execution bot. Notification alerts are separate, under Alerts.
+          </p>
         </div>
-        <Button variant={showForm ? "ghost" : "primary"} onClick={() => setShowForm((s) => !s)}>
-          {showForm ? "Cancel" : "+ New deployment"}
+        <Button variant={showForm ? "ghost" : "primary"} className="shrink-0 whitespace-nowrap" onClick={() => setShowForm((s) => !s)}>
+          {showForm ? "Cancel" : "+ New automation"}
         </Button>
       </div>
 
@@ -237,7 +240,7 @@ export default function DeploymentsPage() {
       )}
 
       <Card>
-        <CardHeader title="Deployments" right={<span className="text-xs text-ink-faint">{deps.length}</span>} />
+        <CardHeader title="Automations" right={<span className="text-xs text-ink-faint">{deps.length}</span>} />
         {/*
           A list that has never been answered is not an empty list. On a first
           load that failed, this printed "No deployments yet. Create one to
@@ -247,12 +250,12 @@ export default function DeploymentsPage() {
         */}
         {deps.length === 0 && freshness.lastOkAt === null && freshness.lastError !== null ? (
           <div role="alert" className="px-4 py-8 text-center text-sm text-down">
-            Deployments could not be read, so this is not a statement that you have none.
+            Automations could not be read, so this is not a statement that you have none.
           </div>
         ) : deps.length === 0 && freshness.lastOkAt === null ? (
           <div role="status" className="px-4 py-8 text-center text-sm text-ink-faint">Loading deployments…</div>
         ) : deps.length === 0 ? (
-          <Empty>No deployments yet. Create one to start live streaming + alerting.</Empty>
+          <Empty>Nothing is automated yet. Start with Paper: it runs the strategy on live bars and simulates every fill without sending an order.</Empty>
         ) : (
           <div className="divide-y divide-border">
             {deps.map((d) => (
