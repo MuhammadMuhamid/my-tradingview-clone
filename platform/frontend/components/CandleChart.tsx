@@ -11,7 +11,9 @@ import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
-import { baseChartOptions } from "@/lib/chartTheme";
+import {
+  baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_MUTED, CHART_UP, volumeColor,
+} from "@/lib/chartTheme";
 import {
   createDisposalGuard, useChartMeasuring, useDetachChartObserver,
 } from "@/lib/chartLifecycle";
@@ -252,22 +254,22 @@ function addMainSeries(chart: IChartApi, type: ChartType): MainSeriesApi {
   const kind: ChartRenderKind = renderKind(type);
   if (kind === "candles") {
     return chart.addCandlestickSeries({
-      upColor: "#2ebd85", downColor: "#f6465d",
-      borderUpColor: "#2ebd85", borderDownColor: "#f6465d",
-      wickUpColor: "#2ebd85", wickDownColor: "#f6465d",
+      upColor: CHART_UP, downColor: CHART_DOWN,
+      borderUpColor: CHART_UP, borderDownColor: CHART_DOWN,
+      wickUpColor: CHART_UP, wickDownColor: CHART_DOWN,
     });
   }
   if (kind === "bars") {
-    return chart.addBarSeries({ upColor: "#2ebd85", downColor: "#f6465d", thinBars: false });
+    return chart.addBarSeries({ upColor: CHART_UP, downColor: CHART_DOWN, thinBars: false });
   }
   if (kind === "area") {
     return chart.addAreaSeries({
-      lineColor: "#4f8cff", lineWidth: 2,
+      lineColor: CHART_ACCENT, lineWidth: 2,
       topColor: "rgba(79,140,255,0.28)", bottomColor: "rgba(79,140,255,0.02)",
       priceLineVisible: false,
     });
   }
-  return chart.addLineSeries({ color: "#4f8cff", lineWidth: 2, priceLineVisible: false });
+  return chart.addLineSeries({ color: CHART_ACCENT, lineWidth: 2, priceLineVisible: false });
 }
 
 /**
@@ -797,7 +799,7 @@ export function CandleChart({
     const vol = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "vol",
-      color: "#2a3346",
+      color: CHART_MUTED,
       // Volume has its own hidden scale, so its last-value badge landed in the
       // price column on top of whatever level sat nearest the low — "4.47K"
       // was printed over the S1 support label. The figure is in the legend.
@@ -956,7 +958,7 @@ export function CandleChart({
     const volumeDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       value: c.volume,
-      color: c.close >= c.open ? "#1c3a30" : "#3a1c24",
+      color: volumeColor(c.open, c.close),
     });
 
     /*
@@ -1089,7 +1091,7 @@ export function CandleChart({
           drawn.push({
             time: (t.entryTime / 1000) as UTCTimestamp,
             position: "belowBar",
-            color: open ? "#f0b90b" : "#2ebd85",
+            color: open ? CHART_CAUTION : CHART_UP,
             shape: "arrowUp",
             ...(labelled ? { text: `BUY ${fmtPrice(t.entryPrice)}${open ? " ●" : ""}` } : {}),
           });
@@ -1099,7 +1101,7 @@ export function CandleChart({
           const reason = (t.exitReason ?? "EXIT").toUpperCase();
           drawn.push({
             time: (t.exitTime / 1000) as UTCTimestamp,
-            position: "aboveBar", color: win ? "#2ebd85" : "#f6465d", shape: "arrowDown",
+            position: "aboveBar", color: win ? CHART_UP : CHART_DOWN, shape: "arrowDown",
             ...(labelled
               ? { text: t.exitPrice !== null ? `${reason} ${fmtPrice(t.exitPrice)}` : reason }
               : {}),
@@ -1394,7 +1396,7 @@ export function CandleChart({
       if (transform !== "renko") {
         vol.update({
           time, value: tick.volume,
-          color: tick.close >= tick.open ? "#1c3a30" : "#3a1c24",
+          color: volumeColor(tick.open, tick.close),
         });
       }
 

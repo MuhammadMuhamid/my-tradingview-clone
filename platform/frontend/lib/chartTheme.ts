@@ -22,6 +22,29 @@ export const CHART_TEXT = "#9aa4b6";
 export const CHART_TEXT_STRONG = "#e6e9ef";
 export const CHART_FONT = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
+/*
+ * The chart's semantic colours — the same values as the Tailwind tokens `up`,
+ * `down`, `accent` and `warn`, held here because a canvas cannot read a class.
+ * Every series, marker and histogram reads these rather than its own literal,
+ * so the product's meaning of green, red, blue and amber is decided once.
+ */
+export const CHART_UP = "#2ebd85";
+export const CHART_DOWN = "#f6465d";
+export const CHART_ACCENT = "#4f8cff";
+export const CHART_CAUTION = "#f0b90b";
+/** Volume bars: the same hues at histogram strength, under the candles. */
+export const CHART_VOLUME_UP = "#1c3a30";
+export const CHART_VOLUME_DOWN = "#3a1c24";
+/** A series with no direction yet (an empty volume histogram, a muted line). */
+export const CHART_MUTED = "#2a3346";
+export const CHART_CROSSHAIR = "#4b556b";
+export const CHART_LABEL_BG = "#2c3548";
+
+/** The volume histogram's colour for one bar. */
+export function volumeColor(open: number, close: number): string {
+  return close >= open ? CHART_VOLUME_UP : CHART_VOLUME_DOWN;
+}
+
 /**
  * Width reserved for the price axis in every pane.
  *
@@ -59,12 +82,12 @@ export function baseChartOptions(): DeepPartial<ChartOptions> {
     crosshair: {
       mode: CrosshairMode.Normal,
       vertLine: {
-        color: "#4b556b", width: 1, style: LineStyle.LargeDashed,
-        labelBackgroundColor: "#2c3548",
+        color: CHART_CROSSHAIR, width: 1, style: LineStyle.LargeDashed,
+        labelBackgroundColor: CHART_LABEL_BG,
       },
       horzLine: {
-        color: "#4b556b", width: 1, style: LineStyle.LargeDashed,
-        labelBackgroundColor: "#2c3548",
+        color: CHART_CROSSHAIR, width: 1, style: LineStyle.LargeDashed,
+        labelBackgroundColor: CHART_LABEL_BG,
       },
     },
     rightPriceScale: {

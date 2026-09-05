@@ -129,6 +129,7 @@ export function Nav() {
           )}
         </div>
       </div>
+      <FirstRunHint path={path} />
       {tabs && (
         /*
           The secondary strip. Trading has Automations and the Journal;
@@ -158,6 +159,41 @@ export function Nav() {
         </div>
       )}
     </header>
+  );
+}
+
+const FIRST_RUN_KEY = "ts.firstRun.v1";
+
+/**
+ * One line, once, pointing at the manual's Start here block. Not a redirect
+ * and not a tour: it appears under the header until dismissed or until the
+ * manual has been opened, and nothing else is forced on a new user.
+ */
+function FirstRunHint({ path }: { path: string }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    try {
+      if (path === HELP_HREF) { window.localStorage.setItem(FIRST_RUN_KEY, "1"); setShow(false); return; }
+      setShow(window.localStorage.getItem(FIRST_RUN_KEY) === null);
+    } catch { setShow(false); }
+  }, [path]);
+  if (!show) return null;
+  const dismiss = (): void => {
+    try { window.localStorage.setItem(FIRST_RUN_KEY, "1"); } catch { /* fine */ }
+    setShow(false);
+  };
+  return (
+    <div role="note" className="border-t border-border/60 bg-surface/80">
+      <div className="mx-auto flex h-8 max-w-[1400px] items-center gap-3 px-3 text-xs sm:px-4">
+        <span className="text-ink-muted">
+          New here? <Link href={`${HELP_HREF}#start`} className="text-accent hover:underline">Start here</Link> — the
+          five-minute loop, in the Manual.
+        </span>
+        <button onClick={dismiss} className="ml-auto rounded px-2 py-0.5 text-ink-faint hover:bg-surface-2 hover:text-ink">
+          Dismiss
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -40,30 +40,64 @@ export const metadata: Metadata = {
     + "and the Compute Helper, and how to operate each of its workflows.",
 };
 
+/**
+ * Which layer of the manual a section belongs to.
+ *
+ * The page is one long document and stays one — the reference is the value
+ * — but a reader arriving for the first time needs to know which quarter of
+ * it to read now and which to come back to. The contents list groups by
+ * this, and the Start here block above it is the layer before all of them.
+ */
+type SectionLayer = "orientation" | "reference" | "safety" | "troubleshooting";
+
 interface SectionSpec {
   id: string;
   title: string;
+  layer: SectionLayer;
 }
+
+const LAYER_TITLES: Record<SectionLayer, string> = {
+  orientation: "Orientation",
+  reference: "Reference",
+  safety: "Safety & operations",
+  troubleshooting: "Troubleshooting",
+};
 
 /** The table of contents and the document body are generated from one list. */
 const SECTIONS: readonly SectionSpec[] = [
-  { id: "what", title: "What Trading Scene is" },
-  { id: "pieces", title: "The four pieces, and which one spends money" },
-  { id: "flow", title: "The normal flow" },
-  { id: "chart", title: "The Chart workspace" },
-  { id: "types", title: "Chart types, and which ones invent prices" },
-  { id: "scanner", title: "Scanner and symbol search" },
-  { id: "alerts", title: "Alerts" },
-  { id: "paper", title: "Paper, and what it does not prove" },
-  { id: "live", title: "Live and manual trading" },
-  { id: "automation", title: "Strategies and automation" },
-  { id: "shariah", title: "Shariah Mode" },
-  { id: "journal", title: "Journal" },
-  { id: "operations", title: "Operations" },
-  { id: "research", title: "Backtests and Optimizers" },
-  { id: "safety", title: "Six things not to get wrong" },
-  { id: "workflows", title: "Common workflows" },
-  { id: "troubleshooting", title: "Troubleshooting" },
+  { id: "what", title: "What Trading Scene is", layer: "orientation" },
+  { id: "pieces", title: "The four pieces, and which one spends money", layer: "orientation" },
+  { id: "flow", title: "The normal flow", layer: "orientation" },
+  { id: "chart", title: "The Chart workspace", layer: "reference" },
+  { id: "types", title: "Chart types, and which ones invent prices", layer: "reference" },
+  { id: "scanner", title: "Scanner and symbol search", layer: "reference" },
+  { id: "alerts", title: "Alerts", layer: "reference" },
+  { id: "paper", title: "Paper, and what it does not prove", layer: "reference" },
+  { id: "live", title: "Live and manual trading", layer: "reference" },
+  { id: "automation", title: "Strategies and automation", layer: "reference" },
+  { id: "shariah", title: "Shariah Mode", layer: "reference" },
+  { id: "journal", title: "Journal", layer: "reference" },
+  { id: "operations", title: "Operations", layer: "safety" },
+  { id: "research", title: "Backtests and Optimizers", layer: "reference" },
+  { id: "safety", title: "Six things not to get wrong", layer: "safety" },
+  { id: "workflows", title: "Common workflows", layer: "orientation" },
+  { id: "troubleshooting", title: "Troubleshooting", layer: "troubleshooting" },
+];
+
+/**
+ * The five-minute loop, for the reader who has not read the rest.
+ *
+ * Each step is the one thing to do and where to do it. Nothing here is new
+ * information — every step has a full section below — but a competent trader
+ * should be able to run the product from these six lines alone.
+ */
+const QUICK_START: ReadonlyArray<{ step: string; where: string; href: string }> = [
+  { step: "Find a market", where: "Chart — press / for symbol search, or add it to the watchlist", href: "/chart" },
+  { step: "Inspect it", where: "Chart — timeframe strip, Indicators, drawings; the feed badge says whether prices are live", href: "/chart" },
+  { step: "Arm an alert", where: "Chart → Alert, or the bell beside a moving average. Alerts notify only; they never trade", href: "/alerts" },
+  { step: "Paper first", where: "Trading → Automations → New automation → Paper. Simulated fills, no orders", href: "/deployments" },
+  { step: "Trade by hand when you mean to", where: "Chart → Trade. The ticket stages, you confirm, the execution bot sends", href: "/chart" },
+  { step: "Review", where: "Chart → Positions & Orders for now; Trading → Journal for what accumulated", href: "/journal" },
 ];
 
 // ── Presentation ────────────────────────────────────────────────────────────
@@ -210,16 +244,41 @@ export default function GettingStarted() {
       <header className="max-w-3xl">
         <h1 className="text-lg font-semibold text-ink">Getting started</h1>
         <p className="mt-1 text-sm leading-6 text-ink-muted">
-          What this application is, how its parts relate to one another, and how to
-          operate each of its workflows. It describes the software only: there is no
-          trading advice here, no strategy instruction, and no recommendation about
-          what to buy or sell.
+          The Trading Scene manual. What this application is, how its parts relate to
+          one another, and how to operate each of its workflows. It describes the
+          software only: there is no trading advice here, no strategy instruction, and
+          no recommendation about what to buy or sell.
         </p>
         <p className="mt-2 text-sm leading-6 text-ink-muted">
           Nothing on this page changes anything. Every control it names lives on the
           page it names.
         </p>
       </header>
+
+      {/* ── Start here: the loop, before the reference ── */}
+      <section id="start" aria-labelledby="start-heading" className="mt-5 scroll-mt-14 rounded-lg border border-accent/30 bg-surface p-4">
+        <h2 id="start-heading" className="text-base font-semibold text-ink">Start here — the five-minute loop</h2>
+        <p className="mt-1 text-sm leading-6 text-ink-muted">
+          Find → inspect → alert → Paper, automate or trade by hand → review. Six steps, each on the
+          page named. Read the sections below when a step raises a question.
+        </p>
+        <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {QUICK_START.map((item, i) => (
+            <li key={item.step} className="flex gap-2 rounded-md bg-surface-2/50 px-3 py-2">
+              <span aria-hidden="true" className="tabular text-sm font-semibold text-accent">{i + 1}</span>
+              <span className="min-w-0">
+                <A href={item.href}>{item.step}</A>
+                <span className="block text-xs leading-5 text-ink-muted">{item.where}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 text-xs leading-5 text-ink-faint">
+          Not sure whether something spends money? Only the execution bot can, only through the
+          ticket you confirm or a Live automation you activated with the acknowledgement ticked.
+          Paper, alerts, the Screener, backtests and the Journal never do.
+        </p>
+      </section>
 
       <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start">
         {/* The body comes first in the DOM: the contents list is a shortcut, not the page. */}
@@ -989,19 +1048,31 @@ export default function GettingStarted() {
           >
             On this page
           </h2>
-          <ol className="mt-2 space-y-0.5 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
-            {SECTIONS.map((section, i) => (
-              <li key={section.id}>
-                <a
-                  href={`#${section.id}`}
-                  className="flex gap-2 rounded-md px-2 py-1 text-[13px] leading-5 text-ink-muted hover:bg-surface-2 hover:text-ink"
-                >
-                  <span aria-hidden="true" className="tabular text-ink-faint">{i + 1}.</span>
-                  <span className="min-w-0">{section.title}</span>
-                </a>
-              </li>
+          <div className="mt-2 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
+            <a href="#start" className="flex gap-2 rounded-md px-2 py-1 text-[13px] font-medium leading-5 text-accent hover:bg-surface-2">
+              Start here
+            </a>
+            {(Object.keys(LAYER_TITLES) as SectionLayer[]).map((layer) => (
+              <div key={layer} className="mt-2">
+                <div className="px-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                  {LAYER_TITLES[layer]}
+                </div>
+                <ol className="mt-0.5 space-y-0.5">
+                  {SECTIONS.map((section, i) => section.layer === layer && (
+                    <li key={section.id}>
+                      <a
+                        href={`#${section.id}`}
+                        className="flex gap-2 rounded-md px-2 py-1 text-[13px] leading-5 text-ink-muted hover:bg-surface-2 hover:text-ink"
+                      >
+                        <span aria-hidden="true" className="tabular text-ink-faint">{i + 1}.</span>
+                        <span className="min-w-0">{section.title}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             ))}
-          </ol>
+          </div>
         </nav>
       </div>
     </div>

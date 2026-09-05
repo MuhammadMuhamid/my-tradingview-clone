@@ -4,6 +4,28 @@
 
 :root {
   color-scheme: dark;
+  /*
+   * The semantic palette, as custom properties.
+   *
+   * The Tailwind tokens in `tailwind.config.ts` are the same values and are
+   * what components use; these exist for the places a class cannot reach
+   * (scrollbars, the Scanner's own stylesheet, third-party canvases read
+   * `lib/chartTheme` instead) so a surface, line or status colour is never
+   * typed as a literal twice. One dark theme; a switcher is post-V1.
+   */
+  --ts-bg: #0b0e14;
+  --ts-surface: #121722;
+  --ts-surface-2: #1a2030;
+  --ts-surface-3: #232b3a;
+  --ts-line: #232b3a;
+  --ts-line-strong: #2c3548;
+  --ts-ink: #e6e9ef;
+  --ts-ink-muted: #9aa4b6;
+  --ts-ink-faint: #6b7486;
+  --ts-accent: #4f8cff;
+  --ts-positive: #2ebd85;
+  --ts-negative: #f6465d;
+  --ts-caution: #f0b90b;
 }
 
 html {
@@ -44,8 +66,8 @@ body {
 /* Recessive scrollbars for the dark surfaces */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #232b3a; border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #2c3548; }
+::-webkit-scrollbar-thumb { background: var(--ts-line); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ts-line-strong); }
 
 /*
  * Keyboard focus must be visible.

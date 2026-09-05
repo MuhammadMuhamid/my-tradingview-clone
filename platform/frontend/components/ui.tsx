@@ -1,13 +1,19 @@
 import type { ReactNode } from "react";
 
 
+/*
+ * A card is a raised surface first and an outline second. The page ground is
+ * `bg`, the card is `surface`, and the hairline is kept at reduced strength so
+ * a page of cards reads as grouped content rather than a grid of boxes — the
+ * admin-dashboard look was every container at full border weight.
+ */
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-lg border border-border bg-surface ${className}`}>{children}</div>;
+  return <div className={`rounded-lg border border-border/60 bg-surface shadow-[0_1px_0_0_rgba(0,0,0,0.25)] ${className}`}>{children}</div>;
 }
 
 export function CardHeader({ title, right }: { title: ReactNode; right?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-border px-4 py-3">
+    <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
       <h2 className="text-sm font-semibold text-ink">{title}</h2>
       {right}
     </div>
