@@ -507,7 +507,8 @@ export type MaType = "sma" | "ema";
 
 /** What an alert watches. `ma` is the original family. */
 export type ConditionKind =
-  | "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level" | "rsi" | "macd";
+  | "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level" | "rsi" | "macd"
+  | "supertrend";
 
 /** What an RSI alert crosses: a fixed level, or its own moving average. */
 export type RsiTarget = "level" | "sma";
@@ -517,15 +518,31 @@ export type MacdTarget = "signal" | "zero";
 /** Which side of a gate's reference the market must be on. */
 export type FilterSide = "above" | "below";
 
-/** Mirrors the backend's `FILTER_DEFAULTS`: RSI 50 > 50, price > EMA 200. */
+/** Which average of true range a Supertrend uses. `rma` is Wilder's. */
+export type StAtrMethod = "rma" | "sma";
+
+/** Mirrors the backend's `FILTER_DEFAULTS`. */
 export const FILTER_DEFAULTS = {
   rsi: { length: 50, level: 50, side: "above" as FilterSide },
   ma: { type: "ema" as MaType, length: 200, side: "above" as FilterSide },
+  supertrend: {
+    period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod, side: "above" as FilterSide,
+  },
 } as const;
 
-/** Mirrors the backend's `RSI_DEFAULTS` / `MACD_DEFAULTS`. */
+/** Mirrors the backend's `RSI_DEFAULTS` / `MACD_DEFAULTS` / `SUPERTREND_DEFAULTS`. */
 export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
 export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
+export const SUPERTREND_DEFAULTS = {
+  period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod,
+} as const;
+
+/**
+ * Mirrors `NOTE_MAX_LENGTH` on the server and `ma_alerts_note_len_ck` in the
+ * schema. Served by `/api/ma-alerts/options` too; this copy is what the dialogs
+ * count against before that arrives.
+ */
+export const NOTE_MAX_LENGTH = 280;
 
 /** Which side of the market a support/resistance alert watches. */
 export type SrSide = "support" | "resistance" | "either";
@@ -573,15 +590,23 @@ export interface MaAlert {
   macdFast: number | null;
   macdSlow: number | null;
   macdSignal: number | null;
+  /** Populated for `supertrend`. */
+  stPeriod: number | null;
+  stMultiplier: number | null;
+  stAtrMethod: string | null;
   /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`. */
   indicatorTarget: string | null;
-  /** Optional trend gates on `sr_zone` / `pivot_level`; null when unset. */
+  /** Optional trend gates, available on every family; null when unset. */
   filterRsiLength: number | null;
   filterRsiLevel: number | null;
   filterRsiSide: string | null;
   filterMaType: MaType | null;
   filterMaLength: number | null;
   filterMaSide: string | null;
+  filterStPeriod: number | null;
+  filterStMultiplier: number | null;
+  filterStAtrMethod: string | null;
+  filterStSide: string | null;
   /** Populated for `ma` and `ma_vs_ma`. */
   maType: MaType | null;
   maLength: number | null;
@@ -646,6 +671,8 @@ export interface MaAlertOptions {
   priceDirections: PriceDirection[];
   defaultFrequency: AlertFrequency;
   intrabarWarning: string;
+  /** The server's own cap on a note, so the dialogs never invent their own. */
+  noteMaxLength?: number;
   frequencies: AlertFrequencyOption[];
 }
 
@@ -700,7 +727,11 @@ export interface MaAlertUpdate {
   macdSignal?: number;
   /** `RsiTarget` for an RSI alert, `MacdTarget` for a MACD one. */
   target?: RsiTarget | MacdTarget;
-  // ── optional trend gates on the two level families ──
+  // ── supertrend ──
+  stPeriod?: number;
+  stMultiplier?: number;
+  stAtrMethod?: StAtrMethod;
+  // ── optional trend gates, accepted on every family ──
   filterRsi?: boolean;
   filterRsiLength?: number;
   filterRsiLevel?: number;
@@ -709,6 +740,11 @@ export interface MaAlertUpdate {
   filterMaType?: MaType;
   filterMaLength?: number;
   filterMaSide?: FilterSide;
+  filterSt?: boolean;
+  filterStPeriod?: number;
+  filterStMultiplier?: number;
+  filterStAtrMethod?: StAtrMethod;
+  filterStSide?: FilterSide;
 }
 
 export type BulkAlertAction = "pause" | "resume" | "delete";
@@ -1057,13 +1093,20 @@ export const api = {
     anchor?: string;
     rsiLength?: number; rsiLevel?: number; rsiMaLength?: number;
     macdFast?: number; macdSlow?: number; macdSignal?: number;
+    stPeriod?: number; stMultiplier?: number; stAtrMethod?: StAtrMethod;
     /** `RsiTarget` or `MacdTarget`, depending on `conditionKind`. */
     target?: RsiTarget | MacdTarget;
-    /** Trend gates. Send the `filter*` flag to enable one with its defaults. */
+    /**
+     * Trend gates, accepted on every family. Send the `filter*` flag to enable
+     * one with its defaults; omit them entirely to arm an ungated alert.
+     */
     filterRsi?: boolean;
     filterRsiLength?: number; filterRsiLevel?: number; filterRsiSide?: FilterSide;
     filterMa?: boolean;
     filterMaType?: MaType; filterMaLength?: number; filterMaSide?: FilterSide;
+    filterSt?: boolean;
+    filterStPeriod?: number; filterStMultiplier?: number;
+    filterStAtrMethod?: StAtrMethod; filterStSide?: FilterSide;
     maType?: MaType; maLength?: number; mode?: MaAlertMode;
     ma2Type?: MaType; ma2Length?: number;
     targetPrice?: number; priceDirection?: PriceDirection;

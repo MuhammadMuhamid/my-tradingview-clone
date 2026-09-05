@@ -171,11 +171,11 @@ Two independent runners exist in one process:
 - **`MaAlertRunner`** — notifications that cannot. Its only output is a Web Push
   notification.
 
-  The name is now narrower than the job: it evaluates seven condition families
-  (`ma`, `price`, `ma_vs_ma`, `sr_zone`, `pivot_level`, `rsi`, `macd`), the two
-  level families accept optional trend gates, and it evaluates forming candles
-  as well as closed ones for the intrabar frequencies. See
-  [ALERTS.md](ALERTS.md).
+  The name is now narrower than the job: it evaluates eight condition families
+  (`ma`, `price`, `ma_vs_ma`, `sr_zone`, `pivot_level`, `rsi`, `macd`,
+  `supertrend`), every one of which accepts optional RSI / moving-average /
+  Supertrend trend gates, and it evaluates forming candles as well as closed
+  ones for the intrabar frequencies. See [ALERTS.md](ALERTS.md).
 
 Nothing in the notification path can create a deployment, send a webhook, or reach
 Binance's order endpoints. That separation is an invariant, asserted over the

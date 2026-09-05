@@ -2,7 +2,7 @@ import { pool, query } from "../db/pool";
 import type { Interval } from "../types/market";
 import type {
   BulkAlertAction, ConditionKind, MaAlertEventRow, MaAlertMode, MaAlertRow, MaType,
-  PriceDirection, SrSide,
+  PriceDirection, SrSide, StAtrMethod,
 } from "../types/maAlerts";
 import type { AlertFrequency } from "../alerts/alertFrequency";
 
@@ -30,6 +30,9 @@ interface DbAlert {
   macd_fast: number | null;
   macd_slow: number | null;
   macd_signal: number | null;
+  st_period: number | null;
+  st_multiplier: string | number | null;
+  st_atr_method: string | null;
   indicator_target: string | null;
   filter_rsi_length: number | null;
   filter_rsi_level: string | number | null;
@@ -37,6 +40,10 @@ interface DbAlert {
   filter_ma_type: MaType | null;
   filter_ma_length: number | null;
   filter_ma_side: string | null;
+  filter_st_period: number | null;
+  filter_st_multiplier: string | number | null;
+  filter_st_atr_method: string | null;
+  filter_st_side: string | null;
   near_min_pct: string | number;
   near_max_pct: string | number;
   enabled: boolean;
@@ -76,6 +83,9 @@ function toRow(r: DbAlert): MaAlertRow {
     macdFast: r.macd_fast,
     macdSlow: r.macd_slow,
     macdSignal: r.macd_signal,
+    stPeriod: r.st_period,
+    stMultiplier: r.st_multiplier === null ? null : num(r.st_multiplier),
+    stAtrMethod: r.st_atr_method,
     indicatorTarget: r.indicator_target,
     filterRsiLength: r.filter_rsi_length,
     filterRsiLevel: r.filter_rsi_level === null ? null : num(r.filter_rsi_level),
@@ -83,6 +93,11 @@ function toRow(r: DbAlert): MaAlertRow {
     filterMaType: r.filter_ma_type,
     filterMaLength: r.filter_ma_length,
     filterMaSide: r.filter_ma_side,
+    filterStPeriod: r.filter_st_period,
+    filterStMultiplier:
+      r.filter_st_multiplier === null ? null : num(r.filter_st_multiplier),
+    filterStAtrMethod: r.filter_st_atr_method,
+    filterStSide: r.filter_st_side,
     srSide: r.sr_side,
     srPivotLength: r.sr_pivot_length,
     srInvalidation: r.sr_invalidation,
@@ -134,6 +149,9 @@ export interface MaAlertInput {
   macdFast?: number | null;
   macdSlow?: number | null;
   macdSignal?: number | null;
+  stPeriod?: number | null;
+  stMultiplier?: number | null;
+  stAtrMethod?: StAtrMethod | null;
   indicatorTarget?: string | null;
   filterRsiLength?: number | null;
   filterRsiLevel?: number | null;
@@ -141,6 +159,10 @@ export interface MaAlertInput {
   filterMaType?: MaType | null;
   filterMaLength?: number | null;
   filterMaSide?: string | null;
+  filterStPeriod?: number | null;
+  filterStMultiplier?: number | null;
+  filterStAtrMethod?: StAtrMethod | null;
+  filterStSide?: string | null;
 }
 
 /** The unique index that governs "the same alert" for each condition kind. */
@@ -160,6 +182,12 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
   macd:
     "(symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target, mode)" +
     " WHERE condition_kind = 'macd'",
+  // The two inputs are part of the key: Supertrend 10/3 and 14/2 flip on
+  // different bars, so they are different alerts rather than one being an edit
+  // of the other.
+  supertrend:
+    "(symbol, timeframe, st_period, st_multiplier, st_atr_method, mode)" +
+    " WHERE condition_kind = 'supertrend'",
 };
 
 /**
@@ -182,11 +210,13 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         pivot_type, pivot_level_name, pivot_anchor,
         rsi_length, rsi_level, rsi_ma_length,
         macd_fast, macd_slow, macd_signal, indicator_target,
+        st_period, st_multiplier, st_atr_method,
         filter_rsi_length, filter_rsi_level, filter_rsi_side,
-        filter_ma_type, filter_ma_length, filter_ma_side)
+        filter_ma_type, filter_ma_length, filter_ma_side,
+        filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
-             $30,$31,$32,$33,$34,$35)
+             $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -209,12 +239,19 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        macd_slow           = EXCLUDED.macd_slow,
        macd_signal         = EXCLUDED.macd_signal,
        indicator_target    = EXCLUDED.indicator_target,
+       st_period           = EXCLUDED.st_period,
+       st_multiplier       = EXCLUDED.st_multiplier,
+       st_atr_method       = EXCLUDED.st_atr_method,
        filter_rsi_length   = EXCLUDED.filter_rsi_length,
        filter_rsi_level    = EXCLUDED.filter_rsi_level,
        filter_rsi_side     = EXCLUDED.filter_rsi_side,
        filter_ma_type      = EXCLUDED.filter_ma_type,
        filter_ma_length    = EXCLUDED.filter_ma_length,
        filter_ma_side      = EXCLUDED.filter_ma_side,
+       filter_st_period    = EXCLUDED.filter_st_period,
+       filter_st_multiplier = EXCLUDED.filter_st_multiplier,
+       filter_st_atr_method = EXCLUDED.filter_st_atr_method,
+       filter_st_side      = EXCLUDED.filter_st_side,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -233,10 +270,13 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.rsiLength ?? null, input.rsiLevel ?? null, input.rsiMaLength ?? null,
       input.macdFast ?? null, input.macdSlow ?? null, input.macdSignal ?? null,
       input.indicatorTarget ?? null,
+      input.stPeriod ?? null, input.stMultiplier ?? null, input.stAtrMethod ?? null,
       input.filterRsiLength ?? null, input.filterRsiLevel ?? null,
       input.filterRsiSide ?? null,
       input.filterMaType ?? null, input.filterMaLength ?? null,
       input.filterMaSide ?? null,
+      input.filterStPeriod ?? null, input.filterStMultiplier ?? null,
+      input.filterStAtrMethod ?? null, input.filterStSide ?? null,
     ]
   );
   return toRow(rows[0]!);
@@ -318,12 +358,19 @@ const PATCH_COLUMNS: Record<string, string> = {
   macdSlow: "macd_slow",
   macdSignal: "macd_signal",
   indicatorTarget: "indicator_target",
+  stPeriod: "st_period",
+  stMultiplier: "st_multiplier",
+  stAtrMethod: "st_atr_method",
   filterRsiLength: "filter_rsi_length",
   filterRsiLevel: "filter_rsi_level",
   filterRsiSide: "filter_rsi_side",
   filterMaType: "filter_ma_type",
   filterMaLength: "filter_ma_length",
   filterMaSide: "filter_ma_side",
+  filterStPeriod: "filter_st_period",
+  filterStMultiplier: "filter_st_multiplier",
+  filterStAtrMethod: "filter_st_atr_method",
+  filterStSide: "filter_st_side",
 };
 
 /**

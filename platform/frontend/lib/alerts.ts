@@ -7,7 +7,8 @@
  * a user two different things about one alert.
  */
 import {
-  isIntrabarFrequency, MACD_DEFAULTS, type AlertFrequency, type MaAlert,
+  isIntrabarFrequency, MACD_DEFAULTS, SUPERTREND_DEFAULTS,
+  type AlertFrequency, type MaAlert,
 } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { fmtPrice } from "@/lib/format";
@@ -59,6 +60,8 @@ export function alertLineLabel(a: MaAlert): string {
       return `RSI ${a.rsiLength ?? ""}`.trim();
     case "macd":
       return macdLabel(a);
+    case "supertrend":
+      return stLabel(a);
     case "ma":
     default:
       return maLabel(a.maType ?? "sma", a.maLength ?? 0);
@@ -81,6 +84,12 @@ export function alertColor(a: MaAlert): string {
   // in this list matches what the chart draws.
   if (a.conditionKind === "rsi") return "#7e57c2";
   if (a.conditionKind === "macd") return "#2962ff";
+  // The study paints its uptrend green and its downtrend red. The swatch takes
+  // the colour of the direction the alert is waiting FOR, so a rail of
+  // Supertrend alerts reads at a glance as "these are my longs, these my exits".
+  if (a.conditionKind === "supertrend") {
+    return a.mode === "cross_down" ? "#f23645" : "#089981";
+  }
   return maColor(a.maLength ?? 0);
 }
 
@@ -96,7 +105,8 @@ export function describeAlert(a: MaAlert): string {
     case "ma_vs_ma": {
       const fast = maLabel(a.maType ?? "sma", a.maLength ?? 0);
       const slow = maLabel(a.ma2Type ?? "sma", a.ma2Length ?? 0);
-      return `${fast} crosses ${a.mode === "cross_down" ? "below" : "above"} ${slow}`;
+      return `${fast} crosses ${a.mode === "cross_down" ? "below" : "above"} ${slow}` +
+        describeFilters(a);
     }
     case "sr_zone": {
       const what = a.srSide === "resistance" ? "resistance"
@@ -114,13 +124,19 @@ export function describeAlert(a: MaAlert): string {
         ? `its SMA ${a.rsiMaLength ?? ""}`.trim()
         : `${a.rsiLevel ?? ""}`.trim();
       return `RSI ${a.rsiLength ?? ""} crosses ` +
-        `${a.mode === "cross_down" ? "below" : "above"} ${against}`;
+        `${a.mode === "cross_down" ? "below" : "above"} ${against}${describeFilters(a)}`;
     }
     case "macd": {
       const against = a.indicatorTarget === "zero" ? "zero" : "the signal line";
       return `${macdLabel(a)} crosses ` +
-        `${a.mode === "cross_down" ? "below" : "above"} ${against}`;
+        `${a.mode === "cross_down" ? "below" : "above"} ${against}${describeFilters(a)}`;
     }
+    case "supertrend":
+      // "flips", never "crosses": the event is the indicator changing
+      // direction. A reader who sees "crosses" looks for a line price went
+      // through, which is not what fires this alert.
+      return `${stLabel(a)} flips ` +
+        `${a.mode === "cross_down" ? "down" : "up"}${describeFilters(a)}`;
     case "ma":
     default:
       switch (a.mode) {
@@ -149,7 +165,24 @@ export function macdLabel(a: MaAlert): string {
 }
 
 /**
- * The trend gates on a level alert, phrased as the precondition they are.
+ * "Supertrend" for the study's own 10 / 3 / Wilder inputs, and the differences
+ * spelled out otherwise. Same rule as `macdLabel`, and it must agree with
+ * `stLabel` on the server, which writes the notification.
+ */
+export function stLabel(
+  a: { stPeriod: number | null; stMultiplier: number | null; stAtrMethod: string | null }
+): string {
+  const parts: string[] = [];
+  if (a.stPeriod !== SUPERTREND_DEFAULTS.period ||
+      a.stMultiplier !== SUPERTREND_DEFAULTS.multiplier) {
+    parts.push(`${a.stPeriod}/${a.stMultiplier}`);
+  }
+  if (a.stAtrMethod !== SUPERTREND_DEFAULTS.atrMethod) parts.push("SMA ATR");
+  return parts.length > 0 ? `Supertrend ${parts.join(" ")}` : "Supertrend";
+}
+
+/**
+ * The trend gates on an alert, phrased as the precondition they are.
  *
  * "only while" rather than "and": a gate never fires anything itself, it just
  * decides whether the level event is worth telling you about. Reading it as a
@@ -163,6 +196,16 @@ export function describeFilters(a: MaAlert): string {
   if (a.filterMaType !== null && a.filterMaLength !== null && a.filterMaSide !== null) {
     parts.push(
       `price is ${a.filterMaSide} the ${maLabel(a.filterMaType, a.filterMaLength)}`
+    );
+  }
+  if (a.filterStPeriod !== null && a.filterStSide !== null) {
+    parts.push(
+      `price is ${a.filterStSide} the ` +
+      stLabel({
+        stPeriod: a.filterStPeriod,
+        stMultiplier: a.filterStMultiplier,
+        stAtrMethod: a.filterStAtrMethod,
+      })
     );
   }
   return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";

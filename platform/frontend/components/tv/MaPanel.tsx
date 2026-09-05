@@ -13,7 +13,27 @@ import { DEFAULT_ALERT_FREQUENCY } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
 type LevelKind = "sr_zone" | "pivot_level";
-type OscillatorKind = "rsi" | "macd";
+/** The families the indicator dialog arms. Mirrors `IndicatorKind`. */
+type IndicatorRowKind = "rsi" | "macd" | "supertrend";
+
+/**
+ * Supertrend sits in its own section rather than among the oscillators.
+ *
+ * It is an overlay on price, not a bounded oscillator in a pane below it, and
+ * its event is a direction change rather than a cross. Filing it under
+ * "Oscillators" would put a row there that behaves unlike its neighbours in
+ * both respects.
+ */
+const TREND_ROWS: {
+  kind: IndicatorRowKind; label: string; hint: string; color: string;
+}[] = [
+  {
+    kind: "supertrend",
+    label: "Supertrend",
+    hint: "Alert when the Supertrend flips direction",
+    color: "#089981",
+  },
+];
 
 /**
  * Oscillators, given rows for the same reason the level families have them:
@@ -23,7 +43,7 @@ type OscillatorKind = "rsi" | "macd";
  * mean nothing in a column of prices.
  */
 const OSCILLATOR_ROWS: {
-  kind: OscillatorKind; label: string; hint: string; color: string;
+  kind: IndicatorRowKind; label: string; hint: string; color: string;
 }[] = [
   { kind: "rsi", label: "RSI", hint: "Alert on an RSI cross", color: "#7e57c2" },
   { kind: "macd", label: "MACD", hint: "Alert on a MACD cross", color: "#2962ff" },
@@ -135,8 +155,8 @@ export function MaPanel({
   onArmPrice: () => void;
   /** Open the level dialog on one of the two families. */
   onArmLevel: (kind: LevelKind) => void;
-  /** Open the oscillator dialog on RSI or MACD. */
-  onArmOscillator: (kind: OscillatorKind) => void;
+  /** Open the indicator dialog on RSI, MACD or Supertrend. */
+  onArmOscillator: (kind: IndicatorRowKind) => void;
   onOpenAlert: (alert: MaAlert) => void;
   push: React.ReactNode;
   liveActionsDisabled?: boolean;
@@ -275,6 +295,21 @@ export function MaPanel({
             color={row.color}
             count={byKind.get(row.kind) ?? 0}
             onArm={() => onArmLevel(row.kind)}
+            disabled={liveActionsDisabled}
+          />
+        ))}
+
+        <div className="border-y border-border/60 bg-surface-2/40 px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">
+          Trend
+        </div>
+        {TREND_ROWS.map((row) => (
+          <FamilyRow
+            key={row.kind}
+            label={row.label}
+            hint={row.hint}
+            color={row.color}
+            count={byKind.get(row.kind) ?? 0}
+            onArm={() => onArmOscillator(row.kind)}
             disabled={liveActionsDisabled}
           />
         ))}

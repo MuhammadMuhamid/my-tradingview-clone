@@ -34,8 +34,11 @@ const BASE: MaAlertRow = {
   pivotType: null, pivotLevelName: null, pivotAnchor: null,
   rsiLength: null, rsiLevel: null, rsiMaLength: null,
   macdFast: null, macdSlow: null, macdSignal: null, indicatorTarget: null,
+  stPeriod: null, stMultiplier: null, stAtrMethod: null,
   filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
   filterMaType: null, filterMaLength: null, filterMaSide: null,
+  filterStPeriod: null, filterStMultiplier: null,
+  filterStAtrMethod: null, filterStSide: null,
   nearMinPct: 0.2, nearMaxPct: 0.5, enabled: true,
   frequency: "once_per_bar_close", cooldownMin: 60, note: "keep me",
   lastSide: "below", lastFiredAt: "2026-08-01T00:00:00.000Z",
@@ -74,6 +77,14 @@ const ROWS: Record<ConditionKind, MaAlertRow> = {
   macd: {
     ...BASE, conditionKind: "macd", targetPrice: null, priceDirection: null,
     macdFast: 8, macdSlow: 21, macdSignal: 5, indicatorTarget: "zero", mode: "cross_up",
+    // Carries a Supertrend gate, because gates are no longer a level-family
+    // privilege and the round trip must prove an oscillator keeps one.
+    filterStPeriod: 14, filterStMultiplier: 2, filterStAtrMethod: "sma",
+    filterStSide: "below",
+  },
+  supertrend: {
+    ...BASE, conditionKind: "supertrend", targetPrice: null, priceDirection: null,
+    stPeriod: 14, stMultiplier: 2.5, stAtrMethod: "sma", mode: "cross_down",
   },
 };
 

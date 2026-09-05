@@ -138,3 +138,67 @@ test("the column shape a condition flattens to leaves the other kinds' columns n
   assert.equal(cross.ma2Length, 200);
   assert.equal(cross.targetPrice, null);
 });
+
+/**
+ * The user's own note, carried into the notification.
+ *
+ * The point of the note is to answer "why did I arm this?" at the moment the
+ * phone buzzes — weeks after the alert was set, when the configuration alone no
+ * longer explains itself. It is therefore worthless if it is stored and never
+ * shown, which is what these pin.
+ */
+test("the note is appended to the body, after the market fact", () => {
+  const push = formatAlertPush(
+    {
+      id: "a", symbol: "BTCUSDT", timeframe: "1h", frequency: "once_per_bar_close",
+      nearMinPct: 0.2, nearMaxPct: 0.5, note: "TP1 for the March long",
+    },
+    { kind: "price", targetPrice: 64000, direction: "either" },
+    { close: 64010 }, 64000, 0.02, false
+  );
+  assert.match(push.body, /TP1 for the March long$/);
+  // The generated sentence survives ahead of it. Notification bodies truncate
+  // from the END on both iOS and Android, so the fact that cannot be
+  // reconstructed from memory — the price — must come first.
+  assert.match(push.body, /64,?000/);
+  assert.ok(
+    push.body.indexOf("64") < push.body.indexOf("TP1"),
+    "the note must not displace what the market did"
+  );
+});
+
+test("an absent or blank note adds nothing at all — not even a separator", () => {
+  const withoutNote = formatAlertPush(
+    {
+      id: "a", symbol: "BTCUSDT", timeframe: "1h", frequency: "once_per_bar_close",
+      nearMinPct: 0.2, nearMaxPct: 0.5,
+    },
+    { kind: "price", targetPrice: 64000, direction: "either" },
+    { close: 64010 }, 64000, 0.02, false
+  );
+  for (const note of [null, "", "   "]) {
+    const push = formatAlertPush(
+      {
+        id: "a", symbol: "BTCUSDT", timeframe: "1h", frequency: "once_per_bar_close",
+        nearMinPct: 0.2, nearMaxPct: 0.5, note,
+      },
+      { kind: "price", targetPrice: 64000, direction: "either" },
+      { close: 64010 }, 64000, 0.02, false
+    );
+    assert.equal(push.body, withoutNote.body, `note ${JSON.stringify(note)} changed the body`);
+  }
+});
+
+test("the note follows the intrabar marker rather than preceding it", () => {
+  const push = formatAlertPush(
+    {
+      id: "a", symbol: "BTCUSDT", timeframe: "1h", frequency: "once_per_bar",
+      nearMinPct: 0.2, nearMaxPct: 0.5, note: "watching for the retest",
+    },
+    { kind: "price", targetPrice: 64000, direction: "either" },
+    { close: 64010 }, 64000, 0.02, true
+  );
+  // "bar still forming" is a statement about the alert's reliability and stays
+  // attached to the market sentence it qualifies.
+  assert.match(push.body, /bar still forming — watching for the retest$/);
+});

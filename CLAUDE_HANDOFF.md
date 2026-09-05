@@ -210,11 +210,12 @@ move money; `tests/alertIsolation.test.ts` walks the import graph and fails the
 build if the alert path can reach the dispatcher, the broker or the deployments
 repository.
 
-Seven condition families share the `ma_alerts` table, one evaluator and one Web
-Push path: `ma`, `price`, `ma_vs_ma`, `sr_zone`, `pivot_level`, `rsi`, `macd`.
-The two level families additionally accept optional RSI / moving-average trend
-gates. Arm them from the chart's moving-average rail (Levels and Oscillators
-sections) or from `/alerts`.
+Eight condition families share the `ma_alerts` table, one evaluator and one Web
+Push path: `ma`, `price`, `ma_vs_ma`, `sr_zone`, `pivot_level`, `rsi`, `macd`,
+`supertrend`. Every one of them accepts optional RSI / moving-average /
+Supertrend trend gates, and every one accepts a free-text `note` that is
+appended to the notification body. Arm them from the chart's moving-average rail
+(Levels, Trend and Oscillators sections) or from `/alerts`.
 
 Do not confuse the two when reading routes: `/api/ma-alerts` is notifications,
 `/api/alerts` is the deployment signal log. Full behaviour, including the

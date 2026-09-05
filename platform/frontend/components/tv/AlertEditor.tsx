@@ -6,12 +6,12 @@ import { FrequencyField } from "@/components/tv/FrequencyField";
 import { api, type MaAlert } from "@/lib/api";
 import type {
   FilterSide, MaAlertMode, MacdTarget, MaType, PivotType, PriceDirection,
-  RsiTarget, SrSide,
+  RsiTarget, SrSide, StAtrMethod,
 } from "@/lib/api";
 import {
-  ALERT_FAMILY_LABELS, EDIT_INTERVALS, MODE_LABELS, PIVOT_ANCHORS, PIVOT_TYPES,
-  alertEditForm, alertEditRequest, hasAlertChanges, modesFor, pivotLevelNames,
-  usesBand, usesGates, validateAlertForm, type AlertEditForm,
+  ALERT_FAMILY_LABELS, EDIT_INTERVALS, PIVOT_ANCHORS, PIVOT_TYPES,
+  alertEditForm, alertEditRequest, hasAlertChanges, modeLabel, modesFor,
+  pivotLevelNames, usesBand, usesGates, validateAlertForm, type AlertEditForm,
 } from "@/lib/alertEditing";
 import { describeAlert, alertColor } from "@/lib/alerts";
 import type { Interval } from "@/lib/types";
@@ -399,6 +399,41 @@ export function AlertEditor({
           </>
         )}
 
+        {kind === "supertrend" && (
+          <>
+            <Row label="ATR period">
+              <input
+                type="number" min={1} max={1000} value={form.stPeriod}
+                onChange={(e) => update("stPeriod", intOf(e.target.value))}
+                aria-label="Supertrend ATR period"
+                className={BOX} />
+            </Row>
+            <Row label="Multiplier">
+              <input
+                type="number" min="0.1" max="100" step="0.1" value={form.stMultiplier}
+                onChange={(e) => update("stMultiplier", numOf(e.target.value))}
+                aria-label="Supertrend ATR multiplier"
+                className={BOX} />
+            </Row>
+            <Row label="ATR method">
+              <select
+                value={form.stAtrMethod}
+                onChange={(e) => update("stAtrMethod", e.target.value as StAtrMethod)}
+                aria-label="Supertrend ATR method"
+                className={BOX}
+              >
+                <option value="rma">Wilder&apos;s (default)</option>
+                <option value="sma">Simple average of true range</option>
+              </select>
+            </Row>
+            <Hint>
+              The study&apos;s own defaults are 10 and 3. Changing either reshapes
+              the bands, so the alert re-seeds and stays quiet until the next
+              genuine flip.
+            </Hint>
+          </>
+        )}
+
         {kind !== "price" && (
           <Row label="Condition">
             <select
@@ -408,7 +443,7 @@ export function AlertEditor({
               className={BOX}
             >
               {modesFor(kind).map((m) => (
-                <option key={m} value={m}>{MODE_LABELS[m]}</option>
+                <option key={m} value={m}>{modeLabel(kind, m)}</option>
               ))}
             </select>
           </Row>
@@ -491,6 +526,41 @@ export function AlertEditor({
                   onChange={(e) => update("filterMaLength", intOf(e.target.value))} />
               </div>
             )}
+            <label className="flex items-center gap-2 py-1 text-sm text-ink">
+              <input type="checkbox" checked={form.filterSt} className="accent-accent"
+                onChange={(e) => update("filterSt", e.target.checked)} />
+              Supertrend filter
+            </label>
+            {form.filterSt && (
+              <>
+                <div className="flex items-center gap-2 pl-6">
+                  <span className="text-sm text-ink-muted">Price</span>
+                  <select value={form.filterStSide} aria-label="Filter Supertrend side"
+                    className={`${BOX} w-[92px]`}
+                    onChange={(e) => update("filterStSide", e.target.value as FilterSide)}>
+                    <option value="above">is above</option>
+                    <option value="below">is below</option>
+                  </select>
+                  <span className="whitespace-nowrap text-sm text-ink-muted">Supertrend</span>
+                  <input type="number" min={1} max={1000} value={form.filterStPeriod}
+                    aria-label="Filter Supertrend ATR period" className={`${BOX} w-[64px]`}
+                    onChange={(e) => update("filterStPeriod", intOf(e.target.value))} />
+                  <input type="number" min="0.1" max="100" step="0.1"
+                    value={form.filterStMultiplier}
+                    aria-label="Filter Supertrend multiplier" className={`${BOX} w-[64px]`}
+                    onChange={(e) => update("filterStMultiplier", numOf(e.target.value))} />
+                </div>
+                <Hint>
+                  ATR period · multiplier. Above the Supertrend is its uptrend,
+                  below is its downtrend.
+                </Hint>
+              </>
+            )}
+            <Hint>
+              Measured on this alert&apos;s own timeframe, on the same bar. While a
+              filter is not met the alert stays silent — it does not queue up and
+              fire later.
+            </Hint>
           </>
         )}
 

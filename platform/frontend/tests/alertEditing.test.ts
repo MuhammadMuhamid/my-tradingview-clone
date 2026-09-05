@@ -34,6 +34,9 @@ const BASE: MaAlert = {
   macdFast: null, macdSlow: null, macdSignal: null, indicatorTarget: null,
   filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
   filterMaType: null, filterMaLength: null, filterMaSide: null,
+  filterStPeriod: null, filterStMultiplier: null,
+  filterStAtrMethod: null, filterStSide: null,
+  stPeriod: null, stMultiplier: null, stAtrMethod: null,
   nearMinPct: 0.2, nearMaxPct: 0.5, enabled: true,
   frequency: "once_per_bar_close", cooldownMin: 60, note: null,
   lastSide: "below", lastFiredAt: null, lastFiredBarTime: null,
@@ -63,6 +66,10 @@ const ALERTS: Record<ConditionKind, MaAlert> = {
   rsi: {
     ...BASE, conditionKind: "rsi", targetPrice: null, priceDirection: null,
     rsiLength: 14, rsiLevel: 70, rsiMaLength: 9, indicatorTarget: "level", mode: "cross_down",
+  },
+  supertrend: {
+    ...BASE, conditionKind: "supertrend", targetPrice: null, priceDirection: null,
+    stPeriod: 14, stMultiplier: 2.5, stAtrMethod: "sma", mode: "cross_down",
   },
   macd: {
     ...BASE, conditionKind: "macd", targetPrice: null, priceDirection: null,
@@ -274,10 +281,65 @@ test("only the modes a family can actually be evaluated with are offered", () =>
   assert.ok(modesFor("sr_zone").includes("near_below"));
 });
 
-test("gates are offered on the two level families and nowhere else", () => {
+/*
+ * Gates used to be offered on the two level families only. They are now offered
+ * everywhere, which is a deliberate widening rather than a slip: "MACD crosses
+ * up, but only while price is above the Supertrend" is the same shape of
+ * request as the level version, and the old restriction was an artefact of the
+ * order the families were built in.
+ *
+ * The property that matters is that the OFFER and the SAVE agree. A dialog that
+ * shows a gate the request builder drops is a filter the user configures, sees
+ * confirmed, and which silently never applies.
+ */
+test("every family offers gates, and every family actually saves them", () => {
   for (const kind of KINDS) {
-    assert.equal(usesGates(kind), kind === "sr_zone" || kind === "pivot_level", kind);
+    assert.equal(usesGates(kind), true, kind);
+
+    const alert = ALERTS[kind];
+    const form = alertEditForm(alert);
+    const body = alertEditRequest(alert, {
+      ...form,
+      filterSt: true,
+      filterStPeriod: 14,
+      filterStMultiplier: 2,
+      filterStAtrMethod: "sma",
+      filterStSide: "below",
+    });
+    assert.equal(body.filterSt, true, `${kind} dropped the gate it offered`);
+    assert.equal(body.filterStPeriod, 14, kind);
+    assert.equal(body.filterStSide, "below", kind);
   }
+});
+
+test("switching a gate off sends the explicit false that clears it", () => {
+  // Omitting the key would leave the row's own gate in place, because the
+  // server merges an edit onto what it already holds — so the dialog would show
+  // the gate unchecked while the alert kept applying it.
+  const gated: MaAlert = {
+    ...ALERTS.rsi,
+    filterStPeriod: 10, filterStMultiplier: 3,
+    filterStAtrMethod: "rma", filterStSide: "above",
+  };
+  const form = alertEditForm(gated);
+  assert.equal(form.filterSt, true, "a persisted gate must load as enabled");
+  const body = alertEditRequest(gated, { ...form, filterSt: false });
+  assert.equal(body.filterSt, false);
+});
+
+test("a Supertrend edit sends its own inputs and nothing else", () => {
+  const alert = ALERTS.supertrend;
+  const form = alertEditForm(alert);
+  assert.equal(form.stPeriod, 14);
+  assert.equal(form.stMultiplier, 2.5);
+  assert.equal(form.stAtrMethod, "sma");
+
+  assert.equal(hasAlertChanges(alertEditRequest(alert, form)), false,
+    "an untouched Supertrend form must save nothing");
+
+  const body = alertEditRequest(alert, { ...form, stMultiplier: 3 });
+  assert.equal(body.stMultiplier, 3);
+  assert.equal(body.stPeriod, undefined, "an unchanged input must not be resent");
 });
 
 test("Fibonacci pivots do not offer levels they never compute", () => {

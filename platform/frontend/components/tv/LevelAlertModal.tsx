@@ -3,10 +3,13 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
+import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import {
-  api, FILTER_DEFAULTS,
-  type AlertFrequency, type FilterSide, type MaAlertMode, type MaType,
-  type PivotType, type SrSide,
+  AlertFiltersField, emptyFilters, filterRequest, type AlertFilterState,
+} from "@/components/tv/AlertFiltersField";
+import {
+  api,
+  type AlertFrequency, type MaAlertMode, type PivotType, type SrSide,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 
@@ -61,15 +64,8 @@ export function LevelAlertModal({
   const [mode, setMode] = useState<MaAlertMode>("near_above");
   const [nearMinPct, setNearMinPct] = useState(0.2);
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
-  // ── optional trend gates ──
-  const [filterRsi, setFilterRsi] = useState(false);
-  const [filterRsiLength, setFilterRsiLength] = useState<number>(FILTER_DEFAULTS.rsi.length);
-  const [filterRsiLevel, setFilterRsiLevel] = useState<number>(FILTER_DEFAULTS.rsi.level);
-  const [filterRsiSide, setFilterRsiSide] = useState<FilterSide>(FILTER_DEFAULTS.rsi.side);
-  const [filterMa, setFilterMa] = useState(false);
-  const [filterMaType, setFilterMaType] = useState<MaType>(FILTER_DEFAULTS.ma.type);
-  const [filterMaLength, setFilterMaLength] = useState<number>(FILTER_DEFAULTS.ma.length);
-  const [filterMaSide, setFilterMaSide] = useState<FilterSide>(FILTER_DEFAULTS.ma.side);
+  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [note, setNote] = useState("");
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
@@ -79,7 +75,12 @@ export function LevelAlertModal({
   useEffect(() => {
     // Reopening from a specific rail row should land on that family, not on
     // whatever the previous visit happened to leave selected.
-    if (open) { setTimeframes([defaultTimeframe]); setKind(initialKind); setErr(null); }
+    if (open) {
+      setTimeframes([defaultTimeframe]);
+      setKind(initialKind);
+      setNote("");
+      setErr(null);
+    }
   }, [open, defaultTimeframe, initialKind]);
 
   const isNear = mode === "near_above" || mode === "near_below";
@@ -104,20 +105,10 @@ export function LevelAlertModal({
           ...(kind === "sr_zone"
             ? { srSide }
             : { pivotType, levelName, anchor }),
-          // Only sent when enabled; omitting them means "no gate", which is
-          // what every alert created before this feature has.
-          ...(filterRsi
-            ? {
-                filterRsi: true,
-                filterRsiLength, filterRsiLevel, filterRsiSide,
-              }
-            : {}),
-          ...(filterMa
-            ? {
-                filterMa: true,
-                filterMaType, filterMaLength, filterMaSide,
-              }
-            : {}),
+          // Only the enabled gates are sent; an omitted one means "no gate",
+          // which is what every alert created before this feature has.
+          ...filterRequest(filters),
+          note: note.trim() || null,
         });
       }
       onSaved(
@@ -249,67 +240,11 @@ export function LevelAlertModal({
 
         <div className="my-1 border-t border-border" />
 
-        {/* Gates. Off by default: an alert that silently requires a trend the
-            user did not ask for is worse than one that fires too often. */}
-        <div className="text-sm text-ink-muted">Only fire when</div>
+        <AlertFiltersField value={filters} onChange={setFilters} />
 
-        <label className="flex items-center gap-2 text-sm text-ink">
-          <input type="checkbox" checked={filterRsi}
-            onChange={(e) => setFilterRsi(e.target.checked)} className="accent-accent" />
-          RSI filter
-        </label>
-        {filterRsi && (
-          <div className="flex items-center gap-2 pl-6">
-            <span className="text-sm text-ink-muted">RSI</span>
-            <input type="number" min="1" max="1000" value={filterRsiLength} aria-label="Filter RSI length"
-              onChange={(e) => setFilterRsiLength(parseInt(e.target.value || "0", 10))}
-              className={`${box} w-[70px]`} />
-            <select value={filterRsiSide} aria-label="Filter RSI side"
-              onChange={(e) => setFilterRsiSide(e.target.value as FilterSide)}
-              className={`${box} w-[90px]`}>
-              <option value="above">is above</option>
-              <option value="below">is below</option>
-            </select>
-            <input type="number" min="1" max="99" value={filterRsiLevel} aria-label="Filter RSI level"
-              onChange={(e) => setFilterRsiLevel(parseFloat(e.target.value || "0"))}
-              className={`${box} w-[70px]`} />
-          </div>
-        )}
+        <div className="my-1 border-t border-border" />
 
-        <label className="flex items-center gap-2 text-sm text-ink">
-          <input type="checkbox" checked={filterMa}
-            onChange={(e) => setFilterMa(e.target.checked)} className="accent-accent" />
-          Moving-average filter
-        </label>
-        {filterMa && (
-          <div className="flex items-center gap-2 pl-6">
-            <span className="text-sm text-ink-muted">Price</span>
-            <select value={filterMaSide} aria-label="Filter MA side"
-              onChange={(e) => setFilterMaSide(e.target.value as FilterSide)}
-              className={`${box} w-[90px]`}>
-              <option value="above">is above</option>
-              <option value="below">is below</option>
-            </select>
-            <select value={filterMaType} aria-label="Filter MA type"
-              onChange={(e) => setFilterMaType(e.target.value as MaType)}
-              className={`${box} w-[80px]`}>
-              <option value="ema">EMA</option>
-              <option value="sma">SMA</option>
-            </select>
-            <input type="number" min="1" max="1000" value={filterMaLength} aria-label="Filter MA length"
-              onChange={(e) => setFilterMaLength(parseInt(e.target.value || "0", 10))}
-              className={`${box} w-[80px]`} />
-          </div>
-        )}
-
-        {(filterRsi || filterMa) && (
-          <p className="rounded-md border border-border bg-surface-2/50 px-3 py-2 text-xs text-ink-muted">
-            Measured on the alert&apos;s own timeframe, on the same bar. While a
-            filter is not met the alert stays silent — it does not queue up and
-            fire later. A filter whose indicator has not warmed up yet counts as
-            not met.
-          </p>
-        )}
+        <AlertNoteField value={note} onChange={setNote} />
 
         <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframes[0] ?? defaultTimeframe} />
 

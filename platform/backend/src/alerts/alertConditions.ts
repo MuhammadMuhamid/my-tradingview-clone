@@ -24,9 +24,10 @@ import {
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
-  PIVOT_LEVEL_ANY, MACD_DEFAULTS, RSI_DEFAULTS, isRsiTarget, isMacdTarget,
+  PIVOT_LEVEL_ANY, MACD_DEFAULTS, RSI_DEFAULTS, SUPERTREND_DEFAULTS,
+  isRsiTarget, isMacdTarget, isStAtrMethod,
   type ConditionKind, type MaAlertMode, type MaType, type PriceDirection,
-  type SrSide, type RsiTarget, type MacdTarget,
+  type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
 } from "../types/maAlerts";
 
 export type Side = "above" | "below";
@@ -84,21 +85,38 @@ export interface MaVsMaCondition {
 }
 
 /**
- * A precondition that must hold for a level alert to notify.
+ * A precondition that must hold for an alert to notify.
  *
  * This is a GATE, not a trigger: it never fires anything on its own, it only
- * decides whether the level event is worth telling you about. "Alert me when
- * price approaches 1h support, but only while the 1h trend is up" is one alert
- * with a filter, not two alerts to correlate by hand.
+ * decides whether the event is worth telling you about. "Alert me when price
+ * approaches 1h support, but only while the 1h trend is up" is one alert with a
+ * filter, not two alerts to correlate by hand.
  *
- * Both gates are evaluated on the alert's OWN timeframe and symbol, against the
- * same bar as the level test, so a 1h alert is gated by 1h RSI and the 1h EMA.
+ * Every gate is evaluated on the alert's OWN timeframe and symbol, against the
+ * same bar as the trigger, so a 1h alert is gated by 1h RSI and the 1h EMA.
+ * There is deliberately no per-gate timeframe: allowing one would turn every
+ * alert into a multi-timeframe query, and the alert's own timeframe is the one
+ * whose event is being judged.
+ *
+ * Gates are available on EVERY family, not only the level ones. "MACD crosses
+ * up, but only while price is above the Supertrend" is the same shape of
+ * request as the level version, and refusing it on some families would be an
+ * artefact of the order the families were built in rather than a rule.
  */
 export interface AlertFilters {
   /** RSI(length) must sit above/below `level`. */
   rsi?: { length: number; level: number; side: Side };
   /** The close must sit above/below this moving average. */
   ma?: { type: MaType; length: number; side: Side };
+  /**
+   * Price must be on the named side of the Supertrend — "above" is its
+   * uptrend. Read from the indicator's own trend rather than by comparing the
+   * close to the drawn line: the two agree by construction, and the trend is
+   * the value the study itself acts on.
+   */
+  supertrend?: {
+    period: number; multiplier: number; atrMethod: StAtrMethod; side: Side;
+  };
 }
 
 /**
@@ -116,8 +134,6 @@ export interface SrZoneCondition {
   /** Swing length used to detect the zones. */
   pivotLength: number;
   invalidation: "close" | "wick";
-  /** Optional preconditions; the alert stays silent while any of them fails. */
-  filters?: AlertFilters;
 }
 
 /** A named pivot level computed from a completed anchor period. */
@@ -131,8 +147,6 @@ export interface PivotLevelCondition {
   mode: MaMode;
   nearMinPct: number;
   nearMaxPct: number;
-  /** Optional preconditions; the alert stays silent while any of them fails. */
-  filters?: AlertFilters;
 }
 
 /**
@@ -169,10 +183,40 @@ export interface MacdCondition {
   mode: MaCrossMode;
 }
 
-export type AlertCondition =
+/**
+ * A Supertrend flip.
+ *
+ * The event is the indicator changing DIRECTION, not price touching the line.
+ * Those are nearly the same bar and never quite the same event: price can graze
+ * the band without the trend flipping, and once it has flipped the line jumps
+ * to the other side of price, so a "touched the line" alert on this indicator
+ * would fire on the wrong bars in both directions.
+ *
+ * `cross_up` is the study's Buy label, `cross_down` its Sell.
+ */
+export interface SupertrendCondition {
+  kind: "supertrend";
+  period: number;
+  multiplier: number;
+  atrMethod: StAtrMethod;
+  mode: MaCrossMode;
+}
+
+/**
+ * Every family may carry gates, so the property lives on the union rather than
+ * being repeated in each member. Narrowing on `kind` still works through the
+ * intersection, and a family added later cannot forget to offer them.
+ */
+export interface WithFilters {
+  /** Optional preconditions; the alert stays silent while any of them fails. */
+  filters?: AlertFilters;
+}
+
+export type AlertCondition = (
   | PriceCondition | MaCondition | MaVsMaCondition
   | SrZoneCondition | PivotLevelCondition
-  | RsiCondition | MacdCondition;
+  | RsiCondition | MacdCondition | SupertrendCondition
+) & WithFilters;
 
 // ── Evaluation ──────────────────────────────────────────────────────────────
 
@@ -206,6 +250,8 @@ export interface Sample {
   filterRsiValue?: number;
   /** Moving-average value for a filter gate, same bar and timeframe. */
   filterMaValue?: number;
+  /** Supertrend direction (+1 / -1) for a filter gate, same bar and timeframe. */
+  filterSupertrendValue?: number;
 }
 
 export interface Evaluation {
@@ -252,7 +298,24 @@ function distance(value: number, reference: number): number {
 const rangeContains = (sample: Sample, level: number): boolean =>
   sample.low <= level && level <= sample.high;
 
+/**
+ * Evaluate a condition and apply its gates.
+ *
+ * The gates are applied HERE, once, rather than inside each family's
+ * evaluator. Every family may carry them, and a per-family `gated(...)` call
+ * is a line a new family can silently omit — which would present as an alert
+ * whose configured filter is simply ignored, with nothing in the UI or the log
+ * to say so.
+ */
 export function evaluateCondition(
+  condition: AlertCondition,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  return gated(evaluateTrigger(condition, sample, prevSide), condition.filters, sample);
+}
+
+function evaluateTrigger(
   condition: AlertCondition,
   sample: Sample,
   prevSide: Side | null
@@ -272,6 +335,8 @@ export function evaluateCondition(
       return evaluateRsi(condition, sample, prevSide);
     case "macd":
       return evaluateMacd(condition, sample, prevSide);
+    case "supertrend":
+      return evaluateSupertrend(condition, sample, prevSide);
   }
 }
 
@@ -384,6 +449,15 @@ export function filtersPass(
     }
   }
 
+  if (filters.supertrend) {
+    // The indicator's own direction: +1 uptrend, -1 downtrend. Comparing the
+    // close to the drawn line instead would agree on every bar but one — the
+    // flip bar, where the line has already moved to the other side of price.
+    const v = sample.filterSupertrendValue;
+    if (v === undefined || !Number.isFinite(v)) return false;
+    if (filters.supertrend.side === "above" ? !(v > 0) : !(v < 0)) return false;
+  }
+
   return true;
 }
 
@@ -407,12 +481,9 @@ function evaluateSrZone(
   sample: Sample,
   prevSide: Side | null
 ): Evaluation {
-  return gated(
-    evaluateAgainstReference(
-      condition.mode, condition.nearMinPct, condition.nearMaxPct,
-      sample.refValue ?? NaN, sample, prevSide
-    ),
-    condition.filters, sample
+  return evaluateAgainstReference(
+    condition.mode, condition.nearMinPct, condition.nearMaxPct,
+    sample.refValue ?? NaN, sample, prevSide
   );
 }
 
@@ -421,12 +492,9 @@ function evaluatePivotLevel(
   sample: Sample,
   prevSide: Side | null
 ): Evaluation {
-  return gated(
-    evaluateAgainstReference(
-      condition.mode, condition.nearMinPct, condition.nearMaxPct,
-      sample.refValue ?? NaN, sample, prevSide
-    ),
-    condition.filters, sample
+  return evaluateAgainstReference(
+    condition.mode, condition.nearMinPct, condition.nearMaxPct,
+    sample.refValue ?? NaN, sample, prevSide
   );
 }
 
@@ -512,6 +580,37 @@ function evaluateMacd(
   );
 }
 
+/**
+ * A Supertrend flip.
+ *
+ * The side is read from the indicator's TREND, not from comparing the close to
+ * the line. On the flip bar the line has already jumped to the other side of
+ * price, so a close-versus-line test reports the new side one bar early and
+ * then reports no cross at all when the flip actually happens.
+ *
+ * `reference` is still the drawn line, because that is the price a
+ * notification should name — "flipped up, line now at 2.19" is what a reader
+ * can act on. The distance is a genuine price percentage here, unlike the
+ * oscillator families.
+ */
+function evaluateSupertrend(
+  condition: SupertrendCondition,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  const trend = sample.indicatorValue;
+  const reference = sample.refValue ?? NaN;
+  // Not warmed up: leave the stored side alone rather than letting a NaN
+  // comparison manufacture a flip on the next bar.
+  if (trend === undefined || !Number.isFinite(trend)) {
+    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+  }
+  const side: Side = trend > 0 ? "above" : "below";
+  const distancePct = Number.isFinite(reference) ? distance(sample.close, reference) : 0;
+  const triggered = crossed(prevSide, side, condition.mode === "cross_up" ? "up" : "down");
+  return { side, distancePct, triggered, reference };
+}
+
 // ── Description ─────────────────────────────────────────────────────────────
 
 const maLabel = (type: MaType, length: number): string => `${type.toUpperCase()} ${length}`;
@@ -561,8 +660,33 @@ export function describeCondition(condition: AlertCondition): string {
         ? `${macdLabel(condition)} crosses above ${against}`
         : `${macdLabel(condition)} crosses below ${against}`;
     }
+    case "supertrend":
+      // "flips up", never "crosses above": the subject is the indicator's
+      // direction, and a reader who sees "crosses" looks for a line price went
+      // through, which is not the event.
+      return condition.mode === "cross_up"
+        ? `${stLabel(condition)} flips up`
+        : `${stLabel(condition)} flips down`;
   }
   return "condition met";
+}
+
+/**
+ * "Supertrend" for the study's own 10 / 3 / Wilder inputs, "Supertrend 14/2"
+ * otherwise — with the ATR method named only when it is the non-default SMA.
+ *
+ * Same rule as `macdLabel`: default parameters on every notification are noise,
+ * non-default ones are the only thing separating two alerts in a list.
+ */
+export function stLabel(
+  c: Pick<SupertrendCondition, "period" | "multiplier" | "atrMethod">
+): string {
+  const parts: string[] = [];
+  if (c.period !== SUPERTREND_DEFAULTS.period || c.multiplier !== SUPERTREND_DEFAULTS.multiplier) {
+    parts.push(`${c.period}/${c.multiplier}`);
+  }
+  if (c.atrMethod !== SUPERTREND_DEFAULTS.atrMethod) parts.push("SMA ATR");
+  return parts.length > 0 ? `Supertrend ${parts.join(" ")}` : "Supertrend";
 }
 
 /** "RSI 50" — the oscillator, named by its length. */
@@ -609,6 +733,7 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
     case "pivot_level": return [];
     case "rsi": return [];
     case "macd": return [];
+    case "supertrend": return [];
   }
 }
 
@@ -627,7 +752,7 @@ export function validateCondition(condition: AlertCondition): string | null {
       if (!(PRICE_DIRECTIONS as readonly string[]).includes(condition.direction)) {
         return `direction must be one of ${PRICE_DIRECTIONS.join(", ")}`;
       }
-      return null;
+      return filterError(condition.filters);
 
     case "ma":
       if (!Number.isInteger(condition.maLength) || condition.maLength < 1 || condition.maLength > 1000) {
@@ -641,7 +766,7 @@ export function validateCondition(condition: AlertCondition): string | null {
           return "nearMaxPct must be greater than nearMinPct";
         }
       }
-      return null;
+      return filterError(condition.filters);
 
     case "ma_vs_ma":
       for (const [name, len] of [["maLength", condition.maLength], ["ma2Length", condition.ma2Length]] as const) {
@@ -654,7 +779,7 @@ export function validateCondition(condition: AlertCondition): string | null {
         // so is better than storing something inert.
         return "the two moving averages must differ, or the condition can never be met";
       }
-      return null;
+      return filterError(condition.filters);
 
     case "sr_zone":
       if (!Number.isInteger(condition.pivotLength) || condition.pivotLength < 2 || condition.pivotLength > 100) {
@@ -693,7 +818,7 @@ export function validateCondition(condition: AlertCondition): string | null {
       } else if (!Number.isInteger(condition.maLength) || condition.maLength < 1) {
         return "rsiMaLength must be a positive integer";
       }
-      return null;
+      return filterError(condition.filters);
 
     case "macd":
       for (const [name, v] of [
@@ -706,7 +831,21 @@ export function validateCondition(condition: AlertCondition): string | null {
       if (condition.fastLength >= condition.slowLength) {
         return "macdFast must be less than macdSlow";
       }
-      return null;
+      return filterError(condition.filters);
+
+    case "supertrend":
+      if (!Number.isInteger(condition.period) || condition.period < 1) {
+        return "stPeriod must be a positive integer";
+      }
+      // A non-positive multiplier collapses the two bands onto hl2 or inverts
+      // them, so the trend would flip on almost every bar or never at all.
+      if (!Number.isFinite(condition.multiplier) || condition.multiplier <= 0) {
+        return "stMultiplier must be a positive number";
+      }
+      if (!isStAtrMethod(condition.atrMethod)) {
+        return "stAtrMethod must be rma or sma";
+      }
+      return filterError(condition.filters);
   }
 }
 
@@ -724,6 +863,10 @@ function filtersFromRow(row: {
   filterMaType?: MaType | null;
   filterMaLength?: number | null;
   filterMaSide?: string | null;
+  filterStPeriod?: number | null;
+  filterStMultiplier?: number | null;
+  filterStAtrMethod?: string | null;
+  filterStSide?: string | null;
 }): { filters?: AlertFilters } {
   const filters: AlertFilters = {};
   const side = (v: string | null | undefined): Side | null =>
@@ -736,6 +879,19 @@ function filtersFromRow(row: {
   const maSide = side(row.filterMaSide);
   if (row.filterMaType != null && row.filterMaLength != null && maSide) {
     filters.ma = { type: row.filterMaType, length: row.filterMaLength, side: maSide };
+  }
+  const stSide = side(row.filterStSide);
+  const stMethod = row.filterStAtrMethod;
+  if (
+    row.filterStPeriod != null && row.filterStMultiplier != null && stSide &&
+    stMethod != null && isStAtrMethod(stMethod)
+  ) {
+    filters.supertrend = {
+      period: row.filterStPeriod,
+      multiplier: row.filterStMultiplier,
+      atrMethod: stMethod,
+      side: stSide,
+    };
   }
   return Object.keys(filters).length > 0 ? { filters } : {};
 }
@@ -751,6 +907,9 @@ export function describeFilters(filters: AlertFilters | undefined): string {
     parts.push(
       `price is ${filters.ma.side} the ${maLabel(filters.ma.type, filters.ma.length)}`
     );
+  }
+  if (filters.supertrend) {
+    parts.push(`price is ${filters.supertrend.side} the ${stLabel(filters.supertrend)}`);
   }
   return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";
 }
@@ -780,6 +939,17 @@ function filterError(filters: AlertFilters | undefined): string | null {
       return "filterMaLength must be a positive integer";
     }
     if (side !== "above" && side !== "below") return "filterMaSide must be above or below";
+  }
+  if (filters.supertrend) {
+    const { period, multiplier, atrMethod, side } = filters.supertrend;
+    if (!Number.isInteger(period) || period < 1) {
+      return "filterStPeriod must be a positive integer";
+    }
+    if (!Number.isFinite(multiplier) || multiplier <= 0) {
+      return "filterStMultiplier must be a positive number";
+    }
+    if (!isStAtrMethod(atrMethod)) return "filterStAtrMethod must be rma or sma";
+    if (side !== "above" && side !== "below") return "filterStSide must be above or below";
   }
   return null;
 }
@@ -823,6 +993,13 @@ export function conditionFromRow(row: {
   filterMaType?: MaType | null;
   filterMaLength?: number | null;
   filterMaSide?: string | null;
+  filterStPeriod?: number | null;
+  filterStMultiplier?: number | null;
+  filterStAtrMethod?: string | null;
+  filterStSide?: string | null;
+  stPeriod?: number | null;
+  stMultiplier?: number | null;
+  stAtrMethod?: string | null;
   rsiLength?: number | null;
   rsiLevel?: number | null;
   rsiMaLength?: number | null;
@@ -834,11 +1011,15 @@ export function conditionFromRow(row: {
   switch (row.conditionKind) {
     case "price":
       if (row.targetPrice === null || row.priceDirection === null) return null;
-      return { kind: "price", targetPrice: row.targetPrice, direction: row.priceDirection };
+      return {
+        ...filtersFromRow(row),
+        kind: "price", targetPrice: row.targetPrice, direction: row.priceDirection,
+      };
 
     case "ma":
       if (row.maType === null || row.maLength === null || row.mode === null) return null;
       return {
+        ...filtersFromRow(row),
         kind: "ma",
         maType: row.maType,
         maLength: row.maLength,
@@ -854,6 +1035,7 @@ export function conditionFromRow(row: {
         (row.mode !== "cross_up" && row.mode !== "cross_down")
       ) return null;
       return {
+        ...filtersFromRow(row),
         kind: "ma_vs_ma",
         maType: row.maType,
         maLength: row.maLength,
@@ -901,6 +1083,7 @@ export function conditionFromRow(row: {
         (row.mode !== "cross_up" && row.mode !== "cross_down")
       ) return null;
       return {
+        ...filtersFromRow(row),
         kind: "rsi",
         rsiLength: row.rsiLength,
         target,
@@ -920,11 +1103,30 @@ export function conditionFromRow(row: {
         (row.mode !== "cross_up" && row.mode !== "cross_down")
       ) return null;
       return {
+        ...filtersFromRow(row),
         kind: "macd",
         fastLength: row.macdFast,
         slowLength: row.macdSlow,
         signalLength: row.macdSignal,
         target,
+        mode: row.mode,
+      };
+    }
+
+    case "supertrend": {
+      const method = row.stAtrMethod ?? "";
+      if (
+        row.stPeriod === null || row.stPeriod === undefined ||
+        row.stMultiplier === null || row.stMultiplier === undefined ||
+        !isStAtrMethod(method) ||
+        (row.mode !== "cross_up" && row.mode !== "cross_down")
+      ) return null;
+      return {
+        ...filtersFromRow(row),
+        kind: "supertrend",
+        period: row.stPeriod,
+        multiplier: row.stMultiplier,
+        atrMethod: method,
         mode: row.mode,
       };
     }

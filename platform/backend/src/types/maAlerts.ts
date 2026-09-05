@@ -26,7 +26,7 @@ export const isMaAlertMode = (v: string): v is MaAlertMode =>
  * were added alongside it, on the same table and the same runner.
  */
 export const CONDITION_KINDS = [
-  "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level", "rsi", "macd",
+  "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level", "rsi", "macd", "supertrend",
 ] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
 
@@ -60,10 +60,37 @@ export type FilterSide = (typeof FILTER_SIDES)[number];
 export const isFilterSide = (v: string): v is FilterSide =>
   (FILTER_SIDES as readonly string[]).includes(v);
 
-/** Defaults for the two gates, as requested: RSI 50 > 50, price > EMA 200. */
+/**
+ * Defaults for the gates: RSI 50 > 50, price > EMA 200, price above Supertrend.
+ *
+ * The Supertrend gate's defaults are the study's own inputs, so "only while the
+ * trend is up" means the line the user is already looking at rather than a
+ * differently-tuned one they never chose.
+ */
 export const FILTER_DEFAULTS = {
   rsi: { length: 50, level: 50, side: "above" as FilterSide },
   ma: { type: "ema" as MaType, length: 200, side: "above" as FilterSide },
+  supertrend: {
+    period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod, side: "above" as FilterSide,
+  },
+} as const;
+
+/**
+ * Which average of true range the Supertrend uses.
+ *
+ * Stored as a name rather than the study's `changeATR` boolean: a column called
+ * `change_atr` says nothing about which of the two an existing row actually
+ * uses, and these are two different indicators rather than one with a tweak.
+ * `rma` is Wilder's, matching `ta.atr` and the study's default.
+ */
+export const ST_ATR_METHODS = ["rma", "sma"] as const;
+export type StAtrMethod = (typeof ST_ATR_METHODS)[number];
+export const isStAtrMethod = (v: string): v is StAtrMethod =>
+  (ST_ATR_METHODS as readonly string[]).includes(v);
+
+/** The study's own inputs: ATR 10, multiplier 3, Wilder's ATR. */
+export const SUPERTREND_DEFAULTS = {
+  period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod,
 } as const;
 
 /** Defaults, matching the request these families were added for. */
@@ -133,6 +160,12 @@ export interface MaAlertRow {
   /** Length of the RSI-based MA crossed when `indicatorTarget` is "sma". */
   rsiMaLength: number | null;
 
+  // ── supertrend ──
+  stPeriod: number | null;
+  stMultiplier: number | null;
+  /** `StAtrMethod`; null for every other kind. */
+  stAtrMethod: string | null;
+
   // ── macd ──
   macdFast: number | null;
   macdSlow: number | null;
@@ -141,7 +174,7 @@ export interface MaAlertRow {
   /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`; null otherwise. */
   indicatorTarget: string | null;
 
-  // ── optional gates on sr_zone / pivot_level ──
+  // ── optional gates, available on every family ──
   /** Null when no RSI gate is configured. */
   filterRsiLength: number | null;
   filterRsiLevel: number | null;
@@ -150,6 +183,11 @@ export interface MaAlertRow {
   filterMaType: MaType | null;
   filterMaLength: number | null;
   filterMaSide: string | null;
+  /** Null when no Supertrend gate is configured. */
+  filterStPeriod: number | null;
+  filterStMultiplier: number | null;
+  filterStAtrMethod: string | null;
+  filterStSide: string | null;
   /** Band edges in percent; only read for the near_* modes. */
   nearMinPct: number;
   nearMaxPct: number;

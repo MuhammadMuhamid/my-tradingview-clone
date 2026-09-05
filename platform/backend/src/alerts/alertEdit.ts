@@ -41,25 +41,36 @@ import type { AlertColumns } from "./alertRequest";
  * `mode`, `timeframe`, `symbol`, `frequency`, `cooldownMin`, `note` and
  * `enabled` are common to every family and live in `COMMON_EDITABLE_FIELDS`.
  */
-const LEVEL_GATE_FIELDS = [
+/**
+ * The gate fields, editable on EVERY family.
+ *
+ * They used to be listed only on the two level kinds. Now that any alert may
+ * carry a gate, a family that omitted them here would accept the gate at
+ * creation and silently discard it on the next save — the edit path rebuilds
+ * the condition from `alertRequestFromRow` plus the fields it is allowed to
+ * merge, so an unlisted field is a field that quietly reverts.
+ */
+const GATE_FIELDS = [
   "filterRsi", "filterRsiLength", "filterRsiLevel", "filterRsiSide",
   "filterMa", "filterMaType", "filterMaLength", "filterMaSide",
+  "filterSt", "filterStPeriod", "filterStMultiplier", "filterStAtrMethod", "filterStSide",
 ] as const;
 
 export const EDITABLE_CONDITION_FIELDS: Record<ConditionKind, readonly string[]> = {
-  price: ["targetPrice", "priceDirection"],
-  ma: ["maType", "maLength", "mode", "nearMinPct", "nearMaxPct"],
-  ma_vs_ma: ["maType", "maLength", "ma2Type", "ma2Length", "mode"],
+  price: ["targetPrice", "priceDirection", ...GATE_FIELDS],
+  ma: ["maType", "maLength", "mode", "nearMinPct", "nearMaxPct", ...GATE_FIELDS],
+  ma_vs_ma: ["maType", "maLength", "ma2Type", "ma2Length", "mode", ...GATE_FIELDS],
   sr_zone: [
     "srSide", "mode", "nearMinPct", "nearMaxPct", "pivotLength", "invalidation",
-    ...LEVEL_GATE_FIELDS,
+    ...GATE_FIELDS,
   ],
   pivot_level: [
     "pivotType", "levelName", "anchor", "mode", "nearMinPct", "nearMaxPct",
-    ...LEVEL_GATE_FIELDS,
+    ...GATE_FIELDS,
   ],
-  rsi: ["rsiLength", "target", "rsiLevel", "rsiMaLength", "mode"],
-  macd: ["macdFast", "macdSlow", "macdSignal", "target", "mode"],
+  rsi: ["rsiLength", "target", "rsiLevel", "rsiMaLength", "mode", ...GATE_FIELDS],
+  macd: ["macdFast", "macdSlow", "macdSignal", "target", "mode", ...GATE_FIELDS],
+  supertrend: ["stPeriod", "stMultiplier", "stAtrMethod", "mode", ...GATE_FIELDS],
 };
 
 /** Editable on every family, and handled outside the condition round trip. */
@@ -98,6 +109,10 @@ const REFERENCE_COLUMNS: Record<ConditionKind, readonly (keyof AlertColumns)[]> 
   pivot_level: ["pivotType", "pivotLevelName", "pivotAnchor"],
   rsi: ["rsiLength", "rsiLevel", "rsiMaLength", "indicatorTarget"],
   macd: ["macdFast", "macdSlow", "macdSignal", "indicatorTarget"],
+  // Both inputs reshape the bands, and therefore which side of them price is
+  // on — a stored side from the old parameters describes a line that no longer
+  // exists and would manufacture a flip on the next bar.
+  supertrend: ["stPeriod", "stMultiplier", "stAtrMethod"],
 };
 
 /**
@@ -124,19 +139,29 @@ export function alertRequestFromRow(row: MaAlertRow): Record<string, unknown> {
     gates.filterMaLength = row.filterMaLength;
     gates.filterMaSide = row.filterMaSide;
   }
+  if (
+    row.filterStPeriod !== null && row.filterStMultiplier !== null &&
+    row.filterStAtrMethod !== null && row.filterStSide !== null
+  ) {
+    gates.filterSt = true;
+    gates.filterStPeriod = row.filterStPeriod;
+    gates.filterStMultiplier = row.filterStMultiplier;
+    gates.filterStAtrMethod = row.filterStAtrMethod;
+    gates.filterStSide = row.filterStSide;
+  }
 
   switch (row.conditionKind) {
     case "price":
-      return { targetPrice: row.targetPrice, priceDirection: row.priceDirection };
+      return { targetPrice: row.targetPrice, priceDirection: row.priceDirection, ...gates };
     case "ma":
       return {
         maType: row.maType, maLength: row.maLength, mode: row.mode,
-        nearMinPct: row.nearMinPct, nearMaxPct: row.nearMaxPct,
+        nearMinPct: row.nearMinPct, nearMaxPct: row.nearMaxPct, ...gates,
       };
     case "ma_vs_ma":
       return {
         maType: row.maType, maLength: row.maLength,
-        ma2Type: row.ma2Type, ma2Length: row.ma2Length, mode: row.mode,
+        ma2Type: row.ma2Type, ma2Length: row.ma2Length, mode: row.mode, ...gates,
       };
     case "sr_zone":
       return {
@@ -156,12 +181,17 @@ export function alertRequestFromRow(row: MaAlertRow): Record<string, unknown> {
     case "rsi":
       return {
         rsiLength: row.rsiLength, target: row.indicatorTarget,
-        rsiLevel: row.rsiLevel, rsiMaLength: row.rsiMaLength, mode: row.mode,
+        rsiLevel: row.rsiLevel, rsiMaLength: row.rsiMaLength, mode: row.mode, ...gates,
       };
     case "macd":
       return {
         macdFast: row.macdFast, macdSlow: row.macdSlow, macdSignal: row.macdSignal,
-        target: row.indicatorTarget, mode: row.mode,
+        target: row.indicatorTarget, mode: row.mode, ...gates,
+      };
+    case "supertrend":
+      return {
+        stPeriod: row.stPeriod, stMultiplier: row.stMultiplier,
+        stAtrMethod: row.stAtrMethod, mode: row.mode, ...gates,
       };
   }
 }
@@ -192,6 +222,9 @@ export function mergeConditionRequest(
   for (const [flag, keys] of [
     ["filterRsi", ["filterRsiLength", "filterRsiLevel", "filterRsiSide"]],
     ["filterMa", ["filterMaType", "filterMaLength", "filterMaSide"]],
+    ["filterSt", [
+      "filterStPeriod", "filterStMultiplier", "filterStAtrMethod", "filterStSide",
+    ]],
   ] as const) {
     if (body[flag] === false) {
       delete merged[flag];

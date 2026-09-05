@@ -25,7 +25,9 @@ import {
   acceptsIntrabarSample, decideFire, stateAfterFire,
   type AlertFrequency, type FireState, type SuppressionReason,
 } from "./alertFrequency";
-import type { MaType, SrSide, RsiTarget, MacdTarget } from "../types/maAlerts";
+import type {
+  MaType, SrSide, RsiTarget, MacdTarget, StAtrMethod,
+} from "../types/maAlerts";
 import type { PivotType } from "../engine/pivotLevels";
 
 /** Everything the decision needs about one armed alert. */
@@ -85,6 +87,15 @@ export interface FeedSample {
   macd?: (
     fast: number, slow: number, signal: number, target: MacdTarget
   ) => { value: number; reference: number } | undefined;
+  /**
+   * Supertrend at this bar: its direction (+1 / -1) and the band it is
+   * currently drawing. Both come from the runner, which holds the bar history
+   * the stateful bands are built from — they cannot be recomputed from a
+   * single sample.
+   */
+  supertrend?: (
+    period: number, multiplier: number, atrMethod: StAtrMethod
+  ) => { trend: number; line: number } | undefined;
 }
 
 export type SkipReason =
@@ -162,9 +173,19 @@ export function planAlert(spec: AlertSpec, sample: FeedSample, now: number): Ale
   };
 }
 
-/** Attach the MA values this condition compares against, if any. */
+/**
+ * Attach the values this condition compares against, plus its gate readings.
+ *
+ * The gate readings are attached for EVERY kind, in one place, for the same
+ * reason `evaluateCondition` applies the gates in one place: a family that
+ * forgot them would present as an alert whose filter is configured, displayed,
+ * and silently ignored.
+ */
 function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
-  const base: Sample = { high: sample.high, low: sample.low, close: sample.close };
+  const base: Sample = {
+    high: sample.high, low: sample.low, close: sample.close,
+    ...filterValues(condition.filters, sample),
+  };
   switch (condition.kind) {
     case "price":
       return base;
@@ -180,19 +201,13 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
       const zone = sample.srZone?.(
         condition.srSide, condition.pivotLength, condition.invalidation
       );
-      return {
-        ...base, refValue: zone?.price, refLabel: zone?.label,
-        ...filterValues(condition.filters, sample),
-      };
+      return { ...base, refValue: zone?.price, refLabel: zone?.label };
     }
     case "pivot_level": {
       const level = sample.pivotLevel?.(
         condition.pivotType, condition.anchor, condition.levelName
       );
-      return {
-        ...base, refValue: level?.price, refLabel: level?.label,
-        ...filterValues(condition.filters, sample),
-      };
+      return { ...base, refValue: level?.price, refLabel: level?.label };
     }
     case "rsi": {
       const r = sample.rsi?.(
@@ -207,6 +222,14 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
       );
       return { ...base, indicatorValue: m?.value, indicatorReference: m?.reference };
     }
+    case "supertrend": {
+      const st = sample.supertrend?.(
+        condition.period, condition.multiplier, condition.atrMethod
+      );
+      // The direction decides the event; the line is what the notification
+      // names, so it rides along as the reference price.
+      return { ...base, indicatorValue: st?.trend, refValue: st?.line };
+    }
   }
 }
 
@@ -219,9 +242,11 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
  */
 function filterValues(
   filters: AlertFilters | undefined, sample: FeedSample
-): { filterRsiValue?: number; filterMaValue?: number } {
+): { filterRsiValue?: number; filterMaValue?: number; filterSupertrendValue?: number } {
   if (!filters) return {};
-  const out: { filterRsiValue?: number; filterMaValue?: number } = {};
+  const out: {
+    filterRsiValue?: number; filterMaValue?: number; filterSupertrendValue?: number;
+  } = {};
   if (filters.rsi) {
     // The gate only needs the reading, so the target it is compared against
     // here is irrelevant — "level" keeps the resolver on its cheapest path.
@@ -231,6 +256,12 @@ function filterValues(
   }
   if (filters.ma) {
     out.filterMaValue = sample.series(filters.ma.type, filters.ma.length);
+  }
+  if (filters.supertrend) {
+    out.filterSupertrendValue = sample.supertrend?.(
+      filters.supertrend.period, filters.supertrend.multiplier,
+      filters.supertrend.atrMethod
+    )?.trend;
   }
   return out;
 }

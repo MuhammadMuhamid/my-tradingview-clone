@@ -41,6 +41,7 @@ longer conflates them.
 | `pivot_level` | one pivot level from a completed anchor period | `pivot_type`, `pivot_level_name`, `pivot_anchor`, `mode` |
 | `rsi` | RSI against a fixed level, or against its own SMA | `rsi_length`, `rsi_level`, `rsi_ma_length`, `indicator_target`, `mode` |
 | `macd` | the MACD line against its signal, or against zero | `macd_fast`, `macd_slow`, `macd_signal`, `indicator_target`, `mode` |
+| `supertrend` | the Supertrend changing direction | `st_period`, `st_multiplier`, `st_atr_method`, `mode` |
 
 A row that does not carry the columns its own kind needs is refused by the
 database (`ma_alerts_shape_ck`). An alert stored half-specified would be
@@ -77,25 +78,72 @@ or above `macd_slow` inverts the oscillator so every "crosses above" reports
 what the reader sees as a downturn. Both are refused by the request parser, by
 `validateCondition`, and by a database CHECK.
 
-### Trend gates on the level families
+### Supertrend flips, it does not cross
 
-`sr_zone` and `pivot_level` accept two optional preconditions — RSI(length)
-above/below a level, and the close above/below a moving average — stored in the
-`filter_*` columns and enforced for those two kinds only
-(`ma_alerts_filter_kind_ck`). "Approaching 1h support, but only while 1h RSI 50
-is above 50" is one alert rather than two to correlate by hand. Both gates are
+`supertrend` is a direct port of the v4 study (`engine/ta.ts`), and the port is
+deliberately literal. Its bands are **stateful**: `up` may only rise while the
+previous close is above it, and `dn` may only fall while the previous close is
+below it. Recomputing them from the current bar alone gives a line that wanders
+and several times the real flip count. The flip test also compares this bar's
+close against the **previous** bar's band; using the band being computed shifts
+every signal by one bar.
+
+The event is the **direction change**, not price touching the line. Those are
+never quite the same event: on the flip bar the line has already jumped to the
+other side of price, so a close-versus-line test reports the new side one bar
+early and then sees no cross when the flip actually happens. `evaluateSupertrend`
+therefore reads the indicator's own `trend` for the side, while still reporting
+the drawn line as the reference — that is the price a notification can name.
+
+`st_atr_method` records which average of true range is in use — `rma` (Wilder's,
+the study's default) or `sma`. It is stored as a name rather than the study's
+`changeATR` boolean because these are two different indicators, and a column
+called `change_atr` would not say which one an existing row uses.
+
+The multiplier is bounded 0 < m ≤ 100 by the parser, `validateCondition` and a
+CHECK. At or below zero the two bands collapse onto `hl2` or swap, so the trend
+flips on nearly every bar; far above, the band is wider than any move the market
+makes and it never flips at all. Both are alerts that look armed and are
+useless, in opposite directions.
+
+### Trend gates, on every family
+
+Any alert may carry optional preconditions, stored in the `filter_*` columns:
+RSI(length) above/below a level, the close above/below a moving average, or
+price above/below a Supertrend. "Approaching 1h support, but only while 1h RSI
+50 is above 50" is one alert rather than two to correlate by hand. Every gate is
 measured on the alert's **own** symbol and timeframe, on the same bar as the
-level test.
+trigger. There is deliberately no per-gate timeframe: allowing one would turn
+every alert into a multi-timeframe query.
 
-Three properties, all pinned by `platform/backend/tests/levelAlertFilters.test.ts`:
+> **Changed in `025`.** Gates were originally confined to `sr_zone` and
+> `pivot_level` by `ma_alerts_filter_kind_ck`. That restriction was an artefact
+> of the order the families were built in, not a rule — "MACD crosses up, but
+> only while price is above the Supertrend" is the same shape of request. The
+> constraint is dropped rather than widened: a list of the kinds that *may* have
+> a gate, when the answer is all of them, is a line that must be edited every
+> time a family is added and whose only possible failure is a false rejection.
+
+Two single points of application make that safe. `evaluateCondition` applies the
+gates once, around the family switch, and `withSeries` resolves their readings
+once for every kind. A per-family call is a line a new family can silently omit,
+which would present as a filter the UI shows, lets you set, and never applies.
+
+The Supertrend gate reads the indicator's `trend` rather than comparing the
+close to the drawn line. The two agree on every bar but the flip bar, and the
+trend is what the study itself acts on.
+
+Three properties, all pinned by `platform/backend/tests/levelAlertFilters.test.ts`
+and `platform/backend/tests/supertrendAlerts.test.ts`:
 
 - **A gate can only subtract.** It suppresses `triggered` and nothing else; it
   cannot turn an untriggered level event on.
 - **It does not touch cross state.** The side and distance are still recorded
   while a gate is shut. A gate that withheld the side would leave stale state
   that fires spuriously the moment the gate opens.
-- **It fails closed.** An RSI or EMA that has not warmed up blocks the alert.
-  "Only when the trend is up" must not fire because the trend is *unknown*.
+- **It fails closed.** An RSI, EMA or Supertrend that has not warmed up blocks
+  the alert. "Only when the trend is up" must not fire because the trend is
+  *unknown*.
 
 A gate is complete or absent — a length with no side is refused by
 `ma_alerts_filter_ck`, and a half-written row is read back as *no* gate rather
@@ -105,6 +153,25 @@ than guessed at.
 > when it evaluates to NULL, so `filter_rsi_length > 0 AND filter_rsi_level > 0`
 > with a NULL level is `TRUE AND NULL` = NULL — the constraint accepted exactly
 > the row it was written to reject until those tests were added.
+
+### Every alert can carry a note, and the notification shows it
+
+`note` is the user's own reason for arming the alert — "TP1 for the March long",
+"stop loss", "watching for the retest". It is offered by every dialog and
+appended to the notification body.
+
+**Appended, not substituted.** The note says *why* you cared; the generated
+sentence says what the market actually did. A phone showing only the note would
+tell you that an alert you wrote three weeks ago fired, without saying at what
+price or on which line. It goes **last** because notification bodies truncate
+from the end on both iOS and Android, so the market fact — the part that cannot
+be reconstructed from memory — survives the truncation.
+
+Bounded at 280 characters by the route, by `ma_alerts_note_len_ck`, and by the
+textarea. That is a limit about what a phone can render in roughly two lines,
+not about storage; an unbounded note would push the price off the end of the
+notification or exceed the 4 KB Web Push payload. A blank or whitespace-only
+note is stored as NULL, so the formatter never appends a bare separator.
 
 ### Crosses need a previous side
 
@@ -248,7 +315,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–017
+## 8. Migrations 010–025
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -261,7 +328,10 @@ migration 007 used: two alerts that coexisted before still coexist.
 
 The same discipline holds for the later migrations. `013`–`014` added the level
 families, `015` and `016` widened the kind CHECK for them and for the
-oscillators, and `017` added the trend gates. Each new kind's completeness rule
+oscillators, `017` added the trend gates, and `025` added the `supertrend`
+family, the Supertrend gate and the note length bound — while dropping `017`'s
+`ma_alerts_filter_kind_ck`, which had confined gates to the two level families.
+Each new kind's completeness rule
 lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
 **effective** vocabulary — the last definition across the whole set — against
 `CONDITION_KINDS`, so columns can never be added without widening the CHECK
@@ -313,7 +383,19 @@ Test/Off and no way to reach Enable.
 
 - **Live Binance websocket behaviour.** The intrabar path is exercised through
   its pure planner, not against a live stream.
-- **A firing `sr_zone`, `pivot_level`, `rsi`, `macd` or gated alert.** Every
+- **Migration `025` has not been run against a real PostgreSQL.** Its SQL is
+  parsed by `alertMigration.test.ts` and its constraints were written from
+  `017`'s findings — the `IS NOT NULL` tests are present on the new gate — but
+  parsing is not executing, and §8 records that the last two defects in this
+  area were found only by running the SQL.
+- **The new dialogs have not been rendered in a browser.** The Supertrend
+  dialog, the Supertrend gate and the note field on every dialog are covered by
+  type checks, unit tests and a build, but Docker was not running locally when
+  they were written, so there was no database and no backend to drive them
+  against. The §9 note below is exactly why that matters: the last defect in
+  this area was invisible to every unit test and appeared immediately in a
+  browser.
+- **A firing `sr_zone`, `pivot_level`, `rsi`, `macd`, `supertrend` or gated alert.** Every
   one of these has been armed end to end — HTTP, database, UI — and their
   evaluators are unit-tested, but no live market event has driven one to
   delivery. That is the honest gap: arming is proven, firing is not.

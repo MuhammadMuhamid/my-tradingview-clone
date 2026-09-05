@@ -31,13 +31,13 @@ import type { Candle, Interval } from "../types/market";
 import { INTERVAL_MS, isInterval } from "../types/market";
 import { PIVOT_LEVEL_ANY } from "../types/maAlerts";
 import type {
-  MaAlertRow, MaType, SrSide, RsiTarget, MacdTarget,
+  MaAlertRow, MaType, SrSide, RsiTarget, MacdTarget, StAtrMethod,
 } from "../types/maAlerts";
 import * as maAlertRepo from "../repositories/maAlerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
-import { sma, ema, rsi, macd } from "./ta";
+import { sma, ema, rsi, macd, supertrend } from "./ta";
 import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
 import {
   levelByName, nearestLevel, pivotLevels, type PivotType, type Period,
@@ -342,6 +342,10 @@ export class MaAlertRunner {
     if (relevant.length === 0) return;
 
     const closes = bars.map((b) => b.close);
+    // Supertrend needs the full range, not just closes: its bands are built
+    // from true range, which is a high/low/close quantity.
+    const highs = bars.map((b) => b.high);
+    const lows = bars.map((b) => b.low);
 
     // One series per distinct (type, length) across this feed's alerts — the
     // 15 SMA shared by a touch alert and a near alert is computed once.
@@ -452,6 +456,30 @@ export class MaAlertRunner {
       return { value, reference };
     };
 
+    /**
+     * Supertrend, cached per parameter set.
+     *
+     * Recomputed from the whole bar history rather than incrementally: the
+     * bands are stateful, so their value at the last bar depends on the entire
+     * chain before it and cannot be derived from the previous cached result
+     * plus one new candle.
+     */
+    const stCache = new Map<string, ReturnType<typeof supertrend>>();
+    const stFor = (
+      period: number, multiplier: number, atrMethod: StAtrMethod
+    ): { trend: number; line: number } | undefined => {
+      const key = `${period}|${multiplier}|${atrMethod}`;
+      let st = stCache.get(key);
+      if (!st) {
+        st = supertrend(highs, lows, closes, period, multiplier, atrMethod === "rma");
+        stCache.set(key, st);
+      }
+      const trend = st.trend[st.trend.length - 1];
+      const line = st.line[st.line.length - 1];
+      if (trend === undefined || !Number.isFinite(trend)) return undefined;
+      return { trend, line: line ?? NaN };
+    };
+
     const sample: FeedSample = {
       symbol, timeframe: interval,
       barTime: sampleBar.openTime,
@@ -464,6 +492,7 @@ export class MaAlertRunner {
       pivotLevel: pivotFor,
       rsi: rsiFor,
       macd: macdFor,
+      supertrend: stFor,
     };
     const now = replayNow ?? this.dependencies.now();
 

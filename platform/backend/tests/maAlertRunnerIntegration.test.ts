@@ -57,8 +57,11 @@ function row(id: string, over: Partial<MaAlertRow>): MaAlertRow {
     pivotType: null, pivotLevelName: null, pivotAnchor: null,
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
     macdFast: null, macdSlow: null, macdSignal: null, indicatorTarget: null,
+    stPeriod: null, stMultiplier: null, stAtrMethod: null,
     filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
     filterMaType: null, filterMaLength: null, filterMaSide: null,
+    filterStPeriod: null, filterStMultiplier: null,
+    filterStAtrMethod: null, filterStSide: null,
     nearMinPct: 0.2, nearMaxPct: 0.5,
     enabled: true, frequency: "once_per_bar_close", cooldownMin: 0, note: null,
     lastSide: "below", lastFiredAt: null, lastFiredBarTime: null,
@@ -112,10 +115,10 @@ function localRunner(initialRows: MaAlertRow[], transport?: (message: PushMessag
   };
 }
 
-test("all seven families run bar → condition → cadence → event → payload → fake push", async () => {
+test("all eight families run bar → condition → cadence → event → payload → fake push", async () => {
   const frequencies: AlertFrequency[] = [
     "once_only", "once_per_bar", "once_per_bar_close", "once_per_minute",
-    "once_per_bar_close", "once_per_bar", "once_per_bar_close",
+    "once_per_bar_close", "once_per_bar", "once_per_bar_close", "once_per_bar_close",
   ];
   const alerts = [
     row("price", { frequency: frequencies[0] }),
@@ -148,6 +151,13 @@ test("all seven families run bar → condition → cadence → event → payload
       indicatorTarget: "zero", mode: "cross_up", targetPrice: null,
       priceDirection: null, frequency: frequencies[6],
     }),
+    // The rising tail leaves the Supertrend in its uptrend, so a row whose
+    // stored side is still "below" detects the flip on this bar.
+    row("supertrend", {
+      conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3,
+      stAtrMethod: "rma", mode: "cross_up", targetPrice: null,
+      priceDirection: null, frequency: frequencies[7],
+    }),
   ];
   const fake = localRunner(alerts, async (message) =>
     message.title.includes("MACD")
@@ -163,11 +173,11 @@ test("all seven families run bar → condition → cadence → event → payload
     anchorPeriods: { "1d": { open: 90, high: 110, low: 80, close: 100 } },
   });
 
-  assert.equal(fake.pushes.length, 7, "every family must reach the fake transport");
-  assert.equal(fake.events.length, 7, "every delivery attempt must create an event");
-  assert.equal(fake.evaluations.length, 7, "every family must persist its transition");
+  assert.equal(fake.pushes.length, 8, "every family must reach the fake transport");
+  assert.equal(fake.events.length, 8, "every delivery attempt must create an event");
+  assert.equal(fake.evaluations.length, 8, "every family must persist its transition");
   assert.deepEqual(new Set(fake.events.map((event) => event.alertId)),
-    new Set(["price", "ma", "ma-vs-ma", "sr", "pivot", "rsi", "macd"]));
+    new Set(["price", "ma", "ma-vs-ma", "sr", "pivot", "rsi", "macd", "supertrend"]));
   assert.ok(fake.pushes.every((message) => message.tag?.startsWith("ma-")));
   assert.ok(fake.pushes.every((message) => message.url === "/chart?symbol=BTCUSDT&interval=1m"));
   for (const alert of alerts) {

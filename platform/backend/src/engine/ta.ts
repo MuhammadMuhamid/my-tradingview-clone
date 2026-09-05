@@ -437,3 +437,90 @@ export function hlc3(high: number[], low: number[], close: number[]): number[] {
 export function ohlc4(open: number[], high: number[], low: number[], close: number[]): number[] {
   return open.map((o, i) => (o + high[i]! + low[i]! + close[i]!) / 4);
 }
+
+/**
+ * Supertrend — an ATR band that ratchets one way until price closes through it.
+ *
+ * A direct port of the v4 study this platform's users already read on their
+ * charts, and the port is deliberately literal rather than tidied:
+ *
+ *  - The bands are STATEFUL. `up` may only rise while the previous close was
+ *    above it, and `dn` may only fall while the previous close was below it.
+ *    Recomputing them from the current bar alone gives a line that wanders back
+ *    and forth and a flip count several times the real one.
+ *  - The flip test compares this bar's close against the PREVIOUS bar's band
+ *    (`up1`/`dn1`), not against the band it is currently computing. Using the
+ *    current one makes the condition partly self-referential and shifts every
+ *    signal by a bar.
+ *  - `changeAtr` picks which average of true range is used: Wilder's RMA (the
+ *    study's default, matching `ta.atr`) or a simple mean. They are different
+ *    indicators, not a rounding difference — the SMA branch also inherits the
+ *    study's `tr` rather than `tr(true)`, so its first bar is NaN.
+ *
+ * `trend` is +1 in an uptrend and -1 in a downtrend; `line` is whichever band
+ * is currently drawn, which is the price a notification should name.
+ */
+export interface Supertrend {
+  /** +1 uptrend, -1 downtrend. NaN while the ATR has not warmed up. */
+  trend: number[];
+  /** The band being drawn at this bar: `up` in an uptrend, `dn` in a downtrend. */
+  line: number[];
+  up: number[];
+  dn: number[];
+}
+
+export function supertrend(
+  high: number[],
+  low: number[],
+  close: number[],
+  period: number,
+  multiplier: number,
+  changeAtr = true
+): Supertrend {
+  const n = close.length;
+  const atrSeries = changeAtr
+    ? atr(high, low, close, period)
+    : sma(trueRange(high, low, close), period);
+  const src = hl2(high, low);
+
+  const up = new Array<number>(n).fill(NaN);
+  const dn = new Array<number>(n).fill(NaN);
+  const trend = new Array<number>(n).fill(NaN);
+  const line = new Array<number>(n).fill(NaN);
+
+  let prevUp = NaN;
+  let prevDn = NaN;
+  // The study seeds `trend` at 1 and carries it with nz(), so the first bars
+  // with a usable ATR continue from an uptrend rather than from "unknown".
+  let prevTrend = 1;
+
+  for (let i = 0; i < n; i++) {
+    const a = atrSeries[i]!;
+    // No ATR yet: leave the bar NaN. The alert layer treats a NaN trend as
+    // "not resolved" and neither fires nor rewrites its stored side.
+    if (!Number.isFinite(a)) continue;
+
+    let u = src[i]! - multiplier * a;
+    let d = src[i]! + multiplier * a;
+    const up1 = Number.isFinite(prevUp) ? prevUp : u;
+    const dn1 = Number.isFinite(prevDn) ? prevDn : d;
+    const prevClose = i > 0 ? close[i - 1]! : NaN;
+
+    if (Number.isFinite(prevClose) && prevClose > up1) u = Math.max(u, up1);
+    if (Number.isFinite(prevClose) && prevClose < dn1) d = Math.min(d, dn1);
+
+    let t = prevTrend;
+    if (t === -1 && close[i]! > dn1) t = 1;
+    else if (t === 1 && close[i]! < up1) t = -1;
+
+    up[i] = u;
+    dn[i] = d;
+    trend[i] = t;
+    line[i] = t === 1 ? u : d;
+    prevUp = u;
+    prevDn = d;
+    prevTrend = t;
+  }
+
+  return { trend, line, up, dn };
+}

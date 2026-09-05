@@ -16,6 +16,9 @@ const base: MaAlert = {
   macdFast: null, macdSlow: null, macdSignal: null, indicatorTarget: null,
   filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
   filterMaType: null, filterMaLength: null, filterMaSide: null,
+  filterStPeriod: null, filterStMultiplier: null,
+  filterStAtrMethod: null, filterStSide: null,
+  stPeriod: null, stMultiplier: null, stAtrMethod: null,
   nearMinPct: 0.2, nearMaxPct: 0.5, enabled: true,
   frequency: "once_per_bar_close", cooldownMin: 0, note: null,
   lastSide: null, lastFiredAt: null, lastFiredBarTime: null,
@@ -36,6 +39,10 @@ const fixtures = [
   alert("pivot", { conditionKind: "pivot_level", pivotLevelName: "P", mode: "touch" }),
   alert("rsi", { conditionKind: "rsi", rsiLength: 14, mode: "cross_up" }),
   alert("macd", { conditionKind: "macd", macdFast: 12, macdSlow: 26, mode: "cross_up" }),
+  alert("supertrend", {
+    conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3,
+    stAtrMethod: "rma", mode: "cross_up",
+  }),
 ];
 
 test("symbol search is case-insensitive for exact and partial coin names", () => {
@@ -64,7 +71,7 @@ test("every family mapping and reliable EMA/SMA subtype mapping is covered", () 
     all: fixtures.map((item) => item.id),
     price: ["price"], ma: ["ema", "sma"], ma_ema: ["ema"], ma_sma: ["sma"],
     ma_vs_ma: ["cross"], sr_zone: ["sr"], pivot_level: ["pivot"],
-    rsi: ["rsi"], macd: ["macd"],
+    rsi: ["rsi"], macd: ["macd"], supertrend: ["supertrend"],
   };
   assert.deepEqual(ALERT_TYPE_FILTERS.map((option) => option.value), Object.keys(expected));
   for (const [type, ids] of Object.entries(expected)) {

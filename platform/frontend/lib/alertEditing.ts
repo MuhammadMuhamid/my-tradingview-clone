@@ -17,7 +17,9 @@
  */
 import {
   DEFAULT_ALERT_FREQUENCY, FILTER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
+  SUPERTREND_DEFAULTS,
   type AlertFrequency, type ConditionKind, type FilterSide, type MaAlert,
+  type StAtrMethod,
   type MaAlertMode, type MaAlertUpdate, type MacdTarget, type MaType,
   type PivotType, type PriceDirection, type RsiTarget, type SrSide,
 } from "@/lib/api";
@@ -58,6 +60,7 @@ export const ALERT_FAMILY_LABELS: Record<ConditionKind, string> = {
   pivot_level: "Pivot level",
   rsi: "RSI",
   macd: "MACD",
+  supertrend: "Supertrend",
 };
 
 /** The modes each family can actually be evaluated with. */
@@ -70,12 +73,24 @@ export const MODE_LABELS: Record<MaAlertMode, string> = {
 };
 
 /**
+ * What the condition dropdown calls a mode, for this family.
+ *
+ * Supertrend needs its own words: it does not cross anything, it changes
+ * direction, and offering "crosses above" would describe an event this alert
+ * does not watch. Everything else keeps the shared labels.
+ */
+export function modeLabel(kind: ConditionKind, mode: MaAlertMode): string {
+  if (kind !== "supertrend") return MODE_LABELS[mode];
+  return mode === "cross_down" ? "Flips down (Sell)" : "Flips up (Buy)";
+}
+
+/**
  * `rsi`, `macd` and `ma_vs_ma` are crosses of one series against another, and
- * the evaluator offers no touch or band for them — showing those would be a
- * control that cannot do anything.
+ * `supertrend` is a direction change; the evaluator offers no touch or band for
+ * any of them — showing those would be a control that cannot do anything.
  */
 export const modesFor = (kind: ConditionKind): MaAlertMode[] =>
-  kind === "rsi" || kind === "macd" || kind === "ma_vs_ma"
+  kind === "rsi" || kind === "macd" || kind === "ma_vs_ma" || kind === "supertrend"
     ? ["cross_up", "cross_down"]
     : ["near_above", "near_below", "touch", "cross_up", "cross_down"];
 
@@ -84,9 +99,14 @@ export const usesBand = (kind: ConditionKind, mode: MaAlertMode): boolean =>
   (kind === "ma" || kind === "sr_zone" || kind === "pivot_level") &&
   (mode === "near_above" || mode === "near_below");
 
-/** Whether this family supports the optional trend gates. */
-export const usesGates = (kind: ConditionKind): boolean =>
-  kind === "sr_zone" || kind === "pivot_level";
+/**
+ * Whether this family supports the optional trend gates.
+ *
+ * All of them do. Kept as a function rather than deleted: the callers read
+ * better for it, and if a family ever genuinely could not be gated this is the
+ * one place that would say so.
+ */
+export const usesGates = (_kind: ConditionKind): boolean => true;
 
 export interface AlertEditForm {
   symbol: string;
@@ -119,6 +139,9 @@ export interface AlertEditForm {
   macdSlow: number;
   macdSignal: number;
   macdTarget: MacdTarget;
+  stPeriod: number;
+  stMultiplier: number;
+  stAtrMethod: StAtrMethod;
   filterRsi: boolean;
   filterRsiLength: number;
   filterRsiLevel: number;
@@ -127,6 +150,11 @@ export interface AlertEditForm {
   filterMaType: MaType;
   filterMaLength: number;
   filterMaSide: FilterSide;
+  filterSt: boolean;
+  filterStPeriod: number;
+  filterStMultiplier: number;
+  filterStAtrMethod: StAtrMethod;
+  filterStSide: FilterSide;
 }
 
 /** Default swing length for support/resistance; mirrors DEFAULT_SR_OPTIONS. */
@@ -171,6 +199,9 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     macdSlow: alert.macdSlow ?? MACD_DEFAULTS.slow,
     macdSignal: alert.macdSignal ?? MACD_DEFAULTS.signal,
     macdTarget: alert.indicatorTarget === "zero" ? "zero" : "signal",
+    stPeriod: alert.stPeriod ?? SUPERTREND_DEFAULTS.period,
+    stMultiplier: alert.stMultiplier ?? SUPERTREND_DEFAULTS.multiplier,
+    stAtrMethod: (alert.stAtrMethod as StAtrMethod | null) ?? SUPERTREND_DEFAULTS.atrMethod,
     filterRsi: alert.filterRsiLength !== null && alert.filterRsiSide !== null,
     filterRsiLength: alert.filterRsiLength ?? FILTER_DEFAULTS.rsi.length,
     filterRsiLevel: alert.filterRsiLevel ?? FILTER_DEFAULTS.rsi.level,
@@ -179,6 +210,12 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     filterMaType: alert.filterMaType ?? FILTER_DEFAULTS.ma.type,
     filterMaLength: alert.filterMaLength ?? FILTER_DEFAULTS.ma.length,
     filterMaSide: (alert.filterMaSide as FilterSide | null) ?? FILTER_DEFAULTS.ma.side,
+    filterSt: alert.filterStPeriod !== null && alert.filterStSide !== null,
+    filterStPeriod: alert.filterStPeriod ?? FILTER_DEFAULTS.supertrend.period,
+    filterStMultiplier: alert.filterStMultiplier ?? FILTER_DEFAULTS.supertrend.multiplier,
+    filterStAtrMethod:
+      (alert.filterStAtrMethod as StAtrMethod | null) ?? FILTER_DEFAULTS.supertrend.atrMethod,
+    filterStSide: (alert.filterStSide as FilterSide | null) ?? FILTER_DEFAULTS.supertrend.side,
   };
 }
 
@@ -240,6 +277,12 @@ export function validateAlertForm(
       return "Fast length must be below slow length, or the oscillator's sign inverts.";
     }
   }
+  if (kind === "supertrend") {
+    if (!isLength(form.stPeriod)) {
+      return "The ATR period must be a whole number from 1 to 1000.";
+    }
+    if (!isMultiplier(form.stMultiplier)) return MULTIPLIER_MESSAGE;
+  }
   if (usesGates(kind)) {
     if (form.filterRsi) {
       if (!isLength(form.filterRsiLength)) return "The RSI filter length must be from 1 to 1000.";
@@ -250,11 +293,29 @@ export function validateAlertForm(
     if (form.filterMa && !isLength(form.filterMaLength)) {
       return "The moving-average filter length must be from 1 to 1000.";
     }
+    if (form.filterSt) {
+      if (!isLength(form.filterStPeriod)) {
+        return "The Supertrend filter ATR period must be from 1 to 1000.";
+      }
+      if (!isMultiplier(form.filterStMultiplier)) return MULTIPLIER_MESSAGE;
+    }
   }
   return null;
 }
 
 const isLength = (v: number): boolean => Number.isInteger(v) && v >= 1 && v <= 1000;
+
+/**
+ * A Supertrend multiplier that can actually produce a flip.
+ *
+ * At or below zero the bands collapse onto the midpoint or swap, so the trend
+ * flips on nearly every bar; far above, the band is wider than any move the
+ * market makes and it never flips at all. Both are alerts that look armed and
+ * are useless, in opposite directions.
+ */
+const isMultiplier = (v: number): boolean => Number.isFinite(v) && v > 0 && v <= 100;
+const MULTIPLIER_MESSAGE =
+  "The ATR multiplier must be greater than 0 and at most 100.";
 
 /**
  * The PATCH body for this edit: the keys whose value differs from the alert as
@@ -284,6 +345,11 @@ export function alertEditRequest(
   const note = form.note.trim() === "" ? null : form.note;
   if (note !== (alert.note === "" ? null : alert.note)) body.note = note;
 
+  // Gates are editable on every family, so they are handled once outside the
+  // switch. A per-family call is a line a new family can silently omit — which
+  // presents as a gate the editor shows, lets you change, and never saves.
+  setGates(body, form, alert);
+
   switch (alert.conditionKind) {
     case "price":
       set("targetPrice", Number(form.targetPrice), alert.targetPrice);
@@ -308,7 +374,6 @@ export function alertEditRequest(
       set("invalidation", form.invalidation, alert.srInvalidation);
       set("mode", form.mode, alert.mode);
       setBand(body, form, alert);
-      setGates(body, form, alert);
       break;
     case "pivot_level":
       set("pivotType", form.pivotType, alert.pivotType);
@@ -316,7 +381,6 @@ export function alertEditRequest(
       set("anchor", form.anchor, alert.pivotAnchor);
       set("mode", form.mode, alert.mode);
       setBand(body, form, alert);
-      setGates(body, form, alert);
       break;
     case "rsi":
       set("rsiLength", form.rsiLength, alert.rsiLength);
@@ -330,6 +394,12 @@ export function alertEditRequest(
       set("macdSlow", form.macdSlow, alert.macdSlow);
       set("macdSignal", form.macdSignal, alert.macdSignal);
       set("target", form.macdTarget, alert.indicatorTarget);
+      set("mode", form.mode, alert.mode);
+      break;
+    case "supertrend":
+      set("stPeriod", form.stPeriod, alert.stPeriod);
+      set("stMultiplier", form.stMultiplier, alert.stMultiplier);
+      set("stAtrMethod", form.stAtrMethod, alert.stAtrMethod);
       set("mode", form.mode, alert.mode);
       break;
   }
@@ -375,6 +445,23 @@ function setGates(body: MaAlertUpdate, form: AlertEditForm, alert: MaAlert): voi
     body.filterMaType = form.filterMaType;
     body.filterMaLength = form.filterMaLength;
     body.filterMaSide = form.filterMaSide;
+  }
+
+  const hadSt = alert.filterStPeriod !== null && alert.filterStSide !== null;
+  if (!form.filterSt) {
+    if (hadSt) body.filterSt = false;
+  } else if (
+    !hadSt ||
+    form.filterStPeriod !== alert.filterStPeriod ||
+    form.filterStMultiplier !== alert.filterStMultiplier ||
+    form.filterStAtrMethod !== alert.filterStAtrMethod ||
+    form.filterStSide !== alert.filterStSide
+  ) {
+    body.filterSt = true;
+    body.filterStPeriod = form.filterStPeriod;
+    body.filterStMultiplier = form.filterStMultiplier;
+    body.filterStAtrMethod = form.filterStAtrMethod;
+    body.filterStSide = form.filterStSide;
   }
 }
 

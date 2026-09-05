@@ -35,6 +35,7 @@ export const ALERT_TYPE_FILTERS: ReadonlyArray<{
   { value: "pivot_level", label: "Pivot levels", scopeLabel: "Pivot alerts" },
   { value: "rsi", label: "RSI", scopeLabel: "RSI alerts" },
   { value: "macd", label: "MACD", scopeLabel: "MACD alerts" },
+  { value: "supertrend", label: "Supertrend", scopeLabel: "Supertrend alerts" },
 ];
 
 function matchesType(alert: MaAlert, type: AlertTypeFilter): boolean {

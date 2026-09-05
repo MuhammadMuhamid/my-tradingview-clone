@@ -10,7 +10,7 @@
  * is testable without a push service.
  */
 import {
-  describeCondition, macdLabel, rsiLabel, type AlertCondition,
+  describeCondition, macdLabel, rsiLabel, stLabel, type AlertCondition,
 } from "./alertConditions";
 import { formatAlertPrice, formatMaAlertPush } from "./maEvaluator";
 import { INTRABAR_WARNING, isIntrabar, type AlertFrequency } from "./alertFrequency";
@@ -33,6 +33,8 @@ export function formatAlertPush(
     id: string; symbol: string; timeframe: string;
     frequency: AlertFrequency;
     nearMinPct: number; nearMaxPct: number;
+    /** The user's own reason for arming this alert, if they gave one. */
+    note?: string | null;
   },
   condition: AlertCondition,
   bar: { close: number },
@@ -45,7 +47,26 @@ export function formatAlertPush(
   const base = buildBase(alert, condition, bar, reference, distancePct, label);
   // Only when this particular notification came from an unfinished candle. The
   // marker is short because the body competes for a phone's two visible lines.
-  return intrabar ? { ...base, body: `${base.body} · bar still forming` } : base;
+  const withBar = intrabar ? { ...base, body: `${base.body} · bar still forming` } : base;
+  return withNote(withBar, alert.note);
+}
+
+/**
+ * The user's own note, appended to the body.
+ *
+ * Appended rather than substituted: the note says WHY the alert was armed ("TP
+ * 1 for the March long"), and the generated sentence says what the market
+ * actually did. A phone showing only the note would tell you an alert you wrote
+ * three weeks ago fired, without saying at what price or on which line.
+ *
+ * It goes last because a notification body is truncated from the end on both
+ * iOS and Android, so the market fact — the part that cannot be reconstructed
+ * from memory — survives the truncation.
+ */
+function withNote(message: PushMessage, note: string | null | undefined): PushMessage {
+  const trimmed = note?.trim();
+  if (!trimmed) return message;
+  return { ...message, body: `${message.body} — ${trimmed}` };
 }
 
 function buildBase(
@@ -137,6 +158,25 @@ function buildBase(
           `${describeCondition(condition)} ` +
           `(${what} ${formatIndicator(reference + distancePct)} vs ` +
           `${formatIndicator(reference)})`,
+        tag, url,
+      };
+    }
+
+    case "supertrend": {
+      /*
+       * Named as a direction change with the line's price, because that is what
+       * the indicator asserts. A percentage distance from the line is included
+       * for the same reason the level families carry one — it says how far the
+       * flip already ran before this notification reached the phone.
+       */
+      const what = stLabel(condition);
+      const direction = condition.mode === "cross_up" ? "flipped up" : "flipped down";
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — ${what}`,
+        body:
+          `${what} ${direction} at ${formatAlertPrice(bar.close)} ` +
+          `(line ${formatAlertPrice(reference)}, ` +
+          `price ${formatDistance(distancePct)})`,
         tag, url,
       };
     }

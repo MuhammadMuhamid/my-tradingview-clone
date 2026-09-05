@@ -12,6 +12,7 @@ import {
   type ConditionKind, type MaAlertMode, type MaType, type PriceDirection,
   SR_SIDES, PIVOT_LEVEL_ANY, isSrSide, type SrSide,
   RSI_TARGETS, MACD_TARGETS, RSI_DEFAULTS, MACD_DEFAULTS,
+  ST_ATR_METHODS, SUPERTREND_DEFAULTS, isStAtrMethod, type StAtrMethod,
   isRsiTarget, isMacdTarget,
   FILTER_DEFAULTS, isFilterSide,
 } from "../types/maAlerts";
@@ -61,8 +62,33 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
     filters.ma = { type, length, side };
   }
 
+  if (b.filterSt === true || b.filterStPeriod !== undefined) {
+    const period = Number(b.filterStPeriod ?? FILTER_DEFAULTS.supertrend.period);
+    const multiplier = Number(b.filterStMultiplier ?? FILTER_DEFAULTS.supertrend.multiplier);
+    const atrMethod = String(b.filterStAtrMethod ?? FILTER_DEFAULTS.supertrend.atrMethod);
+    const side = String(b.filterStSide ?? FILTER_DEFAULTS.supertrend.side);
+    if (!isLength(period)) return bad("filterStPeriod must be an integer 1..1000");
+    if (!isMultiplier(multiplier)) return bad(MULTIPLIER_MESSAGE);
+    if (!isStAtrMethod(atrMethod)) {
+      return bad(`filterStAtrMethod must be one of ${ST_ATR_METHODS.join(", ")}`);
+    }
+    if (!isFilterSide(side)) return bad("filterStSide must be above or below");
+    filters.supertrend = { period, multiplier, atrMethod, side };
+  }
+
   return Object.keys(filters).length > 0 ? { filters } : {};
 }
+
+/**
+ * A Supertrend ATR multiplier that produces a usable band.
+ *
+ * Zero or negative collapses the two bands onto hl2 or swaps them, so the
+ * trend would flip on nearly every bar. The upper bound is the other failure:
+ * a band 100 ATRs wide never flips at all, which is an alert that looks armed
+ * and is silently dead.
+ */
+const isMultiplier = (v: number): boolean => Number.isFinite(v) && v > 0 && v <= 100;
+const MULTIPLIER_MESSAGE = "stMultiplier must be a number greater than 0 and at most 100";
 
 /** Shared 400 shape, so every rejection reads the same way in the UI. */
 export type Rejection = { error: string };
@@ -83,6 +109,11 @@ export function readCondition(
   const nearMinPct = b.nearMinPct === undefined ? 0.2 : Number(b.nearMinPct);
   const nearMaxPct = b.nearMaxPct === undefined ? 0.5 : Number(b.nearMaxPct);
 
+  // Gates are offered on every family, so they are read once here rather than
+  // per-kind — a family added below cannot forget to accept them.
+  const gates = readFilters(b);
+  if ("error" in gates) return gates;
+
   if (kind === "price") {
     const targetPrice = Number(b.targetPrice);
     const direction = String(b.priceDirection ?? "either");
@@ -90,7 +121,30 @@ export function readCondition(
     if (!isPriceDirection(direction)) {
       return bad(`priceDirection must be one of ${PRICE_DIRECTIONS.join(", ")}`);
     }
-    return { condition: { kind: "price", targetPrice, direction } };
+    return { condition: { kind: "price", targetPrice, direction, ...gates } };
+  }
+
+  if (kind === "supertrend") {
+    const period = Number(b.stPeriod ?? SUPERTREND_DEFAULTS.period);
+    const multiplier = Number(b.stMultiplier ?? SUPERTREND_DEFAULTS.multiplier);
+    const atrMethod = String(b.stAtrMethod ?? SUPERTREND_DEFAULTS.atrMethod);
+    const stMode = String(b.mode ?? "cross_up");
+    if (!isLength(period)) return bad("stPeriod must be an integer 1..1000");
+    if (!isMultiplier(multiplier)) return bad(MULTIPLIER_MESSAGE);
+    if (!isStAtrMethod(atrMethod)) {
+      return bad(`stAtrMethod must be one of ${ST_ATR_METHODS.join(", ")}`);
+    }
+    // The event is a direction change, which has exactly two directions. A
+    // touch or a near-band mode would describe something this family does not
+    // watch.
+    if (stMode !== "cross_up" && stMode !== "cross_down") {
+      return bad("mode must be cross_up or cross_down for a Supertrend alert");
+    }
+    return {
+      condition: {
+        kind: "supertrend", period, multiplier, atrMethod, mode: stMode, ...gates,
+      },
+    };
   }
 
   if (kind === "sr_zone") {
@@ -101,12 +155,10 @@ export function readCondition(
     const pivotLength = b.pivotLength === undefined
       ? DEFAULT_SR_OPTIONS.pivotLength : Number(b.pivotLength);
     const invalidation = String(b.invalidation ?? "close") === "wick" ? "wick" : "close";
-    const f = readFilters(b);
-    if ("error" in f) return f;
     return {
       condition: {
         kind: "sr_zone", srSide, mode: srMode, nearMinPct, nearMaxPct,
-        pivotLength, invalidation, ...f,
+        pivotLength, invalidation, ...gates,
       },
     };
   }
@@ -118,12 +170,10 @@ export function readCondition(
     const pMode = String(b.mode ?? "near_above");
     if (!isPivotType(pivotType)) return bad(`pivotType must be one of ${PIVOT_TYPES.join(", ")}`);
     if (!isMaAlertMode(pMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
-    const pf = readFilters(b);
-    if ("error" in pf) return pf;
     return {
       condition: {
         kind: "pivot_level", pivotType, levelName, anchor,
-        mode: pMode, nearMinPct, nearMaxPct, ...pf,
+        mode: pMode, nearMinPct, nearMaxPct, ...gates,
       },
     };
   }
@@ -153,6 +203,7 @@ export function readCondition(
     return {
       condition: {
         kind: "rsi", rsiLength, target, level, maLength: rsiMaLength, mode: rMode,
+        ...gates,
       },
     };
   }
@@ -178,7 +229,10 @@ export function readCondition(
       return bad("mode must be cross_up or cross_down for a MACD alert");
     }
     return {
-      condition: { kind: "macd", fastLength, slowLength, signalLength, target, mode: mMode },
+      condition: {
+        kind: "macd", fastLength, slowLength, signalLength, target, mode: mMode,
+        ...gates,
+      },
     };
   }
 
@@ -190,7 +244,9 @@ export function readCondition(
 
   if (kind === "ma") {
     if (!isMaAlertMode(mode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
-    return { condition: { kind: "ma", maType, maLength, mode, nearMinPct, nearMaxPct } };
+    return {
+      condition: { kind: "ma", maType, maLength, mode, nearMinPct, nearMaxPct, ...gates },
+    };
   }
 
   const ma2Type = String(b.ma2Type ?? "");
@@ -200,7 +256,9 @@ export function readCondition(
   if (mode !== "cross_up" && mode !== "cross_down") {
     return bad("mode must be cross_up or cross_down for an MA-versus-MA alert");
   }
-  return { condition: { kind: "ma_vs_ma", maType, maLength, ma2Type, ma2Length, mode } };
+  return {
+    condition: { kind: "ma_vs_ma", maType, maLength, ma2Type, ma2Length, mode, ...gates },
+  };
 }
 
 /**
@@ -220,11 +278,15 @@ export type AlertColumns = {
   pivotType: string | null; pivotLevelName: string | null; pivotAnchor: string | null;
   rsiLength: number | null; rsiLevel: number | null; rsiMaLength: number | null;
   macdFast: number | null; macdSlow: number | null; macdSignal: number | null;
+  stPeriod: number | null; stMultiplier: number | null;
+  stAtrMethod: StAtrMethod | null;
   indicatorTarget: string | null;
   filterRsiLength: number | null; filterRsiLevel: number | null;
   filterRsiSide: string | null;
   filterMaType: MaType | null; filterMaLength: number | null;
   filterMaSide: string | null;
+  filterStPeriod: number | null; filterStMultiplier: number | null;
+  filterStAtrMethod: StAtrMethod | null; filterStSide: string | null;
 };
 
 /** Flatten a condition back into the column shape the repository writes. */
@@ -236,12 +298,18 @@ export function toColumns(condition: AlertCondition): AlertColumns {
     pivotType: null, pivotLevelName: null, pivotAnchor: null,
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
     macdFast: null, macdSlow: null, macdSignal: null,
+    stPeriod: null, stMultiplier: null, stAtrMethod: null,
     indicatorTarget: null,
-    filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
-    filterMaType: null, filterMaLength: null, filterMaSide: null,
   };
 
-  /** Flatten the optional gates; absent halves stay null. */
+  /**
+   * Flatten the optional gates; absent halves stay null.
+   *
+   * Spread into EVERY family below, not just the level ones. A family that
+   * omitted this would accept a gate at the API and silently drop it on the
+   * way to the database, which presents to the user as a filter that does
+   * nothing — the hardest kind of alert bug to notice.
+   */
   const gates = (f: AlertFilters | undefined) => ({
     filterRsiLength: f?.rsi?.length ?? null,
     filterRsiLevel: f?.rsi?.level ?? null,
@@ -249,6 +317,10 @@ export function toColumns(condition: AlertCondition): AlertColumns {
     filterMaType: f?.ma?.type ?? null,
     filterMaLength: f?.ma?.length ?? null,
     filterMaSide: f?.ma?.side ?? null,
+    filterStPeriod: f?.supertrend?.period ?? null,
+    filterStMultiplier: f?.supertrend?.multiplier ?? null,
+    filterStAtrMethod: f?.supertrend?.atrMethod ?? null,
+    filterStSide: f?.supertrend?.side ?? null,
   });
   switch (condition.kind) {
     case "price":
@@ -256,7 +328,7 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         conditionKind: "price",
         maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,
         targetPrice: condition.targetPrice, priceDirection: condition.direction,
-        nearMinPct: 0.2, nearMaxPct: 0.5, ...empty,
+        nearMinPct: 0.2, nearMaxPct: 0.5, ...empty, ...gates(condition.filters),
       };
     case "ma":
       return {
@@ -264,6 +336,7 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         maType: condition.maType, maLength: condition.maLength, mode: condition.mode,
         ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
         nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct, ...empty,
+        ...gates(condition.filters),
       };
     case "ma_vs_ma":
       return {
@@ -271,7 +344,7 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         maType: condition.maType, maLength: condition.maLength, mode: condition.mode,
         ma2Type: condition.ma2Type, ma2Length: condition.ma2Length,
         targetPrice: null, priceDirection: null,
-        nearMinPct: 0.2, nearMaxPct: 0.5, ...empty,
+        nearMinPct: 0.2, nearMaxPct: 0.5, ...empty, ...gates(condition.filters),
       };
     case "sr_zone":
       return {
@@ -308,6 +381,7 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         rsiLevel: condition.level,
         rsiMaLength: condition.maLength,
         indicatorTarget: condition.target,
+        ...gates(condition.filters),
       };
     case "macd":
       return {
@@ -320,6 +394,19 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         macdSlow: condition.slowLength,
         macdSignal: condition.signalLength,
         indicatorTarget: condition.target,
+        ...gates(condition.filters),
+      };
+    case "supertrend":
+      return {
+        conditionKind: "supertrend",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: 0.2, nearMaxPct: 0.5,
+        ...empty,
+        stPeriod: condition.period,
+        stMultiplier: condition.multiplier,
+        stAtrMethod: condition.atrMethod,
+        ...gates(condition.filters),
       };
   }
 }

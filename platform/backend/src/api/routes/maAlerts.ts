@@ -180,7 +180,11 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
       patch.cooldownMin = cooldownMin;
     }
     if (b.enabled !== undefined) patch.enabled = Boolean(b.enabled);
-    if (b.note !== undefined) patch.note = b.note === null ? null : String(b.note);
+    if (b.note !== undefined) {
+      const note = readNote(b.note);
+      if ("error" in note) return reply.code(400).send(note);
+      patch.note = note.value;
+    }
 
     const merged = mergeConditionRequest(row, b);
     let columns: ReturnType<typeof toColumns> | null = null;
@@ -219,6 +223,33 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
   };
 }
 
+/**
+ * The longest note that can ride along in a notification.
+ *
+ * A Web Push payload is capped at 4 KB and a phone renders roughly two lines,
+ * so the limit is about what a reader can actually see rather than about
+ * storage. Mirrored by `ma_alerts_note_len_ck`, so a client that bypasses this
+ * route meets the same rule instead of a 500.
+ */
+const NOTE_MAX_LENGTH = 280;
+
+/**
+ * The user's own reason for arming an alert.
+ *
+ * Trimmed, and an all-whitespace note becomes null rather than an empty string:
+ * the notification formatter would otherwise append a bare separator to the
+ * body for a note that says nothing.
+ */
+function readNote(value: unknown): { value: string | null } | { error: string } {
+  if (value === undefined || value === null) return { value: null };
+  const note = String(value).trim();
+  if (note.length === 0) return { value: null };
+  if (note.length > NOTE_MAX_LENGTH) {
+    return { error: `note must be ${NOTE_MAX_LENGTH} characters or fewer` };
+  }
+  return { value: note };
+}
+
 export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Vocabulary for the alert dialog, so the UI never hardcodes it — including
@@ -231,6 +262,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     modes: MA_ALERT_MODES,
     conditionKinds: CONDITION_KINDS,
     priceDirections: PRICE_DIRECTIONS,
+    noteMaxLength: NOTE_MAX_LENGTH,
     defaultFrequency: DEFAULT_ALERT_FREQUENCY,
     intrabarWarning: INTRABAR_WARNING,
     frequencies: ALERT_FREQUENCIES.map((f) => ({
@@ -295,11 +327,14 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send(bad("cooldownMin must be a non-negative integer"));
     }
 
+    const note = readNote(b.note);
+    if ("error" in note) return reply.code(400).send(note);
+
     const row = await maAlertRepo.upsertAlert({
       symbol, timeframe, frequency, cooldownMin,
       ...toColumns(read.condition),
       enabled: b.enabled === undefined ? true : Boolean(b.enabled),
-      note: b.note === undefined ? null : String(b.note),
+      note: note.value,
     });
     return reply.code(201).send({
       ...row,

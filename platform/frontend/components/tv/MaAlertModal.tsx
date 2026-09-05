@@ -3,6 +3,11 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
+import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import {
+  AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
+  type AlertFilterState,
+} from "@/components/tv/AlertFiltersField";
 import {
   api, DEFAULT_ALERT_FREQUENCY,
   type AlertFrequency, type MaAlert, type MaAlertMode, type MaType,
@@ -53,12 +58,19 @@ export function MaAlertModal({
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
   const [cooldownMin, setCooldownMin] = useState(60);
   const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
+  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   // Reopening on a different line must not inherit the previous line's timeframe.
   useEffect(() => {
-    if (open) { setTimeframe(chartTimeframe); setErr(null); }
+    if (open) {
+      setTimeframe(chartTimeframe);
+      setFilters(emptyFilters());
+      setNote("");
+      setErr(null);
+    }
   }, [open, chartTimeframe, maType, maLength]);
 
   // Editing rather than creating: load the matching alert's settings.
@@ -69,6 +81,11 @@ export function MaAlertModal({
       setNearMaxPct(match.nearMaxPct);
       setCooldownMin(match.cooldownMin);
       setFrequency(match.frequency);
+      // Saving here upserts, so the dialog must show what the existing alert
+      // actually holds — otherwise an untouched Update would silently strip the
+      // gates and the note it was armed with.
+      setFilters(filtersFromAlert(match));
+      setNote(match.note ?? "");
     }
   }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -86,6 +103,8 @@ export function MaAlertModal({
       await api.createMaAlert({
         symbol, timeframe, conditionKind: "ma", maType, maLength, mode,
         nearMinPct, nearMaxPct, cooldownMin, frequency,
+        ...filterRequest(filters),
+        note: note.trim() || null,
       });
       onSaved(
         `${match ? "Updated" : "Alert set"} — ${symbol} ${timeframe} ${label} · ${MODE_LABELS[mode].toLowerCase()}`
@@ -184,6 +203,12 @@ export function MaAlertModal({
             </p>
           </>
         )}
+
+        <div className="my-1 border-t border-border" />
+        <AlertFiltersField value={filters} onChange={setFilters} />
+
+        <div className="my-1 border-t border-border" />
+        <AlertNoteField value={note} onChange={setNote} />
 
         <div className="my-1 border-t border-border" />
         <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} />

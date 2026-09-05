@@ -3,23 +3,36 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
+import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import {
-  api, MACD_DEFAULTS, RSI_DEFAULTS,
-  type AlertFrequency, type MacdTarget, type RsiTarget,
+  AlertFiltersField, emptyFilters, filterRequest, type AlertFilterState,
+} from "@/components/tv/AlertFiltersField";
+import {
+  api, MACD_DEFAULTS, RSI_DEFAULTS, SUPERTREND_DEFAULTS,
+  type AlertFrequency, type MacdTarget, type RsiTarget, type StAtrMethod,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 
 /** The timeframes a level or oscillator alert can be armed on in one pass. */
 const TIMEFRAMES: Interval[] = ["5m", "15m", "1h", "4h"];
 
-export type IndicatorKind = "rsi" | "macd";
+export type IndicatorKind = "rsi" | "macd" | "supertrend";
+
+/** The title and the two direction words each family reads naturally with. */
+const COPY: Record<IndicatorKind, { title: string; up: string; down: string }> = {
+  rsi: { title: "RSI", up: "Crosses above", down: "Crosses below" },
+  macd: { title: "MACD", up: "Crosses above", down: "Crosses below" },
+  // Supertrend does not cross anything — it changes direction. Offering
+  // "crosses above" here would describe an event this alert does not watch.
+  supertrend: { title: "Supertrend", up: "Flips up (Buy)", down: "Flips down (Sell)" },
+};
 
 /**
- * Arming an RSI or MACD alert.
+ * Arming an RSI, MACD or Supertrend alert.
  *
- * Both families cross an oscillator rather than a price, so this dialog offers
- * only `cross_up`/`cross_down` — there is no "touch" or percentage band to
- * offer, and showing one would imply the alert could do something it cannot.
+ * All three watch an indicator rather than a price, so this dialog offers only
+ * the two directions — there is no "touch" or percentage band to offer, and
+ * showing one would imply the alert could do something it cannot.
  */
 export function IndicatorAlertModal({
   open, onClose, symbol, defaultTimeframe, kind, onSaved,
@@ -44,13 +57,20 @@ export function IndicatorAlertModal({
   const [macdSignal, setMacdSignal] = useState<number>(MACD_DEFAULTS.signal);
   const [macdTarget, setMacdTarget] = useState<MacdTarget>("signal");
 
+  const [stPeriod, setStPeriod] = useState<number>(SUPERTREND_DEFAULTS.period);
+  const [stMultiplier, setStMultiplier] = useState<number>(SUPERTREND_DEFAULTS.multiplier);
+  const [stAtrMethod, setStAtrMethod] = useState<StAtrMethod>(SUPERTREND_DEFAULTS.atrMethod);
+
+  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [note, setNote] = useState("");
+
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) { setTimeframes([defaultTimeframe]); setErr(null); }
+    if (open) { setTimeframes([defaultTimeframe]); setNote(""); setErr(null); }
   }, [open, defaultTimeframe, kind]);
 
   const toggleTf = (tf: Interval): void =>
@@ -70,6 +90,12 @@ export function IndicatorAlertModal({
       setErr("Fast length must be below slow length, or the oscillator's sign inverts");
       return;
     }
+    // At or below zero the two bands collapse onto the midpoint or swap, so the
+    // trend would flip on nearly every bar; far above, it never flips at all.
+    if (kind === "supertrend" && !(stMultiplier > 0 && stMultiplier <= 100)) {
+      setErr("The ATR multiplier must be greater than 0 and at most 100");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
@@ -79,7 +105,11 @@ export function IndicatorAlertModal({
           frequency, cooldownMin,
           ...(kind === "rsi"
             ? { rsiLength, target: rsiTarget, rsiLevel, rsiMaLength }
-            : { macdFast, macdSlow, macdSignal, target: macdTarget }),
+            : kind === "macd"
+              ? { macdFast, macdSlow, macdSignal, target: macdTarget }
+              : { stPeriod, stMultiplier, stAtrMethod }),
+          ...filterRequest(filters),
+          note: note.trim() || null,
         });
       }
       onSaved(
@@ -106,8 +136,11 @@ export function IndicatorAlertModal({
   const summary = kind === "rsi"
     ? `RSI ${rsiLength} crosses ${direction === "cross_up" ? "above" : "below"} ` +
       (rsiTarget === "level" ? `${rsiLevel}` : `its SMA ${rsiMaLength}`)
-    : `MACD crosses ${direction === "cross_up" ? "above" : "below"} ` +
-      (macdTarget === "zero" ? "zero" : "the signal line");
+    : kind === "macd"
+      ? `MACD crosses ${direction === "cross_up" ? "above" : "below"} ` +
+        (macdTarget === "zero" ? "zero" : "the signal line")
+      : `the Supertrend (${stPeriod}, ${stMultiplier}) flips ` +
+        `${direction === "cross_up" ? "up" : "down"}`;
 
   return (
     <Modal
@@ -115,7 +148,7 @@ export function IndicatorAlertModal({
       onClose={onClose}
       title={
         <>
-          {kind === "rsi" ? "RSI" : "MACD"} alert on <span className="text-accent">{symbol}</span>
+          {COPY[kind].title} alert on <span className="text-accent">{symbol}</span>
         </>
       }
       footer={
@@ -155,6 +188,31 @@ export function IndicatorAlertModal({
                   onChange={(e) => setRsiMaLength(parseInt(e.target.value || "0", 10))} className={box} />
               </Row>
             )}
+          </>
+        ) : kind === "supertrend" ? (
+          <>
+            <Row label="ATR period">
+              <input type="number" min="1" max="1000" value={stPeriod}
+                onChange={(e) => setStPeriod(parseInt(e.target.value || "0", 10))} className={box} />
+            </Row>
+            <Row label="Multiplier">
+              <input type="number" min="0.1" max="100" step="0.1" value={stMultiplier}
+                onChange={(e) => setStMultiplier(parseFloat(e.target.value || "0"))} className={box} />
+            </Row>
+            <Row label="ATR method">
+              <select
+                value={stAtrMethod}
+                onChange={(e) => setStAtrMethod(e.target.value as StAtrMethod)}
+                className={box}
+              >
+                <option value="rma">Wilder&apos;s (default)</option>
+                <option value="sma">Simple average of true range</option>
+              </select>
+            </Row>
+            <p className="pl-[132px] text-xs text-ink-faint">
+              The study&apos;s own defaults are 10 and 3. A wider multiplier flips
+              less often and later; a narrower one flips more often and earlier.
+            </p>
           </>
         ) : (
           <>
@@ -214,17 +272,25 @@ export function IndicatorAlertModal({
             onChange={(e) => setDirection(e.target.value as typeof direction)}
             className={box}
           >
-            <option value="cross_up">Crosses above</option>
-            <option value="cross_down">Crosses below</option>
+            <option value="cross_up">{COPY[kind].up}</option>
+            <option value="cross_down">{COPY[kind].down}</option>
           </select>
         </Row>
 
         <p className="rounded-md border border-border bg-surface-2/50 px-3 py-2 text-xs text-ink-muted">
           Notify when <span className="text-ink">{summary}</span>.
-          {" "}A cross needs a previous bar to compare against, so this stays quiet
-          until the oscillator actually moves across the line — it will not fire
-          just because it is already on one side.
+          {" "}This needs a previous bar to compare against, so it stays quiet
+          until the indicator actually {kind === "supertrend" ? "changes direction" : "moves across the line"} —
+          it will not fire just because it is already on one side.
         </p>
+
+        <div className="my-1 border-t border-border" />
+
+        <AlertFiltersField value={filters} onChange={setFilters} />
+
+        <div className="my-1 border-t border-border" />
+
+        <AlertNoteField value={note} onChange={setNote} />
 
         <FrequencyField
           value={frequency}

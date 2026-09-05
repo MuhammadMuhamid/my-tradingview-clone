@@ -3,6 +3,11 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
+import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import {
+  AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
+  type AlertFilterState,
+} from "@/components/tv/AlertFiltersField";
 import {
   api, DEFAULT_ALERT_FREQUENCY,
   type AlertFrequency, type MaAlert, type PriceDirection,
@@ -56,6 +61,8 @@ export function PriceAlertModal({
   const [direction, setDirection] = useState<PriceDirection>("either");
   const [timeframe, setTimeframe] = useState<Interval>(chartTimeframe);
   const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
+  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -66,6 +73,8 @@ export function PriceAlertModal({
     const seed = initialPrice ?? lastPrice;
     setPrice(seed === null ? "" : String(Number(seed.toPrecision(8))));
     setTimeframe(chartTimeframe);
+    setFilters(emptyFilters());
+    setNote("");
     setErr(null);
   }, [open, initialPrice, lastPrice, chartTimeframe]);
 
@@ -78,7 +87,12 @@ export function PriceAlertModal({
   ) ?? null;
 
   useEffect(() => {
-    if (match) setFrequency(match.frequency);
+    if (!match) return;
+    setFrequency(match.frequency);
+    // Saving upserts onto the matched row, so the dialog must show what that
+    // row holds — otherwise an untouched Update strips its gates and its note.
+    setFilters(filtersFromAlert(match));
+    setNote(match.note ?? "");
   }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
@@ -99,6 +113,8 @@ export function PriceAlertModal({
       const row = await api.createMaAlert({
         symbol, timeframe, conditionKind: "price",
         targetPrice: target, priceDirection: direction, frequency,
+        ...filterRequest(filters),
+        note: note.trim() || null,
       });
       onSaved(`${match ? "Updated" : "Alert set"} — ${symbol} ${timeframe} · ${describeAlert(row)}`);
       onClose();
@@ -204,6 +220,12 @@ export function PriceAlertModal({
             ))}
           </select>
         </Row>
+
+        <div className="my-1 border-t border-border" />
+        <AlertFiltersField value={filters} onChange={setFilters} />
+
+        <div className="my-1 border-t border-border" />
+        <AlertNoteField value={note} onChange={setNote} />
 
         <div className="my-1 border-t border-border" />
         <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} />
