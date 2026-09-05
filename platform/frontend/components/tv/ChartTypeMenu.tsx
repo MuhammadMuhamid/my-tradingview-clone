@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
   CHART_TYPES, SYNTHETIC_DISCLOSURE_HINT, syntheticDisclosure, type ChartType,
 } from "@/lib/chartType";
@@ -73,7 +74,10 @@ export function ChartTypeMenu({
   value: ChartType;
   onChange: (next: ChartType) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // One popover open at a time across the whole toolbar — these menus
+  // hang off buttons a few pixels apart, so two open at once overlap and
+  // compete for the same clicks. See `lib/popoverGroup`.
+  const [open, setOpen] = useExclusivePopover("chart-type");
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -88,7 +92,7 @@ export function ChartTypeMenu({
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   const active = CHART_TYPES.find((t) => t.value === value) ?? CHART_TYPES[0]!;
   const synthetic = syntheticDisclosure(active.value);
@@ -121,7 +125,7 @@ export function ChartTypeMenu({
   return (
     <div ref={boxRef} className="relative shrink-0">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         title={synthetic
           ? `Chart type — ${active.label}. ${SYNTHETIC_DISCLOSURE_HINT}`
           : `Chart type — ${active.label}`}

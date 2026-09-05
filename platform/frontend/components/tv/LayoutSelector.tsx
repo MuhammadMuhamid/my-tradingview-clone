@@ -21,6 +21,7 @@
  * `lib/layoutPresets` appears here with a correct thumbnail and no edit.
  */
 import { useEffect, useRef, useState } from "react";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
   availablePaneCounts, defaultPresetFor, presetOrDefault, presetsForCount,
   type LayoutPreset,
@@ -77,7 +78,10 @@ export function LayoutSelector({
   presetId: string;
   onChange: (presetId: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // One popover open at a time across the whole toolbar — these menus
+  // hang off buttons a few pixels apart, so two open at once overlap and
+  // compete for the same clicks. See `lib/popoverGroup`.
+  const [open, setOpen] = useExclusivePopover("layout-preset");
   const current = presetOrDefault(presetId);
   const [count, setCount] = useState(current.panes);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -104,14 +108,14 @@ export function LayoutSelector({
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   // Move the keyboard into the menu when it opens, so the counts are reachable
   // without tabbing back through the whole toolbar.
   useEffect(() => {
     if (!open) return;
     menuRef.current?.querySelector<HTMLElement>("button")?.focus();
-  }, [open]);
+  }, [open, setOpen]);
 
   const counts = availablePaneCounts();
   const common = counts.filter((n) => COMMON_COUNTS.includes(n));
@@ -155,7 +159,7 @@ export function LayoutSelector({
     <div ref={boxRef} className="relative">
       <button
         ref={buttonRef}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         title="Chart layout"
         aria-label={`Chart layout — ${current.label}`}
         aria-expanded={open}

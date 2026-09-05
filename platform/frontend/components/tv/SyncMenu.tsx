@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { SYNC_LABELS, type SyncOptions } from "@/lib/paneSync";
 
 /**
@@ -33,7 +34,10 @@ export function SyncMenu({
   /** Only one pane in the layout, so there is nothing to synchronise with. */
   disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  // One popover open at a time across the whole toolbar — these menus
+  // hang off buttons a few pixels apart, so two open at once overlap and
+  // compete for the same clicks. See `lib/popoverGroup`.
+  const [open, setOpen] = useExclusivePopover("pane-sync");
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -53,7 +57,7 @@ export function SyncMenu({
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   const activeCount = SYNC_LABELS.filter((o) => value[o.id]).length;
   /*
@@ -70,7 +74,7 @@ export function SyncMenu({
     <div ref={boxRef} className="relative">
       <button
         ref={buttonRef}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         disabled={disabled}
         aria-expanded={open}
         aria-haspopup="menu"

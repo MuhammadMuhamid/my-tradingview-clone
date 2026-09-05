@@ -33,6 +33,10 @@ import {
 import {
   cloneDrawing, DrawingHistory, historyScope, MAX_HISTORY, MAX_SCOPES, sameDrawings,
 } from "../lib/drawingHistory";
+import {
+  closeAllPopovers, closePopover, currentPopover, openPopover, resetPopovers,
+  subscribePopovers,
+} from "../lib/popoverGroup";
 import { INTERVAL_VALUES } from "../lib/types";
 import type { Drawing } from "../lib/drawings";
 
@@ -471,4 +475,54 @@ test("the shortcuts sheet is generated from the table that implements the keys",
     "a hand-written list advertises keys that do nothing within two changes");
   assert.match(sheet, /mac \? "⌘" : "Ctrl"/,
     "a sheet that says Ctrl+Z on a Mac names a combination that does nothing");
+});
+
+// ── one popover at a time ──────────────────────────────────────────────────
+
+/**
+ * Five menus hang off buttons a few pixels apart in the toolbar, and each used
+ * to own its own `open` boolean. Nothing coordinated them, so clicking one
+ * while another was open left both on screen, overlapping, with two sets of
+ * controls competing for the same clicks.
+ */
+test("opening one popover closes whichever other one was open", () => {
+  resetPopovers();
+  assert.equal(currentPopover(), null);
+  openPopover("layout-preset");
+  assert.equal(currentPopover(), "layout-preset");
+  openPopover("pane-sync");
+  assert.equal(currentPopover(), "pane-sync", "the previous one is no longer open");
+
+  // Closing one that is not open is a no-op, not a way to close the other.
+  closePopover("layout-preset");
+  assert.equal(currentPopover(), "pane-sync");
+  closePopover("pane-sync");
+  assert.equal(currentPopover(), null);
+
+  openPopover("chart-type");
+  closeAllPopovers();
+  assert.equal(currentPopover(), null);
+});
+
+test("subscribers are told which popover is open, so each renders its own state", () => {
+  resetPopovers();
+  const seen: (string | null)[] = [];
+  const stop = subscribePopovers((id) => seen.push(id));
+  openPopover("a");
+  openPopover("b");
+  closePopover("b");
+  stop();
+  openPopover("c");
+  assert.deepEqual(seen, ["a", "b", null], "and nothing after unsubscribing");
+});
+
+test("every toolbar popover goes through the registry rather than its own state", () => {
+  for (const file of [
+    "components/tv/ChartTypeMenu.tsx", "components/tv/LayoutSelector.tsx",
+    "components/tv/LayoutMenu.tsx", "components/tv/SyncMenu.tsx",
+  ]) {
+    const source = read(file);
+    assert.match(source, /useExclusivePopover\("/, `${file} still owns its own open state`);
+    assert.doesNotMatch(source, /const \[open, setOpen\] = useState/, file);
+  }
 });

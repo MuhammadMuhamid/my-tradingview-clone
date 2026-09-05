@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { Layout } from "@/lib/layouts";
 
 /**
@@ -54,7 +55,10 @@ export function LayoutMenu({
   onRename: () => void;
   onDelete: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // One popover open at a time across the whole toolbar — these menus
+  // hang off buttons a few pixels apart, so two open at once overlap and
+  // compete for the same clicks. See `lib/popoverGroup`.
+  const [open, setOpen] = useExclusivePopover("saved-layouts");
   const buttonRef = useRef<HTMLButtonElement>(null);
   const current = layouts.find((l) => l.id === currentId) ?? null;
 
@@ -67,7 +71,7 @@ export function LayoutMenu({
     };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
-  }, [open]);
+  }, [open, setOpen]);
 
   /** The one sentence about where this workspace's arrangement currently lives. */
   const status: { label: string; tone: string; help: string } = autosaveError
@@ -125,7 +129,7 @@ export function LayoutMenu({
     <div className="relative">
       <button
         ref={buttonRef}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
         className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
