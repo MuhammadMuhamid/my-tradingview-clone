@@ -8,7 +8,7 @@
       "Any AWS inspection or modification, and any production deployment.",
       "Production database access, and confirmation of production runtime state.",
       "Live exchange, wallet, webhook or order operations.",
-      "TradingView account operations, including the MTF parity comparison that gates BE-08.",
+      "TradingView account operations. BE-08 was resolved from explicit official documentation without logging in or performing an account-based comparison.",
       "Binance testnet operations, which need credentials this workspace does not hold."
     ]
   },
@@ -216,12 +216,12 @@
     {
       "id": "BE-08",
       "repo": "platform",
-      "verified": "Carried from the register: MTF merge convention contradicts its own header comment.",
-      "disposition": "blocked",
+      "verified": "Confirmed: the Pine interpreter selected completed HTF values at the chart bar's open while built-in MTF selected them at its close, producing a one-15m-bar mismatch at each 60m boundary.",
+      "disposition": "fixed",
       "phase": "Phase 3",
-      "commit": "569e625",
-      "evidence": "Nothing guesses. `platform/backend/src/engine/mtf.ts`'s false header is replaced by a statement of what the code actually does (a close-time cutoff) and that the convention is UNRESOLVED; `platform/backend/tests/mtfConvention.test.ts` pins the current behaviour so a change is visible; `platform/backend/src/engine/lookaheadAnalysis.ts` `compareConventions` computes what each convention would produce for the same bar, so the comparison is a data question rather than a code question the moment the reference value exists. `corrections.ts` `BE08_DEPENDENT` names the corrections that may not be enabled before this resolves, and `assertNotBe08Dependent` enforces it.",
-      "risk": "BLOCKED ON THE TRADINGVIEW COMPARISON, which needs a TradingView account this workspace may not use. The exact test is in backtesting:docs/RESEARCH-METHODOLOGY.md §2: plot `request.security(syminfo.tickerid,\"60\",close)` on a 15m chart and compare the value on the bar closing at 10:00 against `mergeValues(buildMergeIndex(chart15m, feed1h), feed1h.close)[i]`. If the code is wrong, every ma_rr_v9 and srtrend_v10 result carries one bar of HTF look-ahead."
+      "commit": "569e625, current validation commit",
+      "evidence": "Official Pine v6 documentation states that `lookahead_off` produces a new historical value at the end of the HTF period. Built-in `chartClose` was correct; `PineInterpreter.alignHtf` now uses `chart.closeTime`. `platform/backend/tests/securityHtf.test.ts` pins the bars before, at, and after three consecutive 15m→60m boundaries, path agreement, and absence of future visibility. Exact evidence and authority are in `docs/BE-08-VALIDATION.md`.",
+      "risk": "Realtime/developing HTF values were not directly observed and are not claimed or synthesized. `barmerge.lookahead_on` remains unsupported."
     },
     {
       "id": "BE-09",

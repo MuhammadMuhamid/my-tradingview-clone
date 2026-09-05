@@ -80,7 +80,7 @@ what the reader sees as a downturn. Both are refused by the request parser, by
 
 ### Supertrend flips, it does not cross
 
-`supertrend` is a direct port of the v4 study (`engine/ta.ts`), and the port is
+`supertrend` is a direct port of the v4 study (`platform/backend/src/engine/ta.ts`), and the port is
 deliberately literal. Its bands are **stateful**: `up` may only rise while the
 previous close is above it, and `dn` may only fall while the previous close is
 below it. Recomputing them from the current bar alone gives a line that wanders
@@ -419,7 +419,7 @@ The indicator itself was checked against an **independent transcription** of the
 v4 study into Python, written from the Pine rather than from `ta.ts`, over 600
 real SOLUSDT 15m candles and four parameter sets: zero trend mismatches, band
 agreement to 1.4e-14. A 160-bar slice containing nine real direction changes is
-frozen as `tests/fixtures/supertrendGolden.json`, so the port cannot drift.
+frozen as `platform/backend/tests/fixtures/supertrendGolden.json`, so the port cannot drift.
 
 **Verified earlier:** the alert dialogs have now
 been driven in a real browser against a real backend — the MA rail's Levels and
