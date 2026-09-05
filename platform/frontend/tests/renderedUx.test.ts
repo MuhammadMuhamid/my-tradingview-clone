@@ -71,7 +71,7 @@ test("the toolbar's primary row can give width back", () => {
 
 test("the feed-state badge is not drawn over the price scale", () => {
   const chart = read("components/CandleChart.tsx");
-  const badge = /FEED_BADGE\[feedState\]\.className/.exec(chart);
+  const badge = /FEED_BADGE\[feedState\.status\]\.className/.exec(chart);
   assert.ok(badge, "the feed badge could not be located");
   const around = chart.slice(Math.max(0, badge.index - 600), badge.index);
   assert.doesNotMatch(around, /absolute right-2/,

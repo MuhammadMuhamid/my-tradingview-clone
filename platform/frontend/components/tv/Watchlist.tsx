@@ -1,7 +1,9 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SymbolInfo } from "@/lib/types";
 import { api, type ServerWatchlist } from "@/lib/api";
+import { useWatchlistTickers } from "@/lib/useWatchlistTickers";
+import { describeStreamState } from "@/lib/marketStream";
 
 interface Ticker { last: number; chg: number; chgPct: number }
 type NamedWatchlist = ServerWatchlist;
@@ -21,13 +23,11 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, repla
   onSymbolsChanged: () => void;
   replayQuote?: Ticker | null;
 }) {
-  const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [adding, setAdding] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   const reload = async (selectId?: string) => {
     const rows = await api.listWatchlists();
@@ -87,21 +87,28 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, repla
     return active.symbols.map((s) => bySymbol.get(s)).filter((s): s is SymbolInfo => Boolean(s));
   }, [active, symbols]);
 
-  useEffect(() => {
-    if (visibleSymbols.length === 0) return;
-    const streams = visibleSymbols.map((s) => `${s.symbol.toLowerCase()}@miniTicker`).join("/");
-    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
-    wsRef.current = ws;
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data as string) as { data?: { s: string; c: string; o: string } };
-        if (!msg.data) return;
-        const last = parseFloat(msg.data.c), open = parseFloat(msg.data.o);
-        setTickers((t) => ({ ...t, [msg.data!.s]: { last, chg: last - open, chgPct: open ? ((last - open) / open) * 100 : 0 } }));
-      } catch { /* ignore malformed market ticks */ }
-    };
-    return () => ws.close();
-  }, [visibleSymbols]);
+  /*
+   * Prices: seeded through this app's server, then moved by the shared market
+   * stream (origin fallback, reconnect and watchdog included). See
+   * `lib/useWatchlistTickers`. The rows are never `—` for want of a socket.
+   */
+  const visibleSymbolNames = useMemo(() => visibleSymbols.map((s) => s.symbol), [visibleSymbols]);
+  const { tickers, stream } = useWatchlistTickers(visibleSymbolNames);
+  const streamWords = describeStreamState(stream);
+  const anyStreamed = Object.values(tickers).some((t) => t.source === "stream");
+  /*
+   * The header says what the numbers are. "live" is only claimed once a frame
+   * has arrived; a seeded list on a fenced network says so, and says that the
+   * quotes are real but not streaming, rather than looking frozen or fake.
+   */
+  const priceState: { label: string; tone: string; detail: string } | null =
+    visibleSymbols.length === 0 ? null
+    : stream.status === "live" ? { label: "live", tone: "text-up", detail: streamWords.detail }
+    : stream.status === "connecting" || stream.status === "open"
+      ? { label: anyStreamed ? "live" : "connecting…", tone: "text-ink-faint", detail: streamWords.detail }
+    : stream.status === "stale"
+      ? { label: "stalled", tone: "text-down", detail: streamWords.detail }
+    : { label: "not streaming", tone: "text-warn", detail: `${streamWords.detail} Prices shown are the exchange's last quotes, refreshed when the list changes.` };
 
   /**
    * Optimistic local edit, then persist. The list re-renders immediately and
@@ -172,6 +179,17 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, repla
           <button onClick={() => void createList()} title="Create watchlist" className="rounded px-2 py-1 text-lg text-ink-muted hover:bg-surface-2 hover:text-ink">＋</button>
           <span className="w-7 text-right text-xs text-ink-faint">{visibleSymbols.length}</span>
         </div>
+        {priceState && (
+          <div
+            role="status"
+            aria-live="polite"
+            title={priceState.detail}
+            className={`mt-0.5 flex items-center gap-1 px-2 text-[10px] ${priceState.tone}`}
+          >
+            <span aria-hidden="true">●</span>
+            <span className="truncate">Prices {priceState.label}</span>
+          </div>
+        )}
         {menuOpen && lists && (
           <div className="absolute left-2 right-2 top-[44px] z-50 rounded-md border border-border bg-surface py-1 shadow-xl">
             <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">My watchlists</div>

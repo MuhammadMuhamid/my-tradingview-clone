@@ -18,35 +18,30 @@
  * therefore tracks *distinct feeds*, which is the real resource, rather than
  * pane count, which is a layout choice.
  *
- * ── Deliberately browser-local ─────────────────────────────────────────────
+ * ── Where the socket itself lives ──────────────────────────────────────────
+ *
+ * The connection, the origin fallback, the reconnect ladder and the silence
+ * watchdog are `lib/marketStream`'s, shared with the watchlist and the order
+ * ticket. This file is the kline parser on top: one `JSON.parse` per frame
+ * per feed, fanned out to every pane as a typed tick.
  *
  * This is a per-tab concern and it stays in the tab. There is no server bus,
  * no shared worker, no backend fan-out: those would add an operational
  * component to solve a problem that a reference count solves.
- *
- * The reconnect ladder and the silence watchdog moved here unchanged from
- * `CandleChart`, so recovery behaviour is exactly what it was — it just
- * happens once per feed instead of once per chart.
  */
+import {
+  klineStreamName, MARKET_STREAM_ORIGINS, MarketStreamRegistry, marketStreams,
+  singleStreamPath, streamUrl, STREAM_SILENCE_TIMEOUT_MS,
+  type StreamScheduler, type StreamSocket, type StreamState, type StreamStatus,
+  type StreamTransport,
+} from "./marketStream";
 import type { Interval } from "./types";
 
 /** How long a feed may be silent before it is treated as dead and reopened. */
-export const WS_SILENCE_TIMEOUT_MS = 45_000;
-const WS_WATCHDOG_INTERVAL_MS = 5_000;
+export const WS_SILENCE_TIMEOUT_MS = STREAM_SILENCE_TIMEOUT_MS;
 
-/**
- * How long a feed with no consumers is kept before it is closed.
- *
- * Maximising a pane unmounts every other pane and remounts the survivor;
- * restoring does the reverse. Without a grace period the last consumer leaving
- * and the first consumer arriving happen in the same commit, so the socket is
- * closed and immediately reopened — a visible "connecting…" and a gap in live
- * prices caused entirely by a layout change. Two seconds is long enough to
- * span a remount and short enough that a feed nobody wants is not held.
- */
-const RELEASE_GRACE_MS = 2_000;
-
-export type FeedStatus = "idle" | "connecting" | "live" | "reconnecting" | "stale";
+export type FeedStatus = StreamStatus;
+export type FeedState = StreamState;
 
 /** One kline frame, already parsed. */
 export interface KlineTick {
@@ -65,85 +60,25 @@ export interface KlineTick {
 
 export interface FeedListener {
   onTick?: (tick: KlineTick) => void;
-  onStatus?: (status: FeedStatus) => void;
+  /** Status transitions, with the full state behind them. */
+  onStatus?: (status: FeedStatus, state: FeedState) => void;
 }
 
-/**
- * The socket shape the registry needs.
- *
- * An interface rather than `WebSocket` directly so the acceptance tests can
- * count connections deterministically without touching Binance.
- */
-export interface FeedSocket {
-  close: () => void;
-}
-
-export interface FeedTransport {
-  open: (url: string, handlers: {
-    onOpen: () => void;
-    onMessage: (data: string) => void;
-    onClose: () => void;
-    onError: () => void;
-  }) => FeedSocket;
-}
-
-/** Timer functions, injectable so a test never leaves an interval running. */
-export interface FeedScheduler {
-  setTimeout: (fn: () => void, ms: number) => unknown;
-  clearTimeout: (handle: unknown) => void;
-  setInterval: (fn: () => void, ms: number) => unknown;
-  clearInterval: (handle: unknown) => void;
-  now: () => number;
-}
-
-export const browserTransport: FeedTransport = {
-  open(url, handlers) {
-    const ws = new WebSocket(url);
-    ws.onopen = () => handlers.onOpen();
-    ws.onmessage = (event: MessageEvent) => handlers.onMessage(event.data as string);
-    ws.onclose = () => handlers.onClose();
-    ws.onerror = () => handlers.onError();
-    return {
-      close: () => {
-        // Detach first: a close we asked for must not re-enter the ladder.
-        ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null;
-        try { ws.close(); } catch { /* already gone */ }
-      },
-    };
-  },
-};
-
-const realScheduler: FeedScheduler = {
-  setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-  setInterval: (fn, ms) => setInterval(fn, ms),
-  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
-  now: () => Date.now(),
-};
+/** Kept as aliases so the transport fixtures read the same in every test. */
+export type FeedSocket = StreamSocket;
+export type FeedTransport = StreamTransport;
+export type FeedScheduler = StreamScheduler;
 
 /** The subscription identity. Symbol case is not part of it. */
 export function feedKey(symbol: string, interval: Interval): string {
   return `${symbol.toUpperCase()}|${interval}`;
 }
 
-export function klineStreamUrl(symbol: string, interval: Interval): string {
-  return `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
-}
-
-interface FeedEntry {
-  key: string;
-  symbol: string;
-  interval: Interval;
-  listeners: Set<FeedListener>;
-  socket: FeedSocket | null;
-  status: FeedStatus;
-  attempt: number;
-  lastMessageAt: number;
-  reconnectTimer: unknown;
-  watchdog: unknown;
-  /** Set while the feed is being kept alive for a possible remount. */
-  releaseTimer: unknown;
-  closed: boolean;
+/** The kline stream's URL at one origin — the first supported one by default. */
+export function klineStreamUrl(
+  symbol: string, interval: Interval, origin: string = MARKET_STREAM_ORIGINS[0]!
+): string {
+  return streamUrl(origin, singleStreamPath(klineStreamName(symbol, interval)));
 }
 
 interface RawKline {
@@ -152,29 +87,37 @@ interface RawKline {
   };
 }
 
+interface FeedEntry {
+  symbol: string;
+  interval: Interval;
+  listeners: Set<FeedListener>;
+  release: () => void;
+  state: FeedState;
+}
+
+export interface MarketFeedRegistryOptions {
+  transport?: StreamTransport;
+  scheduler?: StreamScheduler;
+  origins?: readonly string[];
+  /** Share an existing stream registry instead of creating one. */
+  streams?: MarketStreamRegistry;
+}
+
 export class MarketFeedRegistry {
   private readonly entries = new Map<string, FeedEntry>();
-  private readonly transport: FeedTransport;
-  private readonly schedule: FeedScheduler;
-  private opened = 0;
-  private closedCount = 0;
+  readonly streams: MarketStreamRegistry;
 
-  constructor(options: { transport?: FeedTransport; scheduler?: FeedScheduler } = {}) {
-    this.transport = options.transport ?? browserTransport;
-    this.schedule = options.scheduler ?? realScheduler;
+  constructor(options: MarketFeedRegistryOptions = {}) {
+    this.streams = options.streams ?? new MarketStreamRegistry({
+      transport: options.transport, scheduler: options.scheduler, origins: options.origins,
+    });
   }
 
   /** Distinct upstream feeds currently open. The number that must not be 16. */
-  get activeFeeds(): number {
-    return this.entries.size;
-  }
+  get activeFeeds(): number { return this.streams.activeStreams; }
 
   /** Feeds held open with no consumers, waiting out the remount grace period. */
-  get lingeringFeeds(): number {
-    let total = 0;
-    for (const entry of this.entries.values()) if (entry.releaseTimer !== null) total += 1;
-    return total;
-  }
+  get lingeringFeeds(): number { return this.streams.lingeringStreams; }
 
   /** Total consumers attached across all feeds. */
   get consumerCount(): number {
@@ -184,11 +127,15 @@ export class MarketFeedRegistry {
   }
 
   /** Sockets opened and closed over this registry's life, for leak checks. */
-  get socketsOpened(): number { return this.opened; }
-  get socketsClosed(): number { return this.closedCount; }
+  get socketsOpened(): number { return this.streams.socketsOpened; }
+  get socketsClosed(): number { return this.streams.socketsClosed; }
 
   statusOf(symbol: string, interval: Interval): FeedStatus {
-    return this.entries.get(feedKey(symbol, interval))?.status ?? "idle";
+    return this.stateOf(symbol, interval).status;
+  }
+
+  stateOf(symbol: string, interval: Interval): FeedState {
+    return this.streams.stateOf(feedKey(symbol, interval));
   }
 
   /**
@@ -203,24 +150,26 @@ export class MarketFeedRegistry {
     const key = feedKey(symbol, interval);
     let entry = this.entries.get(key);
     if (!entry) {
-      entry = {
-        key, symbol, interval, listeners: new Set(), socket: null, status: "idle",
-        attempt: 0, lastMessageAt: 0, reconnectTimer: null, watchdog: null,
-        releaseTimer: null, closed: false,
+      const created: FeedEntry = {
+        symbol: symbol.toUpperCase(), interval, listeners: new Set(),
+        release: () => {},
+        state: { status: "idle", origin: null, attempt: 0, everLive: false, refused: [] },
       };
-      this.entries.set(key, entry);
-      this.connect(entry);
-      this.startWatchdog(entry);
-    }
-    if (entry.releaseTimer !== null) {
-      // A pane came back before the grace period expired: keep the connection.
-      this.schedule.clearTimeout(entry.releaseTimer);
-      entry.releaseTimer = null;
+      created.release = this.streams.subscribe(
+        key, singleStreamPath(klineStreamName(symbol, interval)), {
+          onMessage: (data) => this.handleMessage(created, data),
+          onState: (state) => {
+            created.state = state;
+            for (const l of created.listeners) l.onStatus?.(state.status, state);
+          },
+        });
+      this.entries.set(key, created);
+      entry = created;
     }
     entry.listeners.add(listener);
     // A late joiner is told the current state immediately rather than waiting
     // for the next frame, which on an idle market can be a minute away.
-    listener.onStatus?.(entry.status);
+    listener.onStatus?.(entry.state.status, entry.state);
 
     let released = false;
     return () => {
@@ -229,50 +178,25 @@ export class MarketFeedRegistry {
       const current = this.entries.get(key);
       if (!current) return;
       current.listeners.delete(listener);
-      if (current.listeners.size > 0 || current.releaseTimer !== null) return;
-      current.releaseTimer = this.schedule.setTimeout(() => {
-        current.releaseTimer = null;
-        // Re-checked: a consumer may have attached and detached again since.
-        if (current.listeners.size === 0) this.teardown(current);
-      }, RELEASE_GRACE_MS);
+      if (current.listeners.size > 0) return;
+      // The stream registry keeps the socket through its own grace period; if
+      // a pane comes back in time it re-attaches to the same socket.
+      this.entries.delete(key);
+      current.release();
     };
   }
 
   /** Close every feed. Called when the workspace unmounts. */
   closeAll(): void {
-    for (const entry of [...this.entries.values()]) {
+    for (const entry of this.entries.values()) {
       entry.listeners.clear();
-      this.teardown(entry);
+      entry.release();
     }
-  }
-
-  private setStatus(entry: FeedEntry, status: FeedStatus): void {
-    if (entry.status === status) return;
-    entry.status = status;
-    for (const listener of entry.listeners) listener.onStatus?.(status);
-  }
-
-  private connect(entry: FeedEntry): void {
-    if (entry.closed) return;
-    this.setStatus(entry, entry.attempt === 0 ? "connecting" : "reconnecting");
-    this.opened += 1;
-    entry.socket = this.transport.open(klineStreamUrl(entry.symbol, entry.interval), {
-      onOpen: () => {
-        if (entry.closed) return;
-        entry.attempt = 0;
-        entry.lastMessageAt = this.schedule.now();
-        this.setStatus(entry, "live");
-      },
-      onMessage: (data) => this.handleMessage(entry, data),
-      onClose: () => { if (!entry.closed) this.scheduleReconnect(entry); },
-      onError: () => { /* a close always follows; the ladder runs there */ },
-    });
+    this.entries.clear();
+    this.streams.closeAll();
   }
 
   private handleMessage(entry: FeedEntry, data: string): void {
-    if (entry.closed) return;
-    entry.lastMessageAt = this.schedule.now();
-    this.setStatus(entry, "live");
     let parsed: RawKline;
     try { parsed = JSON.parse(data) as RawKline; }
     catch { return; /* a malformed frame is dropped; the next one replaces it */ }
@@ -285,49 +209,14 @@ export class MarketFeedRegistry {
       open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v,
       closed: k.x === true,
     };
-    for (const listener of entry.listeners) listener.onTick?.(tick);
-  }
-
-  private scheduleReconnect(entry: FeedEntry): void {
-    if (entry.closed) return;
-    if (entry.socket) { entry.socket.close(); entry.socket = null; this.closedCount += 1; }
-    entry.attempt += 1;
-    this.setStatus(entry, "reconnecting");
-    const delay = Math.min(1000 * 2 ** Math.min(entry.attempt, 5), 30_000);
-    entry.reconnectTimer = this.schedule.setTimeout(() => {
-      entry.reconnectTimer = null;
-      this.connect(entry);
-    }, delay);
-  }
-
-  private startWatchdog(entry: FeedEntry): void {
-    entry.watchdog = this.schedule.setInterval(() => {
-      if (entry.closed || entry.lastMessageAt === 0) return;
-      if (this.schedule.now() - entry.lastMessageAt <= WS_SILENCE_TIMEOUT_MS) return;
-      // Silent for too long. A socket that is open but delivering nothing looks
-      // identical to a quiet market from the outside; treat it as dead.
-      this.setStatus(entry, "stale");
-      entry.lastMessageAt = this.schedule.now();
-      this.scheduleReconnect(entry);
-    }, WS_WATCHDOG_INTERVAL_MS);
-  }
-
-  private teardown(entry: FeedEntry): void {
-    entry.closed = true;
-    if (entry.releaseTimer !== null) {
-      this.schedule.clearTimeout(entry.releaseTimer);
-      entry.releaseTimer = null;
+    for (const listener of entry.listeners) {
+      // One pane throwing — `update()` on a bar older than the series holds,
+      // say — must not stop the other panes receiving the same bar.
+      try { listener.onTick?.(tick); }
+      catch (error) {
+        if (typeof console !== "undefined") console.error("kline listener failed", error);
+      }
     }
-    if (entry.reconnectTimer !== null) {
-      this.schedule.clearTimeout(entry.reconnectTimer);
-      entry.reconnectTimer = null;
-    }
-    if (entry.watchdog !== null) {
-      this.schedule.clearInterval(entry.watchdog);
-      entry.watchdog = null;
-    }
-    if (entry.socket) { entry.socket.close(); entry.socket = null; this.closedCount += 1; }
-    this.entries.delete(entry.key);
   }
 }
 
@@ -337,5 +226,6 @@ export class MarketFeedRegistry {
  * One per tab. Module scope rather than React context because the chart page,
  * the watchlist and the order ticket are not in one provider tree, and a feed
  * that exists only inside one subtree is a feed the next consumer duplicates.
+ * It shares the tab's one stream registry with the watchlist and the ticket.
  */
-export const marketFeed = new MarketFeedRegistry();
+export const marketFeed = new MarketFeedRegistry({ streams: marketStreams });

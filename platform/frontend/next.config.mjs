@@ -15,34 +15,42 @@ const BACKEND = process.env.BACKEND_URL ?? "http://localhost:4000";
  * keeping it that way is the actual XSS control, and it is asserted in
  * `tests/noUnsafeSinks.test.ts`.
  *
- * `connect-src` names the two Binance origins the chart and the watchlist open
- * websockets to directly, plus `'self'` for the proxied API.
+ * `connect-src` names the Binance market-stream origins the chart, the
+ * watchlist and the order ticket open websockets to directly, plus `'self'`
+ * for the proxied API.
  *
- * ── Why the data-api.binance.vision mirror is NOT listed ───────────────────
+ * ── Why the data-api.binance.vision REST mirror is NOT listed ──────────────
  *
- * Phase 01 raised this: the backend can be pointed at
- * `https://data-api.binance.vision` (BINANCE_MARKET_DATA_BASE_URL) where
- * `api.binance.com` is geo-blocked, and the mirror is absent from this policy.
- * It is absent because the browser never calls a Binance REST origin at all —
- * every candle, symbol and history read goes through `'self'` to the Next proxy
- * and on to the backend, so the mirror is a BACKEND setting and needs no
- * browser permission. Adding it would grant a capability nothing uses.
+ * The backend can be pointed at `https://data-api.binance.vision`
+ * (BINANCE_MARKET_DATA_BASE_URL) where `api.binance.com` is geo-blocked. That
+ * mirror is absent here because the browser never calls a Binance REST origin
+ * at all — every candle, symbol, history and ticker-seed read goes through
+ * `'self'` to the Next proxy and on to the backend, so it is a BACKEND setting
+ * and needs no browser permission.
  *
- * What the browser does open directly is the kline and bookTicker websockets,
- * and that host is hard-coded in `lib/marketFeed.ts`, `lib/useBookQuote.ts` and
- * `components/tv/Watchlist.tsx` — there is no mirror for it and no setting for
- * it. In a region where `stream.binance.com` is blocked, the charts fall back
- * to their polled REST history and every pane shows `reconnecting…`; the data
- * on screen stays correct and is simply not streaming. Making that origin
- * configurable is a deployment concern, not a V1 UI one.
+ * ── Why BOTH stream origins are listed ─────────────────────────────────────
+ *
+ * What the browser does open directly is the kline, miniTicker and bookTicker
+ * websockets, through `lib/marketStream.ts`. `stream.binance.com` answers some
+ * networks with HTTP 451 at the handshake; `data-stream.binance.vision` is
+ * Binance's market-data-only endpoint for that case. The registry tries the
+ * mirror first and falls back to the normal host, so the policy must permit
+ * both or the fallback is a connection the browser silently refuses to make.
+ * `MARKET_STREAM_ORIGINS` below must equal `lib/marketStream.ts`'s list;
+ * `tests/marketTransport.test.ts` fails if they drift.
  */
+export const MARKET_STREAM_ORIGINS = [
+  "wss://data-stream.binance.vision",
+  "wss://stream.binance.com:9443",
+];
+
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' wss://stream.binance.com:9443 https://api.binance.com",
+  `connect-src 'self' ${MARKET_STREAM_ORIGINS.join(" ")} https://api.binance.com`,
   "worker-src 'self'",
   "manifest-src 'self'",
   "object-src 'none'",

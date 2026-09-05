@@ -167,25 +167,71 @@ function samePoint(a: ChartPoint, b: ChartPoint): boolean {
     a.wickColor === b.wickColor && a.borderColor === b.borderColor;
 }
 
+export type SeriesMutation = "none" | "update" | "replace";
+
 /**
  * Decide whether lightweight-charts can receive one `update()` or needs a
- * full `setData()`. The common live cases (replace last bar / append one bar)
- * avoid reprocessing 10,000 points.
+ * full `setData()`, for any series whose points carry a time.
+ *
+ * ── What `update()` can honour ─────────────────────────────────────────────
+ *
+ * lightweight-charts' `update()` rewrites the LAST point in place or appends
+ * a newer one; anything else needs `setData()`. So the plan is `update` when
+ * everything the chart already holds is unchanged except possibly its last
+ * point, and `next` either rewrites that point or adds one after it.
+ *
+ * ── Why the comparison is aligned by time, not by index ───────────────────
+ *
+ * A rolling 10,000-bar window is trimmed on the left at every bar close:
+ * `next` is `previous` minus its oldest point, plus the new bar. Compared
+ * from index 0 that looks like every point changed, and the chart repainted
+ * all 10,000 candles, the volume and every overlay once a minute per pane.
+ * Aligning `next[0]` to the point in `previous` with the same time turns the
+ * trim into what it is — the same tail, one point shorter at the front —
+ * which `update()` can honour: the chart simply keeps the trimmed point.
+ *
+ * Any point before the tail that differs still means `replace`. That is
+ * the correctness rule; a left trim is the only extra case it admits.
  */
-export function planSeriesMutation(
-  previous: ChartPoint[], next: ChartPoint[]
-): "none" | "update" | "replace" {
+function planAlignedMutation<T>(
+  previous: readonly T[], next: readonly T[],
+  timeOf: (item: T) => number, same: (a: T, b: T) => boolean
+): SeriesMutation {
   if (previous.length === 0 || next.length === 0) {
     return previous.length === next.length ? "none" : "replace";
   }
-  const canUpdate = next.length === previous.length || next.length === previous.length + 1;
-  if (!canUpdate) return "replace";
-  const prefix = next.length - 1;
-  for (let i = 0; i < prefix; i++) {
-    if (!samePoint(previous[i]!, next[i]!)) return "replace";
+  // Where `next` starts inside `previous`: 0 normally, >0 after a left trim.
+  // A trim is at most a few bars, so a bounded forward scan finds it.
+  const firstTime = timeOf(next[0]!);
+  let offset = -1;
+  const maxTrim = Math.min(previous.length, MAX_ALIGNED_TRIM);
+  for (let i = 0; i < maxTrim; i++) {
+    if (timeOf(previous[i]!) === firstTime) { offset = i; break; }
   }
-  if (next.length === previous.length && samePoint(previous[prefix]!, next[prefix]!)) return "none";
+  if (offset < 0) return "replace";
+  const shared = previous.length - offset;
+  // `next` must reach the end of `previous`, and may extend it by one.
+  if (next.length !== shared && next.length !== shared + 1) return "replace";
+  for (let i = 0; i < next.length - 1; i++) {
+    if (!same(previous[offset + i]!, next[i]!)) return "replace";
+  }
+  if (next.length === shared && same(previous[previous.length - 1]!, next[next.length - 1]!)) {
+    return "none";
+  }
   return "update";
+}
+
+/**
+ * How far into `previous` the alignment scan looks. A live window is trimmed
+ * by one bar per boundary; a reload that shifts the window by more than this
+ * gets a full repaint, which is the right answer for a genuinely new window.
+ */
+const MAX_ALIGNED_TRIM = 8;
+
+export function planSeriesMutation(
+  previous: ChartPoint[], next: ChartPoint[]
+): SeriesMutation {
+  return planAlignedMutation(previous, next, (p) => p.time, samePoint);
 }
 
 function sameCandle(a: Candle, b: Candle): boolean {
@@ -195,16 +241,8 @@ function sameCandle(a: Candle, b: Candle): boolean {
 
 export function planCandleMutation(
   previous: Candle[], next: Candle[]
-): "none" | "update" | "replace" {
-  if (previous.length === 0 || next.length === 0) {
-    return previous.length === next.length ? "none" : "replace";
-  }
-  if (next.length !== previous.length && next.length !== previous.length + 1) return "replace";
-  for (let i = 0; i < next.length - 1; i++) {
-    if (!sameCandle(previous[i]!, next[i]!)) return "replace";
-  }
-  if (next.length === previous.length && sameCandle(previous.at(-1)!, next.at(-1)!)) return "none";
-  return "update";
+): SeriesMutation {
+  return planAlignedMutation(previous, next, (c) => c.openTime, sameCandle);
 }
 
 /** Candle mutation planning including derived barcolor presentation state. */
@@ -282,17 +320,8 @@ export function formatPlotValue(value: number | null, precision?: number | null)
  */
 export function planOhlcMutation(
   previous: readonly TransformedBar[], next: readonly TransformedBar[]
-): "none" | "update" | "replace" {
-  if (previous.length === 0 || next.length === 0) {
-    return previous.length === next.length ? "none" : "replace";
-  }
-  if (next.length !== previous.length && next.length !== previous.length + 1) return "replace";
-  for (let i = 0; i < next.length - 1; i++) {
-    if (!sameTransformedBar(previous[i]!, next[i]!)) return "replace";
-  }
-  if (next.length === previous.length
-    && sameTransformedBar(previous[previous.length - 1]!, next[next.length - 1]!)) return "none";
-  return "update";
+): SeriesMutation {
+  return planAlignedMutation(previous, next, (b) => b.openTime, sameTransformedBar);
 }
 
 /** The shape `planOhlcMutation` compares. Matches `OhlcBar` structurally. */

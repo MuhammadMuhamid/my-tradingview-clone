@@ -35,6 +35,7 @@ import { buildMaOverlays } from "@/lib/movingAverages";
 import { drawingStore } from "@/lib/drawingStore";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import { useCandleHistory } from "@/lib/useCandleHistory";
+import { datasetKey } from "@/lib/liveDataset";
 import { paneDensity, type PaneDensity } from "@/lib/layoutPresets";
 import type { PaneState } from "@/lib/workspace";
 import { drawingsAtReplayHorizon, replayCandles, type ReplaySession } from "@/lib/replay";
@@ -136,7 +137,15 @@ function ChartPaneImpl(props: ChartPaneProps) {
   });
   const visibleCandles = useMemo(
     () => replayCandles(history.candles, replay), [history.candles, replay]);
-  const last = visibleCandles[visibleCandles.length - 1];
+  /*
+   * While an uncached window loads, the previous window stays on screen and
+   * `history.dataset` says so. The readouts below must not present its last
+   * price under the new symbol's name, and the chart is told which bars it
+   * is actually holding so the live tick path cannot cross the boundary.
+   */
+  const holdingRequested =
+    datasetKey(history.dataset) === datasetKey({ symbol: pane.symbol, interval: pane.interval });
+  const last = holdingRequested ? visibleCandles[visibleCandles.length - 1] : undefined;
 
   // ── this pane's own applied studies ──
   const indicators = useIndicators({
@@ -324,7 +333,18 @@ function ChartPaneImpl(props: ChartPaneProps) {
         </div>
       )}
 
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
+        {history.loading && !holdingRequested && history.candles.length > 0 && (
+          // The previous instrument's bars are still drawn underneath; say so
+          // rather than let them pass for the new one for a few seconds.
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute left-2 top-2 z-10 rounded border border-border bg-surface/90 px-2 py-0.5 font-mono text-[10px] text-ink-muted sm:text-[11px]"
+          >
+            Loading {pane.symbol} {pane.interval}… showing {history.dataset.symbol} {history.dataset.interval} until it arrives
+          </div>
+        )}
         {history.loading && history.candles.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-ink-faint">
             Loading {pane.symbol} {pane.interval}…
@@ -334,6 +354,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             symbol={pane.symbol}
             interval={pane.interval}
             candles={visibleCandles}
+            dataset={history.dataset}
             chartType={pane.chartType}
             trades={indicators.trades ?? (replayActive ? [] : props.strategyTrades)}
             overlays={overlays}

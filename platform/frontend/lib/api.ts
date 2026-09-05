@@ -282,6 +282,15 @@ export interface ServerLayout {
  *  `platform/backend/src/data/candleWire.ts`. */
 export type CompactBar = [number, number, number, number, number, number];
 
+export interface Ticker24h {
+  symbol: string;
+  last: number;
+  /** The price 24h ago — the same reference `@miniTicker` reports as `o`. */
+  open: number;
+  /** Exchange-side event time, ms. */
+  at: number;
+}
+
 export interface CompactCandles {
   format: "compact-v1";
   symbol: string;
@@ -908,6 +917,17 @@ export const api = {
       signal ? { signal } : undefined
     ).then(expandCompact),
 
+  /**
+   * The same-origin watchlist seed: last price and the price 24h ago, from
+   * Binance's public ticker through the backend's market-data host. Read once
+   * per watchlist change so the rows are populated before — or without — the
+   * browser's own market stream.
+   */
+  tickers: (symbols: readonly string[], signal?: AbortSignal) =>
+    req<Ticker24h[]>(
+      `/api/symbols/tickers?symbols=${encodeURIComponent(symbols.join(","))}`,
+      signal ? { signal } : undefined
+    ),
   /** The verbose shape, for consumers that need quoteVolume or tradeCount. */
   candlesVerbose: (symbol: string, interval: Interval, limit = 1000, signal?: AbortSignal) =>
     req<Candle[]>(

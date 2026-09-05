@@ -162,6 +162,49 @@ export async function ensureCandles(
 }
 
 /** One tradable pair from exchangeInfo — the symbol-search directory. */
+/**
+ * The rolling 24h ticker for a set of symbols — last price and the price 24h
+ * ago, which is exactly what the browser's `@miniTicker` stream carries.
+ *
+ * This is the same-origin SEED for the watchlist: the rows are populated from
+ * here before the first stream frame, and stay populated on a network where
+ * the stream hosts are fenced. It goes through the configured market-data
+ * host like every other public read, so the mirror setting covers it.
+ */
+export interface Ticker24h {
+  symbol: string;
+  last: number;
+  open: number;
+  /** Exchange-side event time, ms. */
+  at: number;
+}
+
+interface RawTicker24h {
+  symbol: string; lastPrice: string; openPrice: string; closeTime: number;
+}
+
+/** Binance caps the `symbols=[…]` form at 100 and weights it by count. */
+export const TICKER_BATCH_LIMIT = 100;
+
+export async function fetch24hTickers(
+  symbols: readonly string[],
+  getJsonImpl: (url: string) => Promise<unknown> = getJson
+): Promise<Ticker24h[]> {
+  const tickers = [...new Set(symbols.map(assertSymbol))].slice(0, TICKER_BATCH_LIMIT);
+  if (tickers.length === 0) return [];
+  const list = encodeURIComponent(JSON.stringify(tickers));
+  const rows = (await getJsonImpl(`${base()}/api/v3/ticker/24hr?symbols=${list}`)) as RawTicker24h[];
+  if (!Array.isArray(rows)) throw new Error("Binance ticker/24hr: unexpected response shape");
+  const out: Ticker24h[] = [];
+  for (const row of rows) {
+    const last = parseFloat(row.lastPrice);
+    const open = parseFloat(row.openPrice);
+    if (!Number.isFinite(last) || !Number.isFinite(open)) continue;
+    out.push({ symbol: row.symbol, last, open, at: row.closeTime });
+  }
+  return out;
+}
+
 export interface ExchangeSymbol {
   symbol: string;
   baseAsset: string;

@@ -8,7 +8,9 @@ import {
 } from "lightweight-charts";
 import { INTERVAL_MS, type Candle, type Interval, type Trade } from "@/lib/types";
 import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
-import { marketFeed, WS_SILENCE_TIMEOUT_MS, type KlineTick } from "@/lib/marketFeed";
+import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
+import { describeStreamState } from "@/lib/marketStream";
+import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import { baseChartOptions } from "@/lib/chartTheme";
 import {
   createDisposalGuard, useChartMeasuring, useDetachChartObserver,
@@ -95,7 +97,9 @@ interface LegendBar {
  * never presents a frozen price as current — which is precisely what FE-09
  * described.
  */
-export type ChartFeedState = "idle" | "connecting" | "live" | "reconnecting" | "stale";
+export type ChartFeedState = FeedState["status"];
+
+const IDLE_FEED: FeedState = { status: "idle", origin: null, attempt: 0, everLive: false, refused: [] };
 
 /**
  * Silence after which an open socket is treated as dead and rebuilt.
@@ -362,7 +366,7 @@ function updateOverlayData(entry: OverlaySeriesEntry, point: ChartPoint): void {
 }
 
 export function CandleChart({
-  symbol, interval, candles, trades, priceLines, overlays, decorations, barColors,
+  symbol, interval, candles, dataset, trades, priceLines, overlays, decorations, barColors,
   markers, pineDrawings,
   live = true, fill = false,
   chartType = "candles",
@@ -380,6 +384,14 @@ export function CandleChart({
   symbol: string;
   interval: Interval;
   candles: Candle[];
+  /**
+   * What `candles` actually are, when that can differ from `symbol` and
+   * `interval`: a pane keeps the previous window on screen while the next one
+   * loads. Live ticks are applied only to bars of this identity, never to the
+   * requested one — see `lib/liveDataset`. Omitted, the candles are taken to
+   * be the requested instrument's.
+   */
+  dataset?: DatasetIdentity;
   trades?: Trade[];
   /** Live SL/TP/entry levels for a running position. */
   priceLines?: ChartPriceLine[];
@@ -495,6 +507,12 @@ export function CandleChart({
   const paneChartRefs = useRef<Map<string, IChartApi>>(new Map());
   const datasetKeyRef = useRef<string | null>(null);
   const candlesRef = useRef<Candle[]>([]);
+  /** Which dataset a tick may touch; holds a foreign tick until its data lands. */
+  const tickGateRef = useRef(new LiveTickGate<KlineTick>());
+  /** The live tick writer, so a held tick can be applied once its dataset lands. */
+  const applyTickRef = useRef<((tick: KlineTick) => void) | null>(null);
+  const heldSymbol = dataset?.symbol ?? symbol;
+  const heldInterval = dataset?.interval ?? interval;
   const barColorRef = useRef<Map<number, string>>(new Map());
   const timeIndexRef = useRef<Map<number, number>>(new Map());
   const hoverTimeRef = useRef<number | null>(null);
@@ -542,7 +560,7 @@ export function CandleChart({
   const [clock, setClock] = useState<string | null>(null);
   const [indicatorHoverTime, setIndicatorHoverTime] = useState<number | null>(null);
   /** FE-09: what the live feed is actually doing, so the UI can say so. */
-  const [feedState, setFeedState] = useState<ChartFeedState>("idle");
+  const [feedState, setFeedState] = useState<FeedState>(IDLE_FEED);
   /** bumped once the chart/series exist, so the drawing layer can attach */
   const [chartReady, setChartReady] = useState(0);
   /** bumped only when the chart itself is (re)created, so the series effect
@@ -914,7 +932,10 @@ export function CandleChart({
     const series = seriesRef.current;
     const vol = volRef.current;
     if (!series || !vol) return;
-    const datasetKey = `${symbol}|${interval}`;
+    // The identity of the bars on screen — not of the request. While a new
+    // window loads these are still the previous window's bars, and every
+    // decision below (refit, tick admission) is made about what is drawn.
+    const datasetKey = datasetKeyOf({ symbol: heldSymbol, interval: heldInterval });
     const nextColors = new Map(
       (barColors ?? []).flatMap((point) => point.color === null ? [] : [[point.time, point.color] as const])
     );
@@ -1001,7 +1022,13 @@ export function CandleChart({
       shortcutRangeRef.current = null;
       setActiveRange(null);
     }
-  }, [candles, symbol, interval, latestLegend, barColors, chartReady]);
+    // The dataset on screen is settled. A tick that arrived for it before its
+    // history did is applied now; one for any other dataset stays held.
+    const last = candles[candles.length - 1];
+    const pending = tickGateRef.current.adopt(
+      { symbol: heldSymbol, interval: heldInterval }, last ? last.openTime : null);
+    if (pending) applyTickRef.current?.(pending);
+  }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady]);
 
 
   /**
@@ -1293,14 +1320,14 @@ export function CandleChart({
    * once per chart, and `onStatus` still delivers the same honest answers.
    */
   useEffect(() => {
-    if (!live) { setFeedState("idle"); return; }
+    if (!live) { setFeedState(IDLE_FEED); return; }
 
     // One tick handler per pane, attached to a feed that is shared by every
     // pane on this instrument and resolution. The parse, the reconnect ladder
     // and the watchdog all happen once upstream, in `lib/marketFeed`.
     let previousStreamBar: Candle | null = null;
 
-    const onTick = (tick: KlineTick): void => {
+    const applyTick = (tick: KlineTick): void => {
       // Read through the refs: the main series is replaced when the user
       // changes presentation, and capturing it here would leave the feed
       // writing into a series that is no longer on the chart.
@@ -1321,7 +1348,8 @@ export function CandleChart({
       // before they can say what it looks like.
       const list = candlesRef.current;
       const liveBar: Candle = {
-        symbol, interval, openTime: tick.openTime, closeTime: tick.closeTime,
+        symbol: tick.symbol, interval: tick.interval,
+        openTime: tick.openTime, closeTime: tick.closeTime,
         open: tick.open, high: tick.high, low: tick.low, close: tick.close,
         volume: tick.volume,
       };
@@ -1377,14 +1405,27 @@ export function CandleChart({
         if (i !== undefined) setLegend(legendAtCanonical(i));
       }
     };
+    applyTickRef.current = applyTick;
+
+    /*
+     * The one rule of the live path: a tick touches only the dataset on
+     * screen. After a symbol change the new feed's first frame arrives before
+     * the new history; it is held here — not drawn on the old bars — and
+     * applied by the data effect the moment that history lands.
+     */
+    const onTick = (tick: KlineTick): void => {
+      if (tickGateRef.current.decide(tick) === "hold") return;
+      applyTick(tick);
+    };
 
     const release = marketFeed.subscribe(symbol, interval, {
       onTick,
-      onStatus: (status) => setFeedState(status),
+      onStatus: (_status, state) => setFeedState(state),
     });
     return () => {
       release();
-      setFeedState("idle");
+      if (applyTickRef.current === applyTick) applyTickRef.current = null;
+      setFeedState(IDLE_FEED);
     };
   }, [symbol, interval, live, latestLegend, legendAtCanonical]);
 
@@ -1805,14 +1846,15 @@ export function CandleChart({
         socket drops) while putting the badge somewhere it can never obscure a
         price.
       */}
-      {live && feedState !== "live" && (
+      {live && feedState.status !== "live" && (
         <div
           role="status"
           aria-live="polite"
-          className={`flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState].className}`}
+          title={describeStreamState(feedState).detail}
+          className={`flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState.status].className}`}
         >
           <span aria-hidden="true">●</span>
-          {FEED_BADGE[feedState].label}
+          {describeStreamState(feedState).label}
         </div>
       )}
       </div>
@@ -1973,17 +2015,23 @@ export function CandleChart({
  * `stale` is the loudest: the socket is open and the price on screen is not
  * moving, which is the state a user is most likely to misread as calm.
  */
-const FEED_BADGE: Record<ChartFeedState, { label: string; className: string }> = {
-  idle: { label: "not live", className: "bg-surface/75 text-ink-muted" },
-  connecting: { label: "connecting…", className: "bg-surface/75 text-ink-muted" },
-  live: { label: "live", className: "bg-surface/75 text-up" },
+/**
+ * The tint per state. The words come from `describeStreamState`, which also
+ * names the cause — a refused host, a silent socket — so the chip and its
+ * tooltip say why prices are not moving, not merely that they are not.
+ */
+const FEED_BADGE: Record<ChartFeedState, { className: string }> = {
+  idle: { className: "bg-surface/75 text-ink-muted" },
+  connecting: { className: "bg-surface/75 text-ink-muted" },
+  open: { className: "bg-surface/75 text-ink-muted" },
+  live: { className: "bg-surface/75 text-up" },
   /*
     The two loud states keep an opaque plate under the tint. They are read
     against whatever candle happens to be behind them, and a translucent
     coloured wash alone is not reliably legible over a bright green bar.
   */
-  reconnecting: { label: "reconnecting…", className: "border border-warn/40 bg-surface/90 text-warn" },
-  stale: { label: "feed stalled — price is not current", className: "border border-down/40 bg-surface/90 text-down" },
+  reconnecting: { className: "border border-warn/40 bg-surface/90 text-warn" },
+  stale: { className: "border border-down/40 bg-surface/90 text-down" },
 };
 
 /**

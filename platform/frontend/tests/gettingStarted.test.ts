@@ -22,6 +22,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { describeStreamState, MARKET_STREAM_ORIGINS, type StreamState } from "../lib/marketStream";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -216,12 +217,28 @@ test("the Bot-floor states it explains are the states the console can show", () 
 });
 
 test("the feed badge states it explains are the states a pane can show", () => {
-  const badges = [...read("components/CandleChart.tsx")
-    .matchAll(/^\s+(?:idle|connecting|live|reconnecting|stale): \{ label: "([^"]+)"/gm)]
-    .map((m) => m[1]!);
-  assert.ok(badges.length === 5, `expected five feed badge labels, read ${badges.length}`);
+  // The words come from one function; every state it can produce, including
+  // the refused-host causes, must be explained on this page.
+  const origins = [...MARKET_STREAM_ORIGINS];
+  const states: StreamState[] = [
+    { status: "idle", origin: null, attempt: 0, everLive: false, refused: [] },
+    { status: "connecting", origin: origins[0]!, attempt: 0, everLive: false, refused: [] },
+    { status: "open", origin: origins[0]!, attempt: 0, everLive: false, refused: [] },
+    { status: "live", origin: origins[0]!, attempt: 0, everLive: true, refused: [] },
+    { status: "reconnecting", origin: origins[0]!, attempt: 1, everLive: true, refused: [] },
+    { status: "reconnecting", origin: origins[1]!, attempt: 1, everLive: false, refused: [origins[0]!] },
+    { status: "reconnecting", origin: origins[0]!, attempt: 2, everLive: false, refused: origins },
+    { status: "stale", origin: origins[0]!, attempt: 0, everLive: true, refused: [] },
+  ];
+  const badges = [...new Set(states.map((s) => describeStreamState(s).label))];
+  assert.equal(badges.length, 8, `expected eight distinct feed badge labels, read ${badges.length}`);
   for (const badge of badges) {
     assert.ok(prose.includes(badge), `a pane can read "${badge}" and the page never explains it`);
+  }
+  // And the cause the owner's network produces is named with both hosts.
+  for (const origin of origins) {
+    assert.ok(prose.includes(origin.replace(/^wss:\/\//, "").replace(/:9443$/, "")),
+      `the troubleshooting entry must name ${origin}`);
   }
 });
 

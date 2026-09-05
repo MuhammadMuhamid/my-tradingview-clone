@@ -140,7 +140,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
 
   app.register(authRoutes);
   app.register(healthRoutes);
-  app.register(symbolRoutes);
+  app.register(symbolRoutes());
   app.register(strategyRoutes);
   app.register(backtestRoutes);
   app.register(dataRoutes);

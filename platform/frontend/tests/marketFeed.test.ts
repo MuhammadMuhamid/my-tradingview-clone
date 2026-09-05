@@ -103,7 +103,11 @@ test("the feed key is the whole of a subscription's identity", () => {
   assert.equal(feedKey("SOLUSDT", "15m"), "SOLUSDT|15m");
   assert.notEqual(feedKey("SOLUSDT", "15m"), feedKey("SOLUSDT", "1h"));
   assert.notEqual(feedKey("SOLUSDT", "15m"), feedKey("BTCUSDT", "15m"));
+  // The first supported origin is the market-data-only endpoint; the normal
+  // host is the fallback. Both are asserted against the CSP elsewhere.
   assert.equal(klineStreamUrl("SOLUSDT", "15m"),
+    "wss://data-stream.binance.vision/ws/solusdt@kline_15m");
+  assert.equal(klineStreamUrl("SOLUSDT", "15m", "wss://stream.binance.com:9443"),
     "wss://stream.binance.com:9443/ws/solusdt@kline_15m");
 });
 
@@ -268,6 +272,9 @@ test("the reconnect ladder and the silence watchdog run once per feed", () => {
   assert.equal(transport.sockets.length, 1);
 
   transport.sockets[0]!.handlers.onOpen();
+  // A handshake is not evidence of prices. Only a frame is.
+  assert.equal(feed.statusOf("SOLUSDT", "15m"), "open");
+  transport.sockets[0]!.handlers.onMessage(frame(1000, 10));
   assert.equal(feed.statusOf("SOLUSDT", "15m"), "live");
 
   // A socket that is open but silent is not a live feed.

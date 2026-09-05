@@ -154,6 +154,36 @@ state is deliberately **not** rendered: a green dot beside every chart is noise,
 and the states worth interrupting for are the ones where the number on screen is
 not current.
 
+**Transport, dataset ownership and the boundary repaint (V1 repair, 2026-09-05).**
+Three later findings against the live path were closed together:
+
+- *Fenced stream host.* Every browser socket to Binance now goes through
+  `platform/frontend/lib/marketStream.ts`: one origin list
+  (`wss://data-stream.binance.vision`, Binance's market-data-only endpoint,
+  first; `wss://stream.binance.com:9443` second), a 250 ms rotation to the next
+  origin on a refused handshake, the same bounded ladder and silence watchdog
+  for the kline feed, the watchlist's `miniTicker` stream and the ticket's
+  `bookTicker`, and a state that names the cause (`stream refused — trying
+  another host…`, `live stream unavailable — history still updates`). `live` is
+  claimed only once a frame has arrived; a completed handshake is `connected —
+  waiting for data`. The CSP `connect-src` lists both origins and
+  `tests/marketTransport.test.ts` fails if the two lists drift. The watchlist is
+  seeded through `/api/symbols/tickers` (backend proxy of Binance's 24h ticker
+  via the configured market-data host) so rows are never `—` for want of a
+  socket.
+- *Cross-dataset tick.* After a symbol change the previous window stays on
+  screen while the next loads; the new feed's first frame used to be drawn onto
+  it. `useCandleHistory` now reports what its candles *are* (`dataset`), the
+  chart keys every decision on that, and `lib/liveDataset.ts`'s `LiveTickGate`
+  holds a tick for a dataset not yet on screen and applies it when that history
+  lands. `tests/candleDataset.test.ts` drives the exact sequence.
+- *Boundary repaint.* On a full 10,000-bar window each bar close trimmed the
+  state on the left, and the planners compared from index 0 and returned
+  `replace` for candles, volume and every overlay, per pane, per boundary.
+  `planCandleMutation` / `planSeriesMutation` / `planOhlcMutation` now share
+  one time-aligned planner (`planAlignedMutation`) that recognises a left trim
+  as the same tail; a trim it cannot honour is still a repaint.
+
 ---
 
 ## 6. Backend-side gaps, and where they were closed
