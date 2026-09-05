@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { ensureCandles, fetchKlines, syncExchangeFilters } from "../../data/binanceRest";
+import { fetchKlines } from "../../data/binanceRest";
+import { marketData } from "../../data/marketData";
 import * as candleRepo from "../../repositories/candles";
-import * as symbolRepo from "../../repositories/symbols";
 import { isInterval } from "../../types/market";
+import { InstrumentIdError, storedSymbol } from "../../types/instrument";
+import { registerInstrument } from "../../data/instrumentRegistration";
 import { inspectCandleIntegrity } from "../../data/candleIntegrity";
 
 export async function dataRoutes(app: FastifyInstance): Promise<void> {
@@ -20,13 +22,18 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     if (!body?.symbol || !body.interval) {
       return reply.code(400).send({ error: "symbol and interval are required" });
     }
-    const symbol = body.symbol.toUpperCase();
+    let symbol: string;
+    try { symbol = storedSymbol(body.symbol); }
+    catch (err) {
+      if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
     if (!isInterval(body.interval)) {
       return reply.code(400).send({ error: `invalid interval: ${body.interval}` });
     }
-    if (!(await symbolRepo.getSymbol(symbol))) {
-      await symbolRepo.addSymbol(symbol, symbol.replace(/USDT$/, ""), "USDT");
-    }
+    // Registration now asks the venue for the real base and quote assets rather
+    // than guessing them off a `USDT` suffix — see `data/instrumentRegistration`.
+    await registerInstrument(symbol, req.log.warn.bind(req.log));
     const startMs = new Date(body.start ?? NaN).getTime();
     const endMs = new Date(body.end ?? Date.now()).getTime();
     if (!Number.isFinite(startMs) || startMs >= endMs) {
@@ -46,13 +53,18 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     if (!body?.symbol || !body.interval || !isInterval(body.interval)) {
       return reply.code(400).send({ error: "symbol and valid interval are required" });
     }
-    const symbol = body.symbol.toUpperCase();
+    let symbol: string;
+    try { symbol = storedSymbol(body.symbol); }
+    catch (err) {
+      if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
     const startMs = new Date(body.start ?? NaN).getTime();
     const endMs = new Date(body.end ?? Date.now()).getTime();
     if (!Number.isFinite(startMs) || startMs >= endMs) {
       return reply.code(400).send({ error: "start must be a valid date before end" });
     }
-    await ensureCandles(symbol, body.interval, startMs, endMs);
+    await marketData.ensureCoverage(symbol, body.interval, startMs, endMs);
     const count = await candleRepo.countCandles(symbol, body.interval);
     return { symbol, interval: body.interval, storedTotal: count };
   });
@@ -60,9 +72,14 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
   /** Sync exchange filters (tick/step/minNotional) for the given symbols. */
   app.post("/api/data/sync-filters", async (req, reply) => {
     const body = req.body as { symbols?: string[] };
-    const symbols = (body?.symbols ?? []).map((s) => s.toUpperCase());
+    let symbols: string[];
+    try { symbols = (body?.symbols ?? []).map(storedSymbol); }
+    catch (err) {
+      if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
     if (symbols.length === 0) return reply.code(400).send({ error: "symbols[] is required" });
-    await syncExchangeFilters(symbols);
+    await marketData.syncInstrumentFilters(symbols);
     return { synced: symbols };
   });
 }

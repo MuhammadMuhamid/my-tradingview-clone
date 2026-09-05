@@ -1,4 +1,5 @@
 // Mirrors the backend API response shapes (see backend/src/types).
+import type { AssetClass } from "./instrument";
 
 export type Interval =
   | "1m" | "3m" | "5m" | "15m" | "30m"
@@ -39,6 +40,16 @@ export interface SymbolInfo {
   qtyStep: number | null;
   minNotional: number | null;
   isActive: boolean;
+  /**
+   * Which venue and asset class this ticker belongs to.
+   *
+   * Always `BINANCE` / `crypto_spot` here — that is the only feed there is.
+   * Optional because this is a mirror of a response shape rather than a shape
+   * this side owns: a reader must not crash on a row that predates the field.
+   * `lib/instrument` supplies the same defaults the backend does.
+   */
+  venue?: string;
+  assetClass?: AssetClass;
 }
 
 export interface Candle {

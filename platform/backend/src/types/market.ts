@@ -1,3 +1,5 @@
+import type { AssetClass } from "./instrument";
+
 /** Binance kline intervals the platform supports. */
 export const INTERVALS = [
   "1m", "3m", "5m", "15m", "30m",
@@ -47,4 +49,13 @@ export interface SymbolInfo {
   qtyStep: number | null;
   minNotional: number | null;
   isActive: boolean;
+  /**
+   * Which venue and asset class this ticker belongs to.
+   *
+   * Always `BINANCE` / `crypto_spot` on this installation — that is the only
+   * feed there is. Present so the identity is stated rather than assumed by
+   * every reader; see `types/instrument.ts`.
+   */
+  venue: string;
+  assetClass: AssetClass;
 }

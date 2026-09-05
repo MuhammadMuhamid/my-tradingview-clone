@@ -4,6 +4,7 @@ import * as candles from "../../repositories/candles";
 import { isInterval } from "../../types/market";
 import { toCompact } from "../../data/candleWire";
 import { fetch24hTickers, listExchangeSymbols, TICKER_BATCH_LIMIT, type Ticker24h } from "../../data/binanceRest";
+import { InstrumentIdError, storedSymbol } from "../../types/instrument";
 
 /** Quote assets offered as filter chips, best-supported first. */
 const QUOTE_ORDER = ["USDT", "FDUSD", "USDC", "BTC", "ETH", "BNB", "TRY", "EUR"];
@@ -180,7 +181,19 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
     if (q.format !== undefined && q.format !== "compact") {
       return reply.code(400).send({ error: 'format must be "compact" when given' });
     }
-    const ticker = symbol.toUpperCase();
+    /*
+     * Accepts the bare ticker every stored row and link already carries AND
+     * the venue-qualified `BINANCE:BTCUSDT` form, which resolve to exactly the
+     * same instrument. A venue this build does not implement is refused here
+     * rather than silently served from Binance's tape — see
+     * `types/instrument.ts`.
+     */
+    let ticker: string;
+    try { ticker = storedSymbol(symbol); }
+    catch (err) {
+      if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
     const rows = await candles.getCandles(ticker, q.interval, {
       from: q.from !== undefined ? Number(q.from) : undefined,
       to: q.to !== undefined ? Number(q.to) : undefined,

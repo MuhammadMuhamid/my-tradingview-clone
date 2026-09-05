@@ -5,6 +5,7 @@
 import type { BacktestRow } from "../types/backtest";
 import * as candleRepo from "../repositories/candles";
 import * as symbolRepo from "../repositories/symbols";
+import { registerInstrument } from "../data/instrumentRegistration";
 import * as strategyRepo from "../repositories/strategies";
 import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
 import { assertNoInternalCandleGaps } from "../data/candleSeries";
@@ -101,9 +102,13 @@ export async function executeBacktest(
   const feeds = new FeedStore();
   for (const need of needs) {
     const symbol = need.symbol ?? row.symbol;
-    if (need.symbol && !(await symbolRepo.getSymbol(need.symbol))) {
-      // e.g. BTCUSDT for the BTC filter on a coin that isn't tracked yet
-      await symbolRepo.addSymbol(need.symbol, need.symbol.replace(/USDT$/, ""), "USDT");
+    if (need.symbol) {
+      // e.g. BTCUSDT for the BTC filter on a coin that isn't tracked yet. The
+      // assets come from the venue's own metadata; the suffix split survives
+      // only as a fallback when the directory is unreachable, so a backtest
+      // does not fail because `exchangeInfo` blipped. See
+      // `data/instrumentRegistration`.
+      await registerInstrument(need.symbol, log);
     }
     const from = startMs - module.warmupMs(need);
     await ensureCandles(symbol, need.interval, from, endMs, log);

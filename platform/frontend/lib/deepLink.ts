@@ -28,6 +28,7 @@
  *      malformed falls back to the ranked lookup, which is a server response.
  */
 import type { OptimizerBest } from "@/lib/api";
+import { tryStoredSymbol } from "./instrument";
 import type { Interval } from "@/lib/types";
 
 /** The strategies the chart knows how to apply from a link. */
@@ -70,7 +71,13 @@ export function parseApplyLink(search: string): ApplyRequest | null {
   const strategy = q.get("applyStrategy") ?? "";
   if (!isStrategy(strategy)) return null;
 
-  const symbol = (q.get("applySymbol") ?? "").toUpperCase();
+  /*
+   * Accepts the bare ticker every link has always carried AND the qualified
+   * `BINANCE:BTCUSDT` form, which resolve to the same instrument. A link naming
+   * a venue this build does not implement is rejected rather than silently
+   * charted from Binance's tape — see `lib/instrument`.
+   */
+  const symbol = tryStoredSymbol(q.get("applySymbol") ?? "") ?? "";
   if (!SYMBOL_RE.test(symbol)) return null;
 
   const timeframe: Interval = q.get("applyTf") === "5m" ? "5m" : "15m";

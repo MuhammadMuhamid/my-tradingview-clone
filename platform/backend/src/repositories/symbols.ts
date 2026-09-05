@@ -1,5 +1,6 @@
 import { query } from "../db/pool";
 import type { SymbolInfo } from "../types/market";
+import { DEFAULT_ASSET_CLASS, DEFAULT_VENUE, type AssetClass } from "../types/instrument";
 
 interface SymbolRow {
   symbol: string;
@@ -9,6 +10,13 @@ interface SymbolRow {
   qty_step: number | null;
   min_notional: number | null;
   is_active: boolean;
+  /**
+   * Added by 026 with the only defaults this installation has, so a row
+   * written before that migration reads exactly as it always meant. Optional
+   * on the row type because a caller may `SELECT` a projection without them.
+   */
+  venue?: string | null;
+  asset_class?: string | null;
 }
 
 function toSymbolInfo(r: SymbolRow): SymbolInfo {
@@ -20,6 +28,8 @@ function toSymbolInfo(r: SymbolRow): SymbolInfo {
     qtyStep: r.qty_step,
     minNotional: r.min_notional,
     isActive: r.is_active,
+    venue: r.venue ?? DEFAULT_VENUE,
+    assetClass: (r.asset_class ?? DEFAULT_ASSET_CLASS) as AssetClass,
   };
 }
 
