@@ -217,3 +217,55 @@ test("changing the pinned pane's own symbol follows it, so the panel's disarm st
     "a deliberate symbol change on the pinned pane is a supported workflow");
   assert.equal(followed.paneId, first);
 });
+
+// ── Enter cannot select a previous query's results ──────────────────────────
+
+/**
+ * The race, stated as source structure.
+ *
+ * The dialog opens seeded with the CURRENT symbol and debounces its search by
+ * 180 ms. Pasting a different ticker and pressing Enter inside that window
+ * used to select `rows[cursor]` — still the answer to the seeded query — so
+ * the chart kept the symbol the user had just replaced, silently.
+ *
+ * A behavioural test would need React and a fake timer; the invariant that
+ * actually prevents the defect is structural and is asserted here: results
+ * carry the query they answer, Enter compares the two, and the impatient path
+ * flushes the pending debounce rather than issuing a second request.
+ */
+test("Enter compares the results' query against the live input before selecting", () => {
+  const source = readCode(DIALOG);
+  assert.match(source, /setRowsKey\(key\)/,
+    "results must record which query they answer");
+  assert.match(source, /rowsKey !== searchKey\(term, quote\)/,
+    "Enter must compare the answered query against what is in the box");
+  assert.match(source, /pendingEnter\.current = true;[\s\S]{0,80}flushSearch\.current\?\.\(\)/,
+    "a mismatched Enter arms an intent and flushes the debounce");
+  assert.match(source, /clearTimeout\(timer\);\s*run\(\);/,
+    "the flush cancels the pending timer, so it costs one request rather than two");
+});
+
+test("a mismatched Enter never falls through to the stale selection path", () => {
+  const source = readCode(DIALOG);
+  const enterBlock = source.slice(source.indexOf('if (e.key === "Enter")'));
+  const guard = enterBlock.indexOf("rowsKey !== searchKey");
+  const select = enterBlock.indexOf("rowAtCursor(rows, cursor)");
+  assert.ok(guard >= 0 && select > guard,
+    "the query-identity guard must precede the selection, and return before it");
+  assert.match(enterBlock.slice(guard, select), /return;/,
+    "the mismatched branch returns rather than continuing into the selection");
+});
+
+test("opening the dialog invalidates the previous session's answered query", () => {
+  const source = readCode(DIALOG);
+  assert.match(source, /setRowsKey\(null\);\s*pendingEnter\.current = false;/,
+    "a freshly opened dialog answers nothing yet, and holds no armed Enter");
+});
+
+test("mouse, focus and Escape behaviour is untouched by the Enter fix", () => {
+  const source = readCode(DIALOG);
+  assert.match(source, /onMouseEnter=\{\(\) => setCursor\(i\)\}/);
+  assert.match(source, /onClick=\{\(\) => void choose\(r\)\}/);
+  assert.match(source, /e\.key === "Escape"/);
+  assert.match(source, /restoreTo\.current/, "focus is still returned to the trigger");
+});

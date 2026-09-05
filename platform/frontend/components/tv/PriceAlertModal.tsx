@@ -40,7 +40,7 @@ const DIRECTION_HELP: Record<PriceDirection, string> = {
  * an opportunity to fat-finger a decimal.
  */
 export function PriceAlertModal({
-  open, onClose, symbol, chartTimeframe, initialPrice, lastPrice, existing,
+  open, onClose, symbol, chartTimeframe, initialPrice, lastPrice, lastPriceNotice, existing,
   onPickFromChart, onSaved,
 }: {
   open: boolean;
@@ -51,6 +51,8 @@ export function PriceAlertModal({
   initialPrice: number | null;
   /** Latest close, used as the fallback level and to sanity-check direction. */
   lastPrice: number | null;
+  /** Set when `lastPrice` is a stored close rather than a live frame. */
+  lastPriceNotice?: string | null;
   /** Price alerts already armed on this symbol, so the dialog edits rather than duplicates. */
   existing: MaAlert[];
   /** Close and let the next chart click supply the level. */
@@ -186,6 +188,14 @@ export function PriceAlertModal({
             Last price {fmtPrice(lastPrice)}
             {valid && ` · ${(((target - lastPrice) / lastPrice) * 100).toFixed(2)}% away`}
           </p>
+        )}
+        {/*
+          A prefill taken from stored history is not the market. Saying so is
+          the difference between a helpful default and a number the operator
+          arms an alert at believing it is current.
+        */}
+        {lastPrice !== null && lastPriceNotice && (
+          <p className="pl-[122px] text-xs text-warn">{lastPriceNotice}</p>
         )}
 
         <Row label="Condition">

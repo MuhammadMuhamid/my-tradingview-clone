@@ -290,7 +290,14 @@ function ChartPaneImpl(props: ChartPaneProps) {
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular text-[11px] text-ink-muted">
-          {showReadout && last && <span className="text-ink">{fmtPrice(last.close)}</span>}
+          {showReadout && last && (
+            <span className={history.stale ? "text-warn" : "text-ink"}
+              title={history.stale
+                ? "This window is behind the market — the tail refresh could not reach the current bar."
+                : undefined}>
+              {fmtPrice(last.close)}
+            </span>
+          )}
           {/*
             The bar count is an implementation readout, not a trading fact:
             it lives in the title of the loading indicator (and under More

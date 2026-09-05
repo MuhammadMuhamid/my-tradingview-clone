@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type SymbolSearchResult } from "@/lib/api";
 import {
-  ALL_QUOTES, SEARCH_MARKET, SEARCH_VENUE, moveCursor, quoteFilters, rowAtCursor, searchSummary,
+  ALL_QUOTES, SEARCH_MARKET, SEARCH_VENUE, moveCursor, quoteFilters, rowAtCursor,
+  searchKey, searchSummary,
 } from "@/lib/symbolSearch";
 
 /**
@@ -31,6 +32,22 @@ import {
  * ↑/↓ move, Enter picks, Esc closes, Tab stays inside the panel. The cursor is
  * `-1` when nothing matched — clamping to 0 against an empty list left a
  * highlight pointing at a row that was not there.
+ *
+ * ── Enter cannot select a previous query's results ─────────────────────────
+ *
+ * Typing or pasting a ticker and hitting Enter immediately is the fastest way
+ * to change symbol, and it was wrong. The search is debounced by 180 ms, so at
+ * the moment Enter arrives `rows` still hold the answer to whatever was in the
+ * box before — the dialog opens seeded with the CURRENT symbol, so pasting
+ * "SOLUSDT" and pressing Enter re-selected BTCUSDT and looked like nothing had
+ * happened.
+ *
+ * The rows now carry the query they answer (`rowsKey`). Enter against rows that
+ * do not answer the current input does not guess and does not select: it
+ * FLUSHES the pending debounce so the request goes out at once, and arms a
+ * one-shot intent that the arriving results honour. The debounce timer is
+ * cleared by the flush, so this issues one request rather than two, and an
+ * intent is dropped the moment the user types again or closes the dialog.
  */
 export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }: {
   open: boolean;
@@ -54,6 +71,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   /** Whatever had focus before the dialog opened, so it can be given back. */
   const restoreTo = useRef<HTMLElement | null>(null);
   const reqId = useRef(0);
+  /**
+   * Which query `rows` answer. Compared against the live input before Enter is
+   * allowed to select anything — see the module header.
+   */
+  const [rowsKey, setRowsKey] = useState<string | null>(null);
+  /** Set when Enter arrived before its results did; consumed by the next answer. */
+  const pendingEnter = useRef(false);
+  /** Runs the debounced search immediately, cancelling the timer. */
+  const flushSearch = useRef<(() => void) | null>(null);
 
   // Fresh dialog every time it opens, pre-seeded with the current symbol so
   // Enter re-selects it and typing replaces it (the selection is highlighted).
@@ -63,6 +89,10 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     setQuote(ALL_QUOTES);
     setCursor(0);
     setErr(null);
+    // A dialog that has just opened answers nothing yet; its rows are last
+    // session's, and Enter must not treat them as this session's answer.
+    setRowsKey(null);
+    pendingEnter.current = false;
     restoreTo.current = typeof document === "undefined"
       ? null : (document.activeElement as HTMLElement | null);
     const t = setTimeout(() => {
@@ -82,9 +112,12 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   // Debounced search; out-of-order responses are dropped by request id.
   useEffect(() => {
     if (!open) return;
+    const key = searchKey(term, quote);
     const id = ++reqId.current;
     setBusy(true);
-    const t = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = () => {
+      timer = null;
       api.searchSymbols(term, quote === ALL_QUOTES ? "" : quote, 60)
         .then((res) => {
           if (reqId.current !== id) return;
@@ -92,7 +125,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           setTotal(res.total);
           setQuotes(res.quotes);
           setCursor(res.results.length > 0 ? 0 : -1);
+          setRowsKey(key);
           setErr(null);
+          // Enter was pressed while this query was still in flight. It meant
+          // "take the best match for what I typed", and this is that answer.
+          if (pendingEnter.current) {
+            pendingEnter.current = false;
+            const row = res.results[0];
+            if (row) void chooseRef.current(row);
+          }
         })
         .catch((e) => {
           if (reqId.current !== id) return;
@@ -102,11 +143,24 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           setRows([]);
           setTotal(0);
           setCursor(-1);
+          setRowsKey(key);
+          pendingEnter.current = false;
           setErr((e as Error).message);
         })
         .finally(() => { if (reqId.current === id) setBusy(false); });
-    }, 180);
-    return () => clearTimeout(t);
+    };
+    timer = setTimeout(run, 180);
+    // Enter may need this query NOW rather than in 180 ms. Flushing cancels
+    // the timer first, so the impatient path costs one request, not two.
+    flushSearch.current = () => {
+      if (timer === null) return;
+      clearTimeout(timer);
+      run();
+    };
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      flushSearch.current = null;
+    };
   }, [open, term, quote]);
 
   const choose = useCallback(async (row: SymbolSearchResult) => {
@@ -122,6 +176,14 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     }
   }, [onSelect, onClose, onSymbolAdded]);
 
+  /*
+   * The search effect must be able to complete a pending Enter, but must not
+   * re-run — and re-issue its request — every time `choose` is rebuilt. A ref
+   * gives it the current implementation without becoming a dependency.
+   */
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
+
   // Keyboard navigation: ↑/↓ move, Enter picks, Esc closes, Tab stays inside.
   useEffect(() => {
     if (!open) return;
@@ -133,8 +195,16 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         return;
       }
       if (e.key === "Enter") {
+        e.preventDefault();
+        // Results that answer a previous query are not an answer to this one.
+        // Selecting from them is exactly the defect: see the module header.
+        if (rowsKey !== searchKey(term, quote)) {
+          pendingEnter.current = true;
+          flushSearch.current?.();
+          return;
+        }
         const row = rowAtCursor(rows, cursor);
-        if (row) { e.preventDefault(); void choose(row); }
+        if (row) void choose(row);
         return;
       }
       if (e.key !== "Tab") return;
@@ -157,7 +227,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, rows, cursor, choose, onClose]);
+  }, [open, rows, rowsKey, term, quote, cursor, choose, onClose]);
 
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {

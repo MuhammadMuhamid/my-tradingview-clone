@@ -14,7 +14,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { datasetKey, LiveTickGate } from "../lib/liveDataset";
-import { mergeLiveBarsInto } from "../lib/useCandleHistory";
+import { heldWindow, mergeLiveBarsInto } from "../lib/useCandleHistory";
 import {
   planCandleMutation, planColoredCandleMutation, planOhlcMutation, planSeriesMutation,
 } from "../lib/chartSeries";
@@ -110,10 +110,10 @@ test("a held tick older than the landed history is dropped, and a foreign one st
 });
 
 test("the history hook refuses to merge a bar from another dataset, and trims to the window", () => {
-  const held = {
-    candles: [candle("BTCUSDT", 60_000, 1), candle("BTCUSDT", 120_000, 2)],
-    dataset: { symbol: "BTCUSDT", interval: "1m" as Interval, bars: 2 },
-  };
+  const held = heldWindow(
+    [candle("BTCUSDT", 60_000, 1), candle("BTCUSDT", 120_000, 2)],
+    { symbol: "BTCUSDT", interval: "1m" as Interval, bars: 2 },
+  );
   const foreign = mergeLiveBarsInto(held, null, candle("SOLUSDT", 120_000, 77));
   assert.equal(foreign, held, "a SOL bar was merged into BTC's window");
   const wrongInterval = mergeLiveBarsInto(held, null, candle("BTCUSDT", 120_000, 77, "5m"));

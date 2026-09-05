@@ -58,6 +58,12 @@ export interface ChartDialogsProps {
   onClosePriceAlert: () => void;
   priceAlertLevel: number | null;
   lastPrice: number | null;
+  /**
+   * Why the prefilled price is not a live one, when it is not. Passed through
+   * so the dialog can qualify the number rather than let a stored close pass
+   * for the market — see `lib/lastPrice`.
+   */
+  lastPriceNotice?: string | null;
   onPickFromChart: () => void;
 
   levelKind: "sr_zone" | "pivot_level" | null;
@@ -117,6 +123,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
       chartTimeframe={interval}
       initialPrice={props.priceAlertLevel}
       lastPrice={props.lastPrice}
+      lastPriceNotice={props.lastPriceNotice ?? null}
       existing={maAlerts.filter((a) => a.conditionKind === "price")}
       onPickFromChart={props.onPickFromChart}
       onSaved={onAlertSaved}

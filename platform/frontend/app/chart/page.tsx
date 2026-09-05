@@ -63,6 +63,8 @@ import { parseScannerChartTarget } from "@/lib/spotScene";
 import { sameSymbol } from "@/lib/manualTicket";
 import { resolveTradingTarget, tradingTargetNotice, type TradingTarget } from "@/lib/tradingTarget";
 import { useCandleHistory } from "@/lib/useCandleHistory";
+import { useLivePrice } from "@/lib/useLivePrice";
+import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneMaVisibility, setPreset,
@@ -172,7 +174,29 @@ export default function TvWorkspace() {
   const visibleCandles = useMemo(() => replayCandles(candles, replay), [candles, replay]);
   const replayLast = visibleCandles[visibleCandles.length - 1];
   const replayFirst = visibleCandles[0];
-  const last = replayLast;
+
+  /*
+   * The workspace's Last price.
+   *
+   * `activeHistory` is a SECOND reader of the shared cache: it is loaded once
+   * and never receives live klines, because only the pane's own copy is fed by
+   * `mergeLiveBars`. Reading its final close as "Last" is how the toolbar and
+   * the price-alert prefill both came to show the close of whatever bar the
+   * history happened to end on — hours old on a stale window.
+   *
+   * The live frame comes from the SAME kline subscription the focused pane is
+   * already drawing from (`lib/useLivePrice`), so there is no second market
+   * store and no extra socket. Replay outranks it absolutely; before any live
+   * frame the newest stored close is used and labelled as exactly that.
+   */
+  const livePrice = useLivePrice(symbol, interval, { enabled: !replayActive });
+  const lastPrice = useMemo(() => resolveLastPrice({
+    replayActive,
+    replayClose: replayLast?.close ?? null,
+    liveClose: livePrice.price,
+    historyClose: candles[candles.length - 1]?.close ?? null,
+    historyStale: activeHistory.stale,
+  }), [replayActive, replayLast, livePrice.price, candles, activeHistory.stale]);
   const pineStartTime = replayActive && replayFirst
     ? new Date(replayFirst.openTime).toISOString()
     : `${BACKTEST_START}T00:00:00.000Z`;
@@ -978,7 +1002,12 @@ export default function TvWorkspace() {
           loadingBest={loadingBest}
           readout={
             <span className="tabular whitespace-nowrap text-xs text-ink-muted">
-              {last && <>{replayActive ? "Replay" : "Last"} <span className="text-ink">{fmtPrice(last.close)}</span></>}
+              {lastPrice.price !== null && (
+                <span title={lastPriceNotice(lastPrice) ?? undefined}>
+                  {lastPriceLabel(lastPrice)}{" "}
+                  <span className="text-ink">{fmtPrice(lastPrice.price)}</span>
+                </span>
+              )}
               <span className="ml-3 text-ink-faint">
                 {visibleCandles.length.toLocaleString()} bars{activeHistory.loading ? " · loading…" : ""}
               </span>
@@ -1115,7 +1144,7 @@ export default function TvWorkspace() {
         onOpenInEditor={openInEditor}
         onEditIndicator={editIndicator}
         tradingSymbol={tradingSymbol}
-        tradingLastPrice={sameSymbol(tradingSymbol, symbol) ? last?.close ?? null : null}
+        tradingLastPrice={sameSymbol(tradingSymbol, symbol) ? lastPrice.price : null}
         tradingNotice={tradingNotice}
         onTicketStagedChange={setTicketStaged}
         onManualState={recordManualState}
@@ -1160,7 +1189,8 @@ export default function TvWorkspace() {
         priceAlertOpen={priceAlertOpen}
         onClosePriceAlert={() => setPriceAlertOpen(false)}
         priceAlertLevel={priceAlertLevel}
-        lastPrice={last?.close ?? null}
+        lastPrice={lastPrice.price}
+        lastPriceNotice={lastPriceNotice(lastPrice)}
         onPickFromChart={() => { setPriceAlertOpen(false); setPickingLevel(true); }}
         levelKind={levelKind}
         onCloseLevel={() => setLevelKind(null)}

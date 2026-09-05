@@ -158,8 +158,12 @@ test("serialization is deterministic whatever order things were built in", () =>
   const b = serializeTemplates([template({ name: "A" }), template({ name: "B" })]);
   assert.equal(a, b, "template order must not change the stored bytes");
 
-  const p1 = templateFromIndicators("T", [applied({ params: { b: 2, a: 1 } })]);
-  const p2 = templateFromIndicators("T", [applied({ params: { a: 1, b: 2 } })]);
+  // A fixed stamp, because the claim under test is about PARAMETER order.
+  // Two `new Date()` calls that straddle a millisecond made this fail at
+  // random on the `createdAt` field, which the assertion is not about.
+  const at = new Date("2026-01-01T00:00:00.000Z");
+  const p1 = templateFromIndicators("T", [applied({ params: { b: 2, a: 1 } })], at);
+  const p2 = templateFromIndicators("T", [applied({ params: { a: 1, b: 2 } })], at);
   assert.equal(serializeTemplates([p1]), serializeTemplates([p2]),
     "parameter key order must not change the stored bytes");
 });

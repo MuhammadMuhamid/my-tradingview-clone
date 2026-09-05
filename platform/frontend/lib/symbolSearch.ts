@@ -47,6 +47,23 @@ export function quoteFilters(quotes: readonly string[] | null | undefined): stri
 }
 
 /**
+ * The identity of one search: what was typed, and which quote chip is on.
+ *
+ * Results carry the key of the query they answer, so the dialog can tell an
+ * answer to the current input from an answer to the previous one. Enter is
+ * allowed to select only from the former — a debounced search means the two
+ * are routinely different for the first 180 ms after a keystroke or a paste,
+ * which is exactly when an impatient user presses Enter.
+ *
+ * The term is trimmed and upper-cased because the server treats it that way:
+ * two inputs the search cannot distinguish must not count as different
+ * queries, or Enter would stall waiting for an answer that already arrived.
+ */
+export function searchKey(term: string, quote: string): string {
+  return `${term.trim().toUpperCase()}|${quote.trim().toUpperCase()}`;
+}
+
+/**
  * Where the highlight lands after a key press.
  *
  * Total for every length, including zero — an empty result set has no row to

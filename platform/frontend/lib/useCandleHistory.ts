@@ -16,40 +16,98 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { candleHistory, type HistoryRequest } from "./candleHistory";
+import { candleHistory, historyKey, type HistoryRequest } from "./candleHistory";
+import {
+  claimTailRepair, isTailStale, spliceTail, tailRepairRange,
+} from "./historyFreshness";
 import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import { INTERVAL_MS, type Candle, type Interval } from "./types";
 
 /**
- * Fetch a window, repairing thin history once.
+ * Fetch a window, repairing thin history once and a stale tail once.
+ *
+ * Two different defects, deliberately checked in this order.
+ *
+ * DEPTH: too few bars for the requested window. Repaired by backfilling the
+ * whole lookback, which is what a chart with no stored history needs.
+ *
+ * FRESHNESS: enough bars, but the newest of them is slots behind the interval
+ * grid — a machine that slept, a backend that was down, a pair last backfilled
+ * yesterday. Count says nothing about this, which is exactly why the chart
+ * could show a complete-looking series that ended hours ago. Repaired by
+ * fetching only the missing TAIL: see `lib/historyFreshness`.
+ *
+ * A depth repair already backfills through `now`, so a window that took that
+ * path is normally fresh by the time freshness is asked about. When it is not
+ * — an upstream that answered short — the tail repair is still bounded and
+ * still claimed against the cooldown, so neither path can loop.
  *
  * Exported so the acceptance tests can drive the cache with a stub instead of
- * this, and so the repair rule has one home.
+ * this, and so both repair rules have one home.
  */
 export async function loadCandleWindow(
   request: HistoryRequest, signal: AbortSignal
 ): Promise<Candle[]> {
   const { symbol, interval, bars } = request;
   let data = await api.candles(symbol, interval, bars, signal);
-  if (data.length >= Math.min(bars, 500) * 0.98) return data;
 
-  // Not enough history stored: backfill, then fetch only what is missing
-  // rather than the whole window again.
-  const lookbackMs = Math.ceil(bars * 1.1) * INTERVAL_MS[interval];
-  await api.backfill(
-    symbol, interval,
-    new Date(Date.now() - lookbackMs).toISOString(),
-    new Date().toISOString()
-  );
-  const haveFrom = data.length > 0 ? data[0]!.openTime : Date.now();
-  const missing = await api.candlesRange(
-    symbol, interval, Date.now() - lookbackMs, haveFrom - 1, bars, signal
-  );
-  data = missing.length > 0
-    ? [...missing, ...data]
-    : await api.candles(symbol, interval, bars, signal);
-  return data;
+  if (data.length < Math.min(bars, 500) * 0.98) {
+    // Not enough history stored: backfill, then fetch only what is missing
+    // rather than the whole window again.
+    const lookbackMs = Math.ceil(bars * 1.1) * INTERVAL_MS[interval];
+    await api.backfill(
+      symbol, interval,
+      new Date(Date.now() - lookbackMs).toISOString(),
+      new Date().toISOString()
+    );
+    const haveFrom = data.length > 0 ? data[0]!.openTime : Date.now();
+    const missing = await api.candlesRange(
+      symbol, interval, Date.now() - lookbackMs, haveFrom - 1, bars, signal
+    );
+    data = missing.length > 0
+      ? [...missing, ...data]
+      : await api.candles(symbol, interval, bars, signal);
+  }
+
+  return repairStaleTail(request, data, signal);
+}
+
+/**
+ * Bring a long-but-stale window up to the interval grid, once.
+ *
+ * Separate from the loader so the rule can be tested against a stubbed `api`
+ * without a cache, a hook or a chart. Returns the window unchanged when it is
+ * already current, when the cooldown has not elapsed, or when the repair
+ * itself failed — the last of which is deliberate: a failed refresh leaves
+ * honest stale data on screen and lets `useCandleHistory` say so, rather than
+ * throwing away a real window or presenting the failure as a fresh load.
+ */
+export async function repairStaleTail(
+  request: HistoryRequest, data: Candle[], signal: AbortSignal
+): Promise<Candle[]> {
+  const { symbol, interval, bars } = request;
+  const now = Date.now();
+  if (!isTailStale(data, interval, now)) return data;
+  if (!claimTailRepair(historyKey(request), now)) return data;
+
+  const last = data.length > 0 ? data[data.length - 1]!.openTime : null;
+  const range = tailRepairRange(last, interval, now, bars);
+  try {
+    await api.backfill(
+      symbol, interval,
+      new Date(range.from).toISOString(), new Date(range.to).toISOString()
+    );
+    const tail = await api.candlesRange(
+      symbol, interval, range.from, range.to, bars, signal
+    );
+    return spliceTail(data, tail, bars);
+  } catch (cause) {
+    // An abort is this pane superseding itself and must propagate; a genuine
+    // upstream failure is not a reason to discard the window we do have.
+    if (isAbortError(cause)) throw cause;
+    return data;
+  }
 }
 
 export interface CandleHistoryState {
@@ -67,15 +125,40 @@ export interface CandleHistoryState {
   dataset: HistoryRequest;
   loading: boolean;
   error: string | null;
+  /**
+   * The newest bar held is slots behind the interval grid and the repair could
+   * not close the distance — the window is real but behind the market.
+   *
+   * Recomputed with the bars themselves, so a live tick that reaches the
+   * current slot clears it without anything else having to notice.
+   */
+  stale: boolean;
   /** Merge a live bar (and the bar it closed) into this pane's series. */
   mergeLiveBars: (closed: Candle | null, current: Candle) => void;
   /** Force a reload of this window, bypassing the cache. */
   reload: () => void;
 }
 
-interface HeldWindow {
+export interface HeldWindow {
   candles: Candle[];
   dataset: HistoryRequest;
+  /**
+   * Carried in the same object as the bars it describes, so no render can see
+   * a fresh series under a stale flag or the reverse.
+   */
+  stale: boolean;
+}
+
+/**
+ * One window, with its freshness measured against the grid at `now`.
+ *
+ * Exported so a test can build a held window the same way the hook does,
+ * rather than hand-assembling one whose `stale` flag disagrees with its bars.
+ */
+export function heldWindow(
+  candles: Candle[], dataset: HistoryRequest, now = Date.now()
+): HeldWindow {
+  return { candles, dataset, stale: isTailStale(candles, dataset.interval, now) };
 }
 
 /**
@@ -101,7 +184,9 @@ export function mergeLiveBarsInto(
   }
   if (!changed) return held;
   const bars = held.dataset.bars;
-  return { candles: next.length > bars ? next.slice(-bars) : next, dataset: held.dataset };
+  // A tick that reaches the current slot is exactly what makes a stale window
+  // current again, so freshness is re-measured here rather than left behind.
+  return heldWindow(next.length > bars ? next.slice(-bars) : next, held.dataset);
 }
 
 export function useCandleHistory(
@@ -111,10 +196,8 @@ export function useCandleHistory(
   const { symbol, interval, bars } = request;
   // Candles and their identity change together, in one state, so a render
   // can never see new candles under an old identity or the reverse.
-  const [held, setHeld] = useState<HeldWindow>(() => ({
-    candles: candleHistory.peek(request) ?? [],
-    dataset: { symbol, interval, bars },
-  }));
+  const [held, setHeld] = useState<HeldWindow>(
+    () => heldWindow(candleHistory.peek(request) ?? [], { symbol, interval, bars }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -128,7 +211,7 @@ export function useCandleHistory(
     const token = requestSeq.current.next();
     const cached = candleHistory.peek(window_);
     if (cached) {
-      setHeld({ candles: cached, dataset: window_ });
+      setHeld(heldWindow(cached, window_));
       setError(null); setLoading(false); return;
     }
     const signal = inFlight.current.start();
@@ -138,7 +221,7 @@ export function useCandleHistory(
       const data = await candleHistory.load(window_, loadCandleWindow, signal);
       // The response is applied ONLY if it is still the one being waited for.
       if (!requestSeq.current.isCurrent(token)) return;
-      setHeld({ candles: data, dataset: window_ });
+      setHeld(heldWindow(data, window_));
     } catch (cause) {
       // An abort is this pane superseding itself, not a failure to report.
       if (isAbortError(cause)) return;
@@ -177,7 +260,10 @@ export function useCandleHistory(
   }, [symbol, interval, bars]);
 
   return useMemo(
-    () => ({ candles: held.candles, dataset: held.dataset, loading, error, mergeLiveBars, reload }),
+    () => ({
+      candles: held.candles, dataset: held.dataset, stale: held.stale,
+      loading, error, mergeLiveBars, reload,
+    }),
     [held, loading, error, mergeLiveBars, reload]
   );
 }
