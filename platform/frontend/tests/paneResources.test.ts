@@ -19,6 +19,11 @@ import {
   clearStored, copyStoredForScope, indicatorStorageKey, loadStored,
   PRIMARY_INDICATOR_SCOPE, saveStored, type AppliedIndicator,
 } from "../lib/indicators";
+import {
+  clearStoredNative, copyStoredNativeForScope, loadStoredNative, nativeStorageKey,
+  saveStoredNative,
+} from "../lib/useNativeStudies";
+import type { AppliedNativeStudy } from "../lib/native/compute";
 import { loadDrawings, saveDrawings, type Drawing } from "../lib/drawings";
 import {
   drawingsAtReplayHorizon, lastBarIndexAtOrBefore, liveActionsDisabled, replayCandles,
@@ -31,6 +36,9 @@ import type { Candle, Interval } from "../lib/types";
 
 const ROOT = path.join(__dirname, "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
+
+const nativeStudy = (key: string, defId: string): AppliedNativeStudy =>
+  ({ key, defId, params: {}, visible: true, styles: {} });
 
 /** A `localStorage` good enough for the modules under test. */
 function installStorage(): Map<string, string> {
@@ -150,10 +158,79 @@ test("closing a pane releases its studies so a reused id inherits nothing", () =
   } finally { uninstallStorage(); }
 });
 
-test("the page copies on growth and releases on close", () => {
+test("the page copies on growth and releases on close, for BOTH study engines", () => {
   const page = read("app/chart/page.tsx");
   assert.match(page, /copyStoredForScope\(workspace\.activePaneId, pane\.id\)/);
-  assert.match(page, /if \(next !== ws\) clearStored\(paneId\)/);
+  assert.match(page, /copyStoredNativeForScope\(workspace\.activePaneId, pane\.id\)/,
+    "a cloned pane must inherit its source pane's built-in studies too");
+  assert.match(page, /if \(next !== ws\) \{ clearStored\(paneId\); clearStoredNative\(paneId\); \}/,
+    "closing a pane must release both scopes, or a reused pane id inherits " +
+    "built-in studies from the pane that used to hold it");
+});
+
+test("a pane's built-in studies are scoped and released exactly like its Pine ones", () => {
+  const store = installStorage();
+  try {
+    saveStoredNative([nativeStudy("n1", "rsi")], "p1");
+    saveStoredNative([nativeStudy("n2", "macd")], "p2");
+    assert.equal(loadStoredNative("p1")[0]!.defId, "rsi");
+    assert.equal(loadStoredNative("p2")[0]!.defId, "macd");
+
+    // The first pane keeps the unsuffixed key, so an existing user's chart
+    // reads exactly the entry it wrote before panes had scopes.
+    assert.equal(nativeStorageKey("p1"), "tv.nativeStudies.v1");
+    assert.equal(nativeStorageKey("p2"), "tv.nativeStudies.v1.p2");
+
+    copyStoredNativeForScope("p1", "p3");
+    assert.equal(loadStoredNative("p3")[0]!.defId, "rsi");
+    assert.notEqual(loadStoredNative("p3")[0]!.key, loadStoredNative("p1")[0]!.key,
+      "a clone gets its own instance keys, or the two panes would share a legend row");
+
+    clearStoredNative("p2");
+    assert.deepEqual(loadStoredNative("p2"), []);
+    assert.equal(store.has("tv.nativeStudies.v1.p2"), false);
+    assert.equal(loadStoredNative("p1").length, 1, "closing one pane emptied another");
+  } finally { uninstallStorage(); }
+});
+
+test("a stored built-in study that this build does not have is dropped, not fatal", () => {
+  const store = installStorage();
+  try {
+    store.set("tv.nativeStudies.v1", JSON.stringify([
+      { key: "a", defId: "rsi", params: { length: 21 }, visible: true, styles: {} },
+      { key: "b", defId: "from_a_later_build", params: {}, visible: true, styles: {} },
+      { key: "c", defId: "macd", params: {}, visible: false, styles: { macd: { color: "#fff" } } },
+    ]));
+    const restored = loadStoredNative("p1");
+    assert.deepEqual(restored.map((s) => s.defId), ["rsi", "macd"],
+      "losing two good studies because a third named something unknown is the " +
+      "worst possible response to a forward-compatible file");
+    assert.equal(restored[0]!.params.length, 21, "a stored tuning survives");
+    assert.equal(restored[1]!.visible, false, "and so does a hidden study");
+    assert.equal(restored[1]!.styles.macd!.color, "#fff", "and so does a style override");
+  } finally { uninstallStorage(); }
+});
+
+test("a hostile or corrupt stored entry cannot reach a study's arithmetic", () => {
+  const store = installStorage();
+  try {
+    store.set("tv.nativeStudies.v1", JSON.stringify([
+      { key: "a", defId: "rsi", params: { length: -5, source: "javascript:" }, visible: true,
+        styles: { rsi: { width: 9999 }, notAPlot: { color: "#f00" } } },
+    ]));
+    const restored = loadStoredNative("p1");
+    assert.equal(restored.length, 1);
+    assert.ok((restored[0]!.params.length as number) >= 1, "a negative length is clamped");
+    assert.equal(restored[0]!.params.source, "close", "an unknown source falls back");
+    assert.equal(restored[0]!.styles.rsi!.width, 8, "an absurd width is clamped");
+    assert.ok(!("notAPlot" in restored[0]!.styles),
+      "an override for a plot this study does not declare is dropped");
+
+    store.set("tv.nativeStudies.v1", "not json at all");
+    assert.deepEqual(loadStoredNative("p1"), []);
+    store.set("tv.nativeStudies.v1", JSON.stringify({ not: "an array" }));
+    assert.deepEqual(loadStoredNative("p1"), []);
+  } finally { uninstallStorage(); }
 });
 
 // ── drawings belong to the instrument ──────────────────────────────────────

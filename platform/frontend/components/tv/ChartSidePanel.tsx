@@ -21,6 +21,7 @@ import { MaPanel } from "@/components/tv/MaPanel";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { Watchlist } from "@/components/tv/Watchlist";
 import type { MaAlert, ManualTradingState, PineScript } from "@/lib/api";
+import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { AppliedIndicator } from "@/lib/indicators";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { MaType } from "@/lib/movingAverages";
@@ -50,6 +51,10 @@ export interface ChartSidePanelProps {
 
   /** The focused pane's studies, or null while that pane is still mounting. */
   indicators: IndicatorsApi | null;
+  /** The focused pane's built-in studies, listed beside its Pine studies. */
+  nativeStudies: NativeStudiesApi | null;
+  /** Open the Inputs/Style dialog for one built-in instance. */
+  onEditNative: (key: string) => void;
   indicatorCount: number;
   indicatorFocusKey: string | null;
   onOpenInEditor: (script: PineScript) => void;
@@ -114,6 +119,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
             props.indicators ? (
               <IndicatorsPanel
                 indicators={props.indicators}
+                nativeStudies={props.nativeStudies}
+                onEditNative={props.onEditNative}
                 onOpenInEditor={props.onOpenInEditor}
                 onEditIndicator={props.onEditIndicator}
                 focusKey={props.indicatorFocusKey}

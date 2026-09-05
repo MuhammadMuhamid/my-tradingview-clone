@@ -134,7 +134,11 @@ test("the instrument-identity migration only adds columns with the current defau
   const files = requiredMigrationFiles();
   const file = files.find((f) => f.includes("instrument_identity"));
   assert.ok(file, "the migration is present in the shipped set");
-  assert.equal(file, files[files.length - 1], "and is the newest, numbered from current source");
+  // Numbered from the current directory rather than from a stale report: 025
+  // was the highest when this was written. Later migrations may follow it, so
+  // the assertion is about ORDER, not about being last forever.
+  assert.ok(files.indexOf(file!) > files.indexOf("025_supertrend_alerts.sql"),
+    "the migration must be numbered after the highest one that existed before it");
 
   const sql = fs.readFileSync(
     path.join(__dirname, "..", "src", "db", "migrations", file!), "utf8");

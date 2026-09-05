@@ -37,6 +37,9 @@ const BASE: MaAlert = {
   filterStPeriod: null, filterStMultiplier: null,
   filterStAtrMethod: null, filterStSide: null,
   stPeriod: null, stMultiplier: null, stAtrMethod: null,
+  bbLength: null, bbMult: null, bbBand: null, bbMaType: null,
+  stochKLength: null, stochKSmooth: null, stochDSmooth: null, stochLevel: null,
+  adxDiLength: null, adxSmoothing: null, adxLevel: null,
   nearMinPct: 0.2, nearMaxPct: 0.5, enabled: true,
   frequency: "once_per_bar_close", cooldownMin: 60, note: null,
   lastSide: "below", lastFiredAt: null, lastFiredBarTime: null,
@@ -70,6 +73,20 @@ const ALERTS: Record<ConditionKind, MaAlert> = {
   supertrend: {
     ...BASE, conditionKind: "supertrend", targetPrice: null, priceDirection: null,
     stPeriod: 14, stMultiplier: 2.5, stAtrMethod: "sma", mode: "cross_down",
+  },
+  bollinger: {
+    ...BASE, conditionKind: "bollinger", targetPrice: null, priceDirection: null,
+    bbLength: 30, bbMult: 2.5, bbBand: "lower", bbMaType: "ema", mode: "near_below",
+    nearMinPct: 0.15, nearMaxPct: 0.6,
+  },
+  stochastic: {
+    ...BASE, conditionKind: "stochastic", targetPrice: null, priceDirection: null,
+    stochKLength: 21, stochKSmooth: 3, stochDSmooth: 5, stochLevel: 80,
+    indicatorTarget: "level", mode: "cross_down",
+  },
+  adx: {
+    ...BASE, conditionKind: "adx", targetPrice: null, priceDirection: null,
+    adxDiLength: 20, adxSmoothing: 10, adxLevel: 30, mode: "cross_up",
   },
   macd: {
     ...BASE, conditionKind: "macd", targetPrice: null, priceDirection: null,

@@ -23,6 +23,7 @@ import { SymbolSearch } from "@/components/tv/SymbolSearch";
 import type { MaAlert, PineScript } from "@/lib/api";
 import type { MaType } from "@/lib/movingAverages";
 import type { IndicatorsApi } from "@/lib/useIndicators";
+import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { Interval, Strategy, StrategyParams } from "@/lib/types";
 
 export interface ChartDialogsProps {
@@ -41,6 +42,8 @@ export interface ChartDialogsProps {
 
   /** The indicator library dialog, and the focused pane's studies it adds to. */
   indicatorBrowserOpen: boolean;
+  /** The focused pane's built-in studies, for the Built-in library section. */
+  nativeStudies: NativeStudiesApi | null;
   onCloseIndicatorBrowser: () => void;
   indicators: IndicatorsApi | null;
   onOpenInEditor: (script: PineScript) => void;
@@ -107,6 +110,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
       symbol={symbol}
       interval={interval}
       indicators={props.indicators}
+      nativeStudies={props.nativeStudies}
       onOpenInEditor={props.onOpenInEditor}
     />
     <SymbolSearch

@@ -27,6 +27,7 @@ export const isMaAlertMode = (v: string): v is MaAlertMode =>
  */
 export const CONDITION_KINDS = [
   "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level", "rsi", "macd", "supertrend",
+  "bollinger", "stochastic", "adx",
 ] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
 
@@ -96,6 +97,48 @@ export const SUPERTREND_DEFAULTS = {
 /** Defaults, matching the request these families were added for. */
 export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
 export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
+
+/**
+ * Which Bollinger band an alert watches.
+ *
+ * Three lines, one alert kind. A band is a price level like any other, so the
+ * touch/cross grammar the MA and level families already use applies unchanged
+ * — the only new thing is which of the three lines the reference comes from.
+ */
+export const BOLLINGER_BANDS = ["upper", "basis", "lower"] as const;
+export type BollingerBand = (typeof BOLLINGER_BANDS)[number];
+export const isBollingerBand = (v: string): v is BollingerBand =>
+  (BOLLINGER_BANDS as readonly string[]).includes(v);
+
+/** The study's own defaults, so the alert watches the line on the chart. */
+export const BOLLINGER_DEFAULTS = {
+  length: 20, mult: 2, band: "upper" as BollingerBand, maType: "sma" as MaType,
+} as const;
+
+/**
+ * What a Stochastic alert compares %K against: its own %D, or a fixed level.
+ *
+ * The same shape as the RSI family's target, deliberately — an oscillator
+ * against its signal and an oscillator against a line are one comparison with
+ * a different reference, not two kinds.
+ */
+export const STOCHASTIC_TARGETS = ["signal", "level"] as const;
+export type StochasticTarget = (typeof STOCHASTIC_TARGETS)[number];
+export const isStochasticTarget = (v: string): v is StochasticTarget =>
+  (STOCHASTIC_TARGETS as readonly string[]).includes(v);
+
+export const STOCHASTIC_DEFAULTS = {
+  kLength: 14, kSmooth: 1, dSmooth: 3, level: 20,
+} as const;
+
+/**
+ * ADX against a strength threshold.
+ *
+ * Only a level: ADX has no signal line, and inventing one would be a second
+ * indicator. 25 is the conventional "a trend is present" line and is what the
+ * study draws.
+ */
+export const ADX_DEFAULTS = { diLength: 14, smoothing: 14, level: 25 } as const;
 
 export const PRICE_DIRECTIONS = ["cross_up", "cross_down", "either"] as const;
 
@@ -171,7 +214,31 @@ export interface MaAlertRow {
   macdSlow: number | null;
   macdSignal: number | null;
 
-  /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`; null otherwise. */
+  // ── bollinger ──
+  bbLength: number | null;
+  bbMult: number | null;
+  /** `BollingerBand`: which of the three lines this alert watches. */
+  bbBand: string | null;
+  /** The basis MA type — the study's own input. */
+  bbMaType: MaType | null;
+
+  // ── stochastic ──
+  stochKLength: number | null;
+  stochKSmooth: number | null;
+  stochDSmooth: number | null;
+  /** The level crossed when `indicatorTarget` is "level". */
+  stochLevel: number | null;
+
+  // ── adx ──
+  adxDiLength: number | null;
+  adxSmoothing: number | null;
+  adxLevel: number | null;
+
+  /**
+   * `RsiTarget` for `rsi`, `MacdTarget` for `macd`, `StochasticTarget` for
+   * `stochastic`; null otherwise. One column because all three answer the same
+   * question — what is this oscillator compared against.
+   */
   indicatorTarget: string | null;
 
   // ── optional gates, available on every family ──

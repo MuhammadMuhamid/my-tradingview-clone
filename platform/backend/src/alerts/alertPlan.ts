@@ -27,6 +27,7 @@ import {
 } from "./alertFrequency";
 import type {
   MaType, SrSide, RsiTarget, MacdTarget, StAtrMethod,
+  BollingerBand, StochasticTarget,
 } from "../types/maAlerts";
 import type { PivotType } from "../engine/pivotLevels";
 
@@ -96,6 +97,23 @@ export interface FeedSample {
   supertrend?: (
     period: number, multiplier: number, atrMethod: StAtrMethod
   ) => { trend: number; line: number } | undefined;
+  /**
+   * One Bollinger band's PRICE at this bar, with the name to put in the
+   * notification. A price, so it resolves through the same reference path a
+   * pivot level and an S/R zone use rather than through the oscillator path.
+   */
+  bollinger?: (
+    length: number, mult: number, maType: MaType, band: BollingerBand
+  ) => { price: number; label: string } | undefined;
+  /** Stochastic %K and what it is compared against: its %D, or a level. */
+  stochastic?: (
+    kLength: number, kSmooth: number, dSmooth: number,
+    target: StochasticTarget, level: number
+  ) => { value: number; reference: number } | undefined;
+  /** ADX and the strength threshold it is compared against. */
+  adx?: (
+    diLength: number, smoothing: number, level: number
+  ) => { value: number; reference: number } | undefined;
 }
 
 export type SkipReason =
@@ -229,6 +247,25 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
       // The direction decides the event; the line is what the notification
       // names, so it rides along as the reference price.
       return { ...base, indicatorValue: st?.trend, refValue: st?.line };
+    }
+    case "bollinger": {
+      // A band is a price level, so it resolves into `refValue` exactly as a
+      // pivot level or an S/R zone does and the comparison is the shared one.
+      const band = sample.bollinger?.(
+        condition.length, condition.mult, condition.maType, condition.band
+      );
+      return { ...base, refValue: band?.price, refLabel: band?.label };
+    }
+    case "stochastic": {
+      const s = sample.stochastic?.(
+        condition.kLength, condition.kSmooth, condition.dSmooth,
+        condition.target, condition.level
+      );
+      return { ...base, indicatorValue: s?.value, indicatorReference: s?.reference };
+    }
+    case "adx": {
+      const a = sample.adx?.(condition.diLength, condition.smoothing, condition.level);
+      return { ...base, indicatorValue: a?.value, indicatorReference: a?.reference };
     }
   }
 }

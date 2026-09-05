@@ -31,13 +31,13 @@ import type { Candle, Interval } from "../types/market";
 import { INTERVAL_MS, isInterval } from "../types/market";
 import { PIVOT_LEVEL_ANY } from "../types/maAlerts";
 import type {
-  MaAlertRow, MaType, SrSide, RsiTarget, MacdTarget, StAtrMethod,
+  MaAlertRow, MaType, SrSide, RsiTarget, MacdTarget, StAtrMethod, BollingerBand, StochasticTarget,
 } from "../types/maAlerts";
 import * as maAlertRepo from "../repositories/maAlerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
-import { sma, ema, rsi, macd, supertrend } from "./ta";
+import { adx, bollinger, ema, macd, rsi, sma, stochastic, supertrend } from "./ta";
 import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
 import {
   levelByName, nearestLevel, pivotLevels, type PivotType, type Period,
@@ -346,6 +346,9 @@ export class MaAlertRunner {
     // from true range, which is a high/low/close quantity.
     const highs = bars.map((b) => b.high);
     const lows = bars.map((b) => b.low);
+    // Only a VWMA-based Bollinger basis reads volume, but building the array
+    // once is cheaper than deciding whether to.
+    const volumes = bars.map((b) => b.volume);
 
     // One series per distinct (type, length) across this feed's alerts — the
     // 15 SMA shared by a touch alert and a near alert is computed once.
@@ -480,6 +483,67 @@ export class MaAlertRunner {
       return { trend, line: line ?? NaN };
     };
 
+    /**
+     * One Bollinger band's price, cached per parameter set.
+     *
+     * A band is a price level, so it is resolved here the way a pivot level
+     * and an S/R zone are, and compared by the same shared evaluator. All
+     * three lines come from one computation because an alert on the upper band
+     * and one on the lower band are the normal pairing.
+     */
+    const bbCache = new Map<string, ReturnType<typeof bollinger>>();
+    const bbFor = (
+      length: number, mult: number, maType: MaType, band: BollingerBand
+    ): { price: number; label: string } | undefined => {
+      const key = `${length}|${mult}|${maType}`;
+      let b = bbCache.get(key);
+      if (!b) {
+        b = bollinger(closes, length, mult, maType === "ema" ? "EMA" : "SMA", volumes);
+        bbCache.set(key, b);
+      }
+      const series = band === "upper" ? b.upper : band === "lower" ? b.lower : b.middle;
+      const price = series[series.length - 1];
+      if (price === undefined || !Number.isFinite(price)) return undefined;
+      const label = band === "basis" ? "Bollinger basis" : `${band} Bollinger band`;
+      return { price, label };
+    };
+
+    /** Stochastic %K, against its %D or against a level. */
+    const stochCache = new Map<string, ReturnType<typeof stochastic>>();
+    const stochFor = (
+      kLength: number, kSmooth: number, dSmooth: number,
+      target: StochasticTarget, level: number
+    ): { value: number; reference: number } | undefined => {
+      const key = `${kLength}|${kSmooth}|${dSmooth}`;
+      let st = stochCache.get(key);
+      if (!st) {
+        st = stochastic(highs, lows, closes, kLength, kSmooth, dSmooth);
+        stochCache.set(key, st);
+      }
+      const value = st.k[st.k.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      if (target === "level") return { value, reference: level };
+      const reference = st.d[st.d.length - 1];
+      if (reference === undefined || !Number.isFinite(reference)) return undefined;
+      return { value, reference };
+    };
+
+    /** ADX against a strength threshold. */
+    const adxCache = new Map<string, ReturnType<typeof adx>>();
+    const adxFor = (
+      diLength: number, smoothing: number, level: number
+    ): { value: number; reference: number } | undefined => {
+      const key = `${diLength}|${smoothing}`;
+      let a = adxCache.get(key);
+      if (!a) {
+        a = adx(highs, lows, closes, diLength, smoothing);
+        adxCache.set(key, a);
+      }
+      const value = a.adx[a.adx.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      return { value, reference: level };
+    };
+
     const sample: FeedSample = {
       symbol, timeframe: interval,
       barTime: sampleBar.openTime,
@@ -493,6 +557,9 @@ export class MaAlertRunner {
       rsi: rsiFor,
       macd: macdFor,
       supertrend: stFor,
+      bollinger: bbFor,
+      stochastic: stochFor,
+      adx: adxFor,
     };
     const now = replayNow ?? this.dependencies.now();
 

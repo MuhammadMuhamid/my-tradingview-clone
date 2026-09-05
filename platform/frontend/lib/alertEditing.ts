@@ -61,6 +61,9 @@ export const ALERT_FAMILY_LABELS: Record<ConditionKind, string> = {
   rsi: "RSI",
   macd: "MACD",
   supertrend: "Supertrend",
+  bollinger: "Bollinger band",
+  stochastic: "Stochastic",
+  adx: "ADX",
 };
 
 /** The modes each family can actually be evaluated with. */

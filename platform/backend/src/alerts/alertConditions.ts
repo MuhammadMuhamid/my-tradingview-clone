@@ -24,10 +24,12 @@ import {
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
-  PIVOT_LEVEL_ANY, MACD_DEFAULTS, RSI_DEFAULTS, SUPERTREND_DEFAULTS,
-  isRsiTarget, isMacdTarget, isStAtrMethod,
-  type ConditionKind, type MaAlertMode, type MaType, type PriceDirection,
-  type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
+  PIVOT_LEVEL_ANY, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
+  STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
+  isBollingerBand, isMaType, isRsiTarget, isMacdTarget, isStAtrMethod, isStochasticTarget,
+  type BollingerBand, type ConditionKind, type MaAlertMode, type MaType,
+  type PriceDirection, type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
+  type StochasticTarget,
 } from "../types/maAlerts";
 
 export type Side = "above" | "below";
@@ -203,6 +205,63 @@ export interface SupertrendCondition {
 }
 
 /**
+ * Price against one Bollinger band.
+ *
+ * A band is a price level like any other, so this family reuses the exact
+ * touch / cross / near grammar the MA and level families already have. What is
+ * new is only where the reference comes from: the upper, middle or lower line
+ * of a Bollinger computed on the alert's own symbol and timeframe.
+ *
+ * The band moves every bar, which is precisely why "price touched the upper
+ * band" is a different question from "price reached 212.40" and needs its own
+ * family rather than a static price alert.
+ */
+export interface BollingerCondition {
+  kind: "bollinger";
+  length: number;
+  mult: number;
+  band: BollingerBand;
+  /** The basis MA type; the study's own input. */
+  maType: MaType;
+  mode: MaMode;
+  nearMinPct: number;
+  nearMaxPct: number;
+}
+
+/**
+ * Stochastic %K against its %D signal, or against a level.
+ *
+ * The quantity that crosses is the OSCILLATOR, on its own 0..100 scale — so
+ * distance is reported in stochastic points, not as a percentage of price,
+ * exactly as the RSI family does.
+ */
+export interface StochasticCondition {
+  kind: "stochastic";
+  kLength: number;
+  kSmooth: number;
+  dSmooth: number;
+  target: StochasticTarget;
+  /** Read when `target` is "level". */
+  level: number;
+  mode: MaCrossMode;
+}
+
+/**
+ * ADX crossing a strength threshold.
+ *
+ * Only a level, because ADX has no signal line and inventing one would be a
+ * second indicator. `cross_up` is "a trend has become measurable", which is
+ * the event this study exists to report.
+ */
+export interface AdxCondition {
+  kind: "adx";
+  diLength: number;
+  smoothing: number;
+  level: number;
+  mode: MaCrossMode;
+}
+
+/**
  * Every family may carry gates, so the property lives on the union rather than
  * being repeated in each member. Narrowing on `kind` still works through the
  * intersection, and a family added later cannot forget to offer them.
@@ -216,6 +275,7 @@ export type AlertCondition = (
   | PriceCondition | MaCondition | MaVsMaCondition
   | SrZoneCondition | PivotLevelCondition
   | RsiCondition | MacdCondition | SupertrendCondition
+  | BollingerCondition | StochasticCondition | AdxCondition
 ) & WithFilters;
 
 // ── Evaluation ──────────────────────────────────────────────────────────────
@@ -327,6 +387,16 @@ function evaluateTrigger(
       return evaluateMa(condition, sample, prevSide);
     case "ma_vs_ma":
       return evaluateMaVsMa(condition, sample, prevSide);
+    case "bollinger":
+      return evaluateBollinger(condition, sample, prevSide);
+    case "stochastic":
+      return evaluateSeriesCross(
+        sample.indicatorValue ?? NaN, sample.indicatorReference ?? NaN,
+        condition.mode, prevSide, true);
+    case "adx":
+      return evaluateSeriesCross(
+        sample.indicatorValue ?? NaN, sample.indicatorReference ?? NaN,
+        condition.mode, prevSide, true);
     case "sr_zone":
       return evaluateSrZone(condition, sample, prevSide);
     case "pivot_level":
@@ -495,6 +565,29 @@ function evaluatePivotLevel(
   return evaluateAgainstReference(
     condition.mode, condition.nearMinPct, condition.nearMaxPct,
     sample.refValue ?? NaN, sample, prevSide
+  );
+}
+
+/**
+ * Price against a Bollinger band.
+ *
+ * The band is resolved by the runner into `refValue`, exactly as an S/R zone
+ * or a pivot level is, so the comparison itself is the shared one. A band that
+ * has not warmed up leaves the stored side alone rather than letting a NaN
+ * comparison manufacture a cross on the next bar.
+ */
+function evaluateBollinger(
+  condition: BollingerCondition,
+  sample: Sample,
+  prevSide: Side | null
+): Evaluation {
+  const reference = sample.refValue ?? NaN;
+  if (!Number.isFinite(reference)) {
+    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+  }
+  return evaluateAgainstReference(
+    condition.mode, condition.nearMinPct, condition.nearMaxPct,
+    reference, sample, prevSide
   );
 }
 
@@ -667,8 +760,68 @@ export function describeCondition(condition: AlertCondition): string {
       return condition.mode === "cross_up"
         ? `${stLabel(condition)} flips up`
         : `${stLabel(condition)} flips down`;
+    case "bollinger": {
+      const line = bollingerLabel(condition);
+      switch (condition.mode) {
+        case "touch": return `touches the ${line}`;
+        case "cross_up": return `crosses above the ${line}`;
+        case "cross_down": return `crosses below the ${line}`;
+        case "near_above":
+          return `is ${condition.nearMinPct}–${condition.nearMaxPct}% above the ${line}`;
+        case "near_below":
+          return `is ${condition.nearMinPct}–${condition.nearMaxPct}% below the ${line}`;
+      }
+      break;
+    }
+    case "stochastic": {
+      const what = stochasticLabel(condition);
+      const against = condition.target === "level" ? `${condition.level}` : "its %D";
+      return condition.mode === "cross_up"
+        ? `${what} crosses above ${against}`
+        : `${what} crosses below ${against}`;
+    }
+    case "adx":
+      return condition.mode === "cross_up"
+        ? `${adxLabel(condition)} rises through ${condition.level}`
+        : `${adxLabel(condition)} falls through ${condition.level}`;
   }
   return "condition met";
+}
+
+/**
+ * "the upper Bollinger band" for the study's own 20 / 2 / SMA inputs, and the
+ * inputs named when they are not.
+ *
+ * Same rule as every other label here: default parameters on every
+ * notification are noise, non-default ones are the only thing separating two
+ * alerts in a list.
+ */
+function bollingerLabel(condition: BollingerCondition): string {
+  const where = condition.band === "basis" ? "Bollinger basis" : `${condition.band} Bollinger band`;
+  const custom = condition.length !== BOLLINGER_DEFAULTS.length
+    || condition.mult !== BOLLINGER_DEFAULTS.mult
+    || condition.maType !== BOLLINGER_DEFAULTS.maType;
+  return custom
+    ? `${where} (${condition.length}, ${condition.mult}${
+        condition.maType === BOLLINGER_DEFAULTS.maType ? "" : `, ${condition.maType.toUpperCase()}`})`
+    : where;
+}
+
+/** "Stochastic %K", with its inputs named only when they are not the defaults. */
+function stochasticLabel(condition: StochasticCondition): string {
+  const custom = condition.kLength !== STOCHASTIC_DEFAULTS.kLength
+    || condition.kSmooth !== STOCHASTIC_DEFAULTS.kSmooth
+    || condition.dSmooth !== STOCHASTIC_DEFAULTS.dSmooth;
+  return custom
+    ? `Stochastic %K ${condition.kLength}/${condition.kSmooth}/${condition.dSmooth}`
+    : "Stochastic %K";
+}
+
+/** "ADX", with its lengths named only when they are not the defaults. */
+function adxLabel(condition: AdxCondition): string {
+  const custom = condition.diLength !== ADX_DEFAULTS.diLength
+    || condition.smoothing !== ADX_DEFAULTS.smoothing;
+  return custom ? `ADX ${condition.diLength}/${condition.smoothing}` : "ADX";
 }
 
 /**
@@ -734,6 +887,9 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
     case "rsi": return [];
     case "macd": return [];
     case "supertrend": return [];
+    case "bollinger": return [];
+    case "stochastic": return [];
+    case "adx": return [];
   }
 }
 
@@ -844,6 +1000,48 @@ export function validateCondition(condition: AlertCondition): string | null {
       }
       if (!isStAtrMethod(condition.atrMethod)) {
         return "stAtrMethod must be rma or sma";
+      }
+      return filterError(condition.filters);
+
+    case "bollinger":
+      if (!Number.isInteger(condition.length) || condition.length < 2) {
+        // A window of one has no deviation, so the bands would sit exactly on
+        // the basis and every "touch" would be a touch.
+        return "bbLength must be an integer of at least 2";
+      }
+      if (!Number.isFinite(condition.mult) || condition.mult <= 0) {
+        return "bbMult must be a positive number";
+      }
+      if (!isBollingerBand(condition.band)) return "bbBand must be upper, basis or lower";
+      if (!isMaType(condition.maType)) return "bbMaType must be sma or ema";
+      return filterError(condition.filters)
+        ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
+
+    case "stochastic":
+      for (const [name, v] of [
+        ["stochKLength", condition.kLength],
+        ["stochKSmooth", condition.kSmooth],
+        ["stochDSmooth", condition.dSmooth],
+      ] as const) {
+        if (!Number.isInteger(v) || v < 1) return `${name} must be a positive integer`;
+      }
+      if (condition.target === "level") {
+        // Bounded oscillator: a level outside 0..100 can never be crossed.
+        if (!Number.isFinite(condition.level) || condition.level <= 0 || condition.level >= 100) {
+          return "level must be between 0 and 100 (exclusive)";
+        }
+      }
+      return filterError(condition.filters);
+
+    case "adx":
+      for (const [name, v] of [
+        ["adxDiLength", condition.diLength],
+        ["adxSmoothing", condition.smoothing],
+      ] as const) {
+        if (!Number.isInteger(v) || v < 1) return `${name} must be a positive integer`;
+      }
+      if (!Number.isFinite(condition.level) || condition.level <= 0 || condition.level >= 100) {
+        return "level must be between 0 and 100 (exclusive)";
       }
       return filterError(condition.filters);
   }
@@ -1007,6 +1205,17 @@ export function conditionFromRow(row: {
   macdSlow?: number | null;
   macdSignal?: number | null;
   indicatorTarget?: string | null;
+  bbLength?: number | null;
+  bbMult?: number | null;
+  bbBand?: string | null;
+  bbMaType?: MaType | null;
+  stochKLength?: number | null;
+  stochKSmooth?: number | null;
+  stochDSmooth?: number | null;
+  stochLevel?: number | null;
+  adxDiLength?: number | null;
+  adxSmoothing?: number | null;
+  adxLevel?: number | null;
 }): AlertCondition | null {
   switch (row.conditionKind) {
     case "price":
@@ -1109,6 +1318,64 @@ export function conditionFromRow(row: {
         slowLength: row.macdSlow,
         signalLength: row.macdSignal,
         target,
+        mode: row.mode,
+      };
+    }
+
+    case "bollinger": {
+      const band = row.bbBand ?? "";
+      const maType = row.bbMaType ?? "";
+      if (
+        row.bbLength === null || row.bbLength === undefined ||
+        row.bbMult === null || row.bbMult === undefined ||
+        !isBollingerBand(band) || !isMaType(maType) || row.mode === null
+      ) return null;
+      return {
+        ...filtersFromRow(row),
+        kind: "bollinger",
+        length: row.bbLength,
+        mult: row.bbMult,
+        band,
+        maType,
+        mode: row.mode,
+        nearMinPct: row.nearMinPct,
+        nearMaxPct: row.nearMaxPct,
+      };
+    }
+
+    case "stochastic": {
+      const target = row.indicatorTarget ?? "";
+      if (
+        !isStochasticTarget(target) ||
+        row.stochKLength === null || row.stochKLength === undefined ||
+        row.stochKSmooth === null || row.stochKSmooth === undefined ||
+        row.stochDSmooth === null || row.stochDSmooth === undefined ||
+        (row.mode !== "cross_up" && row.mode !== "cross_down")
+      ) return null;
+      return {
+        ...filtersFromRow(row),
+        kind: "stochastic",
+        kLength: row.stochKLength,
+        kSmooth: row.stochKSmooth,
+        dSmooth: row.stochDSmooth,
+        target,
+        level: row.stochLevel ?? STOCHASTIC_DEFAULTS.level,
+        mode: row.mode,
+      };
+    }
+
+    case "adx": {
+      if (
+        row.adxDiLength === null || row.adxDiLength === undefined ||
+        row.adxSmoothing === null || row.adxSmoothing === undefined ||
+        (row.mode !== "cross_up" && row.mode !== "cross_down")
+      ) return null;
+      return {
+        ...filtersFromRow(row),
+        kind: "adx",
+        diLength: row.adxDiLength,
+        smoothing: row.adxSmoothing,
+        level: row.adxLevel ?? ADX_DEFAULTS.level,
         mode: row.mode,
       };
     }

@@ -4,19 +4,25 @@
  *
  * ── What it is a browser OVER ──────────────────────────────────────────────
  *
- * The actual Trading Scene indicator library, and nothing else. That library is
- * the Pine scripts stored by this installation — written in the Pine editor or
- * imported as `.pine` files — plus the study TEMPLATES an operator has saved
- * from a chart. Both are user-owned, which is why "Saved" is a truthful
- * heading here where "Built-in" would not be: this product ships no bundled
- * scripts, so a Built-in tab would be an empty promise, and Community,
- * Marketplace, Purchased and Trending would be promises about a marketplace
- * that does not exist.
+ * Two real libraries, and nothing else.
  *
- * The categories below are therefore derived from real data: the `kind` the
- * Pine compiler reports for each script, what is currently applied to the
- * focused chart, and the templates in local storage. Nothing is invented and
- * no new indicator is added.
+ * BUILT-IN: the native studies this build ships (`lib/native/catalog`). They
+ * compute in the browser, from the bars the pane already holds, using the same
+ * canonical maths the server alerts on. "Built-in" used to be an empty promise
+ * here and is now a truthful heading — which is exactly why it was refused
+ * before rather than shown as a stub.
+ *
+ * SAVED: the Pine scripts stored by this installation — written in the Pine
+ * editor or imported as `.pine` files — plus the study TEMPLATES an operator
+ * has saved from a chart. Both are user-owned.
+ *
+ * Community, Marketplace, Purchased and Trending remain absent, because they
+ * would be promises about a marketplace that does not exist.
+ *
+ * The categories below are therefore derived from real data: the built-in
+ * registry, the `kind` the Pine compiler reports for each script, what is
+ * currently applied to the focused chart, the operator's favourites and
+ * recents, and the templates in local storage. Nothing is invented.
  *
  * ── Which chart it adds to ─────────────────────────────────────────────────
  *
@@ -38,12 +44,23 @@ import {
   upsertTemplate, type IndicatorTemplate,
 } from "@/lib/indicatorTemplates";
 import type { IndicatorsApi } from "@/lib/useIndicators";
+import type { NativeStudiesApi } from "@/lib/useNativeStudies";
+import {
+  CATEGORY_LABELS, NATIVE_STUDIES, loadFavourites, loadRecents, searchStudies,
+  toggleFavourite,
+} from "@/lib/native/catalog";
+import type { NativeStudyDef } from "@/lib/native/registry";
 import type { Interval } from "@/lib/types";
 
-type Category = "all" | "indicator" | "strategy" | "onChart" | "templates";
+type Category =
+  | "builtin" | "favourites" | "recents"
+  | "all" | "indicator" | "strategy" | "onChart" | "templates";
 
 const CATEGORIES: { id: Category; label: string }[] = [
-  { id: "all", label: "All scripts" },
+  { id: "builtin", label: "Built-in" },
+  { id: "favourites", label: "Favourites" },
+  { id: "recents", label: "Recents" },
+  { id: "all", label: "My scripts" },
   { id: "indicator", label: "Indicators" },
   { id: "strategy", label: "Strategies" },
   { id: "onChart", label: "On this chart" },
@@ -56,8 +73,10 @@ export interface IndicatorBrowserProps {
   /** The chart this dialog adds to — the focused pane. */
   symbol: string;
   interval: Interval;
-  /** The focused pane's studies, or null while that pane is still mounting. */
+  /** The focused pane's Pine studies, or null while that pane is still mounting. */
   indicators: IndicatorsApi | null;
+  /** The focused pane's built-in studies, or null while it is still mounting. */
+  nativeStudies: NativeStudiesApi | null;
   /** Load a saved script into the Pine Editor tab for editing. */
   onOpenInEditor: (script: PineScript) => void;
 }
@@ -71,7 +90,9 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
   const { open, onClose, indicators } = props;
   const [library, setLibrary] = useState<PineScript[]>([]);
   const [templates, setTemplates] = useState<IndicatorTemplate[]>([]);
-  const [category, setCategory] = useState<Category>("all");
+  const [category, setCategory] = useState<Category>("builtin");
+  const [favourites, setFavourites] = useState<string[]>([]);
+  const [recents, setRecents] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -102,6 +123,9 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     setQ("");
     setTemplateName("");
     setTemplates(loadTemplates());
+    setFavourites(loadFavourites());
+    setRecents(loadRecents());
+    setCategory("builtin");
     void refresh();
     const t = setTimeout(() => searchRef.current?.focus(), 0);
     return () => clearTimeout(t);
@@ -128,6 +152,39 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     }
     return library.filter(matches);
   }, [library, applied, category, q]);
+
+  /**
+   * The built-in studies this view is showing.
+   *
+   * Favourites and recents are the same list narrowed and ordered, rather than
+   * three separate sources: a favourite that stopped existing in this build is
+   * already dropped on read, so nothing here can render a blank row.
+   */
+  const nativeList = useMemo<NativeStudyDef[]>(() => {
+    const matched = searchStudies(q);
+    if (category === "favourites") {
+      const wanted = new Set(favourites);
+      return matched.filter((d) => wanted.has(d.id));
+    }
+    if (category === "recents") {
+      const order = new Map(recents.map((id, i) => [id, i]));
+      return matched.filter((d) => order.has(d.id))
+        .sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    }
+    return matched;
+  }, [q, category, favourites, recents]);
+
+  /** How many instances of this built-in are on the focused chart. */
+  const nativeCount = useCallback((id: string): number =>
+    (props.nativeStudies?.list ?? []).filter((s) => s.defId === id).length,
+    [props.nativeStudies]);
+
+  const addNative = useCallback((def: NativeStudyDef): void => {
+    if (!props.nativeStudies) return;
+    props.nativeStudies.add(def.id);
+    setRecents(loadRecents());
+    setStatus(`Added ${def.name} to ${props.symbol} ${props.interval}`);
+  }, [props.nativeStudies, props.symbol, props.interval]);
 
   const filteredTemplates = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -270,10 +327,16 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
           const count = c.id === "templates"
             ? templates.length
             : c.id === "onChart"
-              ? applied.length
+              ? applied.length + (props.nativeStudies?.list.length ?? 0)
               : c.id === "all"
                 ? library.length
-                : library.filter((s) => s.kind === c.id).length;
+                : c.id === "builtin"
+                  ? NATIVE_STUDIES.length
+                  : c.id === "favourites"
+                    ? favourites.length
+                    : c.id === "recents"
+                      ? recents.length
+                      : library.filter((s) => s.kind === c.id).length;
           return (
             <button
               key={c.id}
@@ -296,7 +359,60 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         </p>
       )}
 
-      {category === "templates" ? (
+      {category === "builtin" || category === "favourites" || category === "recents" ? (
+        <div className="mt-3 flex flex-col gap-1">
+          {nativeList.length === 0 && (
+            <p className="py-6 text-center text-[12px] text-ink-faint">
+              {category === "favourites"
+                ? "No favourites yet. Star a built-in study to keep it here."
+                : category === "recents"
+                  ? "Nothing added yet. Studies you apply appear here."
+                  : "No built-in study matches that search."}
+            </p>
+          )}
+          {nativeList.map((def) => {
+            const count = nativeCount(def.id);
+            const starred = favourites.includes(def.id);
+            return (
+              <div key={def.id}
+                className="flex items-center gap-2 rounded border border-border px-2 py-1.5 hover:bg-surface-2">
+                <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">
+                  Built-in
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] text-ink">{def.name}</span>
+                  <span className="block truncate text-[11px] text-ink-faint">
+                    {count > 0
+                      ? `On this chart · ${count} instance${count === 1 ? "" : "s"}`
+                      : `${CATEGORY_LABELS[def.category]} · ${def.description}`}
+                  </span>
+                </span>
+                <button
+                  onClick={() => setFavourites(toggleFavourite(def.id))}
+                  aria-pressed={starred}
+                  aria-label={starred ? `Unfavourite ${def.name}` : `Favourite ${def.name}`}
+                  title={starred ? "Remove from favourites" : "Add to favourites"}
+                  className={`shrink-0 rounded px-1.5 py-1 text-[11px] transition-colors ${
+                    starred ? "text-warn" : "text-ink-faint hover:text-ink"
+                  }`}
+                >
+                  {starred ? "Starred" : "Star"}
+                </button>
+                <button
+                  onClick={() => addNative(def)}
+                  disabled={!props.nativeStudies}
+                  className={ACTION}
+                  title={props.nativeStudies
+                    ? `Add ${def.name} to ${props.symbol} ${props.interval}`
+                    : "The focused chart is still loading"}
+                >
+                  Add
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : category === "templates" ? (
         <TemplateList
           templates={filteredTemplates}
           totalTemplates={templates.length}

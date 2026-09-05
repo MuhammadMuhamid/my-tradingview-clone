@@ -19,6 +19,9 @@ const base: MaAlert = {
   filterStPeriod: null, filterStMultiplier: null,
   filterStAtrMethod: null, filterStSide: null,
   stPeriod: null, stMultiplier: null, stAtrMethod: null,
+  bbLength: null, bbMult: null, bbBand: null, bbMaType: null,
+  stochKLength: null, stochKSmooth: null, stochDSmooth: null, stochLevel: null,
+  adxDiLength: null, adxSmoothing: null, adxLevel: null,
   nearMinPct: 0.2, nearMaxPct: 0.5, enabled: true,
   frequency: "once_per_bar_close", cooldownMin: 0, note: null,
   lastSide: null, lastFiredAt: null, lastFiredBarTime: null,
@@ -43,6 +46,9 @@ const fixtures = [
     conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3,
     stAtrMethod: "rma", mode: "cross_up",
   }),
+  alert("bollinger", { conditionKind: "bollinger", mode: "touch" }),
+  alert("stochastic", { conditionKind: "stochastic", mode: "cross_up" }),
+  alert("adx", { conditionKind: "adx", mode: "cross_up" }),
 ];
 
 test("symbol search is case-insensitive for exact and partial coin names", () => {
@@ -72,6 +78,7 @@ test("every family mapping and reliable EMA/SMA subtype mapping is covered", () 
     price: ["price"], ma: ["ema", "sma"], ma_ema: ["ema"], ma_sma: ["sma"],
     ma_vs_ma: ["cross"], sr_zone: ["sr"], pivot_level: ["pivot"],
     rsi: ["rsi"], macd: ["macd"], supertrend: ["supertrend"],
+    bollinger: ["bollinger"], stochastic: ["stochastic"], adx: ["adx"],
   };
   assert.deepEqual(ALERT_TYPE_FILTERS.map((option) => option.value), Object.keys(expected));
   for (const [type, ids] of Object.entries(expected)) {

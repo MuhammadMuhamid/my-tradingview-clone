@@ -100,6 +100,14 @@ export interface ChartPaneProps {
   onIndicatorsApi: (paneId: string, get: (() => IndicatorsApi) | null) => void;
   /** The same, for this pane's built-in studies. */
   onNativeStudiesApi?: (paneId: string, get: (() => NativeStudiesApi) | null) => void;
+  /**
+   * This pane's built-in list changed.
+   *
+   * The list lives inside the API object, whose identity does not change when
+   * its contents do, so the workspace needs to be told rather than being able
+   * to observe it — otherwise the Indicators dialog would show a stale count.
+   */
+  onNativeStudiesChanged?: (paneId: string) => void;
   onIndicatorList: (paneId: string, list: AppliedIndicator[]) => void;
   /** The pane opens the workspace Indicators panel on one instance. */
   onFocusIndicator: (paneId: string, key: string) => void;
@@ -203,12 +211,15 @@ function ChartPaneImpl(props: ChartPaneProps) {
 
   const nativeRef = useRef(nativeStudies);
   nativeRef.current = nativeStudies;
-  const { onNativeStudiesApi } = props;
+  const { onNativeStudiesApi, onNativeStudiesChanged } = props;
   useEffect(() => {
     if (!onNativeStudiesApi) return;
     onNativeStudiesApi(paneId, () => nativeRef.current);
     return () => onNativeStudiesApi(paneId, null);
   }, [paneId, onNativeStudiesApi]);
+  useEffect(() => {
+    onNativeStudiesChanged?.(paneId);
+  }, [paneId, onNativeStudiesChanged, nativeStudies.list]);
 
   // ── drawings, shared with every other pane on this instrument ──
   const [drawings, setDrawings] = useState<Drawing[]>(() => drawingStore.get(pane.symbol));

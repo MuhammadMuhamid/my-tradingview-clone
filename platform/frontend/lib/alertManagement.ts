@@ -36,6 +36,9 @@ export const ALERT_TYPE_FILTERS: ReadonlyArray<{
   { value: "rsi", label: "RSI", scopeLabel: "RSI alerts" },
   { value: "macd", label: "MACD", scopeLabel: "MACD alerts" },
   { value: "supertrend", label: "Supertrend", scopeLabel: "Supertrend alerts" },
+  { value: "bollinger", label: "Bollinger band", scopeLabel: "Bollinger alerts" },
+  { value: "stochastic", label: "Stochastic", scopeLabel: "Stochastic alerts" },
+  { value: "adx", label: "ADX", scopeLabel: "ADX alerts" },
 ];
 
 function matchesType(alert: MaAlert, type: AlertTypeFilter): boolean {

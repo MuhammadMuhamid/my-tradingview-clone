@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type PineScript } from "@/lib/api";
 import type { IndicatorsApi } from "@/lib/useIndicators";
+import type { NativeStudiesApi, NativeStudyRow } from "@/lib/useNativeStudies";
 import type { AppliedIndicator } from "@/lib/indicators";
 
 /**
@@ -13,13 +14,17 @@ import type { AppliedIndicator } from "@/lib/indicators";
  * which is most of them.
  */
 export function IndicatorsPanel({
-  indicators, onOpenInEditor, onEditIndicator, focusKey = null,
+  indicators, nativeStudies, onOpenInEditor, onEditIndicator, onEditNative, focusKey = null,
 }: {
   indicators: IndicatorsApi;
+  /** The focused pane's built-in studies, or null while it is still mounting. */
+  nativeStudies: NativeStudiesApi | null;
   /** load a saved script into the Pine Editor tab for editing */
   onOpenInEditor: (script: PineScript) => void;
   /** edit one applied instance without changing its stable chart identity */
   onEditIndicator: (indicator: AppliedIndicator) => void;
+  /** open the Inputs/Style dialog for one built-in instance */
+  onEditNative: (key: string) => void;
   /**
    * Open this instance's settings when the panel appears. Set by the gear on a
    * pane, so "settings" from the chart lands on the fields rather than on a
@@ -183,18 +188,38 @@ export function IndicatorsPanel({
       <div className="flex min-h-0 flex-1 flex-col px-3 py-2">
         <div className="mb-2 flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            On chart ({indicators.list.length})
+            On chart ({indicators.list.length + (nativeStudies?.list.length ?? 0)})
           </span>
-          {indicators.list.length > 0 && (
-            <button onClick={indicators.clear} className={`${btn} ml-auto`}>Remove all</button>
+          {(indicators.list.length > 0 || (nativeStudies?.list.length ?? 0) > 0) && (
+            <button
+              onClick={() => { indicators.clear(); nativeStudies?.clear(); }}
+              className={`${btn} ml-auto`}
+            >
+              Remove all
+            </button>
           )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {indicators.list.length === 0 && (
+          {indicators.list.length === 0 && (nativeStudies?.list.length ?? 0) === 0 && (
             <div className="text-[11px] text-ink-faint">
-              Nothing applied. Click a script above to add it to the chart.
+              Nothing applied. Open Indicators for the built-in studies, or click a
+              script above to add it to the chart.
             </div>
           )}
+          {/*
+            Built-in studies first, matching the order they are drawn in: the
+            panel is a picture of the chart's layering, not an arbitrary list.
+          */}
+          {(nativeStudies?.rows ?? []).map((row, index) => (
+            <NativeRow
+              key={row.study.key}
+              row={row}
+              first={index === 0}
+              last={index === (nativeStudies?.rows.length ?? 1) - 1}
+              studies={nativeStudies!}
+              onEdit={() => onEditNative(row.study.key)}
+            />
+          ))}
           {indicators.list.map((ind) => (
             <IndicatorRow
               key={ind.key}
@@ -206,6 +231,80 @@ export function IndicatorsPanel({
             />
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One applied BUILT-IN study.
+ *
+ * Deliberately the same row grammar as a Pine study — visibility dot, name,
+ * what it is drawing, then the actions — because to the user they are the same
+ * kind of object on the same chart. The two differences are real ones: a
+ * built-in has no source to open, and it has an order that decides layering,
+ * so it gets move controls instead of an editor button.
+ */
+function NativeRow({ row, first, last, studies, onEdit }: {
+  row: NativeStudyRow;
+  first: boolean;
+  last: boolean;
+  studies: NativeStudiesApi;
+  onEdit: () => void;
+}) {
+  const { study } = row;
+  const plotCount = Object.keys(row.values).length;
+  return (
+    <div className="mb-1 rounded border border-border bg-surface-2/40">
+      <div className="flex items-center gap-1 px-1.5 py-1">
+        <button
+          onClick={() => studies.toggleVisible(study.key)}
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+            study.visible ? "text-ink hover:bg-border" : "text-ink-faint hover:bg-border hover:text-ink"
+          }`}
+          aria-pressed={study.visible}
+          aria-label={`${study.visible ? "Hide" : "Show"} ${row.name}`}
+          title={study.visible ? "Hide" : "Show"}
+        >
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+            <circle cx="6" cy="6" r="4.2" fill={study.visible ? "currentColor" : "none"}
+              stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </button>
+        <button onClick={onEdit} className="min-w-0 flex-1 truncate text-left text-xs text-ink">
+          {row.name}
+          <span className="ml-1 text-[10px] text-ink-faint">
+            {row.insufficient
+              ? "not enough history"
+              : `${plotCount} plot${plotCount === 1 ? "" : "s"}`}
+          </span>
+        </button>
+        <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">
+          built-in
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5">
+          <RowButton
+            onClick={() => studies.move(study.key, -1)}
+            label={`Move ${row.name} up`} title="Move up" disabled={first}
+          >
+            <path d="M3 8.5L7 4.5l4 4" />
+          </RowButton>
+          <RowButton
+            onClick={() => studies.move(study.key, 1)}
+            label={`Move ${row.name} down`} title="Move down" disabled={last}
+          >
+            <path d="M3 5.5L7 9.5l4-4" />
+          </RowButton>
+          <RowButton onClick={onEdit} label={`Settings for ${row.name}`} title="Settings">
+            <path d="M7 4.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8Z" />
+          </RowButton>
+          <RowButton
+            onClick={() => studies.remove(study.key)}
+            label={`Remove ${row.name} from the chart`} title="Remove" danger
+          >
+            <path d="M3 3l8 8M11 3l-8 8" />
+          </RowButton>
+        </span>
       </div>
     </div>
   );
@@ -360,21 +459,24 @@ function IndicatorRow({
  * platform substituted.
  */
 function RowButton({
-  onClick, label, title, danger = false, children,
+  onClick, label, title, danger = false, disabled = false, children,
 }: {
   onClick: () => void;
   label: string;
   title: string;
   danger?: boolean;
+  /** A move control at the end of the list has nothing to do, and says so. */
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={title}
-      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors ${
+      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
         danger ? "hover:bg-down/20 hover:text-down" : "hover:bg-border hover:text-ink"
       }`}
     >

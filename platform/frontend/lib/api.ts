@@ -517,7 +517,7 @@ export type MaType = "sma" | "ema";
 /** What an alert watches. `ma` is the original family. */
 export type ConditionKind =
   | "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level" | "rsi" | "macd"
-  | "supertrend";
+  | "supertrend" | "bollinger" | "stochastic" | "adx";
 
 /** What an RSI alert crosses: a fixed level, or its own moving average. */
 export type RsiTarget = "level" | "sma";
@@ -545,6 +545,24 @@ export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
 export const SUPERTREND_DEFAULTS = {
   period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod,
 } as const;
+
+/** Which Bollinger band an alert watches. Mirrors `BOLLINGER_BANDS`. */
+export type BollingerBand = "upper" | "basis" | "lower";
+/** What a Stochastic alert compares %K against. Mirrors `STOCHASTIC_TARGETS`. */
+export type StochasticTarget = "signal" | "level";
+
+/**
+ * The three families' own study defaults, so an armed alert watches the line
+ * the chart is already drawing. Mirrors `BOLLINGER_DEFAULTS`,
+ * `STOCHASTIC_DEFAULTS` and `ADX_DEFAULTS`.
+ */
+export const BOLLINGER_DEFAULTS = {
+  length: 20, mult: 2, band: "upper" as BollingerBand, maType: "sma" as MaType,
+} as const;
+export const STOCHASTIC_DEFAULTS = {
+  kLength: 14, kSmooth: 1, dSmooth: 3, level: 20,
+} as const;
+export const ADX_DEFAULTS = { diLength: 14, smoothing: 14, level: 25 } as const;
 
 /**
  * Mirrors `NOTE_MAX_LENGTH` on the server and `ma_alerts_note_len_ck` in the
@@ -603,7 +621,24 @@ export interface MaAlert {
   stPeriod: number | null;
   stMultiplier: number | null;
   stAtrMethod: string | null;
-  /** `RsiTarget` for `rsi`, `MacdTarget` for `macd`. */
+  /** Populated for `bollinger`. */
+  bbLength: number | null;
+  bbMult: number | null;
+  bbBand: string | null;
+  bbMaType: MaType | null;
+  /** Populated for `stochastic`. */
+  stochKLength: number | null;
+  stochKSmooth: number | null;
+  stochDSmooth: number | null;
+  stochLevel: number | null;
+  /** Populated for `adx`. */
+  adxDiLength: number | null;
+  adxSmoothing: number | null;
+  adxLevel: number | null;
+  /**
+   * `RsiTarget` for `rsi`, `MacdTarget` for `macd`, `StochasticTarget` for
+   * `stochastic`. One field because all three answer the same question.
+   */
   indicatorTarget: string | null;
   /** Optional trend gates, available on every family; null when unset. */
   filterRsiLength: number | null;
@@ -1129,6 +1164,10 @@ export const api = {
     filterStAtrMethod?: StAtrMethod; filterStSide?: FilterSide;
     maType?: MaType; maLength?: number; mode?: MaAlertMode;
     ma2Type?: MaType; ma2Length?: number;
+    bbLength?: number; bbMult?: number; bbBand?: BollingerBand; bbMaType?: MaType;
+    stochKLength?: number; stochKSmooth?: number; stochDSmooth?: number;
+    stochLevel?: number;
+    adxDiLength?: number; adxSmoothing?: number; adxLevel?: number;
     targetPrice?: number; priceDirection?: PriceDirection;
     frequency?: AlertFrequency;
     nearMinPct?: number; nearMaxPct?: number;

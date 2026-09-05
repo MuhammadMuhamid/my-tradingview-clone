@@ -30,9 +30,12 @@ import { ChartWorkspace } from "@/components/tv/ChartWorkspace";
 import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
 import { ChartSidePanel } from "@/components/tv/ChartSidePanel";
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
+import { NativeStudySettings } from "@/components/tv/NativeStudySettings";
 import { DEFAULT_PROPERTIES, type StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import type { IndicatorsApi } from "@/lib/useIndicators";
+import type { NativeStudiesApi } from "@/lib/useNativeStudies";
+import { clearStoredNative, copyStoredNativeForScope } from "@/lib/useNativeStudies";
 import { clearStored, copyStoredForScope, type AppliedIndicator } from "@/lib/indicators";
 import { alertColor, describeAlert, isAlertActive } from "@/lib/alerts";
 import {
@@ -402,6 +405,49 @@ export default function TvWorkspace() {
       ? current : { ...current, [paneId]: list }));
   }, []);
 
+  /*
+   * The same registration for the pane's BUILT-IN studies.
+   *
+   * A second map rather than one merged surface: a Pine study is compiled and
+   * run on the server asynchronously, a built-in is a pure function of the
+   * bars on screen, and giving either one the other's lifecycle would be worse
+   * than keeping two small registries. The dialogs and the panel show them
+   * together; the engines stay apart.
+   */
+  const nativeApis = useRef(new Map<string, () => NativeStudiesApi>());
+  const [nativeVersions, setNativeVersions] = useState<Record<string, number>>({});
+  const registerNativeApi = useCallback(
+    (paneId: string, get: (() => NativeStudiesApi) | null) => {
+      if (get) nativeApis.current.set(paneId, get);
+      else {
+        nativeApis.current.delete(paneId);
+        setNativeVersions((current) => {
+          if (!(paneId in current)) return current;
+          const next = { ...current };
+          delete next[paneId];
+          return next;
+        });
+      }
+    }, []);
+  /**
+   * A pane reports that its built-in list changed.
+   *
+   * A version counter rather than the list itself: the list is already inside
+   * the API object the getter returns, and copying it into page state would
+   * give two places to disagree about what is on the chart.
+   */
+  const registerNativeChanged = useCallback((paneId: string) => {
+    setNativeVersions((current) => ({ ...current, [paneId]: (current[paneId] ?? 0) + 1 }));
+  }, []);
+
+  const activeNativeStudies = useMemo<NativeStudiesApi | null>(() => {
+    const get = nativeApis.current.get(active.id);
+    return get ? get() : null;
+    // `nativeVersions` is the trigger: the getter's contents change without
+    // its identity changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active.id, nativeVersions]);
+
   const activeIndicatorList = useMemo(
     () => indicatorLists[active.id] ?? [], [indicatorLists, active.id]);
   const activeIndicators = useMemo<IndicatorsApi | null>(() => {
@@ -425,6 +471,23 @@ export default function TvWorkspace() {
   const [editingAlert, setEditingAlert] = useState<MaAlert | null>(null);
   /** The instance whose settings the Indicators panel should open on. */
   const [indicatorFocusKey, setIndicatorFocusKey] = useState<string | null>(null);
+  /** Which built-in instance's Inputs/Style dialog is open, if any. */
+  const [editingNativeKey, setEditingNativeKey] = useState<string | null>(null);
+
+  /**
+   * The built-in instance the settings dialog is editing, resolved fresh.
+   *
+   * By key rather than by object, so retuning it does not leave the dialog
+   * bound to the value it had when it opened — and so closing a pane or
+   * removing the study closes the dialog rather than editing a ghost.
+   */
+  const editingNativeStudy = useMemo(
+    () => activeNativeStudies?.list.find((s) => s.key === editingNativeKey) ?? null,
+    [activeNativeStudies, editingNativeKey]);
+  const editingNativeValues = useMemo(
+    () => activeNativeStudies?.rows.find((r) => r.study.key === editingNativeKey)?.values,
+    [activeNativeStudies, editingNativeKey]);
+
   /**
    * The price-alert dialog, and the level it opened with.
    *
@@ -730,7 +793,10 @@ export default function TvWorkspace() {
     const next = setPreset(workspace, presetId);
     const existing = new Set(workspace.panes.map((p) => p.id));
     for (const pane of next.panes) {
-      if (!existing.has(pane.id)) copyStoredForScope(workspace.activePaneId, pane.id);
+      if (!existing.has(pane.id)) {
+        copyStoredForScope(workspace.activePaneId, pane.id);
+        copyStoredNativeForScope(workspace.activePaneId, pane.id);
+      }
     }
     setWorkspace(next);
   }, [workspace]);
@@ -745,7 +811,7 @@ export default function TvWorkspace() {
   const closePane = useCallback((paneId: string) => {
     setWorkspace((ws) => {
       const next = removePane(ws, paneId);
-      if (next !== ws) clearStored(paneId);
+      if (next !== ws) { clearStored(paneId); clearStoredNative(paneId); }
       return next;
     });
   }, []);
@@ -926,6 +992,8 @@ export default function TvWorkspace() {
         startTime={pineStartTime}
         endTime={pineEndTime}
         onIndicatorsApi={registerIndicatorsApi}
+        onNativeStudiesApi={registerNativeApi}
+        onNativeStudiesChanged={registerNativeChanged}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         compact={isMobile}
@@ -935,6 +1003,7 @@ export default function TvWorkspace() {
     toggleMaximizePane, closePane, replay, replayDrawings, updateReplayDrawings, cross, range,
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnet, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
+    registerNativeApi, registerNativeChanged,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport]);
 
   return (
@@ -1150,6 +1219,8 @@ export default function TvWorkspace() {
         replayQuote={activeReplayQuote(candles, replay)}
         onOpenAutomation={() => setAlertOpen(true)}
         indicators={activeIndicators}
+        nativeStudies={activeNativeStudies}
+        onEditNative={setEditingNativeKey}
         indicatorCount={activeIndicatorList.length}
         indicatorFocusKey={indicatorFocusKey}
         onOpenInEditor={openInEditor}
@@ -1176,6 +1247,20 @@ export default function TvWorkspace() {
         onCloseNav={() => setNavOpen(false)}
       />
 
+      {/*
+        Inputs and Style for one built-in study.
+        Rendered here rather than inside the panel so the gear on a pane can
+        open it without the Studies panel having to be open first.
+      */}
+      <NativeStudySettings
+        study={editingNativeStudy}
+        values={editingNativeValues}
+        onClose={() => setEditingNativeKey(null)}
+        onParam={(key, param, value) => activeNativeStudies?.setParam(key, param, value)}
+        onStyle={(key, plotId, style) => activeNativeStudies?.setStyle(key, plotId, style)}
+        onReset={(key) => activeNativeStudies?.resetParams(key)}
+      />
+
       <ChartDialogs
         symbol={symbol}
         interval={interval}
@@ -1190,6 +1275,7 @@ export default function TvWorkspace() {
         indicatorBrowserOpen={indicatorBrowserOpen}
         onCloseIndicatorBrowser={() => setIndicatorBrowserOpen(false)}
         indicators={activeIndicators}
+        nativeStudies={activeNativeStudies}
         onOpenInEditor={openInEditor}
         searchPaneId={searchPaneId}
         searchSymbol={(searchPaneId ? paneById(workspace, searchPaneId)?.symbol : symbol) ?? symbol}

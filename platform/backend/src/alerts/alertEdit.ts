@@ -71,6 +71,15 @@ export const EDITABLE_CONDITION_FIELDS: Record<ConditionKind, readonly string[]>
   rsi: ["rsiLength", "target", "rsiLevel", "rsiMaLength", "mode", ...GATE_FIELDS],
   macd: ["macdFast", "macdSlow", "macdSignal", "target", "mode", ...GATE_FIELDS],
   supertrend: ["stPeriod", "stMultiplier", "stAtrMethod", "mode", ...GATE_FIELDS],
+  bollinger: [
+    "bbLength", "bbMult", "bbBand", "bbMaType", "mode", "nearMinPct", "nearMaxPct",
+    ...GATE_FIELDS,
+  ],
+  stochastic: [
+    "stochKLength", "stochKSmooth", "stochDSmooth", "target", "stochLevel", "mode",
+    ...GATE_FIELDS,
+  ],
+  adx: ["adxDiLength", "adxSmoothing", "adxLevel", "mode", ...GATE_FIELDS],
 };
 
 /** Editable on every family, and handled outside the condition round trip. */
@@ -113,6 +122,11 @@ const REFERENCE_COLUMNS: Record<ConditionKind, readonly (keyof AlertColumns)[]> 
   // on — a stored side from the old parameters describes a line that no longer
   // exists and would manufacture a flip on the next bar.
   supertrend: ["stPeriod", "stMultiplier", "stAtrMethod"],
+  // Every band input reshapes the line price is compared against, so a stored
+  // side from the old inputs describes a band that no longer exists.
+  bollinger: ["bbLength", "bbMult", "bbBand", "bbMaType"],
+  stochastic: ["stochKLength", "stochKSmooth", "stochDSmooth", "stochLevel", "indicatorTarget"],
+  adx: ["adxDiLength", "adxSmoothing", "adxLevel"],
 };
 
 /**
@@ -192,6 +206,23 @@ export function alertRequestFromRow(row: MaAlertRow): Record<string, unknown> {
       return {
         stPeriod: row.stPeriod, stMultiplier: row.stMultiplier,
         stAtrMethod: row.stAtrMethod, mode: row.mode, ...gates,
+      };
+    case "bollinger":
+      return {
+        bbLength: row.bbLength, bbMult: row.bbMult, bbBand: row.bbBand,
+        bbMaType: row.bbMaType, mode: row.mode,
+        nearMinPct: row.nearMinPct, nearMaxPct: row.nearMaxPct, ...gates,
+      };
+    case "stochastic":
+      return {
+        stochKLength: row.stochKLength, stochKSmooth: row.stochKSmooth,
+        stochDSmooth: row.stochDSmooth, target: row.indicatorTarget,
+        stochLevel: row.stochLevel, mode: row.mode, ...gates,
+      };
+    case "adx":
+      return {
+        adxDiLength: row.adxDiLength, adxSmoothing: row.adxSmoothing,
+        adxLevel: row.adxLevel, mode: row.mode, ...gates,
       };
   }
 }

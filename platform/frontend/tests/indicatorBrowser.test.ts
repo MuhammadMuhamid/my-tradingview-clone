@@ -15,6 +15,7 @@
  * and no half-restored one that looks applied and is not.
  */
 import { test } from "node:test";
+import { NATIVE_STUDIES } from "../lib/native/catalog";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -49,28 +50,55 @@ const template = (over: Partial<IndicatorTemplate> = {}): IndicatorTemplate => (
 
 // ── the browser is over real things ────────────────────────────────────────
 
-test("the browser invents no marketplace, community or bundled library", () => {
+test("the browser invents no marketplace, community or paid library", () => {
   const source = readCode(BROWSER);
   for (const forbidden of [
     /\bcommunity\b/i, /\bmarketplace\b/i, /\bpurchased\b/i, /\btrending\b/i,
     /\bpopular\b/i, /\beditors?['’]? picks?\b/i, /\bfeatured\b/i, /\bsubscribe\b/i,
-    /\bbuilt[- ]?in\b/i,
   ]) {
     assert.doesNotMatch(source, forbidden,
       `${forbidden} promises a source of indicators this product does not have`);
   }
 });
 
+/**
+ * "Built-in" used to be on the forbidden list above, and correctly so: this
+ * installation shipped no bundled scripts, and a Built-in tab would have been
+ * an empty promise. It is no longer empty — the native registry is a real
+ * library that computes in the browser — so the assertion changes from "the
+ * word must not appear" to "the tab must be backed by the registry".
+ */
+test("the Built-in category is the native registry, not a stub", () => {
+  const source = read(BROWSER);
+  assert.match(source, /id: "builtin", label: "Built-in"/);
+  assert.match(source, /from "@\/lib\/native\/catalog"/,
+    "the tab must read the registry rather than a hard-coded list");
+  assert.match(source, /NATIVE_STUDIES\.length/, "its count is the registry's own");
+  assert.match(source, /searchStudies\(q\)/, "and its search is the registry's own");
+  assert.ok(NATIVE_STUDIES.length >= 12,
+    "a Built-in tab with nothing in it would be exactly the empty promise " +
+    "this assertion used to forbid");
+});
+
 test("every category is derived from data the installation really holds", () => {
   const source = read(BROWSER);
   // Script kinds come from the Pine compiler's own `kind`; "on this chart"
-  // comes from the focused pane's applied list; templates from local storage.
+  // comes from the focused pane's applied list; templates from local storage;
+  // built-ins, favourites and recents from the native registry.
   assert.match(source, /s\.kind === "indicator"/);
   assert.match(source, /s\.kind === "strategy"/);
   assert.match(source, /applied\.map\(\(i\) => i\.scriptId\)/);
   assert.match(source, /loadTemplates\(\)/);
-  assert.match(source, /id: "all", label: "All scripts"/);
+  assert.match(source, /loadFavourites\(\)/);
+  assert.match(source, /loadRecents\(\)/);
+  assert.match(source, /id: "all", label: "My scripts"/);
   assert.match(source, /id: "onChart", label: "On this chart"/);
+});
+
+test("the on-chart count includes both engines, because the user sees one chart", () => {
+  const source = read(BROWSER);
+  assert.match(source, /applied\.length \+ \(props\.nativeStudies\?\.list\.length \?\? 0\)/,
+    "a count that omitted built-in studies would contradict the chart");
 });
 
 test("the browser is a modal with the application's own focus and Escape handling", () => {

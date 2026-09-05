@@ -14,6 +14,9 @@ import {
   RSI_TARGETS, MACD_TARGETS, RSI_DEFAULTS, MACD_DEFAULTS,
   ST_ATR_METHODS, SUPERTREND_DEFAULTS, isStAtrMethod, type StAtrMethod,
   isRsiTarget, isMacdTarget,
+  BOLLINGER_BANDS, BOLLINGER_DEFAULTS, isBollingerBand,
+  STOCHASTIC_TARGETS, STOCHASTIC_DEFAULTS, isStochasticTarget,
+  ADX_DEFAULTS,
   FILTER_DEFAULTS, isFilterSide,
 } from "../types/maAlerts";
 import type { AlertCondition, AlertFilters } from "./alertConditions";
@@ -156,6 +159,68 @@ export function readCondition(
     };
   }
 
+  if (kind === "bollinger") {
+    const length = Number(b.bbLength ?? BOLLINGER_DEFAULTS.length);
+    const mult = Number(b.bbMult ?? BOLLINGER_DEFAULTS.mult);
+    const band = String(b.bbBand ?? BOLLINGER_DEFAULTS.band);
+    const bbMaType = String(b.bbMaType ?? BOLLINGER_DEFAULTS.maType);
+    const bbMode = String(b.mode ?? "touch");
+    if (!isLength(length) || length < 2) return bad("bbLength must be an integer 2..1000");
+    if (!isMultiplier(mult)) return bad(multiplierMessage("bbMult"));
+    if (!isBollingerBand(band)) {
+      return bad(`bbBand must be one of ${BOLLINGER_BANDS.join(", ")}`);
+    }
+    if (!isMaType(bbMaType)) return bad("bbMaType must be sma or ema");
+    if (!isMaAlertMode(bbMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
+    return {
+      condition: {
+        kind: "bollinger", length, mult, band, maType: bbMaType, mode: bbMode,
+        nearMinPct, nearMaxPct, ...gates,
+      },
+    };
+  }
+
+  if (kind === "stochastic") {
+    const kLength = Number(b.stochKLength ?? STOCHASTIC_DEFAULTS.kLength);
+    const kSmooth = Number(b.stochKSmooth ?? STOCHASTIC_DEFAULTS.kSmooth);
+    const dSmooth = Number(b.stochDSmooth ?? STOCHASTIC_DEFAULTS.dSmooth);
+    const target = String(b.target ?? "signal");
+    const level = Number(b.stochLevel ?? STOCHASTIC_DEFAULTS.level);
+    const sMode = String(b.mode ?? "cross_up");
+    for (const [name, v] of [
+      ["stochKLength", kLength], ["stochKSmooth", kSmooth], ["stochDSmooth", dSmooth],
+    ] as const) {
+      if (!isLength(v)) return bad(`${name} must be an integer 1..1000`);
+    }
+    if (!isStochasticTarget(target)) {
+      return bad(`target must be one of ${STOCHASTIC_TARGETS.join(", ")}`);
+    }
+    if (!Number.isFinite(level)) return bad("stochLevel must be a number");
+    // The oscillator crosses; there is no band to be near and no wick to touch.
+    if (sMode !== "cross_up" && sMode !== "cross_down") {
+      return bad("mode must be cross_up or cross_down for a Stochastic alert");
+    }
+    return {
+      condition: {
+        kind: "stochastic", kLength, kSmooth, dSmooth, target, level, mode: sMode, ...gates,
+      },
+    };
+  }
+
+  if (kind === "adx") {
+    const diLength = Number(b.adxDiLength ?? ADX_DEFAULTS.diLength);
+    const smoothing = Number(b.adxSmoothing ?? ADX_DEFAULTS.smoothing);
+    const level = Number(b.adxLevel ?? ADX_DEFAULTS.level);
+    const aMode = String(b.mode ?? "cross_up");
+    if (!isLength(diLength)) return bad("adxDiLength must be an integer 1..1000");
+    if (!isLength(smoothing)) return bad("adxSmoothing must be an integer 1..1000");
+    if (!Number.isFinite(level)) return bad("adxLevel must be a number");
+    if (aMode !== "cross_up" && aMode !== "cross_down") {
+      return bad("mode must be cross_up or cross_down for an ADX alert");
+    }
+    return { condition: { kind: "adx", diLength, smoothing, level, mode: aMode, ...gates } };
+  }
+
   if (kind === "sr_zone") {
     const srSide = String(b.srSide ?? "either");
     const srMode = String(b.mode ?? "near_above");
@@ -289,6 +354,11 @@ export type AlertColumns = {
   macdFast: number | null; macdSlow: number | null; macdSignal: number | null;
   stPeriod: number | null; stMultiplier: number | null;
   stAtrMethod: StAtrMethod | null;
+  bbLength: number | null; bbMult: number | null;
+  bbBand: string | null; bbMaType: MaType | null;
+  stochKLength: number | null; stochKSmooth: number | null;
+  stochDSmooth: number | null; stochLevel: number | null;
+  adxDiLength: number | null; adxSmoothing: number | null; adxLevel: number | null;
   indicatorTarget: string | null;
   filterRsiLength: number | null; filterRsiLevel: number | null;
   filterRsiSide: string | null;
@@ -308,6 +378,9 @@ export function toColumns(condition: AlertCondition): AlertColumns {
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
     macdFast: null, macdSlow: null, macdSignal: null,
     stPeriod: null, stMultiplier: null, stAtrMethod: null,
+    bbLength: null, bbMult: null, bbBand: null, bbMaType: null,
+    stochKLength: null, stochKSmooth: null, stochDSmooth: null, stochLevel: null,
+    adxDiLength: null, adxSmoothing: null, adxLevel: null,
     indicatorTarget: null,
   };
 
@@ -415,6 +488,47 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         stPeriod: condition.period,
         stMultiplier: condition.multiplier,
         stAtrMethod: condition.atrMethod,
+        ...gates(condition.filters),
+      };
+    case "bollinger":
+      return {
+        conditionKind: "bollinger",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct,
+        ...empty,
+        bbLength: condition.length,
+        bbMult: condition.mult,
+        bbBand: condition.band,
+        bbMaType: condition.maType,
+        ...gates(condition.filters),
+      };
+    case "stochastic":
+      return {
+        conditionKind: "stochastic",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: 0.2, nearMaxPct: 0.5,
+        ...empty,
+        stochKLength: condition.kLength,
+        stochKSmooth: condition.kSmooth,
+        stochDSmooth: condition.dSmooth,
+        // Stored even for the signal target, so switching a stored alert to a
+        // level does not silently take a default the operator never chose.
+        stochLevel: condition.level,
+        indicatorTarget: condition.target,
+        ...gates(condition.filters),
+      };
+    case "adx":
+      return {
+        conditionKind: "adx",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: 0.2, nearMaxPct: 0.5,
+        ...empty,
+        adxDiLength: condition.diLength,
+        adxSmoothing: condition.smoothing,
+        adxLevel: condition.level,
         ...gates(condition.filters),
       };
   }

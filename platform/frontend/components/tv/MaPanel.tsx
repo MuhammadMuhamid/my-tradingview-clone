@@ -14,15 +14,18 @@ import { fmtPrice } from "@/lib/format";
 
 type LevelKind = "sr_zone" | "pivot_level";
 /** The families the indicator dialog arms. Mirrors `IndicatorKind`. */
-type IndicatorRowKind = "rsi" | "macd" | "supertrend";
+type IndicatorRowKind =
+  | "rsi" | "macd" | "supertrend" | "bollinger" | "stochastic" | "adx";
 
 /**
- * Supertrend sits in its own section rather than among the oscillators.
+ * The families whose subject is price or trend, rather than a bounded
+ * oscillator in a pane below the chart.
  *
- * It is an overlay on price, not a bounded oscillator in a pane below it, and
- * its event is a direction change rather than a cross. Filing it under
- * "Oscillators" would put a row there that behaves unlike its neighbours in
- * both respects.
+ * Supertrend and Bollinger are overlays ON price: their events are a direction
+ * change and price meeting a moving line. ADX is drawn in a pane but is not a
+ * position-in-range oscillator either — it measures strength and has no
+ * direction of its own. Filing any of the three under "Oscillators" would put
+ * rows there that behave unlike their neighbours.
  */
 const TREND_ROWS: {
   kind: IndicatorRowKind; label: string; hint: string; color: string;
@@ -32,6 +35,18 @@ const TREND_ROWS: {
     label: "Supertrend",
     hint: "Alert when the Supertrend flips direction",
     color: "#089981",
+  },
+  {
+    kind: "bollinger",
+    label: "Bollinger band",
+    hint: "Alert when price touches or crosses a band",
+    color: "#4f8cff",
+  },
+  {
+    kind: "adx",
+    label: "ADX",
+    hint: "Alert when trend strength crosses a threshold",
+    color: "#9b7cf5",
   },
 ];
 
@@ -47,6 +62,12 @@ const OSCILLATOR_ROWS: {
 }[] = [
   { kind: "rsi", label: "RSI", hint: "Alert on an RSI cross", color: "#7e57c2" },
   { kind: "macd", label: "MACD", hint: "Alert on a MACD cross", color: "#2962ff" },
+  {
+    kind: "stochastic",
+    label: "Stochastic",
+    hint: "Alert when %K crosses its %D or a level",
+    color: "#f0b90b",
+  },
 ];
 
 /**

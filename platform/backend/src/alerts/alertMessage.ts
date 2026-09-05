@@ -193,6 +193,51 @@ function buildBase(
         tag, url,
       };
     }
+
+    /*
+     * A Bollinger band is a PRICE, so this reads like the level families: what
+     * price did, against a line named with its price. The band moves every
+     * bar, which is why the line's own price is worth printing — "touched the
+     * upper band" without saying where the band was is not actionable.
+     */
+    case "bollinger": {
+      const what = describeCondition(condition);
+      const band = condition.band === "basis" ? "basis" : `${condition.band} band`;
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — Bollinger ${band}`,
+        body:
+          `Price ${what} at ${formatAlertPrice(reference)} ` +
+          `(last ${formatAlertPrice(bar.close)}, ${formatDistance(distancePct)})`,
+        tag, url,
+      };
+    }
+
+    /*
+     * Oscillator families again: the READING, on its own 0..100 scale.
+     * `distancePct` carries stochastic points here, not a price move.
+     */
+    case "stochastic": {
+      const against = condition.target === "level" ? `${condition.level}` : "%D";
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — Stochastic`,
+        body:
+          `${describeCondition(condition)} ` +
+          `(%K ${formatIndicator(reference + distancePct)} vs ` +
+          `${against} ${formatIndicator(reference)})`,
+        tag, url,
+      };
+    }
+
+    case "adx": {
+      const direction = condition.mode === "cross_up" ? "strengthening" : "weakening";
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — ADX`,
+        body:
+          `${describeCondition(condition)} — trend ${direction} ` +
+          `(ADX ${formatIndicator(reference + distancePct)} vs ${formatIndicator(reference)})`,
+        tag, url,
+      };
+    }
   }
 }
 

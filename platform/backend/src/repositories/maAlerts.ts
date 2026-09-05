@@ -33,6 +33,17 @@ interface DbAlert {
   st_period: number | null;
   st_multiplier: string | number | null;
   st_atr_method: string | null;
+  bb_length: number | null;
+  bb_mult: string | number | null;
+  bb_band: string | null;
+  bb_ma_type: MaType | null;
+  stoch_k_length: number | null;
+  stoch_k_smooth: number | null;
+  stoch_d_smooth: number | null;
+  stoch_level: string | number | null;
+  adx_di_length: number | null;
+  adx_smoothing: number | null;
+  adx_level: string | number | null;
   indicator_target: string | null;
   filter_rsi_length: number | null;
   filter_rsi_level: string | number | null;
@@ -86,6 +97,17 @@ function toRow(r: DbAlert): MaAlertRow {
     stPeriod: r.st_period,
     stMultiplier: r.st_multiplier === null ? null : num(r.st_multiplier),
     stAtrMethod: r.st_atr_method,
+    bbLength: r.bb_length,
+    bbMult: r.bb_mult === null ? null : num(r.bb_mult),
+    bbBand: r.bb_band,
+    bbMaType: r.bb_ma_type,
+    stochKLength: r.stoch_k_length,
+    stochKSmooth: r.stoch_k_smooth,
+    stochDSmooth: r.stoch_d_smooth,
+    stochLevel: r.stoch_level === null ? null : num(r.stoch_level),
+    adxDiLength: r.adx_di_length,
+    adxSmoothing: r.adx_smoothing,
+    adxLevel: r.adx_level === null ? null : num(r.adx_level),
     indicatorTarget: r.indicator_target,
     filterRsiLength: r.filter_rsi_length,
     filterRsiLevel: r.filter_rsi_level === null ? null : num(r.filter_rsi_level),
@@ -163,6 +185,17 @@ export interface MaAlertInput {
   filterStMultiplier?: number | null;
   filterStAtrMethod?: StAtrMethod | null;
   filterStSide?: string | null;
+  bbLength?: number | null;
+  bbMult?: number | null;
+  bbBand?: string | null;
+  bbMaType?: MaType | null;
+  stochKLength?: number | null;
+  stochKSmooth?: number | null;
+  stochDSmooth?: number | null;
+  stochLevel?: number | null;
+  adxDiLength?: number | null;
+  adxSmoothing?: number | null;
+  adxLevel?: number | null;
 }
 
 /** The unique index that governs "the same alert" for each condition kind. */
@@ -188,6 +221,17 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
   supertrend:
     "(symbol, timeframe, st_period, st_multiplier, st_atr_method, mode)" +
     " WHERE condition_kind = 'supertrend'",
+  // Every band input is part of the key: an upper-band touch and a lower-band
+  // touch are two alerts, and a 20/2 band and a 20/3 band are two lines.
+  bollinger:
+    "(symbol, timeframe, bb_length, bb_mult, bb_band, bb_ma_type, mode)" +
+    " WHERE condition_kind = 'bollinger'",
+  stochastic:
+    "(symbol, timeframe, stoch_k_length, stoch_k_smooth, stoch_d_smooth," +
+    " indicator_target, stoch_level, mode) WHERE condition_kind = 'stochastic'",
+  adx:
+    "(symbol, timeframe, adx_di_length, adx_smoothing, adx_level, mode)" +
+    " WHERE condition_kind = 'adx'",
 };
 
 /**
@@ -211,12 +255,16 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         rsi_length, rsi_level, rsi_ma_length,
         macd_fast, macd_slow, macd_signal, indicator_target,
         st_period, st_multiplier, st_atr_method,
+        bb_length, bb_mult, bb_band, bb_ma_type,
+        stoch_k_length, stoch_k_smooth, stoch_d_smooth, stoch_level,
+        adx_di_length, adx_smoothing, adx_level,
         filter_rsi_length, filter_rsi_level, filter_rsi_side,
         filter_ma_type, filter_ma_length, filter_ma_side,
         filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
-             $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
+             $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
+             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -242,6 +290,17 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        st_period           = EXCLUDED.st_period,
        st_multiplier       = EXCLUDED.st_multiplier,
        st_atr_method       = EXCLUDED.st_atr_method,
+       bb_length           = EXCLUDED.bb_length,
+       bb_mult             = EXCLUDED.bb_mult,
+       bb_band             = EXCLUDED.bb_band,
+       bb_ma_type          = EXCLUDED.bb_ma_type,
+       stoch_k_length      = EXCLUDED.stoch_k_length,
+       stoch_k_smooth      = EXCLUDED.stoch_k_smooth,
+       stoch_d_smooth      = EXCLUDED.stoch_d_smooth,
+       stoch_level         = EXCLUDED.stoch_level,
+       adx_di_length       = EXCLUDED.adx_di_length,
+       adx_smoothing       = EXCLUDED.adx_smoothing,
+       adx_level           = EXCLUDED.adx_level,
        filter_rsi_length   = EXCLUDED.filter_rsi_length,
        filter_rsi_level    = EXCLUDED.filter_rsi_level,
        filter_rsi_side     = EXCLUDED.filter_rsi_side,
@@ -271,6 +330,11 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.macdFast ?? null, input.macdSlow ?? null, input.macdSignal ?? null,
       input.indicatorTarget ?? null,
       input.stPeriod ?? null, input.stMultiplier ?? null, input.stAtrMethod ?? null,
+      input.bbLength ?? null, input.bbMult ?? null,
+      input.bbBand ?? null, input.bbMaType ?? null,
+      input.stochKLength ?? null, input.stochKSmooth ?? null,
+      input.stochDSmooth ?? null, input.stochLevel ?? null,
+      input.adxDiLength ?? null, input.adxSmoothing ?? null, input.adxLevel ?? null,
       input.filterRsiLength ?? null, input.filterRsiLevel ?? null,
       input.filterRsiSide ?? null,
       input.filterMaType ?? null, input.filterMaLength ?? null,
