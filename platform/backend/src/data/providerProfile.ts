@@ -64,8 +64,9 @@ export interface ProviderProfile {
  * The browser's stream origins.
  *
  * Duplicated rather than imported because the backend does not import browser
- * modules and vice versa; `tests/providerProfile.test.ts` asserts the two
- * lists are identical, so the duplication cannot drift silently.
+ * modules and vice versa; `tests/instrumentIdentity.test.ts` reads the
+ * browser's own list and asserts the two are identical, in order, so the
+ * duplication cannot drift silently.
  */
 export const BINANCE_STREAM_ORIGINS: readonly string[] = [
   "wss://data-stream.binance.vision",

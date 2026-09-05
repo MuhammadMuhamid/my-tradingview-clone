@@ -31,13 +31,17 @@ import type { Interval } from "./types";
 export interface LivePriceState {
   /** Newest live close for this dataset, or null before a valid frame. */
   price: number | null;
-  /** Exchange event time of the frame that carried it. */
-  at: number | null;
+  /**
+   * Close time of the BAR that frame belongs to — not the moment the frame
+   * arrived. Named for what it is, because a consumer that read it as an
+   * arrival time would measure a minute of staleness on every fresh 1m tick.
+   */
+  barCloseTime: number | null;
   /** Open time of the bar that frame belongs to. */
   openTime: number | null;
 }
 
-const EMPTY: LivePriceState = { price: null, at: null, openTime: null };
+const EMPTY: LivePriceState = { price: null, barCloseTime: null, openTime: null };
 
 export function useLivePrice(
   symbol: string, interval: Interval, options: { enabled?: boolean } = {}
@@ -56,7 +60,7 @@ export function useLivePrice(
         // A frame is only news about the dataset it names.
         if (datasetKey(tick) !== wanted) return;
         if (!Number.isFinite(tick.close) || tick.close <= 0) return;
-        setState({ price: tick.close, at: tick.closeTime, openTime: tick.openTime });
+        setState({ price: tick.close, barCloseTime: tick.closeTime, openTime: tick.openTime });
       },
       onStatus: (_status, feed: FeedState) => {
         // Reconnecting or silent: what we hold is no longer the market.

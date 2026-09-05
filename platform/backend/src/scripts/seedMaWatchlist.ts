@@ -72,6 +72,9 @@ async function main(): Promise<void> {
   console.log(`${COINS.length} coins → watchlist, ${TIMEFRAME} layouts, approach alerts\n`);
 
   for (const symbol of COINS) {
+    // Legacy suffix split, kept deliberately: this seed list is USDT pairs by
+    // construction and runs before any instrument metadata exists. New code
+    // reads assets from metadata — see `types/instrument`.
     const base = symbol.replace(/USDT$/, "");
     if (!dry) {
       await symbolRepo.addSymbol(symbol, base, "USDT");

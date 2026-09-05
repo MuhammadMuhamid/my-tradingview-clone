@@ -10,10 +10,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   barsBehind, claimTailRepair, formingOpenTime, inspectTail, isTailStale,
-  lastClosedOpenTime, resetTailRepairs, spliceTail, TAIL_TOLERANCE_BARS,
-  tailRepairRange,
+  lastClosedOpenTime, releaseTailRepair, resetTailRepairs, spliceTail,
+  TAIL_TOLERANCE_BARS, tailGapBars, tailRepairRange,
 } from "../lib/historyFreshness";
-import { repairStaleTail } from "../lib/useCandleHistory";
+import {
+  heldWindow, loadCandleWindow, mergeLiveBarsInto, repairStaleTail,
+} from "../lib/useCandleHistory";
 import { INTERVAL_MS, type Candle, type Interval } from "../lib/types";
 
 const MIN = 60_000;
@@ -229,13 +231,112 @@ test("an abort during a repair propagates rather than being swallowed as a failu
     (err: Error) => err.name === "AbortError");
 });
 
-test("case 8 — a live bar at the current slot clears staleness without any refetch", () => {
+test("case 8 — a live tick during a repair advances a current window, and cannot hide a hole", () => {
   const now = Date.now();
   const forming = formingOpenTime(now, "1m");
+
+  // A window that is current: the next bar simply extends it and it stays current.
+  const current = series(forming - MIN, 500);
+  assert.equal(isTailStale([...current, candle(forming)], "1m", now), false);
+
+  // A window that is twenty minutes behind: appending the current bar would
+  // leave a nineteen-bar hole immediately behind the newest bar. Measuring
+  // only the distance to the grid would call that fresh, which is how a chart
+  // comes to be visibly wrong AND affirmatively claiming to be right.
   const stale = series(forming - 20 * MIN, 500);
   assert.equal(isTailStale(stale, "1m", now), true);
-  // Exactly what `mergeLiveBarsInto` does when a kline for the forming slot
-  // lands: the window reaches the grid and stops being behind.
-  const withTick = [...stale, candle(forming)];
-  assert.equal(isTailStale(withTick, "1m", now), false);
+  assert.equal(isTailStale([...stale, candle(forming)], "1m", now), true,
+    "a tick reveals a hole; it does not repair one");
+});
+
+// ── a live bar must not stitch across a hole, and must not hide one ─────────
+
+test("a hole at the tail is staleness, even when the newest bar is current", () => {
+  const now = 100_000 * MIN;
+  const forming = formingOpenTime(now, "1m");
+  // What a reconnect after a three-hour outage produces if the tick is simply
+  // appended: a window whose NEWEST bar is the current slot, with a hole
+  // immediately behind it. Measuring only distance-to-grid calls this fresh.
+  const stitched = [...series(forming - 180 * MIN, 500), candle(forming)];
+  assert.equal(barsBehind(forming, "1m", now), 0, "its newest bar IS current");
+  assert.equal(tailGapBars(stitched, "1m"), 179);
+  assert.equal(isTailStale(stitched, "1m", now), true,
+    "and the window is still behind the market, which it must say");
+
+  // A contiguous window is unaffected, and so is a single-slot hole, which is
+  // the ordinary boundary case rather than an outage.
+  assert.equal(tailGapBars(series(forming, 500), "1m"), 0);
+  const oneSlot = [...series(forming - 2 * MIN, 500), candle(forming)];
+  assert.equal(tailGapBars(oneSlot, "1m"), 1);
+  assert.equal(isTailStale(oneSlot, "1m", now), false);
+  assert.equal(tailGapBars([], "1m"), 0);
+  assert.equal(tailGapBars([candle(forming)], "1m"), 0);
+});
+
+test("merging refuses to stitch a live bar across a gap and reports the window behind", () => {
+  const now = Date.now();
+  const forming = formingOpenTime(now, "1m");
+  const held = heldWindow(series(forming - 180 * MIN, 500),
+    { symbol: "BTCUSDT", interval: "1m", bars: 500 });
+  assert.equal(held.stale, true, "the window was already behind");
+
+  const after = mergeLiveBarsInto(held, null, candle(forming));
+  assert.equal(after.candles.length, 500, "the far-future bar is not appended");
+  assert.equal(after.candles[after.candles.length - 1]!.openTime, forming - 180 * MIN);
+  assert.equal(after.stale, true);
+  // Repeated ticks must not churn a new object each time, or every frame of a
+  // disconnected feed would re-render every pane.
+  assert.equal(mergeLiveBarsInto(after, null, candle(forming + MIN)), after);
+});
+
+test("an ordinary next bar still merges, and clears staleness", () => {
+  const now = Date.now();
+  const forming = formingOpenTime(now, "1m");
+  const held = heldWindow(series(forming - MIN, 500),
+    { symbol: "BTCUSDT", interval: "1m", bars: 500 });
+  const after = mergeLiveBarsInto(held, null, candle(forming));
+  assert.equal(after.candles[after.candles.length - 1]!.openTime, forming);
+  assert.equal(after.stale, false);
+});
+
+test("an explicit reload may repair inside the cooldown; an automatic one may not", () => {
+  resetTailRepairs();
+  const now = 2_000_000;
+  assert.equal(claimTailRepair("K", now), true);
+  assert.equal(claimTailRepair("K", now + 1_000), false, "the automatic path is held off");
+  // What `reload()` does: a deliberate refresh is the user saying try again now.
+  releaseTailRepair("K");
+  assert.equal(claimTailRepair("K", now + 1_000), true);
+});
+
+test("the cooldown map evicts the least recently claimed window, not the hottest", () => {
+  resetTailRepairs();
+  let t = 0;
+  for (let i = 0; i < 64; i++) claimTailRepair(`k${i}`, (t += 1));
+  // Re-claim the oldest so it becomes the most recent, then overflow by one.
+  releaseTailRepair("k0");
+  claimTailRepair("k0", (t += 1));
+  claimTailRepair("k64", (t += 1));
+  // k1 was evicted (least recent), so it may claim again immediately; k0 was
+  // refreshed, so it is still held off.
+  assert.equal(claimTailRepair("k1", t + 1), true);
+  assert.equal(claimTailRepair("k0", t + 1), false);
+});
+
+test("a symbol with nothing stored is backfilled once, not twice", async () => {
+  resetTailRepairs();
+  const calls: string[] = [];
+  const mod = await import("../lib/api");
+  const api = mod.api as unknown as Record<string, unknown>;
+  const real = { c: api.candles, r: api.candlesRange, b: api.backfill };
+  api.candles = async () => { calls.push("candles"); return [] as Candle[]; };
+  api.candlesRange = async () => { calls.push("range"); return [] as Candle[]; };
+  api.backfill = async () => { calls.push("backfill"); return { fetched: 0 }; };
+  try {
+    await loadCandleWindow(REQUEST, new AbortController().signal);
+  } finally {
+    api.candles = real.c; api.candlesRange = real.r; api.backfill = real.b;
+  }
+  assert.equal(calls.filter((c) => c === "backfill").length, 1,
+    "the depth path already fetched the whole window; the tail repair must not repeat it");
 });

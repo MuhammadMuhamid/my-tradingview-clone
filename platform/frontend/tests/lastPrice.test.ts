@@ -9,6 +9,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from "node:fs";
+import path from "node:path";
 import {
   lastPriceLabel, lastPriceNotice, resolveLastPrice,
 } from "../lib/lastPrice";
@@ -71,4 +73,24 @@ test("a search key ignores only what the server itself ignores", () => {
   assert.notEqual(searchKey("SOL", "ALL"), searchKey("SOLU", "ALL"));
   assert.notEqual(searchKey("SOL", "ALL"), searchKey("SOL", "USDT"),
     "the quote chip is part of what a result set answers");
+});
+
+test("history from another dataset is not a price for this one", () => {
+  // The page passes null rather than the previous instrument's close while a
+  // new window loads. The resolver must then say it has nothing, not fall
+  // through to a number it was never given.
+  const resolved = resolveLastPrice({ historyClose: null, liveClose: null });
+  assert.equal(resolved.price, null);
+  assert.equal(resolved.source, "none");
+  assert.equal(lastPriceNotice(resolved), null, "and owes no explanation for a number it is not showing");
+});
+
+test("the page gates its history fallback on the dataset it is actually holding", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "app", "chart", "page.tsx"), "utf8");
+  assert.match(source, /datasetKey\(activeHistory\.dataset\) === datasetKey\(\{ symbol, interval \}\)/,
+    "the page must compare what it holds against what it asked for");
+  assert.match(source, /historyClose: holdingRequested \? candles\[candles\.length - 1\]\?\.close \?\? null : null/,
+    "and pass nothing rather than the previous instrument's close");
+  assert.match(source, /historyStale: holdingRequested && activeHistory\.stale/);
 });

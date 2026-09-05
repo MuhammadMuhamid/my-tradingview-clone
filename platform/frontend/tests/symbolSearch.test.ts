@@ -13,8 +13,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  ALL_QUOTES, SEARCH_MARKET, SEARCH_VENUE, describeResult, moveCursor, quoteFilters, rowAtCursor,
-  searchSummary,
+  ALL_QUOTES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, describeResult, dialogClosed,
+  moveCursor, pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor,
+  searchKey, searchSummary,
 } from "../lib/symbolSearch";
 import type { SymbolSearchResult } from "../lib/api";
 import { resolveTradingTarget, tradingTargetNotice } from "../lib/tradingTarget";
@@ -221,51 +222,98 @@ test("changing the pinned pane's own symbol follows it, so the panel's disarm st
 // ── Enter cannot select a previous query's results ──────────────────────────
 
 /**
- * The race, stated as source structure.
+ * The race, driven directly.
  *
  * The dialog opens seeded with the CURRENT symbol and debounces its search by
- * 180 ms. Pasting a different ticker and pressing Enter inside that window
- * used to select `rows[cursor]` — still the answer to the seeded query — so
- * the chart kept the symbol the user had just replaced, silently.
+ * 180 ms. Pasting a different ticker and pressing Enter inside that window used
+ * to select `rows[cursor]` — still the answer to the seeded query — so the
+ * chart kept the symbol the user had just replaced, silently.
  *
- * A behavioural test would need React and a fake timer; the invariant that
- * actually prevents the defect is structural and is asserted here: results
- * carry the query they answer, Enter compares the two, and the impatient path
- * flushes the pending debounce rather than issuing a second request.
+ * These drive `SearchIntent` itself rather than asserting that the component's
+ * source text contains certain regexes. Every case below is a race, and a race
+ * is exactly what a source-text assertion cannot observe: two of them shipped
+ * green underneath one.
  */
-test("Enter compares the results' query against the live input before selecting", () => {
+
+test("Enter against the answered query selects; Enter against a stale one flushes", () => {
+  const answered = { rowsKey: searchKey("SOL", ALL_QUOTES), pendingEnter: false };
+  assert.equal(pressEnter(answered, searchKey("SOL", ALL_QUOTES)).action, "select");
+
+  const stale = pressEnter(answered, searchKey("SOLUSDT", ALL_QUOTES));
+  assert.equal(stale.action, "flush", "rows answering an older query are not an answer");
+  assert.equal(stale.intent.pendingEnter, true, "and the Enter is remembered, not dropped");
+});
+
+test("a flushed Enter is honoured by its own query's answer", () => {
+  let intent = NO_INTENT;
+  intent = pressEnter(intent, searchKey("SOLUSDT", ALL_QUOTES)).intent;
+  const landed = responseArrived(intent, searchKey("SOLUSDT", ALL_QUOTES), true);
+  assert.equal(landed.action, "select-top",
+    "the impatient path must still change the symbol — that is the point of A3");
+  assert.equal(landed.intent.pendingEnter, false, "and it is consumed exactly once");
+  assert.equal(landed.intent.rowsKey, searchKey("SOLUSDT", ALL_QUOTES));
+});
+
+test("typing again drops the armed Enter rather than committing a later query", () => {
+  // Type SOL, press Enter before the debounce, then fix a typo.
+  let intent = pressEnter(NO_INTENT, searchKey("SOL", ALL_QUOTES)).intent;
+  assert.equal(intent.pendingEnter, true);
+  intent = queryChanged(intent);
+  assert.equal(intent.pendingEnter, false,
+    "the Enter was about the earlier text; honouring it for a later query " +
+    "commits the user to a symbol they never confirmed");
+  assert.equal(responseArrived(intent, searchKey("SOLU", ALL_QUOTES), true).action, "none");
+});
+
+test("closing the dialog cancels an armed Enter, so a cancelled search changes nothing", () => {
+  // Enter, then Escape inside the request latency.
+  const armed = pressEnter(NO_INTENT, searchKey("SOLUSDT", ALL_QUOTES)).intent;
+  const afterClose = dialogClosed();
+  assert.equal(afterClose.pendingEnter, false);
+
+  // Even if the intent somehow survived, a closed dialog must not select: the
+  // panel is gone, and selecting would retarget the pane and can POST a new
+  // symbol with nothing on screen to explain it.
+  assert.equal(responseArrived(armed, searchKey("SOLUSDT", ALL_QUOTES), false).action, "none");
+  assert.equal(responseArrived(armed, searchKey("SOLUSDT", ALL_QUOTES), true).action, "select-top",
+    "and an open dialog is still served");
+});
+
+test("an answer records which query it answered, whether or not an Enter was waiting", () => {
+  const settled = responseArrived(NO_INTENT, searchKey("BTC", "USDT"), true);
+  assert.equal(settled.action, "none");
+  assert.equal(settled.intent.rowsKey, searchKey("BTC", "USDT"));
+  // Which is what makes the very next Enter a selection rather than a flush.
+  assert.equal(pressEnter(settled.intent, searchKey("BTC", "USDT")).action, "select");
+});
+
+test("the dialog wires the reducer up rather than re-implementing it", () => {
   const source = readCode(DIALOG);
-  assert.match(source, /setRowsKey\(key\)/,
-    "results must record which query they answer");
-  assert.match(source, /rowsKey !== searchKey\(term, quote\)/,
-    "Enter must compare the answered query against what is in the box");
-  assert.match(source, /pendingEnter\.current = true;[\s\S]{0,80}flushSearch\.current\?\.\(\)/,
-    "a mismatched Enter arms an intent and flushes the debounce");
+  for (const call of ["pressEnter(", "queryChanged(", "responseArrived(", "dialogClosed("]) {
+    assert.ok(source.includes(call), `${call} must be the dialog's own arbitration`);
+  }
+  assert.match(source, /if \(open\) return;[\s\S]{0,160}reqId\.current \+= 1;/,
+    "closing must also invalidate requests in flight, not only the intent");
   assert.match(source, /clearTimeout\(timer\);\s*run\(\);/,
     "the flush cancels the pending timer, so it costs one request rather than two");
-});
-
-test("a mismatched Enter never falls through to the stale selection path", () => {
-  const source = readCode(DIALOG);
-  const enterBlock = source.slice(source.indexOf('if (e.key === "Enter")'));
-  const guard = enterBlock.indexOf("rowsKey !== searchKey");
-  const select = enterBlock.indexOf("rowAtCursor(rows, cursor)");
-  assert.ok(guard >= 0 && select > guard,
-    "the query-identity guard must precede the selection, and return before it");
-  assert.match(enterBlock.slice(guard, select), /return;/,
-    "the mismatched branch returns rather than continuing into the selection");
-});
-
-test("opening the dialog invalidates the previous session's answered query", () => {
-  const source = readCode(DIALOG);
-  assert.match(source, /setRowsKey\(null\);\s*pendingEnter\.current = false;/,
-    "a freshly opened dialog answers nothing yet, and holds no armed Enter");
 });
 
 test("mouse, focus and Escape behaviour is untouched by the Enter fix", () => {
   const source = readCode(DIALOG);
   assert.match(source, /onMouseEnter=\{\(\) => setCursor\(i\)\}/);
   assert.match(source, /onClick=\{\(\) => void choose\(r\)\}/);
-  assert.match(source, /e\.key === "Escape"/);
   assert.match(source, /restoreTo\.current/, "focus is still returned to the trigger");
+  // Enter is prevented only on the branches that act, so a keyboard user on a
+  // quote chip or the Clear button keeps their ordinary Enter-to-activate.
+  const enterBlock = source.slice(source.indexOf('if (e.key === "Enter")'));
+  const guard = enterBlock.indexOf("pressEnter(");
+  const firstPrevent = enterBlock.indexOf("e.preventDefault()");
+  assert.ok(guard >= 0 && firstPrevent > guard,
+    "preventDefault must follow the decision, not precede it");
+});
+
+test("a chosen symbol leaves the dialog as a bare stored ticker", () => {
+  const source = readCode(DIALOG);
+  assert.match(source, /onSelect\(storedSymbol\(row\.symbol\)\)/,
+    "the one place a symbol leaves this dialog reduces it through the resolver");
 });

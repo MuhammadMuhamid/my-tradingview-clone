@@ -97,6 +97,9 @@ export function sameSymbol(a: string, b: string): boolean {
 
 /** The base asset of a Spot symbol, for labelling and for position scoping. */
 export function baseAssetOf(symbol: string): string {
+  // Legacy suffix split, kept deliberately: this is a DISPLAY label for a
+  // ticket that already knows its instrument, not a claim about the quote
+  // asset. New code reads assets from metadata — see `lib/instrument`.
   return symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/USDT$/, "");
 }
 

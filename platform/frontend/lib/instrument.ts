@@ -10,10 +10,14 @@
  *
  * The ability to WRITE a venue down. `BTCUSDT` is still the stored form, still
  * what a layout, a watchlist, an alert and a deep link carry, and still what
- * reaches the API. `BINANCE:BTCUSDT` is accepted anywhere a symbol is accepted
- * and resolves to the identical instrument. No second venue, no second asset
- * class and no second feed is implemented — this is the vocabulary, so that
- * implementing one later is not a rewrite of every screen that names a pair.
+ * reaches the API. `BINANCE:BTCUSDT` resolves to the identical instrument and
+ * is reduced back to the bare ticker before it leaves — on the two paths that
+ * reduce today, the apply deep link and the symbol dialog's selection, and on
+ * the four backend market-data routes listed in the backend's own copy.
+ *
+ * No second venue, no second asset class and no second feed is implemented —
+ * this is the vocabulary, so that implementing one later is not a rewrite of
+ * every screen that names a pair.
  *
  * BINANCE_US is a different exchange with a different listing set, not a host
  * variant of this one. It is not registered, and resolving it fails rather
@@ -96,8 +100,13 @@ export function formatInstrumentId(id: InstrumentId): string {
 /**
  * The bare ticker, which is what the API, storage and the Bot all carry.
  *
- * Every outbound symbol goes through this, so a qualified identity typed into
- * a deep link or a search box is reduced before it reaches a request.
+ * Two production paths reduce through it today: the apply deep link
+ * (`lib/deepLink`) and the symbol dialog's selection
+ * (`components/tv/SymbolSearch`). Every other surface accepts bare tickers
+ * only, and that is deliberate — Wave A introduced the vocabulary, not a
+ * repository-wide rewrite of every place a symbol is handled. Reducing here
+ * before a symbol reaches a request is what keeps a qualified identity from
+ * ever reaching a column or a Bot payload.
  */
 export function storedSymbol(raw: string): string {
   return resolveInstrument(raw).ticker;
@@ -117,12 +126,13 @@ export function sameInstrument(a: string, b: string): boolean {
 }
 
 /**
- * How an instrument is named on screen.
+ * How an instrument would be named on screen once there is more than one venue.
  *
- * Bare while there is exactly one venue, because a `BINANCE:` prefix on every
- * label is noise that says nothing the header does not already say. The
- * function exists so that the day there are two, the answer changes in one
- * place rather than in forty JSX expressions.
+ * Bare while there is exactly one, because a `BINANCE:` prefix on every label
+ * is noise that says nothing the header does not already say — which is why no
+ * component calls this yet. It exists so that the day a second venue is
+ * implemented, the answer is decided here rather than in forty JSX expressions
+ * that each grew their own rule.
  */
 export function displaySymbol(raw: string): string {
   const id = tryResolveInstrument(raw);

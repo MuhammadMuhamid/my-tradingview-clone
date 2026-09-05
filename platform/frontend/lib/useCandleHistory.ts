@@ -18,8 +18,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { candleHistory, historyKey, type HistoryRequest } from "./candleHistory";
 import {
-  claimTailRepair, isTailStale, spliceTail, tailRepairRange,
+  barsBehind, claimTailRepair, isTailStale, releaseTailRepair, spliceTail,
+  TAIL_TOLERANCE_BARS, tailRepairRange,
 } from "./historyFreshness";
+import { marketFeed } from "./marketFeed";
 import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import { INTERVAL_MS, type Candle, type Interval } from "./types";
@@ -52,7 +54,9 @@ export async function loadCandleWindow(
   const { symbol, interval, bars } = request;
   let data = await api.candles(symbol, interval, bars, signal);
 
+  let backfilled = false;
   if (data.length < Math.min(bars, 500) * 0.98) {
+    backfilled = true;
     // Not enough history stored: backfill, then fetch only what is missing
     // rather than the whole window again.
     const lookbackMs = Math.ceil(bars * 1.1) * INTERVAL_MS[interval];
@@ -70,6 +74,13 @@ export async function loadCandleWindow(
       : await api.candles(symbol, interval, bars, signal);
   }
 
+  /*
+   * A symbol with nothing stored has just had its whole window backfilled and
+   * still came back empty — the venue has no bars for it. Asking the tail
+   * repair to fetch the same window again would double the cost of the worst
+   * case the depth path already handled, and would find the same nothing.
+   */
+  if (backfilled && data.length === 0) return data;
   return repairStaleTail(request, data, signal);
 }
 
@@ -179,6 +190,19 @@ export function mergeLiveBarsInto(
     const index = next.findIndex((candidate) => candidate.openTime === bar.openTime);
     if (index >= 0) { next[index] = bar; changed = true; }
     else if (next.length === 0 || bar.openTime > next[next.length - 1]!.openTime) {
+      /*
+       * A bar far past the tail is the FIRST frame after a sleep, an outage or
+       * a backend restart, and appending it would stitch the series across a
+       * multi-hour hole — then make the window measure as current, because its
+       * newest bar now is. Refuse the append and say the window is behind
+       * instead: the repair path is what closes a hole, not the tick that
+       * revealed it.
+       */
+      const behind = barsBehind(next[next.length - 1]?.openTime ?? null,
+        held.dataset.interval, bar.openTime);
+      if (next.length > 0 && behind > TAIL_TOLERANCE_BARS) {
+        return held.stale ? held : { ...held, stale: true };
+      }
       next.push(bar); changed = true;
     }
   }
@@ -255,9 +279,49 @@ export function useCandleHistory(
   }, []);
 
   const reload = useCallback(() => {
-    candleHistory.invalidate({ symbol, interval, bars });
+    const window_ = { symbol, interval, bars };
+    candleHistory.invalidate(window_);
+    // A reload is the user (or a recovering feed) saying "try again now", so
+    // the repair cooldown is released for this window rather than making the
+    // refresh a no-op after one failed attempt.
+    releaseTailRepair(historyKey(window_));
     setReloadNonce((n) => n + 1);
   }, [symbol, interval, bars]);
+
+  /*
+   * A feed coming back to life is the moment a window that fell behind can be
+   * repaired.
+   *
+   * A chart left open across a sleep, an outage or a backend restart is never
+   * re-loaded by anything: `load` runs on symbol, interval, depth and an
+   * explicit reload, and none of those happen. The stream registry already
+   * tells every consumer when its socket reaches `live`, so that transition is
+   * the trigger — and only while the window is actually behind, so a normal
+   * reconnect on a healthy chart costs nothing.
+   *
+   * Bounded twice over: once per transition rather than per frame, and the
+   * repair itself still claims the per-window cooldown.
+   */
+  const staleRef = useRef(held.stale);
+  staleRef.current = held.stale;
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined") return;
+    let seenFirst = false;
+    let wasLive = false;
+    return marketFeed.subscribe(symbol, interval, {
+      onStatus: (status) => {
+        const live = status === "live" || status === "open";
+        // The first callback is the CURRENT state, delivered synchronously on
+        // subscribe. It is not a transition, and acting on it would re-fetch
+        // the window the load that just ran has already repaired or failed to.
+        if (seenFirst && live && !wasLive && staleRef.current) reloadRef.current();
+        seenFirst = true;
+        wasLive = live;
+      },
+    });
+  }, [symbol, interval, enabled]);
 
   return useMemo(
     () => ({

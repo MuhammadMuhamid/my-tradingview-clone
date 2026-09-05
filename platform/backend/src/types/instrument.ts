@@ -15,11 +15,20 @@
  * ── Bare stays canonical on the wire ───────────────────────────────────────
  *
  * `BTCUSDT` is the stored form and the contract form. It resolves, by the only
- * default this installation has, to BINANCE / crypto_spot. `BINANCE:BTCUSDT`
- * is the qualified form: accepted anywhere a symbol is accepted, and reduced
- * back to the bare ticker before it reaches storage or the Bot. There is no
- * migration of historical rows, because there is nothing to migrate: every
- * existing row already means exactly what the default says it means.
+ * default this installation has, to BINANCE / crypto_spot.
+ *
+ * `BINANCE:BTCUSDT` is the qualified form. It is reduced back to the bare
+ * ticker before it reaches storage or the Bot, and it is accepted today by the
+ * four market-data surfaces that a link or a client can reasonably name an
+ * instrument to: `GET /api/symbols/:symbol/candles`, and the three
+ * `/api/data/*` routes. Every OTHER symbol-bearing route accepts bare tickers
+ * only, exactly as it always has — introducing the vocabulary was the Wave A
+ * scope, not rewriting every route that handles a symbol.
+ * `tests/instrumentIdentity.test.ts` pins that list so this comment cannot
+ * quietly stop being true.
+ *
+ * There is no migration of historical rows, because there is nothing to
+ * migrate: every existing row already means exactly what the default says.
  *
  * ── BINANCE_US is not Binance ──────────────────────────────────────────────
  *
@@ -134,9 +143,10 @@ export function formatInstrumentId(id: InstrumentId): string {
 /**
  * The bare ticker, which is what every table, contract and Bot payload holds.
  *
- * Every write path goes through this rather than through the raw input, so a
- * qualified identity cannot leak into a column, a dedupe key or a webhook body
- * that has always contained a bare ticker.
+ * The routes that accept a qualified identity call this before doing anything
+ * with the symbol, so a qualified id cannot travel past them into a column, a
+ * dedupe key or a webhook body. Routes that do not call it accept bare tickers
+ * only — see the module header for exactly which is which.
  */
 export function storedSymbol(raw: string): string {
   return resolveInstrument(raw).ticker;
@@ -162,9 +172,16 @@ export function sameInstrument(a: string, b: string): boolean {
  * makes the guess meaningless rather than merely wrong.
  *
  * The venue publishes both assets in its instrument metadata and the `symbols`
- * table already stores them. NEW code reads them from here. Existing suffix
- * parsing is deliberately left where changing it now would be risk without a
- * defect: it is called out at each site rather than swept.
+ * table already stores them. NEW code reads them from here.
+ *
+ * Four suffix-parsing sites are deliberately left as they were, because
+ * changing them now would be risk without a defect. Each carries a pointer
+ * back to this module:
+ *
+ *   backend/src/scripts/seedMaWatchlist.ts   a seed list of USDT pairs
+ *   backend/src/shariah/gate.ts              a USDT-only screening gate
+ *   frontend/lib/manualTicket.ts             a display label
+ *   frontend/components/tv/Watchlist.tsx     a USDT-only add form
  */
 export interface InstrumentAssets {
   baseAsset: string;

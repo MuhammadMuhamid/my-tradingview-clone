@@ -164,3 +164,60 @@ test("the defaults the migration writes are exactly the resolver's defaults", ()
     "a pre-existing row must resolve to the same venue the code assumes");
   assert.ok(sql.includes(`DEFAULT '${DEFAULT_ASSET_CLASS}'`));
 });
+
+// ── the documented surface is the actual surface ────────────────────────────
+
+/**
+ * The module header names exactly which routes accept a qualified identity.
+ *
+ * A comment that says "accepted anywhere a symbol is accepted" when four
+ * routes resolve and a dozen do not is worse than no comment: the next reader
+ * assumes a reduction is enforced and posts `BINANCE:BTCUSDT` to a route that
+ * stores it verbatim or trips a foreign key. This pins the two lists together.
+ */
+test("exactly the documented routes resolve a venue-qualified symbol", () => {
+  const routesDir = path.join(__dirname, "..", "src", "api", "routes");
+  const resolving = fs.readdirSync(routesDir)
+    .filter((f) => f.endsWith(".ts"))
+    .filter((f) => fs.readFileSync(path.join(routesDir, f), "utf8").includes("storedSymbol("))
+    .sort();
+  assert.deepEqual(resolving, ["data.ts", "symbols.ts"],
+    "widening this set is a deliberate act; update the module header with it");
+
+  const header = fs.readFileSync(
+    path.join(__dirname, "..", "src", "types", "instrument.ts"), "utf8");
+  assert.match(header, /GET \/api\/symbols\/:symbol\/candles/);
+  assert.match(header, /\/api\/data\/\*/);
+  assert.match(header, /Every OTHER symbol-bearing route accepts bare tickers/);
+
+  // And the count the header claims — four surfaces — is the count that
+  // exists. `storedSymbol` is used both as a call and as a `.map` argument, so
+  // uses are counted rather than call syntax, minus the one import per file.
+  const uses = (file: string): number => {
+    const src = fs.readFileSync(path.join(routesDir, file), "utf8");
+    const total = (src.match(/\bstoredSymbol\b/g) ?? []).length;
+    const imported = /import[^;]*\bstoredSymbol\b[^;]*;/.test(src) ? 1 : 0;
+    return total - imported;
+  };
+  assert.equal(uses("data.ts") + uses("symbols.ts"), 4,
+    "the header says four surfaces resolve; that must be four resolving sites");
+});
+
+test("the four legacy suffix-parsing sites each carry the call-out the header promises", () => {
+  const root = path.join(__dirname, "..", "..");
+  const sites = [
+    "backend/src/scripts/seedMaWatchlist.ts",
+    "backend/src/shariah/gate.ts",
+    "frontend/lib/manualTicket.ts",
+    "frontend/components/tv/Watchlist.tsx",
+  ];
+  for (const site of sites) {
+    const source = fs.readFileSync(path.join(root, site), "utf8");
+    assert.match(source, /Legacy suffix split, kept deliberately/,
+      `${site} is named in the header as carrying a call-out; it does not`);
+  }
+  // And the header names exactly these files, so the two cannot drift.
+  const header = fs.readFileSync(
+    path.join(__dirname, "..", "src", "types", "instrument.ts"), "utf8");
+  for (const site of sites) assert.ok(header.includes(site), `${site} must be listed`);
+});

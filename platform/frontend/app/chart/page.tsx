@@ -62,6 +62,7 @@ import { fmtPrice } from "@/lib/format";
 import { parseScannerChartTarget } from "@/lib/spotScene";
 import { sameSymbol } from "@/lib/manualTicket";
 import { resolveTradingTarget, tradingTargetNotice, type TradingTarget } from "@/lib/tradingTarget";
+import { datasetKey } from "@/lib/liveDataset";
 import { useCandleHistory } from "@/lib/useCandleHistory";
 import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
@@ -190,13 +191,23 @@ export default function TvWorkspace() {
    * frame the newest stored close is used and labelled as exactly that.
    */
   const livePrice = useLivePrice(symbol, interval, { enabled: !replayActive });
+  /*
+   * While a new window loads, `candles` deliberately still hold the PREVIOUS
+   * instrument's bars so the chart does not blank between two symbols — and
+   * `activeHistory.dataset` says so. Without this check the history fallback
+   * would report BTC's close under SOL's name for the whole of that load, and
+   * prefill a SOL alert with it. `ChartPane` holds itself to the same rule for
+   * the same readout.
+   */
+  const holdingRequested =
+    datasetKey(activeHistory.dataset) === datasetKey({ symbol, interval });
   const lastPrice = useMemo(() => resolveLastPrice({
     replayActive,
     replayClose: replayLast?.close ?? null,
     liveClose: livePrice.price,
-    historyClose: candles[candles.length - 1]?.close ?? null,
-    historyStale: activeHistory.stale,
-  }), [replayActive, replayLast, livePrice.price, candles, activeHistory.stale]);
+    historyClose: holdingRequested ? candles[candles.length - 1]?.close ?? null : null,
+    historyStale: holdingRequested && activeHistory.stale,
+  }), [replayActive, replayLast, livePrice.price, candles, holdingRequested, activeHistory.stale]);
   const pineStartTime = replayActive && replayFirst
     ? new Date(replayFirst.openTime).toISOString()
     : `${BACKTEST_START}T00:00:00.000Z`;

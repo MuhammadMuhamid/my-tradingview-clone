@@ -79,6 +79,9 @@ export class ShariahExposureBlockedError extends Error {
  */
 export function baseAssetOfSymbol(symbol: string): string | null {
   const upper = String(symbol ?? "").trim().toUpperCase();
+  // Legacy suffix split, kept deliberately: this gate screens USDT pairs and
+  // only USDT pairs, so the suffix IS the condition rather than a guess at
+  // the quote asset. New code reads assets from metadata — `types/instrument`.
   if (!upper.endsWith("USDT")) return null;
   const base = upper.slice(0, -4);
   return base.length > 0 ? base : null;

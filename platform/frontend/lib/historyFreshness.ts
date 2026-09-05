@@ -81,8 +81,37 @@ export interface TailFreshness {
   lastOpenTime: number | null;
   /** Whole slots between that bar and the newest closed slot. */
   behind: number;
-  /** `behind` exceeds the boundary tolerance: the tail needs repairing. */
+  /** Whole slots missing between the newest bar and the one before it. */
+  gap: number;
+  /**
+   * The window is behind the grid, or holds a hole at its tail. Either way a
+   * tail repair is what closes it, and until one does the chart must say so.
+   */
   stale: boolean;
+}
+
+/**
+ * Slots missing between the newest bar and the one before it.
+ *
+ * ── Why the tail's own contiguity is part of freshness ────────────────────
+ *
+ * A chart left open across a sleep or an outage receives its first kline after
+ * reconnection for the CURRENT slot. Appending it makes the newest bar current
+ * — `barsBehind` becomes zero — while a multi-hour hole sits immediately
+ * behind it. Measuring only the distance to the grid would report that window
+ * as fresh, which is worse than reporting it as stale: the chart would be
+ * visibly wrong and affirmatively claiming to be right.
+ *
+ * Only the LAST pair is examined. An older exchange-downtime gap is a fact
+ * about history that a tail repair cannot fix and should not nag about; a hole
+ * at the tail is exactly what a tail repair does fix.
+ */
+export function tailGapBars(candles: readonly Candle[], interval: Interval): number {
+  if (candles.length < 2) return 0;
+  const last = candles[candles.length - 1]!.openTime;
+  const previous = candles[candles.length - 2]!.openTime;
+  const missing = (last - previous) / INTERVAL_MS[interval] - 1;
+  return Number.isFinite(missing) && missing > 0 ? Math.floor(missing) : 0;
 }
 
 export function inspectTail(
@@ -90,7 +119,11 @@ export function inspectTail(
 ): TailFreshness {
   const lastOpenTime = candles.length > 0 ? candles[candles.length - 1]!.openTime : null;
   const behind = barsBehind(lastOpenTime, interval, now);
-  return { lastOpenTime, behind, stale: behind > TAIL_TOLERANCE_BARS };
+  const gap = tailGapBars(candles, interval);
+  return {
+    lastOpenTime, behind, gap,
+    stale: behind > TAIL_TOLERANCE_BARS || gap > TAIL_TOLERANCE_BARS,
+  };
 }
 
 /** True when this window's newest bar is too far behind the interval grid. */
@@ -163,17 +196,37 @@ const REPAIR_COOLDOWN_MS = 60_000;
 const repairAttempts = new Map<string, number>();
 
 export function claimTailRepair(
-  key: string, now: number, cooldownMs = REPAIR_COOLDOWN_MS
+  key: string, now: number,
+  options: { cooldownMs?: number; force?: boolean } = {}
 ): boolean {
+  const cooldownMs = options.cooldownMs ?? REPAIR_COOLDOWN_MS;
   const previous = repairAttempts.get(key);
-  if (previous !== undefined && now - previous < cooldownMs) return false;
+  // An explicit reload is the user saying "try again now". The cooldown exists
+  // to stop an automatic path looping, not to make a deliberate refresh a
+  // no-op after one failed attempt.
+  if (!options.force && previous !== undefined && now - previous < cooldownMs) return false;
+  // Delete before set so insertion order is recency order and the eviction
+  // below drops the least recently claimed key rather than the hottest one.
+  repairAttempts.delete(key);
   repairAttempts.set(key, now);
   // Bounded: a session that walks many instruments must not grow this forever.
-  if (repairAttempts.size > 64) {
+  while (repairAttempts.size > 64) {
     const oldest = repairAttempts.keys().next();
-    if (!oldest.done) repairAttempts.delete(oldest.value);
+    if (oldest.done) break;
+    repairAttempts.delete(oldest.value);
   }
   return true;
+}
+
+/**
+ * Forget one window's claim, so the next load may repair it immediately.
+ *
+ * This is what an explicit reload does. The cooldown exists to stop an
+ * automatic path looping; it is not there to make a deliberate refresh a
+ * no-op after one failed attempt.
+ */
+export function releaseTailRepair(key: string): void {
+  repairAttempts.delete(key);
 }
 
 export function resetTailRepairs(): void {

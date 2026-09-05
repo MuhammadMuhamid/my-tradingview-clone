@@ -127,6 +127,10 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, repla
   const add = async () => {
     const s = adding.trim().toUpperCase();
     if (!s) return;
+    // Legacy suffix split, kept deliberately: this quick-add accepts USDT
+    // pairs and only USDT pairs, so the suffix is the admission rule and the
+    // base asset follows from it. Adding a pair through the symbol dialog
+    // instead registers it from the venue's own metadata.
     if (!s.endsWith("USDT")) { setErr("Only *USDT Binance spot pairs"); return; }
     setErr(null);
     try {

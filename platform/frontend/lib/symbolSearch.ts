@@ -63,6 +63,77 @@ export function searchKey(term: string, quote: string): string {
   return `${term.trim().toUpperCase()}|${quote.trim().toUpperCase()}`;
 }
 
+/* ── Enter, the debounce, and which results may answer it ──────────────────
+ *
+ * The dialog debounces its search by 180 ms and opens seeded with the current
+ * symbol, so for the first fraction of a second after a keystroke or a paste
+ * the rows on screen answer the PREVIOUS query. Enter in that window must not
+ * select from them.
+ *
+ * The arbitration is a small state machine, and it lives here — pure, with no
+ * React and no timers — because every one of its interesting states is a race:
+ * Enter before the answer, Enter then more typing, Enter then Escape, an
+ * answer arriving after the dialog has closed. Those are the cases that were
+ * got wrong when this logic was inline in the component, and they are cases a
+ * source-text assertion cannot observe at all.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+export interface SearchIntent {
+  /** The query the rows currently on screen answer, or null for none yet. */
+  rowsKey: string | null;
+  /** An Enter is waiting for the answer to the query that was in the box. */
+  pendingEnter: boolean;
+}
+
+export const NO_INTENT: SearchIntent = { rowsKey: null, pendingEnter: false };
+
+/**
+ * What Enter should do, given what the rows currently answer.
+ *
+ *   `select`  the rows answer the live query; take the highlighted row.
+ *   `flush`   they do not; issue the query NOW and remember that an Enter is
+ *             waiting for it. Flushing rather than guessing is what makes the
+ *             impatient path cost one request instead of two.
+ */
+export function pressEnter(
+  intent: SearchIntent, currentKey: string
+): { intent: SearchIntent; action: "select" | "flush" } {
+  if (intent.rowsKey === currentKey) return { intent, action: "select" };
+  return { intent: { ...intent, pendingEnter: true }, action: "flush" };
+}
+
+/**
+ * The query changed — a keystroke, a backspace, a different quote chip.
+ *
+ * The waiting Enter is dropped. It was an instruction about the text that was
+ * in the box at the time; honouring it against a later query would commit the
+ * user to a symbol they never confirmed for that query.
+ */
+export function queryChanged(intent: SearchIntent): SearchIntent {
+  return intent.pendingEnter ? { ...intent, pendingEnter: false } : intent;
+}
+
+/**
+ * A response arrived for `key`.
+ *
+ * `select` only when an Enter was waiting AND the dialog is still open. A
+ * dialog the user has closed — Escape, the backdrop, the ✕ — must not go on to
+ * change the chart's symbol and register a pair, which is exactly what an
+ * unguarded in-flight request would do after the panel had disappeared.
+ */
+export function responseArrived(
+  intent: SearchIntent, key: string, open: boolean
+): { intent: SearchIntent; action: "select-top" | "none" } {
+  const settled: SearchIntent = { rowsKey: key, pendingEnter: false };
+  const take = intent.pendingEnter && open;
+  return { intent: settled, action: take ? "select-top" : "none" };
+}
+
+/** The dialog closed. Nothing survives it. */
+export function dialogClosed(): SearchIntent {
+  return NO_INTENT;
+}
+
 /**
  * Where the highlight lands after a key press.
  *

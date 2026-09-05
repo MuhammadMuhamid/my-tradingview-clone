@@ -2,9 +2,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type SymbolSearchResult } from "@/lib/api";
 import {
-  ALL_QUOTES, SEARCH_MARKET, SEARCH_VENUE, moveCursor, quoteFilters, rowAtCursor,
-  searchKey, searchSummary,
+  ALL_QUOTES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, dialogClosed, moveCursor,
+  pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor, searchKey,
+  searchSummary, type SearchIntent,
 } from "@/lib/symbolSearch";
+import { storedSymbol } from "@/lib/instrument";
 
 /**
  * The symbol dialog.
@@ -42,12 +44,20 @@ import {
  * "SOLUSDT" and pressing Enter re-selected BTCUSDT and looked like nothing had
  * happened.
  *
- * The rows now carry the query they answer (`rowsKey`). Enter against rows that
- * do not answer the current input does not guess and does not select: it
- * FLUSHES the pending debounce so the request goes out at once, and arms a
- * one-shot intent that the arriving results honour. The debounce timer is
- * cleared by the flush, so this issues one request rather than two, and an
- * intent is dropped the moment the user types again or closes the dialog.
+ * The rows now carry the query they answer. Enter against rows that do not
+ * answer the current input does not guess and does not select: it FLUSHES the
+ * pending debounce so the request goes out at once, and arms a one-shot intent
+ * that the arriving results honour. The debounce timer is cleared by the flush,
+ * so this issues one request rather than two.
+ *
+ * The arbitration itself — including the three ways an armed Enter must be
+ * dropped rather than honoured — is `lib/symbolSearch`'s `SearchIntent`, pure
+ * and unit-tested against the races directly:
+ *
+ *   the user typed again      the Enter was about the earlier text;
+ *   the user closed the panel a cancelled dialog must not change the chart or
+ *                             register a pair behind the user's back;
+ *   the response is stale     a superseded query's answer is not an answer.
  */
 export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }: {
   open: boolean;
@@ -72,12 +82,17 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   const restoreTo = useRef<HTMLElement | null>(null);
   const reqId = useRef(0);
   /**
-   * Which query `rows` answer. Compared against the live input before Enter is
-   * allowed to select anything — see the module header.
+   * Which query the rows answer, and whether an Enter is waiting for one.
+   * A ref as well as state: the search effect reads it when a response lands,
+   * and must see the value at THAT moment rather than the one captured when
+   * the effect ran. `intentVersion` exists only to re-render the key handler.
    */
-  const [rowsKey, setRowsKey] = useState<string | null>(null);
-  /** Set when Enter arrived before its results did; consumed by the next answer. */
-  const pendingEnter = useRef(false);
+  const intent = useRef<SearchIntent>(NO_INTENT);
+  const [intentVersion, setIntentVersion] = useState(0);
+  const bumpIntent = useCallback(() => setIntentVersion((n) => n + 1), []);
+  /** Whether the dialog is open, readable from an in-flight promise. */
+  const openRef = useRef(open);
+  openRef.current = open;
   /** Runs the debounced search immediately, cancelling the timer. */
   const flushSearch = useRef<(() => void) | null>(null);
 
@@ -91,8 +106,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     setErr(null);
     // A dialog that has just opened answers nothing yet; its rows are last
     // session's, and Enter must not treat them as this session's answer.
-    setRowsKey(null);
-    pendingEnter.current = false;
+    intent.current = NO_INTENT;
+    bumpIntent();
     restoreTo.current = typeof document === "undefined"
       ? null : (document.activeElement as HTMLElement | null);
     const t = setTimeout(() => {
@@ -107,12 +122,32 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       const target = restoreTo.current;
       if (target?.isConnected) target.focus();
     };
-  }, [open, current]);
+  }, [open, current, bumpIntent]);
+
+  /*
+   * Closing drops the armed Enter AND invalidates every request in flight.
+   *
+   * The component stays mounted and merely renders null when closed
+   * (`ChartDialogs` renders it unconditionally), so without this a request
+   * issued by an impatient Enter would still resolve, still pass its own
+   * freshness check, and still select a symbol — changing the chart and
+   * possibly registering a new pair — after the user had pressed Escape.
+   */
+  useEffect(() => {
+    if (open) return;
+    intent.current = dialogClosed();
+    reqId.current += 1;
+    flushSearch.current = null;
+    bumpIntent();
+  }, [open, bumpIntent]);
 
   // Debounced search; out-of-order responses are dropped by request id.
   useEffect(() => {
     if (!open) return;
     const key = searchKey(term, quote);
+    // This effect re-runs exactly when the query changed, which is exactly
+    // when a waiting Enter stops being about what the user typed.
+    intent.current = queryChanged(intent.current);
     const id = ++reqId.current;
     setBusy(true);
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -125,15 +160,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           setTotal(res.total);
           setQuotes(res.quotes);
           setCursor(res.results.length > 0 ? 0 : -1);
-          setRowsKey(key);
           setErr(null);
           // Enter was pressed while this query was still in flight. It meant
-          // "take the best match for what I typed", and this is that answer.
-          if (pendingEnter.current) {
-            pendingEnter.current = false;
-            const row = res.results[0];
-            if (row) void chooseRef.current(row);
-          }
+          // "take the best match for what I typed" — honoured only if the
+          // dialog is still open.
+          const settled = responseArrived(intent.current, key, openRef.current);
+          intent.current = settled.intent;
+          bumpIntent();
+          const row = res.results[0];
+          if (settled.action === "select-top" && row) void chooseRef.current(row);
         })
         .catch((e) => {
           if (reqId.current !== id) return;
@@ -143,8 +178,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           setRows([]);
           setTotal(0);
           setCursor(-1);
-          setRowsKey(key);
-          pendingEnter.current = false;
+          intent.current = responseArrived(intent.current, key, false).intent;
+          bumpIntent();
           setErr((e as Error).message);
         })
         .finally(() => { if (reqId.current === id) setBusy(false); });
@@ -161,7 +196,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       if (timer !== null) clearTimeout(timer);
       flushSearch.current = null;
     };
-  }, [open, term, quote]);
+  }, [open, term, quote, bumpIntent]);
 
   const choose = useCallback(async (row: SymbolSearchResult) => {
     try {
@@ -169,7 +204,10 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         await api.addSymbol(row.symbol, row.baseAsset, row.quoteAsset);
         onSymbolAdded?.();
       }
-      onSelect(row.symbol);
+      // The one place a chosen symbol leaves this dialog. Reduced through the
+      // canonical resolver so the pane, the workspace and every request that
+      // follows receive the bare stored ticker — see `lib/instrument`.
+      onSelect(storedSymbol(row.symbol));
       onClose();
     } catch (e) {
       setErr((e as Error).message);
@@ -188,23 +226,33 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        intent.current = dialogClosed();
+        onClose();
+        return;
+      }
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         setCursor((c) => moveCursor(c, e.key === "ArrowDown" ? 1 : -1, rows.length));
         return;
       }
       if (e.key === "Enter") {
-        e.preventDefault();
         // Results that answer a previous query are not an answer to this one.
         // Selecting from them is exactly the defect: see the module header.
-        if (rowsKey !== searchKey(term, quote)) {
-          pendingEnter.current = true;
+        const decision = pressEnter(intent.current, searchKey(term, quote));
+        intent.current = decision.intent;
+        if (decision.action === "flush") {
+          // Only now is Enter this dialog's key. Left un-prevented above, a
+          // keyboard user on a quote chip or the Clear button keeps their
+          // ordinary Enter-to-activate.
+          e.preventDefault();
+          bumpIntent();
           flushSearch.current?.();
           return;
         }
         const row = rowAtCursor(rows, cursor);
-        if (row) void choose(row);
+        if (row) { e.preventDefault(); void choose(row); }
         return;
       }
       if (e.key !== "Tab") return;
@@ -227,7 +275,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, rows, rowsKey, term, quote, cursor, choose, onClose]);
+    // `intentVersion` is a deliberate re-subscribe trigger, not a value read.
+  }, [open, rows, intentVersion, term, quote, cursor, choose, onClose, bumpIntent]);
 
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {
