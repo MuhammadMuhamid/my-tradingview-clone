@@ -45,6 +45,22 @@ export function tickerFrom(last: number, open: number, source: WatchlistTicker["
 
 const IDLE: StreamState = { status: "idle", origin: null, attempt: 0, everLive: false, refused: [] };
 
+/**
+ * The rows that survive a change of membership: only symbols still on the
+ * list. A symbol removed and later re-added must not come back wearing the
+ * quote it had when it left — a `stream`-tagged value the seed would then
+ * refuse to refresh — so its entry is dropped with it, and the row is `—`
+ * until the seed or the next frame gives it a current value.
+ */
+export function retainTickers(
+  current: Record<string, WatchlistTicker>, symbols: readonly string[],
+): Record<string, WatchlistTicker> {
+  const keep = new Set(symbols.map((s) => s.toUpperCase()));
+  const next: Record<string, WatchlistTicker> = {};
+  for (const [symbol, ticker] of Object.entries(current)) if (keep.has(symbol)) next[symbol] = ticker;
+  return next;
+}
+
 export function useWatchlistTickers(symbols: readonly string[]): {
   tickers: Record<string, WatchlistTicker>;
   stream: StreamState;
@@ -59,6 +75,7 @@ export function useWatchlistTickers(symbols: readonly string[]): {
   // Seed: one same-origin request per symbol-set change. A stream tick that
   // arrives first is never overwritten by the slower seed.
   useEffect(() => {
+    setTickers((current) => retainTickers(current, list));
     if (list.length === 0) return;
     const controller = new AbortController();
     void api.tickers(list, controller.signal).then((rows) => {

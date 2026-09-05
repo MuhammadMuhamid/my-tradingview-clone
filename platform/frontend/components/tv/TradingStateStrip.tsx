@@ -14,6 +14,15 @@
  * numbers as the Platform received them; a figure the Bot did not report is
  * shown as `—`, never estimated from the chart. The Journal remains the record
  * of what accumulated, and links out for history.
+ *
+ * ── Five states, told apart ─────────────────────────────────────────────────
+ *
+ * loading (no read answered yet) · unavailable (no read has ever succeeded,
+ * and the reason) · current (the latest read succeeded, stamped with its
+ * time) · empty (current, with nothing open) · stale (a read succeeded once,
+ * the latest failed: the retained positions and orders are shown under a
+ * warning that names the failure and the time they were read, with the P&L
+ * colour withdrawn). Retained state is never passed off as now.
  */
 import Link from "next/link";
 import { useState } from "react";
@@ -59,32 +68,63 @@ function accountName(state: ManualTradingState, id: string): string {
   return account ? `${account.name}${account.mode === "testnet" ? " (testnet)" : ""}` : id;
 }
 
-export function TradingStateStrip({ state, symbol, onOpenTicket, unavailable }: {
+export type TradingStateFreshness = "loading" | "unavailable" | "current" | "stale";
+
+/**
+ * What the strip knows about its data. `unavailable` beside a retained
+ * `state` is a failed refresh, not a missing feature: that is `stale`.
+ */
+export function tradingStateFreshness(
+  state: ManualTradingState | null, unavailable: string | null | undefined,
+): TradingStateFreshness {
+  if (state === null) return unavailable ? "unavailable" : "loading";
+  return unavailable ? "stale" : "current";
+}
+
+/** A wall-clock time as HH:MM:SS in the viewer's zone — the "read at" stamp. */
+export function clockLabel(ms: number): string {
+  const d = new Date(ms);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+}
+
+export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, unavailable }: {
   /** The authoritative manual-trading state, or null while unread. */
   state: ManualTradingState | null;
+  /** When `state` was last read successfully (ms since epoch); null until then. */
+  readAt?: number | null;
   /** The focused chart's instrument; its rows are listed first. */
   symbol: string;
   onOpenTicket: () => void;
-  /** Why there is no state, when known (manual trading disabled, Bot unreachable). */
+  /**
+   * Why the latest read failed, when it did (manual trading disabled, Bot
+   * unreachable). With no `state` it is the whole story; with one, it means
+   * the state shown is retained from `readAt`, not current.
+   */
   unavailable?: string | null;
 }) {
   const [tab, setTab] = useState<TradingStripTab>("positions");
+  const freshness = tradingStateFreshness(state, unavailable);
 
   if (!state) {
     return (
-      <div className="flex h-[120px] items-center justify-center px-6 text-center text-xs text-ink-muted">
-        {unavailable
-          ?? "Positions and orders come from the execution bot; nothing has been read yet."}
+      <div role="status" className="flex h-[120px] items-center justify-center px-6 text-center text-xs text-ink-muted">
+        {freshness === "unavailable"
+          ? unavailable
+          : "Reading positions and orders from the execution bot…"}
       </div>
     );
   }
 
+  const stale = freshness === "stale";
   const positions = activePositions(state.positions)
     .sort((a, b) => Number(b.pair === symbol) - Number(a.pair === symbol));
   const open = openOrders(state.orders)
     .sort((a, b) => Number(b.symbol === symbol) - Number(a.symbol === symbol));
   const history = recentHistory(state.orders);
   const paper = state.dryRun;
+  const readLabel = readAt === null ? null : clockLabel(readAt);
+  const pnlTone = (value: number): string => stale ? "text-ink-muted" : value >= 0 ? "text-up" : "text-down";
 
   return (
     <div className="flex h-[180px] min-h-0 flex-col">
@@ -111,11 +151,25 @@ export function TradingStateStrip({ state, symbol, onOpenTicket, unavailable }: 
         >
           {paper ? "PAPER" : "LIVE"}
         </span>
+        {readLabel && !stale && (
+          <span className="text-[10px] text-ink-faint" title="When positions and orders were last read from the execution bot">
+            read {readLabel}
+          </span>
+        )}
         <span className="ml-auto flex items-center gap-3 text-[11px]">
           <Link href="/journal" className="text-ink-muted underline-offset-2 hover:text-ink hover:underline">History</Link>
           <button onClick={onOpenTicket} className="text-ink-muted hover:text-ink">Open ticket</button>
         </span>
       </div>
+      {stale && (
+        <div role="alert" className="flex items-start gap-2 border-b border-warn/40 bg-warn/10 px-3 py-1 text-[11px] leading-4 text-warn">
+          <span aria-hidden="true">⚠</span>
+          <span>
+            Could not refresh positions and orders{unavailable ? `: ${unavailable}` : ""}.{" "}
+            {readLabel ? `Showing the state read at ${readLabel}` : "Showing the last state read"}; it may have changed since.
+          </span>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
         {tab === "positions" ? (
           positions.length === 0 ? (
@@ -142,7 +196,7 @@ export function TradingStateStrip({ state, symbol, onOpenTicket, unavailable }: 
                     <td className="px-2 py-1 text-right text-ink">{p.quantity}</td>
                     <td className="px-2 py-1 text-right text-ink">{p.entryPrice === null ? "—" : fmtPrice(p.entryPrice)}</td>
                     <td className="px-2 py-1 text-right text-ink">{p.currentPrice === null ? "—" : fmtPrice(p.currentPrice)}</td>
-                    <td className={`px-2 py-1 text-right ${p.pnlUsdt >= 0 ? "text-up" : "text-down"}`}>
+                    <td className={`px-2 py-1 text-right ${pnlTone(p.pnlUsdt)}`}>
                       {signed(p.pnlUsdt)} USDT · {signed(p.pnlPct)}%
                     </td>
                     <td className="px-2 py-1 text-right text-ink-muted">

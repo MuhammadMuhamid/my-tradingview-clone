@@ -95,17 +95,18 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, repla
   const visibleSymbolNames = useMemo(() => visibleSymbols.map((s) => s.symbol), [visibleSymbols]);
   const { tickers, stream } = useWatchlistTickers(visibleSymbolNames);
   const streamWords = describeStreamState(stream);
-  const anyStreamed = Object.values(tickers).some((t) => t.source === "stream");
   /*
    * The header says what the numbers are. "live" is only claimed once a frame
-   * has arrived; a seeded list on a fenced network says so, and says that the
-   * quotes are real but not streaming, rather than looking frozen or fake.
+   * has arrived on the CURRENT socket — never on a handshake, and never on the
+   * strength of rows that streamed before a reconnect. A seeded list on a
+   * fenced network says so, and says that the quotes are real but not
+   * streaming, rather than looking frozen or fake.
    */
   const priceState: { label: string; tone: string; detail: string } | null =
     visibleSymbols.length === 0 ? null
     : stream.status === "live" ? { label: "live", tone: "text-up", detail: streamWords.detail }
     : stream.status === "connecting" || stream.status === "open"
-      ? { label: anyStreamed ? "live" : "connecting…", tone: "text-ink-faint", detail: streamWords.detail }
+      ? { label: stream.status === "open" ? "connected — waiting for data" : "connecting…", tone: "text-ink-faint", detail: streamWords.detail }
     : stream.status === "stale"
       ? { label: "stalled", tone: "text-down", detail: streamWords.detail }
     : { label: "not streaming", tone: "text-warn", detail: `${streamWords.detail} Prices shown are the exchange's last quotes, refreshed when the list changes.` };

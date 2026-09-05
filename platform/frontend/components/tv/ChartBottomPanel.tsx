@@ -6,7 +6,11 @@
  * Positions & Orders is the trader-state area — what the account holds and
  * what is in flight, read-only, from the same Bot-authoritative read the
  * ticket makes. It is the first tab because it is the one a trader looks at
- * after ordering; the tester and the editor are research tools.
+ * after ordering; the tester and the editor are research tools. On an install
+ * where that read fails before it has ever succeeded — manual trading not
+ * enabled here, which is the normal case, or the Bot unreachable — the drawer
+ * opens on the Strategy Tester instead, so the first thing under the chart is
+ * not a permanent "unavailable" notice. The tab stays where the user puts it.
  *
  * One tester and one editor for the whole workspace, both pointed at the
  * FOCUSED pane — testing a strategy is a question about one instrument and one
@@ -18,10 +22,10 @@
  * a tester left open on a large screen must not open itself on a phone, where
  * it would take over half the chart.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PineEditor } from "@/components/tv/PineEditor";
 import { StrategyTester } from "@/components/tv/StrategyTester";
-import { TradingStateStrip } from "@/components/tv/TradingStateStrip";
+import { TradingStateStrip, tradingStateFreshness } from "@/components/tv/TradingStateStrip";
 import type { StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import type { PineParams } from "@/lib/indicators";
 import type { ManualTradingState, PineScript } from "@/lib/api";
@@ -66,16 +70,37 @@ export interface ChartBottomPanelProps {
 
   /** Positions and orders, from the same read the ticket uses. Read-only here. */
   manualState: ManualTradingState | null;
+  /** When `manualState` was last read successfully; null until a first read. */
+  manualReadAt: number | null;
   manualUnavailable: string | null;
   /** The instrument the ticket points at (the focused pane, unless pinned). */
   tradingSymbol: string;
   onOpenTicket: () => void;
 }
 
+export type BottomTab = "trading" | "tester" | "pine";
+
 export function ChartBottomPanel(props: ChartBottomPanelProps) {
-  const [tab, setTab] = useState<"trading" | "tester" | "pine">("trading");
+  const [tab, setTab] = useState<BottomTab>("trading");
   /** Collapsed to just its tab strip, so the chart gets the full height. */
   const [collapsed, setCollapsed] = useState(false);
+  /** Once the user has picked a tab, no default moves it. */
+  const userChoseTab = useRef(false);
+
+  /*
+   * The default tab is decided once the first read has an answer. A failure
+   * before any success ("unavailable": no state, only a reason) means
+   * Positions & Orders would be a notice and nothing else, so the drawer
+   * moves to the nearest working tab. Once a read has succeeded the tab can
+   * function, even if a later read fails — the strip then says the state is
+   * retained. It never moves back on its own: a tab changing under a user is
+   * worse than one click.
+   */
+  const { manualState, manualUnavailable } = props;
+  useEffect(() => {
+    if (userChoseTab.current || tradingStateFreshness(manualState, manualUnavailable) !== "unavailable") return;
+    setTab((current) => (current === "trading" ? "tester" : current));
+  }, [manualState, manualUnavailable]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -124,6 +149,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
           <button
             key={id}
             onClick={() => {
+              userChoseTab.current = true;
               // Clicking the active tab while collapsed reopens it, which
               // is what a collapsed tab strip invites you to do.
               if (tab === id) toggleBottom();
@@ -176,6 +202,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
       {collapsed ? null : tab === "trading" ? (
         <TradingStateStrip
           state={props.manualState}
+          readAt={props.manualReadAt}
           symbol={props.tradingSymbol}
           onOpenTicket={props.onOpenTicket}
           unavailable={props.manualUnavailable}

@@ -237,8 +237,21 @@ export default function TvWorkspace() {
   const tradingNotice = tradingTarget ? tradingTargetNotice(tradingTarget, workspace) : null;
 
   const [manualState, setManualState] = useState<ManualTradingState | null>(null);
-  /** Why the state could not be read, for the bottom strip; the ticket has its own. */
+  /** When `manualState` was last read successfully (ms since epoch); null until then. */
+  const [manualReadAt, setManualReadAt] = useState<number | null>(null);
+  /**
+   * Why the latest read failed, for the bottom strip; the ticket has its own.
+   * Set beside a retained `manualState` it means "what you see is from
+   * `manualReadAt`, not now" — the strip says so rather than passing the last
+   * good positions and P&L off as current.
+   */
   const [manualUnavailable, setManualUnavailable] = useState<string | null>(null);
+  /** Every successful read — the poll's or the ticket's — lands through here. */
+  const recordManualState = useCallback((next: ManualTradingState | null) => {
+    setManualState(next);
+    setManualReadAt(Date.now());
+    setManualUnavailable(null);
+  }, []);
   // Read-only state hydration draws existing server-authoritative levels. It
   // never submits, retries, or mutates an order on page load/reconnect.
   useEffect(() => {
@@ -247,7 +260,7 @@ export default function TvWorkspace() {
     const refreshManual = async () => {
       try {
         const next = await api.manualState(tradingSymbol);
-        if (live) { setManualState(next); setManualUnavailable(null); }
+        if (live) recordManualState(next);
       } catch (e) {
         // Normally the feature is disabled on this install; the strip says
         // so in the Bot's own words rather than showing an empty table.
@@ -257,7 +270,7 @@ export default function TvWorkspace() {
     void refreshManual();
     const timer = window.setInterval(() => void refreshManual(), 30_000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [tradingSymbol, replayActive]);
+  }, [tradingSymbol, replayActive, recordManualState]);
 
   // ── authoritative read-only trading evidence, for the focused instrument ──
   const overlays = useTradingOverlays({
@@ -1076,6 +1089,7 @@ export default function TvWorkspace() {
           onApplyToChart={applyPine}
           editingApplied={editingIndicatorKey !== null}
           manualState={manualState}
+          manualReadAt={manualReadAt}
           manualUnavailable={manualUnavailable}
           tradingSymbol={tradingSymbol}
           onOpenTicket={() => setPanel("manual")}
@@ -1104,7 +1118,7 @@ export default function TvWorkspace() {
         tradingLastPrice={sameSymbol(tradingSymbol, symbol) ? last?.close ?? null : null}
         tradingNotice={tradingNotice}
         onTicketStagedChange={setTicketStaged}
-        onManualState={setManualState}
+        onManualState={recordManualState}
         maLines={maLines}
         maValues={maValues}
         maAlerts={maAlerts}

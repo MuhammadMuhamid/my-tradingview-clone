@@ -34,6 +34,17 @@
  * when a frame has actually arrived. The distinction matters because the UI
  * must never say a price is streaming on the strength of a TCP connection
  * alone — a half-open socket looks exactly like a quiet market from outside.
+ *
+ * ── One socket, one reconnect chain ─────────────────────────────────────────
+ *
+ * A logical stream owns at most one socket and at most one pending reconnect
+ * timer. Every path that opens a socket closes the one it replaces first;
+ * every path that schedules a reconnect clears the one already waiting; and a
+ * callback from a socket that is no longer the entry's current one is ignored
+ * (`entry.socket === socket` is the ownership check). Without those three
+ * rules the silence watchdog, firing every 45 s while a once-live host stays
+ * unreachable, started a fresh ladder beside the one still running, and on
+ * recovery every chain opened a socket of which only the last was tracked.
  */
 
 /**
@@ -336,6 +347,16 @@ export class MarketStreamRegistry {
 
   private connect(entry: StreamEntry): void {
     if (entry.closed) return;
+    // Ownership moves to the socket opened below: whatever the entry still
+    // holds — a handshake that never resolved, or a socket a stale caller
+    // would have left behind — is closed first, and no reconnect stays
+    // pending beside a live attempt.
+    this.closeSocket(entry);
+    this.clearReconnect(entry);
+    // The silence clock belongs to the socket being opened: a handshake in
+    // flight is not judged by how long ago the previous socket last spoke.
+    // (Zero means "never opened", which keeps the watchdog off until then.)
+    if (entry.lastMessageAt !== 0) entry.lastMessageAt = this.schedule.now();
     entry.origin = this.origins[entry.originIndex % this.origins.length]!;
     entry.opened = false;
     entry.status = entry.attempt === 0 ? "connecting" : "reconnecting";
@@ -350,7 +371,7 @@ export class MarketStreamRegistry {
         this.setStatus(entry, "open");
       },
       onMessage: (data) => { if (entry.socket === socket) this.handleMessage(entry, data); },
-      onClose: () => { if (!entry.closed && entry.socket === socket) this.scheduleReconnect(entry); },
+      onClose: () => { if (!entry.closed && entry.socket === socket) this.scheduleReconnect(entry, "closed"); },
       onError: () => { /* a close always follows; the ladder runs there */ },
     });
     entry.socket = socket;
@@ -375,10 +396,19 @@ export class MarketStreamRegistry {
     }
   }
 
-  private scheduleReconnect(entry: StreamEntry): void {
+  /**
+   * `cause` says why the current socket is being given up: `closed` when the
+   * socket itself closed (a refused handshake is one whose close arrived
+   * before its open), `silent` when the watchdog gave up on it. Only a socket
+   * that actually closed can have been refused; a host that is merely being
+   * waited on must not be named as one that refused.
+   */
+  private scheduleReconnect(entry: StreamEntry, cause: "closed" | "silent"): void {
     if (entry.closed) return;
-    if (entry.socket) { entry.socket.close(); entry.socket = null; this.closedCount += 1; }
-    const refusedHandshake = !entry.opened;
+    this.closeSocket(entry);
+    // One chain per stream: a reconnect already waiting is replaced, never joined.
+    this.clearReconnect(entry);
+    const refusedHandshake = cause === "closed" && !entry.opened;
     if (refusedHandshake && entry.origin && !entry.refused.includes(entry.origin)) {
       entry.refused = [...entry.refused, entry.origin];
     }
@@ -402,13 +432,31 @@ export class MarketStreamRegistry {
   private startWatchdog(entry: StreamEntry): void {
     entry.watchdog = this.schedule.setInterval(() => {
       if (entry.closed || entry.lastMessageAt === 0) return;
+      // No socket means a reconnect is already waiting; the ladder owns the
+      // recovery, and a second chain here is exactly the leak being avoided.
+      if (entry.socket === null) return;
       if (this.schedule.now() - entry.lastMessageAt <= STREAM_SILENCE_TIMEOUT_MS) return;
       // Silent for too long. A socket that is open but delivering nothing looks
       // identical to a quiet market from the outside; treat it as dead.
       this.setStatus(entry, "stale");
       entry.lastMessageAt = this.schedule.now();
-      this.scheduleReconnect(entry);
+      this.scheduleReconnect(entry, "silent");
     }, WATCHDOG_INTERVAL_MS);
+  }
+
+  /** Close and forget the entry's current socket, if any. Idempotent. */
+  private closeSocket(entry: StreamEntry): void {
+    if (!entry.socket) return;
+    entry.socket.close();
+    entry.socket = null;
+    this.closedCount += 1;
+  }
+
+  /** Drop the pending reconnect, if any. Idempotent. */
+  private clearReconnect(entry: StreamEntry): void {
+    if (entry.reconnectTimer === null) return;
+    this.schedule.clearTimeout(entry.reconnectTimer);
+    entry.reconnectTimer = null;
   }
 
   private teardown(entry: StreamEntry): void {
@@ -417,15 +465,12 @@ export class MarketStreamRegistry {
       this.schedule.clearTimeout(entry.releaseTimer);
       entry.releaseTimer = null;
     }
-    if (entry.reconnectTimer !== null) {
-      this.schedule.clearTimeout(entry.reconnectTimer);
-      entry.reconnectTimer = null;
-    }
+    this.clearReconnect(entry);
     if (entry.watchdog !== null) {
       this.schedule.clearInterval(entry.watchdog);
       entry.watchdog = null;
     }
-    if (entry.socket) { entry.socket.close(); entry.socket = null; this.closedCount += 1; }
+    this.closeSocket(entry);
     this.entries.delete(entry.key);
     for (const observer of this.observers) {
       try { observer(); } catch (error) { reportListenerError(error); }

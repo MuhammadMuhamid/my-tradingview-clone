@@ -19,14 +19,14 @@ const BACKEND = process.env.BACKEND_URL ?? "http://localhost:4000";
  * watchlist and the order ticket open websockets to directly, plus `'self'`
  * for the proxied API.
  *
- * ── Why the data-api.binance.vision REST mirror is NOT listed ──────────────
+ * ── Why NO Binance REST origin is listed ───────────────────────────────────
  *
- * The backend can be pointed at `https://data-api.binance.vision`
- * (BINANCE_MARKET_DATA_BASE_URL) where `api.binance.com` is geo-blocked. That
- * mirror is absent here because the browser never calls a Binance REST origin
- * at all — every candle, symbol, history and ticker-seed read goes through
- * `'self'` to the Next proxy and on to the backend, so it is a BACKEND setting
- * and needs no browser permission.
+ * The browser never calls a Binance REST origin at all — every candle,
+ * symbol, history and ticker-seed read goes through `'self'` to the Next
+ * proxy and on to the backend, which is where `api.binance.com` or its
+ * `data-api.binance.vision` mirror (BINANCE_MARKET_DATA_BASE_URL) is chosen.
+ * A REST origin here would be a permission nothing uses, and a policy is
+ * only as tight as the widest thing it permits.
  *
  * ── Why BOTH stream origins are listed ─────────────────────────────────────
  *
@@ -50,7 +50,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  `connect-src 'self' ${MARKET_STREAM_ORIGINS.join(" ")} https://api.binance.com`,
+  `connect-src 'self' ${MARKET_STREAM_ORIGINS.join(" ")}`,
   "worker-src 'self'",
   "manifest-src 'self'",
   "object-src 'none'",

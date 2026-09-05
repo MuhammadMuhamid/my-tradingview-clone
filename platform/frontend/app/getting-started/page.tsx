@@ -242,10 +242,10 @@ export default function GettingStarted() {
   return (
     <div className="mx-auto max-w-[1100px] px-3 py-4 sm:px-4">
       <header className="max-w-3xl">
-        <h1 className="text-lg font-semibold text-ink">Getting started</h1>
+        <h1 className="text-lg font-semibold text-ink">Manual</h1>
         <p className="mt-1 text-sm leading-6 text-ink-muted">
-          The Trading Scene manual. What this application is, how its parts relate to
-          one another, and how to operate each of its workflows. It describes the
+          The Trading Scene manual, and where to start. What this application is, how
+          its parts relate to one another, and how to operate each of its workflows. It describes the
           software only: there is no trading advice here, no strategy instruction, and
           no recommendation about what to buy or sell.
         </p>

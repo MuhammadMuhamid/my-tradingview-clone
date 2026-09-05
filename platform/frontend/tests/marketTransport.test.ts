@@ -22,7 +22,9 @@ import {
 } from "../lib/marketStream";
 import { MarketFeedRegistry } from "../lib/marketFeed";
 import { bookQuoteStreamKey } from "../lib/useBookQuote";
-import { tickerFrom, watchlistStreamKey } from "../lib/useWatchlistTickers";
+import fs from "node:fs";
+import path from "node:path";
+import { retainTickers, tickerFrom, watchlistStreamKey } from "../lib/useWatchlistTickers";
 
 interface FakeSocket extends StreamSocket {
   url: string;
@@ -114,6 +116,10 @@ test("THE CONTENT-SECURITY-POLICY PERMITS EVERY ORIGIN THE REGISTRY MAY OPEN", a
   for (const origin of MARKET_STREAM_ORIGINS) {
     assert.ok(connect.split(/\s+/).includes(origin), `${origin} is not permitted by connect-src`);
   }
+  // …and nothing else: the browser makes no Binance REST call, so no REST
+  // origin belongs here. A policy is only as tight as the widest thing in it.
+  assert.deepEqual(connect.split(/\s+/).slice(1), ["'self'", ...MARKET_STREAM_ORIGINS],
+    "connect-src must permit exactly 'self' and the stream origins");
 });
 
 test("A REFUSED HANDSHAKE ROTATES TO THE NEXT ORIGIN ALMOST AT ONCE, AND FRAMES FLOW", () => {
@@ -217,6 +223,92 @@ test("a socket that drops after being live reconnects on the bounded ladder", ()
   assert.equal(scheduler.pending(), 0);
 });
 
+test("A ONCE-LIVE STREAM THAT BECOMES UNREACHABLE KEEPS ONE RECONNECT CHAIN AND ONE SOCKET", () => {
+  const { transport, scheduler, streams } = registry();
+  streams.subscribe("k", "/ws/btcusdt@kline_1m", {});
+  transport.sockets[0]!.handlers.onOpen();
+  transport.sockets[0]!.handlers.onMessage("{}");
+  assert.equal(streams.stateOf("k").status, "live");
+
+  // The network goes away: the live socket drops, and every handshake from
+  // now on is refused after a realistic round trip (100 ms). Ten simulated
+  // minutes is long enough for the silence watchdog to fire a dozen times
+  // beside the ladder — the case that used to start a chain per firing.
+  transport.sockets[0]!.handlers.onClose();
+  const answered = new Set<FakeSocket>([transport.sockets[0]!]);
+  let peakPendingTimers = 0;
+  let peakLiveSockets = 0;
+  for (let elapsed = 0; elapsed < 10 * 60_000; elapsed += 100) {
+    scheduler.advance(100);
+    for (const socket of transport.live()) {
+      if (answered.has(socket)) continue;
+      answered.add(socket);
+      refuse(socket);
+    }
+    // One interval (the watchdog) plus at most one reconnect timer.
+    peakPendingTimers = Math.max(peakPendingTimers, scheduler.pending() - 1);
+    peakLiveSockets = Math.max(peakLiveSockets, transport.live().length);
+  }
+  assert.equal(peakPendingTimers, 1, "more than one reconnect was pending at once");
+  assert.ok(peakLiveSockets <= 1, `${peakLiveSockets} sockets were held at once`);
+  // Two fast rotations, then the 2s→30s ladder: well under one attempt per 30 s
+  // plus a handful, and nowhere near the 71 per minute the leak produced.
+  assert.ok(transport.sockets.length < 40, `${transport.sockets.length} connection attempts in ten minutes`);
+  assert.equal(streams.stateOf("k").status, "reconnecting");
+
+  // The network comes back: the next attempt opens and delivers a frame.
+  scheduler.advance(30_000);
+  const recovered = transport.live();
+  assert.equal(recovered.length, 1, "recovery must open exactly one socket");
+  recovered[0]!.handlers.onOpen();
+  assert.equal(streams.stateOf("k").status, "open", "a handshake alone must not read as live");
+  recovered[0]!.handlers.onMessage("{}");
+  assert.equal(streams.stateOf("k").status, "live");
+  scheduler.advance(120_000);
+  assert.equal(transport.live().length, 1, "orphan sockets were opened after recovery");
+  assert.equal(streams.socketsOpened - streams.socketsClosed, 1, "the registry lost track of a socket");
+  assert.equal(scheduler.pending(), 1, "only the watchdog may remain scheduled while live");
+
+  streams.closeAll();
+  assert.equal(transport.live().length, 0, "closeAll left a socket open");
+  assert.equal(scheduler.pending(), 0);
+});
+
+test("the watchdog firing while a reconnect is already waiting neither adds a chain nor blames the host", () => {
+  const { transport, scheduler, streams } = registry();
+  streams.subscribe("k", "/ws/btcusdt@kline_1m", {});
+  transport.sockets[0]!.handlers.onOpen();
+  transport.sockets[0]!.handlers.onMessage("{}");
+
+  // Quiet for 44 s, then the socket closes: the ladder schedules a retry at
+  // 2 s, and the watchdog's 45 s silence threshold passes while that retry is
+  // still pending. There is no socket to give up on, so it must stand aside.
+  scheduler.advance(44_000);
+  transport.sockets[0]!.handlers.onClose();
+  assert.equal(streams.stateOf("k").status, "reconnecting");
+  scheduler.advance(1_500);
+  assert.equal(scheduler.pending(), 2, "one watchdog and one reconnect timer, nothing more");
+  assert.deepEqual(streams.stateOf("k").refused, [], "a host that was never asked cannot have refused");
+  scheduler.advance(1_000);
+  assert.equal(transport.sockets.length, 2, "exactly one reconnect attempt");
+  assert.equal(transport.live().length, 1);
+  // The watchdog ticks again while that handshake is still in flight. The
+  // silence it measures is this socket's, not the previous socket's.
+  scheduler.advance(5_000);
+  assert.equal(transport.sockets.length, 2, "a handshake in flight was given up on for an older socket's silence");
+  assert.equal(transport.live().length, 1);
+  assert.deepEqual(streams.stateOf("k").refused, [], "a host that was never asked cannot have refused");
+  transport.sockets[1]!.handlers.onOpen();
+  transport.sockets[1]!.handlers.onMessage("{}");
+  // Well inside the silence threshold: nothing but the watchdog may run.
+  scheduler.advance(30_000);
+  assert.equal(transport.live().length, 1);
+  assert.equal(transport.sockets.length, 2, "a second chain opened another socket");
+  assert.equal(scheduler.pending(), 1);
+  streams.closeAll();
+  assert.equal(scheduler.pending(), 0);
+});
+
 test("the kline feed, the watchlist and the book quote share one registry and one lifecycle", () => {
   const { transport, streams } = registry();
   const feed = new MarketFeedRegistry({ streams });
@@ -257,4 +349,31 @@ test("a watchlist row is a real quote whether it was seeded or streamed, and say
   assert.equal(seeded.chg, 1);
   assert.ok(Math.abs(seeded.chgPct - 1) < 1e-9);
   assert.equal(tickerFrom(5, 0, "stream").chgPct, 0, "no 24h open means no percentage, not a division by zero");
+});
+
+test("a symbol removed from the watchlist does not come back wearing its old quote", () => {
+  const streamed = { BTCUSDT: tickerFrom(101, 100, "stream"), ETHUSDT: tickerFrom(51, 50, "stream") };
+  // Removal drops the row's value with the row…
+  const without = retainTickers(streamed, ["ETHUSDT"]);
+  assert.deepEqual(Object.keys(without), ["ETHUSDT"]);
+  // …so on re-adding there is nothing stale for the seed to defer to: the row
+  // is unknown ("—") until the seed or a frame gives it a current value.
+  const readded = retainTickers(without, ["ETHUSDT", "btcusdt"]);
+  assert.equal(readded.BTCUSDT, undefined);
+  assert.equal(readded.ETHUSDT, without.ETHUSDT, "rows that stayed keep their value");
+  assert.deepEqual(retainTickers(streamed, []), {});
+  // The hook prunes on every membership change, before the seed request.
+  const hook = fs.readFileSync(path.join(__dirname, "..", "lib", "useWatchlistTickers.ts"), "utf8");
+  assert.match(hook, /setTickers\(\(current\) => retainTickers\(current, list\)\);\s*\n\s*if \(list\.length === 0\) return;/);
+});
+
+test("the watchlist header claims live only for a live stream, never for a handshake", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "components", "tv", "Watchlist.tsx"), "utf8");
+  const labels = [...source.matchAll(/label: ("[^"]*")/g)].map((m) => m[1]!);
+  assert.ok(labels.length >= 3, "the header's price-state labels could not be located");
+  // "live" appears exactly once, and only under status === "live".
+  assert.equal(labels.filter((l) => l === '"live"').length, 1, labels.join(" "));
+  assert.match(source, /stream\.status === "live" \? \{ label: "live"/);
+  assert.doesNotMatch(source, /anyStreamed/, "the once-streamed shortcut to \"live\" must not return");
+  assert.match(source, /stream\.status === "open" \? "connected — waiting for data" : "connecting…"/);
 });

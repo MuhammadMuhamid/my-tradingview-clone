@@ -47,8 +47,11 @@ const prose = page.replace(/\s+/g, " ");
 // ── The page exists, and is what it claims to be ────────────────────────────
 
 test("the route exists, has an h1, and is a static server component", () => {
-  assert.match(page, /<h1[^>]*>\s*Getting started\s*<\/h1>/,
-    "every route in this product has an h1; this one is the page title");
+  // One name everywhere: the navigation, the System menu and the <title> say
+  // "Manual", and so must the heading a reader lands on.
+  assert.match(page, /<h1[^>]*>\s*Manual\s*<\/h1>/,
+    "every route in this product has an h1; this one is the page title, and its name is Manual");
+  assert.match(page, /title: "Manual · Trading Scene"/, "the document title must carry the same name");
 
   // A manual that fetches, polls or holds state can fail, and then the one page
   // a confused operator opens is itself broken. It must be plain HTML.
