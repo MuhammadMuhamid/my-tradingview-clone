@@ -135,3 +135,75 @@ test("migration filenames stay ordered and unique — they are applied by sort o
   // of the list, so adding a migration does not require editing this test.
   assert.equal(files[9], "010_alert_frequencies.sql");
 });
+
+/**
+ * The NULL-mode hole in `ma_alerts_shape_ck`.
+ *
+ * A CHECK constraint ACCEPTS a row when it evaluates to NULL. The constraint is
+ * a chain of ORs, and 016 wrote each cross family's branch as
+ * `condition_kind = 'x' AND mode IN ('cross_up','cross_down')` — so with a NULL
+ * mode that branch is `TRUE AND NULL` = NULL, every other branch is FALSE, and
+ * `FALSE OR NULL` is NULL. The row was stored by exactly the constraint written
+ * to reject it.
+ *
+ * That row is the failure this table's shape rules exist to prevent:
+ * `conditionFromRow` refuses to build a condition from it, so the runner logs
+ * "alert row is not evaluable" and skips it forever — an alert that looks armed
+ * and can never fire.
+ *
+ * Found by executing 025 against a real PostgreSQL 16 and running the
+ * accept/reject matrix by hand, which is the second time that exercise has
+ * caught a NULL-logic defect reading the SQL did not (see 017). Pinned here
+ * because the tempting way to write a new cross family's branch is the wrong
+ * one, and it fails silently.
+ */
+test("every cross family's shape rule guards against a NULL mode explicitly", () => {
+  const effective = fs.readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith(".sql")).sort()
+    .map((f) => fs.readFileSync(path.join(MIGRATIONS, f), "utf8"))
+    .join("\n");
+  // The LAST definition is the one the database enforces.
+  const definitions = [...effective.matchAll(
+    /ADD CONSTRAINT ma_alerts_shape_ck CHECK \(([\s\S]*?)\)\s*(?:NOT VALID)?;/g
+  )];
+  assert.ok(definitions.length > 0, "no shape constraint found");
+  const shape = definitions[definitions.length - 1]![1]!.replace(/\s+/g, " ");
+
+  for (const kind of ["ma_vs_ma", "rsi", "macd", "supertrend"]) {
+    const branch = shape.match(new RegExp(`condition_kind = '${kind}'[^)]*\\)*`));
+    assert.ok(branch, `no branch for ${kind}`);
+    assert.match(
+      branch[0]!,
+      /mode IS NOT NULL AND mode IN/,
+      `${kind} tests \`mode IN (...)\` without \`mode IS NOT NULL\`. ` +
+      "With a NULL mode that branch evaluates to NULL, and a CHECK passes on " +
+      "NULL — so a row with no mode is accepted and can never fire."
+    );
+  }
+});
+
+/**
+ * Tightening a CHECK re-validates every existing row, and this runner applies
+ * migrations on BOOT. A plain `ADD CONSTRAINT` that any legacy row failed would
+ * abort the migration and leave the backend refusing to start — trading a
+ * silent data defect for an outage.
+ */
+test("the tightened shape constraint cannot abort a deploy on legacy rows", () => {
+  const sql025 = fs.readFileSync(
+    path.join(MIGRATIONS, "025_supertrend_alerts.sql"), "utf8"
+  ).replace(/\s+/g, " ");
+  assert.match(sql025, /ADD CONSTRAINT ma_alerts_shape_ck CHECK \(.*?\) NOT VALID;/);
+  // ...and it is still checked against existing rows, reporting rather than failing.
+  assert.match(sql025, /VALIDATE CONSTRAINT ma_alerts_shape_ck/);
+  assert.match(sql025, /EXCEPTION WHEN check_violation THEN/);
+  assert.match(sql025, /RAISE WARNING/);
+});
+
+/** 025 lifts 017's restriction; the constraint must be gone, not widened. */
+test("gates are no longer confined to the two level families", () => {
+  const sql025 = fs.readFileSync(
+    path.join(MIGRATIONS, "025_supertrend_alerts.sql"), "utf8"
+  );
+  assert.match(sql025, /DROP CONSTRAINT IF EXISTS ma_alerts_filter_kind_ck/);
+  assert.doesNotMatch(sql025, /ADD CONSTRAINT ma_alerts_filter_kind_ck/);
+});

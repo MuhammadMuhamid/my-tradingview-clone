@@ -383,18 +383,6 @@ Test/Off and no way to reach Enable.
 
 - **Live Binance websocket behaviour.** The intrabar path is exercised through
   its pure planner, not against a live stream.
-- **Migration `025` has not been run against a real PostgreSQL.** Its SQL is
-  parsed by `alertMigration.test.ts` and its constraints were written from
-  `017`'s findings — the `IS NOT NULL` tests are present on the new gate — but
-  parsing is not executing, and §8 records that the last two defects in this
-  area were found only by running the SQL.
-- **The new dialogs have not been rendered in a browser.** The Supertrend
-  dialog, the Supertrend gate and the note field on every dialog are covered by
-  type checks, unit tests and a build, but Docker was not running locally when
-  they were written, so there was no database and no backend to drive them
-  against. The §9 note below is exactly why that matters: the last defect in
-  this area was invisible to every unit test and appeared immediately in a
-  browser.
 - **A firing `sr_zone`, `pivot_level`, `rsi`, `macd`, `supertrend` or gated alert.** Every
   one of these has been armed end to end — HTTP, database, UI — and their
   evaluators are unit-tested, but no live market event has driven one to
@@ -403,7 +391,37 @@ Test/Off and no way to reach Enable.
   and delivers; what has not been observed is one of the new kinds arriving on
   a device.
 
-**Verified since this section was first written:** the alert dialogs have now
+**Verified for the Supertrend family, the universal gates and the note (025).**
+Migration `025` was executed against a real PostgreSQL 16 three ways: fresh
+(all 25 apply, every constraint ends up `convalidated`), on a table populated
+with a row of every prior family including a gated one (all rows survived), and
+on a deliberately dirty table (the deploy completes with a warning). The
+accept/reject matrix was then run by hand at both the SQL and HTTP layers, and
+every dialog was driven in a browser against that database with the stored rows
+read back. Four defects came out of it, three of which no unit test had caught:
+
+1. **A NULL `mode` was accepted for every cross family** — `rsi`, `macd`,
+   `ma_vs_ma` and the new `supertrend`. `mode IN (...)` is NULL when `mode` is
+   NULL, so that OR-branch was NULL, and `FALSE OR NULL` is NULL, which a CHECK
+   accepts. Pre-existing since `016`; fixed in `025` with explicit
+   `mode IS NOT NULL` on each branch, and pinned by `alertMigration.test.ts`.
+2. **Tightening that CHECK could have aborted a deploy**, because migrations run
+   on boot. It is now added `NOT VALID` and validated separately, reporting
+   rather than failing.
+3. **A bad gate multiplier was rejected with the wrong field name**
+   (`stMultiplier` for a `filterStMultiplier` input), sending the reader to the
+   wrong control.
+4. **The editor's note was a one-line input** while the creation dialogs used a
+   proper box with a counter — the same field for the same 280-character value,
+   presented two ways. They are now one component.
+
+The indicator itself was checked against an **independent transcription** of the
+v4 study into Python, written from the Pine rather than from `ta.ts`, over 600
+real SOLUSDT 15m candles and four parameter sets: zero trend mismatches, band
+agreement to 1.4e-14. A 160-bar slice containing nine real direction changes is
+frozen as `tests/fixtures/supertrendGolden.json`, so the port cannot drift.
+
+**Verified earlier:** the alert dialogs have now
 been driven in a real browser against a real backend — the MA rail's Levels and
 Oscillators sections, the RSI/MACD dialog and the level dialog's gates were
 rendered, filled and saved, and the stored rows checked. That found a defect no

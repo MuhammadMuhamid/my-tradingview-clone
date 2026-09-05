@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
+import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { api, type MaAlert } from "@/lib/api";
 import type {
   FilterSide, MaAlertMode, MacdTarget, MaType, PivotType, PriceDirection,
@@ -583,15 +584,11 @@ export function AlertEditor({
             </div>
           </Row>
         )}
-        <Row label="Note">
-          <input
-            value={form.note}
-            onChange={(e) => update("note", e.target.value)}
-            placeholder="optional — shown with the notification"
-            aria-label="Alert note"
-            className={BOX}
-          />
-        </Row>
+        {/* The same field the creation dialogs offer, rather than a one-line
+            input: this is a 280-character message, and the counter and the
+            "shown at the end of the notification" hint are the two things that
+            make the limit and the purpose obvious while typing. */}
+        <AlertNoteField value={form.note} onChange={(next) => update("note", next)} />
         <label className="flex items-center gap-2 py-1 text-sm text-ink">
           <input type="checkbox" checked={form.enabled} className="accent-accent"
             onChange={(e) => update("enabled", e.target.checked)} />

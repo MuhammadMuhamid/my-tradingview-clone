@@ -15,6 +15,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { supertrend } from "../src/engine/ta";
 import {
   evaluateCondition, describeCondition, validateCondition, conditionFromRow,
@@ -315,4 +317,62 @@ test("the runner resolves the gate for a family that has no Supertrend of its ow
 
   const allowed = planAlert(spec, feed(1), Date.now());
   assert.ok(allowed.act && allowed.fire, "an open gate must let the same cross through");
+});
+
+/**
+ * The port, against an INDEPENDENT transcription of the same Pine.
+ *
+ * Every other test in this file was written from the same understanding as the
+ * implementation, so a misreading of the study would be reproduced faithfully
+ * in both and pass. This one is different: the expected values in
+ * `fixtures/supertrendGolden.json` were produced by a separate, line-by-line
+ * transcription of the v4 source into Python, written from the Pine rather than
+ * from `ta.ts`, and run over 160 real SOLUSDT 15m candles. Two transcriptions
+ * made separately are unlikely to share a mistake.
+ *
+ * The fixture is real market data, not a synthetic ramp, and it contains nine
+ * genuine direction changes — the bars where the stateful bands and the
+ * previous-bar comparison actually matter. A ramp would agree under almost any
+ * implementation of this indicator, including several wrong ones.
+ *
+ * Both ATR methods are covered, because they are different indicators.
+ */
+test("the Supertrend port matches an independent transcription of the study", () => {
+  const golden = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "fixtures", "supertrendGolden.json"), "utf8")
+  ) as {
+    bars: [number, number, number][];
+    cases: {
+      label: string; period: number; multiplier: number; atrMethod: "rma" | "sma";
+      trend: (number | null)[]; line: (number | null)[];
+    }[];
+  };
+  const high = golden.bars.map((b) => b[0]);
+  const low = golden.bars.map((b) => b[1]);
+  const close = golden.bars.map((b) => b[2]);
+
+  for (const c of golden.cases) {
+    const st = supertrend(high, low, close, c.period, c.multiplier, c.atrMethod === "rma");
+    let flips = 0;
+    for (let i = 0; i < close.length; i++) {
+      const expected = c.trend[i];
+      const actual = st.trend[i]!;
+      if (expected === null) {
+        assert.ok(
+          !Number.isFinite(actual),
+          `${c.label} bar ${i}: claims a direction before the ATR has warmed up`
+        );
+        continue;
+      }
+      assert.equal(actual, expected, `${c.label} bar ${i}: trend`);
+      assert.ok(
+        Math.abs(st.line[i]! - c.line[i]!) < 1e-8,
+        `${c.label} bar ${i}: line ${st.line[i]} vs ${c.line[i]}`
+      );
+      if (i > 0 && c.trend[i - 1] !== null && expected !== c.trend[i - 1]) flips++;
+    }
+    // If the fixture ever stops containing real flips it has stopped testing
+    // the only part of this indicator that is hard to get right.
+    assert.ok(flips > 0, `${c.label} has no direction changes left to check`);
+  }
 });

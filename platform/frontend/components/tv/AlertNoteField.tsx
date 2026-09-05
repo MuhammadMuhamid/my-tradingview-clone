@@ -38,6 +38,7 @@ export function AlertNoteField({
         onChange={(e) => onChange(e.target.value)}
         maxLength={NOTE_MAX_LENGTH}
         rows={2}
+        aria-label="Alert note"
         placeholder={placeholder}
         className="w-full resize-y rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent"
       />

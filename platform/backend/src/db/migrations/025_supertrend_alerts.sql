@@ -42,6 +42,44 @@ ALTER TABLE ma_alerts
 -- `ma_alerts_shape_ck` enumerates kinds explicitly, so an unlisted one is
 -- rejected outright rather than falling through. A Supertrend alert watches a
 -- direction change, which has exactly two directions.
+--
+-- ── The `mode IS NOT NULL` tests are a FIX, not decoration ─────────────────
+--
+-- This constraint is a chain of ORs, and 016 wrote every cross family's branch
+-- as `condition_kind = 'x' AND mode IN ('cross_up','cross_down')`. With a NULL
+-- mode that branch is `TRUE AND NULL` = NULL, every other branch is FALSE, and
+-- `FALSE OR NULL` is NULL — which a CHECK ACCEPTS. So a `rsi`, `macd`,
+-- `ma_vs_ma` or `supertrend` row with no mode at all was storable by exactly
+-- the constraint written to reject it.
+--
+-- Such a row is the failure this table's shape rules exist to prevent:
+-- `conditionFromRow` refuses to build a condition from it, so the runner logs
+-- "alert row is not evaluable" and skips it forever. The alert looks armed in
+-- the UI and can never fire, which from the outside is indistinguishable from
+-- a market that never met the condition.
+--
+-- The API never sends a null mode — the request parser defaults it — so no
+-- production row is expected to be affected. This is the last line of defence
+-- failing quietly, which is precisely when a constraint matters. Found by
+-- executing this migration against a real PostgreSQL 16 and running the
+-- accept/reject matrix by hand; the same class of defect as the one 017 hit,
+-- and again invisible to reading the SQL. `ma` was already correct because it
+-- spells out `mode IS NOT NULL`.
+--
+-- ── Why this one is added NOT VALID ───────────────────────────────────────
+--
+-- Tightening a CHECK re-validates every existing row, so if any legacy row DID
+-- slip through the NULL hole above, a plain ADD CONSTRAINT would abort this
+-- migration — and the runner applies migrations on boot, so an aborted one is a
+-- backend that will not start. Trading a silent data defect for a refused
+-- deploy is not an improvement.
+--
+-- NOT VALID enforces the rule on every future INSERT and UPDATE, which is the
+-- entire job of this constraint: it is a last line of defence against a bad row
+-- being WRITTEN. The VALIDATE below then checks the existing rows, and reports
+-- rather than aborts. On a clean table the constraint ends up fully validated,
+-- which is every table we expect; on a dirty one the deploy still succeeds and
+-- says loudly what it found.
 ALTER TABLE ma_alerts DROP CONSTRAINT IF EXISTS ma_alerts_shape_ck;
 ALTER TABLE ma_alerts
   ADD CONSTRAINT ma_alerts_shape_ck CHECK (
@@ -52,14 +90,33 @@ ALTER TABLE ma_alerts
     OR (condition_kind = 'ma_vs_ma'
       AND ma_type IS NOT NULL AND ma_length IS NOT NULL
       AND ma2_type IS NOT NULL AND ma2_length IS NOT NULL
-      AND mode IN ('cross_up','cross_down')
+      AND mode IS NOT NULL AND mode IN ('cross_up','cross_down')
       AND NOT (ma_type = ma2_type AND ma_length = ma2_length))
     OR (condition_kind = 'sr_zone' AND mode IS NOT NULL)
     OR (condition_kind = 'pivot_level' AND mode IS NOT NULL)
-    OR (condition_kind = 'rsi'  AND mode IN ('cross_up','cross_down'))
-    OR (condition_kind = 'macd' AND mode IN ('cross_up','cross_down'))
-    OR (condition_kind = 'supertrend' AND mode IN ('cross_up','cross_down'))
-  );
+    OR (condition_kind = 'rsi'
+      AND mode IS NOT NULL AND mode IN ('cross_up','cross_down'))
+    OR (condition_kind = 'macd'
+      AND mode IS NOT NULL AND mode IN ('cross_up','cross_down'))
+    OR (condition_kind = 'supertrend'
+      AND mode IS NOT NULL AND mode IN ('cross_up','cross_down'))
+  ) NOT VALID;
+
+DO $$
+BEGIN
+  ALTER TABLE ma_alerts VALIDATE CONSTRAINT ma_alerts_shape_ck;
+  RAISE NOTICE 'ma_alerts_shape_ck validated: every existing row satisfies it.';
+EXCEPTION WHEN check_violation THEN
+  -- Deliberately a WARNING, not an exception. The rows this names are alerts
+  -- that can never fire — `conditionFromRow` refuses to build a condition from
+  -- them — so they are already inert, and they are not worth failing a deploy
+  -- over. They are also not deleted here: they are a user's rows, and what
+  -- their mode was meant to be is not something a migration can know.
+  RAISE WARNING 'ma_alerts_shape_ck could not be validated against existing rows. %',
+    'These rows predate the fix, cannot be evaluated by the runner, and should be '
+    'inspected: SELECT id, symbol, timeframe, condition_kind FROM ma_alerts '
+    'WHERE mode IS NULL AND condition_kind <> ''price'';';
+END $$;
 
 -- Per-kind completeness, restating 016's clauses so this file defines the whole
 -- constraint rather than a fragment of it.

@@ -68,7 +68,7 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
     const atrMethod = String(b.filterStAtrMethod ?? FILTER_DEFAULTS.supertrend.atrMethod);
     const side = String(b.filterStSide ?? FILTER_DEFAULTS.supertrend.side);
     if (!isLength(period)) return bad("filterStPeriod must be an integer 1..1000");
-    if (!isMultiplier(multiplier)) return bad(MULTIPLIER_MESSAGE);
+    if (!isMultiplier(multiplier)) return bad(multiplierMessage("filterStMultiplier"));
     if (!isStAtrMethod(atrMethod)) {
       return bad(`filterStAtrMethod must be one of ${ST_ATR_METHODS.join(", ")}`);
     }
@@ -88,7 +88,16 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
  * and is silently dead.
  */
 const isMultiplier = (v: number): boolean => Number.isFinite(v) && v > 0 && v <= 100;
-const MULTIPLIER_MESSAGE = "stMultiplier must be a number greater than 0 and at most 100";
+
+/**
+ * Named for the field that was actually wrong.
+ *
+ * The gate and the alert share the rule but not the field name, and a rejection
+ * that says `stMultiplier` when the client sent `filterStMultiplier` sends
+ * someone looking at the wrong input. Found by driving these over HTTP.
+ */
+const multiplierMessage = (field: string): string =>
+  `${field} must be a number greater than 0 and at most 100`;
 
 /** Shared 400 shape, so every rejection reads the same way in the UI. */
 export type Rejection = { error: string };
@@ -130,7 +139,7 @@ export function readCondition(
     const atrMethod = String(b.stAtrMethod ?? SUPERTREND_DEFAULTS.atrMethod);
     const stMode = String(b.mode ?? "cross_up");
     if (!isLength(period)) return bad("stPeriod must be an integer 1..1000");
-    if (!isMultiplier(multiplier)) return bad(MULTIPLIER_MESSAGE);
+    if (!isMultiplier(multiplier)) return bad(multiplierMessage("stMultiplier"));
     if (!isStAtrMethod(atrMethod)) {
       return bad(`stAtrMethod must be one of ${ST_ATR_METHODS.join(", ")}`);
     }
