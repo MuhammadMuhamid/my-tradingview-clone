@@ -21,7 +21,18 @@ export type DrawingTool =
   // annotations
   | "text" | "callout" | "pricelabel"
   // measurement
-  | "ruler" | "pricerange" | "daterange" | "long" | "short";
+  | "ruler" | "pricerange" | "daterange" | "long" | "short"
+  /*
+   * A drawing that COMPUTES.
+   *
+   * Anchored VWAP is here rather than in the study registry because its
+   * defining input is a point on the chart: "from here", chosen by clicking a
+   * bar and moved by dragging it. A study's inputs are numbers in a dialog.
+   * Making it a drawing gives it the anchor, the drag, the selection, the
+   * per-instrument scoping and the persistence drawings already have, rather
+   * than a parallel mechanism for one indicator.
+   */
+  | "avwap";
 
 export interface Anchor {
   /** bar open time in seconds (chart time units) */
@@ -64,6 +75,8 @@ export const TOOL_POINTS: Record<DrawingTool, number> = {
   rect: 2, ellipse: 2, triangle: 3, path: 0, brush: 0,
   text: 1, callout: 1, pricelabel: 1,
   ruler: 2, pricerange: 2, daterange: 2, long: 2, short: 2,
+  // One anchor: the bar the accumulation starts from.
+  avwap: 1,
 };
 
 /** Tools whose creation asks the user for a caption. */

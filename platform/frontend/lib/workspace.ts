@@ -53,7 +53,35 @@ export interface PaneState {
   bars: number;
   /** Which SMA/EMA lines this pane draws. Copied, never shared. */
   maLines: MaLine[];
+  /**
+   * A second instrument this pane compares against, or null.
+   *
+   * Per PANE rather than per workspace: "compare SOL to BTC on this chart" is
+   * a property of the chart it is on, and a four-pane layout comparing four
+   * different things against four different benchmarks is an ordinary way to
+   * use one. Absent on a pane restored from an older record, which is why
+   * every reader treats it as optional rather than required.
+   */
+  compare?: PaneCompare | null;
 }
+
+/** What a pane is comparing against, and how it is drawing the comparison. */
+export interface PaneCompare {
+  /** The second instrument, as a stored ticker. */
+  symbol: string;
+  /**
+   * `percent` overlays both series rebased to 0 % on the price pane;
+   * `correlation` and `beta` are their own panes below the chart.
+   */
+  mode: "percent" | "correlation" | "beta";
+  /** Window for the rolling statistics. Unused by `percent`. */
+  length: number;
+}
+
+export const DEFAULT_COMPARE_LENGTH = 60;
+
+export const isCompareMode = (v: unknown): v is PaneCompare["mode"] =>
+  v === "percent" || v === "correlation" || v === "beta";
 
 export interface ChartWorkspace {
   version: 2;
@@ -300,6 +328,40 @@ export function applyPaneSymbol(
   return { ...ws, panes: ws.panes.map((p) => (targets.has(p.id) ? { ...p, symbol } : p)) };
 }
 
+/**
+ * Set or clear what one pane compares against.
+ *
+ * Never synced to other panes, unlike symbol and interval. "Compare SOL to
+ * BTC" is a statement about THIS chart, and pushing it across a synced layout
+ * would silently put the same second instrument on four charts the user was
+ * using to look at four different things.
+ */
+export function setPaneCompare(
+  ws: ChartWorkspace, id: PaneId, compare: PaneCompare | null
+): ChartWorkspace {
+  if (!ws.panes.some((p) => p.id === id)) return ws;
+  return {
+    ...ws,
+    panes: ws.panes.map((p) => {
+      if (p.id !== id) return p;
+      if (!compare) {
+        // Removed entirely rather than left as null, so a stored workspace
+        // does not carry a field whose only value is "there isn't one".
+        const { compare: _removed, ...rest } = p;
+        return rest;
+      }
+      return {
+        ...p,
+        compare: {
+          symbol: compare.symbol.trim().toUpperCase(),
+          mode: compare.mode,
+          length: Math.max(2, Math.min(1000, Math.round(compare.length))),
+        },
+      };
+    }),
+  };
+}
+
 export function applyPaneInterval(
   ws: ChartWorkspace, originId: PaneId, interval: Interval, sync: SyncOptions
 ): ChartWorkspace {
@@ -320,6 +382,17 @@ export function feedKeys(ws: ChartWorkspace): string[] {
 
 // ── persistence ────────────────────────────────────────────────────────────
 
+function validCompare(value: unknown): PaneCompare | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.symbol !== "string" || raw.symbol.trim() === "") return null;
+  if (!isCompareMode(raw.mode)) return null;
+  const length = typeof raw.length === "number" && Number.isFinite(raw.length)
+    ? Math.max(2, Math.min(1000, Math.round(raw.length)))
+    : DEFAULT_COMPARE_LENGTH;
+  return { symbol: raw.symbol.trim().toUpperCase(), mode: raw.mode, length };
+}
+
 function validPane(value: unknown): PaneState | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
@@ -339,9 +412,20 @@ function validPane(value: unknown): PaneState | null {
     if (typeof l.visible !== "boolean") return null;
     maLines.push({ type: l.type, length: l.length, visible: l.visible });
   }
+  /*
+   * An unreadable `compare` is dropped rather than failing the whole pane.
+   *
+   * Deliberately different from every field above, which are all-or-nothing:
+   * those describe WHAT chart this is, and a pane with a corrupt symbol is not
+   * recoverable. A comparison is a decoration on a chart that is otherwise
+   * fine, and losing the user's whole workspace over one is the wrong trade.
+   */
+  const compare = validCompare(raw.compare);
+
   return {
     id: raw.id, symbol: raw.symbol, interval: raw.interval,
     chartType: raw.chartType, bars: raw.bars, maLines,
+    ...(compare ? { compare } : {}),
   };
 }
 

@@ -28,6 +28,9 @@ const ICONS: Record<string, JSX.Element> = {
   pricelabel: <><path d="M3 12h9l3-4h6v8h-6l-3-4" /></>,
   ruler: <><path d="M3 15l12-12 6 6-12 12z" /><path d="M7 11l2 2M10 8l2 2M13 5l2 2" /></>,
   pricerange: <><path d="M12 4v16" /><path d="M8 7l4-3 4 3M8 17l4 3 4-3" /></>,
+  // An anchor point with a curve running rightwards from it: where it starts
+  // is the whole idea.
+  avwap: <><circle cx="5" cy="18" r="2" /><path d="M5 18c4 0 5-9 9-11s6 1 7 3" /></>,
   daterange: <><path d="M4 12h16" /><path d="M7 8L4 12l3 4M17 8l3 4-3 4" /></>,
   long: <><rect x="4" y="5" width="16" height="6" /><rect x="4" y="13" width="16" height="6" /><path d="M12 19v-14" /></>,
   short: <><rect x="4" y="5" width="16" height="6" /><rect x="4" y="13" width="16" height="6" /><path d="M12 5v14" /></>,
@@ -108,6 +111,16 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
       { tool: "callout", icon: "callout", label: "Callout" },
       { tool: "pricelabel", icon: "pricelabel", label: "Price label" },
     ],
+  },
+  {
+    /*
+     * Anchored VWAP is a drawing tool, not a study, because its input is a
+     * point on the chart: click the bar to start from, drag to move it. It
+     * gets its own group rather than joining "levels" because it is the only
+     * drawing here that computes a series rather than describing a shape.
+     */
+    id: "anchored",
+    tools: [{ tool: "avwap", icon: "avwap", label: "Anchored VWAP — click a bar to anchor" }],
   },
   {
     id: "measure",

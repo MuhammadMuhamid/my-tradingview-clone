@@ -733,6 +733,9 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
     case "hline": return Math.abs(p.y - a.y);
     case "hray": return p.x >= a.x - HIT_PX ? Math.abs(p.y - a.y) : Math.hypot(p.x - a.x, p.y - a.y);
     case "vline": return Math.abs(p.x - a.x);
+    // The anchor is the grabbable part; the computed line is an overlay and is
+    // not on this canvas to be hit at all.
+    case "avwap": return Math.hypot(p.x - a.x, p.y - a.y);
     case "rect": case "long": case "short":
       return distToRect(p, a, b, !!d.style.filled || d.tool !== "rect");
     case "ellipse": return distToEllipse(p, a, b, !!d.style.filled);
@@ -844,6 +847,22 @@ function drawOne(
       label(fmtPrice(d.points[0]!.price), w - 62, a.y - 3);
       break;
     case "vline": line({ x: a.x, y: 0 }, { x: a.x, y: h }); break;
+    /*
+     * Anchored VWAP: the canvas draws only the ANCHOR.
+     *
+     * The line itself is a chart overlay (`lib/anchoredVwap`), so it sits on
+     * the price scale, joins the legend at the right precision, and is drawn
+     * by the same renderer as every other series. What the canvas owns is what
+     * makes it a drawing: a grabbable point at the bar it starts from, and a
+     * short marker so the anchor is visible even where the line is far away.
+     */
+    case "avwap": {
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
+      ctx.stroke();
+      line({ x: a.x, y: a.y - 8 }, { x: a.x, y: a.y + 8 });
+      break;
+    }
     case "rect": {
       const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
       const rw = Math.abs(b.x - a.x), rh = Math.abs(b.y - a.y);

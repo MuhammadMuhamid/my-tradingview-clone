@@ -85,9 +85,9 @@ import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
-  paneById, removePane, saveWorkspace, setActivePane, setPaneCount, setPaneMaVisibility,
+  paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
   setPreset, setWorkspaceBars, togglePaneMa, toggleMaximize, updatePane,
-  type ChartWorkspace as Workspace, type PaneState,
+  type ChartWorkspace as Workspace, type PaneCompare, type PaneState,
 } from "@/lib/workspace";
 import { MAX_PANES } from "@/lib/layoutPresets";
 import { isMacPlatform } from "@/lib/shortcuts";
@@ -843,6 +843,18 @@ export default function TvWorkspace() {
     setReplayDrawings([]);
   }, [replayActive]);
 
+  /**
+   * What one pane compares against.
+   *
+   * Never synced across panes, unlike symbol and interval: "compare SOL to
+   * BTC" is a statement about THIS chart, and pushing it across a synced
+   * layout would put the same second instrument on four charts a user was
+   * using to look at four different things.
+   */
+  const changePaneCompare = useCallback((paneId: string, next: PaneCompare | null) => {
+    setWorkspace((ws) => setPaneCompare(ws, paneId, next));
+  }, []);
+
   const changePaneSymbol = useCallback((paneId: string, next: string) => {
     pauseReplayForNavigation();
     setWorkspace((ws) => applyPaneSymbol(ws, paneId, next, sync));
@@ -1425,6 +1437,7 @@ export default function TvWorkspace() {
         onPriceScaleChange={setPaneScale}
         resetSignal={paneResets[pane.id] ?? 0}
         drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
+        onCompareChange={changePaneCompare}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         compact={isMobile}
@@ -1436,7 +1449,7 @@ export default function TvWorkspace() {
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
-    paneScale, setPaneScale, paneResets, paneStyleFocus]);
+    paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare]);
 
   return (
     <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">

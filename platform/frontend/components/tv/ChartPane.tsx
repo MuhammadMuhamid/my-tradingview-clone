@@ -42,6 +42,11 @@ import { datasetKey } from "@/lib/liveDataset";
 import { paneDensity, type PaneDensity } from "@/lib/layoutPresets";
 import type { PaneState } from "@/lib/workspace";
 import { drawingsAtReplayHorizon, replayCandles, type ReplaySession } from "@/lib/replay";
+import { anchoredVwapOverlays } from "@/lib/anchoredVwap";
+import { compareOverlays, useCompareSeries } from "@/lib/compare";
+import { CompareControl } from "@/components/tv/CompareControl";
+import type { PaneCompare } from "@/lib/workspace";
+import { pricePrecision } from "@/lib/movingAverages";
 import { fmtPrice } from "@/lib/format";
 import { INTERVAL_MS, type Candle, type Interval, type Trade } from "@/lib/types";
 
@@ -118,6 +123,8 @@ export interface ChartPaneProps {
   resetSignal?: number;
   /** Bumped to move focus into the selected drawing's style bar. */
   drawingStyleFocusSignal?: number;
+  /** This pane's comparison changed. Never synced to other panes. */
+  onCompareChange?: (paneId: string, next: PaneCompare | null) => void;
 
   /** Pine run window, which follows the workspace replay horizon. */
   startTime: string;
@@ -266,9 +273,53 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * Built-ins are laid down first so a Pine script applied afterwards paints
    * over them, which matches the order they appear in the panel.
    */
+  /*
+   * Anchored VWAP is a DRAWING that produces an overlay.
+   *
+   * Which means it is computed here, from the same replay-clipped bars the
+   * chart is drawing, and rendered by the same renderer as every other series
+   * — on the price scale, in the legend, at the right precision — rather than
+   * painted by hand onto the drawing canvas. And because it accumulates over
+   * exactly the bars it is given, it cannot see a bar a Replay has not reached:
+   * that bar is not in the array.
+   */
+  const avwapOverlays = useMemo(
+    () => anchoredVwapOverlays(
+      drawingsAtReplayHorizon(replay, drawings, props.replayDrawings),
+      visibleCandles,
+      pricePrecision(visibleCandles[visibleCandles.length - 1]?.close ?? 0)),
+    [replay, drawings, props.replayDrawings, visibleCandles]);
+
+  /*
+   * The second instrument, loaded once for this pane.
+   *
+   * One boundary rather than one per comparison: a normalized overlay, a
+   * rolling correlation and a beta all need the same aligned second series,
+   * and three studies each loading their own would open three requests for the
+   * same bars. It is HISTORY on the base chart's own cadence, not a second
+   * live feed — which is what keeps a websocket-per-study explosion from
+   * happening.
+   */
+  const compare = pane.compare ?? null;
+  const [compareOpen, setCompareOpen] = useState(false);
+  const compareSeries = useCompareSeries(
+    visibleCandles, compare?.symbol ?? "", pane.interval, pane.bars,
+    { enabled: compare !== null });
+
+  const compared = useMemo(
+    () => (compare
+      ? compareOverlays(
+        visibleCandles, compareSeries, compare.mode, compare.length, pane.symbol)
+      : { overlays: [], notice: null }),
+    [compare, compareSeries, visibleCandles, pane.symbol]);
+
   const overlays = useMemo(
-    () => [...maOverlays, ...nativeStudies.overlays, ...indicators.overlays],
-    [maOverlays, nativeStudies.overlays, indicators.overlays]);
+    () => [
+      ...maOverlays, ...avwapOverlays, ...compared.overlays,
+      ...nativeStudies.overlays, ...indicators.overlays,
+    ],
+    [maOverlays, avwapOverlays, compared.overlays,
+      nativeStudies.overlays, indicators.overlays]);
   const decorations = useMemo(
     () => [...nativeStudies.decorations, ...indicators.decorations],
     [nativeStudies.decorations, indicators.decorations]);
@@ -402,6 +453,30 @@ function ChartPaneImpl(props: ChartPaneProps) {
             {pane.interval}
           </span>
         )}
+        {/*
+          The comparison, stated on the pane it belongs to.
+          
+          A chip rather than a hidden setting: a chart whose price line is a
+          percentage against a second instrument is a materially different
+          chart, and a reader must be able to see that at a glance and undo it
+          in one click.
+        */}
+        <button
+          onClick={() => setCompareOpen(true)}
+          title={compare
+            ? `Comparing with ${compare.symbol} — ${compare.mode}`
+            : "Compare this chart with another instrument"}
+          aria-label={compare
+            ? `Comparing with ${compare.symbol}. Change or remove.`
+            : "Compare with another instrument"}
+          className={`flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] ${
+            compare
+              ? "bg-surface-2 font-semibold text-ink"
+              : "text-ink-faint hover:bg-surface-2 hover:text-ink"
+          }`}
+        >
+          {compare ? `vs ${compare.symbol}` : "vs"}
+        </button>
         <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular text-[11px] text-ink-muted">
           {showReadout && last && (
             <span className={history.stale ? "text-warn" : "text-ink"}
@@ -458,6 +533,14 @@ function ChartPaneImpl(props: ChartPaneProps) {
         </div>
       )}
 
+      <CompareControl
+        open={compareOpen}
+        current={compare}
+        baseSymbol={pane.symbol}
+        onClose={() => setCompareOpen(false)}
+        onApply={(next) => props.onCompareChange?.(paneId, next)}
+      />
+
       <div className="relative min-h-0 flex-1">
         {history.loading && !holdingRequested && history.candles.length > 0 && (
           // The previous instrument's bars are still drawn underneath; say so
@@ -468,6 +551,24 @@ function ChartPaneImpl(props: ChartPaneProps) {
             className="pointer-events-none absolute left-2 top-2 z-10 rounded border border-border bg-surface/90 px-2 py-0.5 font-mono text-[10px] text-ink-muted sm:text-[11px]"
           >
             Loading {pane.symbol} {pane.interval}… showing {history.dataset.symbol} {history.dataset.interval} until it arrives
+          </div>
+        )}
+        {compared.notice && (
+          /*
+           * Said out loud, on the chart.
+           *
+           * The alternative to saying it is forward-filling the second
+           * instrument's missing bars, and the alternative to forward-filling
+           * is a reader who does not know their correlation was computed over
+           * fewer bars than they asked for. Neither is acceptable, so the
+           * number is honest and the gap is disclosed.
+           */
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] rounded border border-border bg-surface/90 px-2 py-0.5 text-[10px] text-ink-muted sm:text-[11px]"
+          >
+            {compared.notice}
           </div>
         )}
         {history.loading && history.candles.length === 0 ? (
