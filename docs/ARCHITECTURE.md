@@ -111,9 +111,9 @@ history.
 
 ### The chart's own study layer
 
-One canonical mathematical layer, `backend/src/ta/core.ts`, mirrored
-byte-for-byte into `frontend/lib/ta/core.ts` and re-exported by
-`engine/ta.ts`, `engine/pivotLevels.ts` and `engine/srZones.ts`. The
+One canonical mathematical layer, `platform/backend/src/ta/core.ts`, mirrored
+byte-for-byte into `platform/frontend/lib/ta/core.ts` and re-exported by
+`platform/backend/src/engine/ta.ts`, `platform/backend/src/engine/pivotLevels.ts` and `platform/backend/src/engine/srZones.ts`. The
 re-exports are asserted by **reference equality** in `taParity.test.ts`, so
 there is one implementation rather than two that agree today: a pivot alert
 fires on the arithmetic the browser drew.
