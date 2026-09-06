@@ -38,11 +38,12 @@ import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard"
 import { loadCandleWindow, repairStaleTail } from "./useCandleHistory";
 import {
   alignByOpenTime, beta as betaOf, correlation as correlationOf, logReturns,
-  normalizedCompare,
+  normalizedCompare, zscore,
 } from "./ta/core";
 import { PRICE_PANE_ID, type ChartOverlay } from "./chartSeries";
 import type { Candle } from "./types";
 import type { Resolution } from "./resolution";
+import type { PaneCompare } from "./workspace";
 
 /**
  * The default benchmark.
@@ -229,6 +230,63 @@ export function compareBeta(
 }
 
 /**
+ * The pair ratio: this instrument priced in units of the other.
+ *
+ * PRICES here, not returns, because that is what the ratio IS — how many of
+ * the second instrument one of the first is worth. It is the one comparison on
+ * this list with no window and no parameter: at each bar it is a division, and
+ * a bar either instrument is missing is `na` rather than carried forward.
+ *
+ * Its own pane, always. A ratio near 0.0004 drawn on an axis that runs to
+ * 60,000 is a flat line on the floor.
+ */
+export function compareRatio(
+  base: readonly Candle[], other: CompareSeries
+): CompareResult {
+  const ratio = base.map((candle, i) => {
+    const divisor = other.closes[i];
+    return divisor !== undefined && Number.isFinite(divisor) && divisor !== 0
+      ? candle.close / divisor : Number.NaN;
+  });
+  return { plots: { ratio }, notice: missingNotice(other) };
+}
+
+/**
+ * How unusual the pair is right now, against its own recent history.
+ *
+ * The z-score of the LOG ratio — `ln(A) − ln(B)` — over the rolling window.
+ * Three choices in that sentence, each of which changes what the number means:
+ *
+ *   LOG, because a raw ratio's dispersion scales with its level, so the same
+ *   move reads as a larger deviation the higher the ratio has drifted. In logs
+ *   a 1 % divergence is the same distance wherever the pair is trading.
+ *
+ *   A HEDGE RATIO OF ONE. This is the spread of one unit against one unit, not
+ *   `ln(A) − β·ln(B)` for a fitted β. A rolling regression hedge would be a
+ *   different and more assumption-laden object — it re-fits every bar, so the
+ *   series it produces is partly a record of the fit moving rather than of the
+ *   pair moving — and calling both "spread" would hide which one was drawn.
+ *
+ *   Its OWN WINDOW. The z-score says "against the last `length` bars", so a
+ *   value of 2 means two standard deviations of that window and nothing about
+ *   any longer history. A short window makes everything look extreme; the
+ *   window is the user's to choose and is shown in the legend.
+ *
+ * This is a description of where the pair has been, not a prediction that it
+ * returns. Nothing here says the spread is mean-reverting.
+ */
+export function compareZSpread(
+  base: readonly Candle[], other: CompareSeries, length: number
+): CompareResult {
+  const spread = base.map((candle, i) => {
+    const divisor = other.closes[i];
+    return divisor !== undefined && divisor > 0 && candle.close > 0
+      ? Math.log(candle.close) - Math.log(divisor) : Number.NaN;
+  });
+  return { plots: { z: zscore(spread, length) }, notice: missingNotice(other) };
+}
+
+/**
  * What the reader is owed about a gappy second series.
  *
  * Said out loud rather than hidden, because the alternative to saying it is
@@ -272,7 +330,7 @@ export { storedSymbol };
 export function compareOverlays(
   base: readonly Candle[],
   other: CompareSeries,
-  mode: "percent" | "correlation" | "beta",
+  mode: PaneCompare["mode"],
   length: number,
   baseSymbol: string
 ): { overlays: ChartOverlay[]; notice: string | null } {
@@ -304,29 +362,96 @@ export function compareOverlays(
     };
   }
 
-  const { plots, notice } = mode === "correlation"
-    ? compareCorrelation(base, other, length)
-    : compareBeta(base, other, length);
-  const series = mode === "correlation" ? plots.correlation! : plots.beta!;
-  return {
-    notice,
-    overlays: [{
-      id: `${instanceId}:value`,
-      title: mode === "correlation"
-        ? `Correlation ${length}` : `Beta ${length}`,
-      color: COMPARE_OTHER_COLOR,
-      width: 2,
-      style: "line",
-      // Its own pane: neither statistic is a price.
+  /*
+   * Everything else is a statistic on its own scale, so it gets its own pane.
+   *
+   * One shape for four modes rather than four near-identical blocks: what
+   * differs is the arithmetic, the title, how many decimals the number
+   * deserves, and — for the z-score — the reference lines that make it
+   * readable. A ratio is a price-like number and takes the instrument's own
+   * precision; a correlation is between −1 and 1 and takes two.
+   */
+  const computed = mode === "correlation" ? compareCorrelation(base, other, length)
+    : mode === "beta" ? compareBeta(base, other, length)
+      : mode === "ratio" ? compareRatio(base, other)
+        : compareZSpread(base, other, length);
+  const series = Object.values(computed.plots)[0]!;
+
+  const spec = {
+    correlation: {
+      title: `Correlation ${length}`,
+      instance: `Correlation vs ${other.symbol}`,
+      params: `${length} bars`, precision: 2, levels: [] as number[],
+    },
+    beta: {
+      title: `Beta ${length}`,
+      instance: `Beta vs ${other.symbol}`,
+      params: `${length} bars`, precision: 2, levels: [],
+    },
+    ratio: {
+      title: `${baseSymbol} / ${other.symbol}`,
+      instance: `${baseSymbol} priced in ${other.symbol}`,
+      params: "ratio", precision: 6, levels: [],
+    },
+    zspread: {
+      title: `Z-spread ${length}`,
+      instance: `${baseSymbol} / ${other.symbol} spread, z-scored`,
+      params: `${length} bars, log ratio`, precision: 2, levels: [2, 0, -2],
+    },
+    percent: { title: "", instance: "", params: "", precision: 2, levels: [] },
+  }[mode];
+
+  const overlays: ChartOverlay[] = [{
+    id: `${instanceId}:value`,
+    title: spec.title,
+    color: COMPARE_OTHER_COLOR,
+    width: 2,
+    style: "line",
+    // Its own pane: none of these is a price on this chart's scale.
+    paneId: instanceId,
+    instanceId,
+    instanceTitle: spec.instance,
+    instanceParams: spec.params,
+    precision: spec.precision,
+    data: point(series),
+  }];
+
+  /*
+   * The z-score's reference lines.
+   *
+   * Two standard deviations either side and the mean, because a z-score with
+   * no scale beside it is a wiggle: the whole content of the number is how far
+   * out it is, and a reader should not have to count gridlines to find out.
+   * They are hlines in the same shape a study's levels use, so the price scale
+   * and the legend treat them identically.
+   */
+  for (const level of spec.levels) {
+    overlays.push({
+      id: `${instanceId}:level:${level}`,
+      title: level === 0 ? "0" : `${level > 0 ? "+" : ""}${level}σ`,
+      color: COMPARE_LEVEL_COLOR,
+      dashed: true,
+      lineStyle: "dashed",
       paneId: instanceId,
       instanceId,
-      instanceTitle: `${mode === "correlation" ? "Correlation" : "Beta"} vs ${other.symbol}`,
-      instanceParams: `${length}`,
+      instanceTitle: spec.instance,
+      instanceParams: spec.params,
       precision: 2,
-      data: point(series),
-    }],
-  };
+      constantValue: level,
+      data: times.length > 1
+        ? [
+            { time: times[0]!, value: level },
+            { time: times[times.length - 1]!, value: level },
+          ]
+        : times.map((time) => ({ time, value: level })),
+    });
+  }
+
+  return { notice: computed.notice, overlays };
 }
+
+/** Present but not the subject: a reference line, not a series. */
+const COMPARE_LEVEL_COLOR = "#8b93a7";
 
 /** The base instrument keeps the chart's own accent; the second gets its own. */
 const COMPARE_BASE_COLOR = "#4f8cff";

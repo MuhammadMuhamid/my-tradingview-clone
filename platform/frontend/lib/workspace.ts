@@ -71,17 +71,25 @@ export interface PaneCompare {
   symbol: string;
   /**
    * `percent` overlays both series rebased to 0 % on the price pane;
-   * `correlation` and `beta` are their own panes below the chart.
+   * everything else is a statistic on its own scale and gets its own pane.
+   *
+   * `ratio` and `zspread` are the pair surfaces: the price of one instrument
+   * in units of the other, and how unusual that ratio currently is against its
+   * own recent history.
    */
-  mode: "percent" | "correlation" | "beta";
-  /** Window for the rolling statistics. Unused by `percent`. */
+  mode: "percent" | "correlation" | "beta" | "ratio" | "zspread";
+  /** Window for the rolling statistics. Unused by `percent` and `ratio`. */
   length: number;
 }
 
 export const DEFAULT_COMPARE_LENGTH = 60;
 
+export const COMPARE_MODES = [
+  "percent", "correlation", "beta", "ratio", "zspread",
+] as const;
+
 export const isCompareMode = (v: unknown): v is PaneCompare["mode"] =>
-  v === "percent" || v === "correlation" || v === "beta";
+  (COMPARE_MODES as readonly unknown[]).includes(v);
 
 export interface ChartWorkspace {
   version: 2;

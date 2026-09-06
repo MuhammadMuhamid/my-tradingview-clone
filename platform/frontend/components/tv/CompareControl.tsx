@@ -32,7 +32,21 @@ const MODES: { value: PaneCompare["mode"]; label: string; hint: string }[] = [
     value: "beta", label: "Rolling beta",
     hint: "How much this instrument moves for a given move in the benchmark.",
   },
+  {
+    value: "ratio", label: "Pair ratio",
+    hint: "This instrument priced in units of the other, bar by bar, in its own pane. "
+      + "No window: at each bar it is a division.",
+  },
+  {
+    value: "zspread", label: "Pair spread, z-scored",
+    hint: "How far the log ratio of the pair sits from its own average over the window, "
+      + "in standard deviations. One unit against one unit — not a fitted hedge ratio.",
+  },
 ];
+
+/** Modes whose answer is a rolling statistic, so the window field applies. */
+const WINDOWED: ReadonlySet<PaneCompare["mode"]> =
+  new Set<PaneCompare["mode"]>(["correlation", "beta", "zspread"]);
 
 export function CompareControl({
   open, current, baseSymbol, onClose, onApply,
@@ -105,7 +119,7 @@ export function CompareControl({
             ))}
           </select>
         </label>
-        {mode !== "percent" && (
+        {WINDOWED.has(mode) && (
           <label className="flex flex-col gap-1 text-sm text-ink-muted">
             Window, in bars
             <input
@@ -118,7 +132,20 @@ export function CompareControl({
           </label>
         )}
         <p className="text-xs text-ink-faint">{hint}</p>
-        {isSelfCompare(baseSymbol, symbol) && (
+        {isSelfCompare(baseSymbol, symbol) && (mode === "ratio" || mode === "zspread") && (
+          /*
+           * A pair with itself is a constant 1, and a z-score of a constant is
+           * a division by zero. Worth naming separately from the correlation
+           * case below, because "the line will be flat at 1" and "there will be
+           * no line at all" are different surprises.
+           */
+          <p className="text-xs text-warn">
+            That is this chart&apos;s own instrument. The ratio is exactly 1 at every
+            bar, and a z-score of a constant has nothing to measure.
+          </p>
+        )}
+        {isSelfCompare(baseSymbol, symbol) && (mode === "correlation" || mode === "beta"
+          || mode === "percent") && (
           /*
            * Legal, and worth saying out loud rather than refusing: the
            * correlation is 1 and the beta is 1 by construction, and seeing
@@ -136,12 +163,29 @@ export function CompareControl({
           rather than filled in. Both are choices a reader is entitled to know
           about, because both change what the number means.
         */}
-        {mode !== "percent" && (
+        {(mode === "correlation" || mode === "beta") && (
           <p className="text-xs text-ink-faint">
             Computed from returns rather than prices — two instruments that both
             drift upward correlate at nearly 1 whatever they have in common, which
             would be a fact about drift rather than about them. Bars the second
             instrument has no data for are left out, never filled in.
+          </p>
+        )}
+        {(mode === "ratio" || mode === "zspread") && (
+          /*
+           * The pair surfaces are computed from PRICES, and that is a different
+           * statement from the one above rather than an omission of it: a ratio
+           * of returns is not a ratio. The z-score is said to describe rather
+           * than to predict, out loud, because a spread two deviations from its
+           * own mean is a fact about the last few hundred bars and not a claim
+           * that it comes back.
+           */
+          <p className="text-xs text-ink-faint">
+            Computed from prices, since a ratio of returns is not a ratio. Bars
+            the second instrument has no data for are left out rather than
+            filled in.
+            {mode === "zspread" && " A z-score says where the pair has been "
+              + "against its own window — it is not a claim that the spread returns."}
           </p>
         )}
         {error && <p className="text-xs text-down">{error}</p>}

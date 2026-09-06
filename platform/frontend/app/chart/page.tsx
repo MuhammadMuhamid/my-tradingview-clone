@@ -28,7 +28,7 @@ import { ChartPane } from "@/components/tv/ChartPane";
 import { ChartToolbar } from "@/components/tv/ChartToolbar";
 import { ChartWorkspace } from "@/components/tv/ChartWorkspace";
 import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
-import { ChartSidePanel } from "@/components/tv/ChartSidePanel";
+import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel";
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
 import { NativeStudySettings } from "@/components/tv/NativeStudySettings";
 import { DEFAULT_PROPERTIES, type StrategyProperties } from "@/components/tv/StrategySettingsModal";
@@ -104,7 +104,7 @@ import {
 } from "@/lib/replay";
 import { useTradingOverlays } from "@/lib/useTradingOverlays";
 
-type Panel = "watchlist" | "alerts" | "indicators" | "ma" | "manual" | null;
+type Panel = ChartPanel;
 
 /** Standard auto-backtest window: 2025-11-01 → today (handoff §7). */
 const BACKTEST_START = "2025-11-01";
@@ -1778,6 +1778,7 @@ export default function TvWorkspace() {
         replayActive={replayActive}
         replayBlocksLiveActions={replayBlocksLiveActions}
         symbols={symbols}
+        bars={bars}
         onSelectSymbol={(s) => changePaneSymbol(active.id, s)}
         canOpenNewPane={paneCount < MAX_PANES}
         onOpenSymbolInNewPane={(s) => {

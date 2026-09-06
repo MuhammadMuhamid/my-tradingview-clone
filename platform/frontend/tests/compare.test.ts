@@ -19,9 +19,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  comparePercent, compareCorrelation, compareBeta, isSelfCompare,
+  comparePercent, compareCorrelation, compareBeta, compareOverlays, compareRatio,
+  compareZSpread, isSelfCompare,
   DEFAULT_BENCHMARK, type CompareSeries,
 } from "../lib/compare";
+import { COMPARE_MODES, isCompareMode } from "../lib/workspace";
 import { alignByOpenTime, normalizedCompare } from "../lib/ta/core";
 import { anchorBarIndex, anchoredVwapOverlays, avwapBands, AVWAP_TOOL } from "../lib/anchoredVwap";
 import type { Candle } from "../lib/types";
@@ -136,6 +138,113 @@ test("a benchmark that does not move gives no beta rather than a division by zer
     assert.ok(Number.isNaN(v) || Number.isFinite(v), `beta emitted ${v}`);
     assert.ok(!Number.isFinite(v) || Math.abs(v) < 1e9);
   }
+});
+
+// ── the pair surfaces ──────────────────────────────────────────────────────
+
+test("the ratio is a division at each bar, and na where either side is absent", () => {
+  const base = bars(5, (i) => 100 + i * 10);          // 100 110 120 130 140
+  const other = compareSeries([50, 55, Number.NaN, 65, 70]);
+  const { ratio } = compareRatio(base, other).plots;
+  assert.equal(ratio![0], 2);
+  assert.equal(ratio![1], 2);
+  assert.ok(Number.isNaN(ratio![2]!), "a missing bar is not carried forward");
+  assert.equal(ratio![3], 2);
+  assert.equal(ratio![4], 2);
+});
+
+test("a zero or absent divisor gives no ratio rather than an infinity", () => {
+  const base = bars(3, () => 100);
+  const { ratio } = compareRatio(base, compareSeries([0, Number.NaN, 25])).plots;
+  assert.ok(Number.isNaN(ratio![0]!));
+  assert.ok(Number.isNaN(ratio![1]!));
+  assert.equal(ratio![2], 4);
+});
+
+test("the z-spread is the log ratio scored against its own window", () => {
+  /*
+   * A pair whose log ratio is constant except for one bar. A constant has no
+   * dispersion, so every bar before the jump has nothing to score against; the
+   * jump itself is the first bar whose window contains two different values.
+   */
+  const base = bars(40, () => 100);
+  const other = compareSeries(
+    Array.from({ length: 40 }, (_, i) => (i < 30 ? 50 : 40)));
+  const { z } = compareZSpread(base, other, 20).plots;
+  assert.ok(Number.isNaN(z![10]!) || z![10] === 0,
+    "a flat pair is not two standard deviations from anywhere");
+  assert.ok(Number.isFinite(z![35]!), "after the jump the window has dispersion");
+  assert.ok(z![35]! > 0, "a ratio that rose sits above its own mean");
+});
+
+test("the z-spread is computed in logs, so the same move scores the same at any level", () => {
+  /*
+   * Two pairs with identical PROPORTIONAL paths at different price levels. A
+   * raw-ratio z-score would report different numbers for them; a log one must
+   * report the same, which is the whole reason for taking logs.
+   */
+  const path = Array.from({ length: 80 }, (_, i) => 1 + Math.sin(i / 5) * 0.02);
+  const low = compareZSpread(
+    bars(80, (i) => 100 * path[i]!), compareSeries(Array.from({ length: 80 }, () => 100)), 40);
+  const high = compareZSpread(
+    bars(80, (i) => 90_000 * path[i]!),
+    compareSeries(Array.from({ length: 80 }, () => 90_000)), 40);
+  for (let i = 60; i < 80; i++) {
+    assert.ok(Math.abs(low.plots.z![i]! - high.plots.z![i]!) < 1e-9,
+      `bar ${i}: ${low.plots.z![i]} vs ${high.plots.z![i]}`);
+  }
+});
+
+test("each pair surface gets its own pane, never the price scale", () => {
+  const base = bars(60, (i) => 100 + Math.sin(i / 4));
+  const other = compareSeries(Array.from({ length: 60 }, (_, i) => 50 + Math.cos(i / 4)));
+  for (const mode of ["ratio", "zspread", "correlation", "beta"] as const) {
+    const { overlays } = compareOverlays(base, other, mode, 20, "BTCUSDT");
+    assert.ok(overlays.length > 0, mode);
+    for (const overlay of overlays) {
+      assert.notEqual(overlay.paneId, "price",
+        `${mode} is not a price and must not be drawn on the price scale`);
+      assert.equal(overlay.instanceId, `compare:SOLUSDT:${mode}`);
+    }
+  }
+  // The percentage overlay is the one that IS a price story.
+  const percent = compareOverlays(base, other, "percent", 20, "BTCUSDT");
+  assert.ok(percent.overlays.every((o) => o.paneId === "price"));
+});
+
+test("the z-spread carries the reference lines that make a z-score readable", () => {
+  const base = bars(60, (i) => 100 + Math.sin(i / 4));
+  const other = compareSeries(Array.from({ length: 60 }, (_, i) => 50 + Math.cos(i / 3)));
+  const { overlays } = compareOverlays(base, other, "zspread", 20, "BTCUSDT");
+  const levels = overlays.filter((o) => o.constantValue !== undefined);
+  assert.deepEqual(levels.map((o) => o.constantValue), [2, 0, -2]);
+  assert.deepEqual(levels.map((o) => o.title), ["+2σ", "0", "-2σ"]);
+  // The ratio has no natural reference, so it is given none rather than a
+  // decorative one.
+  const ratio = compareOverlays(base, other, "ratio", 20, "BTCUSDT");
+  assert.ok(ratio.overlays.every((o) => o.constantValue === undefined));
+});
+
+test("a pair surface still reports the bars that were left out", () => {
+  const base = bars(30, (i) => 100 + i);
+  const other = compareSeries(
+    Array.from({ length: 30 }, (_, i) => (i % 3 === 0 ? Number.NaN : 50)));
+  for (const mode of ["ratio", "zspread"] as const) {
+    const { notice } = compareOverlays(base, other, mode, 10, "BTCUSDT");
+    assert.match(String(notice), /no bar for 10 of these/);
+  }
+});
+
+test("every stored comparison mode is one the overlay builder actually draws", () => {
+  const base = bars(60, (i) => 100 + Math.sin(i / 4));
+  const other = compareSeries(Array.from({ length: 60 }, (_, i) => 50 + Math.cos(i / 4)));
+  for (const mode of COMPARE_MODES) {
+    assert.ok(isCompareMode(mode));
+    const { overlays } = compareOverlays(base, other, mode, 20, "BTCUSDT");
+    assert.ok(overlays.length > 0, `${mode} draws nothing`);
+  }
+  assert.equal(isCompareMode("spread"), false, "an unknown stored mode is refused");
+  assert.equal(isCompareMode(null), false);
 });
 
 test("the default benchmark is an instrument, not a suffix rule", () => {

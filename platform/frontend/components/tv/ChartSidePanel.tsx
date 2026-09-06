@@ -21,6 +21,7 @@ import { ManualTradingPanel } from "@/components/tv/ManualTradingPanel";
 import { MaPanel } from "@/components/tv/MaPanel";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { Watchlist } from "@/components/tv/Watchlist";
+import { CorrelationPanel } from "@/components/tv/CorrelationPanel";
 import type { MaAlert, ManualTradingState, PineScript } from "@/lib/api";
 import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { AppliedIndicator } from "@/lib/indicators";
@@ -30,7 +31,8 @@ import type { ReplayQuote } from "@/lib/replay";
 import type { SymbolInfo } from "@/lib/types";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 
-export type ChartPanel = "watchlist" | "alerts" | "indicators" | "ma" | "manual" | null;
+export type ChartPanel =
+  | "watchlist" | "alerts" | "indicators" | "ma" | "manual" | "correlation" | null;
 
 export interface ChartSidePanelProps {
   panel: ChartPanel;
@@ -45,6 +47,8 @@ export interface ChartSidePanelProps {
 
   symbols: SymbolInfo[];
   onSelectSymbol: (symbol: string) => void;
+  /** History depth the correlation table asks for per instrument. */
+  bars: number;
   /** Watchlist row actions, which are workspace facts rather than list facts. */
   onOpenSymbolInNewPane?: (symbol: string) => void;
   onAddSymbolAlert?: (symbol: string) => void;
@@ -121,6 +125,23 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
               onAddAlert={props.onAddSymbolAlert}
               canOpenNewPane={props.canOpenNewPane ?? false}
               replayActive={props.replayActive} />
+          )}
+          {props.panel === "correlation" && (
+            /*
+             * The watchlist's own instruments, in the watchlist's own order.
+             *
+             * The table's subject is the list the user is watching, so it takes
+             * that list rather than a second one to curate. Its window is bars,
+             * not minutes, so it means the same thing at every resolution the
+             * focused pane can be on.
+             */
+            <CorrelationPanel
+              symbols={props.symbols.map((s) => s.symbol)}
+              interval={props.interval}
+              bars={props.bars}
+              selected={props.symbol}
+              onSelect={props.onSelectSymbol}
+            />
           )}
           {props.panel === "alerts" && !props.replayActive
     && <AlertsPanel onCreateAlert={props.onOpenAutomation} />}
@@ -222,6 +243,16 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
             {props.maAlerts.length}
           </span>
         )}
+      </button>
+      <button
+        onClick={() => props.onPanel((p) => (p === "correlation" ? null : "correlation"))}
+        className={railBtn(props.panel === "correlation")}
+        title="Correlation — how the watchlist's instruments move together"
+      >
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+          <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
+          <path d="M9 3.5v17M15 3.5v17M3.5 9h17M3.5 15h17" />
+        </svg>
       </button>
       <button
         onClick={() => props.onPanel((p) => (p === "alerts" ? null : "alerts"))}
