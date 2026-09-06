@@ -172,7 +172,7 @@ const byId = (entries: MenuEntry[], id: string): MenuEntry | undefined =>
 
 test("an action that cannot be taken is disabled with a reason, never hidden", () => {
   const replay = chartMenu({
-    price: 100, replayActive: true, autoScale: true, logScale: false,
+    price: 100, priceLabel: "100.00", replayActive: true, autoScale: true, logScale: false,
     hasDrawings: true, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true, candlePatterns: false,
   });
   for (const id of ["chart:add-alert", "chart:trade-at-price"]) {
@@ -188,7 +188,7 @@ test("an action that cannot be taken is disabled with a reason, never hidden", (
 
 test("the chart menu prepares an order and never submits one", () => {
   const menu = chartMenu({
-    price: 100, replayActive: false, autoScale: true, logScale: false,
+    price: 100, priceLabel: "100.00", replayActive: false, autoScale: true, logScale: false,
     hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true, candlePatterns: false,
   });
   const trade = byId(menu, "chart:trade-at-price")!;
@@ -202,9 +202,46 @@ test("the chart menu prepares an order and never submits one", () => {
   }
 });
 
+test("an item that acts on a price names the price", () => {
+  /*
+   * Confirmed against live TradingView Premium, which writes "Add alert on
+   * ETHUSDT at 2,500.26…" and "Copy price 2,500.26". The value is already in
+   * hand when the payload is built, and "at this price" leaves the user to
+   * work out which price the menu opened at — on the one item whose entire
+   * purpose is a specific number.
+   */
+  const menu = chartMenu({
+    price: 64_123.5, priceLabel: "64,123.50", replayActive: false,
+    autoScale: true, logScale: false, hasDrawings: false,
+    drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
+    candlePatterns: false,
+  });
+  assert.equal((byId(menu, "chart:copy-price") as { label: string }).label,
+    "Copy price 64,123.50");
+  assert.equal((byId(menu, "chart:add-alert") as { label: string }).label,
+    "Add alert at 64,123.50");
+  assert.equal((byId(menu, "chart:trade-at-price") as { label: string }).label,
+    "Prepare an order at 64,123.50");
+
+  // With no price under the pointer there is no number to name, and the items
+  // fall back to their bare form rather than saying "at ".
+  const noPrice = chartMenu({
+    price: null, priceLabel: "", replayActive: false,
+    autoScale: true, logScale: false, hasDrawings: false,
+    drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
+    candlePatterns: false,
+  });
+  assert.equal((byId(noPrice, "chart:copy-price") as { label: string }).label, "Copy price");
+  assert.equal((byId(noPrice, "chart:add-alert") as { label: string }).label, "Add alert");
+  for (const entry of noPrice) {
+    if (isSeparator(entry)) continue;
+    assert.doesNotMatch(entry.label, /\bat\s*$/, `"${entry.label}" trails an empty price`);
+  }
+});
+
 test("the chart menu offers no control it cannot justify", () => {
   const menu = chartMenu({
-    price: null, replayActive: false, autoScale: false, logScale: true,
+    price: null, priceLabel: "", replayActive: false, autoScale: false, logScale: true,
     hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: false, candlePatterns: false,
   });
   const labels = menu.filter((e) => !isSeparator(e)).map((e) => (e as { label: string }).label);

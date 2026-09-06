@@ -45,6 +45,13 @@ const LOCKED_REASON = "This drawing is locked";
 export interface ChartMenuContext {
   /** The price under the pointer, or null off the price scale. */
   price: number | null;
+  /**
+   * That price, formatted the way the chart shows it.
+   *
+   * Passed in rather than formatted here: the number of decimals depends on
+   * the instrument, and this module has no business knowing about instruments.
+   */
+  priceLabel: string;
   replayActive: boolean;
   /** The price scale is on automatic fit. */
   autoScale: boolean;
@@ -80,18 +87,28 @@ export type ChartMenuId = (typeof CHART_MENU_IDS)[number];
 export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
   const hasPrice = ctx.price !== null && Number.isFinite(ctx.price);
   const noPrice = "Right-click on the chart to pick a price";
+  /*
+   * An item that acts on a price NAMES the price.
+   *
+   * "Add alert at this price" leaves the user to work out which price the menu
+   * opened at, on the one item whose entire purpose is a specific number — and
+   * the value is already in hand when the payload is built. TradingView writes
+   * "Add alert on ETHUSDT at 2,500.26…" for the same reason.
+   */
+  const at = hasPrice ? ` at ${ctx.priceLabel}` : "";
   return [
     {
-      id: "chart:copy-price", label: "Copy price",
+      id: "chart:copy-price",
+      label: hasPrice ? `Copy price ${ctx.priceLabel}` : "Copy price",
       disabled: !hasPrice, disabledReason: noPrice,
     },
     {
-      id: "chart:add-alert", label: "Add alert at this price",
+      id: "chart:add-alert", label: `Add alert${at}`,
       disabled: !hasPrice || ctx.replayActive,
       disabledReason: ctx.replayActive ? REPLAY_REASON : noPrice,
     },
     {
-      id: "chart:trade-at-price", label: "Prepare an order at this price",
+      id: "chart:trade-at-price", label: `Prepare an order${at}`,
       hint: "fills the ticket",
       disabled: !hasPrice || ctx.replayActive || !ctx.tradingEnabled,
       disabledReason: !ctx.tradingEnabled

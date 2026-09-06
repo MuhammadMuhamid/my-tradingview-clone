@@ -1269,6 +1269,7 @@ export default function TvWorkspace() {
       drawingId: null,
       entries: chartMenu({
         price: event.price,
+        priceLabel: event.price === null ? "" : fmtPrice(event.price),
         replayActive,
         // The pane's real axis, not a literal. See `paneScales`.
         autoScale: paneScale(paneId).autoScale,
