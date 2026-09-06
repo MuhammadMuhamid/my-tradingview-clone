@@ -27,9 +27,29 @@
  */
 import type { NativeCategory, NativeStudyDef } from "./registry";
 import { TIER1_STUDIES } from "./tier1";
+import { TREND_STUDIES } from "./trend";
+import { MOMENTUM_STUDIES } from "./momentum";
+import { VOLATILITY_STUDIES, VOLUME_STUDIES, STATISTICS_STUDIES } from "./volatility";
+import { LEVEL_STUDIES } from "./levels";
 
 /** Every native study this build ships. */
-export const NATIVE_STUDIES: readonly NativeStudyDef[] = [...TIER1_STUDIES];
+/**
+ * Every built-in, in the order a browser lists them.
+ *
+ * Tier 1 first because those are what a chart is opened to look at, then the
+ * catalog by mathematical family. The order here is the only ordering the
+ * product has: `populatedCategories` groups them, and search ranks within a
+ * group, so nothing downstream depends on the position of a particular entry.
+ */
+export const NATIVE_STUDIES: readonly NativeStudyDef[] = [
+  ...TIER1_STUDIES,
+  ...TREND_STUDIES,
+  ...MOMENTUM_STUDIES,
+  ...VOLATILITY_STUDIES,
+  ...VOLUME_STUDIES,
+  ...STATISTICS_STUDIES,
+  ...LEVEL_STUDIES,
+];
 
 const BY_ID = new Map(NATIVE_STUDIES.map((def) => [def.id, def]));
 

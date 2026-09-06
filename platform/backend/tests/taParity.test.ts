@@ -30,6 +30,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as core from "../src/ta/core";
 import * as legacy from "../src/engine/ta";
+import * as pivots from "../src/engine/pivotLevels";
+import * as sr from "../src/engine/srZones";
 
 // ── one implementation, not two ─────────────────────────────────────────────
 
@@ -46,6 +48,40 @@ test("engine/ta re-exports the core's own functions rather than copies of them",
       (core as unknown as Record<string, unknown>)[name],
       `${name} must BE the core's function, not a second implementation of it`);
   }
+});
+
+/**
+ * And the market structure the alerts fire on.
+ *
+ * `pivotLevels` and `srZones` were pure, dependency-free engine modules, and
+ * their own headers said the chart drew the alert engine's levels "by
+ * construction". That held only while the browser had no pivot code at all.
+ * Wave C draws them, so the arithmetic moved into the core and both modules
+ * became re-exports — the same reference-equality check, for the same reason.
+ */
+test("the pivot and S/R engines re-export the core rather than a second copy", () => {
+  const pivotNames = ["PIVOT_TYPES", "isPivotType", "pivotLevels", "nearestLevel",
+    "levelByName"] as const;
+  for (const name of pivotNames) {
+    assert.equal(
+      (pivots as unknown as Record<string, unknown>)[name],
+      (core as unknown as Record<string, unknown>)[name],
+      `${name} must BE the core's, not a copy`);
+  }
+  const srNames = ["buildZones", "zonesAsOf", "nearestZones", "isPivotHigh", "isPivotLow",
+    "DEFAULT_SR_OPTIONS"] as const;
+  for (const name of srNames) {
+    assert.equal(
+      (sr as unknown as Record<string, unknown>)[name],
+      (core as unknown as Record<string, unknown>)[name],
+      `${name} must BE the core's, not a copy`);
+  }
+  // The one rename. `srZones.atr` is a merge tolerance seeded from the first
+  // bar; `core.atr` is the volatility reading. They are different functions
+  // with different jobs, and conflating them would silently change which
+  // levels merge.
+  assert.equal(sr.atr, core.srMergeAtr);
+  assert.notEqual(sr.atr as unknown, core.atr as unknown);
 });
 
 // ── a reproducible series ───────────────────────────────────────────────────
@@ -476,4 +512,286 @@ test("VFI caps and normalises against the same volume average", () => {
   assert.ok(uses.length >= 2, "both the cap and the normaliser read the average");
   assert.ok(uses.every((u) => u === "- 1"),
     `the cap and the normaliser must use the same index; found ${JSON.stringify(uses)}`);
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * The Wave C catalog's own arithmetic
+ *
+ * Each of these is a property the definition forces and a wrong implementation
+ * cannot satisfy: a value worked from the formula by hand, a limit the maths
+ * has to reach on constructed data, or an identity between two functions that
+ * are defined in terms of each other. Not a snapshot of what the code
+ * currently returns — that would pin a bug in place as firmly as a feature.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** A strictly rising series: every indicator's "maximum trend" case. */
+const rising = (n: number, step = 1): Series => ({
+  open: Array.from({ length: n }, (_, i) => 100 + i * step),
+  high: Array.from({ length: n }, (_, i) => 100 + i * step + step),
+  low: Array.from({ length: n }, (_, i) => 100 + i * step - step),
+  close: Array.from({ length: n }, (_, i) => 100 + i * step),
+  volume: Array.from({ length: n }, () => 1000),
+});
+
+test("Vortex on a monotone rise puts VI+ above VI- and both at their limits", () => {
+  const s = rising(60);
+  const { plus, minus } = core.vortex(s.high, s.low, s.close, 14);
+  const i = s.close.length - 1;
+  // On a series that only rises, every bar's |high - prevLow| is large and
+  // every |low - prevHigh| is small, so VI+ dominates. The two are ratios
+  // against the same true-range sum, so they are positive and finite.
+  assert.ok(plus[i]! > minus[i]!, `VI+ ${plus[i]} must exceed VI- ${minus[i]}`);
+  assert.ok(plus[i]! > 1 && minus[i]! < 1);
+  assert.ok(Number.isFinite(plus[i]!) && Number.isFinite(minus[i]!));
+  // And it is a WINDOW: the first computable bar is at `len`, not before.
+  assert.ok(Number.isNaN(plus[13]!), "VI must not report before its window fills");
+  assert.ok(Number.isFinite(plus[14]!));
+});
+
+test("the Choppiness Index reaches its floor on a trend and its ceiling on noise", () => {
+  const trend = core.choppiness(rising(80).high, rising(80).low, rising(80).close, 14);
+  // A pure trend: the summed true range equals the window's own range, so the
+  // log ratio is ~0 and the index sits at its 0 floor.
+  assert.ok(trend[79]! < 30, `a monotone rise must read as trending, got ${trend[79]}`);
+  assert.ok(trend[79]! >= 0 && trend[79]! <= 100);
+
+  // A series that goes nowhere while moving every bar: the summed range is far
+  // larger than the window's own range, which is what "choppy" means.
+  const n = 80;
+  const chop: Series = {
+    open: [], high: [], low: [], close: [], volume: [],
+  };
+  for (let i = 0; i < n; i++) {
+    const base = i % 2 === 0 ? 100 : 110;
+    chop.open.push(base); chop.high.push(base + 1); chop.low.push(base - 1);
+    chop.close.push(base); chop.volume.push(1000);
+  }
+  const noisy = core.choppiness(chop.high, chop.low, chop.close, 14);
+  assert.ok(noisy[79]! > 60, `an oscillation must read as choppy, got ${noisy[79]}`);
+});
+
+test("PPO is MACD expressed as a percentage of the slow average", () => {
+  const s = series(300);
+  const p = core.ppo(s.close, 12, 26, 9);
+  const slow = core.ema(s.close, 26);
+  const fast = core.ema(s.close, 12);
+  const i = 250;
+  // The definition, not the implementation: (fast - slow) / slow × 100. This
+  // is what makes PPO comparable between two instruments whose prices differ
+  // by orders of magnitude, which raw MACD is not.
+  assert.ok(Math.abs(p.line[i]! - ((fast[i]! - slow[i]!) / slow[i]!) * 100) < 1e-9);
+  // The histogram is the line minus its own signal, exactly as in MACD.
+  assert.ok(Math.abs(p.histogram[i]! - (p.line[i]! - p.signal[i]!)) < 1e-9);
+});
+
+test("TRIX is the percentage rate of change of a triple-smoothed average", () => {
+  const s = series(400);
+  const trix = core.trix(s.close, 15);
+  const triple = core.ema(core.ema(core.ema(s.close, 15), 15), 15);
+  const i = 350;
+  // Triple smoothing is the point: a single EMA's rate of change is noise, and
+  // the third pass is what leaves only the direction of the trend itself.
+  const expected = ((triple[i]! - triple[i - 1]!) / triple[i - 1]!) * 100;
+  assert.ok(Math.abs(trix[i]! - expected) < 1e-9, `${trix[i]} vs ${expected}`);
+});
+
+test("the Ultimate Oscillator is bounded and weights its three windows 4:2:1", () => {
+  const s = series(300);
+  const uo = core.ultimateOscillator(s.high, s.low, s.close, 7, 14, 28);
+  for (const v of uo.slice(60)) {
+    assert.ok(v >= 0 && v <= 100, `UO left 0..100 at ${v}`);
+  }
+  /*
+   * A series that closes at its own high every bar, rising throughout: buying
+   * pressure IS the whole true range, so all three averages are 1 and the
+   * weighted mean is exactly 100. Constructed rather than taken from `rising`,
+   * whose bars have a wick above the close and so cap the reading at 50.
+   */
+  const n = 80;
+  const closeAtHigh = {
+    high: Array.from({ length: n }, (_, i) => 100 + i),
+    low: Array.from({ length: n }, (_, i) => 99 + i),
+    close: Array.from({ length: n }, (_, i) => 100 + i),
+  };
+  const up = core.ultimateOscillator(
+    closeAtHigh.high, closeAtHigh.low, closeAtHigh.close, 7, 14, 28);
+  assert.ok(Math.abs(up[79]! - 100) < 1e-9, `a pure rise must read 100, got ${up[79]}`);
+});
+
+test("the Chande Momentum Oscillator is +100 on a pure rise and -100 on a pure fall", () => {
+  const up = core.chandeMomentum(rising(60).close, 14);
+  assert.ok(Math.abs(up[59]! - 100) < 1e-9, `got ${up[59]}`);
+  const falling = rising(60).close.map((v) => 300 - v);
+  const down = core.chandeMomentum(falling, 14);
+  assert.ok(Math.abs(down[59]! + 100) < 1e-9, `got ${down[59]}`);
+});
+
+test("the Detrended Price Oscillator is the price a half-window back, less the average", () => {
+  const s = series(200);
+  const len = 21;
+  const dpo = core.detrendedPriceOscillator(s.close, len);
+  const sma = core.sma(s.close, len);
+  const back = Math.floor(len / 2) + 1;
+  const i = 150;
+  // The displacement is what makes it DETRENDED: comparing today's price with
+  // today's average would leave the trend in.
+  assert.ok(Math.abs(dpo[i]! - (s.close[i - back]! - sma[i]!)) < 1e-9);
+});
+
+test("the Coppock Curve is a weighted average of two rates of change", () => {
+  const s = series(400);
+  const cop = core.coppock(s.close, 14, 11, 10);
+  const sum = core.roc(s.close, 14).map((v, i) => v + core.roc(s.close, 11)[i]!);
+  const wma = core.wma(sum, 10);
+  const i = 350;
+  assert.ok(Math.abs(cop[i]! - wma[i]!) < 1e-9);
+});
+
+test("Keltner channels are the ATR either side of an average, and Donchian the extremes", () => {
+  const s = series(300);
+  const k = core.keltner(s.high, s.low, s.close, 20, 2, 10);
+  const basis = core.ema(s.close, 20);
+  // The ATR length is its own input: TradingView's default smooths the range
+  // over a shorter window than the basis, and collapsing the two would change
+  // the channel's width on every chart that uses the defaults.
+  const range = core.atr(s.high, s.low, s.close, 10);
+  const i = 250;
+  assert.ok(Math.abs(k.upper[i]! - (basis[i]! + 2 * range[i]!)) < 1e-9);
+  assert.ok(Math.abs(k.lower[i]! - (basis[i]! - 2 * range[i]!)) < 1e-9);
+
+  const d = core.donchian(s.high, s.low, 20);
+  // The extremes of the window, inclusive of the current bar.
+  const hi = Math.max(...s.high.slice(i - 19, i + 1));
+  const lo = Math.min(...s.low.slice(i - 19, i + 1));
+  assert.equal(d.upper[i], hi);
+  assert.equal(d.lower[i], lo);
+  assert.ok(Math.abs(d.middle[i]! - (hi + lo) / 2) < 1e-12);
+});
+
+test("Bollinger %B is 1 at the upper band and 0 at the lower, and the width is relative", () => {
+  const s = series(300);
+  const b = core.bollinger(s.close, 20, 2, "SMA");
+  const pb = core.bollingerPercentB(s.close, 20, 2, "SMA");
+  const bw = core.bollingerBandWidth(s.close, 20, 2, "SMA");
+  const i = 250;
+  const expected = (s.close[i]! - b.lower[i]!) / (b.upper[i]! - b.lower[i]!);
+  assert.ok(Math.abs(pb[i]! - expected) < 1e-12);
+  // Width is a FRACTION of the basis, so it is comparable across instruments
+  // priced in the tens and in the tens of thousands.
+  assert.ok(Math.abs(bw[i]! - (b.upper[i]! - b.lower[i]!) / b.middle[i]!) < 1e-12);
+});
+
+test("accumulation/distribution and PVT accumulate, so their first value is their first bar", () => {
+  const s = series(200);
+  const ad = core.accumulationDistribution(s.high, s.low, s.close, s.volume);
+  const pvt = core.priceVolumeTrend(s.close, s.volume);
+  // A running total is defined from bar zero: a na start would make the whole
+  // series na, and a reset would make it a different indicator at every zoom.
+  assert.ok(Number.isFinite(ad[0]!) && Number.isFinite(pvt[0]!));
+  for (let i = 1; i < 200; i++) {
+    assert.ok(Number.isFinite(ad[i]!) && Number.isFinite(pvt[i]!));
+  }
+  // Each step is the previous total plus this bar's contribution.
+  const i = 150;
+  const step = ((s.close[i]! - s.low[i]!) - (s.high[i]! - s.close[i]!))
+    / (s.high[i]! - s.low[i]!) * s.volume[i]!;
+  assert.ok(Math.abs(ad[i]! - (ad[i - 1]! + step)) < 1e-6);
+});
+
+test("Chaikin Money Flow is bounded by the money-flow multiplier's own range", () => {
+  const s = series(300);
+  const cmf = core.chaikinMoneyFlow(s.high, s.low, s.close, s.volume, 20);
+  for (const v of cmf.slice(30)) {
+    assert.ok(v >= -1 && v <= 1, `CMF left -1..1 at ${v}`);
+  }
+  // Every close at the high: the multiplier is +1 on every bar, so the ratio
+  // of summed money flow to summed volume is exactly 1.
+  const n = 60;
+  const atHigh = {
+    high: Array.from({ length: n }, (_, i) => 100 + i),
+    low: Array.from({ length: n }, (_, i) => 99 + i),
+    close: Array.from({ length: n }, (_, i) => 100 + i),
+    volume: Array.from({ length: n }, () => 1000),
+  };
+  const pinned = core.chaikinMoneyFlow(
+    atHigh.high, atHigh.low, atHigh.close, atHigh.volume, 20);
+  assert.ok(Math.abs(pinned[59]! - 1) < 1e-12, `got ${pinned[59]}`);
+});
+
+test("the Volume Oscillator is the percentage gap between two volume averages", () => {
+  const s = series(300);
+  const vo = core.volumeOscillator(s.volume, 5, 10);
+  const fast = core.ema(s.volume, 5);
+  const slow = core.ema(s.volume, 10);
+  const i = 250;
+  assert.ok(Math.abs(vo[i]! - ((fast[i]! - slow[i]!) / slow[i]!) * 100) < 1e-9);
+});
+
+test("Elder's Force Index is one bar's price change times its volume, smoothed", () => {
+  const s = series(200);
+  const raw = core.elderForceIndex(s.close, s.volume, 1);
+  const i = 150;
+  assert.ok(Math.abs(raw[i]! - (s.close[i]! - s.close[i - 1]!) * s.volume[i]!) < 1e-6);
+  // Length 13 is the same series through an EMA, so it must not be na where
+  // the raw one is finite and the window has filled.
+  const smoothed = core.elderForceIndex(s.close, s.volume, 13);
+  assert.ok(Number.isFinite(smoothed[i]!));
+});
+
+test("historical volatility is the annualised deviation of log returns", () => {
+  const s = series(400);
+  const hv = core.historicalVolatility(s.close, 20, 365);
+  const lr = core.logReturns(s.close);
+  const sd = core.stdev(lr, 20);
+  const i = 350;
+  assert.ok(Math.abs(hv[i]! - sd[i]! * Math.sqrt(365) * 100) < 1e-9);
+  assert.ok(hv[i]! >= 0, "a deviation is never negative");
+});
+
+/**
+ * Where each primitive's first value belongs, worked from the definition.
+ *
+ * The index is not a snapshot: a window of `len` closes fills at `len - 1`,
+ * one that needs a PREVIOUS close (anything built on true range or on a
+ * change) fills at `len`, and stacked smoothers add a window each. Getting
+ * this wrong in either direction is a real defect — a value published before
+ * its window is a value computed from fewer bars than the user asked for, and
+ * one withheld after it is a gap in the line with no cause.
+ */
+test("every Wave C catalog primitive is na before its window and finite after", () => {
+  const s = series(500);
+  const cases: Array<[string, number[], number]> = [
+    // Built on true range, so bar 0 has no previous close to measure from.
+    ["vortex+", core.vortex(s.high, s.low, s.close, 14).plus, 14],
+    // Choppiness seeds bar 0's true range from its own range, so its window
+    // is full one bar earlier than Vortex's.
+    ["chop", core.choppiness(s.high, s.low, s.close, 14), 13],
+    // A `change` of one bar, then a window of `len` of those.
+    ["cmo", core.chandeMomentum(s.close, 14), 14],
+    // Plain windows over closes: full at `len - 1`.
+    ["cci", core.cci(s.close, 20), 19],
+    ["willr", core.williamsR(s.high, s.low, s.close, 14), 13],
+    ["cmf", core.chaikinMoneyFlow(s.high, s.low, s.close, s.volume, 20), 19],
+    ["zscore", core.zscore(s.close, 20), 19],
+    ["percentile", core.percentileRank(s.close, 20), 19],
+    ["slope", core.linregSlope(s.close, 20), 19],
+    // Log returns lose bar 0, then a window of 20 of them.
+    ["hv", core.historicalVolatility(s.close, 20, 365), 20],
+    // Two EMAs, the slower of which is what gates the pair.
+    ["volosc", core.volumeOscillator(s.volume, 5, 10), 9],
+    // Three stacked EMAs, then a rate of change across one more bar.
+    ["trix", core.trix(s.close, 15), 3 * 14 + 1],
+  ];
+  for (const [name, out, firstIndex] of cases) {
+    assert.equal(out.length, s.close.length, `${name} changed the series length`);
+    assert.ok(Number.isNaN(out[firstIndex - 1]!),
+      `${name} reported a value at ${firstIndex - 1}, before its window filled`);
+    assert.ok(Number.isFinite(out[firstIndex]!),
+      `${name} is still na at ${firstIndex}, where its window is full`);
+    // And nothing after it is Infinity, which would render as a line to
+    // nowhere and rescale the pane around it.
+    for (const v of out.slice(firstIndex)) {
+      assert.ok(Number.isNaN(v) || Number.isFinite(v), `${name} emitted ${v}`);
+    }
+  }
 });

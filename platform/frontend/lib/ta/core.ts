@@ -2022,3 +2022,357 @@ export function cross(a: number[], b: number[]): boolean[] {
   const dn = crossunder(a, b);
   return up.map((v, i) => v || dn[i]!);
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * CANONICAL MARKET STRUCTURE
+ *
+ * Pivot levels and support/resistance zones, moved here VERBATIM from
+ * `backend/src/engine/pivotLevels.ts` and `backend/src/engine/srZones.ts`.
+ *
+ * They are here for the same reason the rest of this file is: the browser must
+ * draw exactly the level an alert fires on. A pivot alert says "price reached
+ * Fibonacci S1"; if the chart drew S1 from a second implementation, the user
+ * would be told price reached a line that is not where they can see it. The
+ * engines were already pure and dependency-free, so moving them costs nothing
+ * and closes the gap by construction.
+ *
+ * Both files now re-export from here, and the parity test asserts that by
+ * reference equality — there is one implementation, not two that agree today.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const PIVOT_TYPES = [
+  "Traditional", "Fibonacci", "Woodie", "Classic", "Camarilla",
+] as const;
+export type PivotType = (typeof PIVOT_TYPES)[number];
+
+export const isPivotType = (v: string): v is PivotType =>
+  (PIVOT_TYPES as readonly string[]).includes(v);
+
+/** A completed period. */
+export interface Period {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface PivotLevel {
+  /** "P", "S1"…"S5", "R1"…"R5". */
+  name: string;
+  price: number;
+}
+
+/**
+ * The levels for one completed period, in the order a chart lists them.
+ * Levels a type does not define are simply absent.
+ */
+export function pivotLevels(period: Period, type: PivotType): PivotLevel[] {
+  const { open: o, high: h, low: l, close: c } = period;
+  if (![o, h, l, c].every((v) => Number.isFinite(v))) return [];
+  const range = h - l;
+
+  const p = type === "Woodie" ? (h + l + 2 * o) / 4 : (h + l + c) / 3;
+  const out: PivotLevel[] = [{ name: "P", price: p }];
+  const add = (name: string, price: number): void => { out.push({ name, price }); };
+
+  switch (type) {
+    case "Fibonacci":
+      // Retracements of the period's range around the pivot. No 4th or 5th.
+      add("R1", p + 0.382 * range); add("S1", p - 0.382 * range);
+      add("R2", p + 0.618 * range); add("S2", p - 0.618 * range);
+      add("R3", p + 1.000 * range); add("S3", p - 1.000 * range);
+      break;
+    case "Camarilla":
+      // Anchored on the close rather than the pivot.
+      add("R1", c + range * 1.1 / 12); add("S1", c - range * 1.1 / 12);
+      add("R2", c + range * 1.1 / 6);  add("S2", c - range * 1.1 / 6);
+      add("R3", c + range * 1.1 / 4);  add("S3", c - range * 1.1 / 4);
+      add("R4", c + range * 1.1 / 2);  add("S4", c - range * 1.1 / 2);
+      break;
+    case "Classic":
+      add("R1", 2 * p - l);       add("S1", 2 * p - h);
+      add("R2", p + range);       add("S2", p - range);
+      add("R3", p + 2 * range);   add("S3", p - 2 * range);
+      add("R4", p + 3 * range);   add("S4", p - 3 * range);
+      break;
+    default:
+      // Traditional, and Woodie which differs only in how P is anchored.
+      add("R1", 2 * p - l);               add("S1", 2 * p - h);
+      add("R2", p + range);               add("S2", p - range);
+      add("R3", h + 2 * (p - l));         add("S3", l - 2 * (h - p));
+      add("R4", h + 3 * (p - l));         add("S4", l - 3 * (h - p));
+      if (type === "Traditional") {
+        add("R5", h + 4 * (p - l));       add("S5", l - 4 * (h - p));
+      }
+      break;
+  }
+  return out;
+}
+
+/** The level closest to `price`, or null when the period yields none. */
+export function nearestLevel(levels: PivotLevel[], price: number): PivotLevel | null {
+  let best: PivotLevel | null = null;
+  let bestDist = Infinity;
+  for (const lv of levels) {
+    if (!Number.isFinite(lv.price)) continue;
+    const d = Math.abs(lv.price - price);
+    if (d < bestDist) { bestDist = d; best = lv; }
+  }
+  return best;
+}
+
+/** Look one level up by name, e.g. "S1". Names are case-insensitive. */
+export function levelByName(levels: PivotLevel[], name: string): PivotLevel | null {
+  const want = name.trim().toUpperCase();
+  return levels.find((lv) => lv.name.toUpperCase() === want) ?? null;
+}
+
+// ── Support and resistance ─────────────────────────────────────────────────
+
+export type ZoneKind = "support" | "resistance";
+
+export interface Zone {
+  kind: ZoneKind;
+  /** The pivot price this zone sits at. */
+  price: number;
+  /** Index of the bar the pivot formed on. */
+  pivotIndex: number;
+  /** Index at which the pivot became knowable (`pivotIndex + length`). */
+  confirmedIndex: number;
+  /** Index where price closed through it, or null while it still holds. */
+  brokenIndex: number | null;
+  /** How many times price returned to the level without breaking it. */
+  touches: number;
+}
+
+export interface SrOptions {
+  /** Bars either side of a swing that must not exceed it. */
+  pivotLength: number;
+  /** A wick through the level, or only a close through it, invalidates. */
+  invalidation: "close" | "wick";
+  /** Levels within this fraction of ATR of an existing one are merged. */
+  mergeAtrFraction: number;
+  /** Newest N live zones of each kind are kept. */
+  maxZones: number;
+}
+
+export const DEFAULT_SR_OPTIONS: SrOptions = {
+  pivotLength: 15,
+  invalidation: "close",
+  mergeAtrFraction: 1 / 8,
+  maxZones: 10,
+};
+
+export interface Bars {
+  high: number[];
+  low: number[];
+  close: number[];
+}
+
+/** True when `high[i]` is the highest of the window `length` bars either side. */
+export function isPivotHigh(high: number[], i: number, length: number): boolean {
+  if (i - length < 0 || i + length >= high.length) return false;
+  const v = high[i]!;
+  for (let j = i - length; j <= i + length; j++) {
+    if (j === i) continue;
+    // `>=` on the left half and `>` on the right breaks ties toward the EARLIER
+    // bar, so a flat top yields one pivot rather than one per equal bar.
+    if (j < i ? high[j]! >= v : high[j]! > v) return false;
+  }
+  return true;
+}
+
+export function isPivotLow(low: number[], i: number, length: number): boolean {
+  if (i - length < 0 || i + length >= low.length) return false;
+  const v = low[i]!;
+  for (let j = i - length; j <= i + length; j++) {
+    if (j === i) continue;
+    if (j < i ? low[j]! <= v : low[j]! < v) return false;
+  }
+  return true;
+}
+
+/**
+ * Average true range, used only to decide when two levels are "the same".
+ *
+ * Deliberately NOT `atr` above: this one is seeded progressively from the
+ * first bar rather than after a full window, because it is a merge tolerance
+ * rather than a volatility reading, and leaving it na through the warmup
+ * stacked levels a trader would read as one. The two are different functions
+ * with different jobs, which is why they have different names.
+ */
+export function srMergeAtr(bars: Bars, length = 20): number[] {
+  const out: number[] = new Array(bars.close.length).fill(NaN);
+  let sum = 0;
+  const trs: number[] = [];
+  for (let i = 0; i < bars.close.length; i++) {
+    const prevClose = i > 0 ? bars.close[i - 1]! : bars.close[i]!;
+    const tr = Math.max(
+      bars.high[i]! - bars.low[i]!,
+      Math.abs(bars.high[i]! - prevClose),
+      Math.abs(bars.low[i]! - prevClose)
+    );
+    trs.push(tr);
+    sum += tr;
+    if (i >= length) sum -= trs[i - length]!;
+    out[i] = i >= length - 1 ? sum / length : sum / (i + 1);
+  }
+  return out;
+}
+
+/**
+ * Every zone the series produced, each carrying the bar it became knowable on
+ * and the bar it broke on. Computed once per feed; `zonesAsOf` then answers
+ * "what was live at bar t" without recomputing.
+ */
+export function buildZones(bars: Bars, opts: SrOptions = DEFAULT_SR_OPTIONS): Zone[] {
+  const n = bars.close.length;
+  const { pivotLength: L, invalidation, mergeAtrFraction } = opts;
+  const atrSeries = srMergeAtr(bars);
+  const zones: Zone[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const confirmedAt = i + L;
+    if (confirmedAt >= n) break;
+
+    const near = (a: number, b: number): boolean => {
+      const scale = atrSeries[confirmedAt];
+      // Before ATR is seeded, fall back to a relative tolerance so early bars
+      // still merge sensibly instead of stacking near-identical levels.
+      const tol = Number.isFinite(scale) ? scale! * mergeAtrFraction : Math.abs(b) * 0.001;
+      return Math.abs(a - b) <= tol;
+    };
+
+    for (const kind of ["support", "resistance"] as ZoneKind[]) {
+      const hit = kind === "support"
+        ? isPivotLow(bars.low, i, L)
+        : isPivotHigh(bars.high, i, L);
+      if (!hit) continue;
+      const price = kind === "support" ? bars.low[i]! : bars.high[i]!;
+
+      // Merge into a live zone of the same kind at effectively the same price.
+      const existing = zones.find(
+        (z) => z.kind === kind && z.brokenIndex === null && near(z.price, price)
+      );
+      if (existing) {
+        existing.touches += 1;
+        continue;
+      }
+      zones.push({
+        kind, price, pivotIndex: i, confirmedIndex: confirmedAt,
+        brokenIndex: null, touches: 1,
+      });
+    }
+
+    // Invalidate live zones against the bar that has just printed.
+    const level = invalidation === "close" ? bars.close[i]! : null;
+    for (const z of zones) {
+      if (z.brokenIndex !== null || i < z.confirmedIndex) continue;
+      const through = z.kind === "support"
+        ? (level !== null ? level < z.price : bars.low[i]! < z.price)
+        : (level !== null ? level > z.price : bars.high[i]! > z.price);
+      if (through) z.brokenIndex = i;
+    }
+  }
+  return zones;
+}
+
+/** The zones that were live and knowable at bar `index`, newest first. */
+export function zonesAsOf(
+  zones: Zone[], index: number, opts: SrOptions = DEFAULT_SR_OPTIONS
+): Zone[] {
+  return zones
+    .filter((z) => z.confirmedIndex <= index && (z.brokenIndex === null || z.brokenIndex > index))
+    .sort((a, b) => b.confirmedIndex - a.confirmedIndex)
+    .slice(0, opts.maxZones * 2);
+}
+
+/**
+ * The nearest live support at or below `price`, and the nearest live
+ * resistance at or above it.
+ *
+ * "Nearest support" deliberately means the closest one BELOW: a support that
+ * price has already risen far above is not what a trader means by the level
+ * they are approaching, and one above current price has been broken.
+ */
+export function nearestZones(
+  zones: Zone[], index: number, price: number, opts: SrOptions = DEFAULT_SR_OPTIONS
+): { support: Zone | null; resistance: Zone | null } {
+  const live = zonesAsOf(zones, index, opts);
+  let support: Zone | null = null;
+  let resistance: Zone | null = null;
+  for (const z of live) {
+    if (z.kind === "support" && z.price <= price) {
+      if (!support || z.price > support.price) support = z;
+    } else if (z.kind === "resistance" && z.price >= price) {
+      if (!resistance || z.price < resistance.price) resistance = z;
+    }
+  }
+  return { support, resistance };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * COMPARE AND SECOND-SERIES MATHS
+ *
+ * Two-series concepts, kept here rather than in a study because the alignment
+ * rule is the hard part and it must be identical wherever it is used.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Align a second series onto a base series by OPEN TIME.
+ *
+ * Never by index. Two instruments can have different histories — a newer
+ * listing, an exchange outage, a pair that does not trade a particular
+ * minute — and lining them up by position would compare Tuesday's BTC against
+ * Monday's SOL and call the result a correlation. Bars the second series does
+ * not have become `na` rather than being forward-filled: an invented price is
+ * a fabricated observation, and a correlation computed against fabrications is
+ * a number with no meaning that looks exactly like one that has meaning.
+ */
+export function alignByOpenTime(
+  baseTimes: readonly number[],
+  otherTimes: readonly number[],
+  otherValues: readonly number[]
+): number[] {
+  const byTime = new Map<number, number>();
+  for (let i = 0; i < otherTimes.length && i < otherValues.length; i++) {
+    byTime.set(otherTimes[i]!, otherValues[i]!);
+  }
+  return baseTimes.map((t) => {
+    const v = byTime.get(t);
+    return v === undefined ? NaN : v;
+  });
+}
+
+/**
+ * Both series rebased to 0 % at the first bar where BOTH have a value.
+ *
+ * Rebasing each at its own first value would start them at different points in
+ * time and make the whole comparison a lie about which outperformed. The
+ * reference is the first COMMON bar, and everything before it is `na`.
+ */
+export function normalizedCompare(
+  base: readonly number[], other: readonly number[]
+): { base: number[]; other: number[]; referenceIndex: number } {
+  const n = Math.min(base.length, other.length);
+  let ref = -1;
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(base[i]!) && base[i]! > 0
+      && Number.isFinite(other[i]!) && other[i]! > 0) { ref = i; break; }
+  }
+  const outBase = new Array<number>(base.length).fill(NaN);
+  const outOther = new Array<number>(other.length).fill(NaN);
+  if (ref < 0) return { base: outBase, other: outOther, referenceIndex: -1 };
+  const b0 = base[ref]!;
+  const o0 = other[ref]!;
+  for (let i = ref; i < base.length; i++) {
+    const v = base[i]!;
+    if (Number.isFinite(v)) outBase[i] = (v / b0 - 1) * 100;
+  }
+  for (let i = ref; i < other.length; i++) {
+    const v = other[i]!;
+    if (Number.isFinite(v)) outOther[i] = (v / o0 - 1) * 100;
+  }
+  return { base: outBase, other: outOther, referenceIndex: ref };
+}

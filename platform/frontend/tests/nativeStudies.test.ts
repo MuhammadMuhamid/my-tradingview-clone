@@ -434,11 +434,32 @@ test("a windowed study agrees with a full-history one on every visible bar", () 
  * it cheaper, it makes it a different indicator — most sharply for Supertrend,
  * which seeded mid-downtrend reports an uptrend until the next flip, and the
  * flip is the whole signal.
+ *
+ * The list is spelled out rather than derived because `unbounded` is a claim
+ * about the MATHS, and the cost of getting it wrong runs both ways: marking a
+ * convergent study unbounded makes every tick recompute ten thousand bars, and
+ * failing to mark a divergent one makes the chart quietly draw a different
+ * indicator at a different zoom. Adding an entry here should be a deliberate
+ * act with a reason, so a new study that declares it fails this test until
+ * someone writes the reason down.
  */
 test("a path-dependent study is computed over the whole series, not a window", () => {
   const series = bars(4_000, 12);
   const unbounded = NATIVE_STUDIES.filter((d) => d.unbounded);
-  assert.deepEqual(unbounded.map((d) => d.id).sort(), ["obv", "supertrend", "vwap"]);
+  assert.deepEqual(unbounded.map((d) => d.id).sort(), [
+    // Accumulations from the first bar: every prior bar is in the value.
+    "ad", "obv", "pvt",
+    // Session accumulations: the anchor is a calendar boundary, not a window.
+    "vwap",
+    // Ratcheting state machines: the current state was decided by a flip that
+    // may be thousands of bars back, and re-seeding invents a different one.
+    "psar", "supertrend",
+    // Adaptive recursions with no seed they converge back to.
+    "kama", "mcginley", "fisher",
+    // Structure: a level is defined by where it FORMED, and a window that does
+    // not contain the pivot cannot know the level exists.
+    "pivots", "prevperiod", "srzones", "swings",
+  ].sort());
   for (const def of unbounded) {
     assert.equal(computeWindow(series, def.warmup(defaultParams(def)),
       { firstVisibleIndex: series.length - 300, visibleBars: 300 }, true).length,

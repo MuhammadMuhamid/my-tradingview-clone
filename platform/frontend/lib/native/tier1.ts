@@ -23,72 +23,12 @@ import {
   type GenericMaType,
 } from "@/lib/ta/core";
 import type {
-  NativeComputeInput, NativeComputeOutput, NativeParams, NativeStudyDef, PriceSource,
+  NativeComputeInput, NativeComputeOutput, NativeStudyDef,
 } from "@/lib/native/registry";
-import type { Candle } from "@/lib/types";
-
-// ── shared plumbing ─────────────────────────────────────────────────────────
-
-const UP = "#2ebd85";
-const DOWN = "#f6465d";
-const ACCENT = "#4f8cff";
-const AMBER = "#f0b90b";
-const VIOLET = "#9b7cf5";
-const MUTED = "#8b93a7";
-
-const num = (params: NativeParams, key: string, fallback: number): number => {
-  const v = params[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
-};
-const str = (params: NativeParams, key: string, fallback: string): string => {
-  const v = params[key];
-  return typeof v === "string" ? v : fallback;
-};
-const bool = (params: NativeParams, key: string, fallback: boolean): boolean => {
-  const v = params[key];
-  return typeof v === "boolean" ? v : fallback;
-};
-
-/** Resolve a named price source against the bars. One place, every study. */
-export function resolveSource(candles: readonly Candle[], source: string): number[] {
-  const open = candles.map((c) => c.open);
-  const high = candles.map((c) => c.high);
-  const low = candles.map((c) => c.low);
-  const close = candles.map((c) => c.close);
-  switch (source as PriceSource) {
-    case "open": return open;
-    case "high": return high;
-    case "low": return low;
-    case "hl2": return hl2(high, low);
-    case "hlc3": return hlc3(high, low, close);
-    case "ohlc4": return ohlc4(open, high, low, close);
-    default: return close;
-  }
-}
-
-
-const ohlcv = (candles: readonly Candle[]) => ({
-  high: candles.map((c) => c.high),
-  low: candles.map((c) => c.low),
-  close: candles.map((c) => c.close),
-  volume: candles.map((c) => c.volume),
-});
-
-const sourceInput = { kind: "source", key: "source", title: "Source", defval: "close" } as const;
-
-const lengthInput = (defval: number, title = "Length") =>
-  ({ kind: "number", key: "length", title, defval, min: 1, max: 5000, integer: true } as const);
-
-const MA_TYPE_OPTIONS = [
-  { value: "SMA", label: "SMA" },
-  { value: "EMA", label: "EMA" },
-  { value: "RMA", label: "RMA (Wilder)" },
-  { value: "WMA", label: "WMA" },
-  { value: "HMA", label: "HMA" },
-  { value: "VWMA", label: "VWMA" },
-  { value: "DEMA", label: "DEMA" },
-  { value: "TEMA", label: "TEMA" },
-] as const;
+import {
+  ACCENT, AMBER, DOWN, MA_TYPE_OPTIONS, MUTED, UP, VIOLET,
+  bool, lengthInput, num, ohlcv, resolveSource, sourceInput, str,
+} from "@/lib/native/shared";
 
 // ── 1. Moving Average ───────────────────────────────────────────────────────
 
