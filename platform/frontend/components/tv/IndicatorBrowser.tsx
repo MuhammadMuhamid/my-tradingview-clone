@@ -36,6 +36,7 @@
  * library; that panel is the chart. They act on the same list.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Resolution } from "@/lib/resolution";
 import { Modal } from "@/components/Modal";
 import { api, type PineScript } from "@/lib/api";
 import type { AppliedIndicator } from "@/lib/indicators";
@@ -49,7 +50,6 @@ import {
   CATEGORY_LABELS, loadFavourites, loadRecents, searchStudies, toggleFavourite,
 } from "@/lib/native/catalog";
 import type { NativeStudyDef } from "@/lib/native/registry";
-import type { Interval } from "@/lib/types";
 
 type Category =
   | "builtin" | "favourites" | "recents"
@@ -71,7 +71,7 @@ export interface IndicatorBrowserProps {
   onClose: () => void;
   /** The chart this dialog adds to — the focused pane. */
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   /** The focused pane's Pine studies, or null while that pane is still mounting. */
   indicators: IndicatorsApi | null;
   /** The focused pane's built-in studies, or null while it is still mounting. */

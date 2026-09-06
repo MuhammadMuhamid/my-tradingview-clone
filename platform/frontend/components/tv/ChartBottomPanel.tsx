@@ -23,13 +23,14 @@
  * it would take over half the chart.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { type Resolution } from "@/lib/resolution";
 import { PineEditor } from "@/components/tv/PineEditor";
 import { StrategyTester } from "@/components/tv/StrategyTester";
 import { TradingStateStrip, tradingStateFreshness } from "@/components/tv/TradingStateStrip";
 import type { StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import type { PineParams } from "@/lib/indicators";
 import type { ManualTradingState, PineScript } from "@/lib/api";
-import type { Interval, OpenTrade, Strategy, StrategyParams, Trade } from "@/lib/types";
+import type { OpenTrade, Strategy, StrategyParams, Trade } from "@/lib/types";
 
 /**
  * Bottom-panel preference key. Phones and desktops store it separately so one
@@ -43,7 +44,7 @@ const bottomKey = (): string =>
 export interface ChartBottomPanelProps {
   /** The focused pane's instrument and resolution. */
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   replayActive: boolean;
 
   strategies: Strategy[];

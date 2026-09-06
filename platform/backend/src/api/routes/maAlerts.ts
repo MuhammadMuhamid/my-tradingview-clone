@@ -15,7 +15,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import * as maAlertRepo from "../../repositories/maAlerts";
 import { AlertConflictError } from "../../repositories/maAlerts";
 import { assertSymbol } from "../../data/binanceRest";
-import { isInterval } from "../../types/market";
+import { isAlertInterval, isInterval } from "../../types/market";
 import {
   CONDITION_KINDS, MA_ALERT_MODES, MA_LENGTHS, MA_TYPES, PRICE_DIRECTIONS,
   BULK_ALERT_ACTIONS, isBulkAlertAction, isConditionKind,
@@ -162,7 +162,12 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
     }
     if (b.timeframe !== undefined) {
       const tf = String(b.timeframe);
-      if (!isInterval(tf)) return reply.code(400).send(bad("invalid timeframe"));
+      if (!isAlertInterval(tf)) {
+        return reply.code(400).send(bad(
+          isInterval(tf)
+            ? `${tf} is a chart resolution but not an alert resolution — see ALERT_INTERVALS`
+            : "invalid timeframe"));
+      }
       patch.timeframe = tf;
     }
     if (b.frequency !== undefined) {
@@ -316,8 +321,18 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const timeframe = String(b?.timeframe ?? "");
-    if (!isInterval(timeframe)) {
-      return reply.code(400).send(bad("timeframe is not a supported interval"));
+    if (!isAlertInterval(timeframe)) {
+      /*
+       * An alert on a resolution the runner cannot evaluate is refused here
+       * rather than stored. The alternative — accept it and evaluate something
+       * near it — is the silent identity change the resolution work exists to
+       * prevent: an alert labelled 45m that actually fires on 1h bars is worse
+       * than an alert that could not be armed.
+       */
+      return reply.code(400).send(bad(
+        isInterval(timeframe)
+          ? `${timeframe} is a chart resolution but not an alert resolution`
+          : "timeframe is not a supported interval"));
     }
 
     // No `conditionKind` means a moving-average alert: the shape every client

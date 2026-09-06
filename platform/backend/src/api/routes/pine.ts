@@ -20,6 +20,8 @@ import { PineInterpreter } from "../../pine/interpreter";
 import { PineBusyError, runPineInWorker } from "../../pine/runInWorker";
 import type { BrokerOptions } from "../../engine/broker";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
+import { parseResolution } from "../../data/resolution";
+import { ensureResolvedCoverage, readResolvedCandles } from "../../data/resolvedCandles";
 import { completedAtOrBefore } from "../../pine/horizon";
 
 /** Bars of history loaded before the requested start so indicators settle. */
@@ -152,16 +154,26 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     } catch {
       return reply.code(400).send({ error: "invalid symbol" });
     }
-    if (!isInterval(timeframe)) return reply.code(400).send({ error: "invalid timeframe" });
+    /*
+     * A script runs on the resolution the CHART is on, derived or not.
+     *
+     * Anything else would put a study under bars it was not computed from: a
+     * user who applies an RSI to a 45-minute chart and gets a 15-minute RSI
+     * drawn across it has been told something false, and quietly, which is the
+     * one outcome the resolution work exists to prevent.
+     */
+    const plan = parseResolution(timeframe);
+    if (plan === null) return reply.code(400).send({ error: "invalid timeframe" });
+    const stepMs = plan.ms;
 
     const endMs = body.endTime ? Date.parse(body.endTime) : Date.now();
     const startMs = body.startTime
       ? Date.parse(body.startTime)
-      : endMs - 2000 * INTERVAL_MS[timeframe as Interval];
+      : endMs - 2000 * stepMs;
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) {
       return reply.code(400).send({ error: "invalid start/end time" });
     }
-    const requestedBars = (endMs - startMs) / INTERVAL_MS[timeframe as Interval];
+    const requestedBars = (endMs - startMs) / stepMs;
     if (requestedBars > MAX_RUN_BARS) {
       return reply.code(400).send({
         error: `range is too large: ${Math.round(requestedBars).toLocaleString()} bars ` +
@@ -175,15 +187,15 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
       return { ok: false, errors: compiled.errors, meta: compiled.meta };
     }
 
-    const interval = timeframe as Interval;
-    const warmupFrom = startMs - WARMUP_BARS * INTERVAL_MS[interval];
+    const interval = plan.id;
+    const warmupFrom = startMs - WARMUP_BARS * stepMs;
     try {
-      await ensureCandles(symbol, interval, warmupFrom, endMs, () => {});
+      await ensureResolvedCoverage(symbol, plan, warmupFrom, endMs, () => {});
     } catch (err) {
       return reply.code(502).send({ error: `market data unavailable: ${(err as Error).message}` });
     }
     const candles = completedAtOrBefore(
-      await candleRepo.getCandles(symbol, interval, { from: warmupFrom, to: endMs }), endMs
+      await readResolvedCandles(symbol, plan, { from: warmupFrom, to: endMs }), endMs
     );
     if (candles.length === 0) {
       return reply.code(404).send({ error: `no ${interval} data for ${symbol}` });
@@ -205,7 +217,7 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     for (const raw of compiled.meta.securityTimeframes) {
       const tf = normaliseTimeframe(raw);
       if (!tf || tf === interval) continue;
-      if (INTERVAL_MS[tf] <= INTERVAL_MS[interval]) {
+      if (INTERVAL_MS[tf] <= stepMs) {
         // Lower timeframes would need intrabar data this engine does not keep.
         continue;
       }

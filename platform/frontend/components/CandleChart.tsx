@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, LineStyle, LineType, PriceScaleMode,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type LineData, type WhitespaceData,
 } from "lightweight-charts";
-import { INTERVAL_MS, type Candle, type Interval, type Trade } from "@/lib/types";
+import { INTERVAL_MS, type Candle, type Trade } from "@/lib/types";
 import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
@@ -424,7 +425,7 @@ export function CandleChart({
   priceScale, onPriceScaleChange, resetSignal, drawingStyleFocusSignal, paneActive,
 }: {
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   candles: Candle[];
   /**
    * What `candles` actually are, when that can differ from `symbol` and
@@ -1734,7 +1735,7 @@ export function CandleChart({
    * consults a clock.
    */
   const window_: LoadedWindow | null = useMemo(
-    () => loadedWindow(candles, INTERVAL_MS[interval]), [candles, interval]);
+    () => loadedWindow(candles, resolutionMs(interval)), [candles, interval]);
   const shortcuts = useMemo(
     () => (window_ ? availableRangeShortcuts(window_) : []), [window_]);
   /*
@@ -1915,7 +1916,7 @@ export function CandleChart({
               </span>
               <span className="hidden lg:inline">
                 from <span className="text-ink">
-                  {fmtChartBarTime(legend.brick.sourceOpenTime, INTERVAL_MS[interval])}
+                  {fmtChartBarTime(legend.brick.sourceOpenTime, resolutionMs(interval))}
                 </span> {CHART_TIME_ZONE}
               </span>
             </>

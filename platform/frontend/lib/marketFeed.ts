@@ -35,7 +35,9 @@ import {
   type StreamScheduler, type StreamSocket, type StreamState, type StreamStatus,
   type StreamTransport,
 } from "./marketStream";
-import type { Interval } from "./types";
+import {
+  bucketOpenTime, parseResolution, type Resolution, type ResolutionPlan,
+} from "./resolution";
 
 /** How long a feed may be silent before it is treated as dead and reopened. */
 export const WS_SILENCE_TIMEOUT_MS = STREAM_SILENCE_TIMEOUT_MS;
@@ -43,10 +45,11 @@ export const WS_SILENCE_TIMEOUT_MS = STREAM_SILENCE_TIMEOUT_MS;
 export type FeedStatus = StreamStatus;
 export type FeedState = StreamState;
 
-/** One kline frame, already parsed. */
+/** One kline frame, already parsed — and, on a derived resolution, folded. */
 export interface KlineTick {
   symbol: string;
-  interval: Interval;
+  /** The resolution this tick IS, which is the resolution that was subscribed. */
+  interval: Resolution;
   openTime: number;
   closeTime: number;
   open: number;
@@ -70,15 +73,24 @@ export type FeedTransport = StreamTransport;
 export type FeedScheduler = StreamScheduler;
 
 /** The subscription identity. Symbol case is not part of it. */
-export function feedKey(symbol: string, interval: Interval): string {
+export function feedKey(symbol: string, interval: Resolution): string {
   return `${symbol.toUpperCase()}|${interval}`;
 }
 
-/** The kline stream's URL at one origin — the first supported one by default. */
+/**
+ * The kline stream's URL at one origin — the first supported one by default.
+ *
+ * Note the SOURCE: Binance publishes a stream per native interval and nothing
+ * else, so a 45-minute chart listens to the 15-minute stream and folds. Two
+ * resolutions that share a source share the socket, because the stream registry
+ * is keyed by what is actually being listened to.
+ */
 export function klineStreamUrl(
-  symbol: string, interval: Interval, origin: string = MARKET_STREAM_ORIGINS[0]!
+  symbol: string, interval: Resolution, origin: string = MARKET_STREAM_ORIGINS[0]!
 ): string {
-  return streamUrl(origin, singleStreamPath(klineStreamName(symbol, interval)));
+  const plan = parseResolution(interval);
+  const source = plan === null ? interval : plan.source;
+  return streamUrl(origin, singleStreamPath(klineStreamName(symbol, source)));
 }
 
 interface RawKline {
@@ -87,9 +99,42 @@ interface RawKline {
   };
 }
 
+/**
+ * The derived bar being assembled from source frames.
+ *
+ * `owned` is the whole of the honesty question. A subscription that starts in
+ * the middle of a bucket has not seen that bucket's earlier source bars, so it
+ * cannot know the bucket's open or its volume — and a bar drawn from the
+ * fragment it did see would have the wrong open, a truncated volume, and no
+ * indication that either was true. So an unowned bucket emits NOTHING: the
+ * chart keeps the server's own fold of it, which is exact, and the feed starts
+ * emitting at the next bucket boundary, which it owns from the first bar.
+ *
+ * The cost is that on a derived resolution the newest bar stops advancing for
+ * at most one bar after the chart is opened. The alternative was a bar that
+ * advances and is wrong.
+ */
+interface FoldState {
+  openTime: number;
+  owned: boolean;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** Volume of source bars in this bucket that have CLOSED. */
+  closedVolume: number;
+  /** Open time and volume of the source bar still forming, if any. */
+  formingOpenTime: number;
+  formingVolume: number;
+}
+
 interface FeedEntry {
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
+  /** How this resolution is built. `factor === 1` is the native path. */
+  plan: ResolutionPlan;
+  /** Null on a native feed, and until the first frame on a derived one. */
+  fold: FoldState | null;
   listeners: Set<FeedListener>;
   release: () => void;
   state: FeedState;
@@ -130,12 +175,14 @@ export class MarketFeedRegistry {
   get socketsOpened(): number { return this.streams.socketsOpened; }
   get socketsClosed(): number { return this.streams.socketsClosed; }
 
-  statusOf(symbol: string, interval: Interval): FeedStatus {
+  statusOf(symbol: string, interval: Resolution): FeedStatus {
     return this.stateOf(symbol, interval).status;
   }
 
-  stateOf(symbol: string, interval: Interval): FeedState {
-    return this.streams.stateOf(feedKey(symbol, interval));
+  stateOf(symbol: string, interval: Resolution): FeedState {
+    const plan = parseResolution(interval);
+    return this.streams.stateOf(
+      feedKey(symbol, plan === null ? interval : plan.source));
   }
 
   /**
@@ -146,17 +193,29 @@ export class MarketFeedRegistry {
    * listener already gone and does nothing, so a React effect that runs its
    * cleanup twice cannot close a feed another pane is still using.
    */
-  subscribe(symbol: string, interval: Interval, listener: FeedListener): () => void {
+  subscribe(symbol: string, interval: Resolution, listener: FeedListener): () => void {
+    const plan = parseResolution(interval);
+    if (plan === null) throw new Error(`not a resolution: ${String(interval)}`);
     const key = feedKey(symbol, interval);
+    /*
+     * The SOCKET is keyed by the source, the fold by the resolution.
+     *
+     * A workspace showing 15m and 45m on the same instrument is listening to
+     * one thing — the 15-minute kline stream — and folding it two ways. Keying
+     * the stream by the resolution would have opened the same socket twice,
+     * which is exactly the waste this registry exists to prevent.
+     */
+    const streamKey = feedKey(symbol, plan.source);
     let entry = this.entries.get(key);
     if (!entry) {
       const created: FeedEntry = {
-        symbol: symbol.toUpperCase(), interval, listeners: new Set(),
+        symbol: symbol.toUpperCase(), interval: plan.id, plan, fold: null,
+        listeners: new Set(),
         release: () => {},
         state: { status: "idle", origin: null, attempt: 0, everLive: false, refused: [] },
       };
       created.release = this.streams.subscribe(
-        key, singleStreamPath(klineStreamName(symbol, interval)), {
+        streamKey, singleStreamPath(klineStreamName(symbol, plan.source)), {
           onMessage: (data) => this.handleMessage(created, data),
           onState: (state) => {
             created.state = state;
@@ -203,12 +262,15 @@ export class MarketFeedRegistry {
     const k = parsed.k;
     if (!k) return;
     // Parsed once per feed rather than once per pane — the whole point.
-    const tick: KlineTick = {
-      symbol: entry.symbol, interval: entry.interval,
-      openTime: k.t, closeTime: k.T,
-      open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v,
-      closed: k.x === true,
-    };
+    const tick = entry.plan.factor === 1
+      ? {
+        symbol: entry.symbol, interval: entry.interval,
+        openTime: k.t, closeTime: k.T,
+        open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v,
+        closed: k.x === true,
+      } satisfies KlineTick
+      : this.fold(entry, k);
+    if (tick === null) return;
     for (const listener of entry.listeners) {
       // One pane throwing — `update()` on a bar older than the series holds,
       // say — must not stop the other panes receiving the same bar.
@@ -217,6 +279,70 @@ export class MarketFeedRegistry {
         if (typeof console !== "undefined") console.error("kline listener failed", error);
       }
     }
+  }
+
+  /**
+   * Fold one source frame into this feed's derived bar.
+   *
+   * Volume is accumulated per SOURCE BAR rather than by adding every frame:
+   * Binance sends a frame roughly every second and each one carries the source
+   * bar's running total, so summing frames would multiply a bucket's volume by
+   * however many frames happened to arrive. `closedVolume` holds the source
+   * bars that have finished; `formingVolume` is the running total of the one
+   * that has not, replaced rather than added on each frame.
+   *
+   * A bar closes when the LAST source bar of its bucket closes, which is a
+   * statement about the grid rather than about frames: `k.T + 1` is the source
+   * bar's exclusive end, and the bucket ends at `openTime + ms`.
+   *
+   * Returns null while the bucket is not owned — see `FoldState`.
+   */
+  private fold(entry: FeedEntry, k: NonNullable<RawKline["k"]>): KlineTick | null {
+    const { plan } = entry;
+    const openTime = bucketOpenTime(k.t, plan.ms);
+    const high = +k.h, low = +k.l, close = +k.c, volume = +k.v;
+    let fold = entry.fold;
+
+    if (fold === null || fold.openTime !== openTime) {
+      fold = {
+        openTime,
+        // Owned only when this frame belongs to the bucket's FIRST source bar.
+        owned: k.t === openTime,
+        open: +k.o, high, low, close,
+        closedVolume: 0,
+        formingOpenTime: k.t,
+        formingVolume: volume,
+      };
+      entry.fold = fold;
+    } else {
+      if (k.t !== fold.formingOpenTime) {
+        // The previous source bar finished; bank it and start counting this one.
+        fold.closedVolume += fold.formingVolume;
+        fold.formingOpenTime = k.t;
+      }
+      fold.formingVolume = volume;
+      if (high > fold.high) fold.high = high;
+      if (low < fold.low) fold.low = low;
+      fold.close = close;
+    }
+    if (k.x === true && k.t === fold.formingOpenTime) {
+      fold.closedVolume += volume;
+      fold.formingVolume = 0;
+      fold.formingOpenTime = -1;
+    }
+    if (!fold.owned) return null;
+    return {
+      symbol: entry.symbol,
+      interval: plan.id,
+      openTime,
+      closeTime: openTime + plan.ms - 1,
+      open: fold.open,
+      high: fold.high,
+      low: fold.low,
+      close: fold.close,
+      volume: fold.closedVolume + fold.formingVolume,
+      closed: k.x === true && k.T + 1 >= openTime + plan.ms,
+    };
   }
 }
 

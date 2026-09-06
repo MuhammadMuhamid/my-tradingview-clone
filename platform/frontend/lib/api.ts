@@ -2,6 +2,7 @@ import type {
   Alert, Backtest, BacktestStatus, Candle, Deployment, DeliveryMode,
   Interval, Strategy, StrategyConfig, StrategyParams, SymbolInfo, Trade,
 } from "./types";
+import type { Resolution } from "./resolution";
 import type { TradingOverlayResponse } from "./tradingOverlays";
 
 export interface OptimizerBest {
@@ -250,7 +251,8 @@ export interface ServerLayout {
   id: string;
   name: string;
   symbol: string;
-  timeframe: Interval;
+  /** The chart's resolution — a saved layout restores exactly what was saved. */
+  timeframe: Resolution;
   bars: number;
   strategyKey: string;
   params: StrategyParams;
@@ -294,7 +296,7 @@ export interface Ticker24h {
 export interface CompactCandles {
   format: "compact-v1";
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   stepMs: number;
   count: number;
   bars: CompactBar[];
@@ -1044,7 +1046,7 @@ export const api = {
    * the main thread before anything can be drawn, and it happens again on every
    * symbol and timeframe switch.
    */
-  candles: (symbol: string, interval: Interval, limit = 1000, signal?: AbortSignal) =>
+  candles: (symbol: string, interval: Resolution, limit = 1000, signal?: AbortSignal) =>
     req<CompactCandles>(
       `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
@@ -1062,22 +1064,30 @@ export const api = {
       signal ? { signal } : undefined
     ),
   /** The verbose shape, for consumers that need quoteVolume or tradeCount. */
-  candlesVerbose: (symbol: string, interval: Interval, limit = 1000, signal?: AbortSignal) =>
+  candlesVerbose: (symbol: string, interval: Resolution, limit = 1000, signal?: AbortSignal) =>
     req<Candle[]>(
       `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}`,
       signal ? { signal } : undefined
     ),
   /** Candles covering an explicit window — used to frame a backtest's own range. */
   candlesRange: (
-    symbol: string, interval: Interval, fromMs: number, toMs: number,
+    symbol: string, interval: Resolution, fromMs: number, toMs: number,
     limit = 200000, signal?: AbortSignal
   ) =>
     req<CompactCandles>(
       `/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
     ).then(expandCompact),
-  backfill: (symbol: string, interval: Interval, start: string, end: string) =>
-    req<{ fetched: number }>("/api/data/backfill", { method: "POST", body: JSON.stringify({ symbol, interval, start, end }) }),
+  /**
+   * Store what a resolution is folded FROM.
+   *
+   * A derived resolution has nothing of its own to fetch, so the server
+   * backfills its source and names both in the reply. The caller passes the
+   * resolution it is on; the translation belongs on the side that owns the
+   * candle store.
+   */
+  backfill: (symbol: string, interval: Resolution, start: string, end: string) =>
+    req<{ fetched: number; interval: Resolution; source: Interval }>("/api/data/backfill", { method: "POST", body: JSON.stringify({ symbol, interval, start, end }) }),
 
   // strategies + configs
   listStrategies: () => req<Strategy[]>("/api/strategies"),
@@ -1177,12 +1187,12 @@ export const api = {
   listLayouts: () => req<ServerLayout[]>("/api/layouts"),
   getLayout: (id: string) => req<ServerLayout>(`/api/layouts/${id}`),
   upsertLayout: (body: {
-    name: string; symbol: string; timeframe: Interval; bars: number;
+    name: string; symbol: string; timeframe: Resolution; bars: number;
     strategyKey: string; params: StrategyParams; properties: unknown;
     movingAverages?: { type: MaType; length: number; visible: boolean }[];
   }) => req<ServerLayout>("/api/layouts", { method: "POST", body: JSON.stringify(body) }),
   updateLayout: (id: string, body: Partial<{
-    name: string; symbol: string; timeframe: Interval; bars: number;
+    name: string; symbol: string; timeframe: Resolution; bars: number;
     strategyKey: string; params: StrategyParams; properties: unknown;
     movingAverages: { type: MaType; length: number; visible: boolean }[];
   }>) => req<ServerLayout>(`/api/layouts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -1203,7 +1213,7 @@ export const api = {
       "/api/pine/compile", { method: "POST", body: JSON.stringify({ source }) }
     ),
   runPine: (body: {
-    source: string; symbol: string; timeframe: Interval;
+    source: string; symbol: string; timeframe: Resolution;
     startTime?: string; endTime?: string;
     params?: Record<string, number | string | boolean>;
     initialCapital?: number; commissionPct?: number; slippageTicks?: number;

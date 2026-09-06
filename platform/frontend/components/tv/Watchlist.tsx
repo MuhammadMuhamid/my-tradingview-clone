@@ -23,6 +23,35 @@ type NamedWatchlist = ServerWatchlist;
 const LEGACY_KEY = "tv-clone-watchlists-v1";
 const ACTIVE_KEY = "tv.watchlist.active.v1";
 
+/**
+ * What an empty watchlist offers instead of a full stop.
+ *
+ * ── Why an empty list needs a design at all ────────────────────────────────
+ *
+ * The empty state used to read "This watchlist is empty. Add a USDT pair
+ * above." — which is true, and is also the entire product refusing to start.
+ * It is the first thing a new account sees, it names no pair, and a person who
+ * does not already know which Binance tickers exist has nothing to type.
+ *
+ * The benchmark's watchlist, captured under `evidence/P1A_tv/`, is never empty:
+ * it ships with grouped sections of real instruments. This is the same idea
+ * scoped to what this platform actually serves — Binance Spot, USDT-quoted,
+ * long-only — offered as a starting point rather than imposed as one.
+ *
+ * ── Why these eight ────────────────────────────────────────────────────────
+ *
+ * The most liquid USDT pairs on the venue, which is the only property that
+ * matters for a starter list: they have deep history for the Backtester, tight
+ * spreads for the manual ticket, and they are the pairs a chart is most likely
+ * to be opened on. It is not a recommendation and nothing here reads it as
+ * one — adding a row to a watchlist has no effect on any strategy, alert or
+ * order.
+ */
+const STARTER_SYMBOLS: readonly string[] = [
+  "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+  "XRPUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT",
+];
+
 export function Watchlist({
   symbols, selected, onSelect, onSymbolsChanged, replayQuote = null,
   onOpenInNewPane, onAddAlert, canOpenNewPane = false, replayActive = false,
@@ -200,6 +229,33 @@ export function Watchlist({
    * silently diverging.
    */
 
+  /**
+   * Add one or more pairs, registering any the catalog does not have yet.
+   *
+   * Shared by the type-in field and the empty state's starter buttons, so
+   * "adding a symbol" means exactly one thing however it was reached — the
+   * starter list is not a second, looser admission path.
+   */
+  const addSymbols = async (wanted: readonly string[]) => {
+    const clean = wanted.map((s) => s.trim().toUpperCase()).filter(Boolean);
+    if (clean.length === 0) return;
+    if (!clean.every((s) => s.endsWith("USDT"))) {
+      setErr("Only *USDT Binance spot pairs");
+      return;
+    }
+    setErr(null);
+    try {
+      const missing = clean.filter((s) => !symbols.some((x) => x.symbol === s));
+      for (const s of missing) await api.addSymbol(s, s.replace(/USDT$/, ""), "USDT");
+      if (missing.length > 0) onSymbolsChanged();
+      updateActive((l) => ({
+        ...l,
+        symbols: [...l.symbols, ...clean.filter((s) => !l.symbols.includes(s))],
+      }));
+      setAdding("");
+    } catch (e) { setErr((e as Error).message); }
+  };
+
   const add = async () => {
     const s = adding.trim().toUpperCase();
     if (!s) return;
@@ -207,16 +263,7 @@ export function Watchlist({
     // pairs and only USDT pairs, so the suffix is the admission rule and the
     // base asset follows from it. Adding a pair through the symbol dialog
     // instead registers it from the venue's own metadata.
-    if (!s.endsWith("USDT")) { setErr("Only *USDT Binance spot pairs"); return; }
-    setErr(null);
-    try {
-      if (!symbols.some((x) => x.symbol === s)) {
-        await api.addSymbol(s, s.replace(/USDT$/, ""), "USDT");
-        onSymbolsChanged();
-      }
-      updateActive((l) => ({ ...l, symbols: l.symbols.includes(s) ? l.symbols : [...l.symbols, s] }));
-      setAdding("");
-    } catch (e) { setErr((e as Error).message); }
+    await addSymbols([s]);
   };
 
   const createList = async () => {
@@ -325,7 +372,37 @@ export function Watchlist({
         <div className="px-3 py-1 text-[10px] text-ink-faint">{reorderRefusal(sort)}</div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {visibleSymbols.length === 0 && <div className="px-4 py-8 text-center text-xs text-ink-faint">This watchlist is empty.<br />Add a USDT pair above.</div>}
+        {visibleSymbols.length === 0 && (
+          <div className="px-4 py-6">
+            <p className="text-xs font-medium text-ink">Nothing on this list yet</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
+              Type a Binance Spot USDT pair in the field above, or start from the
+              most liquid ones.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-1">
+              {STARTER_SYMBOLS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => void addSymbols([s])}
+                  aria-label={`Add ${s} to this watchlist`}
+                  className="rounded border border-border px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:border-accent hover:text-ink"
+                >
+                  {s.replace(/USDT$/, "")}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => void addSymbols(STARTER_SYMBOLS)}
+              className="mt-3 w-full rounded bg-accent px-2 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-accent/90"
+            >
+              Add all eight
+            </button>
+            <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
+              A starting point, not a recommendation — a watchlist row moves no
+              strategy, alert or order.
+            </p>
+          </div>
+        )}
         {visibleSymbols.map((s) => {
           const selectedRow = s.symbol === selected;
           const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];

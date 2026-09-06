@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
-import type { Candle, Interval } from "@/lib/types";
+import type { Candle } from "@/lib/types";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { fmtPrice } from "@/lib/format";
 import { isTypingTarget } from "@/lib/shortcuts";
 import {
@@ -12,11 +13,6 @@ import {
 
 const HIT_PX = 7;
 const HANDLE_PX = 4.5;
-
-const INTERVAL_SEC: Record<Interval, number> = {
-  "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
-  "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600, "12h": 43200, "1d": 86400,
-};
 
 interface Drag {
   /** null = moving the whole drawing; otherwise the anchor index being moved */
@@ -85,7 +81,7 @@ export function DrawingCanvas({
   series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
     | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | null;
   candles: Candle[];
-  interval: Interval;
+  interval: Resolution;
   tool: DrawingTool;
   /** creation finished — the caller reverts the rail to the cursor */
   onToolDone: () => void;
@@ -174,7 +170,8 @@ export function DrawingCanvas({
   // have gaps, so interpolate inside the data and extrapolate past its edges
   // (drawings are allowed to extend into the future).
   const times = useMemo(() => candles.map((c) => c.openTime / 1000), [candles]);
-  const stepSec = INTERVAL_SEC[interval];
+  // Chart times are seconds; a resolution's own step is in milliseconds.
+  const stepSec = resolutionMs(interval) / 1000;
 
   const timeToLogical = useCallback((t: number): number => {
     const n = times.length;

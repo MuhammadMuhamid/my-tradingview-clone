@@ -14,13 +14,13 @@
  */
 import { useEffect, useState } from "react";
 import { api, type MaAlertEvent } from "@/lib/api";
-import type { Interval } from "@/lib/types";
+import type { Resolution } from "@/lib/resolution";
 
 const POLL_MS = 60_000;
 const NONE: MaAlertEvent[] = [];
 
 export function useAlertEvents(
-  symbol: string, timeframe: Interval, enabled = true
+  symbol: string, timeframe: Resolution, enabled = true
 ): MaAlertEvent[] {
   const [events, setEvents] = useState<MaAlertEvent[]>(NONE);
 

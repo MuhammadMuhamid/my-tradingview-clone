@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
+import { nativeOnlyNotice, storedIntervalFor } from "@/lib/timeframes";
+import { type Resolution } from "@/lib/resolution";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { api } from "@/lib/api";
 import { deliversLiveOrders } from "@/lib/types";
-import type { DeliveryMode, Interval, Strategy, StrategyParams } from "@/lib/types";
+import type { DeliveryMode, Strategy, StrategyParams } from "@/lib/types";
 import { defaultParamsFor } from "@/lib/paramSchema";
 
 /**
@@ -28,7 +30,7 @@ export function AlertModal({
   open: boolean;
   onClose: () => void;
   symbol: string;
-  timeframe: Interval;
+  timeframe: Resolution;
   strategy: Strategy | null;
   strategies: Strategy[];
   params: StrategyParams;
@@ -54,15 +56,24 @@ export function AlertModal({
   // ticked from a dry run must not carry over into a live one.
   useEffect(() => { setAcknowledged(false); }, [open, delivery, buyQuoteQty]);
 
+  const deploymentTimeframe = storedIntervalFor(timeframe);
+  const deploymentNotice = nativeOnlyNotice(timeframe, "a deployment");
+
   const create = async () => {
     const selected = strategies.find((s) => s.key === conditionKey) ?? strategy;
-    if (!selected) return;
+    if (!selected || deploymentTimeframe === null) return;
     setBusy(true);
     setErr(null);
     try {
       const dep = await api.createDeployment({
         strategyKey: selected.key,
-        symbol, timeframe, params: selected.key === strategy?.key ? params : defaultParamsFor(selected.key), delivery,
+        symbol,
+        // A deployment runs the live engine on a stored series, so a derived
+        // chart resolution cannot be deployed. `create` is unreachable in that
+        // state — the dialog says so and its button is disabled — and this
+        // narrowing is what makes that structural rather than a convention.
+        timeframe: deploymentTimeframe,
+        params: selected.key === strategy?.key ? params : defaultParamsFor(selected.key), delivery,
         webhookUrl: deliversLiveOrders(delivery) ? webhookUrl || undefined : undefined,
         secret: deliversLiveOrders(delivery) ? secret || undefined : undefined,
         botUuid: delivery === "3commas" ? botUuid || undefined : undefined,
@@ -115,6 +126,9 @@ export function AlertModal({
         </Row>
         <Row label="Interval">
           <div className={`${box} bg-surface-2/60`}>Same as chart <span className="text-ink-faint">· {timeframe}</span></div>
+          {deploymentNotice !== null && (
+            <p role="status" className="mt-1 text-[11px] text-warn">{deploymentNotice}</p>
+          )}
         </Row>
 
         <div className="my-1 border-t border-border" />

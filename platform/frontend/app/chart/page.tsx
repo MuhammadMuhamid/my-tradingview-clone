@@ -67,9 +67,11 @@ import { currentMaValues, defaultMaLines, type MaType } from "@/lib/movingAverag
 import { defaultParamsFor } from "@/lib/paramSchema";
 import * as layoutStore from "@/lib/layouts";
 import type { WorkspaceState } from "@/lib/layouts";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
+import { storedIntervalFor } from "@/lib/timeframes";
+import { useResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { useSavedLayouts } from "@/lib/useSavedLayouts";
 import {
-  INTERVAL_MS,
   type Candle, type Interval, type OpenTrade, type Strategy, type StrategyParams,
   type SymbolInfo, type Trade,
 } from "@/lib/types";
@@ -743,6 +745,16 @@ export default function TvWorkspace() {
     setReplayDrawings(next);
   }, [symbol]);
   const [toast, setToast] = useState<string | null>(null);
+
+  /*
+   * The browser's favourite / recent / custom resolutions, read once here.
+   *
+   * The toolbar's picker and every pane's legend picker are handed the same
+   * object, so starring `45m` from a pane puts it on the toolbar strip and vice
+   * versa. Two components each keeping their own copy of a `localStorage` list
+   * is two products that disagree after the first click.
+   */
+  const resolutions = useResolutionPreferences();
   const [loadingBest, setLoadingBest] = useState(false);
   const [bestRange, setBestRange] = useState<{ start: string; end: string; nonce: number; run?: boolean } | null>(null);
   /** An optimizer link's request, waiting for the user to accept it. See FE-06. */
@@ -797,7 +809,15 @@ export default function TvWorkspace() {
     setLoadingBest(true);
     setErr(null);
     try {
-      const best = await api.optimizerBest(symbol, 1, strategyKey, interval);
+      /*
+       * The optimizer's leaderboard is keyed by a STORED interval. A derived
+       * chart resolution has no row there, so the request is made without a
+       * timeframe filter — the reply then names the timeframe it found, and
+       * `applyPaneInterval` moves the chart onto it, which is visible rather
+       * than silent.
+       */
+      const best = await api.optimizerBest(
+        symbol, 1, strategyKey, storedIntervalFor(interval) ?? undefined);
       setStrategyKey(best.strategyKey);
       setParams(best.params);
       setProperties((prev) => withOptimizerProperties(prev, best.properties));
@@ -936,11 +956,17 @@ export default function TvWorkspace() {
     setTrades([]);
   }, [pauseReplayForNavigation, sync]);
 
-  const changePaneInterval = useCallback((paneId: string, next: Interval) => {
+  /*
+   * A resolution change is also a use: it feeds the picker's Recent list, so
+   * `45m` typed once is one click away for the rest of the session however it
+   * was reached — the toolbar strip, a pane legend, or the keyboard.
+   */
+  const changePaneInterval = useCallback((paneId: string, next: Resolution) => {
+    resolutions.noteUsed(next);
     pauseReplayForNavigation();
     setWorkspace((ws) => applyPaneInterval(ws, paneId, next, sync));
     setTrades([]);
-  }, [pauseReplayForNavigation, sync]);
+  }, [pauseReplayForNavigation, sync, resolutions]);
 
   const activatePane = useCallback((paneId: string) => {
     setWorkspace((ws) => setActivePane(ws, paneId));
@@ -1047,7 +1073,7 @@ export default function TvWorkspace() {
   /** The candlestick-pattern overlay: off by default, remembered per browser. */
   const candleOverlay = useCandleOverlay();
 
-  const alertLinesFor = useCallback((paneInterval: Interval): ChartPriceLine[] =>
+  const alertLinesFor = useCallback((paneInterval: Resolution): ChartPriceLine[] =>
     maAlerts
       .filter((a) => a.conditionKind === "price" && a.targetPrice !== null &&
                      a.timeframe === paneInterval && isAlertActive(a))
@@ -1347,7 +1373,7 @@ export default function TvWorkspace() {
         setPaneStyleFocus((current) => ({ ...current, [paneId]: (current[paneId] ?? 0) + 1 }));
         return;
       case "drawing:clone": {
-        const copy = cloneDrawing(target, newId, INTERVAL_MS[interval] / 1000);
+        const copy = cloneDrawing(target, newId, resolutionMs(interval) / 1000);
         writeDrawings([...drawings, copy], "clone");
         return;
       }
@@ -1405,7 +1431,7 @@ export default function TvWorkspace() {
           if (!selectedDrawing) return false;
           writeDrawings([
             ...currentDrawings,
-            cloneDrawing(selectedDrawing, newId, INTERVAL_MS[interval] / 1000),
+            cloneDrawing(selectedDrawing, newId, resolutionMs(interval) / 1000),
           ]);
           return true;
         }
@@ -1418,7 +1444,7 @@ export default function TvWorkspace() {
           if (!held) return false;
           writeDrawings([
             ...currentDrawings,
-            cloneDrawing(held, newId, INTERVAL_MS[interval] / 1000),
+            cloneDrawing(held, newId, resolutionMs(interval) / 1000),
           ]);
           return true;
         }
@@ -1489,6 +1515,7 @@ export default function TvWorkspace() {
         canClose={paneCount > 1}
         onActivate={activatePane}
         onInterval={changePaneInterval}
+        resolutions={resolutions}
         onOpenSymbolSearch={setSearchPaneId}
         onToggleMaximize={toggleMaximizePane}
         onClose={closePane}
@@ -1540,7 +1567,7 @@ export default function TvWorkspace() {
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare,
-    maAlerts, candleOverlay]);
+    maAlerts, candleOverlay, resolutions]);
 
   return (
     <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">
@@ -1577,6 +1604,7 @@ export default function TvWorkspace() {
         <ChartToolbar
           symbol={symbol}
           interval={interval}
+          resolutions={resolutions}
           onOpenSearch={() => setSearchPaneId(active.id)}
           onInterval={(i) => changePaneInterval(active.id, i)}
           chartType={active.chartType}

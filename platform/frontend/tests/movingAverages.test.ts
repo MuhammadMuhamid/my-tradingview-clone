@@ -9,11 +9,16 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
-  MA_LENGTHS, buildMaOverlays, currentMaValues, defaultMaLines, ema, maColor, maId,
-  maLabel, pricePrecision, sma,
+  DEFAULT_VISIBLE_MA, MA_LENGTHS, buildMaOverlays, currentMaValues, defaultMaLines,
+  ema, maColor, maId, maLabel, pricePrecision, sma,
 } from "../lib/movingAverages";
 import type { Candle } from "../lib/types";
+
+const read = (rel: string): string =>
+  fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
 
 const near = (a: number, b: number, eps = 1e-9) =>
   assert.ok(Math.abs(a - b) < eps, `${a} !== ${b}`);
@@ -65,8 +70,31 @@ test("the drawable MA set is the fixed five lengths the alert engine understands
   assert.deepEqual([...MA_LENGTHS], [200, 100, 50, 21, 15]);
   const lines = defaultMaLines();
   assert.equal(lines.length, MA_LENGTHS.length * 2, "one SMA and one EMA per length");
-  assert.ok(lines.every((l) => l.visible));
   assert.equal(new Set(lines.map((l) => maId(l.type, l.length))).size, lines.length);
+});
+
+test("a new chart draws ONE moving average, and keeps the other nine", () => {
+  /*
+   * The default used to be all ten visible. Since a length's SMA and EMA share
+   * a hue, ten visible lines read as five doubled ones — the "duplicated
+   * spaghetti" a fresh chart of any coin opened with.
+   *
+   * The one that is drawn is not a taste: `srtrend_v10` defaults to
+   * `maType: "SMA"` with its chart-timeframe trend filter at length 200, so the
+   * line on screen is the line the engine is deciding on.
+   */
+  const lines = defaultMaLines();
+  const visible = lines.filter((l) => l.visible);
+  assert.equal(visible.length, 1, "one line, not a mesh");
+  assert.deepEqual(
+    { type: visible[0]!.type, length: visible[0]!.length },
+    { type: DEFAULT_VISIBLE_MA.type, length: DEFAULT_VISIBLE_MA.length });
+  assert.deepEqual(DEFAULT_VISIBLE_MA, { type: "sma", length: 200 });
+
+  // Nothing was removed: every line is still present, still armable, and the
+  // MA panel's existing "show all" restores the previous set exactly.
+  assert.equal(lines.length, 10);
+  assert.match(read("components/tv/MaPanel.tsx"), /onToggleAll\(!allVisible\)/);
 });
 
 test("ids and labels are stable and match the backend's maLabel", () => {

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Resolution } from "@/lib/resolution";
 import { api, type PineInputDef, type PineRunResult, type PineScript } from "@/lib/api";
-import type { Interval } from "@/lib/types";
 import { PINE_TEMPLATE, TOKEN_COLOR, highlightLine } from "@/lib/pineHighlight";
 import { fmtNum, fmtPct, signClass } from "@/lib/format";
 import { Separator } from "@/components/ui";
@@ -27,7 +27,7 @@ export function PineEditor({
   openScript, openParams, onOpenScriptConsumed, editingApplied = false,
 }: {
   symbol: string;
-  timeframe: Interval;
+  timeframe: Resolution;
   startTime: string;
   endTime: string;
   onApplyToChart: (payload: PineChartPayload) => void;

@@ -109,6 +109,53 @@ Spot symbol/timeframe, integrity state and issue counts, latest completed-bar
 time/age, and last check time. The status request does not rescan candle
 history.
 
+### Chart resolutions
+
+The candle store holds **thirteen intervals** — `1s 1m 3m 5m 15m 30m 1h 2h 4h 6h
+8h 12h 1d` (`platform/backend/src/types/market.ts`). Every one of them is a Binance Spot
+kline the venue publishes, verified against the configured market-data host
+rather than taken from documentation; `1s` is real and goes back to 2017.
+
+A **chart** may sit on more than those. `platform/backend/src/data/resolution.ts`, mirrored
+byte-for-byte into `platform/frontend/lib/resolution.ts` and pinned by
+`platform/frontend/tests/resolution.test.ts`, defines a `Resolution` as either a stored
+interval or an **exact whole multiple** of one: `30s` is thirty `1s` bars, `45m`
+is three `15m` bars, `3h` is three `1h` bars. The source is always the coarsest
+native interval that divides the target exactly, so the source bars tile the
+bucket with no boundary inside it — and a sub-minute resolution is folded from
+`1s` and never from `1m`, which would be a picture of a minute with a smaller
+label on it.
+
+Boundaries are `floor(t / ms) * ms` in epoch UTC, closing at `open + ms − 1`.
+They come from the grid rather than from the bars present, so a bucket whose
+first source bar is missing is a bar with less inside it at the place the grid
+says, not a bar somewhere else. The newest bucket is served incomplete on
+purpose: that one is the forming bar, and `now > closeTime` remains the single
+definition of "closed" for a derived resolution and a native one alike.
+
+A resolution has exactly **one spelling**: `60m` is refused because `1h` already
+names it, and an uppercase unit is refused outright because `1M` means a month
+everywhere a user has seen an interval written. One spelling is what makes one
+identity — the history request, the live stream, the Replay clip, the studies,
+the labels and the persisted pane state all name the same thing.
+
+Nothing derived is stored. `readResolvedCandles` reads the source rows and folds
+them per request, so there is one row per real venue bar and no possibility of a
+stored `45m` series drifting from the `15m` series it is made of. The live half
+is the browser's: Binance publishes a stream per native interval, so a `45m`
+pane listens to `@kline_15m` and folds the frames, accumulating volume per
+source bar rather than per frame. A bucket the feed did not observe from its
+first source bar emits nothing at all — the chart keeps the server's own exact
+fold of it and the feed starts at the next boundary, which costs one bar of
+liveness and never draws a fragment as a bar.
+
+Where a resolution stops: alerts, backtests, deployments and the optimizer read
+the candle store, so they run on stored intervals. A chart on `45m` cannot arm a
+`45m` alert, and the dialogs **say so** and name the interval they will use
+instead (`platform/frontend/components/tv/ResolutionNotice.tsx`) rather than substituting one
+quietly. `POST /api/alerts` refuses a timeframe the runner cannot evaluate —
+including `1s`, whose two-second intrabar floor cannot honour once-per-bar-close.
+
 ### The chart's own study layer
 
 One canonical mathematical layer, `platform/backend/src/ta/core.ts`, mirrored

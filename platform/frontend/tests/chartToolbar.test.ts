@@ -20,9 +20,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  MORE_INTERVALS, QUICK_INTERVALS, isQuickInterval, timeframeStrip,
-} from "../lib/timeframes";
+import { DEFAULT_FAVOURITES, timeframeStrip } from "../lib/timeframes";
 import {
   MANUAL_TICKET_ROW_WIDTH, TOOLBAR_CLUSTER_WIDTH, TOOLBAR_CLUSTER_WIDTH_WITH_TICKET,
   TOOLBAR_CONTROLS, TOOLBAR_LABEL_WIDTH, TOOLBAR_LABEL_WIDTH_WITH_TICKET,
@@ -33,7 +31,7 @@ import {
   enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen, toggleFullscreen,
   watchFullscreen, type FullscreenDocument, type FullscreenTarget,
 } from "../lib/fullscreen";
-import { INTERVAL_VALUES, type Interval } from "../lib/types";
+import { type Interval } from "../lib/types";
 import { SYNC_LABELS, DEFAULT_SYNC } from "../lib/paneSync";
 import { LAYOUT_PRESETS, MAX_PANES, availablePaneCounts, defaultPresetFor } from "../lib/layoutPresets";
 import {
@@ -163,7 +161,10 @@ test("the primary row never wraps — the timeframe strip absorbs the pressure",
   assert.match(className, /flex-nowrap/, "the primary row must stay one row");
   assert.doesNotMatch(className, /flex-wrap/);
   // The scroller is what lets it stay one row without pushing controls off.
-  assert.match(source, /overflow-x-auto/);
+  // It moved into the timeframe control with the picker; the property being
+  // asserted is unchanged — the favourites strip is still the element that
+  // gives width back rather than pushing its neighbours off the bar.
+  assert.match(read("components/tv/TimeframePicker.tsx"), /overflow-x-auto/);
 });
 
 // ── the collapse breakpoints measure the row, not the screen ───────────────
@@ -276,7 +277,7 @@ test("the toolbar acts on the focused pane, never on a pane it resolves itself",
     "the toolbar must not reach into the workspace to decide what it acts on");
   assert.doesNotMatch(toolbar, /activePaneId/);
   assert.match(toolbar, /symbol: string;/);
-  assert.match(toolbar, /onInterval: \(interval: Interval\) => void;/);
+  assert.match(toolbar, /onInterval: \(interval: Resolution\) => void;/);
 });
 
 test("the toolbar keeps the chart-type control as a slot it does not implement", () => {
@@ -288,41 +289,49 @@ test("the toolbar keeps the chart-type control as a slot it does not implement",
 
 // ── timeframes ─────────────────────────────────────────────────────────────
 
-test("the quick strip and the overflow together are exactly what the backend serves", () => {
-  const union = [...QUICK_INTERVALS, ...MORE_INTERVALS];
-  assert.equal(new Set(union).size, union.length, "an interval is in both lists");
-  assert.deepEqual([...union].sort(), [...INTERVAL_VALUES].sort(),
-    "the two lists must partition INTERVAL_VALUES — no invented interval, none hidden");
+/*
+ * The strip stopped being a fixed list of six.
+ *
+ * It is now the browser's FAVOURITES, and the eleven-interval partition these
+ * tests used to assert has been replaced by a catalogue that includes
+ * resolutions the candle store does not hold at all. What that catalogue may
+ * contain, and how favourites, recents and custom entries behave, is
+ * `tests/timeframes.test.ts`. What is left here is the bar's own contract:
+ * the strip is what the favourites say, and the picker button never leaves the
+ * current resolution unnamed.
+ */
+
+test("the strip is the browser's favourites, and defaults to the historical six", () => {
+  assert.deepEqual([...DEFAULT_FAVOURITES], ["1m", "5m", "15m", "1h", "4h", "1d"],
+    "a new user's toolbar must not change shape");
+  assert.deepEqual([...timeframeStrip("15m").quick], [...DEFAULT_FAVOURITES]);
+
+  const starred = timeframeStrip("45m", ["1m", "45m"]);
+  assert.deepEqual([...starred.quick], ["1m", "45m"],
+    "the strip renders the favourites it was given, not a fixed list");
 });
 
-test("no unsupported interval can reach the strip", () => {
-  for (const i of [...QUICK_INTERVALS, ...MORE_INTERVALS]) {
-    assert.ok((INTERVAL_VALUES as readonly string[]).includes(i), `${i} is not served`);
-  }
-  // The five that used to be unreachable from the UI despite being supported.
-  assert.deepEqual([...MORE_INTERVALS], ["3m", "30m", "2h", "6h", "12h"]);
+test("the picker button names the current resolution when the strip does not", () => {
+  const onStrip = timeframeStrip("15m");
+  assert.equal(onStrip.currentInQuick, true);
+  assert.equal(onStrip.menuLabel, "Timeframe");
+
+  // Otherwise the strip would show nothing pressed beside a button saying
+  // "Timeframe", which reads as "no timeframe selected".
+  const offStrip = timeframeStrip("45m");
+  assert.equal(offStrip.currentInQuick, false);
+  assert.equal(offStrip.menuLabel, "45m");
 });
 
-test("the overflow button names the current interval when it lives there", () => {
-  const common = timeframeStrip("15m");
-  assert.equal(common.moreActive, false);
-  assert.equal(common.moreLabel, "More");
-  assert.ok(isQuickInterval("15m"));
-
-  // Otherwise the strip would show nothing pressed and a button saying "More",
-  // which reads as "no timeframe selected".
-  const uncommon = timeframeStrip("30m");
-  assert.equal(uncommon.moreActive, true);
-  assert.equal(uncommon.moreLabel, "30m");
-  assert.equal(isQuickInterval("30m"), false);
-});
-
-test("every served interval is reachable from the strip", () => {
-  for (const i of INTERVAL_VALUES) {
-    const strip = timeframeStrip(i);
-    const reachable = [...strip.quick, ...strip.more];
-    assert.ok(reachable.includes(i as Interval), `${i} cannot be selected`);
-  }
+test("the bar mounts the shared picker rather than a second interval control", () => {
+  const source = read(TOOLBAR);
+  assert.match(source, /<TimeframePicker\n?\s+interval=\{interval\}/,
+    "the toolbar delegates its timeframe control");
+  assert.doesNotMatch(source, /QUICK_INTERVALS|MORE_INTERVALS/,
+    "the bar must not carry its own interval list again");
+  // The pane legend uses the same component, so the two cannot drift apart.
+  const legend = read("components/tv/PaneLegend.tsx");
+  assert.match(legend, /LegendTimeframe/);
 });
 
 // ── layout selector ────────────────────────────────────────────────────────

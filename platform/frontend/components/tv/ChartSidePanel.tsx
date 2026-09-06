@@ -13,6 +13,7 @@
  * layout with the chart squeezed out of it.
  */
 import type { ReactNode } from "react";
+import { type Resolution } from "@/lib/resolution";
 import { allNavLinks, PRODUCT_NAME } from "@/lib/navigation";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
@@ -26,7 +27,7 @@ import type { AppliedIndicator } from "@/lib/indicators";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { MaType } from "@/lib/movingAverages";
 import type { ReplayQuote } from "@/lib/replay";
-import type { Interval, SymbolInfo } from "@/lib/types";
+import type { SymbolInfo } from "@/lib/types";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 
 export type ChartPanel = "watchlist" | "alerts" | "indicators" | "ma" | "manual" | null;
@@ -38,7 +39,7 @@ export interface ChartSidePanelProps {
 
   /** The focused pane's instrument and resolution. */
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   replayActive: boolean;
   replayBlocksLiveActions: boolean;
 

@@ -90,7 +90,9 @@ test("the chart's moving averages are the canonical ones, value for value", () =
 
 test("the overlays and the legend readouts still come out of that same maths", () => {
   const bars = candles(400, 5);
-  const lines = defaultMaLines();
+  // Every line, shown — the equivalence being pinned is about the maths, not
+  // about which of them a fresh chart happens to draw.
+  const lines = defaultMaLines().map((l) => ({ ...l, visible: true }));
   const overlays = buildMaOverlays(bars, lines);
   assert.equal(overlays.length, lines.length, "one overlay per visible line");
 

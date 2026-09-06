@@ -373,7 +373,14 @@ test("NO SYNC CONTROL IS DECORATIVE", () => {
 // ── moving averages are per pane ───────────────────────────────────────────
 
 test("toggling a moving average affects one pane only", () => {
-  const ws = setPaneCount(seeded(), 3);
+  // Started from every line shown, because what is being asserted is that a
+  // toggle reaches exactly one pane — not what a fresh chart draws, which is
+  // `tests/movingAverages.test.ts`.
+  const all = setPaneCount(seeded(), 3);
+  const ws = {
+    ...all,
+    panes: all.panes.map((p) => ({ ...p, maLines: p.maLines.map((l) => ({ ...l, visible: true })) })),
+  };
   const next = togglePaneMa(ws, "p2", "sma", 200);
   const line = (id: string) =>
     paneById(next, id)!.maLines.find((l) => l.type === "sma" && l.length === 200)!;
@@ -476,7 +483,12 @@ test("A MALFORMED WORKSPACE FAILS SAFE TO ONE PANE", () => {
     { ...good, panes: [good.panes[0], { ...good.panes[1], id: "p1" }] },
     { ...good, activePaneId: "p9" },
     { ...good, maximizedPaneId: "p9" },
-    { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "7m" }] },
+    // `7m` is a REAL resolution now — seven whole one-minute bars — so the
+    // rejected example has to be one that genuinely cannot be built: a week is
+    // a calendar object rather than a multiple of anything the venue publishes.
+    { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "1w" }] },
+    { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "0m" }] },
+    { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "7" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], chartType: "kagi" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], bars: -5 }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], symbol: "" }] },
@@ -552,13 +564,55 @@ test("EVERY CHART ON SCREEN IS THE SAME FIRST-CLASS PANE COMPONENT", () => {
 
 test("a pane keeps its instrument legible at every size", () => {
   const pane = read("components/tv/ChartPane.tsx");
-  // The symbol button is unconditional; only the interval STRIP collapses, and
-  // it collapses to the interval itself rather than to nothing.
-  assert.match(pane, /onOpenSymbolSearch\(pane\.id\)/);
-  assert.match(pane, /\{pane\.interval\}/);
-  assert.match(pane, /showIntervals \? \(/);
-  assert.ok(!/density === "tiny" && [\s\S]{0,80}pane\.symbol/.test(pane),
+  const legend = read("components/tv/PaneLegend.tsx");
+
+  /*
+   * The pane's identity moved out of a bordered header row and onto the chart.
+   *
+   * What is being asserted is unchanged: a pane always says what instrument and
+   * what resolution it is, at every size. What changed is that it no longer
+   * says it in a second toolbar under the first one — see `PaneLegend`.
+   */
+  assert.match(pane, /<PaneLegend/);
+  assert.match(pane, /symbol=\{pane\.symbol\}/);
+  assert.match(pane, /interval=\{pane\.interval\}/);
+  assert.doesNotMatch(pane, /border-b border-border px-1\.5/,
+    "the pane must not grow a header row again");
+
+  // Neither the symbol nor the timeframe is behind a density flag; only the
+  // price and the loading note are.
+  assert.match(legend, /onOpenSymbolSearch\(paneId\)/);
+  assert.match(legend, /<LegendTimeframe/);
+  assert.match(legend, /!dense && props\.lastClose/);
+  assert.ok(!/dense[\s\S]{0,120}\{symbol\}/.test(legend),
     "the instrument must never be hidden by the density policy");
+});
+
+test("the pane legend does not swallow the drawing layer's pointer events", () => {
+  const legend = read("components/tv/PaneLegend.tsx");
+  // The container is transparent to the pointer and each control opts back in.
+  // A legend that ate a drag would break every trend line started near the
+  // top-left corner, which is where most of them start.
+  assert.match(legend, /pointer-events-none absolute left-2/);
+  assert.match(legend, /const HIT = "pointer-events-auto"/);
+});
+
+test("one pane means one symbol control and one timeframe control", () => {
+  /*
+   * The owner-reported defect, as an assertion.
+   *
+   * The toolbar carries the focused pane's symbol and timeframe; the pane
+   * carries its own. In a one-pane workspace those are the same pane, so the
+   * pane's copies must not be a second BAR — and they are not: they are a
+   * legend over the plot with no strip in it. The strip lives once, on the
+   * toolbar, and `tests/dom/chartShell.test.tsx` counts the rendered controls.
+   */
+  const pane = read("components/tv/ChartPane.tsx");
+  assert.doesNotMatch(pane, /PANE_INTERVALS/,
+    "the pane must not carry its own list of intervals again");
+  const legend = read("components/tv/PaneLegend.tsx");
+  assert.doesNotMatch(legend, /\.map\(\(i\) =>/,
+    "the legend states one timeframe; it does not render a strip of them");
 });
 
 // ── chart-only transforms in the workspace ─────────────────────────────────

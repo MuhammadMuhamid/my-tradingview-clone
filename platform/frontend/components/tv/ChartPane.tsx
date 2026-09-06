@@ -27,6 +27,7 @@
  * reaches for another pane.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { CandleChart, type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import type { PaneAction } from "@/components/tv/IndicatorPane";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
@@ -52,14 +53,11 @@ import type { MaAlert } from "@/lib/api";
 
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
 const NO_FIRED: ChartMarker[] = [];
-import { CompareControl } from "@/components/tv/CompareControl";
+import { PaneLegend } from "@/components/tv/PaneLegend";
+import type { ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { PaneCompare } from "@/lib/workspace";
 import { pricePrecision } from "@/lib/movingAverages";
-import { fmtPrice } from "@/lib/format";
-import { INTERVAL_MS, type Candle, type Interval, type Trade } from "@/lib/types";
-
-/** The intervals offered in a pane's own header strip. */
-const PANE_INTERVALS: readonly Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
+import { type Candle, type Trade } from "@/lib/types";
 
 export interface ChartPaneProps {
   pane: PaneState;
@@ -72,7 +70,7 @@ export interface ChartPaneProps {
   canClose: boolean;
 
   onActivate: (paneId: string) => void;
-  onInterval: (paneId: string, interval: Interval) => void;
+  onInterval: (paneId: string, interval: Resolution) => void;
   onOpenSymbolSearch: (paneId: string) => void;
   onToggleMaximize: (paneId: string) => void;
   onClose: (paneId: string) => void;
@@ -170,6 +168,16 @@ export interface ChartPaneProps {
 
   /** Force the smallest chrome regardless of measured size (phones). */
   compact?: boolean;
+
+  /**
+   * The browser's favourite / recent / custom resolutions.
+   *
+   * Passed down rather than read here so every pane's legend picker and the
+   * toolbar's picker share one set of lists — starring `45m` on a pane puts it
+   * on the toolbar strip immediately, which is what makes them one control
+   * rather than two that look alike.
+   */
+  resolutions: ResolutionPreferences;
 }
 
 function ChartPaneImpl(props: ChartPaneProps) {
@@ -323,7 +331,6 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * happening.
    */
   const compare = pane.compare ?? null;
-  const [compareOpen, setCompareOpen] = useState(false);
   const compareSeries = useCompareSeries(
     visibleCandles, compare?.symbol ?? "", pane.interval, pane.bars,
     { enabled: compare !== null });
@@ -375,7 +382,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const barsRef = useRef(visibleCandles);
   barsRef.current = visibleCandles;
   const emitRange = useMemo(() => {
-    const step = INTERVAL_MS[pane.interval] / 1000;
+    const step = resolutionMs(pane.interval) / 1000;
     return (range: { from: number; to: number }) => {
       const span = Math.ceil((range.to - range.from) / step);
       if (Number.isFinite(span) && span > 0) {
@@ -453,7 +460,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
       : markers),
     [markers, firedMarkers, patternMarks]);
 
-  const showIntervals = density === "large" || density === "medium";
+  /*
+   * A legend shows less as the pane gets smaller, and stops entirely at tiny.
+   *
+   * `showIdentityDetail` is the old `showIntervals` under an honest name: it no
+   * longer gates a strip of six buttons, because there is no strip — it gates
+   * the price and the loading note, which are the parts of the legend a
+   * hundred-pixel-tall pane in a 4×4 has no room for. The symbol and the
+   * timeframe are never dropped: they are what a pane IS.
+   */
+  const showIdentityDetail = density === "large" || density === "medium";
   const showReadout = density !== "tiny";
 
   return (
@@ -479,7 +495,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
         width. `tests/chartWorkspace.test.ts` now asserts this pairing so the
         class cannot be dropped again.
       */
-      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-sm border bg-surface transition-colors ${
+      className={`group/pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-sm border bg-surface transition-colors ${
         active ? "border-accent/70" : "border-border"
       }`}
     >
@@ -491,128 +507,40 @@ function ChartPaneImpl(props: ChartPaneProps) {
       <span className="sr-only">
         {pane.symbol} {pane.interval}{active ? " — focused pane" : ""}
       </span>
-      <div className="flex flex-nowrap items-center gap-1.5 border-b border-border px-1.5 py-0.5">
-        <button
-          onClick={() => props.onOpenSymbolSearch(pane.id)}
-          title={`Change this pane's symbol — currently ${pane.symbol} · ${visibleCandles.length.toLocaleString()} bars loaded`}
-          aria-label={`Change symbol for the ${pane.symbol} pane`}
-          className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-xs font-semibold text-ink hover:bg-surface-2"
-        >
-          {pane.symbol}
-        </button>
-        {showIntervals ? (
-          <div className="flex items-center gap-0.5">
-            {PANE_INTERVALS.map((i) => (
-              <button
-                key={i}
-                onClick={() => props.onInterval(pane.id, i)}
-                aria-pressed={pane.interval === i}
-                className={`rounded px-1.5 py-0.5 text-[11px] transition-colors ${
-                  pane.interval === i
-                    ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                {i}
-              </button>
-            ))}
-          </div>
-        ) : (
-          // Below the size where a whole strip fits, the timeframe is still
-          // stated — it is half of what identifies what you are looking at.
-          <span className="shrink-0 rounded bg-surface-2 px-1 text-[11px] font-semibold text-ink">
-            {pane.interval}
-          </span>
-        )}
-        {/*
-          The comparison, stated on the pane it belongs to.
-          
-          A chip rather than a hidden setting: a chart whose price line is a
-          percentage against a second instrument is a materially different
-          chart, and a reader must be able to see that at a glance and undo it
-          in one click.
-        */}
-        <button
-          onClick={() => setCompareOpen(true)}
-          title={compare
-            ? `Comparing with ${compare.symbol} — ${compare.mode}`
-            : "Compare this chart with another instrument"}
-          aria-label={compare
-            ? `Comparing with ${compare.symbol}. Change or remove.`
-            : "Compare with another instrument"}
-          className={`flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] ${
-            compare
-              ? "bg-surface-2 font-semibold text-ink"
-              : "text-ink-faint hover:bg-surface-2 hover:text-ink"
-          }`}
-        >
-          {compare ? `vs ${compare.symbol}` : "vs"}
-        </button>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular text-[11px] text-ink-muted">
-          {showReadout && last && (
-            <span className={history.stale ? "text-warn" : "text-ink"}
-              title={history.stale
-                ? "This window is behind the market — the tail refresh could not reach the current bar."
-                : undefined}>
-              {fmtPrice(last.close)}
-            </span>
-          )}
-          {/*
-            The bar count is an implementation readout, not a trading fact:
-            it lives in the title of the loading indicator (and under More
-            chart controls → History depth), not on the pane's primary row.
-          */}
-          {density === "large" && history.loading && (
-            <span className="text-ink-faint" title={`${visibleCandles.length.toLocaleString()} bars loaded`}>
-              loading…
-            </span>
-          )}
-          {props.canMaximize && (
-            <button
-              onClick={() => props.onToggleMaximize(pane.id)}
-              title={props.maximized ? "Restore the layout" : "Maximize this pane"}
-              aria-label={props.maximized ? "Restore the layout" : "Maximize this pane"}
-              aria-pressed={props.maximized}
-              className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
-            >
-              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor"
-                strokeWidth="1.4" aria-hidden="true">
-                {props.maximized
-                  ? <path d="M4.5 1.5v3h-3M7.5 10.5v-3h3" />
-                  : <path d="M1.5 4.5v-3h3M10.5 7.5v3h-3" />}
-              </svg>
-            </button>
-          )}
-          {props.canClose && (
-            <button
-              onClick={() => props.onClose(pane.id)}
-              title="Close this pane"
-              aria-label={`Close the ${pane.symbol} pane`}
-              className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
-            >
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-            </button>
-          )}
-        </span>
-      </div>
-
       {history.error && (
         <div className="border-b border-down/30 bg-down/10 px-2 py-1 text-[11px] text-down">
           {history.error}
         </div>
       )}
 
-      <CompareControl
-        open={compareOpen}
-        current={compare}
-        baseSymbol={pane.symbol}
-        onClose={() => setCompareOpen(false)}
-        onApply={(next) => props.onCompareChange?.(paneId, next)}
-      />
-
       <div className="relative min-h-0 flex-1">
+        {/*
+          The pane's identity and its own controls, drawn ON the chart.
+
+          Not a header row: see `components/tv/PaneLegend.tsx` for why a second
+          bordered bar under the toolbar was the duplication the owner reported,
+          and what the benchmark actually does instead.
+        */}
+        <PaneLegend
+          paneId={paneId}
+          symbol={pane.symbol}
+          interval={pane.interval}
+          lastClose={showReadout && last ? last.close : null}
+          stale={history.stale}
+          loading={density === "large" && history.loading}
+          bars={visibleCandles.length}
+          compare={compare}
+          dense={!showIdentityDetail}
+          onOpenSymbolSearch={props.onOpenSymbolSearch}
+          onInterval={props.onInterval}
+          {...(props.onCompareChange ? { onCompareChange: props.onCompareChange } : {})}
+          resolutions={props.resolutions}
+          canMaximize={props.canMaximize}
+          canClose={props.canClose}
+          maximized={props.maximized}
+          onToggleMaximize={props.onToggleMaximize}
+          onClose={props.onClose}
+        />
         {history.loading && !holdingRequested && history.candles.length > 0 && (
           // The previous instrument's bars are still drawn underneath; say so
           // rather than let them pass for the new one for a few seconds.

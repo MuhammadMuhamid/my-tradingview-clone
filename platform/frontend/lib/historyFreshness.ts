@@ -14,8 +14,8 @@
  *
  * Count is the wrong question. A window is current when its newest bar is the
  * newest bar the interval grid has produced, and that is a statement about
- * TIME. Everything here is arithmetic on the canonical interval durations in
- * `lib/types` — there is no second duration table, and no constant that means
+ * TIME. Everything here is arithmetic on the canonical resolution durations in
+ * `lib/resolution` — there is no second duration table, and no constant that means
  * "recent" independently of the timeframe on screen.
  *
  * ── Which bar counts as "newest" ───────────────────────────────────────────
@@ -40,17 +40,18 @@
  * measured from the newest CLOSED slot rather than from wall clock, which is
  * what makes the exact-boundary case quiet rather than noisy.
  */
-import { INTERVAL_MS, type Candle, type Interval } from "./types";
+import type { Candle } from "./types";
+import { resolutionMs, type Resolution } from "./resolution";
 
 /** The open time of the slot that is forming at `now`. */
-export function formingOpenTime(now: number, interval: Interval): number {
-  const step = INTERVAL_MS[interval];
+export function formingOpenTime(now: number, interval: Resolution): number {
+  const step = resolutionMs(interval);
   return Math.floor(now / step) * step;
 }
 
 /** The open time of the newest slot that has fully closed at `now`. */
-export function lastClosedOpenTime(now: number, interval: Interval): number {
-  return formingOpenTime(now, interval) - INTERVAL_MS[interval];
+export function lastClosedOpenTime(now: number, interval: Resolution): number {
+  return formingOpenTime(now, interval) - resolutionMs(interval);
 }
 
 /**
@@ -61,10 +62,10 @@ export function lastClosedOpenTime(now: number, interval: Interval): number {
  * not a reason to claim the window is ahead of the market.
  */
 export function barsBehind(
-  lastOpenTime: number | null, interval: Interval, now: number
+  lastOpenTime: number | null, interval: Resolution, now: number
 ): number {
   if (lastOpenTime === null || !Number.isFinite(lastOpenTime)) return Number.POSITIVE_INFINITY;
-  const behind = (lastClosedOpenTime(now, interval) - lastOpenTime) / INTERVAL_MS[interval];
+  const behind = (lastClosedOpenTime(now, interval) - lastOpenTime) / resolutionMs(interval);
   return behind <= 0 ? 0 : Math.floor(behind);
 }
 
@@ -106,16 +107,16 @@ export interface TailFreshness {
  * about history that a tail repair cannot fix and should not nag about; a hole
  * at the tail is exactly what a tail repair does fix.
  */
-export function tailGapBars(candles: readonly Candle[], interval: Interval): number {
+export function tailGapBars(candles: readonly Candle[], interval: Resolution): number {
   if (candles.length < 2) return 0;
   const last = candles[candles.length - 1]!.openTime;
   const previous = candles[candles.length - 2]!.openTime;
-  const missing = (last - previous) / INTERVAL_MS[interval] - 1;
+  const missing = (last - previous) / resolutionMs(interval) - 1;
   return Number.isFinite(missing) && missing > 0 ? Math.floor(missing) : 0;
 }
 
 export function inspectTail(
-  candles: readonly Candle[], interval: Interval, now: number
+  candles: readonly Candle[], interval: Resolution, now: number
 ): TailFreshness {
   const lastOpenTime = candles.length > 0 ? candles[candles.length - 1]!.openTime : null;
   const behind = barsBehind(lastOpenTime, interval, now);
@@ -128,7 +129,7 @@ export function inspectTail(
 
 /** True when this window's newest bar is too far behind the interval grid. */
 export function isTailStale(
-  candles: readonly Candle[], interval: Interval, now: number
+  candles: readonly Candle[], interval: Resolution, now: number
 ): boolean {
   return inspectTail(candles, interval, now).stale;
 }
@@ -148,9 +149,9 @@ export function isTailStale(
  * because beyond that the thin-history backfill path is the right repair.
  */
 export function tailRepairRange(
-  lastOpenTime: number | null, interval: Interval, now: number, maxBars: number
+  lastOpenTime: number | null, interval: Resolution, now: number, maxBars: number
 ): { from: number; to: number } {
-  const step = INTERVAL_MS[interval];
+  const step = resolutionMs(interval);
   const floor = formingOpenTime(now, interval) - Math.max(1, Math.ceil(maxBars)) * step;
   const from = lastOpenTime === null ? floor : Math.max(floor, lastOpenTime);
   return { from, to: now };

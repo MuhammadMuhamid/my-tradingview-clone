@@ -29,8 +29,9 @@
  * Opt-in via `?format=compact`. The default response shape is unchanged, so no
  * existing consumer breaks.
  */
-import type { Candle, Interval } from "../types/market";
-import { INTERVAL_MS } from "../types/market";
+import type { Candle } from "../types/market";
+import type { FoldableBar, Resolution } from "./resolution";
+import { resolutionMs } from "./resolution";
 
 /** `[openTime, open, high, low, close, volume]`. */
 export type CompactBar = [number, number, number, number, number, number];
@@ -38,7 +39,13 @@ export type CompactBar = [number, number, number, number, number, number];
 export interface CompactCandles {
   format: "compact-v1";
   symbol: string;
-  interval: Interval;
+  /**
+   * The resolution these bars ARE — a native interval, or a derived one such
+   * as `45m`. The envelope names it once and the bars carry no interval of
+   * their own, which is what makes it impossible for a response to disagree
+   * with itself about what it is.
+   */
+  interval: Resolution;
   /** Milliseconds per bar, so `closeTime` is derivable without a lookup table. */
   stepMs: number;
   count: number;
@@ -51,15 +58,15 @@ const round = (n: number): number =>
   Number.isFinite(n) ? Number(n.toFixed(PRICE_DECIMALS)) : 0;
 
 export function toCompact(
-  candles: Candle[],
+  candles: readonly FoldableBar[],
   symbol: string,
-  interval: Interval
+  interval: Resolution
 ): CompactCandles {
   return {
     format: "compact-v1",
     symbol,
     interval,
-    stepMs: INTERVAL_MS[interval],
+    stepMs: resolutionMs(interval),
     count: candles.length,
     bars: candles.map((c): CompactBar => [
       c.openTime,
@@ -82,9 +89,12 @@ export function toCompact(
  */
 export function fromCompact(payload: CompactCandles): Candle[] {
   const { symbol, interval, stepMs } = payload;
+  // The stored `Candle` type names a native interval; a compact payload may
+  // carry a derived resolution. Only native payloads round-trip into `Candle`,
+  // which is the honest shape: nothing in the engine holds a derived bar.
   return payload.bars.map(([openTime, open, high, low, close, volume]) => ({
     symbol,
-    interval,
+    interval: interval as Candle["interval"],
     openTime,
     open,
     high,

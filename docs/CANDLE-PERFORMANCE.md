@@ -62,7 +62,8 @@ switch.
 
 ## 4. Before and after
 
-Medians across all eleven timeframes.
+Medians across all eleven timeframes the store held when this was measured;
+`1s` and `8h` were added afterwards and the wire format is unchanged.
 
 | bars | payload before | payload after | smaller | parse before | parse after | speed-up |
 |---:|---:|---:|---:|---:|---:|---:|

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
@@ -14,10 +15,10 @@ import {
 } from "@/lib/api";
 import { describeAlert } from "@/lib/alerts";
 import { fmtPrice } from "@/lib/format";
-import type { Interval } from "@/lib/types";
+import { ALERT_INTERVAL_VALUES, type Interval } from "@/lib/types";
 
 /** Every timeframe the backend supports, in the order the toolbar shows them. */
-const INTERVALS: Interval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"];
+
 
 const DIRECTION_LABELS: Record<PriceDirection, string> = {
   either: "Price reaches the level, from either side",
@@ -40,13 +41,19 @@ const DIRECTION_HELP: Record<PriceDirection, string> = {
  * an opportunity to fat-finger a decimal.
  */
 export function PriceAlertModal({
-  open, onClose, symbol, chartTimeframe, initialPrice, lastPrice, lastPriceNotice, existing,
+  open, onClose, symbol, chartTimeframe, resolutionNotice = null, initialPrice, lastPrice,
+  lastPriceNotice, existing,
   onPickFromChart, onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   symbol: string;
   chartTimeframe: Interval;
+  /**
+   * Why the chart's own resolution is not this alert's timeframe, or null.
+   * Built by `ChartDialogs` from `nativeOnlyNotice`.
+   */
+  resolutionNotice?: string | null;
   /** The clicked level, when the user picked one off the chart. */
   initialPrice: number | null;
   /** Latest close, used as the fallback level and to sanity-check direction. */
@@ -218,6 +225,7 @@ export function PriceAlertModal({
           </p>
         )}
 
+        <ResolutionNotice notice={resolutionNotice} using={timeframe} />
         <Row label="Timeframe">
           <select
             value={timeframe}
@@ -225,8 +233,8 @@ export function PriceAlertModal({
             aria-label="Alert timeframe"
             className={box}
           >
-            {INTERVALS.map((tf) => (
-              <option key={tf} value={tf}>{tf}{tf === chartTimeframe ? " — same as chart" : ""}</option>
+            {ALERT_INTERVAL_VALUES.map((tf) => (
+              <option key={tf} value={tf}>{tf}{resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}</option>
             ))}
           </select>
         </Row>

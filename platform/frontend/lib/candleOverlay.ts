@@ -35,7 +35,8 @@
 import type { ChartMarker } from "@/components/CandleChart";
 import type { CandlePattern, Snapshot } from "@/lib/scanner/types";
 import { sameInstrument } from "@/lib/instrument";
-import type { Candle, Interval } from "@/lib/types";
+import type { Candle } from "@/lib/types";
+import type { Resolution } from "@/lib/resolution";
 
 export const CANDLE_OVERLAY_KEY = "tv.candleOverlay.v1";
 
@@ -75,7 +76,7 @@ export function anchorIndex(candles: readonly Candle[], now: number): number {
 export function placePatterns(
   snapshot: Snapshot | null,
   symbol: string,
-  timeframe: Interval,
+  timeframe: Resolution,
   candles: readonly Candle[],
   now: number
 ): PlacedPattern[] {
@@ -106,7 +107,7 @@ export function placePatterns(
  * `SOLUSDT`, and comparing those directly would silently never match.
  */
 function findRow(
-  snapshot: Snapshot, symbol: string, timeframe: Interval
+  snapshot: Snapshot, symbol: string, timeframe: Resolution
 ): { patterns?: CandlePattern[] } | null {
   const rows = (snapshot as unknown as {
     rows?: { symbol?: string; market?: { native_symbol?: string | null; config_symbol?: string };

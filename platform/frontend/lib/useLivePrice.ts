@@ -26,7 +26,7 @@
 import { useEffect, useState } from "react";
 import { marketFeed, type FeedState, type KlineTick } from "./marketFeed";
 import { datasetKey } from "./liveDataset";
-import type { Interval } from "./types";
+import type { Resolution } from "./resolution";
 
 export interface LivePriceState {
   /** Newest live close for this dataset, or null before a valid frame. */
@@ -44,7 +44,7 @@ export interface LivePriceState {
 const EMPTY: LivePriceState = { price: null, barCloseTime: null, openTime: null };
 
 export function useLivePrice(
-  symbol: string, interval: Interval, options: { enabled?: boolean } = {}
+  symbol: string, interval: Resolution, options: { enabled?: boolean } = {}
 ): LivePriceState {
   const enabled = options.enabled !== false;
   const [state, setState] = useState<LivePriceState>(EMPTY);

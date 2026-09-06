@@ -9,13 +9,14 @@
  * the current-layout pointer and the autosave toggle stay device-local.
  */
 import { api, type ServerLayout } from "./api";
-import type { Interval, StrategyParams } from "./types";
+import type { StrategyParams } from "./types";
+import type { Resolution } from "./resolution";
 import type { StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import { defaultMaLines, type MaLine } from "./movingAverages";
 
 export interface WorkspaceState {
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   bars: number;
   strategyKey: string;
   params: StrategyParams;

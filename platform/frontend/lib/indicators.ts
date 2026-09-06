@@ -15,7 +15,8 @@ import {
   PRICE_PANE_ID, shiftedPlotTime, type ChartBarColor, type ChartDecoration,
   type ChartOverlay, type ChartSeriesStyle,
 } from "@/lib/chartSeries";
-import type { Interval, Trade } from "@/lib/types";
+import type { Trade } from "@/lib/types";
+import type { Resolution } from "@/lib/resolution";
 
 export type PineParams = Record<string, number | string | boolean>;
 
@@ -331,7 +332,7 @@ export function toChartOutput(
 /** Run one instance against the current chart context. */
 export async function runIndicator(
   ind: AppliedIndicator,
-  ctx: { symbol: string; timeframe: Interval; startTime: string; endTime: string }
+  ctx: { symbol: string; timeframe: Resolution; startTime: string; endTime: string }
 ): Promise<AppliedIndicator> {
   try {
     const r = await api.runPine({

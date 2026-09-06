@@ -21,11 +21,20 @@
  * developing HTF values are separate semantics and are not synthesized by the
  * historical merge or Pine interpreter.
  */
-import type { Candle, Interval } from "../types/market";
+import type { Interval } from "../types/market";
+import type { FoldableBar, Resolution } from "../data/resolution";
 
 export interface Bars {
   symbol: string;
-  interval: Interval;
+  /**
+   * The resolution these bars ARE.
+   *
+   * A `Resolution` rather than an `Interval` because a chart may be on `45m`,
+   * and a script asking `timeframe.period` on that chart must be told `45m`.
+   * Reporting the `15m` source the bars were folded from would be a quiet lie
+   * about the series the script is running over.
+   */
+  interval: Resolution;
   /** open time ms, ascending */
   time: number[];
   open: number[];
@@ -37,11 +46,11 @@ export interface Bars {
   length: number;
 }
 
-export function toBars(candles: Candle[]): Bars {
+export function toBars(candles: readonly FoldableBar[]): Bars {
   const n = candles.length;
   const b: Bars = {
     symbol: candles[0]?.symbol ?? "",
-    interval: (candles[0]?.interval ?? "1m") as Interval,
+    interval: candles[0]?.interval ?? "1m",
     time: new Array(n),
     open: new Array(n),
     high: new Array(n),
@@ -68,7 +77,18 @@ export function toBars(candles: Candle[]): Bars {
  * Pine timeframe string → platform interval.
  * Pine: "" = chart TF, minutes as plain numbers ("1","5","60","240"), "D"/"1D" daily.
  */
-export function pineTfToInterval(tf: string, chartTf: Interval): Interval {
+/*
+ * Two overloads rather than one widened signature.
+ *
+ * The empty string means "the chart's own timeframe", so this function returns
+ * whatever it was given for that case — and a caller that handed it a native
+ * `Interval` (every strategy does; the engine has no derived feeds) must get an
+ * `Interval` back, not a `string` it then has to re-narrow. A caller that handed
+ * it a chart `Resolution` gets a `Resolution`.
+ */
+export function pineTfToInterval(tf: string, chartTf: Interval): Interval;
+export function pineTfToInterval(tf: string, chartTf: Resolution): Resolution;
+export function pineTfToInterval(tf: string, chartTf: Resolution): Resolution {
   if (tf === "" || tf === undefined || tf === null) return chartTf;
   const t = String(tf).toUpperCase();
   if (t === "D" || t === "1D") return "1d";
@@ -81,7 +101,7 @@ export function pineTfToInterval(tf: string, chartTf: Interval): Interval {
   return itv;
 }
 
-export function feedKey(symbol: string, interval: Interval): string {
+export function feedKey(symbol: string, interval: Resolution): string {
   return `${symbol}|${interval}`;
 }
 

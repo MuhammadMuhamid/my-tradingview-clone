@@ -16,6 +16,7 @@ import { maRrV9Module } from "./strategies/ma_rr_v9";
 import { srTrendV10Module } from "./strategies/srtrend_v10";
 import { mtfLeanModule } from "./strategies/mtf_lean";
 import type { TradeRecord, BacktestMetrics, EquityPoint, OpenTrade } from "../types/backtest";
+import { resolutionMs } from "../data/resolution";
 import { INTERVAL_MS, type Interval } from "../types/market";
 
 /*
@@ -62,7 +63,7 @@ function finestLoadedFeedBelow(
     if (INTERVAL_MS[need.interval] >= chartMs) continue;
     if (!feeds.has(symbol, need.interval)) continue;
     const bars = feeds.get(symbol, need.interval);
-    if (best === null || INTERVAL_MS[need.interval] < INTERVAL_MS[best.interval]) best = bars;
+    if (best === null || INTERVAL_MS[need.interval] < resolutionMs(best.interval)) best = bars;
   }
   return best;
 }

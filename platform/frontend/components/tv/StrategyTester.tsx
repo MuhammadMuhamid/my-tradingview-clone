@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { nativeOnlyNotice, storedIntervalFor } from "@/lib/timeframes";
+import { type Resolution } from "@/lib/resolution";
 import { EquityCurve } from "@/components/EquityCurve";
 import { TradeList } from "@/components/TradeList";
 import { Separator, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api";
-import type { Backtest, Interval, OpenTrade, Strategy, StrategyParams, Trade } from "@/lib/types";
+import type { Backtest, OpenTrade, Strategy, StrategyParams, Trade } from "@/lib/types";
 import type { StrategyProperties } from "./StrategySettingsModal";
 import { fmtNum, fmtPct, fmtPrice, signClass } from "@/lib/format";
 
@@ -42,7 +44,7 @@ export function StrategyTester({
   properties, params, requestedRange, onTrades, onOpenTrade,
 }: {
   symbol: string;
-  timeframe: Interval;
+  timeframe: Resolution;
   strategies: Strategy[];
   strategy: Strategy | null;
   onStrategyChange: (key: string) => void;
@@ -87,8 +89,19 @@ export function StrategyTester({
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [run, onTrades, onOpenTrade]);
 
+  /*
+   * The backtester reads the candle store, so it runs on a STORED interval.
+   *
+   * A chart on `45m` has no stored 45-minute series to backtest — and running
+   * the `15m` it is folded from, under a button on a 45-minute chart, would
+   * report a backtest of a strategy nobody asked for. So the run is refused
+   * with the reason on the button, and the timeframe is left to the user.
+   */
+  const backtestTimeframe = storedIntervalFor(timeframe);
+  const backtestNotice = nativeOnlyNotice(timeframe, "the backtester");
+
   const launch = async (startDate = start, endDate = end) => {
-    if (!strategy) return;
+    if (!strategy || backtestTimeframe === null) return;
     setErr(null);
     setTrades([]);
     onTrades([]);
@@ -97,7 +110,7 @@ export function StrategyTester({
       const bt = await api.createBacktest({
         strategyKey: strategy.key,
         symbol,
-        timeframe,
+        timeframe: backtestTimeframe,
         startTime: new Date(startDate).toISOString(),
         endTime: new Date(endDate + "T23:59:59Z").toISOString(),
         params: {
@@ -173,11 +186,15 @@ export function StrategyTester({
           onChange={(e) => setEnd(e.target.value)} className={inputBox} />
         <button
           onClick={() => void launch()}
-          disabled={running || !strategy}
+          disabled={running || !strategy || backtestTimeframe === null}
+          title={backtestNotice ?? undefined}
           className="flex h-7 shrink-0 items-center rounded-md bg-accent px-3 text-xs font-semibold text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {running ? "Running…" : "Run backtest"}
         </button>
+        {backtestNotice !== null && (
+          <span role="status" className="text-xs text-warn">{backtestNotice}</span>
+        )}
         {run && <StatusBadge status={run.status} />}
         {err && <span className="text-xs text-down">{err}</span>}
         <div className="ml-auto flex gap-4" role="tablist" aria-label="Strategy tester results">

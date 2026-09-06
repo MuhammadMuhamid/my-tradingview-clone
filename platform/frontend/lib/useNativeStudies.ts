@@ -53,7 +53,8 @@ import {
 } from "./native/storage";
 import { pushPaneStudies, syncPaneStudies } from "./chartStateSync";
 import type { ChartDecoration, ChartOverlay } from "./chartSeries";
-import type { Candle, Interval } from "./types";
+import type { Candle } from "./types";
+import type { Resolution } from "./resolution";
 
 /** One study, as the panel and the legend want to read it. */
 export interface NativeStudyRow {
@@ -84,7 +85,7 @@ export interface NativeStudiesApi {
 
 export interface NativeStudiesContext {
   candles: readonly Candle[];
-  interval: Interval;
+  interval: Resolution;
   /**
    * Where the user is looking, in bars.
    *

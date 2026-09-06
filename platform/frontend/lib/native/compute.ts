@@ -1,4 +1,5 @@
 "use client";
+import { resolutionMs } from "@/lib/resolution";
 /**
  * Turning a native study into what the chart already knows how to draw.
  *
@@ -37,7 +38,7 @@
  */
 import type { ChartDecoration, ChartOverlay, ChartPoint } from "@/lib/chartSeries";
 import { PRICE_PANE_ID } from "@/lib/chartSeries";
-import { INTERVAL_MS, type Candle } from "@/lib/types";
+import { type Candle } from "@/lib/types";
 import {
   defaultParams, normalizeParams, type NativeParams, type NativeStudyDef, type PlotDef,
 } from "./registry";
@@ -163,7 +164,7 @@ export function runNativeStudy(
 
   const paneId = def.overlay ? PRICE_PANE_ID : `indicator:${applied.key}`;
   const times = candles.map((c) => Math.floor(c.openTime / 1000));
-  const stepSeconds = INTERVAL_MS[interval] / 1000;
+  const stepSeconds = resolutionMs(interval) / 1000;
   const precision = def.precision ?? pricePrecision;
   const instanceParams = describeParams(def, params);
 

@@ -14,9 +14,13 @@ const COINS = [
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h"];
 const DAY = 86_400_000;
 const START = Date.parse("2025-07-20T00:00:00Z");
+// A zero means "this interval is not in the optimizer's search space", which is
+// true of every interval `INTERVALS` above does not list — including the two
+// (`1s`, `8h`) the store gained for the chart's own resolutions.
 const WARMUP: Record<Interval, number> = {
-  "1m": 3 * DAY, "3m": 0, "5m": 10 * DAY, "15m": 40 * DAY, "30m": 0,
-  "1h": 90 * DAY, "2h": 0, "4h": 240 * DAY, "6h": 0, "12h": 0, "1d": 730 * DAY,
+  "1s": 0, "1m": 3 * DAY, "3m": 0, "5m": 10 * DAY, "15m": 40 * DAY, "30m": 0,
+  "1h": 90 * DAY, "2h": 0, "4h": 240 * DAY, "6h": 0, "8h": 0, "12h": 0,
+  "1d": 730 * DAY,
 };
 // Earliest Binance spot candle dates for symbols listed after some requested
 // warmup windows. All unlisted entries predate every relevant requested start.

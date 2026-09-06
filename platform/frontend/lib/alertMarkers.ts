@@ -31,7 +31,8 @@
 import type { ChartMarker } from "@/components/CandleChart";
 import type { MaAlert, MaAlertEvent } from "@/lib/api";
 import { sameInstrument } from "@/lib/instrument";
-import { INTERVAL_MS, type Candle, type Interval } from "@/lib/types";
+import type { Candle } from "@/lib/types";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 
 /** One fired alert, placed on a bar of this chart. */
 export interface PlacedAlertEvent {
@@ -65,12 +66,12 @@ export function placeAlertEvents(
   events: readonly MaAlertEvent[],
   alerts: readonly MaAlert[],
   symbol: string,
-  timeframe: Interval,
+  timeframe: Resolution,
   candles: readonly Candle[]
 ): PlacedAlertEvent[] {
   if (candles.length === 0 || events.length === 0) return [];
   const byId = new Map(alerts.map((a) => [a.id, a]));
-  const step = INTERVAL_MS[timeframe];
+  const step = resolutionMs(timeframe);
   const first = candles[0]!.openTime;
   const last = candles[candles.length - 1]!.openTime;
 

@@ -119,7 +119,9 @@ export function armedTool(container: HTMLElement): string | null {
 export function armedInterval(container: HTMLElement): string | null {
   const pressed = [...container.querySelectorAll<HTMLElement>('button[aria-pressed="true"]')]
     .map((el) => (el.textContent ?? "").trim())
-    .find((text) => /^\d+[mhdw]$/.test(text));
+    // Seconds joined the resolutions a chart can be on; a helper that could not
+    // see `30s` would report "no timeframe armed" on a perfectly good chart.
+    .find((text) => /^\d+[smhd]$/.test(text));
   return pressed ?? null;
 }
 

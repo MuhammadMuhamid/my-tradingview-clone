@@ -1,4 +1,5 @@
 "use client";
+import { resolutionMs } from "@/lib/resolution";
 /**
  * Volatility, channels, volume flow and the statistical chart tools.
  *
@@ -26,7 +27,6 @@ import {
   type GenericMaType,
 } from "@/lib/ta/core";
 import type { NativeStudyDef } from "@/lib/native/registry";
-import { INTERVAL_MS } from "@/lib/types";
 import {
   ACCENT, AMBER, DOWN, MUTED, UP, VIOLET, bool, lengthInput, num, ohlcv,
   resolveSource, sourceInput, str, zeroLevel, MA_TYPE_OPTIONS,
@@ -163,7 +163,7 @@ export const historicalVolatilityStudy: NativeStudyDef = {
     const { close } = ohlcv(candles);
     // Crypto spot trades continuously, so a year is simply how many bars of
     // this size fit into one.
-    const barsPerYear = (365 * 24 * 60 * 60 * 1000) / INTERVAL_MS[interval];
+    const barsPerYear = (365 * 24 * 60 * 60 * 1000) / resolutionMs(interval);
     return { plots: { hv: historicalVolatility(close, num(params, "length", 20), barsPerYear) } };
   },
 };

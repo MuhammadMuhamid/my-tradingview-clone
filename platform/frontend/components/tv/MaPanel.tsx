@@ -1,7 +1,7 @@
 "use client";
 import { useMemo } from "react";
+import { type Resolution } from "@/lib/resolution";
 import type { MaAlert } from "@/lib/api";
-import type { Interval } from "@/lib/types";
 import {
   MA_LENGTHS, maColor, maId, maLabel, type MaLine, type MaType,
 } from "@/lib/movingAverages";
@@ -168,7 +168,7 @@ export function MaPanel({
   /** Latest value per line id, for the price column. */
   values: Record<string, number | null>;
   alerts: MaAlert[];
-  timeframe: Interval;
+  timeframe: Resolution;
   onToggle: (type: MaType, length: number) => void;
   onToggleAll: (visible: boolean) => void;
   onArm: (type: MaType, length: number) => void;

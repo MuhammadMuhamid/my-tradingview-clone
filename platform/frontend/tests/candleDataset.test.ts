@@ -19,14 +19,15 @@ import {
   planCandleMutation, planColoredCandleMutation, planOhlcMutation, planSeriesMutation,
 } from "../lib/chartSeries";
 import type { KlineTick } from "../lib/marketFeed";
-import type { Candle, Interval } from "../lib/types";
+import type { Candle } from "../lib/types";
+import type { Resolution } from "../lib/resolution";
 
-const candle = (symbol: string, openTime: number, close: number, interval: Interval = "1m"): Candle => ({
+const candle = (symbol: string, openTime: number, close: number, interval: Resolution = "1m"): Candle => ({
   symbol, interval, openTime, closeTime: openTime + 59_999,
   open: close, high: close, low: close, close, volume: 1,
 });
 
-const tick = (symbol: string, openTime: number, close: number, interval: Interval = "1m"): KlineTick => ({
+const tick = (symbol: string, openTime: number, close: number, interval: Resolution = "1m"): KlineTick => ({
   symbol, interval, openTime, closeTime: openTime + 59_999,
   open: close, high: close, low: close, close, volume: 1, closed: false,
 });
@@ -112,7 +113,7 @@ test("a held tick older than the landed history is dropped, and a foreign one st
 test("the history hook refuses to merge a bar from another dataset, and trims to the window", () => {
   const held = heldWindow(
     [candle("BTCUSDT", 60_000, 1), candle("BTCUSDT", 120_000, 2)],
-    { symbol: "BTCUSDT", interval: "1m" as Interval, bars: 2 },
+    { symbol: "BTCUSDT", interval: "1m" as Resolution, bars: 2 },
   );
   const foreign = mergeLiveBarsInto(held, null, candle("SOLUSDT", 120_000, 77));
   assert.equal(foreign, held, "a SOL bar was merged into BTC's window");

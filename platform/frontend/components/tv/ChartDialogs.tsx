@@ -12,6 +12,7 @@
  * overlay here would silently miss all three.
  */
 import { AlertEditor } from "@/components/tv/AlertEditor";
+import { type Resolution } from "@/lib/resolution";
 import { AlertModal } from "@/components/tv/AlertModal";
 import { IndicatorAlertModal, type IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import { IndicatorBrowser } from "@/components/tv/IndicatorBrowser";
@@ -25,11 +26,12 @@ import type { MaType } from "@/lib/movingAverages";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { Interval, Strategy, StrategyParams } from "@/lib/types";
+import { alertIntervalFor, nativeOnlyNotice, storedFallbackFor } from "@/lib/timeframes";
 
 export interface ChartDialogsProps {
   /** The focused pane's instrument and timeframe — what an alert is armed on. */
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
 
   settingsOpen: boolean;
   onCloseSettings: () => void;
@@ -93,6 +95,20 @@ export function ChartDialogs(props: ChartDialogsProps) {
     symbol, interval, strategy, strategyKey, params, properties, maAlerts,
     armLine, onAlertSaved,
   } = props;
+  /*
+   * What an alert armed from this chart is actually armed ON.
+   *
+   * The chart's own resolution whenever the alert runner can evaluate it. When
+   * it cannot — a derived `45m`, or `1s`, which the runner's two-second
+   * intrabar floor cannot honour once per bar — the dialog opens on the stored
+   * interval underneath and SAYS SO, through `ResolutionNotice`. The timeframe
+   * control is right there, so this is a stated default rather than a
+   * substitution; see `components/tv/ResolutionNotice.tsx` for why the
+   * difference matters more than it looks.
+   */
+  const alertTimeframe: Interval =
+    alertIntervalFor(interval) ?? storedFallbackFor(interval) ?? "15m";
+  const alertNotice = nativeOnlyNotice(interval, "alerts");
   return (
     <>
     <StrategySettingsModal
@@ -124,7 +140,8 @@ export function ChartDialogs(props: ChartDialogsProps) {
       open={props.priceAlertOpen}
       onClose={props.onClosePriceAlert}
       symbol={symbol}
-      chartTimeframe={interval}
+      chartTimeframe={alertTimeframe}
+      resolutionNotice={alertNotice}
       initialPrice={props.priceAlertLevel}
       lastPrice={props.lastPrice}
       lastPriceNotice={props.lastPriceNotice ?? null}
@@ -136,7 +153,8 @@ export function ChartDialogs(props: ChartDialogsProps) {
       open={props.levelKind !== null}
       onClose={props.onCloseLevel}
       symbol={symbol}
-      defaultTimeframe={interval}
+      defaultTimeframe={alertTimeframe}
+      resolutionNotice={alertNotice}
       initialKind={props.levelKind ?? "sr_zone"}
       onSaved={onAlertSaved}
     />
@@ -144,7 +162,8 @@ export function ChartDialogs(props: ChartDialogsProps) {
       open={props.oscillatorKind !== null}
       onClose={props.onCloseOscillator}
       symbol={symbol}
-      defaultTimeframe={interval}
+      defaultTimeframe={alertTimeframe}
+      resolutionNotice={alertNotice}
       kind={props.oscillatorKind ?? "rsi"}
       onSaved={onAlertSaved}
     />
@@ -158,7 +177,8 @@ export function ChartDialogs(props: ChartDialogsProps) {
       open={armLine !== null}
       onClose={props.onCloseArmLine}
       symbol={symbol}
-      chartTimeframe={interval}
+      chartTimeframe={alertTimeframe}
+      resolutionNotice={alertNotice}
       maType={armLine?.type ?? "sma"}
       maLength={armLine?.length ?? 200}
       existing={maAlerts.filter(

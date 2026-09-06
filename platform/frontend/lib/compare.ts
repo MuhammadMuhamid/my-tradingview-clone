@@ -41,7 +41,8 @@ import {
   normalizedCompare,
 } from "./ta/core";
 import { PRICE_PANE_ID, type ChartOverlay } from "./chartSeries";
-import type { Candle, Interval } from "./types";
+import type { Candle } from "./types";
+import type { Resolution } from "./resolution";
 
 /**
  * The default benchmark.
@@ -78,7 +79,7 @@ const EMPTY: CompareSeries = {
  * would be describing a cache this function does not consult.
  */
 export function useCompareSeries(
-  base: readonly Candle[], symbol: string, interval: Interval, bars: number,
+  base: readonly Candle[], symbol: string, interval: Resolution, bars: number,
   options: { enabled?: boolean } = {}
 ): CompareSeries {
   const enabled = options.enabled !== false && symbol.trim().length > 0;
@@ -93,7 +94,7 @@ export function useCompareSeries(
    * fabricated "375 bars missing", rather than an empty one.
    */
   const [raw, setRaw] = useState<
-    { symbol: string; interval: Interval; bars: number; candles: Candle[] } | null
+    { symbol: string; interval: Resolution; bars: number; candles: Candle[] } | null
   >(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

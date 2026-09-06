@@ -27,11 +27,12 @@
  *                      must never become their source of truth.
  */
 import { isAbortError } from "./requestGuard";
-import type { Candle, Interval } from "./types";
+import type { Candle } from "./types";
+import type { Resolution } from "./resolution";
 
 export interface HistoryRequest {
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   /** History depth. Part of the identity: 2K and 50K are different loads. */
   bars: number;
 }
@@ -47,7 +48,7 @@ export function historyKey(request: HistoryRequest): string {
 interface CacheEntry {
   key: string;
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   candles: Candle[];
   storedAt: number;
 }
@@ -193,7 +194,7 @@ export class CandleHistoryCache {
    * Scoped by symbol AND interval: a 1m bar is not news about the 1h window,
    * and writing it there would corrupt a chart that never asked for it.
    */
-  applyLiveBar(symbol: string, interval: Interval, bar: Candle): void {
+  applyLiveBar(symbol: string, interval: Resolution, bar: Candle): void {
     const upper = symbol.toUpperCase();
     for (const entry of this.entries.values()) {
       if (entry.symbol !== upper || entry.interval !== interval) continue;

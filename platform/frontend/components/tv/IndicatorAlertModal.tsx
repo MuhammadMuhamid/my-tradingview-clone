@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
@@ -50,12 +51,14 @@ const PRICE_LINE_KINDS: readonly IndicatorKind[] = ["bollinger"];
  * showing one would imply the alert could do something it cannot.
  */
 export function IndicatorAlertModal({
-  open, onClose, symbol, defaultTimeframe, kind, onSaved,
+  open, onClose, symbol, defaultTimeframe, resolutionNotice = null, kind, onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   symbol: string;
   defaultTimeframe: Interval;
+  /** Why the chart's resolution is not this alert's timeframe, or null. */
+  resolutionNotice?: string | null;
   kind: IndicatorKind;
   onSaved: (message: string) => void;
 }) {
@@ -452,6 +455,8 @@ export function IndicatorAlertModal({
 
         <div className="my-1 border-t border-border" />
 
+        <ResolutionNotice notice={resolutionNotice}
+          using={timeframes.join(", ") || defaultTimeframe} />
         <div className="text-sm text-ink-muted">Timeframes</div>
         <div className="flex flex-wrap gap-1.5">
           {TIMEFRAMES.map((tf) => {

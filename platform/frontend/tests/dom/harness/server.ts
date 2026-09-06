@@ -28,7 +28,9 @@
  * by moving the stored row under a client that is mid-conversation.
  */
 
-import { INTERVAL_MS, type Interval } from "@/lib/types";
+import {
+  foldBars, parseResolution, sourceBarsNeeded, type FoldableBar,
+} from "@/lib/resolution";
 
 export interface StoredDrawingRow {
   venue: string;
@@ -339,19 +341,51 @@ export class FixtureServer {
     const candleMatch = /^\/api\/symbols\/([^/]+)\/candles$/.exec(path);
     if (candleMatch) {
       const symbol = decodeURIComponent(candleMatch[1]!).toUpperCase();
-      const interval = url.searchParams.get("interval") ?? "15m";
-      const stepMs = INTERVAL_MS[interval as Interval] ?? 900_000;
+      const requested = url.searchParams.get("interval") ?? "15m";
+      /*
+       * The fixture serves resolutions the same way the backend does.
+       *
+       * A derived resolution is not stored on either side: the server reads the
+       * SOURCE bars and folds them with `lib/resolution`, and so does this. A
+       * fixture that simply handed back a stored `45m` array would prove that
+       * the chart can render an array — it would prove nothing about whether a
+       * 45-minute bar on this product is three real fifteen-minute bars.
+       */
+      const plan = parseResolution(requested);
+      if (plan === null) return json(400, { error: `invalid interval: ${requested}` });
+      const stepMs = plan.ms;
+      const interval = plan.id;
       const limit = Number(url.searchParams.get("limit") ?? "1000");
-      const all = this.candlesFor(symbol, interval);
+      const all = this.candlesFor(symbol, plan.source);
       const from = url.searchParams.get("from");
       const to = url.searchParams.get("to");
-      let bars = all;
+      let source = all;
       if (from !== null || to !== null) {
         const lo = from === null ? -Infinity : Number(from);
         const hi = to === null ? Infinity : Number(to);
-        bars = all.filter(([t]) => t >= lo && t <= hi);
+        source = all.filter(([t]) => t >= lo && t <= hi);
       }
+      const sourceLimit = Number.isFinite(limit) ? sourceBarsNeeded(plan, limit) : Infinity;
       // Newest-first truncation, then chronological — the backend's own rule.
+      if (source.length > sourceLimit) source = source.slice(-sourceLimit);
+
+      let bars: CompactBar[];
+      if (plan.factor === 1) {
+        bars = source;
+      } else {
+        const asBars: FoldableBar[] = source.map(([t, o, h, l, c, v]) => ({
+          symbol, interval: plan.source, openTime: t, open: o, high: h, low: l,
+          close: c, volume: v,
+          closeTime: t + (plan.ms / plan.factor) - 1,
+        }));
+        const folded = foldBars(asBars, plan);
+        // The oldest bucket is dropped when the read began inside it, exactly as
+        // `readResolvedCandles` does — a bar built from a fraction of its span
+        // must not be drawn at full width beside whole ones.
+        if (folded.length > 0 && asBars.length > 0
+          && asBars[0]!.openTime !== folded[0]!.openTime) folded.shift();
+        bars = folded.map((b): CompactBar => [b.openTime, b.open, b.high, b.low, b.close, b.volume]);
+      }
       if (Number.isFinite(limit) && bars.length > limit) bars = bars.slice(-limit);
       if (url.searchParams.get("format") === "compact") {
         return json(200, {

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
@@ -12,11 +13,11 @@ import {
   api, DEFAULT_ALERT_FREQUENCY,
   type AlertFrequency, type MaAlert, type MaAlertMode, type MaType,
 } from "@/lib/api";
-import type { Interval } from "@/lib/types";
+import { ALERT_INTERVAL_VALUES, type Interval } from "@/lib/types";
 import { maColor, maLabel } from "@/lib/movingAverages";
 
 /** Every timeframe the backend supports, in the order the toolbar shows them. */
-const INTERVALS: Interval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"];
+
 
 const MODE_LABELS: Record<MaAlertMode, string> = {
   touch: "Price touches the line",
@@ -40,12 +41,18 @@ const MODE_HELP: Record<MaAlertMode, string> = {
  * conditions, different timeframes and different cooldowns.
  */
 export function MaAlertModal({
-  open, onClose, symbol, chartTimeframe, maType, maLength, existing, onSaved,
+  open, onClose, symbol, chartTimeframe, resolutionNotice = null, maType, maLength, existing,
+  onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   symbol: string;
   chartTimeframe: Interval;
+  /**
+   * Why the chart's own resolution is not this alert's timeframe, or null.
+   * Built by `ChartDialogs` from `nativeOnlyNotice`.
+   */
+  resolutionNotice?: string | null;
   maType: MaType;
   maLength: number;
   /** Alerts already armed on this exact line, so the dialog can edit instead of duplicate. */
@@ -172,11 +179,12 @@ export function MaAlertModal({
         </Row>
         <p className="pl-[122px] text-xs text-ink-faint">{MODE_HELP[mode]}</p>
 
+        <ResolutionNotice notice={resolutionNotice} using={timeframe} />
         <Row label="Timeframe">
           <select value={timeframe} onChange={(e) => setTimeframe(e.target.value as Interval)} className={box}>
-            {INTERVALS.map((tf) => (
+            {ALERT_INTERVAL_VALUES.map((tf) => (
               <option key={tf} value={tf}>
-                {tf}{tf === chartTimeframe ? " — same as chart" : ""}
+                {tf}{resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}
               </option>
             ))}
           </select>

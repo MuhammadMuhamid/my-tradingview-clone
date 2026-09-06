@@ -24,7 +24,8 @@ import {
 import { marketFeed } from "./marketFeed";
 import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
-import { INTERVAL_MS, type Candle, type Interval } from "./types";
+import type { Candle } from "./types";
+import { resolutionMs, type Resolution } from "./resolution";
 
 /**
  * Fetch a window, repairing thin history once and a stale tail once.
@@ -59,7 +60,7 @@ export async function loadCandleWindow(
     backfilled = true;
     // Not enough history stored: backfill, then fetch only what is missing
     // rather than the whole window again.
-    const lookbackMs = Math.ceil(bars * 1.1) * INTERVAL_MS[interval];
+    const lookbackMs = Math.ceil(bars * 1.1) * resolutionMs(interval);
     await api.backfill(
       symbol, interval,
       new Date(Date.now() - lookbackMs).toISOString(),
@@ -332,4 +333,4 @@ export function useCandleHistory(
   );
 }
 
-export type { Interval };
+export type { Resolution };

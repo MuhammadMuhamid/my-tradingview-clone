@@ -67,23 +67,22 @@
  * make the row fit, and nothing decorative was added to make it look like some
  * other product.
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { type Resolution } from "@/lib/resolution";
 import { Separator } from "@/components/ui";
 import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
 import { LayoutSelector } from "@/components/tv/LayoutSelector";
-import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { LayoutMenu } from "@/components/tv/LayoutMenu";
 import { SyncMenu } from "@/components/tv/SyncMenu";
 import { TradingOverlayMenu } from "@/components/tv/TradingOverlays";
 import type { ChartType } from "@/lib/chartType";
 import type { SyncOptions } from "@/lib/paneSync";
 import type { Layout } from "@/lib/layouts";
-import { timeframeStrip } from "@/lib/timeframes";
+import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
 import type {
   TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse,
 } from "@/lib/tradingOverlays";
-import type { Interval } from "@/lib/types";
 
 const HISTORY_OPTIONS = [
   { label: "2K", bars: 2000 },
@@ -158,9 +157,17 @@ function ctl(id: ToolbarControlId): { "data-toolbar-control": string; "data-tool
 export interface ChartToolbarProps {
   /** The focused pane's instrument and timeframe. */
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   onOpenSearch: () => void;
-  onInterval: (interval: Interval) => void;
+  onInterval: (interval: Resolution) => void;
+  /**
+   * The browser's favourite / recent / custom resolutions.
+   *
+   * Owned by the page rather than by this bar so the pane legend's own
+   * timeframe control shows the same favourites and records the same recents:
+   * two pickers reading two lists would be two products.
+   */
+  resolutions: ResolutionPreferences;
 
   chartType: ChartType;
   onChartType: (type: ChartType) => void;
@@ -233,88 +240,6 @@ export interface ChartToolbarProps {
   moreOpen: boolean;
   onMoreOpen: (open: boolean) => void;
   onOpenNav: () => void;
-}
-
-/**
- * The five supported intervals the quick strip has no room for.
- *
- * They are not new: the backend has always served 3m, 30m, 2h, 6h and 12h, and
- * the candle store, the alert evaluator and the Pine runner all handle them.
- * Only the toolbar's hard-coded list of six kept them unreachable.
- *
- * It sits OUTSIDE the scrolling strip on purpose — a popover inside an
- * `overflow-x-auto` container is clipped by it.
- */
-function TimeframeMenu({
-  interval, onInterval,
-}: {
-  interval: Interval;
-  onInterval: (interval: Interval) => void;
-}) {
-  // Through the registry, so this cannot sit open beside the chart-type menu
-  // forty pixels away in the same toolbar row.
-  const [open, setOpen] = useExclusivePopover("timeframe");
-  const boxRef = useRef<HTMLDivElement>(null);
-  const strip = timeframeStrip(interval);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent): void => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onEsc = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onEsc);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onEsc);
-    };
-  }, [open, setOpen]);
-
-  return (
-    <div ref={boxRef} className="relative shrink-0">
-      <button
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-pressed={strip.moreActive}
-        title="More timeframes"
-        aria-label={strip.moreActive
-          ? `Timeframe — currently ${interval}. More timeframes`
-          : "More timeframes"}
-        className={`flex h-7 shrink-0 items-center gap-1 rounded px-1.5 text-[13px] transition-colors ${
-          strip.moreActive
-            ? "bg-surface-2 font-semibold text-ink"
-            : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
-        }`}
-      >
-        {strip.moreLabel}
-        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-      </button>
-      {open && (
-        <div role="menu" aria-label="More timeframes"
-          className="absolute left-0 top-[34px] z-50 w-[132px] rounded-md border border-border bg-surface p-1 shadow-xl">
-          {strip.more.map((i) => (
-            <button
-              key={i}
-              role="menuitemradio"
-              aria-checked={interval === i}
-              onClick={() => { onInterval(i); setOpen(false); }}
-              className={`flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] transition-colors ${
-                interval === i
-                  ? "bg-surface-2 font-semibold text-ink"
-                  : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
-              }`}
-            >
-              {i}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /**
@@ -426,7 +351,6 @@ function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
 
 export function ChartToolbar(props: ChartToolbarProps) {
   const { symbol, interval, replayActive } = props;
-  const strip = timeframeStrip(interval);
   const { moreOpen, onMoreOpen } = props;
   const density = toolbarDensityClasses(props.ticketOpen);
   const TOOL_LABEL = density.label;
@@ -473,26 +397,19 @@ export function ChartToolbar(props: ChartToolbarProps) {
         <Separator className="hidden sm:inline-block" />
 
         {/*
-          The timeframe strip is the one element that absorbs the row's width
-          pressure: it scrolls rather than pushing the controls beside it off
-          the bar, which is what keeps this a single row at every width.
+          The timeframe control is the one element that absorbs the row's width
+          pressure: its favourites strip scrolls rather than pushing the
+          controls beside it off the bar, which is what keeps this a single row
+          at every width. What resolutions exist, which are favourites and how a
+          custom one is entered all belong to `TimeframePicker`; this bar only
+          decides where the control sits and what tier it is in.
         */}
-        <div {...ctl("timeframe")} role="group" aria-label="Timeframe"
-          className="flex min-w-0 flex-1 items-center gap-0.5 sm:flex-initial">
-          <div className="no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto">
-            {strip.quick.map((i) => (
-              <button key={i} onClick={() => props.onInterval(i)}
-                aria-pressed={interval === i}
-                className={`flex h-7 shrink-0 items-center rounded px-2 text-[13px] transition-colors ${
-                  interval === i
-                    ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
-                }`}>
-                {i}
-              </button>
-            ))}
-          </div>
-          <TimeframeMenu interval={interval} onInterval={props.onInterval} />
+        <div {...ctl("timeframe")} className="flex min-w-0 flex-1 items-center sm:flex-initial">
+          <TimeframePicker
+            interval={interval}
+            onInterval={props.onInterval}
+            preferences={props.resolutions}
+          />
         </div>
 
         <Separator className="hidden sm:inline-block" />

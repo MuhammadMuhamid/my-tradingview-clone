@@ -38,7 +38,7 @@ import {
 import { isChartType, type ChartType } from "./chartType";
 import { defaultMaLines, type MaLine, type MaType } from "./movingAverages";
 import type { SyncOptions } from "./paneSync";
-import { isInterval, type Interval } from "./types";
+import { isResolution, type Resolution } from "./resolution";
 
 /** Stable across layout changes, maximise, and reloads. */
 export type PaneId = string;
@@ -47,7 +47,7 @@ export type PaneId = string;
 export interface PaneState {
   id: PaneId;
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   chartType: ChartType;
   /** History depth, in bars. */
   bars: number;
@@ -96,7 +96,7 @@ export interface ChartWorkspace {
 /** What a brand-new pane starts from when nothing else says otherwise. */
 export interface PaneSeed {
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   chartType?: ChartType;
   bars?: number;
   maLines?: MaLine[];
@@ -363,7 +363,7 @@ export function setPaneCompare(
 }
 
 export function applyPaneInterval(
-  ws: ChartWorkspace, originId: PaneId, interval: Interval, sync: SyncOptions
+  ws: ChartWorkspace, originId: PaneId, interval: Resolution, sync: SyncOptions
 ): ChartWorkspace {
   if (!ws.panes.some((p) => p.id === originId)) return ws;
   const targets = new Set([originId, ...syncTargets(ws, originId, sync, "interval")]);
@@ -398,7 +398,7 @@ function validPane(value: unknown): PaneState | null {
   const raw = value as Record<string, unknown>;
   if (typeof raw.id !== "string" || raw.id === "") return null;
   if (typeof raw.symbol !== "string" || raw.symbol === "") return null;
-  if (!isInterval(raw.interval)) return null;
+  if (!isResolution(raw.interval)) return null;
   if (!isChartType(raw.chartType)) return null;
   if (typeof raw.bars !== "number" || !Number.isFinite(raw.bars) || raw.bars <= 0) return null;
   const lines = Array.isArray(raw.maLines) ? raw.maLines : null;
@@ -462,11 +462,11 @@ export function parseWorkspace(raw: unknown): ChartWorkspace | null {
 }
 
 /** The legacy `tv.split` record, if it is one. */
-function parseLegacySplit(raw: unknown): { open: boolean; interval: Interval | null } | null {
+function parseLegacySplit(raw: unknown): { open: boolean; interval: Resolution | null } | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   const open = value.open === true;
-  return { open, interval: isInterval(value.interval) ? value.interval : null };
+  return { open, interval: isResolution(value.interval) ? value.interval : null };
 }
 
 export interface WorkspaceRestore {

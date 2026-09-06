@@ -468,7 +468,7 @@ test("SHORTCUTS — the replay horizon is the newest bar a shortcut can reach", 
   assert.equal(code(read("lib/rangeShortcuts.ts")).includes("Date.now("), false);
 
   // …and the chart builds the window from the candles it was handed.
-  assert.match(CHART, /loadedWindow\(candles, INTERVAL_MS\[interval\]\)/);
+  assert.match(CHART, /loadedWindow\(candles, resolutionMs\(interval\)\)/);
 });
 
 test("SHORTCUTS — the library's snap-to-bars does not un-press the button", () => {
@@ -738,7 +738,7 @@ test("LEGEND — Renko prints a brick, not a fabricated time candle", () => {
   }
   // So the readout is direction, open → close, size, and the canonical time.
   assert.match(CHART, /legend\.kind === "renkoBrick" && legend\.brick \?/);
-  assert.match(CHART, /fmtChartBarTime\(legend\.brick\.sourceOpenTime, INTERVAL_MS\[interval\]\)/);
+  assert.match(CHART, /fmtChartBarTime\(legend\.brick\.sourceOpenTime, resolutionMs\(interval\)\)/);
   // And it carries no volume: a brick is not a bar and has no traded size.
   const build = CHART.slice(CHART.indexOf("if (!isRenkoBrick(bar)) return null;"));
   assert.match(build.slice(0, 400), /volume: null/);

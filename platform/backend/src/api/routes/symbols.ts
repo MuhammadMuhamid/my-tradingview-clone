@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import * as symbols from "../../repositories/symbols";
-import * as candles from "../../repositories/candles";
-import { isInterval } from "../../types/market";
+import { parseResolution } from "../../data/resolution";
+import { readResolvedCandles } from "../../data/resolvedCandles";
 import { toCompact } from "../../data/candleWire";
 import { fetch24hTickers, listExchangeSymbols, TICKER_BATCH_LIMIT, type Ticker24h } from "../../data/binanceRest";
 import { InstrumentIdError, storedSymbol } from "../../types/instrument";
@@ -153,7 +153,8 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
     return rows;
   });
 
-  // Chart data: stored OHLCV for one symbol+interval.
+  // Chart data: OHLCV for one symbol at one resolution — stored directly when
+  // the venue publishes it, folded from whole venue bars when it does not.
   app.get("/api/symbols/:symbol/candles", async (req, reply) => {
     const { symbol } = req.params as { symbol: string };
     const q = req.query as {
@@ -169,10 +170,19 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
        */
       format?: string;
     };
-    if (!q.interval || !isInterval(q.interval)) {
-      return reply
-        .code(400)
-        .send({ error: "interval is required (e.g. 1m, 5m, 1h)" });
+    /*
+     * Any resolution the venue's own bars can be folded into exactly.
+     *
+     * `parseResolution` refuses everything else — including a plausible
+     * near-miss such as `7s` or `1w` — rather than serving the closest thing it
+     * has under the requested name. See `data/resolution.ts`.
+     */
+    const plan = parseResolution(q.interval);
+    if (plan === null) {
+      return reply.code(400).send({
+        error: "interval is required and must be a resolution this venue can " +
+          "serve exactly (e.g. 1m, 45m, 30s, 3h)",
+      });
     }
     const limit = q.limit !== undefined ? Number(q.limit) : 1000;
     if (!Number.isInteger(limit) || limit <= 0 || limit > 200000) {
@@ -194,11 +204,11 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
       if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
       throw err;
     }
-    const rows = await candles.getCandles(ticker, q.interval, {
+    const rows = await readResolvedCandles(ticker, plan, {
       from: q.from !== undefined ? Number(q.from) : undefined,
       to: q.to !== undefined ? Number(q.to) : undefined,
       limit,
     });
-    return q.format === "compact" ? toCompact(rows, ticker, q.interval) : rows;
+    return q.format === "compact" ? toCompact(rows, ticker, plan.id) : rows;
   });
 }

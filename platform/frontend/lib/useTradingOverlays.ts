@@ -23,11 +23,12 @@
  * symbol's.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 import type { ChartMarker, ChartPriceLine } from "@/components/CandleChart";
 import { api } from "./api";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import { useExclusivePopover } from "./useExclusivePopover";
-import { INTERVAL_MS, type Candle, type Interval } from "./types";
+import { type Candle } from "./types";
 import {
   anchorTradingOverlays, compactOverlaySource, DEFAULT_OVERLAY_PREFERENCES, loadOverlayPreferences,
   mergeOverlayResponses, overlayChartContextKey, overlayItemVisible, overlayRequestKey,
@@ -38,7 +39,7 @@ import {
 export interface TradingOverlaysInput {
   /** The focused pane's instrument and resolution. */
   symbol: string;
-  interval: Interval;
+  interval: Resolution;
   /** The focused pane's bars, already clipped to any replay horizon. */
   visibleCandles: Candle[];
   /** The workspace replay horizon, or null when replay is off. */
@@ -93,7 +94,7 @@ export function useTradingOverlays(input: TradingOverlaysInput): TradingOverlays
   useEffect(() => { setOverlayPrefsState(loadOverlayPreferences()); }, []);
 
   const wantedOverlayRange = useMemo(() => requestedOverlayRange(
-    visibleCandles, overlayViewport, INTERVAL_MS[interval], replay?.horizonCloseTime ?? null
+    visibleCandles, overlayViewport, resolutionMs(interval), replay?.horizonCloseTime ?? null
   ), [visibleCandles, overlayViewport, interval, replay?.horizonCloseTime]);
 
   // Visible-range callbacks fire continuously during drag/zoom. Fetch only

@@ -13,7 +13,8 @@ import {
   mergeBarColorLayers, type ChartBarColor, type ChartDecoration, type ChartOverlay,
 } from "@/lib/chartSeries";
 import type { PineDrawings } from "@/lib/api";
-import type { Interval, Trade } from "@/lib/types";
+import type { Trade } from "@/lib/types";
+import type { Resolution } from "@/lib/resolution";
 import {
   NO_DRAWINGS, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput, loadStored, newKey,
   runIndicator, saveStored, storable,
@@ -23,7 +24,7 @@ import { pushPanePine, syncPanePine } from "@/lib/chartStateSync";
 
 export interface IndicatorContext {
   symbol: string;
-  timeframe: Interval;
+  timeframe: Resolution;
   startTime: string;
   endTime: string;
   replay?: boolean;

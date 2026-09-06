@@ -45,12 +45,47 @@ const COLOR_BY_LENGTH: Record<number, string> = {
 
 export const maColor = (length: number): string => COLOR_BY_LENGTH[length] ?? "#8b93a7";
 
-/** Every SMA and EMA line, all visible — the default set for a coin layout. */
+/**
+ * The one line a new chart draws, and the nine it keeps ready.
+ *
+ * ── Why this changed ───────────────────────────────────────────────────────
+ *
+ * Every chart used to open with all ten lines visible. Since the SMA and the
+ * EMA of a length share a hue — deliberately, so the pair reads as a pair — ten
+ * visible lines look like five doubled ones, and a fresh chart of any coin
+ * opened as a mesh of near-parallel curves through the candles. That is the
+ * "accidental duplicated spaghetti" the owner reported, and it was not a
+ * decision anybody made: it was a loop that set `visible: true`.
+ *
+ * ── Why SMA 200 is the one ─────────────────────────────────────────────────
+ *
+ * Not taste, and not a copy of a competitor's blank chart. It is the line this
+ * PRODUCT evaluates: `srtrend_v10`'s defaults are `maType: "SMA"` with
+ * `ma1_en: true, ma1_tf: "1" (the chart timeframe), ma1_len: 200` — the trend
+ * filter that decides whether the strategy may take a long at all. A chart that
+ * draws exactly that is a chart showing the thing the engine is looking at.
+ *
+ * ── Nothing was removed ────────────────────────────────────────────────────
+ *
+ * All ten lines are still here, still computed from `lib/ta/core`, still
+ * individually armable with their own alert. Nine of them start hidden, each is
+ * one click in the MA panel, and that panel's existing "show all" restores the
+ * previous set exactly — see `onToggleAll` in `components/tv/MaPanel.tsx`. This
+ * is a default, and it is reversible in one click.
+ */
+export const DEFAULT_VISIBLE_MA: { type: MaType; length: number } =
+  { type: "sma", length: 200 };
+
 export function defaultMaLines(): MaLine[] {
   const lines: MaLine[] = [];
   for (const length of MA_LENGTHS) {
-    lines.push({ type: "sma", length, visible: true });
-    lines.push({ type: "ema", length, visible: true });
+    for (const type of ["sma", "ema"] as const) {
+      lines.push({
+        type,
+        length,
+        visible: type === DEFAULT_VISIBLE_MA.type && length === DEFAULT_VISIBLE_MA.length,
+      });
+    }
   }
   return lines;
 }

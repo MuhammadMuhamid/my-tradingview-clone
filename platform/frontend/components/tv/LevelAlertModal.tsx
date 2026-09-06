@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
@@ -45,12 +46,15 @@ const MODES: { id: MaAlertMode; label: string }[] = [
 ];
 
 export function LevelAlertModal({
-  open, onClose, symbol, defaultTimeframe, initialKind = "sr_zone", onSaved,
+  open, onClose, symbol, defaultTimeframe, resolutionNotice = null,
+  initialKind = "sr_zone", onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   symbol: string;
   defaultTimeframe: Interval;
+  /** Why the chart's resolution is not this alert's timeframe, or null. */
+  resolutionNotice?: string | null;
   /** Which of the two level families to open on, when the caller already knows. */
   initialKind?: "sr_zone" | "pivot_level";
   onSaved: (message: string) => void;
@@ -189,6 +193,8 @@ export function LevelAlertModal({
 
         <div className="my-1 border-t border-border" />
 
+        <ResolutionNotice notice={resolutionNotice}
+          using={timeframes.join(", ") || defaultTimeframe} />
         <div className="text-sm text-ink-muted">Timeframes</div>
         <div className="flex flex-wrap gap-1.5">
           {TIMEFRAMES.map((tf) => {

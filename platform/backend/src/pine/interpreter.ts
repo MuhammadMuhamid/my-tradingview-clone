@@ -23,7 +23,7 @@
 import * as ta from "../engine/ta";
 import { Broker } from "../engine/broker";
 import { pineTfToInterval, type Bars } from "../engine/mtf";
-import { INTERVAL_MS, type Interval } from "../types/market";
+import { resolutionMs, type Resolution } from "../data/resolution";
 import type { EquityPoint } from "../types/backtest";
 import { parse, type Expr, type Stmt, type TypeField } from "./parser";
 import { PineSyntaxError } from "./lexer";
@@ -1137,11 +1137,11 @@ export class PineInterpreter {
       case "syminfo.tickerid": case "syminfo.ticker": return this.bars.symbol;
       case "syminfo.mintick": return this.broker?.opts.tickSize ?? NaN;
       case "timeframe.period": return this.bars.interval;
-      case "timeframe.isintraday": return INTERVAL_MS[this.bars.interval] < 86_400_000;
+      case "timeframe.isintraday": return resolutionMs(this.bars.interval) < 86_400_000;
       case "timeframe.isdaily": return this.bars.interval === "1d";
-      case "timeframe.isdwm": return INTERVAL_MS[this.bars.interval] >= 86_400_000;
+      case "timeframe.isdwm": return resolutionMs(this.bars.interval) >= 86_400_000;
       case "timeframe.multiplier": {
-        const ms = INTERVAL_MS[this.bars.interval];
+        const ms = resolutionMs(this.bars.interval);
         return ms < 86_400_000 ? ms / 60_000 : 1;
       }
       // The chart's own palette, as used by scripts that colour text to
@@ -1463,7 +1463,7 @@ export class PineInterpreter {
           );
         }
         const rawTimeframe = S(timeframeE, this.bars.interval).trim();
-        let interval: Interval;
+        let interval: Resolution;
         try {
           interval = rawTimeframe === "" || rawTimeframe === this.bars.interval ||
             rawTimeframe.toLowerCase() === "chart"
@@ -1497,7 +1497,7 @@ export class PineInterpreter {
           const interval = raw === this.bars.interval
             ? this.bars.interval
             : pineTfToInterval(raw, this.bars.interval);
-          return INTERVAL_MS[interval] / 1000;
+          return resolutionMs(interval) / 1000;
         } catch {
           throw new PineRuntimeError(`unsupported timeframe '${raw}'`, line);
         }
@@ -2589,7 +2589,7 @@ function memberPath(e: Expr): string | null {
 }
 
 /** UTC bucket used by timeframe.change; Binance candle sessions are UTC. */
-function timeframeBucket(raw: string, chart: Interval, time: number): number {
+function timeframeBucket(raw: string, chart: Resolution, time: number): number {
   const tf = raw.toUpperCase();
   const calendar = /^(\d+)?([DWM])$/.exec(tf);
   if (calendar) {
@@ -2603,7 +2603,7 @@ function timeframeBucket(raw: string, chart: Interval, time: number): number {
     return Math.floor((d.getUTCFullYear() * 12 + d.getUTCMonth()) / n);
   }
   const interval = raw === chart ? chart : pineTfToInterval(raw, chart);
-  return Math.floor(time / INTERVAL_MS[interval]);
+  return Math.floor(time / resolutionMs(interval));
 }
 
 const SESSION_FORMATTERS = new Map<string, Intl.DateTimeFormat>();

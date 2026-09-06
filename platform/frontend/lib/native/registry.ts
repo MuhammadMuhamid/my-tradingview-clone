@@ -43,7 +43,8 @@
  * catalog, and its generality stops there.
  */
 import type { ChartOverlay } from "@/lib/chartSeries";
-import type { Candle, Interval } from "@/lib/types";
+import type { Candle } from "@/lib/types";
+import type { Resolution } from "@/lib/resolution";
 
 // ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ export type NativeCategory =
 export interface NativeComputeInput {
   candles: readonly Candle[];
   params: NativeParams;
-  interval: Interval;
+  interval: Resolution;
 }
 
 export interface NativeComputeOutput {

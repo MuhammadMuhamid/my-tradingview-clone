@@ -21,11 +21,12 @@
  * Pure, so `tests/candleDataset.test.ts` can drive the exact sequence
  * (old dataset → new request → new tick → history arrives) without a chart.
  */
-import type { Interval } from "./types";
+import type { Resolution } from "./resolution";
 
 export interface DatasetIdentity {
   symbol: string;
-  interval: Interval;
+  /** The resolution the bars ARE — `45m`, not the `15m` they were folded from. */
+  interval: Resolution;
 }
 
 /** The identity two things must share before one may mutate the other. */
