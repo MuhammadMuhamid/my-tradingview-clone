@@ -7,7 +7,8 @@
  * a user two different things about one alert.
  */
 import {
-  isIntrabarFrequency, MACD_DEFAULTS, SUPERTREND_DEFAULTS,
+  ADX_DEFAULTS, BOLLINGER_DEFAULTS, isIntrabarFrequency, MACD_DEFAULTS,
+  STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
   type AlertFrequency, type MaAlert,
 } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
@@ -62,6 +63,12 @@ export function alertLineLabel(a: MaAlert): string {
       return macdLabel(a);
     case "supertrend":
       return stLabel(a);
+    case "bollinger":
+      return bbLabel(a);
+    case "stochastic":
+      return stochLabel(a);
+    case "adx":
+      return adxLabel(a);
     case "ma":
     default:
       return maLabel(a.maType ?? "sma", a.maLength ?? 0);
@@ -90,6 +97,13 @@ export function alertColor(a: MaAlert): string {
   if (a.conditionKind === "supertrend") {
     return a.mode === "cross_down" ? "#f23645" : "#089981";
   }
+  // Same rule for the three families added later: a band is drawn in the
+  // Bollinger study's own hue, and the two oscillators in theirs. Falling
+  // through to `maColor` would have painted every one of them the 200-SMA
+  // grey and labelled it "SMA 0".
+  if (a.conditionKind === "bollinger") return "#2962ff";
+  if (a.conditionKind === "stochastic") return "#26a69a";
+  if (a.conditionKind === "adx") return "#ff9800";
   return maColor(a.maLength ?? 0);
 }
 
@@ -137,6 +151,31 @@ export function describeAlert(a: MaAlert): string {
       // through, which is not what fires this alert.
       return `${stLabel(a)} flips ` +
         `${a.mode === "cross_down" ? "down" : "up"}${describeFilters(a)}`;
+    case "bollinger": {
+      // The subject is PRICE against a band, so these read like the MA arm.
+      const line = bbLabel(a).toLowerCase();
+      switch (a.mode) {
+        case "touch": return `price touches the ${line}${describeFilters(a)}`;
+        case "cross_up": return `price crosses above the ${line}${describeFilters(a)}`;
+        case "cross_down": return `price crosses below the ${line}${describeFilters(a)}`;
+        case "near_above":
+          return `price ${a.nearMinPct}–${a.nearMaxPct}% above the ${line}${describeFilters(a)}`;
+        case "near_below":
+          return `price ${a.nearMinPct}–${a.nearMaxPct}% below the ${line}${describeFilters(a)}`;
+        default: return `price against the ${line}${describeFilters(a)}`;
+      }
+    }
+    case "stochastic": {
+      // And here it is the OSCILLATOR, which watches no price at all.
+      const against = a.indicatorTarget === "level" ? `${a.stochLevel ?? ""}`.trim() : "its %D";
+      return `${stochLabel(a)} crosses ` +
+        `${a.mode === "cross_down" ? "below" : "above"} ${against}${describeFilters(a)}`;
+    }
+    case "adx":
+      // "rises through" rather than "crosses above": ADX has no direction, so
+      // a crossing of its threshold is a statement about trend STRENGTH.
+      return `${adxLabel(a)} ${a.mode === "cross_down" ? "falls" : "rises"} through ` +
+        `${a.adxLevel ?? ""}`.trim() + describeFilters(a);
     case "ma":
     default:
       switch (a.mode) {
@@ -148,6 +187,41 @@ export function describeAlert(a: MaAlert): string {
         default: return "condition met";
       }
   }
+}
+
+/**
+ * "the upper Bollinger band" for the study's own 20 / 2 / SMA, the inputs named
+ * otherwise. Mirrors `bollingerLabel` on the server, which writes the
+ * notification for the same row — two spellings of one alert is how a list and
+ * a push notification come to disagree.
+ */
+export function bbLabel(a: MaAlert): string {
+  const band = a.bbBand ?? BOLLINGER_DEFAULTS.band;
+  const where = band === "basis" ? "Bollinger basis" : `${band} Bollinger band`;
+  const custom = a.bbLength !== BOLLINGER_DEFAULTS.length
+    || a.bbMult !== BOLLINGER_DEFAULTS.mult
+    || (a.bbMaType ?? BOLLINGER_DEFAULTS.maType) !== BOLLINGER_DEFAULTS.maType;
+  if (!custom) return where;
+  const maType = (a.bbMaType ?? BOLLINGER_DEFAULTS.maType) === BOLLINGER_DEFAULTS.maType
+    ? "" : `, ${(a.bbMaType ?? "sma").toUpperCase()}`;
+  return `${where} (${a.bbLength}, ${a.bbMult}${maType})`;
+}
+
+/** "Stochastic %K", with its inputs named only when they are not the defaults. */
+export function stochLabel(a: MaAlert): string {
+  const custom = a.stochKLength !== STOCHASTIC_DEFAULTS.kLength
+    || a.stochKSmooth !== STOCHASTIC_DEFAULTS.kSmooth
+    || a.stochDSmooth !== STOCHASTIC_DEFAULTS.dSmooth;
+  return custom
+    ? `Stochastic %K ${a.stochKLength}/${a.stochKSmooth}/${a.stochDSmooth}`
+    : "Stochastic %K";
+}
+
+/** "ADX", with its lengths named only when they are not the defaults. */
+export function adxLabel(a: MaAlert): string {
+  const custom = a.adxDiLength !== ADX_DEFAULTS.diLength
+    || a.adxSmoothing !== ADX_DEFAULTS.smoothing;
+  return custom ? `ADX ${a.adxDiLength}/${a.adxSmoothing}` : "ADX";
 }
 
 /**

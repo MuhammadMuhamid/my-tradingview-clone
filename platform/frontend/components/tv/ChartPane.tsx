@@ -31,6 +31,7 @@ import { CandleChart, type ChartMarker, type ChartPriceLine } from "@/components
 import type { PaneAction } from "@/components/tv/IndicatorPane";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
 import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
+import type { Viewport } from "@/lib/native/compute";
 import type { AppliedIndicator } from "@/lib/indicators";
 import { buildMaOverlays } from "@/lib/movingAverages";
 import { drawingStore } from "@/lib/drawingStore";
@@ -150,18 +151,19 @@ function ChartPaneImpl(props: ChartPaneProps) {
     ? "small" : paneDensity(size.width, size.height);
 
   /*
-   * How many bars the user can actually see.
+   * Where the user is looking, in bars — position as well as size.
    *
-   * Built-in studies compute their declared warmup plus this, so it must be
-   * the REAL viewport rather than a guess: a user who zooms out to five
-   * thousand bars and finds the study line starts halfway across the screen
-   * has been given a cheaper chart, not a faster one. The chart reports its
-   * range in seconds, so the count follows from the interval.
+   * Built-in studies compute their declared warmup plus the visible window, so
+   * this must be the REAL viewport rather than a guess. SIZE alone is not
+   * enough: a pan changes where the user is looking without changing how much
+   * they can see, so a window derived from size alone stays anchored to the
+   * newest bar and every study goes blank a swipe or two back into a pane's own
+   * ten thousand loaded bars.
    *
-   * It starts generous and is corrected on the first range report, so the
-   * first paint is never short.
+   * It starts generous and unanchored — `null` means "the newest bars" — and is
+   * corrected on the first range report, so the first paint is never short.
    */
-  const [visibleBarCount, setVisibleBarCount] = useState(1_000);
+  const [viewport, setViewport] = useState<Viewport | null>(null);
 
   // ── candles, through the shared cache ──
   const history = useCandleHistory({
@@ -189,7 +191,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
    */
   const nativeStudies = useNativeStudies({
     candles: visibleCandles, interval: pane.interval, scope: pane.id,
-    visibleBars: visibleBarCount,
+    viewport: viewport ?? undefined,
   });
 
   // ── this pane's own applied studies ──
@@ -278,15 +280,31 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const emitCrosshair = useMemo(
     () => (onCrosshairMove ? (time: number | null) => onCrosshairMove(paneId, time) : undefined),
     [onCrosshairMove, paneId]);
+  const barsRef = useRef(visibleCandles);
+  barsRef.current = visibleCandles;
   const emitRange = useMemo(() => {
     const step = INTERVAL_MS[pane.interval] / 1000;
     return (range: { from: number; to: number }) => {
       const span = Math.ceil((range.to - range.from) / step);
       if (Number.isFinite(span) && span > 0) {
-        // Rounded up to a coarse step so an ordinary pan does not invalidate
-        // every study's memoised result on every frame.
-        const rounded = Math.max(200, Math.ceil(span / 200) * 200);
-        setVisibleBarCount((current) => (current === rounded ? current : rounded));
+        /*
+         * Both halves are rounded to a coarse step so an ordinary pan does not
+         * invalidate every study's memoised result on every frame — a drag
+         * emits a range per frame, and a per-bar key would recompute
+         * everything sixty times a second.
+         */
+        const visibleBars = Math.max(200, Math.ceil(span / 200) * 200);
+        const bars = barsRef.current;
+        const fromMs = range.from * 1000;
+        let first = bars.length - visibleBars;
+        for (let i = 0; i < bars.length; i++) {
+          if (bars[i]!.openTime >= fromMs) { first = i; break; }
+        }
+        const anchored = Math.max(0, Math.floor(first / 200) * 200);
+        setViewport((current) => (
+          current && current.visibleBars === visibleBars
+            && current.firstVisibleIndex === anchored
+            ? current : { visibleBars, firstVisibleIndex: anchored }));
       }
       onVisibleRangeChange?.(paneId, range);
       onViewportChange?.(range);

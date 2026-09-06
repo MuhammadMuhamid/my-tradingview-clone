@@ -95,6 +95,49 @@ export const SUPERTREND_DEFAULTS = {
 } as const;
 
 /** Defaults, matching the request these families were added for. */
+/**
+ * Bars of history the alert runner evaluates against.
+ *
+ * Declared here rather than in the runner because it is a CONTRACT, not an
+ * implementation detail: it is the ceiling every family's warm-up has to fit
+ * under, and the request validator has to refuse the combinations that do not.
+ * `maAlertRunner.ts` reads it as the size of the window it loads, so the two
+ * cannot drift.
+ */
+export const ALERT_HISTORY_BARS = 1200;
+
+/**
+ * Bars a configuration must see before it produces its first value.
+ *
+ * Each length is separately capped at 1000, which is safe for a family whose
+ * warm-up is one length. It is not safe where lengths STACK: `adxDiLength`
+ * 700 with `adxSmoothing` 700 passes both checks and needs 1400 bars, so the
+ * alert is stored, listed as armed, and can never warm up — the exact class
+ * migration 027 was written to close. Families whose warm-up is a single
+ * length return 0, because a number nothing can exceed is a number nothing
+ * should read.
+ */
+export function warmupBars(condition: {
+  kind: string;
+  slowLength?: number; signalLength?: number;
+  kLength?: number; kSmooth?: number; dSmooth?: number;
+  diLength?: number; smoothing?: number;
+}): number {
+  switch (condition.kind) {
+    case "macd":
+      // The signal line is an EMA of the MACD line, so the two stack.
+      return (condition.slowLength ?? 0) + (condition.signalLength ?? 0);
+    case "stochastic":
+      // %K needs its window and its smoothing; %D smooths %K again.
+      return (condition.kLength ?? 0) + (condition.kSmooth ?? 0) + (condition.dSmooth ?? 0);
+    case "adx":
+      // DI needs `diLength`, and DX is then smoothed over `smoothing` bars.
+      return (condition.diLength ?? 0) + (condition.smoothing ?? 0);
+    default:
+      return 0;
+  }
+}
+
 export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
 export const MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9 } as const;
 

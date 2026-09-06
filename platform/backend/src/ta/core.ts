@@ -1101,6 +1101,19 @@ export function stochasticRsi(
 ): Stochastic {
   const r = rsi(src, rsiLen);
   const raw = stochasticRaw(r, r, r, stochLen);
+  /*
+   * `highest`/`lowest` SKIP na rather than propagating it — baseline semantics
+   * existing consumers rely on, which must not change. Composed over a series
+   * that begins with na, that means the stochastic emits as soon as two
+   * distinct RSI values exist, so on a short history the first readings are
+   * computed over a two- or three-bar window and drawn as if they were real.
+   * Blank the region the composition cannot support.
+   */
+  const firstValid = r.findIndex((v) => !Number.isNaN(v));
+  if (firstValid >= 0) {
+    const until = Math.min(raw.length, firstValid + Math.max(1, stochLen) - 1);
+    for (let i = 0; i < until; i++) raw[i] = NaN;
+  }
   const k = clampSeries(sma(raw, kSmooth), 0, 100);
   return { k, d: clampSeries(sma(k, dSmooth), 0, 100) };
 }
@@ -1287,11 +1300,24 @@ export function fisherTransform(
     const l = ll[i]!;
     const m = median[i]!;
     if (Number.isNaN(h) || Number.isNaN(l) || Number.isNaN(m)) continue;
-    const raw = h === l ? 0 : ((m - l) / (h - l) - 0.5) * 2;
-    value = 0.66 * Math.max(-0.999, Math.min(0.999, raw)) + 0.67 * value;
-    const clamped = Math.max(-0.999, Math.min(0.999, value));
+    /*
+     * The position term is `pos - 0.5`, in [-0.5, 0.5] — NOT doubled.
+     *
+     * The 0.66 / 0.67 / 0.5 constants below are TradingView's, so the
+     * normalisation must be TradingView's too. Scaling the position to
+     * [-1, 1] doubles the driving signal, which drives `value` to a
+     * steady-state magnitude of about 0.66 / (1 - 0.67) = 2 — twice the
+     * domain `atanh` is defined on.
+     *
+     * And it is `value`, the RECURSIVE STATE, that is clamped. Clamping a
+     * throwaway copy leaves the state itself to grow without bound, and the
+     * clamp then bites on almost every bar: the line becomes a square wave
+     * pinned at its extreme rather than an oscillator.
+     */
+    const raw = h === l ? 0 : (m - l) / (h - l) - 0.5;
+    value = Math.max(-0.999, Math.min(0.999, 0.66 * raw + 0.67 * value));
     const prevFish = fish;
-    fish = 0.5 * Math.log((1 + clamped) / (1 - clamped)) + 0.5 * fish;
+    fish = 0.5 * Math.log((1 + value) / (1 - value)) + 0.5 * fish;
     line[i] = finite(fish);
     signal[i] = started ? finite(prevFish) : NaN;
     started = true;
@@ -1468,12 +1494,23 @@ export function aroon(high: number[], low: number[], len: number): Aroon {
   const n = high.length;
   const up = new Array<number>(n).fill(NaN);
   const down = new Array<number>(n).fill(NaN);
-  outer: for (let i = len; i < n; i++) {
+  if (len < 1) return { up, down, oscillator: subSeries(up, down) };
+  /*
+   * `length` bars, not `length + 1`.
+   *
+   * TradingView's built-in is `100 * (ta.highestbars(high, length) + length) /
+   * length`, whose range is [100/length, 100] — it never reaches zero. The
+   * classical StockCharts definition looks back over `length + 1` bars and does
+   * reach zero. They are different indicators at exactly the extremes Aroon
+   * exists to flag, and this product's posture is parity with the chart a user
+   * is comparing against.
+   */
+  outer: for (let i = len - 1; i < n; i++) {
     let hiIdx = 0;
     let loIdx = 0;
     let hi = -Infinity;
     let lo = Infinity;
-    for (let k = 0; k <= len; k++) {
+    for (let k = 0; k < len; k++) {
       const h = high[i - k]!;
       const l = low[i - k]!;
       if (Number.isNaN(h) || Number.isNaN(l)) continue outer;
@@ -1508,10 +1545,37 @@ export function parabolicSar(
   for (let i = 1; i < n; i++) {
     const h = high[i]!;
     const l = low[i]!;
-    if (Number.isNaN(h) || Number.isNaN(l)) { out[i] = NaN; continue; }
+    /*
+     * A gap RESTARTS the state machine rather than carrying it across.
+     *
+     * Skipping only the output leaves the next bar to read the na bar through
+     * the two-bar clamp below, which poisons `sar` permanently: one missing bar
+     * silently ends the indicator for the rest of the series.
+     */
+    if (Number.isNaN(h) || Number.isNaN(l)) {
+      out[i] = NaN;
+      sar = NaN;
+      extreme = NaN;
+      af = start;
+      continue;
+    }
+    if (Number.isNaN(sar) || Number.isNaN(extreme)) {
+      // Re-seed from the first clean bar after the gap. The first value is
+      // still na: a stop needs a prior bar to have accelerated from.
+      long = true;
+      extreme = h;
+      sar = l;
+      out[i] = NaN;
+      continue;
+    }
+    const prevLow = low[i - 1]!;
+    const prevHigh = high[i - 1]!;
+    if (Number.isNaN(prevLow) || Number.isNaN(prevHigh)) { out[i] = NaN; continue; }
+    const prevLow2 = i >= 2 && !Number.isNaN(low[i - 2]!) ? low[i - 2]! : prevLow;
+    const prevHigh2 = i >= 2 && !Number.isNaN(high[i - 2]!) ? high[i - 2]! : prevHigh;
     sar = sar + af * (extreme - sar);
     if (long) {
-      sar = Math.min(sar, low[i - 1]!, i >= 2 ? low[i - 2]! : low[i - 1]!);
+      sar = Math.min(sar, prevLow, prevLow2);
       if (l < sar) {
         long = false;
         sar = extreme;
@@ -1522,7 +1586,7 @@ export function parabolicSar(
         af = Math.min(af + increment, maximum);
       }
     } else {
-      sar = Math.max(sar, high[i - 1]!, i >= 2 ? high[i - 2]! : high[i - 1]!);
+      sar = Math.max(sar, prevHigh, prevHigh2);
       if (h > sar) {
         long = true;
         sar = extreme;
@@ -1793,8 +1857,11 @@ export function volumeFlowIndicator(
   }
   const sumRaw = rollSum(raw, len);
   const normalised = sumRaw.map((v, i) => {
-    const avg = volAvg[i]!;
-    if (Number.isNaN(v) || Number.isNaN(avg) || avg === 0) return NaN;
+    // The PREVIOUS bar's average, matching the cap above. Katsanos's VFI uses
+    // `sma(volume, length)[1]` for both; using the current bar's here made the
+    // two disagree systematically whenever volume was trending.
+    const avg = volAvg[i - 1];
+    if (avg === undefined || Number.isNaN(v) || Number.isNaN(avg) || avg === 0) return NaN;
     return finite(v / avg);
   });
   return ema(normalised, smoothLen);

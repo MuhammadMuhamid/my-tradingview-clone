@@ -82,6 +82,14 @@ export function IndicatorAlertModal({
   const [bbMaType, setBbMaType] = useState<"sma" | "ema">(BOLLINGER_DEFAULTS.maType);
   /** The full level vocabulary, because a band is a moving price line. */
   const [bbMode, setBbMode] = useState<MaAlertMode>("touch");
+  /*
+   * The approach band, in percent. Only the two `near_*` modes read it, and
+   * only Bollinger among the families here offers those — but it was not
+   * settable at all, so every "just above the band" alert was pinned to the
+   * server's 0.2–0.5 % default whatever the user meant by "just".
+   */
+  const [nearMinPct, setNearMinPct] = useState<number>(0.2);
+  const [nearMaxPct, setNearMaxPct] = useState<number>(0.5);
 
   const [stochKLength, setStochKLength] = useState<number>(STOCHASTIC_DEFAULTS.kLength);
   const [stochKSmooth, setStochKSmooth] = useState<number>(STOCHASTIC_DEFAULTS.kSmooth);
@@ -110,6 +118,15 @@ export function IndicatorAlertModal({
       prev.includes(tf) ? prev.filter((t) => t !== tf) : [...prev, tf]
     );
 
+  /**
+   * The mode this modal will actually arm.
+   *
+   * A price-line family carries the level vocabulary; every other family here
+   * watches a crossing. Same expression the save uses, so the summary sentence
+   * cannot describe a different alert to the one that is stored.
+   */
+  const armedMode: MaAlertMode = PRICE_LINE_KINDS.includes(kind) ? bbMode : direction;
+
   const save = async (): Promise<void> => {
     if (timeframes.length === 0) { setErr("Pick at least one timeframe"); return; }
     // Refused here as well as by the server, so the user is told before the
@@ -134,6 +151,11 @@ export function IndicatorAlertModal({
       setErr("The Bollinger length must be a whole number of at least 2");
       return;
     }
+    if (kind === "bollinger" && (bbMode === "near_above" || bbMode === "near_below")
+        && !(nearMaxPct > nearMinPct && nearMinPct >= 0)) {
+      setErr("The far edge of the band must be larger than the near edge");
+      return;
+    }
     if (kind === "bollinger" && !(bbMult > 0 && bbMult <= 100)) {
       setErr("The standard-deviation multiplier must be greater than 0 and at most 100");
       return;
@@ -153,16 +175,20 @@ export function IndicatorAlertModal({
       for (const timeframe of timeframes) {
         await api.createMaAlert({
           symbol, timeframe, conditionKind: kind,
-          // A price-line family carries the level vocabulary; every other
-          // family here watches a crossing, which has two directions.
-          mode: PRICE_LINE_KINDS.includes(kind) ? bbMode : direction,
+          mode: armedMode,
           frequency, cooldownMin,
           ...(kind === "rsi"
             ? { rsiLength, target: rsiTarget, rsiLevel, rsiMaLength }
             : kind === "macd"
               ? { macdFast, macdSlow, macdSignal, target: macdTarget }
               : kind === "bollinger"
-                ? { bbLength, bbMult, bbBand, bbMaType }
+                ? {
+                    bbLength, bbMult, bbBand, bbMaType,
+                    // Only the two approach modes read the band; sending it
+                    // otherwise would store a width nothing consults.
+                    ...(bbMode === "near_above" || bbMode === "near_below"
+                      ? { nearMinPct, nearMaxPct } : {}),
+                  }
                 : kind === "stochastic"
                   ? {
                       stochKLength, stochKSmooth, stochDSmooth,
@@ -293,6 +319,22 @@ export function IndicatorAlertModal({
               <input type="number" min="0.1" max="100" step="0.1" value={bbMult}
                 onChange={(e) => setBbMult(parseFloat(e.target.value || "0"))} className={box} />
             </Row>
+            {(bbMode === "near_above" || bbMode === "near_below") && (
+              <Row label="Band width">
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" step="0.05" value={nearMinPct}
+                    aria-label="Near band inner edge, percent"
+                    onChange={(e) => setNearMinPct(parseFloat(e.target.value || "0"))}
+                    className={box} />
+                  <span className="text-sm text-ink-faint">to</span>
+                  <input type="number" min="0" step="0.05" value={nearMaxPct}
+                    aria-label="Near band outer edge, percent"
+                    onChange={(e) => setNearMaxPct(parseFloat(e.target.value || "0"))}
+                    className={box} />
+                  <span className="text-sm text-ink-muted">%</span>
+                </div>
+              </Row>
+            )}
             <Row label="Basis type">
               <select value={bbMaType} onChange={(e) => setBbMaType(e.target.value as "sma" | "ema")}
                 className={box}>
@@ -454,12 +496,26 @@ export function IndicatorAlertModal({
 
         <p className="rounded-md border border-border bg-surface-2/50 px-3 py-2 text-xs text-ink-muted">
           Notify when <span className="text-ink">{summary}</span>.
-          {" "}This needs a previous bar to compare against, so it stays quiet
-          until {
-            kind === "supertrend" ? "the indicator actually changes direction"
-            : kind === "bollinger" ? "price actually reaches the band"
-            : "the indicator actually moves across the line"
-          } — it will not fire just because it is already on one side.
+          {/*
+            * Only a CROSSING consults the previous bar. `touch` tests whether
+            * the bar's range contains the line and `near_*` is a distance test;
+            * neither looks at where price was before, so both fire on the first
+            * evaluated bar if the condition already holds. Saying otherwise was
+            * a promise the runner does not keep.
+            */}
+          {armedMode.startsWith("cross_")
+            ? <>
+                {" "}This needs a previous bar to compare against, so it stays quiet
+                until {
+                  kind === "supertrend" ? "the indicator actually changes direction"
+                  : kind === "bollinger" ? "price actually crosses the band"
+                  : "the indicator actually moves across the line"
+                } — it will not fire just because it is already on one side.
+              </>
+            : <>
+                {" "}This is a test of where price is now, not of where it came
+                from, so it can trigger on the first bar it is evaluated on.
+              </>}
         </p>
 
         <div className="my-1 border-t border-border" />

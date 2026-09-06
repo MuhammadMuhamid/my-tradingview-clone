@@ -217,13 +217,19 @@ function buildBase(
      * `distancePct` carries stochastic points here, not a price move.
      */
     case "stochastic": {
-      const against = condition.target === "level" ? `${condition.level}` : "%D";
+      /*
+       * Against a LEVEL the reference already appears in the sentence
+       * `describeCondition` writes, so repeating it produced "crosses above 20
+       * (%K 21.30 vs 20 20.00)". Only the reading is new there. Against %D the
+       * reference is a moving number and both halves say something.
+       */
+      const reading = formatIndicator(reference + distancePct);
       return {
         title: `${alert.symbol} ${alert.timeframe} — Stochastic`,
-        body:
-          `${describeCondition(condition)} ` +
-          `(%K ${formatIndicator(reference + distancePct)} vs ` +
-          `${against} ${formatIndicator(reference)})`,
+        body: condition.target === "level"
+          ? `${describeCondition(condition)} (%K ${reading})`
+          : `${describeCondition(condition)} ` +
+            `(%K ${reading} vs %D ${formatIndicator(reference)})`,
         tag, url,
       };
     }

@@ -27,6 +27,10 @@ import {
   conditionFromRow, describeCondition, evaluateCondition, requiredSeries,
   validateCondition, type AlertCondition, type Sample, type Side,
 } from "../src/alerts/alertConditions";
+import {
+  planAlert, stateAfterPlan, type AlertSpec, type FeedSample,
+} from "../src/alerts/alertPlan";
+import { initialFireState } from "../src/alerts/alertFrequency";
 import { readCondition, toColumns } from "../src/alerts/alertRequest";
 import { formatAlertPush } from "../src/alerts/alertMessage";
 import { CONDITION_KINDS } from "../src/types/maAlerts";
@@ -288,4 +292,99 @@ test("migration 027 widens the kind check and refuses an unfireable row", () => 
                            /UPDATE ma_alerts SET/i]) {
     assert.doesNotMatch(statements, forbidden, `${forbidden} would not be additive`);
   }
+});
+
+// ── warm-up ────────────────────────────────────────────────────────────────
+
+/**
+ * The bug this file's header promised was closed, and was not.
+ *
+ * An unresolved reference used to evaluate to `side: prevSide ?? "above"`, and
+ * `stateAfterPlan` persists whatever side the plan reports. So an alert whose
+ * indicator had not warmed up recorded "above" it had never been on, and the
+ * first bar that produced a real reading below the reference looked exactly
+ * like a downward cross. ADX at its defaults needs 28 bars; a newly listed
+ * symbol, a backfill that came up short, or a user-chosen length long enough to
+ * outrun the history window all reach it.
+ *
+ * Run through the real `planAlert`/`stateAfterPlan` rather than the evaluator
+ * alone, because it is the PERSISTENCE of the invented side that does the
+ * damage.
+ */
+test("an unwarmed indicator records no side, so the first real reading cannot be a cross", () => {
+  for (const [kind, key] of [["stochastic", "stochastic"], ["adx", "adx"]] as const) {
+    const condition = read(kind, { mode: "cross_down" });
+    const spec: AlertSpec = {
+      id: "a1", symbol: "BTCUSDT", timeframe: "1h", enabled: true,
+      condition, frequency: "once_per_bar_close", lastSide: null,
+      fireState: initialFireState(0), lastBarTime: null,
+    };
+    const feed = (resolved: { value: number; reference: number } | undefined, barTime: number) => ({
+      symbol: "BTCUSDT", timeframe: "1h", barTime, isClosedBar: true,
+      high: 101, low: 99, close: 100,
+      series: () => undefined,
+      [key]: () => resolved,
+    }) as unknown as FeedSample;
+
+    // Warm-up: the runner has no reading to give.
+    const warm = planAlert(spec, feed(undefined, 1_000), 1_000);
+    assert.ok(warm.act);
+    if (!warm.act) return;
+    assert.equal(warm.side, null, `${kind} invented a side during warm-up`);
+    const after = stateAfterPlan(spec, warm, { barTime: 1_000, now: 1_000, delivered: false });
+    assert.equal(after.lastSide, null, `${kind} persisted an invented side`);
+
+    // First computable bar, below the reference. Nothing crossed: the alert
+    // has never seen this indicator above anything.
+    const armed: AlertSpec = { ...spec, lastSide: after.lastSide, lastBarTime: 1_000 };
+    const first = planAlert(armed, feed({ value: 10, reference: 20 }, 2_000), 2_000);
+    assert.ok(first.act);
+    if (!first.act) return;
+    assert.equal(first.side, "below");
+    assert.equal(first.triggered, false, `${kind} fired on its first computable bar`);
+
+    // And a genuine crossing, seeded above then falling through, still fires.
+    const seeded = planAlert(
+      { ...armed, lastSide: "below", lastBarTime: 2_000 },
+      feed({ value: 30, reference: 20 }, 3_000), 3_000);
+    assert.ok(seeded.act);
+    if (!seeded.act) return;
+    assert.equal(seeded.side, "above");
+    const crossing = planAlert(
+      { ...armed, lastSide: seeded.side, lastBarTime: 3_000 },
+      feed({ value: 10, reference: 20 }, 4_000), 4_000);
+    assert.ok(crossing.act);
+    if (!crossing.act) return;
+    assert.equal(crossing.triggered, true, `${kind} missed a real crossing`);
+  }
+});
+
+test("a Bollinger cross is subject to the same rule", () => {
+  const condition = read("bollinger", { mode: "cross_down", band: "upper" });
+  const spec: AlertSpec = {
+    id: "a2", symbol: "BTCUSDT", timeframe: "1h", enabled: true,
+    condition, frequency: "once_per_bar_close", lastSide: null,
+    fireState: initialFireState(0), lastBarTime: null,
+  };
+  const feed = (band: { price: number; label: string } | undefined, close: number, barTime: number) =>
+    ({
+      symbol: "BTCUSDT", timeframe: "1h", barTime, isClosedBar: true,
+      high: close + 1, low: close - 1, close,
+      series: () => undefined,
+      bollinger: () => band,
+    }) as unknown as FeedSample;
+
+  const warm = planAlert(spec, feed(undefined, 100, 1_000), 1_000);
+  assert.ok(warm.act);
+  if (!warm.act) return;
+  assert.equal(warm.side, null);
+  assert.equal(
+    stateAfterPlan(spec, warm, { barTime: 1_000, now: 1_000, delivered: false }).lastSide, null);
+
+  const first = planAlert(
+    { ...spec, lastBarTime: 1_000 },
+    feed({ price: 110, label: "upper band" }, 100, 2_000), 2_000);
+  assert.ok(first.act);
+  if (!first.act) return;
+  assert.equal(first.triggered, false, "a first reading below the band is not a cross down");
 });

@@ -18,6 +18,7 @@ import {
   STOCHASTIC_TARGETS, STOCHASTIC_DEFAULTS, isStochasticTarget,
   ADX_DEFAULTS,
   FILTER_DEFAULTS, isFilterSide,
+  ALERT_HISTORY_BARS, warmupBars,
 } from "../types/maAlerts";
 import type { AlertCondition, AlertFilters } from "./alertConditions";
 import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
@@ -32,6 +33,20 @@ import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
  * the list, and can never fire.
  */
 const isLength = (v: number): boolean => Number.isInteger(v) && v >= 1 && v <= 1000;
+
+/**
+ * The bound `isLength` cannot express.
+ *
+ * `isLength` checks each length on its own, which is enough where a family's
+ * warm-up IS one length. Where lengths stack — MACD's signal EMA on top of its
+ * slow EMA, %D's smoothing on top of %K's, ADX's DX smoothing on top of DI —
+ * two individually legal values can together need more bars than the runner
+ * ever loads, and the result is a stored alert that reads as armed and can
+ * never produce a first value.
+ */
+const tooLong = (need: number): Rejection =>
+  bad(`these lengths need ${need} bars of history and the alert runner evaluates ` +
+      `${ALERT_HISTORY_BARS}; the alert could never warm up`);
 
 /**
  * Read the optional gates a level alert may carry.
@@ -120,6 +135,21 @@ export function readCondition(
 ): { condition: AlertCondition } | Rejection {
   const nearMinPct = b.nearMinPct === undefined ? 0.2 : Number(b.nearMinPct);
   const nearMaxPct = b.nearMaxPct === undefined ? 0.5 : Number(b.nearMaxPct);
+  /*
+   * The band is bounded for EVERY mode, not only the two that read it.
+   *
+   * `near_max_pct > near_min_pct` is an unconditional CHECK on the table, but
+   * `nearBandError` only bounds the `near_*` modes, so a `touch` alert carrying
+   * a reversed band passed both validators and failed at the insert — a 500 on
+   * a request that is merely malformed. Bounding it here costs a family
+   * nothing: a mode that ignores the band cannot send a reversed one either.
+   */
+  if (!Number.isFinite(nearMinPct) || !Number.isFinite(nearMaxPct)) {
+    return bad("nearMinPct and nearMaxPct must be numbers");
+  }
+  if (nearMinPct < 0 || !(nearMaxPct > nearMinPct)) {
+    return bad("nearMaxPct must be greater than nearMinPct, and neither may be negative");
+  }
 
   // Gates are offered on every family, so they are read once here rather than
   // per-kind — a family added below cannot forget to accept them.
@@ -200,6 +230,8 @@ export function readCondition(
     if (sMode !== "cross_up" && sMode !== "cross_down") {
       return bad("mode must be cross_up or cross_down for a Stochastic alert");
     }
+    const stochNeed = warmupBars({ kind: "stochastic", kLength, kSmooth, dSmooth });
+    if (stochNeed > ALERT_HISTORY_BARS) return tooLong(stochNeed);
     return {
       condition: {
         kind: "stochastic", kLength, kSmooth, dSmooth, target, level, mode: sMode, ...gates,
@@ -218,6 +250,8 @@ export function readCondition(
     if (aMode !== "cross_up" && aMode !== "cross_down") {
       return bad("mode must be cross_up or cross_down for an ADX alert");
     }
+    const adxNeed = warmupBars({ kind: "adx", diLength, smoothing });
+    if (adxNeed > ALERT_HISTORY_BARS) return tooLong(adxNeed);
     return { condition: { kind: "adx", diLength, smoothing, level, mode: aMode, ...gates } };
   }
 
@@ -296,6 +330,10 @@ export function readCondition(
     }
     // A fast length at or above the slow one inverts the oscillator's meaning:
     // every "crosses above" would report what the user reads as a downturn.
+    const macdNeed = warmupBars({
+      kind: "macd", slowLength, signalLength,
+    });
+    if (macdNeed > ALERT_HISTORY_BARS) return tooLong(macdNeed);
     if (fastLength >= slowLength) {
       return bad("macdFast must be less than macdSlow");
     }
@@ -513,9 +551,19 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         stochKLength: condition.kLength,
         stochKSmooth: condition.kSmooth,
         stochDSmooth: condition.dSmooth,
-        // Stored even for the signal target, so switching a stored alert to a
-        // level does not silently take a default the operator never chose.
-        stochLevel: condition.level,
+        /*
+         * A level belongs to the level target only.
+         *
+         * It used to be stored either way, on the reasoning that switching a
+         * stored alert to a level should not take a default the operator never
+         * chose. But `ma_alerts_stochastic_uniq` keys on this column, so a
+         * leftover level made two identical "%K crosses above %D" alerts
+         * distinct rows that both evaluated and both notified. The index
+         * declares NULLS NOT DISTINCT (migration 028), so a null here is what
+         * collapses them; the editor re-offers the default when the target is
+         * switched back.
+         */
+        stochLevel: condition.target === "level" ? condition.level : null,
         indicatorTarget: condition.target,
         ...gates(condition.filters),
       };

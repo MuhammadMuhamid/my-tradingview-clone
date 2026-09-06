@@ -32,8 +32,10 @@ import {
   normalizeParams, type NativeInputValue, type NativeParams,
 } from "./native/registry";
 import {
-  newNativeStudy, runNativeStudy, StudyCache, studySignature, computeWindow,
+  computeWindow, HIDDEN_OUTPUT, newNativeStudy, runNativeStudy, StudyCache,
+  studySignature,
   type AppliedNativeStudy, type NativeStudyOutput, type PlotStyleOverride,
+  type Viewport,
 } from "./native/compute";
 import { pricePrecision } from "./movingAverages";
 import type { ChartDecoration, ChartOverlay } from "./chartSeries";
@@ -178,13 +180,26 @@ export interface NativeStudiesApi {
 export interface NativeStudiesContext {
   candles: readonly Candle[];
   interval: Interval;
-  /** Bars the user can actually see; drives how much each study computes. */
-  visibleBars?: number;
+  /**
+   * Where the user is looking, in bars.
+   *
+   * Both halves matter: the SIZE decides how much each study computes, and the
+   * POSITION decides which bars it computes over. Passing only a size anchored
+   * every study to the newest bar, so panning back into loaded history left
+   * them blank.
+   */
+  viewport?: Viewport;
   scope?: string;
 }
 
-/** The default visible window when the chart has not reported one yet. */
-const DEFAULT_VISIBLE_BARS = 500;
+/**
+ * The window assumed before the chart has reported one.
+ *
+ * Generous, and anchored at the newest bar, so the first paint is never short.
+ */
+const DEFAULT_VIEWPORT: Viewport = {
+  firstVisibleIndex: Number.POSITIVE_INFINITY, visibleBars: 1_000,
+};
 
 export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
   const scope = ctx.scope ?? PRIMARY_SCOPE;
@@ -210,7 +225,16 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
   const precision = useMemo(
     () => pricePrecision(ctx.candles[ctx.candles.length - 1]?.close ?? 0),
     [ctx.candles]);
-  const visibleBars = ctx.visibleBars ?? DEFAULT_VISIBLE_BARS;
+  const viewport = useMemo<Viewport>(() => {
+    const requested = ctx.viewport ?? DEFAULT_VIEWPORT;
+    const visibleBars = Math.max(1, Math.ceil(requested.visibleBars));
+    // An unreported or out-of-range position means "the newest bars", which is
+    // where a chart opens.
+    const first = Number.isFinite(requested.firstVisibleIndex)
+      ? Math.max(0, Math.trunc(requested.firstVisibleIndex))
+      : Math.max(0, ctx.candles.length - visibleBars);
+    return { firstVisibleIndex: first, visibleBars };
+  }, [ctx.viewport, ctx.candles.length]);
 
   /*
    * Every visible study's output.
@@ -225,18 +249,21 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
     for (const study of list) {
       const def = studyById(study.defId);
       if (!def) continue;
-      const signature = studySignature(study, def, precision);
+      // A hidden study is not computed at all. It used to be computed and then
+      // filtered out, which is the opposite of what the windowing exists for.
+      if (!study.visible) { out.set(study.key, HIDDEN_OUTPUT); continue; }
+      const signature = studySignature(study, def, precision, viewport);
       const cached = cache.current.get(study, ctx.candles, signature);
       if (cached) { out.set(study.key, cached); continue; }
       const window = computeWindow(
         ctx.candles, def.warmup(normalizeParams(def, study.params)),
-        visibleBars, def.unbounded === true);
+        viewport, def.unbounded === true);
       const result = runNativeStudy(def, study, window, ctx.interval, precision);
       cache.current.set(study, ctx.candles, signature, result);
       out.set(study.key, result);
     }
     return out;
-  }, [list, ctx.candles, ctx.interval, precision, visibleBars]);
+  }, [list, ctx.candles, ctx.interval, precision, viewport]);
 
   const rows = useMemo<NativeStudyRow[]>(() => list.flatMap((study) => {
     const def = studyById(study.defId);

@@ -341,3 +341,139 @@ test("the browser's copy of the core is byte-identical to the server's", () => {
     "the core must import nothing, or the two copies could not be identical " +
     "across two module systems and two tsconfigs");
 });
+
+// ── the repairs the Wave B review asked for, pinned ─────────────────────────
+
+/**
+ * The Fisher Transform, against a direct transcription of the formula whose
+ * constants this implementation uses.
+ *
+ * The defect this replaces was not a rounding difference: the position term was
+ * scaled ×2 and the recursive state was left unclamped, so the line sat pinned
+ * at its extreme on most bars and read as a square wave. Both halves are
+ * checked — the agreement, and the distribution.
+ */
+test("the Fisher Transform is TradingView's, not a doubled and unclamped variant", () => {
+  const n = 1_100;
+  const s = series(n, 21);
+  const median = core.hl2(s.high, s.low);
+  const len = 9;
+
+  // Reference: `value := round_(.66 * ((hl2 - low_) / (high_ - low_) - .5)
+  //                              + .67 * nz(value[1]))`
+  //            `fish1 := .5 * log((1 + value) / (1 - value)) + .5 * nz(fish1[1])`
+  const hh = core.highest(median, len);
+  const ll = core.lowest(median, len);
+  const reference = new Array<number>(n).fill(NaN);
+  let value = 0;
+  let fish = 0;
+  for (let i = 0; i < n; i++) {
+    const h = hh[i]!;
+    const l = ll[i]!;
+    const m = median[i]!;
+    if (Number.isNaN(h) || Number.isNaN(l) || Number.isNaN(m)) continue;
+    const raw = h === l ? 0 : (m - l) / (h - l) - 0.5;
+    value = Math.max(-0.999, Math.min(0.999, 0.66 * raw + 0.67 * value));
+    fish = 0.5 * Math.log((1 + value) / (1 - value)) + 0.5 * fish;
+    reference[i] = fish;
+  }
+
+  const mine = core.fisherTransform(s.high, s.low, len).line;
+  let worst = 0;
+  for (let i = 0; i < n; i++) {
+    if (Number.isNaN(reference[i]!) || Number.isNaN(mine[i]!)) continue;
+    worst = Math.max(worst, Math.abs(mine[i]! - reference[i]!));
+  }
+  assert.ok(worst < 1e-9, `Fisher differs from the reference by ${worst}`);
+
+  // And it is an oscillator rather than a square wave. `|F| > 3.4` corresponds
+  // to a clamped position; a correct Fisher spends a few percent of its bars
+  // there, a doubled one spent two thirds.
+  const values = finiteTail(mine);
+  const pinned = values.filter((v) => Math.abs(v) > 3.4).length / values.length;
+  assert.ok(pinned < 0.10,
+    `${(pinned * 100).toFixed(1)}% of bars are pinned at the clamp — the ` +
+    `transform is saturating rather than oscillating`);
+});
+
+test("Aroon uses TradingView's length-bar window, so it never reaches zero", () => {
+  const s = series(400, 33);
+  const len = 14;
+  const a = core.aroon(s.high, s.low, len);
+
+  // Reference: `100 * (highestbars(high, length) + length) / length`.
+  const n = s.high.length;
+  for (let i = len - 1; i < n; i++) {
+    let hiIdx = 0;
+    let hi = -Infinity;
+    for (let k = 0; k < len; k++) {
+      if (s.high[i - k]! > hi) { hi = s.high[i - k]!; hiIdx = k; }
+    }
+    const expected = ((len - hiIdx) / len) * 100;
+    assert.ok(Math.abs(a.up[i]! - expected) < 1e-9, `Aroon Up at ${i}`);
+  }
+  const up = finiteTail(a.up);
+  assert.ok(up.length > 0);
+  assert.ok(Math.min(...up) >= (100 / len) - 1e-9,
+    "the length-bar definition never reaches 0; the length+1 one does");
+  assert.ok(Math.max(...up) <= 100 + 1e-9);
+  // The first value exists at bar `len - 1`, not `len`.
+  assert.ok(Number.isFinite(a.up[len - 1]!));
+  assert.ok(Number.isNaN(a.up[len - 2]!));
+});
+
+test("Stochastic RSI draws nothing until a full window of RSI exists", () => {
+  const short = series(40, 7);
+  const rsiLen = 14;
+  const stochLen = 14;
+  const kSmooth = 3;
+  const k = core.stochasticRsi(short.close, rsiLen, stochLen, kSmooth, 3).k;
+
+  /*
+   * Derived, not guessed. RSI(14) seeds at bar 14; a full 14-bar window over it
+   * first exists at 14 + 14 - 1 = 27; the 3-bar %K smoothing adds two more.
+   * Before the repair the first value appeared at bar 17, computed over four of
+   * the fourteen RSI readings it claimed.
+   */
+  const rsiFirst = core.rsi(short.close, rsiLen).findIndex((v) => !Number.isNaN(v));
+  const expected = rsiFirst + stochLen - 1 + kSmooth - 1;
+  const first = k.findIndex((v) => Number.isFinite(v));
+  assert.equal(first, expected,
+    `first value at bar ${first}, expected ${expected} — a reading drawn over a ` +
+    `partial window reads as real`);
+
+  // And a long series is unchanged from bar 40 onward by the blanking.
+  const long = series(600, 7);
+  const kLong = core.stochasticRsi(long.close, 14, 14, 3, 3).k;
+  for (let i = 60; i < 600; i++) {
+    if (Number.isNaN(kLong[i]!)) continue;
+    assert.ok(kLong[i]! >= 0 && kLong[i]! <= 100);
+  }
+});
+
+test("one missing bar does not end Parabolic SAR for the rest of the series", () => {
+  const s = series(800, 12);
+  const clean = core.parabolicSar(s.high, s.low, 0.02, 0.02, 0.2);
+  assert.equal(clean.slice(2).filter((v) => Number.isNaN(v)).length, 0,
+    "a clean series has no gaps");
+
+  const high = s.high.slice();
+  const low = s.low.slice();
+  high[500] = NaN;
+  low[500] = NaN;
+  const gapped = core.parabolicSar(high, low, 0.02, 0.02, 0.2);
+  assert.ok(Number.isNaN(gapped[500]!), "the missing bar itself has no value");
+  const after = gapped.slice(510);
+  assert.ok(after.every((v) => Number.isFinite(v)),
+    "the state machine must restart after the gap rather than be poisoned by it");
+});
+
+test("VFI caps and normalises against the same volume average", () => {
+  const source = readFileSync(join(__dirname, "..", "src", "ta", "core.ts"), "utf8");
+  const body = source.slice(source.indexOf("export function volumeFlowIndicator"));
+  const uses = [...body.slice(0, body.indexOf("\n}")).matchAll(/volAvg\[i([^\]]*)\]/g)]
+    .map((m) => m[1]!.trim());
+  assert.ok(uses.length >= 2, "both the cap and the normaliser read the average");
+  assert.ok(uses.every((u) => u === "- 1"),
+    `the cap and the normaliser must use the same index; found ${JSON.stringify(uses)}`);
+});

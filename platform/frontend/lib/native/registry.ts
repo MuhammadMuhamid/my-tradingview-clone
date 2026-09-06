@@ -176,6 +176,12 @@ export interface NativeComputeOutput {
   colors?: Record<string, (string | null)[]>;
   /** Levels the study draws given its current inputs, if they are not static. */
   levels?: LevelDef[];
+  /**
+   * Per-plot displacement in bars, for a study whose offset is an INPUT rather
+   * than a constant — Ichimoku's cloud moves with its `displacement` setting.
+   * Applied at plot time, never inside the maths.
+   */
+  plotOffsets?: Record<string, number>;
 }
 
 export interface NativeStudyDef {

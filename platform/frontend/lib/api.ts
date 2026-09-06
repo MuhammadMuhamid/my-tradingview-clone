@@ -565,6 +565,17 @@ export const STOCHASTIC_DEFAULTS = {
 export const ADX_DEFAULTS = { diLength: 14, smoothing: 14, level: 25 } as const;
 
 /**
+ * Bars of history the alert runner evaluates against.
+ *
+ * Mirrors `ALERT_HISTORY_BARS` in `backend/src/types/maAlerts.ts`, checked by
+ * `tests/alertEditing.test.ts`. It is the ceiling a family's warm-up must fit
+ * under: lengths that stack past it produce an alert that reads as armed and
+ * can never fire, and the server refuses them. This copy exists so the dialog
+ * says so beside the field rather than after a round trip.
+ */
+export const ALERT_HISTORY_BARS = 1200;
+
+/**
  * Mirrors `NOTE_MAX_LENGTH` on the server and `ma_alerts_note_len_ck` in the
  * schema. Served by `/api/ma-alerts/options` too; this copy is what the dialogs
  * count against before that arrives.
@@ -769,12 +780,30 @@ export interface MaAlertUpdate {
   macdFast?: number;
   macdSlow?: number;
   macdSignal?: number;
-  /** `RsiTarget` for an RSI alert, `MacdTarget` for a MACD one. */
-  target?: RsiTarget | MacdTarget;
+  /**
+   * `RsiTarget` for an RSI alert, `MacdTarget` for a MACD one,
+   * `StochasticTarget` for a Stochastic one. One field because all three
+   * answer the same question, and the server stores them in one column.
+   */
+  target?: RsiTarget | MacdTarget | StochasticTarget;
   // ── supertrend ──
   stPeriod?: number;
   stMultiplier?: number;
   stAtrMethod?: StAtrMethod;
+  // ── bollinger ──
+  bbLength?: number;
+  bbMult?: number;
+  bbBand?: BollingerBand;
+  bbMaType?: MaType;
+  // ── stochastic ──
+  stochKLength?: number;
+  stochKSmooth?: number;
+  stochDSmooth?: number;
+  stochLevel?: number;
+  // ── adx ──
+  adxDiLength?: number;
+  adxSmoothing?: number;
+  adxLevel?: number;
   // ── optional trend gates, accepted on every family ──
   filterRsi?: boolean;
   filterRsiLength?: number;

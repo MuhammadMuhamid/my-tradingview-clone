@@ -315,8 +315,19 @@ export interface Sample {
 }
 
 export interface Evaluation {
-  /** Which side of the reference this sample sits on. Persisted for crosses. */
-  side: Side;
+  /**
+   * Which side of the reference this sample sits on. Persisted for crosses.
+   *
+   * `null` while the reference is UNRESOLVED — during an indicator's warm-up,
+   * or when a backfill did not reach far enough back. It used to fall back to
+   * `prevSide ?? "above"`, which persisted an invented "above" through warm-up,
+   * so the first computable bar that read below the reference detected a
+   * `cross_down` the market never made. An alert on a newly listed symbol, or
+   * one whose lengths are long enough that history runs out, fired on its very
+   * first reading. Unset is the truth here, and `crossed()` already treats a
+   * null previous side as no cross.
+   */
+  side: Side | null;
   /** Signed distance from the reference, in percent. */
   distancePct: number;
   triggered: boolean;
@@ -464,7 +475,7 @@ function evaluateAgainstReference(
   // report untriggered and leave the side alone, so a NaN comparison cannot
   // corrupt the stored cross state.
   if (!Number.isFinite(reference)) {
-    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+    return { side: prevSide, distancePct: 0, triggered: false, reference };
   }
   const side: Side = sample.close >= reference ? "above" : "below";
   const distancePct = distance(sample.close, reference);
@@ -583,7 +594,7 @@ function evaluateBollinger(
 ): Evaluation {
   const reference = sample.refValue ?? NaN;
   if (!Number.isFinite(reference)) {
-    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+    return { side: prevSide, distancePct: 0, triggered: false, reference };
   }
   return evaluateAgainstReference(
     condition.mode, condition.nearMinPct, condition.nearMaxPct,
@@ -600,7 +611,7 @@ function evaluateMa(
   // Not enough history to seed this MA: report untriggered and leave the side
   // alone, so a NaN comparison cannot corrupt the stored cross state.
   if (!Number.isFinite(reference)) {
-    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+    return { side: prevSide, distancePct: 0, triggered: false, reference };
   }
 
   return evaluateAgainstReference(
@@ -630,7 +641,7 @@ function evaluateSeriesCross(
   absoluteDistance = false
 ): Evaluation {
   if (!Number.isFinite(value) || !Number.isFinite(reference)) {
-    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+    return { side: prevSide, distancePct: 0, triggered: false, reference };
   }
   const side: Side = value >= reference ? "above" : "below";
   const distancePct = absoluteDistance ? value - reference : distance(value, reference);
@@ -696,7 +707,7 @@ function evaluateSupertrend(
   // Not warmed up: leave the stored side alone rather than letting a NaN
   // comparison manufacture a flip on the next bar.
   if (trend === undefined || !Number.isFinite(trend)) {
-    return { side: prevSide ?? "above", distancePct: 0, triggered: false, reference };
+    return { side: prevSide, distancePct: 0, triggered: false, reference };
   }
   const side: Side = trend > 0 ? "above" : "below";
   const distancePct = Number.isFinite(reference) ? distance(sample.close, reference) : 0;

@@ -216,7 +216,11 @@ export const bollingerStudy: NativeStudyDef = {
   ],
   fills: [{ id: "band", firstPlotId: "upper", secondPlotId: "lower", color: "rgba(79,140,255,0.08)" }],
   precision: null,
-  warmup: (p) => num(p, "length", 20) * 4,
+  // The basis may be EMA, RMA, DEMA or TEMA — all recursive — so this
+  // follows the registry's twenty-lengths rule like every sibling. At *4 the
+  // band was wrong by a displayable amount at the left of the viewport and
+  // moved when the user zoomed.
+  warmup: (p) => num(p, "length", 20) * 20,
   compute: ({ candles, params }) => {
     const src = resolveSource(candles, str(params, "source", "close"));
     const { volume } = ohlcv(candles);

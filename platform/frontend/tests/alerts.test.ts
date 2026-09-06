@@ -9,7 +9,7 @@ import {
   alertColor, alertInactiveReason, alertLineLabel, describeAlert,
   frequencyWarning, isAlertActive, FREQUENCY_LABELS, INTRABAR_WARNING,
 } from "../lib/alerts";
-import type { AlertFrequency, MaAlert } from "../lib/api";
+import type { AlertFrequency, ConditionKind, MaAlert } from "../lib/api";
 
 const base: MaAlert = {
   id: "a1", symbol: "BTCUSDT", timeframe: "1h",
@@ -245,4 +245,108 @@ test("one gate on its own is described on its own", () => {
     filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
   });
   assert.match(maOnly && describeAlert(maOnly), /only while price is above the EMA 200$/);
+});
+
+// ── every family, not just the ones that existed first ─────────────────────
+
+/**
+ * The row shape each family actually stores, keyed exhaustively.
+ *
+ * A `Record<ConditionKind, …>` rather than an array so that adding a family to
+ * the union fails to compile here until it has been described. Three families
+ * were added to the union and to the server's labels without ever reaching
+ * `alertLineLabel`'s switch, so every Bollinger, Stochastic and ADX alert in
+ * the list read "SMA 0 — price crosses above", including its `aria-label`. For
+ * the two oscillators that was not vague, it was false: neither watches price.
+ */
+const FAMILY_ROWS: Record<ConditionKind, Partial<MaAlert>> = {
+  price: { conditionKind: "price", targetPrice: 64_000, priceDirection: "cross_up" },
+  ma: { conditionKind: "ma", maType: "ema", maLength: 200, mode: "cross_up" },
+  ma_vs_ma: {
+    conditionKind: "ma_vs_ma", maType: "ema", maLength: 50,
+    ma2Type: "sma", ma2Length: 200, mode: "cross_up",
+  },
+  sr_zone: { conditionKind: "sr_zone", srSide: "support", mode: "near_above" },
+  pivot_level: {
+    conditionKind: "pivot_level", pivotType: "Fibonacci",
+    pivotLevelName: "S1", pivotAnchor: "1d", mode: "near_above",
+  },
+  rsi: { conditionKind: "rsi", rsiLength: 14, rsiLevel: 70, indicatorTarget: "level", mode: "cross_up" },
+  macd: { conditionKind: "macd", macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal", mode: "cross_up" },
+  supertrend: { conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3, stAtrMethod: "rma", mode: "cross_up" },
+  bollinger: {
+    conditionKind: "bollinger", bbLength: 20, bbMult: 2, bbBand: "upper",
+    bbMaType: "sma", mode: "touch",
+  },
+  stochastic: {
+    conditionKind: "stochastic", stochKLength: 14, stochKSmooth: 1,
+    stochDSmooth: 3, stochLevel: 20, indicatorTarget: "signal", mode: "cross_down",
+  },
+  adx: { conditionKind: "adx", adxDiLength: 14, adxSmoothing: 14, adxLevel: 25, mode: "cross_up" },
+};
+
+test("no family falls through to the moving-average description", () => {
+  for (const [kind, row] of Object.entries(FAMILY_ROWS)) {
+    const a = alert({ maType: null, maLength: null, ...row });
+    const label = alertLineLabel(a);
+    assert.notEqual(label, "SMA 0", `${kind} is labelled as a nonexistent moving average`);
+    assert.ok(label.trim().length > 0, `${kind} has no label`);
+    assert.equal(describeAlert(a) === "condition met", false, `${kind} is not described`);
+  }
+});
+
+test("an oscillator is never described as watching price", () => {
+  for (const kind of ["stochastic", "adx"] as const) {
+    const a = alert({ maType: null, maLength: null, ...FAMILY_ROWS[kind] });
+    const desc = describeAlert(a);
+    assert.doesNotMatch(desc, /^price /,
+      `${kind} watches its own reading, not the market price`);
+    assert.match(desc, kind === "adx" ? /^ADX rises through 25/ : /^Stochastic %K crosses below its %D/);
+  }
+  // Bollinger DOES watch price, against a band, and says so.
+  const bb = alert({ maType: null, maLength: null, ...FAMILY_ROWS.bollinger });
+  assert.equal(describeAlert(bb), "price touches the upper bollinger band");
+});
+
+test("a gate configured on a new family is visible on its row", () => {
+  for (const kind of ["bollinger", "stochastic", "adx"] as const) {
+    const a = alert({
+      maType: null, maLength: null, ...FAMILY_ROWS[kind],
+      filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
+    });
+    assert.match(describeAlert(a), /only while price is above the EMA 200$/,
+      `${kind} silently ignores its configured gate in the UI`);
+  }
+});
+
+test("each family's swatch is its own, so the list is readable at a glance", () => {
+  const colours = new Set<string>();
+  for (const row of Object.values(FAMILY_ROWS)) {
+    colours.add(alertColor(alert({ maType: null, maLength: null, ...row })));
+  }
+  // sr_zone resolves by side and pivot/ma share no hue; the point is only that
+  // the three late families did not all collapse onto one grey.
+  for (const kind of ["bollinger", "stochastic", "adx"] as const) {
+    const c = alertColor(alert({ maType: null, maLength: null, ...FAMILY_ROWS[kind] }));
+    assert.notEqual(c, alertColor(alert({ conditionKind: "ma", maType: null, maLength: null })),
+      `${kind} borrows a moving average's colour`);
+  }
+  assert.ok(colours.size >= 7);
+});
+
+test("non-default inputs are named, defaults are not", () => {
+  const plain = alert({ maType: null, maLength: null, ...FAMILY_ROWS.bollinger });
+  assert.equal(alertLineLabel(plain), "upper Bollinger band");
+  const tuned = alert({ ...plain, bbLength: 34, bbMult: 2.5 });
+  assert.equal(alertLineLabel(tuned), "upper Bollinger band (34, 2.5)");
+
+  assert.equal(alertLineLabel(alert({ maType: null, maLength: null, ...FAMILY_ROWS.stochastic })),
+    "Stochastic %K");
+  assert.equal(
+    alertLineLabel(alert({ maType: null, maLength: null, ...FAMILY_ROWS.stochastic, stochKLength: 21 })),
+    "Stochastic %K 21/1/3");
+  assert.equal(alertLineLabel(alert({ maType: null, maLength: null, ...FAMILY_ROWS.adx })), "ADX");
+  assert.equal(
+    alertLineLabel(alert({ maType: null, maLength: null, ...FAMILY_ROWS.adx, adxSmoothing: 21 })),
+    "ADX 14/21");
 });

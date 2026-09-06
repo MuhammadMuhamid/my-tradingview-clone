@@ -29,7 +29,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Candle, Interval } from "../types/market";
 import { INTERVAL_MS, isInterval } from "../types/market";
-import { PIVOT_LEVEL_ANY } from "../types/maAlerts";
+import { ALERT_HISTORY_BARS, PIVOT_LEVEL_ANY } from "../types/maAlerts";
 import type {
   MaAlertRow, MaType, SrSide, RsiTarget, MacdTarget, StAtrMethod, BollingerBand, StochasticTarget,
 } from "../types/maAlerts";
@@ -50,8 +50,13 @@ import {
 import { formatAlertPush } from "../alerts/alertMessage";
 import { sendPush, type PushResult } from "../alerts/webPush";
 
-/** Bars of history pulled per evaluation: enough to seed the longest MA. */
-const HISTORY_BARS = 1200;
+/**
+ * Bars of history pulled per evaluation: enough to seed the longest MA.
+ *
+ * The number lives in `types/maAlerts.ts` because the request validator has to
+ * refuse any length combination that would not warm up inside it.
+ */
+const HISTORY_BARS = ALERT_HISTORY_BARS;
 /** How often the runner re-reads the alert table to pick up UI edits. */
 const REFRESH_MS = 30_000;
 /**

@@ -308,16 +308,68 @@ test("the parameter summary distinguishes two tunings of one study", () => {
 
 test("a bounded study is handed its warmup plus the visible window, not the whole history", () => {
   const series = bars(10_000);
-  const windowed = computeWindow(series, 150, 300, false);
+  const tail = { firstVisibleIndex: 9_700, visibleBars: 300 };
+  const windowed = computeWindow(series, 150, tail, false);
   assert.equal(windowed.length, 450);
   assert.equal(windowed[windowed.length - 1], series[series.length - 1],
-    "the window always ends at the newest bar");
+    "a viewport at the end of the series ends at the newest bar");
   // Shorter than the need: everything, rather than a slice that loses bars.
-  assert.equal(computeWindow(series.slice(0, 100), 150, 300, false).length, 100);
+  assert.equal(computeWindow(series.slice(0, 100), 150, tail, false).length, 100);
   // An accumulating study gets the lot, because for it a window is a different
   // indicator rather than a cheaper one.
-  assert.equal(computeWindow(series, 0, 300, true).length, 10_000);
+  assert.equal(computeWindow(series, 0, tail, true).length, 10_000);
 });
+
+/**
+ * The window follows the user, rather than staying pinned to the newest bar.
+ *
+ * This is the regression the viewport parameter exists for: with a window
+ * anchored to the end of the series, panning two screens back into a pane's
+ * own loaded history left every study blank, because the bars the user was
+ * looking at were never handed to it.
+ */
+test("the window tracks a viewport panned back into history", () => {
+  const series = bars(10_000);
+  const middle = { firstVisibleIndex: 4_000, visibleBars: 300 };
+  const windowed = computeWindow(series, 150, middle, false);
+  assert.equal(windowed.length, 450);
+  assert.equal(windowed[windowed.length - 1], series[4_299],
+    "the window ends at the newest bar the user can see, not the newest bar there is");
+  assert.equal(windowed[0], series[3_850], "and reaches the warmup back from there");
+
+  // Clamped at both ends: a viewport before the first bar and one past the
+  // last are both ordinary chart states, because the chart leaves room either
+  // side of the data.
+  assert.equal(computeWindow(series, 150, { firstVisibleIndex: -500, visibleBars: 300 }, false)[0],
+    series[0]);
+  const past = computeWindow(series, 150, { firstVisibleIndex: 9_950, visibleBars: 300 }, false);
+  assert.equal(past[past.length - 1], series[series.length - 1]);
+});
+
+/**
+ * Every combination of a study's discrete inputs, not just its defaults.
+ *
+ * `warmup` is a function of the params, and the params that change a study's
+ * REACH are usually the discrete ones: the MA study's `type` selects between a
+ * simple mean that needs its length and an EMA that needs twenty of them, and
+ * `source` switches which series the recursion runs over. Testing only
+ * `defaultParams` verified one corner of that space and shipped a Bollinger
+ * warmup that was correct for the default and three lengths short for every
+ * other selection.
+ */
+function discreteVariants(def: NativeStudyDef): NativeParams[] {
+  let variants: NativeParams[] = [defaultParams(def)];
+  for (const input of def.inputs) {
+    const values = input.kind === "select" ? input.options.map((o) => o.value)
+      : input.kind === "source" ? PRICE_SOURCES
+      : input.kind === "boolean" ? [true, false]
+      : null;
+    if (!values) continue;
+    variants = variants.flatMap((base) =>
+      values.map((value) => ({ ...base, [input.key]: value })));
+  }
+  return variants;
+}
 
 /**
  * The claim windowing rests on.
@@ -332,31 +384,43 @@ test("a bounded study is handed its warmup plus the visible window, not the whol
  * so a warmup of twenty lengths drives it to about one part in a billion. A
  * warmup that is too short fails here rather than shipping a subtly wrong line,
  * which is exactly what happened the first time these warmups were written.
+ *
+ * Both a viewport at the end of the series and one panned back into it, over
+ * every combination of every study's discrete inputs.
  */
 test("a windowed study agrees with a full-history one on every visible bar", () => {
   const series = bars(4_000, 9);
   const visible = 300;
+  const viewports = [
+    { firstVisibleIndex: series.length - visible, visibleBars: visible },
+    { firstVisibleIndex: 1_800, visibleBars: visible },
+  ];
   for (const def of NATIVE_STUDIES) {
     if (def.unbounded) continue;
-    const params = defaultParams(def);
-    const full = def.compute({ candles: series, params, interval: "1m" });
-    const window = computeWindow(series, def.warmup(params), visible, false);
-    assert.ok(window.length < series.length,
-      `${def.id} declares a warmup so long that windowing buys nothing`);
-    const partial = def.compute({ candles: window, params, interval: "1m" });
-    const offset = series.length - window.length;
-    for (const plot of def.plots) {
-      const a = full.plots[plot.id]!;
-      const b = partial.plots[plot.id]!;
-      for (let i = window.length - visible; i < window.length; i++) {
-        const x = a[offset + i]!;
-        const y = b[i]!;
-        if (Number.isNaN(x) && Number.isNaN(y)) continue;
-        assert.ok(Number.isFinite(x) && Number.isFinite(y),
-          `${def.id}:${plot.id} has a value in one computation and na in the other at ${i}`);
-        assert.ok(Math.abs(x - y) <= Math.max(1e-9, Math.abs(x) * 1e-6),
-          `${def.id}:${plot.id} differs at visible bar ${i}: ${x} vs ${y} — the ` +
-          `declared warmup is too short for this study`);
+    for (const params of discreteVariants(def)) {
+      const full = def.compute({ candles: series, params, interval: "1m" });
+      for (const viewport of viewports) {
+        const window = computeWindow(series, def.warmup(params), viewport, false);
+        assert.ok(window.length < series.length,
+          `${def.id} declares a warmup so long that windowing buys nothing`);
+        const partial = def.compute({ candles: window, params, interval: "1m" });
+        const offset = series.length - window.length
+          - (series.length - viewport.firstVisibleIndex - visible);
+        const where = `${def.id} ${JSON.stringify(params)} @${viewport.firstVisibleIndex}`;
+        for (const plot of def.plots) {
+          const a = full.plots[plot.id]!;
+          const b = partial.plots[plot.id]!;
+          for (let i = window.length - visible; i < window.length; i++) {
+            const x = a[offset + i]!;
+            const y = b[i]!;
+            if (Number.isNaN(x) && Number.isNaN(y)) continue;
+            assert.ok(Number.isFinite(x) && Number.isFinite(y),
+              `${where}:${plot.id} has a value in one computation and na in the other at ${i}`);
+            assert.ok(Math.abs(x - y) <= Math.max(1e-9, Math.abs(x) * 1e-6),
+              `${where}:${plot.id} differs at visible bar ${i}: ${x} vs ${y} — the ` +
+              `declared warmup is too short for this study`);
+          }
+        }
       }
     }
   }
@@ -376,7 +440,8 @@ test("a path-dependent study is computed over the whole series, not a window", (
   const unbounded = NATIVE_STUDIES.filter((d) => d.unbounded);
   assert.deepEqual(unbounded.map((d) => d.id).sort(), ["obv", "supertrend", "vwap"]);
   for (const def of unbounded) {
-    assert.equal(computeWindow(series, def.warmup(defaultParams(def)), 300, true).length,
+    assert.equal(computeWindow(series, def.warmup(defaultParams(def)),
+      { firstVisibleIndex: series.length - 300, visibleBars: 300 }, true).length,
       series.length, `${def.id} must be handed every bar`);
 
     // Demonstrate why: a window of the same depth genuinely disagrees.

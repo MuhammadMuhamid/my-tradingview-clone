@@ -37,7 +37,7 @@
  */
 import type { ChartDecoration, ChartOverlay, ChartPoint } from "@/lib/chartSeries";
 import { PRICE_PANE_ID } from "@/lib/chartSeries";
-import type { Candle } from "@/lib/types";
+import { INTERVAL_MS, type Candle } from "@/lib/types";
 import {
   defaultParams, normalizeParams, type NativeParams, type NativeStudyDef, type PlotDef,
 } from "./registry";
@@ -74,26 +74,50 @@ const EMPTY: NativeStudyOutput = {
   overlays: [], decorations: [], values: {}, insufficient: false,
 };
 
+/** A hidden study's output. Exported so the hook can use exactly this object. */
+export const HIDDEN_OUTPUT: NativeStudyOutput = EMPTY;
+
+/** Where the user is looking, in bars. */
+export interface Viewport {
+  /** Index of the oldest bar on screen. */
+  firstVisibleIndex: number;
+  /** How many bars are on screen. */
+  visibleBars: number;
+}
+
 /**
  * The bars a study actually needs.
  *
  * `warmup` is the study's own declaration of how far back its recursion or its
- * window reaches. Handing it `visible + warmup` bars gives values that are
- * identical to a full-history computation for every bar the user can see,
+ * window reaches. Handing it the visible bars plus that warmup gives values
+ * identical to a full-history computation for every bar the user can SEE,
  * which is the only claim that matters — and it is the difference between a
  * few hundred bars of arithmetic per tick and ten thousand.
  *
+ * ── The window follows the viewport, not the newest bar ────────────────────
+ *
+ * It used to be `candles.slice(-need)`, anchored to the end of the series. A
+ * pan changes where the user is looking without changing how MUCH they can
+ * see, so the window did not move: scrolling back into a pane's own loaded
+ * history — ten thousand bars by default — left every study blank a swipe or
+ * two in, with no message and nothing to distinguish it from a rendering bug.
+ *
  * Studies whose value depends on ALL prior bars regardless of window — a
- * running accumulation like OBV, a session VWAP — declare a warmup of zero and
- * are handed the whole series, because for them a window would be a different
- * indicator rather than a cheaper one. `unbounded` says which those are.
+ * running accumulation like OBV, a session VWAP, a ratcheting Supertrend —
+ * declare `unbounded` and are handed the whole series, because for them a
+ * window is a different indicator rather than a cheaper one.
  */
 export function computeWindow(
-  candles: readonly Candle[], warmup: number, visibleBars: number, unbounded: boolean
+  candles: readonly Candle[], warmup: number, viewport: Viewport, unbounded: boolean
 ): readonly Candle[] {
   if (unbounded) return candles;
-  const need = Math.max(0, Math.ceil(warmup)) + Math.max(1, Math.ceil(visibleBars));
-  return candles.length <= need ? candles : candles.slice(-need);
+  const visible = Math.max(1, Math.ceil(viewport.visibleBars));
+  const lead = Math.max(0, Math.ceil(warmup));
+  // The viewport may extend past the newest bar (the chart leaves room to the
+  // right) or start before the first; both clamp into the series.
+  const end = Math.min(candles.length, Math.max(1, Math.ceil(viewport.firstVisibleIndex) + visible));
+  const start = Math.max(0, end - visible - lead);
+  return start === 0 && end === candles.length ? candles : candles.slice(start, end);
 }
 
 /**
@@ -104,6 +128,21 @@ export function computeWindow(
  * down. A study is a decoration on a price chart; it does not get to break the
  * price chart.
  */
+/**
+ * A plot's displacement, in bars.
+ *
+ * Static on the definition for a study whose offset is fixed, and overridable
+ * per computation for one whose displacement is an INPUT — Ichimoku's cloud
+ * moves with its `displacement` setting, so a constant could not express it.
+ */
+function offsetOf(
+  plot: PlotDef, result: { plotOffsets?: Record<string, number> }
+): number {
+  const dynamic = result.plotOffsets?.[plot.id];
+  return typeof dynamic === "number" && Number.isFinite(dynamic)
+    ? Math.trunc(dynamic) : (plot.offset ?? 0);
+}
+
 export function runNativeStudy(
   def: NativeStudyDef,
   applied: AppliedNativeStudy,
@@ -124,6 +163,7 @@ export function runNativeStudy(
 
   const paneId = def.overlay ? PRICE_PANE_ID : `indicator:${applied.key}`;
   const times = candles.map((c) => Math.floor(c.openTime / 1000));
+  const stepSeconds = INTERVAL_MS[interval] / 1000;
   const precision = def.precision ?? pricePrecision;
   const instanceParams = describeParams(def, params);
 
@@ -151,7 +191,7 @@ export function runNativeStudy(
       instanceTitle: def.name,
       instanceParams,
       precision,
-      data: toPoints(times, series, colors, plot.offset ?? 0),
+      data: toPoints(times, series, colors, offsetOf(plot, result), stepSeconds),
     });
   }
 
@@ -202,7 +242,13 @@ export function runNativeStudy(
     overlays,
     decorations,
     values,
-    insufficient: candles.length < def.warmup(params),
+    /*
+     * "Not enough history" means the study produced NO value, not that the
+     * window is shorter than its convergence budget. Comparing against
+     * `warmup` — twenty lengths — made an RSI(14) on a 200-bar instrument
+     * report that it could not speak while drawing a correct line from bar 14.
+     */
+    insufficient: Object.values(values).every((v) => v === null),
   };
 }
 
@@ -217,10 +263,15 @@ export function runNativeStudy(
  */
 function toPoints(
   times: readonly number[], series: readonly number[],
-  colors: readonly (string | null)[] | undefined, offset: number
+  colors: readonly (string | null)[] | undefined, offset: number,
+  stepSeconds: number
 ): ChartPoint[] {
   const out: ChartPoint[] = [];
-  const step = times.length > 1 ? (times[times.length - 1]! - times[0]!) / (times.length - 1) : 0;
+  // The interval, not the average gap between the window's first and last bar.
+  // A window containing any gap makes that average larger than the interval,
+  // and a forward-displaced plot would then land progressively further right
+  // than the bars it belongs to.
+  const step = stepSeconds > 0 ? stepSeconds : 0;
   for (let i = 0; i < series.length && i < times.length; i++) {
     const value = series[i]!;
     const index = i + offset;
@@ -303,14 +354,24 @@ export class StudyCache {
 
 /** Everything about an instance that changes its output, as one string. */
 export function studySignature(
-  applied: AppliedNativeStudy, def: NativeStudyDef, precision: number
+  applied: AppliedNativeStudy, def: NativeStudyDef, precision: number,
+  viewport?: Viewport
 ): string {
   const params = normalizeParams(def, applied.params);
   const parts = def.inputs.map((i) => `${i.key}=${String(params[i.key])}`);
   const styles = Object.entries(applied.styles)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([id, s]) => `${id}:${s.color ?? ""}/${s.width ?? ""}/${s.visible ?? ""}/${s.style ?? ""}`);
-  return `${applied.defId}|${parts.join(",")}|${styles.join(",")}|p${precision}`;
+  /*
+   * The viewport is part of the key because it decides WHICH bars the study
+   * saw. Without it, zooming out or panning re-ran the memo, hit the cache, and
+   * returned the narrower window's result — so the study's coverage did not
+   * follow the user until the bar array happened to change.
+   */
+  const view = viewport
+    ? `|v${Math.ceil(viewport.visibleBars)}@${Math.ceil(viewport.firstVisibleIndex)}`
+    : "";
+  return `${applied.defId}|${parts.join(",")}|${styles.join(",")}|p${precision}${view}`;
 }
 
 /** A fresh instance of a definition, with its defaults. */

@@ -15,11 +15,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import type { ConditionKind, MaAlert } from "../lib/api";
+import { ALERT_HISTORY_BARS, type ConditionKind, type MaAlert } from "../lib/api";
 import {
   ALERT_FAMILY_LABELS, alertEditForm, alertEditRequest, hasAlertChanges,
   leavesFilteredView, modesFor, pivotLevelNames, usesBand, usesGates,
-  validateAlertForm,
+  validateAlertForm, warmupBars, type AlertEditForm,
 } from "../lib/alertEditing";
 
 const ROOT = path.join(__dirname, "..");
@@ -291,11 +291,18 @@ test("a band is validated only where it is offered", () => {
 // ── Field vocabulary ───────────────────────────────────────────────────────
 
 test("only the modes a family can actually be evaluated with are offered", () => {
-  for (const kind of ["rsi", "macd", "ma_vs_ma"] as ConditionKind[]) {
+  // Stochastic and ADX are here because they were NOT: the dialog offered them
+  // touch and both approach bands, the server refuses all three outright, and
+  // the save came back 400 on a control the dialog had presented as ordinary.
+  for (const kind of ["rsi", "macd", "ma_vs_ma", "stochastic", "adx"] as ConditionKind[]) {
     assert.deepEqual(modesFor(kind), ["cross_up", "cross_down"], kind);
   }
   assert.ok(modesFor("ma").includes("touch"));
   assert.ok(modesFor("sr_zone").includes("near_below"));
+  // Bollinger compares price against a band, so it keeps the full set.
+  assert.ok(modesFor("bollinger").includes("touch"));
+  assert.equal(usesBand("bollinger", "near_above"), true);
+  assert.equal(usesBand("bollinger", "cross_up"), false);
 });
 
 /*
@@ -412,4 +419,134 @@ test("the editor refreshes from the server rather than trusting the form", () =>
   assert.match(editor, /onSaved\(updated,/, "the row shown after a save must be the server's");
   // A failed save must not close the dialog or report success.
   assert.match(editor, /catch \(e\) \{\s*\/\/[\s\S]*?setErr\(\(e as Error\)\.message\)/);
+});
+
+// ── every family can actually be edited ────────────────────────────────────
+
+/**
+ * The defect this covers was silent, which is the worst kind of save bug.
+ *
+ * `alertEditRequest`'s switch had no arm for `bollinger`, `stochastic` or
+ * `adx`. Every field the dialog showed for those families — including the
+ * Condition dropdown it rendered for all of them — was read into the form,
+ * changed by the user, and then dropped: `hasAlertChanges` reported not-dirty,
+ * and Save closed the dialog having written nothing. No error, no 400, no
+ * feedback of any kind.
+ *
+ * Keyed exhaustively by `ConditionKind` so a family added to the union without
+ * an arm here fails to compile rather than shipping the same silence again.
+ */
+const EDITABLE_FIELDS: Record<ConditionKind, (keyof AlertEditForm)[]> = {
+  price: ["targetPrice", "priceDirection"],
+  ma: ["maType", "maLength", "mode"],
+  ma_vs_ma: ["maType", "maLength", "ma2Type", "ma2Length", "mode"],
+  sr_zone: ["srSide", "pivotLength", "invalidation", "mode"],
+  pivot_level: ["pivotType", "levelName", "anchor", "mode"],
+  rsi: ["rsiLength", "rsiTarget", "rsiLevel", "rsiMaLength", "mode"],
+  macd: ["macdFast", "macdSlow", "macdSignal", "macdTarget", "mode"],
+  supertrend: ["stPeriod", "stMultiplier", "stAtrMethod", "mode"],
+  bollinger: ["bbLength", "bbMult", "bbBand", "bbMaType", "mode"],
+  stochastic: ["stochKLength", "stochKSmooth", "stochDSmooth", "stochTarget", "stochLevel", "mode"],
+  adx: ["adxDiLength", "adxSmoothing", "adxLevel", "mode"],
+};
+
+/** A different legal value for one field, so the change is real. */
+const OTHER: Partial<Record<keyof AlertEditForm, unknown>> = {
+  targetPrice: "12345", priceDirection: "cross_up",
+  maType: "sma", maLength: 55, ma2Type: "ema", ma2Length: 89,
+  mode: "cross_down",
+  srSide: "resistance", pivotLength: 9, invalidation: "wick",
+  pivotType: "Camarilla", levelName: "R1", anchor: "1w",
+  rsiLength: 21, rsiTarget: "sma", rsiLevel: 65, rsiMaLength: 9,
+  macdFast: 8, macdSlow: 21, macdSignal: 5, macdTarget: "zero",
+  stPeriod: 7, stMultiplier: 2.5, stAtrMethod: "sma",
+  bbLength: 34, bbMult: 2.5, bbBand: "lower", bbMaType: "ema",
+  stochKLength: 21, stochKSmooth: 3, stochDSmooth: 5, stochTarget: "level", stochLevel: 80,
+  adxDiLength: 21, adxSmoothing: 21, adxLevel: 30,
+};
+
+const FAMILY_ROW: Record<ConditionKind, Partial<MaAlert>> = {
+  price: { targetPrice: 100, priceDirection: "either" },
+  ma: { maType: "ema", maLength: 200, mode: "cross_up" },
+  ma_vs_ma: { maType: "ema", maLength: 50, ma2Type: "sma", ma2Length: 200, mode: "cross_up" },
+  sr_zone: { srSide: "support", srPivotLength: 5, srInvalidation: "close", mode: "near_above" },
+  pivot_level: {
+    pivotType: "Fibonacci", pivotLevelName: "S1", pivotAnchor: "1d", mode: "near_above",
+  },
+  rsi: { rsiLength: 50, rsiLevel: 50, rsiMaLength: 14, indicatorTarget: "level", mode: "cross_up" },
+  macd: { macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal", mode: "cross_up" },
+  supertrend: { stPeriod: 10, stMultiplier: 3, stAtrMethod: "rma", mode: "cross_up" },
+  bollinger: { bbLength: 20, bbMult: 2, bbBand: "upper", bbMaType: "sma", mode: "touch" },
+  stochastic: {
+    stochKLength: 14, stochKSmooth: 1, stochDSmooth: 3, stochLevel: 20,
+    indicatorTarget: "signal", mode: "cross_up",
+  },
+  adx: { adxDiLength: 14, adxSmoothing: 14, adxLevel: 25, mode: "cross_up" },
+};
+
+test("changing any field of any family produces a patch the server would act on", () => {
+  for (const [kind, fields] of Object.entries(EDITABLE_FIELDS) as
+    [ConditionKind, (keyof AlertEditForm)[]][]) {
+    const row: MaAlert = { ...BASE, conditionKind: kind, ...FAMILY_ROW[kind] };
+    const loaded = alertEditForm(row);
+
+    // Loading and saving without touching anything sends nothing.
+    assert.equal(hasAlertChanges(alertEditRequest(row, loaded)), false,
+      `${kind} reports a change it did not make`);
+
+    for (const field of fields) {
+      const next = { ...loaded, [field]: OTHER[field] };
+      assert.notDeepEqual(next[field], loaded[field],
+        `${kind}.${String(field)} test value is not actually different`);
+      const patch = alertEditRequest(row, next);
+      assert.equal(hasAlertChanges(patch), true,
+        `${kind}: editing ${String(field)} is silently discarded`);
+    }
+  }
+});
+
+test("a family's own fields never leak into another family's patch", () => {
+  // The form carries defaults for every family's columns; only the edited
+  // family's may be sent, or saving an ADX alert would rewrite its unrelated
+  // Bollinger columns to defaults it never chose.
+  const row: MaAlert = { ...BASE, conditionKind: "adx", ...FAMILY_ROW.adx };
+  const patch = alertEditRequest(row, { ...alertEditForm(row), adxLevel: 30, bbLength: 99 });
+  assert.equal(patch.adxLevel, 30);
+  assert.equal("bbLength" in patch, false);
+  assert.equal("stochKLength" in patch, false);
+});
+
+// ── the bound a per-field check cannot see ─────────────────────────────────
+
+test("lengths that together outrun the runner's history are refused", () => {
+  const adx: MaAlert = { ...BASE, conditionKind: "adx", ...FAMILY_ROW.adx };
+  const form = { ...alertEditForm(adx), adxDiLength: 700, adxSmoothing: 700 };
+  // Each length passes 1..1000 on its own; together they need 1400 bars.
+  assert.equal(warmupBars("adx", form), 1400);
+  const message = validateAlertForm("adx", form);
+  assert.match(String(message), /1400 bars/);
+  assert.match(String(message), /1200/);
+  // And a configuration that fits is accepted.
+  assert.equal(validateAlertForm("adx", { ...form, adxDiLength: 14, adxSmoothing: 14 }), null);
+
+  const stoch: MaAlert = { ...BASE, conditionKind: "stochastic", ...FAMILY_ROW.stochastic };
+  assert.match(
+    String(validateAlertForm("stochastic", {
+      ...alertEditForm(stoch), stochKLength: 600, stochKSmooth: 600, stochDSmooth: 600,
+    })), /1800 bars/);
+
+  const macd: MaAlert = { ...BASE, conditionKind: "macd", ...FAMILY_ROW.macd };
+  assert.match(
+    String(validateAlertForm("macd", {
+      ...alertEditForm(macd), macdFast: 400, macdSlow: 900, macdSignal: 900,
+    })), /1800 bars/);
+});
+
+test("the history bound is the server's own number", () => {
+  const backend = fs.readFileSync(
+    path.join(ROOT, "..", "backend", "src", "types", "maAlerts.ts"), "utf8");
+  const match = /export const ALERT_HISTORY_BARS = (\d+);/.exec(backend);
+  assert.ok(match, "the server no longer declares ALERT_HISTORY_BARS");
+  assert.equal(Number(match![1]), ALERT_HISTORY_BARS,
+    "the dialog would name a limit the runner does not have");
 });

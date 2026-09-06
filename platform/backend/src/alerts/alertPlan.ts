@@ -132,7 +132,7 @@ export type AlertPlan =
       fire: boolean;
       /** Present when the condition was true but the frequency withheld it. */
       suppressed: SuppressionReason | null;
-      side: Side;
+      side: Side | null;
       distancePct: number;
       reference: number;
       triggered: boolean;
@@ -308,7 +308,7 @@ export function stateAfterPlan(
   spec: AlertSpec,
   plan: Extract<AlertPlan, { act: true }>,
   ctx: { barTime: number; now: number; delivered: boolean }
-): { lastSide: Side; lastBarTime: number; fireState: FireState } {
+): { lastSide: Side | null; lastBarTime: number; fireState: FireState } {
   return {
     lastSide: plan.side,
     lastBarTime: ctx.barTime,

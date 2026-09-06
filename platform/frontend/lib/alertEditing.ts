@@ -16,10 +16,10 @@
  * pressing Save without touching anything is a no-op rather than a write.
  */
 import {
-  DEFAULT_ALERT_FREQUENCY, FILTER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
-  SUPERTREND_DEFAULTS,
-  type AlertFrequency, type ConditionKind, type FilterSide, type MaAlert,
-  type StAtrMethod,
+  ADX_DEFAULTS, ALERT_HISTORY_BARS, BOLLINGER_DEFAULTS, DEFAULT_ALERT_FREQUENCY, FILTER_DEFAULTS,
+  MACD_DEFAULTS, RSI_DEFAULTS, STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
+  type AlertFrequency, type BollingerBand, type ConditionKind, type FilterSide,
+  type MaAlert, type StAtrMethod, type StochasticTarget,
   type MaAlertMode, type MaAlertUpdate, type MacdTarget, type MaType,
   type PivotType, type PriceDirection, type RsiTarget, type SrSide,
 } from "@/lib/api";
@@ -88,18 +88,28 @@ export function modeLabel(kind: ConditionKind, mode: MaAlertMode): string {
 }
 
 /**
- * `rsi`, `macd` and `ma_vs_ma` are crosses of one series against another, and
- * `supertrend` is a direction change; the evaluator offers no touch or band for
- * any of them — showing those would be a control that cannot do anything.
+ * `rsi`, `macd`, `ma_vs_ma`, `stochastic` and `adx` are crosses of one series
+ * against another, and `supertrend` is a direction change; the evaluator offers
+ * no touch or band for any of them — showing those would be a control that
+ * cannot do anything. `bollinger` compares PRICE against a band, so it keeps
+ * the full set the MA family has.
+ *
+ * The server refuses the extra modes outright
+ * (`backend/src/alerts/alertRequest.ts`), so offering them here produced a
+ * dropdown whose entries were rejected on save.
  */
+const CROSS_ONLY: readonly ConditionKind[] = [
+  "rsi", "macd", "ma_vs_ma", "supertrend", "stochastic", "adx",
+];
+
 export const modesFor = (kind: ConditionKind): MaAlertMode[] =>
-  kind === "rsi" || kind === "macd" || kind === "ma_vs_ma" || kind === "supertrend"
+  CROSS_ONLY.includes(kind)
     ? ["cross_up", "cross_down"]
     : ["near_above", "near_below", "touch", "cross_up", "cross_down"];
 
 /** Whether the percentage approach band is meaningful for this state. */
 export const usesBand = (kind: ConditionKind, mode: MaAlertMode): boolean =>
-  (kind === "ma" || kind === "sr_zone" || kind === "pivot_level") &&
+  (kind === "ma" || kind === "sr_zone" || kind === "pivot_level" || kind === "bollinger") &&
   (mode === "near_above" || mode === "near_below");
 
 /**
@@ -145,6 +155,18 @@ export interface AlertEditForm {
   stPeriod: number;
   stMultiplier: number;
   stAtrMethod: StAtrMethod;
+  bbLength: number;
+  bbMult: number;
+  bbBand: BollingerBand;
+  bbMaType: MaType;
+  stochKLength: number;
+  stochKSmooth: number;
+  stochDSmooth: number;
+  stochTarget: StochasticTarget;
+  stochLevel: number;
+  adxDiLength: number;
+  adxSmoothing: number;
+  adxLevel: number;
   filterRsi: boolean;
   filterRsiLength: number;
   filterRsiLevel: number;
@@ -205,6 +227,18 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     stPeriod: alert.stPeriod ?? SUPERTREND_DEFAULTS.period,
     stMultiplier: alert.stMultiplier ?? SUPERTREND_DEFAULTS.multiplier,
     stAtrMethod: (alert.stAtrMethod as StAtrMethod | null) ?? SUPERTREND_DEFAULTS.atrMethod,
+    bbLength: alert.bbLength ?? BOLLINGER_DEFAULTS.length,
+    bbMult: alert.bbMult ?? BOLLINGER_DEFAULTS.mult,
+    bbBand: (alert.bbBand as BollingerBand | null) ?? BOLLINGER_DEFAULTS.band,
+    bbMaType: alert.bbMaType ?? BOLLINGER_DEFAULTS.maType,
+    stochKLength: alert.stochKLength ?? STOCHASTIC_DEFAULTS.kLength,
+    stochKSmooth: alert.stochKSmooth ?? STOCHASTIC_DEFAULTS.kSmooth,
+    stochDSmooth: alert.stochDSmooth ?? STOCHASTIC_DEFAULTS.dSmooth,
+    stochTarget: alert.indicatorTarget === "level" ? "level" : "signal",
+    stochLevel: alert.stochLevel ?? STOCHASTIC_DEFAULTS.level,
+    adxDiLength: alert.adxDiLength ?? ADX_DEFAULTS.diLength,
+    adxSmoothing: alert.adxSmoothing ?? ADX_DEFAULTS.smoothing,
+    adxLevel: alert.adxLevel ?? ADX_DEFAULTS.level,
     filterRsi: alert.filterRsiLength !== null && alert.filterRsiSide !== null,
     filterRsiLength: alert.filterRsiLength ?? FILTER_DEFAULTS.rsi.length,
     filterRsiLevel: alert.filterRsiLevel ?? FILTER_DEFAULTS.rsi.level,
@@ -285,6 +319,43 @@ export function validateAlertForm(
       return "The ATR period must be a whole number from 1 to 1000.";
     }
     if (!isMultiplier(form.stMultiplier)) return MULTIPLIER_MESSAGE;
+  }
+  if (kind === "bollinger") {
+    if (!isLength(form.bbLength) || form.bbLength < 2) {
+      return "Bollinger length must be a whole number from 2 to 1000.";
+    }
+    if (!isMultiplier(form.bbMult)) return MULTIPLIER_MESSAGE;
+  }
+  if (kind === "stochastic") {
+    for (const value of [form.stochKLength, form.stochKSmooth, form.stochDSmooth]) {
+      if (!isLength(value)) return "Stochastic lengths must be whole numbers from 1 to 1000.";
+    }
+    if (form.stochTarget === "level" && !(form.stochLevel > 0 && form.stochLevel < 100)) {
+      return "The Stochastic level must be between 0 and 100 — %K cannot leave that range.";
+    }
+  }
+  if (kind === "adx") {
+    for (const value of [form.adxDiLength, form.adxSmoothing]) {
+      if (!isLength(value)) return "ADX lengths must be whole numbers from 1 to 1000.";
+    }
+    if (!(form.adxLevel > 0 && form.adxLevel < 100)) {
+      return "The ADX level must be between 0 and 100.";
+    }
+  }
+  /*
+   * And the combination the per-field bounds cannot see.
+   *
+   * Every length above is checked at 1..1000 independently, but the runner
+   * evaluates against a fixed window of bars. Lengths that individually pass
+   * can together need more history than the runner ever loads, which produces
+   * an alert that looks armed on the list and can never warm up. The server
+   * refuses the same combinations; this exists so the number is named beside
+   * the field rather than returned as a 400.
+   */
+  const need = warmupBars(kind, form);
+  if (need > ALERT_HISTORY_BARS) {
+    return `These lengths need ${need} bars of history and the alert runner keeps ` +
+      `${ALERT_HISTORY_BARS}. Reduce them, or the alert can never warm up.`;
   }
   if (usesGates(kind)) {
     if (form.filterRsi) {
@@ -405,6 +476,28 @@ export function alertEditRequest(
       set("stAtrMethod", form.stAtrMethod, alert.stAtrMethod);
       set("mode", form.mode, alert.mode);
       break;
+    case "bollinger":
+      set("bbLength", form.bbLength, alert.bbLength);
+      set("bbMult", form.bbMult, alert.bbMult);
+      set("bbBand", form.bbBand, alert.bbBand);
+      set("bbMaType", form.bbMaType, alert.bbMaType);
+      set("mode", form.mode, alert.mode);
+      setBand(body, form, alert);
+      break;
+    case "stochastic":
+      set("stochKLength", form.stochKLength, alert.stochKLength);
+      set("stochKSmooth", form.stochKSmooth, alert.stochKSmooth);
+      set("stochDSmooth", form.stochDSmooth, alert.stochDSmooth);
+      set("target", form.stochTarget, alert.indicatorTarget);
+      set("stochLevel", form.stochLevel, alert.stochLevel);
+      set("mode", form.mode, alert.mode);
+      break;
+    case "adx":
+      set("adxDiLength", form.adxDiLength, alert.adxDiLength);
+      set("adxSmoothing", form.adxSmoothing, alert.adxSmoothing);
+      set("adxLevel", form.adxLevel, alert.adxLevel);
+      set("mode", form.mode, alert.mode);
+      break;
   }
   return body;
 }
@@ -465,6 +558,30 @@ function setGates(body: MaAlertUpdate, form: AlertEditForm, alert: MaAlert): voi
     body.filterStMultiplier = form.filterStMultiplier;
     body.filterStAtrMethod = form.filterStAtrMethod;
     body.filterStSide = form.filterStSide;
+  }
+}
+
+/**
+ * How many bars this configuration must see before it produces a first value.
+ *
+ * Mirrors `warmupBars` on the server, which refuses the same combinations. Only
+ * the families whose warm-up can OUTRUN the window are counted; a single length
+ * capped at 1000 always fits, so `ma`, `rsi` and the rest return 0 rather than
+ * a number nothing reads.
+ */
+export function warmupBars(kind: ConditionKind, form: AlertEditForm): number {
+  switch (kind) {
+    case "macd":
+      // The signal line is an EMA of the MACD line, so the two stack.
+      return form.macdSlow + form.macdSignal;
+    case "stochastic":
+      // %K needs its window and its smoothing; %D smooths %K again.
+      return form.stochKLength + form.stochKSmooth + form.stochDSmooth;
+    case "adx":
+      // DI needs `diLength`, and DX is then smoothed over `smoothing` bars.
+      return form.adxDiLength + form.adxSmoothing;
+    default:
+      return 0;
   }
 }
 

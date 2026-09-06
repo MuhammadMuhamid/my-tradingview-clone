@@ -6,8 +6,8 @@ import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { api, type MaAlert } from "@/lib/api";
 import type {
-  FilterSide, MaAlertMode, MacdTarget, MaType, PivotType, PriceDirection,
-  RsiTarget, SrSide, StAtrMethod,
+  BollingerBand, FilterSide, MaAlertMode, MacdTarget, MaType, PivotType,
+  PriceDirection, RsiTarget, SrSide, StAtrMethod, StochasticTarget,
 } from "@/lib/api";
 import {
   ALERT_FAMILY_LABELS, EDIT_INTERVALS, PIVOT_ANCHORS, PIVOT_TYPES,
@@ -431,6 +431,119 @@ export function AlertEditor({
               The study&apos;s own defaults are 10 and 3. Changing either reshapes
               the bands, so the alert re-seeds and stays quiet until the next
               genuine flip.
+            </Hint>
+          </>
+        )}
+
+        {kind === "bollinger" && (
+          <>
+            <Row label="Band">
+              <select
+                value={form.bbBand}
+                onChange={(e) => update("bbBand", e.target.value as BollingerBand)}
+                aria-label="Which Bollinger band"
+                className={BOX}
+              >
+                <option value="upper">Upper</option>
+                <option value="basis">Basis</option>
+                <option value="lower">Lower</option>
+              </select>
+            </Row>
+            <Row label="Length">
+              <input
+                type="number" min={2} max={1000} value={form.bbLength}
+                onChange={(e) => update("bbLength", intOf(e.target.value))}
+                aria-label="Bollinger length"
+                className={BOX} />
+            </Row>
+            <Row label="Multiplier">
+              <input
+                type="number" min="0.1" max="100" step="0.1" value={form.bbMult}
+                onChange={(e) => update("bbMult", numOf(e.target.value))}
+                aria-label="Bollinger standard deviations"
+                className={BOX} />
+            </Row>
+            <Row label="Basis">
+              <select
+                value={form.bbMaType}
+                onChange={(e) => update("bbMaType", e.target.value as MaType)}
+                aria-label="Bollinger basis type"
+                className={BOX}
+              >
+                <option value="sma">Simple (default)</option>
+                <option value="ema">Exponential</option>
+              </select>
+            </Row>
+            <Hint>
+              The study&apos;s own defaults are 20 and 2. This alert watches PRICE
+              against the band, so it offers the same touch and approach
+              conditions a moving-average alert does.
+            </Hint>
+          </>
+        )}
+
+        {kind === "stochastic" && (
+          <>
+            <Row label="Crosses">
+              <select
+                value={form.stochTarget}
+                onChange={(e) => update("stochTarget", e.target.value as StochasticTarget)}
+                aria-label="What the Stochastic crosses"
+                className={BOX}
+              >
+                <option value="signal">Its %D signal line</option>
+                <option value="level">A fixed level</option>
+              </select>
+            </Row>
+            {form.stochTarget === "level" && (
+              <Row label="Level">
+                <input
+                  type="number" min={1} max={99} value={form.stochLevel}
+                  onChange={(e) => update("stochLevel", numOf(e.target.value))}
+                  aria-label="Stochastic level"
+                  className={BOX} />
+              </Row>
+            )}
+            <Row label="Lengths">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min={1} value={form.stochKLength} aria-label="Stochastic %K length"
+                  onChange={(e) => update("stochKLength", intOf(e.target.value))} className={BOX} />
+                <input
+                  type="number" min={1} value={form.stochKSmooth} aria-label="Stochastic %K smoothing"
+                  onChange={(e) => update("stochKSmooth", intOf(e.target.value))} className={BOX} />
+                <input
+                  type="number" min={1} value={form.stochDSmooth} aria-label="Stochastic %D smoothing"
+                  onChange={(e) => update("stochDSmooth", intOf(e.target.value))} className={BOX} />
+              </div>
+            </Row>
+            <Hint>%K length · %K smoothing · %D smoothing</Hint>
+          </>
+        )}
+
+        {kind === "adx" && (
+          <>
+            <Row label="Level">
+              <input
+                type="number" min={1} max={99} value={form.adxLevel}
+                onChange={(e) => update("adxLevel", numOf(e.target.value))}
+                aria-label="ADX level"
+                className={BOX} />
+            </Row>
+            <Row label="Lengths">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min={1} value={form.adxDiLength} aria-label="ADX DI length"
+                  onChange={(e) => update("adxDiLength", intOf(e.target.value))} className={BOX} />
+                <input
+                  type="number" min={1} value={form.adxSmoothing} aria-label="ADX smoothing"
+                  onChange={(e) => update("adxSmoothing", intOf(e.target.value))} className={BOX} />
+              </div>
+            </Row>
+            <Hint>
+              DI length · smoothing. ADX measures trend STRENGTH and has no
+              direction, so &ldquo;rises through&rdquo; means the trend is firming
+              and &ldquo;falls through&rdquo; that it is fading.
             </Hint>
           </>
         )}
