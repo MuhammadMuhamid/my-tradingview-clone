@@ -78,7 +78,7 @@ methodology decision and a historical rerun, not a silent live-parity edit.
 | `platform/backend/src/api` | HTTP surface: charts, backtests, deployments, optimizer views, Pine execution, MA alerts, push, auth. |
 | `platform/backend/src/engine` | Strategy implementations, the backtest broker, metrics, the multi-timeframe merge, and the live evaluators. |
 | `platform/backend/src/data` | Binance Spot REST backfill over the configurable public market-data host, kline websocket, and bounded candle-integrity contract. |
-| `platform/backend/src/alerts` | Payload construction, delivery with retries, notification-alert evaluation across all seven condition families, Web Push. |
+| `platform/backend/src/alerts` | Payload construction, delivery with retries, notification-alert evaluation across all eleven condition families, Web Push. |
 | `platform/backend/src/repositories` | All SQL. Nothing else talks to the database. |
 | `platform/backend/src/pine` | Lexer, parser and interpreter for user-supplied Pine scripts. |
 | `platform/backend/src/security` | Session signing, secret encryption, payload redaction. |
@@ -108,6 +108,43 @@ held in memory. See `docs/OPERATIONS.md` §8 for the operator command.
 Spot symbol/timeframe, integrity state and issue counts, latest completed-bar
 time/age, and last check time. The status request does not rescan candle
 history.
+
+### The chart's own study layer
+
+One canonical mathematical layer, `backend/src/ta/core.ts`, mirrored
+byte-for-byte into `frontend/lib/ta/core.ts` and re-exported by
+`engine/ta.ts`, `engine/pivotLevels.ts` and `engine/srZones.ts`. The
+re-exports are asserted by **reference equality** in `taParity.test.ts`, so
+there is one implementation rather than two that agree today: a pivot alert
+fires on the arithmetic the browser drew.
+
+Above it sits a registry of **56 built-in studies** (`frontend/lib/native/`)
+covering moving averages, momentum, volatility and channels, volume and flow,
+market structure, and the statistical tools — standard deviation with a
+variance output, z-score, percentile rank, regression slope and R-squared,
+historical volatility. Each entry declares its inputs, plots, precision,
+warm-up and compute; the registry drives settings, the legend, search and
+persistence, so adding one is a definition rather than a feature.
+
+Studies are computed over the **visible window plus their declared warm-up**,
+not the whole loaded history, and the window follows the viewport rather than
+the newest bar. Studies whose value depends on every prior bar — running
+accumulations, session anchors, ratcheting state machines, adaptive recursions
+and market structure — declare `unbounded` and are handed the whole series,
+because for them a window is a different indicator rather than a cheaper one.
+
+Anchored VWAP is a **drawing** rather than a study, because its defining input
+is a point on the chart. Compare (normalised overlay, rolling correlation,
+rolling beta) loads one second series through the same history path a pane
+uses; bars are matched by open time and a bar the second instrument lacks is
+`na`, never forward-filled.
+
+`chart_drawings` and `chart_pane_studies` (migrations 029 and 031) hold this
+state per account. Drawings are keyed by canonical instrument and studies by
+pane, which is the existing semantics: a trendline belongs to an instrument,
+while a pane's studies stay put when its symbol changes. Every write carries
+the version it last read; a stale write is refused with the state that is
+actually stored. There is no CRDT and no merge.
 
 ### Spot-only Trading Scene and native Scanner
 
@@ -171,7 +208,7 @@ Two independent runners exist in one process:
 - **`MaAlertRunner`** — notifications that cannot. Its only output is a Web Push
   notification.
 
-  The name is now narrower than the job: it evaluates eight condition families
+  The name is now narrower than the job: it evaluates eleven condition families
   (`ma`, `price`, `ma_vs_ma`, `sr_zone`, `pivot_level`, `rsi`, `macd`,
   `supertrend`), every one of which accepts optional RSI / moving-average /
   Supertrend trend gates, and it evaluates forming candles as well as closed

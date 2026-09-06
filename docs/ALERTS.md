@@ -42,6 +42,9 @@ longer conflates them.
 | `rsi` | RSI against a fixed level, or against its own SMA | `rsi_length`, `rsi_level`, `rsi_ma_length`, `indicator_target`, `mode` |
 | `macd` | the MACD line against its signal, or against zero | `macd_fast`, `macd_slow`, `macd_signal`, `indicator_target`, `mode` |
 | `supertrend` | the Supertrend changing direction | `st_period`, `st_multiplier`, `st_atr_method`, `mode` |
+| `bollinger` | price against one Bollinger band — the only new family that watches a PRICE, so it keeps the touch and approach modes | `bb_length`, `bb_mult`, `bb_band`, `bb_ma_type`, `mode`, `near_min_pct`, `near_max_pct` |
+| `stochastic` | Stochastic %K against its %D, or against a fixed level | `stoch_k_length`, `stoch_k_smooth`, `stoch_d_smooth`, `stoch_level`, `indicator_target`, `mode` |
+| `adx` | ADX rising or falling through a strength threshold | `adx_di_length`, `adx_smoothing`, `adx_level`, `mode` |
 
 A row that does not carry the columns its own kind needs is refused by the
 database (`ma_alerts_shape_ck`). An alert stored half-specified would be
@@ -315,7 +318,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–025
+## 8. Migrations 010–031
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -336,6 +339,20 @@ lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
 **effective** vocabulary — the last definition across the whole set — against
 `CONDITION_KINDS`, so columns can never be added without widening the CHECK
 that would then refuse them.
+
+`027` added the `bollinger`, `stochastic` and `adx` families with the same
+discipline, and `028` corrected two things it got wrong: a Stochastic alert
+targeting its own %D was storing a level it does not read, which made two
+identical alerts distinct rows in the uniqueness index and notified twice, and
+three numeric columns were unbounded where every prior family uses
+`numeric(10,4)`.
+
+Length combinations are now bounded as a COMBINATION, not only individually.
+`adx_di_length` 700 with `adx_smoothing` 700 passes both 1..1000 checks and
+needs 1400 bars, which is more than the runner's 1200-bar window: the alert
+would have been stored, listed as armed, and never able to warm up.
+`ALERT_HISTORY_BARS` and `warmupBars` in `types/maAlerts.ts` are the one
+authority for that, and the API refuses the combination.
 
 **Now verified by execution.** These are applied in production, and 013–017
 were additionally run against a throwaway PostgreSQL 16 database before
