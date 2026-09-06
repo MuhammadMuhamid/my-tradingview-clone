@@ -590,11 +590,15 @@ test("a pane keeps its instrument legible at every size", () => {
 
 test("the pane legend does not swallow the drawing layer's pointer events", () => {
   const legend = read("components/tv/PaneLegend.tsx");
-  // The container is transparent to the pointer and each control opts back in.
-  // A legend that ate a drag would break every trend line started near the
+  // The legend is transparent to the pointer and each control opts back in. A
+  // legend that ate a drag would break every trend line started near the
   // top-left corner, which is where most of them start.
-  assert.match(legend, /pointer-events-none absolute left-2/);
+  assert.match(legend, /data-pane-legend=\{paneId\}\n\s*className="pointer-events-none/);
   assert.match(legend, /const HIT = "pointer-events-auto"/);
+  // It is positioned by the chart's own overlay column, not by a second set of
+  // coordinates that would paint it through the OHLC readout.
+  assert.doesNotMatch(legend, /pointer-events-none absolute left-2/);
+  assert.match(read("components/CandleChart.tsx"), /\{identity\}/);
 });
 
 test("one pane means one symbol control and one timeframe control", () => {

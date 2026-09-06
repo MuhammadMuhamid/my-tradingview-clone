@@ -87,9 +87,24 @@ export function PaneLegend(props: PaneLegendProps) {
 
   return (
     <>
+      {/*
+        Rendered INTO the chart's own legend column rather than beside it.
+
+        `CandleChart` stacks its overlays — the synthetic-presentation
+        disclosure, then the OHLC readout — in one flex column at the plot's
+        top-left, with a comment warning that a second overlay pinned to a fixed
+        offset gets drawn straight through it. That is exactly what happened the
+        first time this legend was written as a sibling: "SOLUSDT 15m" from the
+        pane painted over "SOLUSDT · 15m O … H … L …" from the chart. It is the
+        same class of defect this whole phase is about, one layer down.
+
+        So the identity is a slot in that column, and the OHLC row no longer
+        repeats the symbol and the interval — the row above it names them, and
+        that row is the control.
+      */}
       <div
         data-pane-legend={paneId}
-        className="pointer-events-none absolute left-2 top-1.5 z-20 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-x-1.5 gap-y-0.5"
+        className="pointer-events-none flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5"
       >
         <button
           {...{ className: `${HIT} flex h-5 shrink-0 items-center rounded px-1 text-xs font-semibold text-ink hover:bg-surface-2/80` }}
@@ -164,7 +179,7 @@ export function PaneLegend(props: PaneLegendProps) {
         absent rather than disabled there.
       */}
       {(props.canMaximize || props.canClose) && (
-        <div className="pointer-events-none absolute right-2 top-1.5 z-20 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
+        <div className="pointer-events-none absolute right-2 top-1.5 z-30 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
           {props.canMaximize && (
             <button
               {...{ className: `${HIT} flex h-5 w-5 items-center justify-center rounded bg-surface/70 text-ink-faint hover:bg-surface-2 hover:text-ink` }}

@@ -514,33 +514,6 @@ function ChartPaneImpl(props: ChartPaneProps) {
       )}
 
       <div className="relative min-h-0 flex-1">
-        {/*
-          The pane's identity and its own controls, drawn ON the chart.
-
-          Not a header row: see `components/tv/PaneLegend.tsx` for why a second
-          bordered bar under the toolbar was the duplication the owner reported,
-          and what the benchmark actually does instead.
-        */}
-        <PaneLegend
-          paneId={paneId}
-          symbol={pane.symbol}
-          interval={pane.interval}
-          lastClose={showReadout && last ? last.close : null}
-          stale={history.stale}
-          loading={density === "large" && history.loading}
-          bars={visibleCandles.length}
-          compare={compare}
-          dense={!showIdentityDetail}
-          onOpenSymbolSearch={props.onOpenSymbolSearch}
-          onInterval={props.onInterval}
-          {...(props.onCompareChange ? { onCompareChange: props.onCompareChange } : {})}
-          resolutions={props.resolutions}
-          canMaximize={props.canMaximize}
-          canClose={props.canClose}
-          maximized={props.maximized}
-          onToggleMaximize={props.onToggleMaximize}
-          onClose={props.onClose}
-        />
         {history.loading && !holdingRequested && history.candles.length > 0 && (
           // The previous instrument's bars are still drawn underneath; say so
           // rather than let them pass for the new one for a few seconds.
@@ -578,6 +551,40 @@ function ChartPaneImpl(props: ChartPaneProps) {
           <CandleChart
             symbol={pane.symbol}
             interval={pane.interval}
+            /*
+              The pane's identity and its own controls, handed to the chart as a
+              slot rather than drawn beside it.
+
+              `CandleChart` stacks its overlays in ONE column at the plot's
+              top-left and says in a comment why: a second overlay pinned to the
+              same offset gets painted straight through the OHLC readout. This
+              legend was that second overlay for one commit, and "SOLUSDT 15m"
+              landed on top of "SOLUSDT · 15m O … H … L …". Passing it in puts
+              it first in that column, and takes the symbol and the interval out
+              of the row below, so they are named once.
+            */
+            identity={
+              <PaneLegend
+                paneId={paneId}
+                symbol={pane.symbol}
+                interval={pane.interval}
+                lastClose={showReadout && last ? last.close : null}
+                stale={history.stale}
+                loading={density === "large" && history.loading}
+                bars={visibleCandles.length}
+                compare={compare}
+                dense={!showIdentityDetail}
+                onOpenSymbolSearch={props.onOpenSymbolSearch}
+                onInterval={props.onInterval}
+                {...(props.onCompareChange ? { onCompareChange: props.onCompareChange } : {})}
+                resolutions={props.resolutions}
+                canMaximize={props.canMaximize}
+                canClose={props.canClose}
+                maximized={props.maximized}
+                onToggleMaximize={props.onToggleMaximize}
+                onClose={props.onClose}
+              />
+            }
             candles={visibleCandles}
             dataset={history.dataset}
             chartType={pane.chartType}

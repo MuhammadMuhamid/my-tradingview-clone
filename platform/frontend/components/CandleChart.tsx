@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
@@ -418,6 +418,7 @@ export function CandleChart({
   onPriceSelect,
   onAnnotationSelect,
   compact = false,
+  identity,
   onLiveBarBoundary,
   onCrosshairMove, crosshairTime,
   onVisibleRangeChange, visibleRange, followEdgeTime,
@@ -535,6 +536,16 @@ export function CandleChart({
    * 390px screen covers most of the price column.
    */
   compact?: boolean;
+  /**
+   * What this chart IS, rendered at the top of the chart's own legend column.
+   *
+   * A slot rather than more props because the pane owns both the state and the
+   * controls — its symbol dialog, its timeframe picker, its comparison — and
+   * this component owns only where they sit relative to the readouts it stacks
+   * beneath them. Supplying it also suppresses the symbol and interval in the
+   * OHLC row, so they are named once.
+   */
+  identity?: ReactNode;
   /** Completed + newly-forming bars, emitted once per live bar boundary. */
   onLiveBarBoundary?: (closed: Candle | null, current: Candle) => void;
   /**
@@ -1861,7 +1872,16 @@ export function CandleChart({
         wrap, which is exactly when a second overlay pinned to a fixed offset
         would have been drawn straight through it.
       */}
-      <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex max-w-[min(60%,760px)] flex-col items-start gap-0.5">
+      <div className="pointer-events-none absolute left-2 top-1.5 z-20 flex max-w-[min(60%,760px)] flex-col items-start gap-0.5">
+      {/*
+        The pane's identity and its own controls, when a pane supplied them.
+
+        First in the column, above the disclosure and the readout, because it is
+        what the chart IS rather than something about how it is drawn. A pane
+        that supplies it also takes the symbol and the interval OUT of the OHLC
+        row below — see `identity` in the props.
+      */}
+      {identity}
       {/*
         The synthetic disclosure, on the chart itself rather than only in the
         toolbar. The toolbar describes the ACTIVE pane; in a sixteen-pane
@@ -1881,8 +1901,19 @@ export function CandleChart({
       )}
       {legend && (
         <div className="flex flex-wrap items-baseline gap-x-2 rounded bg-surface/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-ink-muted sm:text-[11px]">
-          <span className="font-semibold text-ink">{symbol}</span>
-          <span>· {interval} ·</span>
+          {/*
+            Named here only when nothing above named them. A pane passes an
+            `identity` slot whose whole job is to say which instrument and which
+            resolution this is — and to let them be changed — so repeating them
+            one line below is the duplication, in miniature, that the workspace
+            shell was just rebuilt to remove.
+          */}
+          {identity === undefined && (
+            <>
+              <span className="font-semibold text-ink">{symbol}</span>
+              <span>· {interval} ·</span>
+            </>
+          )}
           {/*
             The readout names its own source whenever it is not the exchange's
             candles. Without it "O 843.11" beside a Heikin-Ashi body is a

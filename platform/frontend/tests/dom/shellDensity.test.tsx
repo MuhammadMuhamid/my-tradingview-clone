@@ -108,19 +108,55 @@ test("the pane's chrome is a legend over the plot, not a row above it", async ()
   const legend = pane.querySelector<HTMLElement>("[data-pane-legend]");
   assert.ok(legend, "the pane has no legend");
 
-  // The legend is positioned over the chart rather than taking a row from it.
-  assert.match(legend.className, /absolute/);
-  assert.match(legend.className, /pointer-events-none/,
+  /*
+   * The legend sits in the chart's OWN stacked overlay column.
+   *
+   * `CandleChart` positions that column absolutely at the plot's top-left and
+   * says in a comment why there is only one of them: a second overlay pinned to
+   * the same offset gets painted straight through the OHLC readout. This legend
+   * was written as that second overlay once, and "SOLUSDT 15m" landed on top of
+   * "SOLUSDT · 15m O … H … L …" in the live app. So what is asserted is
+   * membership of the column, not a second set of coordinates.
+   */
+  const column = legend.parentElement;
+  assert.ok(column !== null);
+  assert.match(column.className, /absolute/);
+  assert.match(column.className, /pointer-events-none/,
     "a legend that ate a drag would break every trend line started top-left");
+  assert.match(column.className, /flex-col/, "one stacked column, not two overlays");
+  assert.equal(column.firstElementChild, legend,
+    "what the chart IS belongs above what is being read off it");
 
-  // And it is inside the chart region, above the plot in z-order rather than
-  // above it in layout order.
+  // The legend itself is transparent to the pointer; only its controls are not.
+  assert.match(legend.className, /pointer-events-none/);
+  assert.ok(legend.querySelector(".pointer-events-auto"),
+    "every legend control must opt back in individually");
+
+  // It takes no row from the chart: the plot is its sibling's, not below it.
   const plotHost = pane.querySelector<HTMLElement>(".tv-lightweight-charts");
   assert.ok(plotHost, "the pane has no chart host");
-  const region = legend.parentElement;
-  assert.ok(region !== null && region.contains(plotHost),
-    "the legend must live in the chart region it labels, beside the plot");
   assert.ok(!legend.contains(plotHost) && !plotHost.contains(legend));
+});
+
+test("THE CHART NAMES ITS INSTRUMENT AND RESOLUTION EXACTLY ONCE", async () => {
+  const chart = await mountChart();
+  const pane = chart.pane(0);
+  const column = pane.querySelector<HTMLElement>("[data-pane-legend]")!.parentElement!;
+
+  /*
+   * The readout under the legend used to open with "SOLUSDT · 15m ·" of its
+   * own. With the pane's identity now directly above it, that was the same two
+   * facts twice, forty pixels apart — the reported defect one layer down.
+   */
+  const text = column.textContent ?? "";
+  const symbols = text.match(/SOLUSDT/g) ?? [];
+  assert.equal(symbols.length, 1, `the instrument is named ${symbols.length} times: ${text}`);
+  const intervals = text.match(/15m/g) ?? [];
+  assert.equal(intervals.length, 1, `the resolution is named ${intervals.length} times: ${text}`);
+
+  // The OHLC row is still there, and still says what it is reading.
+  assert.match(text, /O\s/);
+  assert.match(text, /C\s/);
 });
 
 test("neither maximise nor close exists when there is only one pane", async () => {
