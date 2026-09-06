@@ -7,6 +7,10 @@ import { describeStreamState } from "@/lib/marketStream";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import { watchlistMenu } from "@/lib/menuPayloads";
 import type { MenuEntry } from "@/lib/contextMenu";
+import {
+  MANUAL_SORT, canReorder, nextSort, reorderRefusal, reorderSymbols, sortSymbols,
+  type SortColumn, type WatchlistSort,
+} from "@/lib/watchlistOrder";
 
 interface Ticker { last: number; chg: number; chgPct: number }
 type NamedWatchlist = ServerWatchlist;
@@ -106,7 +110,14 @@ export function Watchlist({
   }, [activeId]);
 
   const active = lists?.find((l) => l.id === activeId) ?? null;
-  const visibleSymbols = useMemo(() => {
+  /**
+   * The rows in the user's own order — which is what is persisted.
+   *
+   * Sorting by a column is a VIEW of this list, applied below, not a rewrite
+   * of it: sorting by change, looking, then clearing the sort gives the user
+   * their arrangement back rather than leaving them to rebuild it.
+   */
+  const manualSymbols = useMemo(() => {
     if (!active) return [];
     const bySymbol = new Map(symbols.map((s) => [s.symbol, s]));
     return active.symbols.map((s) => bySymbol.get(s)).filter((s): s is SymbolInfo => Boolean(s));
@@ -117,8 +128,40 @@ export function Watchlist({
    * stream (origin fallback, reconnect and watchdog included). See
    * `lib/useWatchlistTickers`. The rows are never `—` for want of a socket.
    */
-  const visibleSymbolNames = useMemo(() => visibleSymbols.map((s) => s.symbol), [visibleSymbols]);
+  const visibleSymbolNames = useMemo(() => manualSymbols.map((s) => s.symbol), [manualSymbols]);
   const { tickers, stream } = useWatchlistTickers(visibleSymbolNames);
+
+  const updateActive = (fn: (list: NamedWatchlist) => NamedWatchlist) => {
+    if (!active) return;
+    const next = fn(active);
+    setLists((prev) => prev?.map((l) => (l.id === next.id ? next : l)) ?? prev);
+    api.updateWatchlist(next.id, { name: next.name, symbols: next.symbols })
+      .catch((e: Error) => setErr(e.message));
+  };
+
+  /*
+   * The sort, and the rows it produces.
+   *
+   * Held here rather than persisted: it is how the user is looking at the list
+   * right now, not part of the list. The manual order is the thing that
+   * belongs to them and is saved.
+   */
+  const [sort, setSort] = useState<WatchlistSort>(MANUAL_SORT);
+  const visibleSymbols = useMemo(() => {
+    if (sort.column === "manual") return manualSymbols;
+    const bySymbol = new Map(manualSymbols.map((s) => [s.symbol, s]));
+    return sortSymbols(visibleSymbolNames, tickers, sort)
+      .map((name) => bySymbol.get(name))
+      .filter((s): s is SymbolInfo => Boolean(s));
+  }, [manualSymbols, visibleSymbolNames, tickers, sort]);
+
+  /** The row being dragged, in the manual order. Null when nothing is. */
+  const [dragging, setDragging] = useState<string | null>(null);
+
+  const moveSymbol = (symbol: string, toIndex: number): void => {
+    if (!canReorder(sort)) return;
+    updateActive((l) => ({ ...l, symbols: reorderSymbols(l.symbols, symbol, toIndex) }));
+  };
   const streamWords = describeStreamState(stream);
   /*
    * The header says what the numbers are. "live" is only claimed once a frame
@@ -141,13 +184,6 @@ export function Watchlist({
    * the server write follows; a failure surfaces in the error line rather than
    * silently diverging.
    */
-  const updateActive = (fn: (list: NamedWatchlist) => NamedWatchlist) => {
-    if (!active) return;
-    const next = fn(active);
-    setLists((prev) => prev?.map((l) => (l.id === next.id ? next : l)) ?? prev);
-    api.updateWatchlist(next.id, { name: next.name, symbols: next.symbols })
-      .catch((e: Error) => setErr(e.message));
-  };
 
   const add = async () => {
     const s = adding.trim().toUpperCase();
@@ -243,14 +279,60 @@ export function Watchlist({
         {adding && <button onClick={add} className="rounded bg-accent px-2 py-1 text-xs font-medium text-white">Add</button>}
       </div>
       {err && <div className="px-3 py-1.5 text-xs text-down">{err}</div>}
-      <div className="grid grid-cols-[1fr_auto_auto_18px] gap-x-2 border-b border-border px-3 py-1.5 text-[11px] text-ink-faint"><span>Symbol</span><span>Last</span><span className="w-[64px] text-right">Chg%</span><span /></div>
+      {/*
+        Column headers that sort. A third click returns to the user's own
+        order, so a sort is never a one-way door out of an arrangement they
+        spent time on.
+      */}
+      <div className="grid grid-cols-[1fr_auto_auto_18px] gap-x-2 border-b border-border px-3 py-1.5 text-[11px] text-ink-faint">
+        {([["symbol", "Symbol", ""], ["last", "Last", ""],
+           ["change", "Chg%", "w-[64px] text-right"]] as [SortColumn, string, string][])
+          .map(([column, label, extra]) => (
+            <button
+              key={column}
+              onClick={() => setSort((current) => nextSort(current, column))}
+              aria-label={sort.column === column
+                ? `Sorted by ${label}, ${sort.direction === "asc" ? "ascending" : "descending"}. Click to change.`
+                : `Sort by ${label}`}
+              className={`${extra} text-left hover:text-ink ${
+                sort.column === column ? "font-semibold text-ink" : ""
+              }`}
+            >
+              {label}
+              {sort.column === column && (
+                <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span>
+              )}
+            </button>
+          ))}
+        <span />
+      </div>
+      {reorderRefusal(sort) && (
+        <div className="px-3 py-1 text-[10px] text-ink-faint">{reorderRefusal(sort)}</div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {visibleSymbols.length === 0 && <div className="px-4 py-8 text-center text-xs text-ink-faint">This watchlist is empty.<br />Add a USDT pair above.</div>}
-        {visibleSymbols.map((s) => {
+        {visibleSymbols.map((s, index) => {
           const selectedRow = s.symbol === selected;
           const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
           const up = t ? t.chgPct >= 0 : true;
+          const position = index;
           return <div key={s.symbol}
+            draggable={canReorder(sort)}
+            onDragStart={(e) => {
+              if (!canReorder(sort)) return;
+              setDragging(s.symbol);
+              e.dataTransfer.effectAllowed = "move";
+              // Some browsers refuse a drag with no payload at all.
+              e.dataTransfer.setData("text/plain", s.symbol);
+            }}
+            onDragOver={(e) => { if (canReorder(sort) && dragging) e.preventDefault(); }}
+            onDrop={(e) => {
+              if (!canReorder(sort) || !dragging) return;
+              e.preventDefault();
+              moveSymbol(dragging, position);
+              setDragging(null);
+            }}
+            onDragEnd={() => setDragging(null)}
             onContextMenu={(e) => {
               e.preventDefault();
               setRowMenu({

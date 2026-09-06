@@ -75,7 +75,15 @@ export function DrawingCanvas({
   container: HTMLDivElement | null;
   chart: IChartApi | null;
   /** Any main-series presentation: only price/coordinate conversion is used. */
-  series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line"> | ISeriesApi<"Area"> | null;
+  /**
+   * Any main-series presentation: only price/coordinate conversion is used.
+   *
+   * `Baseline` joined the union when the baseline chart type arrived. Nothing
+   * here reads a series OPTION — only `priceToCoordinate` and its inverse,
+   * which every series kind has — so widening it costs nothing.
+   */
+  series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
+    | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | null;
   candles: Candle[];
   interval: Interval;
   tool: DrawingTool;

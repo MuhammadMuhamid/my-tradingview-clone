@@ -14,10 +14,27 @@ const ICONS: Record<ChartType, React.ReactNode> = {
       <rect x="13.5" y="6" width="5" height="7" rx="0.5" />
     </>
   ),
+  // The same glyph as candles, with the up body unfilled — which is the
+  // only difference between the two types.
+  hollowCandles: (
+    <>
+      <path d="M8 4v16M16 4v16" />
+      <rect x="5.5" y="8" width="5" height="8" rx="0.5" fill="none" />
+      <rect x="13.5" y="6" width="5" height="7" rx="0.5" fill="currentColor" />
+    </>
+  ),
   bars: (
     <>
       <path d="M8 4v16M16 5v14" />
       <path d="M5 8h3M8 14h3M13 9h3M16 16h3" />
+    </>
+  ),
+  stepLine: <path d="M3 17h4v-5h4v3h4v-6h6" />,
+  // A dashed reference with fill above and below it, which is the idea.
+  baseline: (
+    <>
+      <path d="M3 12h18" strokeDasharray="2 2" />
+      <path d="M3 16l5-6 4 4 3-5 6 6" />
     </>
   ),
   line: <path d="M3 16l5-6 4 4 3-5 6 6" />,

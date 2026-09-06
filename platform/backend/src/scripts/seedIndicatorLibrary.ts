@@ -1,54 +1,46 @@
 /**
  * Install the built-in indicator library into the script table.
  *
- * Idempotent: `upsertScript` matches on lower(name), so re-running replaces a
- * shipped script's source in place rather than creating a second copy. A
- * script the user has renamed is therefore left alone, and one they have
- * edited under the original name is reset — which is what "reinstall the
- * built-ins" should do.
- *
- * Every script is compiled before it is written. A library entry that does not
- * parse would otherwise sit in the picker and fail only when someone adds it
- * to a chart.
+ * The decision about what may be overwritten lives in `pine/librarySeed`,
+ * because the backend runs it on boot as well and the two must not be able to
+ * disagree about whose script is whose. This file is the command-line face of
+ * it: arguments, output, and an exit code.
  *
  *   local    : cd backend && npx tsx src/scripts/seedIndicatorLibrary.ts [--dry]
  *   deployed : docker exec <backend> node dist/scripts/seedIndicatorLibrary.js
  */
+import { seedIndicatorLibrary, LIBRARY_VERSION } from "../pine/librarySeed";
 import { INDICATOR_LIBRARY } from "../pine/library";
-import { PineInterpreter } from "../pine/interpreter";
-import * as scripts from "../repositories/pineScripts";
 import { closePool } from "../db/pool";
 
 async function main(): Promise<void> {
   const dry = process.argv.includes("--dry");
   if (dry) console.log("DRY RUN — nothing will be written\n");
 
-  let installed = 0;
-  const failed: string[] = [];
+  const summary = await seedIndicatorLibrary({
+    dryRun: dry,
+    log: (message) => console.log(message),
+  });
 
-  for (const entry of INDICATOR_LIBRARY) {
-    const { meta, errors } = PineInterpreter.compile(entry.source);
-    if (errors.length > 0) {
-      failed.push(`${entry.name}: ${errors[0]!.message}`);
-      console.log(`  SKIP  ${entry.name} — ${errors[0]!.message}`);
-      continue;
+  console.log(
+    `\nlibrary ${LIBRARY_VERSION}: ${summary.installed} installed, ` +
+    `${summary.updated} updated, ${summary.unchanged} already current, ` +
+    `${summary.kept} left alone, of ${INDICATOR_LIBRARY.length}`
+  );
+  if (summary.kept > 0) {
+    // Said explicitly. A user who expected "reinstall the built-ins" to reset
+    // their edits needs to know it deliberately did not.
+    console.log("\nLEFT ALONE — these have been changed or authored here:");
+    for (const r of summary.results) {
+      if (r.outcome === "kept-user-edit" || r.outcome === "kept-user-script") {
+        console.log(`  ${r.name.padEnd(38)} ${r.detail ?? ""}`);
+      }
     }
-    if (!dry) {
-      await scripts.upsertScript({ name: entry.name, source: entry.source, kind: meta.kind });
-    }
-    installed++;
-    console.log(
-      `  ok    ${entry.name.padEnd(38)} ${meta.kind}, ` +
-      `${meta.inputs.length} input${meta.inputs.length === 1 ? "" : "s"}, ` +
-      `${meta.overlay ? "on price" : "separate pane"}`
-    );
   }
-
-  console.log(`\n${installed}/${INDICATOR_LIBRARY.length} installed`);
-  if (failed.length > 0) {
+  if (summary.failed.length > 0) {
     // A library that ships a broken script is a bug, not a warning.
     console.error("\nFAILED TO COMPILE:");
-    for (const f of failed) console.error("  " + f);
+    for (const f of summary.failed) console.error("  " + f);
     process.exitCode = 1;
   }
 }

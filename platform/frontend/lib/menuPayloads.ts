@@ -56,12 +56,15 @@ export interface ChartMenuContext {
   drawingsLocked: boolean;
   /** Manual trading is available at all on this installation. */
   tradingEnabled: boolean;
+  /** The Screener's candlestick-pattern marks are being drawn. */
+  candlePatterns: boolean;
 }
 
 export const CHART_MENU_IDS = [
   "chart:copy-price", "chart:add-alert", "chart:trade-at-price",
   "chart:reset-view", "chart:toggle-auto", "chart:toggle-log",
   "chart:toggle-drawings-hidden", "chart:toggle-drawings-locked",
+  "chart:toggle-candle-patterns",
   "chart:indicators", "chart:chart-settings",
 ] as const;
 export type ChartMenuId = (typeof CHART_MENU_IDS)[number];
@@ -109,6 +112,13 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
       id: "chart:toggle-drawings-locked", label: "Lock drawings",
       checked: ctx.drawingsLocked,
       disabled: !ctx.hasDrawings, disabledReason: "There are no drawings on this instrument",
+    },
+    {
+      id: "chart:toggle-candle-patterns", label: "Candlestick patterns",
+      checked: ctx.candlePatterns,
+      // Named as the Screener's, because that is whose opinion it is — the
+      // chart contains no pattern logic and never will.
+      hint: "Screener",
     },
     { id: "sep-studies", separator: true },
     { id: "chart:indicators", label: "Indicators…", hint: "I" },

@@ -29,11 +29,17 @@ const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf
 const BAR = { openTime: 1_700_000_000_000, open: 10, high: 12, low: 9, close: 11 };
 
 test("only the types this chart actually implements are offered", () => {
-  assert.deepEqual(CHART_TYPES.map((t) => t.value),
-    ["candles", "bars", "line", "area", "heikinAshi", "renko"]);
+  assert.deepEqual(CHART_TYPES.map((t) => t.value), [
+    "candles", "hollowCandles", "bars", "line", "stepLine", "area", "baseline",
+    "heikinAshi", "renko",
+  ]);
   // Unimplemented synthetic systems stay absent rather than appearing as
-  // placeholders that cannot be chosen.
-  for (const absent of ["kagi", "range", "pnf", "lineBreak", "heikinashi", "Renko"]) {
+  // placeholders that cannot be chosen. Kagi, Point & Figure, Range and Line
+  // Break are all DELIBERATELY not here: each invents its own bars, and this
+  // product's position is that a chart type may re-present the market's bars
+  // but not replace them.
+  for (const absent of ["kagi", "range", "pnf", "lineBreak", "heikinashi", "Renko",
+                        "footprint", "tpo"]) {
     assert.equal(isChartType(absent), false, absent);
   }
 });
@@ -41,7 +47,17 @@ test("only the types this chart actually implements are offered", () => {
 test("presentations and transforms are separate, and the split is data", () => {
   const presentations = CHART_TYPES.filter((t) => t.group === "presentation").map((t) => t.value);
   const transforms = CHART_TYPES.filter((t) => t.group === "transform").map((t) => t.value);
-  assert.deepEqual(presentations, ["candles", "bars", "line", "area"]);
+  /*
+   * Hollow candles, step line and baseline are PRESENTATIONS.
+   *
+   * Each draws the market's own bars differently — an unfilled body, a held
+   * close, a fill either side of a reference. None of them changes a price, so
+   * none of them belongs on the transform shelf beside Heikin Ashi and Renko,
+   * which do. That distinction is what the disclosure hint hangs off, and it
+   * is what keeps "display only" meaning something.
+   */
+  assert.deepEqual(presentations,
+    ["candles", "hollowCandles", "bars", "line", "stepLine", "area", "baseline"]);
   assert.deepEqual(transforms, ["heikinAshi", "renko"]);
 
   // The transforms come last, so the menu can render them as a terminal group.
@@ -178,4 +194,35 @@ test("no colour override leaves the datum uncoloured rather than defaulted", () 
     const d = mainSeriesDatum(t.value, BAR, null);
     assert.equal(d.color, undefined);
   }
+});
+
+test("the new presentations are display-only: alerts and orders see canonical bars", () => {
+  // The whole point of the presentation/transform split. A hollow candle, a
+  // step line and a baseline fill are ways of DRAWING the market's bars; a
+  // Heikin Ashi bar and a Renko brick are prices the market never printed.
+  for (const type of ["hollowCandles", "stepLine", "baseline"] as const) {
+    assert.equal(isSyntheticChartType(type), false,
+      `${type} must not be disclosed as synthetic — it changes no price`);
+    assert.equal(chartTransform(type), null);
+    assert.equal(syntheticDisclosure(type), null);
+  }
+  // And the two that are.
+  for (const type of ["heikinAshi", "renko"] as const) {
+    assert.equal(isSyntheticChartType(type), true);
+    assert.ok(syntheticDisclosure(type));
+  }
+});
+
+test("every type names a series kind the renderer can actually create", () => {
+  // A type whose `renderKind` the chart does not implement would silently fall
+  // through to a line and misdraw without erroring.
+  const implemented = new Set(["candles", "bars", "line", "area", "baseline"]);
+  for (const t of CHART_TYPES) {
+    assert.ok(implemented.has(t.renderKind), `${t.value} names an unimplemented ${t.renderKind}`);
+  }
+  // Hollow candles and step line share a kind with a sibling, and are told
+  // apart by the type itself rather than by the kind — which the renderer has
+  // to do, and this pins the reason.
+  assert.equal(CHART_TYPES.find((t) => t.value === "hollowCandles")!.renderKind, "candles");
+  assert.equal(CHART_TYPES.find((t) => t.value === "stepLine")!.renderKind, "line");
 });

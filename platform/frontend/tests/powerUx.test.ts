@@ -173,7 +173,7 @@ const byId = (entries: MenuEntry[], id: string): MenuEntry | undefined =>
 test("an action that cannot be taken is disabled with a reason, never hidden", () => {
   const replay = chartMenu({
     price: 100, replayActive: true, autoScale: true, logScale: false,
-    hasDrawings: true, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
+    hasDrawings: true, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true, candlePatterns: false,
   });
   for (const id of ["chart:add-alert", "chart:trade-at-price"]) {
     const item = byId(replay, id)!;
@@ -189,7 +189,7 @@ test("an action that cannot be taken is disabled with a reason, never hidden", (
 test("the chart menu prepares an order and never submits one", () => {
   const menu = chartMenu({
     price: 100, replayActive: false, autoScale: true, logScale: false,
-    hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
+    hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true, candlePatterns: false,
   });
   const trade = byId(menu, "chart:trade-at-price")!;
   assert.match((trade as { label: string }).label, /Prepare/,
@@ -205,7 +205,7 @@ test("the chart menu prepares an order and never submits one", () => {
 test("the chart menu offers no control it cannot justify", () => {
   const menu = chartMenu({
     price: null, replayActive: false, autoScale: false, logScale: true,
-    hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: false,
+    hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: false, candlePatterns: false,
   });
   const labels = menu.filter((e) => !isSeparator(e)).map((e) => (e as { label: string }).label);
   assert.ok(!labels.some((l) => /invert/i.test(l)),

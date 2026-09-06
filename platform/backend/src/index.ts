@@ -7,6 +7,7 @@ import { LiveRunner } from "./engine/liveRunner";
 import { MaAlertRunner } from "./engine/maAlertRunner";
 import * as pushRepo from "./repositories/pushSubscriptions";
 import { encryptLegacySecrets } from "./repositories/deployments";
+import { seedIndicatorLibrary } from "./pine/librarySeed";
 
 async function main(): Promise<void> {
   const applied = await migrate();
@@ -23,6 +24,40 @@ async function main(): Promise<void> {
   runner = new LiveRunner(app.log);
   if (applied.length > 0) {
     app.log.info({ applied }, "database migrations applied");
+  }
+
+  /*
+   * The shipped Pine library, installed on boot.
+   *
+   * Here rather than as a manual step somebody has to remember after a deploy:
+   * a new installation should have the built-in scripts, and an upgraded one
+   * should get whatever the new build ships. It is safe to run every time —
+   * `seedIndicatorLibrary` writes only what the library itself installed and
+   * left unedited, and does nothing at all on the second and subsequent boots.
+   *
+   * A failure is logged, never fatal. A library that cannot be installed is a
+   * missing convenience; a backend that will not start because of one is an
+   * outage.
+   */
+  try {
+    const seeded = await seedIndicatorLibrary();
+    if (seeded.installed > 0 || seeded.updated > 0) {
+      app.log.info(
+        { installed: seeded.installed, updated: seeded.updated, kept: seeded.kept },
+        "pine library seeded");
+    }
+    if (seeded.kept > 0) {
+      // Said out loud: a user's edited copy is deliberately not refreshed, and
+      // an operator wondering why a shipped fix has not appeared needs to know.
+      app.log.info(
+        { kept: seeded.results.filter((r) => r.outcome.startsWith("kept")).map((r) => r.name) },
+        "pine library left user-owned scripts alone");
+    }
+    if (seeded.failed.length > 0) {
+      app.log.error({ failed: seeded.failed }, "pine library entries failed to compile");
+    }
+  } catch (cause) {
+    app.log.error({ err: cause }, "pine library seeding failed; the backend continues");
   }
   if (encrypted > 0) app.log.info({ encrypted }, "legacy deployment credentials encrypted");
 

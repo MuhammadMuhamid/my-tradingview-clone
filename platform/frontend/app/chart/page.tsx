@@ -60,7 +60,10 @@ import { useShortcuts } from "@/lib/useShortcuts";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
 import { newId, type Drawing, type DrawingTool } from "@/lib/drawings";
-import { api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript } from "@/lib/api";
+import {
+  api, type MaAlert, type MaAlertEvent, type ManualTradingState, type OptimizerBest,
+  type PineScript,
+} from "@/lib/api";
 import { currentMaValues, defaultMaLines, type MaType } from "@/lib/movingAverages";
 import { defaultParamsFor } from "@/lib/paramSchema";
 import * as layoutStore from "@/lib/layouts";
@@ -92,6 +95,7 @@ import {
 import { MAX_PANES } from "@/lib/layoutPresets";
 import { isMacPlatform } from "@/lib/shortcuts";
 import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
+import { useCandleOverlay } from "@/lib/useCandleOverlay";
 import {
   activeReplayQuote, liveActionsDisabled, reconcileReplay, replayCandles, replayDelayMs,
   replayTick, startReplay, stepReplay,
@@ -967,6 +971,31 @@ export default function TvWorkspace() {
    * chart is not a level the 5m chart is watching, and drawing it there would
    * imply a line that will fire from what is on screen.
    */
+  /**
+   * Alerts that actually FIRED, as recorded by the server.
+   *
+   * Polled with the alerts themselves rather than pushed: an event is a
+   * historical fact and does not need to arrive within a second of happening.
+   * Nothing here re-evaluates a condition against history — a mark means "the
+   * runner delivered this", never "this would have fired", and the second
+   * claim on a chart a user reads to decide what happened is fabrication.
+   */
+  /** The candlestick-pattern overlay: off by default, remembered per browser. */
+  const candleOverlay = useCandleOverlay();
+
+  const [alertEvents, setAlertEvents] = useState<MaAlertEvent[]>([]);
+  useEffect(() => {
+    let live = true;
+    const load = (): void => {
+      void api.maAlertEvents(200)
+        .then((rows) => { if (live) setAlertEvents(rows); })
+        .catch(() => { /* the marks are an annotation; a failure leaves them off */ });
+    };
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => { live = false; clearInterval(timer); };
+  }, []);
+
   const alertLinesFor = useCallback((paneInterval: Interval): ChartPriceLine[] =>
     maAlerts
       .filter((a) => a.conditionKind === "price" && a.targetPrice !== null &&
@@ -1199,10 +1228,11 @@ export default function TvWorkspace() {
         // Offering "prepare an order" where manual trading is switched off
         // stages a ticket the installation will not accept.
         tradingEnabled: manualState?.enabled === true,
+        candlePatterns: candleOverlay.enabled,
       }),
     });
   }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
-    paneScale, manualState]);
+    paneScale, manualState, candleOverlay.enabled]);
 
   /*
    * One handler per menu, keyed by the menu's own namespace.
@@ -1235,6 +1265,9 @@ export default function TvWorkspace() {
       case "chart:chart-settings": setSettingsOpen(true); return;
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
+      case "chart:toggle-candle-patterns":
+        candleOverlay.setEnabled(!candleOverlay.enabled);
+        return;
       case "chart:reset-view":
       case "axis:reset":
         setPaneScale(paneId, resetPriceScale());
@@ -1295,7 +1328,7 @@ export default function TvWorkspace() {
       default: return;
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
-    copyPrice]);
+    copyPrice, candleOverlay]);
 
   const shortcuts = useShortcuts({
     onAction: (action) => {
@@ -1438,6 +1471,13 @@ export default function TvWorkspace() {
         resetSignal={paneResets[pane.id] ?? 0}
         drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
         onCompareChange={changePaneCompare}
+        // Placed against THIS pane's own bars, inside the pane: the workspace
+        // does not hold any pane's candles, and placing an event on a window
+        // it is not in would clamp the mark onto an edge bar and claim an
+        // event happened there.
+        alertEvents={alertEvents}
+        maAlerts={maAlerts}
+        candleOverlay={candleOverlay}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         compact={isMobile}
@@ -1449,7 +1489,8 @@ export default function TvWorkspace() {
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
-    paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare]);
+    paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare,
+    alertEvents, maAlerts, candleOverlay]);
 
   return (
     <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">

@@ -3,14 +3,7 @@ import assert from "node:assert/strict";
 import type { Candle } from "../lib/types";
 import type { Drawing } from "../lib/drawings";
 import {
-  activeReplayQuote,
-  drawingsAtReplayHorizon,
-  liveActionsDisabled,
-  reconcileReplay,
-  replayCandles,
-  replayTick,
-  startReplay,
-  stepReplay,
+  REPLAY_SPEEDS, activeReplayQuote, drawingsAtReplayHorizon, liveActionsDisabled, reconcileReplay, replayCandles, replayDelayMs, replayTick, startReplay, stepReplay,
 } from "../lib/replay";
 import {
   invalidateReplayOutput,
@@ -226,4 +219,25 @@ test("persisted drawings are isolated and replay-session drawings never become n
 test("live trade, Bot, paper and alert actions share one Replay guard", () => {
   assert.equal(liveActionsDisabled(atBar(2)), true);
   assert.equal(liveActionsDisabled(null), false);
+});
+
+test("the speeds are a bounded ladder, and every one of them is a real delay", () => {
+  // 10× exists because reviewing a session at 5× takes long enough that people
+  // stop doing it. It is the ceiling rather than a step toward more: past ten
+  // bars a second the chart is not being read.
+  assert.deepEqual([...REPLAY_SPEEDS], [1, 2, 5, 10]);
+  for (const speed of REPLAY_SPEEDS) {
+    const delay = replayDelayMs(speed);
+    assert.ok(Number.isFinite(delay) && delay > 0, `${speed}× has no usable delay`);
+    // Bars per second means exactly that.
+    assert.equal(delay, 1000 / speed);
+  }
+  // Strictly faster as the number rises — a ladder that was not monotonic
+  // would make a "faster" button slower.
+  const delays = REPLAY_SPEEDS.map(replayDelayMs);
+  for (let i = 1; i < delays.length; i++) {
+    assert.ok(delays[i]! < delays[i - 1]!, "each step must actually be faster");
+  }
+  // And a browser can keep up: 100 ms per frame is well inside a paint budget.
+  assert.ok(Math.min(...delays) >= 100, "a speed no browser can render is not a speed");
 });

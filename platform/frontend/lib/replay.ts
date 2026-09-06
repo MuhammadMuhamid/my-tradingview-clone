@@ -1,7 +1,15 @@
 import type { Candle } from "@/lib/types";
 import type { Drawing } from "@/lib/drawings";
 
-export const REPLAY_SPEEDS = [1, 2, 5] as const;
+/**
+ * How fast a Replay steps, in bars per second.
+ *
+ * 10× is here because reviewing a whole session at 5× takes long enough that
+ * people stop doing it. It is a ceiling rather than a step on the way to more:
+ * beyond ten bars a second the chart is not being READ, and a speed nobody can
+ * follow is a speed nobody should be offered.
+ */
+export const REPLAY_SPEEDS = [1, 2, 5, 10] as const;
 export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
 
 /**

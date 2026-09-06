@@ -36,11 +36,11 @@ export type { OhlcBar } from "./chartTransforms";
 export { DEFAULT_RENKO_ATR_PERIOD } from "./chartTransforms";
 
 export type ChartType =
-  | "candles" | "bars" | "line" | "area"
+  | "candles" | "hollowCandles" | "bars" | "line" | "stepLine" | "area" | "baseline"
   | "heikinAshi" | "renko";
 
 /** Which of lightweight-charts' series kinds actually draws a type. */
-export type ChartRenderKind = "candles" | "bars" | "line" | "area";
+export type ChartRenderKind = "candles" | "bars" | "line" | "area" | "baseline";
 
 /** The two shelves of the menu. Transforms never mix in with presentations. */
 export type ChartTypeGroup = "presentation" | "transform";
@@ -62,6 +62,18 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "Open, high, low and close as a filled body with wicks",
   },
   {
+    /*
+     * The same candles, drawn hollow on an up bar.
+     *
+     * A PRESENTATION, not a transform: the bars are the market's own, and the
+     * only difference is whether the body is filled. Which is exactly why it
+     * belongs on this shelf — nothing about the prices changes.
+     */
+    value: "hollowCandles", label: "Hollow candles", group: "presentation",
+    renderKind: "candles", transform: null,
+    hint: "Candles with an unfilled body where the bar closed up",
+  },
+  {
     value: "bars", label: "Bars", group: "presentation",
     renderKind: "bars", transform: null,
     hint: "Open, high, low and close as an OHLC bar",
@@ -72,9 +84,26 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "Closing price only",
   },
   {
+    value: "stepLine", label: "Step line", group: "presentation",
+    renderKind: "line", transform: null,
+    hint: "Closing price as a step — each close held until the next one",
+  },
+  {
     value: "area", label: "Area", group: "presentation",
     renderKind: "area", transform: null,
     hint: "Closing price, filled to the baseline",
+  },
+  {
+    /*
+     * Filled above and below a reference price, in two colours.
+     *
+     * The reference is the FIRST CLOSE in view, which is what makes it read as
+     * "up or down since the start of what I am looking at" rather than as a
+     * second, invisible input the user has to set.
+     */
+    value: "baseline", label: "Baseline", group: "presentation",
+    renderKind: "baseline", transform: null,
+    hint: "Filled above and below the first close in view",
   },
   {
     value: "heikinAshi", label: "Heikin Ashi", group: "transform",

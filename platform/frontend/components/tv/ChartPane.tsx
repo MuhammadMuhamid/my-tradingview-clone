@@ -44,6 +44,13 @@ import type { PaneState } from "@/lib/workspace";
 import { drawingsAtReplayHorizon, replayCandles, type ReplaySession } from "@/lib/replay";
 import { anchoredVwapOverlays } from "@/lib/anchoredVwap";
 import { compareOverlays, useCompareSeries } from "@/lib/compare";
+import { alertEventMarkers, placeAlertEvents } from "@/lib/alertMarkers";
+import { patternMarkers, placePatterns } from "@/lib/candleOverlay";
+import type { CandleOverlayState } from "@/lib/useCandleOverlay";
+import type { MaAlert, MaAlertEvent } from "@/lib/api";
+
+/** Stable empty list, so a pane with no fired alerts does not re-render. */
+const NO_FIRED: ChartMarker[] = [];
 import { CompareControl } from "@/components/tv/CompareControl";
 import type { PaneCompare } from "@/lib/workspace";
 import { pricePrecision } from "@/lib/movingAverages";
@@ -125,6 +132,19 @@ export interface ChartPaneProps {
   drawingStyleFocusSignal?: number;
   /** This pane's comparison changed. Never synced to other panes. */
   onCompareChange?: (paneId: string, next: PaneCompare | null) => void;
+
+  /**
+   * Alerts the server actually delivered, and the alerts they belong to.
+   *
+   * Placed onto bars HERE rather than by the workspace, because placement
+   * needs this pane's own loaded window: an event outside it would otherwise
+   * be clamped onto an edge bar and claim something happened there.
+   */
+  alertEvents?: readonly MaAlertEvent[];
+  maAlerts?: readonly MaAlert[];
+
+  /** The workspace-wide candlestick-pattern overlay, off by default. */
+  candleOverlay?: CandleOverlayState;
 
   /** Pine run window, which follows the workspace replay horizon. */
   startTime: string;
@@ -382,6 +402,47 @@ function ChartPaneImpl(props: ChartPaneProps) {
   }, [onVisibleRangeChange, onViewportChange, paneId, pane.interval]);
 
   const replayActive = replay !== null;
+
+  /*
+   * Fired-alert marks.
+   *
+   * Only what the runner recorded. Nothing is derived by re-evaluating a
+   * condition against history — that produces marks where an alert WOULD have
+   * fired, which is a different and much weaker claim than "this fired", and
+   * it puts fabricated history on a chart read to decide what happened.
+   *
+   * Off during a Replay: a Replay is a reconstruction, and marking a live
+   * delivery on a simulated bar would say the two are the same kind of thing.
+   */
+  const firedMarkers = useMemo(() => {
+    if (replayActive || !props.alertEvents || !props.maAlerts) return NO_FIRED;
+    return alertEventMarkers(placeAlertEvents(
+      props.alertEvents, props.maAlerts, pane.symbol, pane.interval, visibleCandles));
+  }, [replayActive, props.alertEvents, props.maAlerts, pane.symbol, pane.interval,
+    visibleCandles]);
+
+  /*
+   * Candlestick patterns — the Screener's, not a second opinion.
+   *
+   * This pane contains no pattern logic at all. There must be exactly one
+   * implementation of "is this a hammer" and it already exists in the
+   * Screener; a port here would agree on the day it was written and drift
+   * after, and the failure mode is the worst kind — the Screener says a bar is
+   * a Bullish Engulfing, the chart does not mark it, and the user has to
+   * decide which of their own tools to believe.
+   */
+  const patternMarks = useMemo(() => {
+    if (replayActive || !props.candleOverlay?.enabled) return NO_FIRED;
+    return patternMarkers(placePatterns(
+      props.candleOverlay.snapshot, pane.symbol, pane.interval, visibleCandles, Date.now()));
+  }, [replayActive, props.candleOverlay, pane.symbol, pane.interval, visibleCandles]);
+
+  const paneMarkers = useMemo(
+    () => (firedMarkers.length > 0 || patternMarks.length > 0
+      ? [...props.markers, ...firedMarkers, ...patternMarks]
+      : props.markers),
+    [props.markers, firedMarkers, patternMarks]);
+
   const showIntervals = density === "large" || density === "medium";
   const showReadout = density !== "tiny";
 
@@ -586,7 +647,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             overlays={overlays}
             decorations={decorations}
             barColors={indicators.barColors}
-            markers={markers}
+            markers={paneMarkers}
             pineDrawings={indicators.drawings}
             priceLines={props.priceLines}
             live={!replayActive}

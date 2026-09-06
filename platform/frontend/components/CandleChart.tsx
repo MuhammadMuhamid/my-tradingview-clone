@@ -229,7 +229,8 @@ function customCandleDatum(point: ChartPoint): CandlestickData<Time> | Whitespac
  * them is the bars they are handed, not the series that receives them.
  */
 type MainSeriesApi =
-  | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line"> | ISeriesApi<"Area">;
+  | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
+  | ISeriesApi<"Area"> | ISeriesApi<"Baseline">;
 
 function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[]): void {
   const data = rows as unknown;
@@ -237,6 +238,7 @@ function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeries
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).setData(data as CandlestickData<Time>[]);
   else if (kind === "bars") (api as ISeriesApi<"Bar">).setData(data as BarData<Time>[]);
   else if (kind === "area") (api as ISeriesApi<"Area">).setData(data as AreaData<Time>[]);
+  else if (kind === "baseline") (api as ISeriesApi<"Baseline">).setData(data as LineData<Time>[]);
   else (api as ISeriesApi<"Line">).setData(data as LineData<Time>[]);
 }
 
@@ -246,17 +248,49 @@ function updateMainSeries(api: MainSeriesApi, type: ChartType, row: MainSeriesDa
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).update(datum as CandlestickData<Time>);
   else if (kind === "bars") (api as ISeriesApi<"Bar">).update(datum as BarData<Time>);
   else if (kind === "area") (api as ISeriesApi<"Area">).update(datum as AreaData<Time>);
+  else if (kind === "baseline") (api as ISeriesApi<"Baseline">).update(datum as LineData<Time>);
   else (api as ISeriesApi<"Line">).update(datum as LineData<Time>);
 }
 
 /** Create the main series for a presentation, in the shared price palette. */
-function addMainSeries(chart: IChartApi, type: ChartType): MainSeriesApi {
+function addMainSeries(
+  chart: IChartApi, type: ChartType, baselineValue = 0
+): MainSeriesApi {
   const kind: ChartRenderKind = renderKind(type);
   if (kind === "candles") {
+    /*
+     * Hollow candles are the same series with a transparent up body.
+     *
+     * The border and the wick stay in the direction's own colour, so an up bar
+     * still reads as up: the body being empty is the whole distinction, and
+     * making the outline neutral would remove it.
+     */
+    const hollow = type === "hollowCandles";
     return chart.addCandlestickSeries({
-      upColor: CHART_UP, downColor: CHART_DOWN,
+      upColor: hollow ? "rgba(0,0,0,0)" : CHART_UP,
+      downColor: CHART_DOWN,
       borderUpColor: CHART_UP, borderDownColor: CHART_DOWN,
       wickUpColor: CHART_UP, wickDownColor: CHART_DOWN,
+    });
+  }
+  if (kind === "baseline") {
+    /*
+     * Filled above and below one reference price, in two colours.
+     *
+     * The reference is the first close in view, passed in rather than fixed,
+     * so the chart reads as "up or down since the start of what I am looking
+     * at" rather than as a second invisible input the user has to set.
+     */
+    return chart.addBaselineSeries({
+      baseValue: { type: "price", price: baselineValue },
+      topLineColor: CHART_UP,
+      topFillColor1: "rgba(46,189,133,0.28)",
+      topFillColor2: "rgba(46,189,133,0.02)",
+      bottomLineColor: CHART_DOWN,
+      bottomFillColor1: "rgba(246,70,93,0.02)",
+      bottomFillColor2: "rgba(246,70,93,0.28)",
+      lineWidth: 2,
+      priceLineVisible: false,
     });
   }
   if (kind === "bars") {
@@ -269,7 +303,12 @@ function addMainSeries(chart: IChartApi, type: ChartType): MainSeriesApi {
       priceLineVisible: false,
     });
   }
-  return chart.addLineSeries({ color: CHART_ACCENT, lineWidth: 2, priceLineVisible: false });
+  return chart.addLineSeries({
+    color: CHART_ACCENT, lineWidth: 2, priceLineVisible: false,
+    // A step holds each close until the next one, which is what a close IS —
+    // the price at one instant, not a path between two of them.
+    lineType: type === "stepLine" ? LineType.WithSteps : LineType.Simple,
+  });
 }
 
 /**
@@ -605,6 +644,10 @@ export function CandleChart({
     setOwnPriceScale(next);
     onPriceScaleChange?.(next);
   }, [onPriceScaleChange]);
+  /** First close in view, for the baseline presentation. See `addMainSeries`. */
+  const baselineRef = useRef(0);
+  baselineRef.current = candles[0]?.close ?? baselineRef.current;
+
   const scaleRef = useRef(scale);
   scaleRef.current = scale;
   const applyScaleRef = useRef(applyScale);
@@ -953,7 +996,15 @@ export function CandleChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const series = addMainSeries(chart, chartType);
+    /*
+     * The baseline's reference: the first close the chart currently holds.
+     *
+     * Read from a ref rather than a dependency so a new candle does not
+     * recreate the series — the reference is meant to be the start of what the
+     * user is looking at, and re-anchoring it on every tick would make the
+     * whole chart change colour as bars arrive.
+     */
+    const series = addMainSeries(chart, chartType, baselineRef.current);
     seriesRef.current = series;
     mainKindRef.current = chartType;
     mainSeriesDirtyRef.current = true;
