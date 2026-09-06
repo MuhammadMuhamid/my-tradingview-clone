@@ -55,8 +55,8 @@ export const movingAverageStudy: NativeStudyDef = {
   plots: [{ id: "ma", title: "MA", style: "line", color: ACCENT, width: 2 }],
   precision: null,
   warmup: (p) => num(p, "length", 50) * 20,
-  compute: ({ candles, params }: NativeComputeInput): NativeComputeOutput => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }: NativeComputeInput): NativeComputeOutput => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const { volume } = ohlcv(candles);
     const type = str(params, "maType", "EMA") as GenericMaType;
     return { plots: { ma: genericMa(type, src, num(params, "length", 50), volume) } };
@@ -81,9 +81,9 @@ export const rsiStudy: NativeStudyDef = {
   ],
   precision: 2,
   warmup: (p) => num(p, "length", 14) * 20,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
-      rsi: rsi(resolveSource(candles, str(params, "source", "close")), num(params, "length", 14)),
+      rsi: rsi(resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 14)),
     },
   }),
 };
@@ -111,8 +111,8 @@ export const macdStudy: NativeStudyDef = {
   levels: [{ id: "zero", title: "0", value: 0, color: MUTED, dashed: true }],
   precision: null,
   warmup: (p) => (num(p, "slow", 26) + num(p, "signal", 9)) * 20,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const m = macdOf(src, num(params, "fast", 12), num(params, "slow", 26), num(params, "signal", 9));
     /*
      * The histogram is coloured by its own direction as well as its sign —
@@ -161,8 +161,8 @@ export const bollingerStudy: NativeStudyDef = {
   // band was wrong by a displayable amount at the left of the viewport and
   // moved when the user zoomed.
   warmup: (p) => num(p, "length", 20) * 20,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const { volume } = ohlcv(candles);
     const b = bollinger(
       src, num(params, "length", 20), num(params, "mult", 2),
@@ -214,8 +214,8 @@ export const vwapStudy: NativeStudyDef = {
   // last reset, so a window would silently restart the session.
   unbounded: true,
   warmup: () => 0,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "hlc3"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "hlc3"), sources);
     const { volume } = ohlcv(candles);
     const DAY = 86_400_000;
     const starts = candles.map((c, i) => {
@@ -336,8 +336,8 @@ export const stochasticRsiStudy: NativeStudyDef = {
   ],
   precision: 2,
   warmup: (p) => (num(p, "rsiLength", 14) + num(p, "stochLength", 14)) * 20,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const s = stochasticRsi(
       src, num(params, "rsiLength", 14), num(params, "stochLength", 14),
       num(params, "kSmooth", 3), num(params, "dSmooth", 3));

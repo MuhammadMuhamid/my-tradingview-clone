@@ -52,8 +52,30 @@ export const bool = (params: NativeParams, key: string, fallback: boolean): bool
 
 // ── candles into arrays ─────────────────────────────────────────────────────
 
-/** Resolve a named price source against the bars. One place, every study. */
-export function resolveSource(candles: readonly Candle[], source: string): number[] {
+/**
+ * Resolve a named source against the bars. One place, every study.
+ *
+ * A source is a price by default and another STUDY'S output when the name says
+ * so — `study:<instance>:<plot>`, which is how a moving average of an RSI is
+ * expressed. `lib/native/graph` decides which of those a study is allowed to
+ * name, computes them in dependency order, and hands the resulting arrays in
+ * as `sources`, aligned bar-for-bar with these candles.
+ *
+ * A study source that is not in `sources` yields `NaN` for every bar rather
+ * than falling back to `close`. That is the whole point of the fallback being
+ * absent: an average whose source was deleted, or was refused because it would
+ * have closed a cycle, must draw nothing and say so. Quietly becoming an
+ * average of price would be a different indicator wearing the same name and
+ * the same settings.
+ */
+export function resolveSource(
+  candles: readonly Candle[], source: string,
+  sources?: Readonly<Record<string, readonly number[]>>
+): number[] {
+  if (source.startsWith("study:")) {
+    const series = sources?.[source];
+    return series ? series.slice() : candles.map(() => Number.NaN);
+  }
   const open = candles.map((c) => c.open);
   const high = candles.map((c) => c.high);
   const low = candles.map((c) => c.low);

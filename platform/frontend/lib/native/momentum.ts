@@ -39,9 +39,9 @@ export const cciStudy: NativeStudyDef = {
   ],
   precision: 2,
   warmup: (p) => num(p, "length", 20) * 3,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
-      cci: cci(resolveSource(candles, str(params, "source", "hlc3")), num(params, "length", 20)),
+      cci: cci(resolveSource(candles, str(params, "source", "hlc3"), sources), num(params, "length", 20)),
     },
   }),
 };
@@ -79,9 +79,9 @@ export const rocStudy: NativeStudyDef = {
   levels: [zeroLevel],
   precision: 2,
   warmup: (p) => num(p, "length", 9) * 3,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
-      roc: roc(resolveSource(candles, str(params, "source", "close")), num(params, "length", 9)),
+      roc: roc(resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 9)),
     },
   }),
 };
@@ -99,10 +99,10 @@ export const momentumStudy: NativeStudyDef = {
   // Price units, so the instrument's own precision rather than a fixed one.
   precision: null,
   warmup: (p) => num(p, "length", 10) * 3,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       mom: momentum(
-        resolveSource(candles, str(params, "source", "close")), num(params, "length", 10)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 10)),
     },
   }),
 };
@@ -126,8 +126,8 @@ export const trixStudy: NativeStudyDef = {
   levels: [zeroLevel],
   precision: 4,
   warmup: (p) => num(p, "length", 18) * 40,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const line = trix(src, num(params, "length", 18));
     // The signal is smoothed from TRIX including its leading NaNs, so it
     // appears at the bar the indicator would show it rather than earlier.
@@ -156,9 +156,9 @@ export const ppoStudy: NativeStudyDef = {
   levels: [zeroLevel],
   precision: 4,
   warmup: (p) => (num(p, "slow", 26) + num(p, "signal", 9)) * 20,
-  compute: ({ candles, params }) => {
+  compute: ({ candles, params, sources }) => {
     const o = ppo(
-      resolveSource(candles, str(params, "source", "close")),
+      resolveSource(candles, str(params, "source", "close"), sources),
       num(params, "fast", 12), num(params, "slow", 26), num(params, "signal", 9));
     return { plots: { ppo: o.line, signal: o.signal, hist: o.histogram } };
   },
@@ -184,9 +184,9 @@ export const tsiStudy: NativeStudyDef = {
   levels: [zeroLevel],
   precision: 2,
   warmup: (p) => (num(p, "long", 25) + num(p, "short", 13)) * 20,
-  compute: ({ candles, params }) => {
+  compute: ({ candles, params, sources }) => {
     const o = tsi(
-      resolveSource(candles, str(params, "source", "close")),
+      resolveSource(candles, str(params, "source", "close"), sources),
       num(params, "long", 25), num(params, "short", 13), num(params, "signal", 13));
     return { plots: { tsi: o.line, signal: o.signal } };
   },
@@ -296,10 +296,10 @@ export const cmoStudy: NativeStudyDef = {
   ],
   precision: 2,
   warmup: (p) => num(p, "length", 9) * 3,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       cmo: chandeMomentum(
-        resolveSource(candles, str(params, "source", "close")), num(params, "length", 9)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 9)),
     },
   }),
 };
@@ -328,10 +328,10 @@ export const dpoStudy: NativeStudyDef = {
   levels: [zeroLevel],
   precision: null,
   warmup: (p) => num(p, "length", 21) * 3,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       dpo: detrendedPriceOscillator(
-        resolveSource(candles, str(params, "source", "close")), num(params, "length", 21)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 21)),
     },
   }),
 };
@@ -353,10 +353,10 @@ export const coppockStudy: NativeStudyDef = {
   levels: [zeroLevel],
   precision: 2,
   warmup: (p) => (num(p, "longRoc", 14) + num(p, "wmaLength", 10)) * 3,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       coppock: coppock(
-        resolveSource(candles, str(params, "source", "close")),
+        resolveSource(candles, str(params, "source", "close"), sources),
         num(params, "longRoc", 14), num(params, "shortRoc", 11), num(params, "wmaLength", 10)),
     },
   }),

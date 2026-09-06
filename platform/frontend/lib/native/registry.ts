@@ -37,10 +37,17 @@
  *
  * ── Deliberately not general ───────────────────────────────────────────────
  *
- * There is no expression language, no dependency graph between studies, no
- * plugin loading and no user-defined native study. Pine already occupies that
- * space and does it better. This registry describes exactly the curated
- * catalog, and its generality stops there.
+ * There is no expression language, no plugin loading and no user-defined
+ * native study. Pine already occupies that space and does it better. This
+ * registry describes exactly the curated catalog, and its generality stops
+ * there.
+ *
+ * There IS now a dependency graph, because one thing genuinely needed it: a
+ * study's `source` may name another study's output, which is how a moving
+ * average of an RSI is expressed. It is deliberately the smallest graph that
+ * works — one edge kind, a depth limit, no expressions — and it lives in
+ * `lib/native/graph` rather than here, so a definition still knows nothing
+ * about any other definition.
  */
 import type { ChartOverlay, ChartProfileDecoration } from "@/lib/chartSeries";
 import type { Candle } from "@/lib/types";
@@ -113,6 +120,19 @@ export const PRICE_SOURCE_LABELS: Record<PriceSource, string> = {
 
 export type NativeParams = Record<string, NativeInputValue>;
 
+/**
+ * The shape of a study source, checked without knowing which studies exist.
+ *
+ * Duplicated from `lib/native/graph` deliberately: the graph imports this
+ * module for its types, so this module cannot import the graph. One regular
+ * expression is a smaller price than a cycle between them, and
+ * `tests/indicatorGraph.test.ts` asserts the two agree.
+ */
+const STUDY_SOURCE_SHAPE = /^study:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64}$/;
+
+export const isStudySourceToken = (value: unknown): boolean =>
+  typeof value === "string" && STUDY_SOURCE_SHAPE.test(value);
+
 // ── Outputs ─────────────────────────────────────────────────────────────────
 
 export type PlotStyle = "line" | "histogram" | "columns" | "area" | "stepline" | "circles";
@@ -136,6 +156,16 @@ export interface PlotDef {
    * disagree with the bars they came from.
    */
   offset?: number;
+  /**
+   * This plot is not a sensible input to another study.
+   *
+   * For an output that is a STATE rather than a level — a direction flag, a
+   * count, an index into something — where an average or an RSI of it would
+   * compute cleanly and mean nothing. Displaced plots and the outputs of
+   * viewport-dependent studies are excluded by rule instead; see
+   * `plotIsSourceable` in `lib/native/graph`.
+   */
+  notASource?: boolean;
 }
 
 /** A horizontal reference line the study draws in its own pane. */
@@ -381,8 +411,19 @@ function coerceInput(input: NativeInput, value: NativeInputValue | undefined): N
     case "boolean":
       return typeof value === "boolean" ? value : input.defval;
     case "source":
-      return (PRICE_SOURCES as readonly string[]).includes(String(value))
-        ? (value as string) : input.defval;
+      /*
+       * A source is a price name, or another study's output.
+       *
+       * The token's SHAPE is all that can be checked here: whether the study
+       * it names still exists, and whether reading it would close a cycle, are
+       * facts about the whole pane, and this function has one input. The graph
+       * decides that — see `lib/native/graph` — and a token that survives
+       * coercion but fails there draws nothing and says why. Rejecting it here
+       * instead would silently rewrite a stored chain to `close` on load, which
+       * is the one outcome a user could not tell from working.
+       */
+      if ((PRICE_SOURCES as readonly string[]).includes(String(value))) return value as string;
+      return isStudySourceToken(value) ? (value as string) : input.defval;
   }
 }
 

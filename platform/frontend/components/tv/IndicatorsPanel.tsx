@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type PineScript } from "@/lib/api";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi, NativeStudyRow } from "@/lib/useNativeStudies";
+import { sourceIssueMessage } from "@/lib/native/graph";
 import type { AppliedIndicator } from "@/lib/indicators";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import { studyMenu } from "@/lib/menuPayloads";
@@ -363,12 +364,27 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
               stroke="currentColor" strokeWidth="1.2" />
           </svg>
         </button>
-        <button onClick={onEdit} className="min-w-0 flex-1 truncate text-left text-xs text-ink">
+        <button
+          onClick={onEdit}
+          className="min-w-0 flex-1 truncate text-left text-xs text-ink"
+          /*
+           * A study that cannot compute says so in the row and explains why on
+           * hover. "not enough history" would be the wrong answer for all
+           * three cases — more bars will never fix a deleted source, a cycle
+           * or a chain past its depth limit.
+           */
+          title={row.sourceIssue ? sourceIssueMessage(row.sourceIssue) : undefined}
+        >
           {row.name}
-          <span className="ml-1 text-[10px] text-ink-faint">
-            {row.insufficient
-              ? "not enough history"
-              : `${plotCount} plot${plotCount === 1 ? "" : "s"}`}
+          <span className={`ml-1 text-[10px] ${
+            row.sourceIssue ? "text-warn" : "text-ink-faint"
+          }`}>
+            {row.sourceIssue === "missing" ? "source removed"
+              : row.sourceIssue === "cycle" ? "circular source"
+                : row.sourceIssue === "depth" ? "chained too deep"
+                  : row.insufficient
+                    ? "not enough history"
+                    : `${plotCount} plot${plotCount === 1 ? "" : "s"}`}
           </span>
         </button>
         <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">

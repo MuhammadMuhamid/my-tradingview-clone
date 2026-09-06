@@ -69,6 +69,16 @@ export interface NativeStudyOutput {
   values: Record<string, number | null>;
   /** Set when the window holds fewer bars than the study's warmup needs. */
   insufficient: boolean;
+  /**
+   * The raw plot arrays, kept only for a study something else reads.
+   *
+   * A dependent needs its source's numbers, not its overlays — and it needs
+   * them from the CACHE as well as from a fresh computation, or a chart where
+   * nothing changed would recompute the whole chain on every render. Absent
+   * for the overwhelming majority of studies, which nothing reads, so no chart
+   * pays to retain arrays it will never look at.
+   */
+  series?: Record<string, readonly number[]>;
 }
 
 const EMPTY: NativeStudyOutput = {
@@ -153,6 +163,10 @@ export function runNativeStudy(
   extra: {
     visibleRange?: { fromMs: number; toMs: number };
     sources?: Readonly<Record<string, readonly number[]>>;
+    /** Human-readable names for study sources, for the legend. */
+    sourceLabels?: Readonly<Record<string, string>>;
+    /** Keep the plot arrays, because another study reads this one. */
+    captureSeries?: boolean;
   } = {}
 ): NativeStudyOutput {
   if (candles.length === 0) return EMPTY;
@@ -174,7 +188,7 @@ export function runNativeStudy(
   const times = candles.map((c) => Math.floor(c.openTime / 1000));
   const stepSeconds = resolutionMs(interval) / 1000;
   const precision = def.precision ?? pricePrecision;
-  const instanceParams = describeParams(def, params);
+  const instanceParams = describeParams(def, params, extra.sourceLabels);
 
   const overlays: ChartOverlay[] = [];
   const values: Record<string, number | null> = {};
@@ -295,6 +309,7 @@ export function runNativeStudy(
      * report that it could not speak while drawing a correct line from bar 14.
      */
     insufficient: Object.values(values).every((v) => v === null),
+    ...(extra.captureSeries ? { series: result.plots } : {}),
   };
 }
 
@@ -349,12 +364,22 @@ function lastFinite(series: readonly number[]): number | null {
  * differ from nothing, so "RSI · Length 14" and "RSI · Length 7" are told
  * apart without an internal key being shown to the user.
  */
-export function describeParams(def: NativeStudyDef, params: NativeParams): string {
+export function describeParams(
+  def: NativeStudyDef, params: NativeParams,
+  sourceLabels?: Readonly<Record<string, string>>
+): string {
   return def.inputs
     .map((input) => [input.title, params[input.key]] as const)
     .filter(([, value]) => value !== undefined && value !== "" && typeof value !== "boolean")
     .slice(0, 3)
-    .map(([title, value]) => `${title} ${String(value)}`)
+    /*
+     * A study source reads as what it IS, never as its token.
+     *
+     * "MA · Length 9 · Source study:nat_k91x:rsi" is an implementation detail
+     * on screen, and one that looks like a bug even to someone who knows what
+     * it means. "MA · Length 9 · Source RSI · RSI" says the same thing.
+     */
+    .map(([title, value]) => `${title} ${sourceLabels?.[String(value)] ?? String(value)}`)
     .join(" · ");
 }
 

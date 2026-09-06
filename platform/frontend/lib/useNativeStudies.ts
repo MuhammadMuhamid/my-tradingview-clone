@@ -51,6 +51,10 @@ export {
 import {
   PRIMARY_SCOPE, loadStoredNative, newStudyKey, saveStoredNative,
 } from "./native/storage";
+import {
+  buildStudyGraph, sourceLabels, sourceOptionsFor, studySourceToken,
+  type SourceIssue, type SourceOption,
+} from "./native/graph";
 import { pushPaneStudies, syncPaneStudies } from "./chartStateSync";
 import type { ChartDecoration, ChartOverlay } from "./chartSeries";
 import type { Candle } from "./types";
@@ -66,6 +70,8 @@ export interface NativeStudyRow {
   values: Record<string, number | null>;
   /** The window holds fewer bars than the study needs to say anything. */
   insufficient: boolean;
+  /** Set when this study reads another and that reading cannot be honoured. */
+  sourceIssue: SourceIssue | null;
 }
 
 export interface NativeStudiesApi {
@@ -81,6 +87,17 @@ export interface NativeStudiesApi {
   setStyle: (key: string, plotId: string, style: PlotStyleOverride) => void;
   resetParams: (key: string) => void;
   move: (key: string, direction: -1 | 1) => void;
+  /**
+   * Every source one study may legally be given, right now.
+   *
+   * A function of the pane rather than of the study, because whether reading
+   * an RSI would close a cycle depends on what else is applied. The settings
+   * dialog asks at the moment it opens the dropdown, so an option cannot be
+   * offered and then refused.
+   */
+  sourceOptions: (key: string) => SourceOption[];
+  /** Why a study cannot compute, keyed by instance. Empty on an ordinary pane. */
+  issues: ReadonlyMap<string, SourceIssue>;
 }
 
 export interface NativeStudiesContext {
@@ -210,42 +227,129 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
    * this memo cannot: a re-render where only ONE study changed, so the other
    * eleven are returned without recomputation.
    */
+  /**
+   * The dependency graph of this pane's studies.
+   *
+   * Rebuilt whenever the list changes, which is cheap — it is a walk over at
+   * most a few dozen instances — and it is what every other decision below
+   * reads: compute order, which studies share a window, which cannot compute
+   * at all, and what the settings dialog may offer as a source.
+   */
+  const graph = useMemo(
+    () => buildStudyGraph(
+      list, studyById,
+      (study, def) => def.warmup(normalizeParams(def, study.params))),
+    [list]);
+
+  /*
+   * Every visible study's output, in dependency order.
+   *
+   * ── Why the order and the windows are not per study ───────────────────────
+   *
+   * A study that reads another reads it BAR FOR BAR, so both must have been
+   * computed over exactly the same bars — and the dependent needs more lead-in
+   * than either alone, because its source has to have converged before its own
+   * recursion starts. So a connected group is evaluated over ONE window, sized
+   * by the deepest chain in it, in topological order, and each result's plot
+   * arrays are handed to whatever reads them.
+   *
+   * A study with no chain — which is nearly all of them — is a group of one,
+   * gets exactly the window it always got, and keeps exactly the memo key it
+   * always had.
+   *
+   * ── What is still not computed ───────────────────────────────────────────
+   *
+   * A hidden study, UNLESS something reads it. Hiding an RSI that a moving
+   * average is taken from is a statement about the RSI's line, not a request
+   * to break the average — so it is computed and its overlays are dropped,
+   * which is the one case where computing something invisible is right.
+   */
   const outputs = useMemo(() => {
     const out = new Map<string, NativeStudyOutput>();
-    for (const study of list) {
+    const byKey = new Map(list.map((study) => [study.key, study]));
+    const labels = sourceLabels(list, studyById);
+    const readBy = new Set<string>();
+    for (const edges of graph.edges.values()) {
+      for (const edge of edges) readBy.add(edge.key);
+    }
+    const windows = graph.componentWarmup.map((warmup, index) => computeWindow(
+      ctx.candles, warmup, viewport, graph.componentUnbounded[index] === true));
+
+    /** Resolved plot arrays, keyed by the token a dependent names them with. */
+    const series: Record<string, readonly number[]> = {};
+    /** Each study's full signature, so a dependent's key follows its source's. */
+    const signatures = new Map<string, string>();
+
+    for (const key of graph.order) {
+      const study = byKey.get(key);
+      if (!study) continue;
       const def = studyById(study.defId);
       if (!def) continue;
-      // A hidden study is not computed at all. It used to be computed and then
-      // filtered out, which is the opposite of what the windowing exists for.
-      if (!study.visible) { out.set(study.key, HIDDEN_OUTPUT); continue; }
-      const signature = studySignature(study, def, precision, viewport, ctx.visibleRange);
+      const index = graph.component.get(key) ?? 0;
+      const edges = graph.edges.get(key) ?? [];
+
+      /*
+       * The group's shared window and this study's own sources are both part
+       * of what produced the result, so both are part of its key. For a lone
+       * study neither exists and the key is byte-identical to what it was
+       * before any of this: an ordinary chart's cache behaviour is unchanged.
+       */
+      const grouped = (graph.componentSize[index] ?? 1) > 1;
+      const sourceSignature = grouped
+        ? `w${graph.componentWarmup[index]}:${
+          edges.map((edge) => `${edge.token}=${signatures.get(edge.key) ?? "?"}`).join("+")}`
+        : undefined;
+      const signature = studySignature(
+        study, def, precision, viewport, ctx.visibleRange, sourceSignature);
+      signatures.set(key, signature);
+
+      const issue = graph.issues.get(key);
+      const needed = study.visible || readBy.has(key);
+      if (issue || !needed) {
+        out.set(key, HIDDEN_OUTPUT);
+        continue;
+      }
+
       const cached = cache.current.get(study, ctx.candles, signature);
-      if (cached) { out.set(study.key, cached); continue; }
-      const window = computeWindow(
-        ctx.candles, def.warmup(normalizeParams(def, study.params)),
-        viewport, def.unbounded === true);
-      const result = runNativeStudy(
-        def, study, window, ctx.interval, precision,
-        { visibleRange: ctx.visibleRange });
-      cache.current.set(study, ctx.candles, signature, result);
-      out.set(study.key, result);
+      const result = cached ?? runNativeStudy(
+        def, study, windows[index] ?? ctx.candles, ctx.interval, precision,
+        {
+          visibleRange: ctx.visibleRange,
+          sources: series,
+          sourceLabels: labels,
+          captureSeries: readBy.has(key),
+        });
+      if (!cached) cache.current.set(study, ctx.candles, signature, result);
+      out.set(key, result);
+      if (result.series) {
+        for (const [plotId, values] of Object.entries(result.series)) {
+          series[studySourceToken(key, plotId)] = values;
+        }
+      }
     }
     return out;
-  }, [list, ctx.candles, ctx.interval, precision, viewport, ctx.visibleRange]);
+  }, [list, graph, ctx.candles, ctx.interval, precision, viewport, ctx.visibleRange]);
 
   const rows = useMemo<NativeStudyRow[]>(() => list.flatMap((study) => {
     const def = studyById(study.defId);
     if (!def) return [];
     const output = outputs.get(study.key);
+    const issue = graph.issues.get(study.key) ?? null;
     return [{
       study,
       name: def.name,
       category: def.category,
       overlay: def.overlay,
       values: output?.values ?? {},
-      insufficient: output?.insufficient ?? false,
+      /*
+       * A study that cannot compute is not a study without enough history.
+       * Saying "not enough bars" about an average whose source was deleted
+       * sends the reader to load more history, which will never help.
+       */
+      insufficient: issue === null && (output?.insufficient ?? false),
+      sourceIssue: issue,
     }];
-  }), [list, outputs]);
+  }), [list, outputs, graph]);
 
   const overlays = useMemo<ChartOverlay[]>(
     () => list.filter((s) => s.visible).flatMap((s) => outputs.get(s.key)?.overlays ?? []),
@@ -318,9 +422,23 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
     });
   }, []);
 
+  /*
+   * Read through a ref so the callback identity is stable.
+   *
+   * The dialog holds it across renders; rebuilding it whenever the list
+   * changed would remount the dropdown mid-choice, and the answer must be the
+   * CURRENT list rather than the one at the last render regardless.
+   */
+  const listRef = useRef(list);
+  listRef.current = list;
+  const sourceOptions = useCallback(
+    (key: string) => sourceOptionsFor(listRef.current, studyById, key), []);
+
   return useMemo(() => ({
     list, rows, overlays, decorations,
     add, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
+    sourceOptions, issues: graph.issues,
   }), [list, rows, overlays, decorations,
-    add, remove, clear, toggleVisible, setParam, setStyle, resetParams, move]);
+    add, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
+    sourceOptions, graph.issues]);
 }

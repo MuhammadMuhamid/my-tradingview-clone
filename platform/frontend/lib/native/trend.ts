@@ -46,10 +46,10 @@ export const kamaStudy: NativeStudyDef = {
   // somewhere else and stay there.
   unbounded: true,
   warmup: (p) => num(p, "length", 10) * 5,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       kama: kama(
-        resolveSource(candles, str(params, "source", "close")),
+        resolveSource(candles, str(params, "source", "close"), sources),
         num(params, "length", 10), num(params, "fast", 2), num(params, "slow", 30)),
     },
   }),
@@ -67,10 +67,10 @@ export const mcginleyStudy: NativeStudyDef = {
   precision: null,
   unbounded: true,
   warmup: (p) => num(p, "length", 14) * 5,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       md: mcginley(
-        resolveSource(candles, str(params, "source", "close")), num(params, "length", 14)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 14)),
     },
   }),
 };
@@ -218,8 +218,8 @@ export const linregCurveStudy: NativeStudyDef = {
   plots: [{ id: "curve", title: "Regression", style: "line", color: VIOLET, width: 2 }],
   precision: null,
   warmup: (p) => num(p, "length", 100) * 2,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const len = num(params, "length", 100);
     // `linreg(src, len, 0)` is the fit's value at the newest bar of each
     // window — which is exactly what a regression CURVE is.
@@ -266,8 +266,8 @@ export const linregChannelStudy: NativeStudyDef = {
   fills: [{ id: "band", firstPlotId: "upper", secondPlotId: "lower", color: "rgba(155,124,245,0.07)" }],
   precision: null,
   warmup: (p) => num(p, "length", 100) * 2,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const len = Math.max(2, num(params, "length", 100));
     const mult = num(params, "mult", 2);
     const n = src.length;
@@ -327,8 +327,8 @@ export const envelopesStudy: NativeStudyDef = {
   ],
   precision: null,
   warmup: (p) => num(p, "length", 20) * 20,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const { volume } = ohlcv(candles);
     const e = envelopes(
       src, num(params, "length", 20), num(params, "percent", 2),

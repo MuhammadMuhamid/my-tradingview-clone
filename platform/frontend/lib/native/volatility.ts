@@ -54,10 +54,10 @@ export const bbPercentBStudy: NativeStudyDef = {
   ],
   precision: 4,
   warmup: (p) => num(p, "length", 20) * 4,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       b: bollingerPercentB(
-        resolveSource(candles, str(params, "source", "close")),
+        resolveSource(candles, str(params, "source", "close"), sources),
         num(params, "length", 20), num(params, "mult", 2)),
     },
   }),
@@ -78,10 +78,10 @@ export const bbWidthStudy: NativeStudyDef = {
   plots: [{ id: "w", title: "Width", style: "line", color: VIOLET, width: 2 }],
   precision: 4,
   warmup: (p) => num(p, "length", 20) * 4,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       w: bollingerBandWidth(
-        resolveSource(candles, str(params, "source", "close")),
+        resolveSource(candles, str(params, "source", "close"), sources),
         num(params, "length", 20), num(params, "mult", 2)),
     },
   }),
@@ -354,8 +354,8 @@ export const stdevStudy: NativeStudyDef = {
   plots: [{ id: "value", title: "Std dev", style: "line", color: VIOLET, width: 2 }],
   precision: null,
   warmup: (p) => num(p, "length", 20) * 2,
-  compute: ({ candles, params }) => {
-    const src = resolveSource(candles, str(params, "source", "close"));
+  compute: ({ candles, params, sources }) => {
+    const src = resolveSource(candles, str(params, "source", "close"), sources);
     const len = num(params, "length", 20);
     return {
       plots: {
@@ -382,9 +382,9 @@ export const zScoreStudy: NativeStudyDef = {
   ],
   precision: 4,
   warmup: (p) => num(p, "length", 20) * 2,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
-      z: zscore(resolveSource(candles, str(params, "source", "close")), num(params, "length", 20)),
+      z: zscore(resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 20)),
     },
   }),
 };
@@ -405,10 +405,10 @@ export const percentileStudy: NativeStudyDef = {
   ],
   precision: 2,
   warmup: (p) => num(p, "length", 100) * 2,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       pr: percentileRank(
-        resolveSource(candles, str(params, "source", "close")), num(params, "length", 100)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 100)),
     },
   }),
 };
@@ -425,10 +425,10 @@ export const slopeStudy: NativeStudyDef = {
   levels: [zeroLevel],
   precision: null,
   warmup: (p) => num(p, "length", 100) * 2,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       slope: linregSlope(
-        resolveSource(candles, str(params, "source", "close")), num(params, "length", 100)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 100)),
     },
   }),
 };
@@ -455,10 +455,10 @@ export const rSquaredStudy: NativeStudyDef = {
   ],
   precision: 4,
   warmup: (p) => num(p, "length", 100) * 2,
-  compute: ({ candles, params }) => ({
+  compute: ({ candles, params, sources }) => ({
     plots: {
       r2: rSquared(
-        resolveSource(candles, str(params, "source", "close")), num(params, "length", 100)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 100)),
     },
   }),
 };

@@ -1866,6 +1866,7 @@ export default function TvWorkspace() {
         onParam={(key, param, value) => activeNativeStudies?.setParam(key, param, value)}
         onStyle={(key, plotId, style) => activeNativeStudies?.setStyle(key, plotId, style)}
         onReset={(key) => activeNativeStudies?.resetParams(key)}
+        sourceOptions={(key) => activeNativeStudies?.sourceOptions(key) ?? []}
       />
 
       <ChartDialogs

@@ -28,6 +28,7 @@ import {
   type NativeInput, type NativeInputValue, type PlotDef,
 } from "@/lib/native/registry";
 import type { AppliedNativeStudy, PlotStyleOverride } from "@/lib/native/compute";
+import type { SourceOption } from "@/lib/native/graph";
 import { PALETTE } from "@/lib/drawings";
 
 const FIELD =
@@ -52,6 +53,16 @@ export interface NativeStudySettingsProps {
   onReset: (key: string) => void;
   /** Current value per plot id, so the dialog shows what it is changing. */
   values?: Record<string, number | null>;
+  /**
+   * Every source this study may legally be given, asked for at the moment the
+   * dialog opens.
+   *
+   * A function of the whole pane rather than of this study, because whether
+   * reading another study would close a cycle depends on what else is applied.
+   * Omitted — the strategy tester's chart, a preview — the dropdown offers the
+   * prices, which is what it always offered.
+   */
+  sourceOptions?: (key: string) => SourceOption[];
 }
 
 export function NativeStudySettings(props: NativeStudySettingsProps) {
@@ -64,6 +75,19 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
     () => (def && study ? normalizeParams(def, study.params) : {}), [def, study]);
 
   if (!study || !def) return null;
+
+  /*
+   * Asked for once per open dialog rather than memoised across the pane.
+   *
+   * The legal set changes when any study is added, removed or repointed, and a
+   * dropdown that offered a stale option would let the user pick something the
+   * graph then refuses — which is the exact failure the filtering exists to
+   * prevent.
+   */
+  const offered = props.sourceOptions?.(study.key);
+  // An empty answer is "this surface has no pane to ask", not "no sources
+  // exist" — a dropdown with nothing in it would be worse than the prices.
+  const sources = offered && offered.length > 0 ? offered : undefined;
 
   const isDefault = JSON.stringify(params) === JSON.stringify(defaultParams(def))
     && Object.keys(study.styles).length === 0;
@@ -95,6 +119,7 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
               key={input.key}
               input={input}
               value={params[input.key]!}
+              sources={input.kind === "source" ? sources : undefined}
               onChange={(value) => props.onParam(study.key, input.key, value)}
             />
           ))}
@@ -146,9 +171,11 @@ function Row({ label, hint, children }: {
   );
 }
 
-function InputRow({ input, value, onChange }: {
+function InputRow({ input, value, sources, onChange }: {
   input: NativeInput;
   value: NativeInputValue;
+  /** For a source input: everything this study may legally read. */
+  sources?: SourceOption[];
   onChange: (value: NativeInputValue) => void;
 }) {
   /*
@@ -220,21 +247,54 @@ function InputRow({ input, value, onChange }: {
           </select>
         </Row>
       );
-    case "source":
+    case "source": {
+      /*
+       * Two groups, because they are two different kinds of answer: a price
+       * this instrument has, and a line another study on this pane is already
+       * drawing. Grouping them is what makes "Source: RSI · RSI" legible as a
+       * deliberate choice rather than as an oddly-named price.
+       *
+       * A stored source naming a study that has since been removed is still
+       * SHOWN — as itself, at the top — because silently displaying `Close`
+       * over a broken reference is how a user comes to believe an average of
+       * an RSI is an average of price.
+       */
+      const options = sources ?? PRICE_SOURCES.map((source) => ({
+        value: source, label: PRICE_SOURCE_LABELS[source], group: "price" as const,
+      }));
+      const current = String(value);
+      const dangling = !options.some((option) => option.value === current);
+      const studies = options.filter((option) => option.group === "study");
       return (
         <Row label={input.title}>
           <select
             className={FIELD}
-            value={String(value)}
+            value={current}
             aria-label={input.title}
             onChange={(e) => onChange(e.target.value)}
           >
-            {PRICE_SOURCES.map((source) => (
-              <option key={source} value={source}>{PRICE_SOURCE_LABELS[source]}</option>
-            ))}
+            {dangling && (
+              <option value={current}>
+                {current.startsWith("study:")
+                  ? "A study that is no longer applied" : current}
+              </option>
+            )}
+            <optgroup label="Price">
+              {options.filter((option) => option.group === "price").map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </optgroup>
+            {studies.length > 0 && (
+              <optgroup label="Another study on this chart">
+                {studies.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </Row>
       );
+    }
     case "boolean":
       return (
         <Row label={input.title}>
