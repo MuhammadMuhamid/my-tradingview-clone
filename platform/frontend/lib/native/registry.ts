@@ -42,9 +42,10 @@
  * space and does it better. This registry describes exactly the curated
  * catalog, and its generality stops there.
  */
-import type { ChartOverlay } from "@/lib/chartSeries";
+import type { ChartOverlay, ChartProfileDecoration } from "@/lib/chartSeries";
 import type { Candle } from "@/lib/types";
 import type { Resolution } from "@/lib/resolution";
+import type { VolumeProfile } from "@/lib/volumeProfile";
 
 // ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +165,56 @@ export interface NativeComputeInput {
   candles: readonly Candle[];
   params: NativeParams;
   interval: Resolution;
+  /**
+   * Exactly what the user can see, in epoch milliseconds, snapped to the bar
+   * grid — for the few studies whose ANSWER is about the viewport rather than
+   * about the bars.
+   *
+   * The window a study is handed is deliberately coarse: it is rounded to
+   * 200-bar buckets so an ordinary pan does not invalidate every memoised
+   * result sixty times a second. That is right for a moving average, whose
+   * value at a bar does not depend on what else is on screen, and wrong for a
+   * visible-range volume profile, whose whole definition is "these bars".
+   *
+   * The coarse window always CONTAINS the exact range, so a study that
+   * declares `usesVisibleRange` clips to this and gets both: an exact answer
+   * and a cache key that only changes when the visible set of bars does.
+   *
+   * Absent before the chart has reported a range, which means "all the bars
+   * you were given".
+   */
+  visibleRange?: { fromMs: number; toMs: number };
+  /**
+   * Series this study may use as its `source`, keyed by source token.
+   *
+   * Empty for a study whose source is a price. Populated for one whose source
+   * is another study's output — see `lib/native/graph` for how the tokens are
+   * formed, ordered and kept acyclic. Every array here is aligned bar-for-bar
+   * with `candles`.
+   */
+  sources?: Readonly<Record<string, readonly number[]>>;
+}
+
+/**
+ * A volume profile a study produces.
+ *
+ * Not a plot: its rows are intervals of PRICE, so there is no per-bar array
+ * that could describe it. It is translated into a `ChartProfileDecoration` by
+ * `runNativeStudy` and painted by `VolumeProfileLayer`, which is the only
+ * place on this chart that draws against price rather than against time.
+ */
+export interface NativeProfileOutput {
+  /** Stable within the study, so two profiles from one study never collide. */
+  id: string;
+  profile: VolumeProfile;
+  side: "left" | "right";
+  /** Share of the plot width the widest row may take, 0.05–1. */
+  widthRatio: number;
+  split: "total" | "upDown";
+  showValueArea: boolean;
+  showPoc: boolean;
+  showRange: boolean;
+  colors: ChartProfileDecoration["colors"];
 }
 
 export interface NativeComputeOutput {
@@ -177,6 +228,8 @@ export interface NativeComputeOutput {
   colors?: Record<string, (string | null)[]>;
   /** Levels the study draws given its current inputs, if they are not static. */
   levels?: LevelDef[];
+  /** Volume profiles, drawn against price rather than against time. */
+  profiles?: NativeProfileOutput[];
   /**
    * Per-plot displacement in bars, for a study whose offset is an INPUT rather
    * than a constant — Ichimoku's cloud moves with its `displacement` setting.
@@ -239,6 +292,30 @@ export interface NativeStudyDef {
    * next flip, which may be hundreds of bars away.
    */
   unbounded?: boolean;
+
+  /**
+   * The study's answer depends on WHICH BARS ARE ON SCREEN, not only on the
+   * bars themselves.
+   *
+   * Exactly one thing in this catalog is like that — a visible-range volume
+   * profile — and it changes two things: `compute` is given the exact visible
+   * range to clip to, and the memo key follows that range so panning actually
+   * recomputes it. Everything else keeps the coarse 200-bar viewport key,
+   * which is what stops an ordinary drag from recomputing the whole pane on
+   * every frame.
+   */
+  usesVisibleRange?: boolean;
+
+  /**
+   * Whether this study's `source` input may be another study's output.
+   *
+   * Only true for studies whose maths is genuinely a function of ONE series —
+   * a moving average, an RSI, a smoother. A study that reads highs, lows and
+   * volume is not expressible over a single line, and offering it a study
+   * source would produce a plausible-looking number computed from the wrong
+   * arrays. See `lib/native/graph`.
+   */
+  acceptsStudySource?: boolean;
 
   compute: (input: NativeComputeInput) => NativeComputeOutput;
 }

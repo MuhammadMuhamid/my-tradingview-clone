@@ -24,11 +24,13 @@ import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { IndicatorPane, type PaneAction } from "@/components/tv/IndicatorPane";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
+import { VolumeProfileLayer } from "@/components/tv/VolumeProfileLayer";
 import type { PineDrawings } from "@/lib/api";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import {
   groupChartOverlays, planColoredCandleMutation, planOhlcMutation, planSeriesMutation,
   type ChartBarColor, type ChartDecoration, type ChartOverlay, type ChartPoint,
+  type ChartProfileDecoration,
 } from "@/lib/chartSeries";
 import {
   chartTransform, legendSource, mainSeriesDatum, renderKind, renkoParams,
@@ -1441,6 +1443,20 @@ export function CandleChart({
     }
   }, [groupedOverlays.price, chartReady, candles, compact, timeAnchored]);
 
+  /*
+   * The profiles on the price pane, separated from the decorations the Pine
+   * layer draws.
+   *
+   * They travel with the other decorations because that is the seam a pane
+   * already has for "something on this chart that is not a series" — but they
+   * are painted by a different layer, against price rather than against time,
+   * so they are split out here rather than branched on inside a loop.
+   */
+  const priceProfiles = useMemo(
+    () => groupedOverlays.priceDecorations.filter(
+      (d): d is ChartProfileDecoration => d.kind === "profile"),
+    [groupedOverlays.priceDecorations]);
+
   const pinePriceToCoordinate = useCallback((overlayId: string, value: number): number | null => {
     const entry = overlayRefs.current.get(overlayId);
     return entry ? entry.api.priceToCoordinate(value) as number | null : null;
@@ -1822,6 +1838,20 @@ export function CandleChart({
             overlays={groupedOverlays.price}
             decorations={groupedOverlays.priceDecorations}
             priceToCoordinate={pinePriceToCoordinate}
+          />
+          {/*
+            Volume profiles, over the candles rather than under them.
+
+            Translucent, so the bars they annotate stay readable, and above the
+            price series because a profile is read AGAINST the candles — a
+            histogram hidden behind them would be a decoration nobody could
+            use. It sits below the drawing layer, which keeps the pointer.
+          */}
+          <VolumeProfileLayer
+            container={containerRef.current}
+            chart={chartRef.current}
+            series={seriesRef.current}
+            profiles={priceProfiles}
           />
           {/* Script drawings sit under the user's own drawing layer, so the
               user's tools keep priority for clicks and hit-testing. */}

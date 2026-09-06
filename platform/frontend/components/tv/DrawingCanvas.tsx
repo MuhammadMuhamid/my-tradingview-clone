@@ -8,8 +8,9 @@ import { isTypingTarget } from "@/lib/shortcuts";
 import {
   DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
   distToEllipse, distToLine, distToRay, distToRect, distToSegment, newId,
-  type Anchor, type Drawing, type DrawingTool, type Pt,
+  type Anchor, type Drawing, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
+import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
 
 const HIT_PX = 7;
 const HANDLE_PX = 4.5;
@@ -618,6 +619,18 @@ export function DrawingCanvas({
   };
 
   const sel = drawings.find((d) => d.id === selected) ?? null;
+  /*
+   * Profile settings merge rather than replace.
+   *
+   * `applyStyle` spreads a patch over the style, which for a NESTED object
+   * means the patch's object wins whole — so setting the row count would have
+   * silently reset the split, the side and the value-area percentage to their
+   * defaults. Merging here keeps the eight settings independent.
+   */
+  const applyProfile = (patch: NonNullable<DrawingStyle["profile"]>): void => {
+    applyStyle({ profile: { ...DEFAULT_VP_RANGE_STYLE, ...sel?.style.profile, ...patch } });
+  };
+  const profileStyle = { ...DEFAULT_VP_RANGE_STYLE, ...(sel?.style.profile ?? {}) };
   const selPx = sel ? toPx(sel.points[0]!) : null;
 
   const styleBarRef = useRef<HTMLDivElement>(null);
@@ -685,6 +698,84 @@ export function DrawingCanvas({
                   {n === 0 ? "0σ" : `${n}σ`}
                 </button>
               ))}
+            </>
+          )}
+          {/*
+            A fixed range's own settings, on the bar beside it.
+
+            Everything a profile is: how finely the price axis is cut, how much
+            of the volume the value area holds, whether the rows are split by
+            direction, and which edge they grow from. In the style bar rather
+            than a dialog for the same reason the colour swatches are: this bar
+            IS this product's per-drawing settings, and it appears next to
+            whatever is selected.
+          */}
+          {sel.tool === "vprange" && (
+            <>
+              <span className="mx-0.5 h-4 w-px bg-border" />
+              <select
+                aria-label="Profile rows"
+                title="How many price rows the profile is cut into"
+                className="rounded bg-surface-2 px-1 py-0.5 text-[11px] text-ink-muted"
+                value={String(profileStyle.rowSize)}
+                onChange={(e) => applyProfile({
+                  layout: "rows", rowSize: Number(e.target.value),
+                })}
+              >
+                {[12, 24, 48, 100, 200].map((n) => (
+                  <option key={n} value={n}>{n} rows</option>
+                ))}
+              </select>
+              <select
+                aria-label="Value area percent"
+                title="Share of the range's volume inside the value area"
+                className="rounded bg-surface-2 px-1 py-0.5 text-[11px] text-ink-muted"
+                value={String(profileStyle.valueAreaPercent)}
+                onChange={(e) => applyProfile({ valueAreaPercent: Number(e.target.value) })}
+              >
+                {[50, 60, 68, 70, 80, 90, 100].map((n) => (
+                  <option key={n} value={n}>VA {n}%</option>
+                ))}
+              </select>
+              <button
+                onClick={() => applyProfile({
+                  split: profileStyle.split === "upDown" ? "total" : "upDown",
+                })}
+                className={`px-1 text-[11px] ${
+                  profileStyle.split === "upDown" ? "text-accent" : "text-ink-muted hover:text-ink"
+                }`}
+                aria-pressed={profileStyle.split === "upDown"}
+                aria-label={profileStyle.split === "upDown"
+                  ? "Show total volume per row"
+                  : "Split each row into up and down volume"}
+                title={profileStyle.split === "upDown" ? "Up / down volume" : "Total volume"}
+              >
+                {profileStyle.split === "upDown" ? "↑↓" : "Σ"}
+              </button>
+              <button
+                onClick={() => applyProfile({
+                  side: profileStyle.side === "left" ? "right" : "left",
+                })}
+                className="px-1 text-[11px] text-ink-muted hover:text-ink"
+                aria-label={profileStyle.side === "left"
+                  ? "Draw the rows from the right of the range"
+                  : "Draw the rows from the left of the range"}
+                title={`Drawn from the ${profileStyle.side}`}
+              >
+                {profileStyle.side === "left" ? "◧" : "◨"}
+              </button>
+              <button
+                onClick={() => applyProfile({ showPoc: !profileStyle.showPoc })}
+                className={`px-1 text-[11px] ${
+                  profileStyle.showPoc ? "text-accent" : "text-ink-muted hover:text-ink"
+                }`}
+                aria-pressed={profileStyle.showPoc}
+                aria-label={profileStyle.showPoc
+                  ? "Hide the point-of-control line" : "Show the point-of-control line"}
+                title="Point of control"
+              >
+                POC
+              </button>
             </>
           )}
           <button
@@ -766,6 +857,15 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
     // The anchor is the grabbable part; the computed line is an overlay and is
     // not on this canvas to be hit at all.
     case "avwap": return Math.hypot(p.x - a.x, p.y - a.y);
+    /*
+     * Only the two vertical edges are grabbable, at any height.
+     *
+     * The histogram itself is a decoration on another canvas and is not here to
+     * be hit — and it must not be, because a profile drawn 30 % of the way
+     * across the pane would otherwise swallow every click that lands on the
+     * candles behind it.
+     */
+    case "vprange": return Math.min(Math.abs(p.x - a.x), Math.abs(p.x - b.x));
     case "rect": case "long": case "short":
       return distToRect(p, a, b, !!d.style.filled || d.tool !== "rect");
     case "ellipse": return distToEllipse(p, a, b, !!d.style.filled);
@@ -891,6 +991,24 @@ function drawOne(
       ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
       ctx.stroke();
       line({ x: a.x, y: a.y - 8 }, { x: a.x, y: a.y + 8 });
+      break;
+    }
+    /*
+     * The range, and nothing else.
+     *
+     * Two verticals across the full height, because a volume profile covers
+     * every price its bars traded at — bounding it top and bottom would draw a
+     * limit the profile does not have. The histogram is painted by
+     * `VolumeProfileLayer`, against price, on its own canvas.
+     */
+    case "vprange": {
+      const left = Math.min(a.x, b.x), right = Math.max(a.x, b.x);
+      fillAlpha(() => ctx.fillRect(left, 0, right - left, h), 0.06);
+      ctx.save();
+      ctx.setLineDash([5, 4]);
+      line({ x: left, y: 0 }, { x: left, y: h });
+      line({ x: right, y: 0 }, { x: right, y: h });
+      ctx.restore();
       break;
     }
     case "rect": {

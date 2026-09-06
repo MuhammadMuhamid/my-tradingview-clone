@@ -44,7 +44,57 @@ export interface ChartDecorationPoint {
   color: string | null;
 }
 
+/**
+ * A volume profile drawn on the price pane.
+ *
+ * A decoration rather than an overlay because it is not a series in time: its
+ * rows are intervals of PRICE, and the only thing time contributes is where
+ * the histogram is anchored and how wide it is allowed to be. Giving it the
+ * `ChartOverlay` shape would have meant one point per row with a fabricated
+ * time, which is exactly the sort of lie the renderer then draws confidently.
+ *
+ * It travels the same path every other decoration does — study output or
+ * drawing output, concatenated by the pane, grouped by `paneId`, handed to the
+ * chart — so nothing between here and the canvas needed a new concept.
+ */
+export interface ChartProfileDecoration {
+  kind: "profile";
+  id: string;
+  paneId: string;
+  /** Legend title, e.g. "Visible Range Volume Profile". */
+  title: string;
+  /** Range the profile covers, in chart seconds. */
+  from: number;
+  to: number;
+  /** Which edge of the range the rows grow from. */
+  side: "left" | "right";
+  /** Share of the plot's width the widest row may take, 0.05–1. */
+  widthRatio: number;
+  /** Rows, low price first. `high` is the row's upper price edge. */
+  rows: readonly { low: number; high: number; total: number; up: number; down: number }[];
+  /** Row index of the point of control, or −1. */
+  pocIndex: number;
+  /** Row indices inside the value area, ascending; empty when there is none. */
+  valueAreaRows: readonly number[];
+  /** Largest row total, which is what the widths are scaled against. */
+  peakVolume: number;
+  /** Total, or up/down stacked. */
+  split: "total" | "upDown";
+  showValueArea: boolean;
+  showPoc: boolean;
+  /** Outline the range itself — what a fixed range needs and a visible one does not. */
+  showRange: boolean;
+  colors: {
+    total: string;
+    up: string;
+    down: string;
+    valueArea: string;
+    poc: string;
+  };
+}
+
 export type ChartDecoration =
+  | ChartProfileDecoration
   | {
       kind: "fill";
       id: string;

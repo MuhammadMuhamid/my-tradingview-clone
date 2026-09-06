@@ -95,6 +95,16 @@ export interface NativeStudiesContext {
    * them blank.
    */
   viewport?: Viewport;
+  /**
+   * Exactly which bars are on screen, in epoch milliseconds.
+   *
+   * `viewport` above is rounded to 200-bar buckets so a pan does not
+   * invalidate every memoised study on every frame. That is right for a study
+   * whose value at a bar is a function of that bar's history, and wrong for one
+   * whose answer IS the range — a visible-range volume profile. Only studies
+   * that declare `usesVisibleRange` see this, and only they key on it.
+   */
+  visibleRange?: { fromMs: number; toMs: number };
   scope?: string;
 }
 
@@ -208,18 +218,20 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
       // A hidden study is not computed at all. It used to be computed and then
       // filtered out, which is the opposite of what the windowing exists for.
       if (!study.visible) { out.set(study.key, HIDDEN_OUTPUT); continue; }
-      const signature = studySignature(study, def, precision, viewport);
+      const signature = studySignature(study, def, precision, viewport, ctx.visibleRange);
       const cached = cache.current.get(study, ctx.candles, signature);
       if (cached) { out.set(study.key, cached); continue; }
       const window = computeWindow(
         ctx.candles, def.warmup(normalizeParams(def, study.params)),
         viewport, def.unbounded === true);
-      const result = runNativeStudy(def, study, window, ctx.interval, precision);
+      const result = runNativeStudy(
+        def, study, window, ctx.interval, precision,
+        { visibleRange: ctx.visibleRange });
       cache.current.set(study, ctx.candles, signature, result);
       out.set(study.key, result);
     }
     return out;
-  }, [list, ctx.candles, ctx.interval, precision, viewport]);
+  }, [list, ctx.candles, ctx.interval, precision, viewport, ctx.visibleRange]);
 
   const rows = useMemo<NativeStudyRow[]>(() => list.flatMap((study) => {
     const def = studyById(study.defId);

@@ -149,13 +149,21 @@ export function runNativeStudy(
   applied: AppliedNativeStudy,
   candles: readonly Candle[],
   interval: Parameters<NativeStudyDef["compute"]>[0]["interval"],
-  pricePrecision: number
+  pricePrecision: number,
+  extra: {
+    visibleRange?: { fromMs: number; toMs: number };
+    sources?: Readonly<Record<string, readonly number[]>>;
+  } = {}
 ): NativeStudyOutput {
   if (candles.length === 0) return EMPTY;
   const params = normalizeParams(def, applied.params);
   let result;
   try {
-    result = def.compute({ candles, params, interval });
+    result = def.compute({
+      candles, params, interval,
+      visibleRange: extra.visibleRange,
+      sources: extra.sources,
+    });
   } catch {
     // A study that cannot compute says nothing. The alternative — letting the
     // exception escape into the render — takes every other study with it.
@@ -223,6 +231,43 @@ export function runNativeStudy(
   }
 
   const decorations: ChartDecoration[] = [];
+  /*
+   * Profiles first, so a fill drawn by the same study lands on top of one.
+   *
+   * A profile is always on the price pane whatever the definition says about
+   * `overlay`: a histogram over price in an oscillator pane would be drawn
+   * against that pane's own scale, which is not a price at all.
+   */
+  for (const output of result.profiles ?? []) {
+    const profile = output.profile;
+    if (profile.rows.length === 0 || profile.from === null || profile.to === null) continue;
+    decorations.push({
+      kind: "profile",
+      id: `${applied.key}:profile:${output.id}`,
+      paneId: PRICE_PANE_ID,
+      title: def.name,
+      from: Math.floor(profile.from / 1000),
+      /*
+       * The range ends at the CLOSE of its last bar, not at its open.
+       *
+       * A profile anchored at the last bar's open time stops a whole bar short
+       * of the range it summarises, which on a 30-bar fixed range is visibly
+       * wrong and on a two-bar one is half the range.
+       */
+      to: Math.floor((profile.to + resolutionMs(interval)) / 1000),
+      side: output.side,
+      widthRatio: output.widthRatio,
+      rows: profile.rows,
+      pocIndex: profile.pocIndex,
+      valueAreaRows: profile.valueAreaRows,
+      peakVolume: profile.peakVolume,
+      split: output.split,
+      showValueArea: output.showValueArea,
+      showPoc: output.showPoc,
+      showRange: output.showRange,
+      colors: output.colors,
+    });
+  }
   for (const fill of def.fills ?? []) {
     const firstShown = (applied.styles[fill.firstPlotId]?.visible ?? true);
     const secondShown = (applied.styles[fill.secondPlotId]?.visible ?? true);
@@ -356,7 +401,9 @@ export class StudyCache {
 /** Everything about an instance that changes its output, as one string. */
 export function studySignature(
   applied: AppliedNativeStudy, def: NativeStudyDef, precision: number,
-  viewport?: Viewport
+  viewport?: Viewport,
+  visibleRange?: { fromMs: number; toMs: number },
+  sourceSignature?: string
 ): string {
   const params = normalizeParams(def, applied.params);
   const parts = def.inputs.map((i) => `${i.key}=${String(params[i.key])}`);
@@ -372,7 +419,27 @@ export function studySignature(
   const view = viewport
     ? `|v${Math.ceil(viewport.visibleBars)}@${Math.ceil(viewport.firstVisibleIndex)}`
     : "";
-  return `${applied.defId}|${parts.join(",")}|${styles.join(",")}|p${precision}${view}`;
+  /*
+   * The exact visible range, but only for a study that reads it.
+   *
+   * `view` above is deliberately coarse — 200-bar buckets — so an ordinary pan
+   * does not invalidate every study on the pane. A visible-range profile needs
+   * the opposite: its answer IS the range, so its key has to follow the range
+   * exactly. Adding it unconditionally would have given every moving average
+   * on the chart a key that changes on every scroll frame.
+   */
+  const range = def.usesVisibleRange && visibleRange
+    ? `|r${visibleRange.fromMs}-${visibleRange.toMs}` : "";
+  /*
+   * What this study's own sources currently ARE, when it reads another study.
+   *
+   * Its parameters name a source by id; the SERIES behind that id changes
+   * whenever the upstream study's inputs change. Without this, retuning an RSI
+   * left a moving average of that RSI showing the previous curve until
+   * something else happened to invalidate it.
+   */
+  const sources = sourceSignature ? `|s${sourceSignature}` : "";
+  return `${applied.defId}|${parts.join(",")}|${styles.join(",")}|p${precision}${view}${range}${sources}`;
 }
 
 /** A fresh instance of a definition, with its defaults. */

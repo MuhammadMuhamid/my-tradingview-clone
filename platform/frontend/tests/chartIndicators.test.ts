@@ -152,7 +152,9 @@ test("Pine visual contracts preserve pane ownership, handles, offsets and custom
     assert.equal(fill.firstId, "instance-v:plot_1");
     assert.equal(fill.secondId, "instance-v:plot_2");
   }
-  assert.equal(output.decorations[0]!.data[0]!.time, 120);
+  const background = output.decorations[0]!;
+  assert.equal(background.kind, "background");
+  if (background.kind === "background") assert.equal(background.data[0]!.time, 120);
   assert.deepEqual(output.barColors, [
     { time: 60, color: null }, { time: 120, color: "#f23645" }, { time: 180, color: null },
   ]);

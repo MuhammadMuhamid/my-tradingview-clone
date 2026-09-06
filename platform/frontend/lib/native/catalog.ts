@@ -31,6 +31,7 @@ import { TREND_STUDIES } from "./trend";
 import { MOMENTUM_STUDIES } from "./momentum";
 import { VOLATILITY_STUDIES, VOLUME_STUDIES, STATISTICS_STUDIES } from "./volatility";
 import { LEVEL_STUDIES } from "./levels";
+import { PROFILE_STUDIES } from "./profile";
 
 /** Every native study this build ships. */
 /**
@@ -49,6 +50,7 @@ export const NATIVE_STUDIES: readonly NativeStudyDef[] = [
   ...VOLUME_STUDIES,
   ...STATISTICS_STUDIES,
   ...LEVEL_STUDIES,
+  ...PROFILE_STUDIES,
 ];
 
 const BY_ID = new Map(NATIVE_STUDIES.map((def) => [def.id, def]));

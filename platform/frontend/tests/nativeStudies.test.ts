@@ -390,6 +390,13 @@ function discreteVariants(def: NativeStudyDef): NativeParams[] {
  *
  * Both a viewport at the end of the series and one panned back into it, over
  * every combination of every study's discrete inputs.
+ *
+ * Two classes are exempt, and both say so in their own definition rather than
+ * being named here. `unbounded` studies accumulate indefinitely, so a window is
+ * a different indicator rather than a cheaper one. `usesVisibleRange` studies
+ * are ABOUT the window — a visible-range volume profile handed the whole series
+ * would profile the whole series, which is the one thing it must never do — so
+ * agreeing with a full-history computation would mean it was broken.
  */
 test("a windowed study agrees with a full-history one on every visible bar", () => {
   const series = bars(4_000, 9);
@@ -399,7 +406,7 @@ test("a windowed study agrees with a full-history one on every visible bar", () 
     { firstVisibleIndex: 1_800, visibleBars: visible },
   ];
   for (const def of NATIVE_STUDIES) {
-    if (def.unbounded) continue;
+    if (def.unbounded || def.usesVisibleRange) continue;
     for (const params of discreteVariants(def)) {
       const full = def.compute({ candles: series, params, interval: "1m" });
       for (const viewport of viewports) {

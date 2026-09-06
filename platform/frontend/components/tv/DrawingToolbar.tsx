@@ -31,6 +31,9 @@ const ICONS: Record<string, JSX.Element> = {
   // An anchor point with a curve running rightwards from it: where it starts
   // is the whole idea.
   avwap: <><circle cx="5" cy="18" r="2" /><path d="M5 18c4 0 5-9 9-11s6 1 7 3" /></>,
+  // Two range edges with a histogram growing leftwards from the right one:
+  // the two things a fixed range IS.
+  vprange: <><path d="M5 4v16M19 4v16" /><path d="M19 7h-6M19 11h-9M19 15h-4" /></>,
   daterange: <><path d="M4 12h16" /><path d="M7 8L4 12l3 4M17 8l3 4-3 4" /></>,
   long: <><rect x="4" y="5" width="16" height="6" /><rect x="4" y="13" width="16" height="6" /><path d="M12 19v-14" /></>,
   short: <><rect x="4" y="5" width="16" height="6" /><rect x="4" y="13" width="16" height="6" /><path d="M12 5v14" /></>,
@@ -120,7 +123,13 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
      * drawing here that computes a series rather than describing a shape.
      */
     id: "anchored",
-    tools: [{ tool: "avwap", icon: "avwap", label: "Anchored VWAP — click a bar to anchor" }],
+    tools: [
+      { tool: "avwap", icon: "avwap", label: "Anchored VWAP — click a bar to anchor" },
+      {
+        tool: "vprange", icon: "vprange",
+        label: "Fixed Range Volume Profile — drag across the bars to profile",
+      },
+    ],
   },
   {
     id: "measure",

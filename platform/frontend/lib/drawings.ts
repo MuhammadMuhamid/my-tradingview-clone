@@ -34,7 +34,17 @@ export type DrawingTool =
    * per-instrument scoping and the persistence drawings already have, rather
    * than a parallel mechanism for one indicator.
    */
-  | "avwap";
+  | "avwap"
+  /*
+   * The other drawing that computes.
+   *
+   * A Fixed Range Volume Profile's defining input is a SPAN of the chart —
+   * "profile these bars" — dragged across the plot and moved by its handles.
+   * Nothing in a settings dialog can express that, which is the same argument
+   * that made Anchored VWAP a drawing. The visible-range profile is a study,
+   * because its range is not a decision the user makes.
+   */
+  | "vprange";
 
 export interface Anchor {
   /** bar open time in seconds (chart time units) */
@@ -58,6 +68,27 @@ export interface DrawingStyle {
    * bands were unreachable for every drawing a user could create.
    */
   bands?: 0 | 1 | 2;
+  /**
+   * Fixed Range Volume Profile: how the profile is cut and drawn.
+   *
+   * Nested rather than eight more flat keys, because these belong to exactly
+   * one tool and a flat `rowSize` on a trendline's style would be a field
+   * nothing reads. Every member is optional and every reader defaults it —
+   * `lib/volumeProfile` normalises the lot — so a drawing written by an older
+   * build, or by hand, is still a drawable profile.
+   */
+  profile?: {
+    layout?: "rows" | "height";
+    rowSize?: number;
+    valueAreaPercent?: number;
+    allocation?: "range" | "close";
+    split?: "total" | "upDown";
+    side?: "left" | "right";
+    /** Share of the plot's width the widest row may take, in percent. */
+    widthPercent?: number;
+    showValueArea?: boolean;
+    showPoc?: boolean;
+  };
 }
 
 export interface Drawing {
@@ -88,6 +119,10 @@ export const TOOL_POINTS: Record<DrawingTool, number> = {
   ruler: 2, pricerange: 2, daterange: 2, long: 2, short: 2,
   // One anchor: the bar the accumulation starts from.
   avwap: 1,
+  // Two: the range's edges. Only their TIMES are read — a volume profile
+  // covers every price its bars traded at, so dragging one higher or lower
+  // would suggest a vertical bound it does not have.
+  vprange: 2,
 };
 
 /** Tools whose creation asks the user for a caption. */

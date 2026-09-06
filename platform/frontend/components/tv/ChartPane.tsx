@@ -44,6 +44,7 @@ import { paneDensity, type PaneDensity } from "@/lib/layoutPresets";
 import type { PaneState } from "@/lib/workspace";
 import { drawingsAtReplayHorizon, replayCandles, type ReplaySession } from "@/lib/replay";
 import { anchoredVwapOverlays } from "@/lib/anchoredVwap";
+import { fixedRangeDecorations, fixedRangeOverlays } from "@/lib/volumeProfileDrawing";
 import { compareOverlays, useCompareSeries } from "@/lib/compare";
 import { alertEventMarkers, placeAlertEvents } from "@/lib/alertMarkers";
 import { useAlertEvents } from "@/lib/useAlertEvents";
@@ -220,6 +221,18 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * corrected on the first range report, so the first paint is never short.
    */
   const [viewport, setViewport] = useState<Viewport | null>(null);
+  /*
+   * The same fact at full resolution, for the one kind of study whose answer
+   * IS the range.
+   *
+   * `viewport` above is deliberately coarse. A visible-range volume profile
+   * rounded to the nearest two hundred bars would profile bars that are not on
+   * screen and miss ones that are, which is precisely the claim it makes. This
+   * is snapped to the bar grid instead — so it changes exactly when the set of
+   * visible bars changes, and not once per scroll frame.
+   */
+  const [visibleRange, setVisibleRange] =
+    useState<{ fromMs: number; toMs: number } | null>(null);
 
   // ── candles, through the shared cache ──
   const history = useCandleHistory({
@@ -248,6 +261,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const nativeStudies = useNativeStudies({
     candles: visibleCandles, interval: pane.interval, scope: pane.id,
     viewport: viewport ?? undefined,
+    visibleRange: visibleRange ?? undefined,
   });
 
   // ── this pane's own applied studies ──
@@ -342,16 +356,40 @@ function ChartPaneImpl(props: ChartPaneProps) {
       : { overlays: [], notice: null }),
     [compare, compareSeries, visibleCandles, pane.symbol]);
 
+  /*
+   * Fixed Range Volume Profile is a DRAWING that produces a profile.
+   *
+   * Same shape as Anchored VWAP above and for the same reason: its defining
+   * input is a span of the chart, so it lives in the drawing store, and it is
+   * computed here from the replay-clipped bars the chart is actually drawing.
+   * The histogram is a decoration; its point of control and value-area edges
+   * are overlays, so they land on the price scale and in the legend rather
+   * than being painted by hand.
+   */
+  const fixedProfileDrawings = useMemo(
+    () => drawingsAtReplayHorizon(replay, drawings, props.replayDrawings),
+    [replay, drawings, props.replayDrawings]);
+  const fixedProfileDecorations = useMemo(
+    () => fixedRangeDecorations(fixedProfileDrawings, visibleCandles, pane.interval),
+    [fixedProfileDrawings, visibleCandles, pane.interval]);
+  const fixedProfileOverlays = useMemo(
+    () => fixedRangeOverlays(
+      fixedProfileDrawings, visibleCandles, pane.interval,
+      pricePrecision(visibleCandles[visibleCandles.length - 1]?.close ?? 0)),
+    [fixedProfileDrawings, visibleCandles, pane.interval]);
+
   const overlays = useMemo(
     () => [
-      ...maOverlays, ...avwapOverlays, ...compared.overlays,
+      ...maOverlays, ...avwapOverlays, ...fixedProfileOverlays, ...compared.overlays,
       ...nativeStudies.overlays, ...indicators.overlays,
     ],
-    [maOverlays, avwapOverlays, compared.overlays,
+    [maOverlays, avwapOverlays, fixedProfileOverlays, compared.overlays,
       nativeStudies.overlays, indicators.overlays]);
   const decorations = useMemo(
-    () => [...nativeStudies.decorations, ...indicators.decorations],
-    [nativeStudies.decorations, indicators.decorations]);
+    () => [
+      ...fixedProfileDecorations, ...nativeStudies.decorations, ...indicators.decorations,
+    ],
+    [fixedProfileDecorations, nativeStudies.decorations, indicators.decorations]);
 
   const markers = useMemo(
     () => [...indicators.markers, ...props.markers], [indicators.markers, props.markers]);
@@ -404,6 +442,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
           current && current.visibleBars === visibleBars
             && current.firstVisibleIndex === anchored
             ? current : { visibleBars, firstVisibleIndex: anchored }));
+      }
+      /*
+       * Snapped to the bar grid, so an identical set of visible bars produces
+       * an identical range and nothing downstream recomputes. The chart's own
+       * range is a continuous time, and a drag emits a slightly different one
+       * sixty times a second.
+       */
+      const grid = resolutionMs(pane.interval);
+      const fromMs = Math.floor((range.from * 1000) / grid) * grid;
+      const toMs = Math.floor((range.to * 1000) / grid) * grid;
+      if (Number.isFinite(fromMs) && Number.isFinite(toMs)) {
+        setVisibleRange((current) => (
+          current && current.fromMs === fromMs && current.toMs === toMs
+            ? current : { fromMs, toMs }));
       }
       onVisibleRangeChange?.(paneId, range);
       onViewportChange?.(range);
