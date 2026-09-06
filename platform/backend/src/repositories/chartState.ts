@@ -41,6 +41,17 @@ export interface PaneStudyState {
   native: unknown[];
   version: number;
   updatedAt: string;
+  /**
+   * Whether each half has ever been written.
+   *
+   * Not derivable from `version`: the two halves share it, so once either one
+   * created the row `version > 0` was true for both. A client asking "has MY
+   * half ever existed" was being answered "does this row exist", and the two
+   * stopped meaning the same thing the moment the halves were written
+   * separately. See migration 031.
+   */
+  pineWritten: boolean;
+  nativeWritten: boolean;
 }
 
 /** A write refused because the stored version had moved on. */
@@ -148,6 +159,8 @@ interface StudyRow {
   native: unknown[];
   version: string | number;
   updated_at: Date;
+  pine_written?: boolean;
+  native_written?: boolean;
 }
 
 const toStudyState = (r: StudyRow): PaneStudyState => ({
@@ -156,6 +169,11 @@ const toStudyState = (r: StudyRow): PaneStudyState => ({
   native: Array.isArray(r.native) ? r.native : [],
   version: Number(r.version),
   updatedAt: r.updated_at.toISOString(),
+  // A row read before migration 031 has neither column. Falling back to the
+  // CONTENT is the same rule the migration backfills with, and it errs toward
+  // re-uploading a client's work rather than discarding it.
+  pineWritten: r.pine_written ?? (Array.isArray(r.pine) && r.pine.length > 0),
+  nativeWritten: r.native_written ?? (Array.isArray(r.native) && r.native.length > 0),
 });
 
 const SCOPE_RE = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -171,7 +189,11 @@ export async function getPaneStudies(scope: string): Promise<PaneStudyState> {
     "SELECT * FROM chart_pane_studies WHERE scope = $1", [id]);
   const row = rows[0];
   if (!row) {
-    return { scope: id, pine: [], native: [], version: 0, updatedAt: new Date(0).toISOString() };
+    return {
+      scope: id, pine: [], native: [], version: 0,
+      updatedAt: new Date(0).toISOString(),
+      pineWritten: false, nativeWritten: false,
+    };
   }
   return toStudyState(row);
 }
@@ -225,8 +247,10 @@ export async function putPaneStudies(
     // First write. An omitted half starts empty, because there is no stored
     // value to leave alone.
     const { rows } = await query<StudyRow>(
-      `INSERT INTO chart_pane_studies (scope, pine, native, version)
-       VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '[]'::jsonb), 1)
+      `INSERT INTO chart_pane_studies
+         (scope, pine, native, version, pine_written, native_written)
+       VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '[]'::jsonb), 1,
+               $2::jsonb IS NOT NULL, $3::jsonb IS NOT NULL)
        ON CONFLICT (scope) DO NOTHING
        RETURNING *`,
       [id, pinePayload, nativePayload]
@@ -239,6 +263,11 @@ export async function putPaneStudies(
     `UPDATE chart_pane_studies
         SET pine = COALESCE($2::jsonb, pine),
             native = COALESCE($3::jsonb, native),
+            -- Written means written, including written EMPTY: a user who
+            -- removed every study of one kind has made a decision, and the
+            -- next client must not read that as "never uploaded".
+            pine_written = pine_written OR $2::jsonb IS NOT NULL,
+            native_written = native_written OR $3::jsonb IS NOT NULL,
             version = version + 1, updated_at = now()
       WHERE scope = $1 AND version = $4
       RETURNING *`,

@@ -8,6 +8,8 @@
  * canvas extrapolates coordinates for those using the interval length.
  */
 
+import { tryStoredSymbol } from "./instrument";
+
 export type DrawingTool =
   // cursors / modes
   | "cursor" | "eraser"
@@ -205,16 +207,33 @@ function isValidDrawing(d: unknown): d is Drawing {
   );
 }
 
+/**
+ * The key one instrument's drawings are stored under.
+ *
+ * Canonical, because the SERVER is: it keys the same list by `(venue,
+ * ticker)`, so `BTCUSDT`, `btcusdt` and `BINANCE:BTCUSDT` are one row there.
+ * Keyed by the raw string here, they would be three localStorage entries and
+ * three undo stacks feeding that one row, with the losing spelling silently
+ * overwritten on the next adopt.
+ *
+ * Every caller today passes a bare upper-case ticker, so this changes nothing
+ * now. It is here so that the day one does not, the two sides still agree.
+ */
+function drawingKey(symbol: string): string {
+  return tryStoredSymbol(symbol) ?? symbol.trim().toUpperCase();
+}
+
 export function loadDrawings(symbol: string): Drawing[] {
-  const all = readStore()[symbol];
+  const all = readStore()[drawingKey(symbol)];
   return Array.isArray(all) ? all.filter(isValidDrawing) : [];
 }
 
 export function saveDrawings(symbol: string, drawings: Drawing[]): void {
   if (typeof window === "undefined") return;
   const store = readStore();
-  if (drawings.length === 0) delete store[symbol];
-  else store[symbol] = drawings;
+  const key = drawingKey(symbol);
+  if (drawings.length === 0) delete store[key];
+  else store[key] = drawings;
   try {
     localStorage.setItem(KEY, JSON.stringify(store));
   } catch { /* quota — drawings stay in memory for this session */ }

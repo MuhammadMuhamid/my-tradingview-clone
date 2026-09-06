@@ -11,7 +11,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
-import { DEFAULT_BENCHMARK } from "@/lib/compare";
+import { DEFAULT_BENCHMARK, isSelfCompare } from "@/lib/compare";
 import { tryStoredSymbol } from "@/lib/instrument";
 import { DEFAULT_COMPARE_LENGTH, type PaneCompare } from "@/lib/workspace";
 
@@ -118,6 +118,18 @@ export function CompareControl({
           </label>
         )}
         <p className="text-xs text-ink-faint">{hint}</p>
+        {isSelfCompare(baseSymbol, symbol) && (
+          /*
+           * Legal, and worth saying out loud rather than refusing: the
+           * correlation is 1 and the beta is 1 by construction, and seeing
+           * that IS useful — but a reader who did not intend it would
+           * otherwise spend a while wondering why the line is flat.
+           */
+          <p className="text-xs text-warn">
+            That is this chart&apos;s own instrument. The correlation and beta will be
+            exactly 1, and the percentage overlay will draw one line over the other.
+          </p>
+        )}
         {/*
           Said before it can surprise anyone: the statistics are computed from
           RETURNS, and a bar the second instrument does not have is left out

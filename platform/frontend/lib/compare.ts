@@ -15,6 +15,10 @@
  * explosion from happening: the compare series is HISTORY, refreshed on the
  * base chart's own cadence, not a second live feed.
  *
+ * It loads through `loadCandleWindow` and `repairStaleTail`, which is the same
+ * path a pane's own history takes — so a second instrument gets Wave A's
+ * backfill and tail repair rather than whatever happened to be stored.
+ *
  * ── Alignment, and the thing that must never be done ───────────────────────
  *
  * Bars are matched by OPEN TIME, never by index. Two instruments have
@@ -29,9 +33,9 @@
  * rather than hiding it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./api";
 import { storedSymbol, tryStoredSymbol } from "./instrument";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
+import { loadCandleWindow, repairStaleTail } from "./useCandleHistory";
 import {
   alignByOpenTime, beta as betaOf, correlation as correlationOf, logReturns,
   normalizedCompare,
@@ -67,9 +71,11 @@ const EMPTY: CompareSeries = {
 /**
  * A second instrument's closes, aligned to `base`.
  *
- * One request per (symbol, interval, depth), through the same shared history
- * cache the panes use — so comparing against BTCUSDT while a pane is already
- * showing it costs nothing at all.
+ * One request per (symbol, interval, depth), through the same loader a pane's
+ * own history uses — so a second instrument gets Wave A's backfill and tail
+ * repair. It does NOT share a pane's in-memory window: comparing against an
+ * instrument already open in another pane costs a request. Saying otherwise
+ * would be describing a cache this function does not consult.
  */
 export function useCompareSeries(
   base: readonly Candle[], symbol: string, interval: Interval, bars: number,
@@ -103,7 +109,21 @@ export function useCompareSeries(
     setLoading(true);
     setError(null);
     try {
-      const candles = await api.candles(ticker, interval, bars, signal);
+      /*
+       * The same loader a pane uses, not a bare fetch.
+       *
+       * `loadCandleWindow` backfills an instrument whose history was never
+       * stored at this depth, and `repairStaleTail` brings a tail that ends
+       * hours ago up to the current bar — Wave A's whole point. Calling
+       * `api.candles` directly got neither, so comparing against a pair the
+       * server had not backfilled produced a mostly-`na` series that the UI
+       * reported as "missing bars": true, and reading as a different problem.
+       * A stale second series is worse, because a correlation computed against
+       * a tail that stopped hours ago looks exactly like one that did not.
+       */
+      const request = { symbol: ticker, interval, bars };
+      const loaded = await loadCandleWindow(request, signal);
+      const candles = await repairStaleTail(request, loaded, signal);
       // A response is applied only if it is still the one being waited for —
       // otherwise switching the compared symbol twice quickly leaves the first
       // answer on screen under the second symbol's name.

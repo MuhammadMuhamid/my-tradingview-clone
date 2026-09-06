@@ -19,6 +19,10 @@ import * as chartState from "../../repositories/chartState";
 /** Reject a payload before it reaches the database, with the reason. */
 const listOr400 = (v: unknown): unknown[] | null => (Array.isArray(v) ? v : null);
 
+/** The reason a request was refused, without leaking anything else. */
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : "invalid instrument";
+
 const baseVersionOf = (v: unknown): number => {
   const n = Number(v);
   // Absent means "I believe nothing is stored", which is how a first write and
@@ -27,9 +31,19 @@ const baseVersionOf = (v: unknown): number => {
 };
 
 export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/chart-state/drawings/:symbol", async (req) => {
+  /*
+   * `resolveInstrument` throws on a ticker it cannot parse or a venue this
+   * installation does not implement. Both are the CALLER's mistake, so they
+   * are 400s — unwrapped they reached Fastify's handler and came back as 500s,
+   * which says the server is broken when the request was.
+   */
+  app.get("/api/chart-state/drawings/:symbol", async (req, reply) => {
     const { symbol } = req.params as { symbol: string };
-    return chartState.getDrawings(symbol);
+    try {
+      return await chartState.getDrawings(symbol);
+    } catch (cause) {
+      return reply.code(400).send({ error: messageOf(cause) });
+    }
   });
 
   app.put("/api/chart-state/drawings/:symbol", async (req, reply) => {
@@ -42,9 +56,14 @@ export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
         error: `a chart may hold at most ${chartState.MAX_ITEMS} drawings`,
       });
     }
-    const result = await chartState.putDrawings(symbol, drawings, baseVersionOf(b?.baseVersion));
-    if (chartState.isConflict(result)) return reply.code(409).send(result.current);
-    return result;
+    try {
+      const result = await chartState.putDrawings(
+        symbol, drawings, baseVersionOf(b?.baseVersion));
+      if (chartState.isConflict(result)) return reply.code(409).send(result.current);
+      return result;
+    } catch (cause) {
+      return reply.code(400).send({ error: messageOf(cause) });
+    }
   });
 
   app.get("/api/chart-state/panes", async () => chartState.listPaneStudies());

@@ -132,7 +132,7 @@ test("an omitted half is COALESCEd to what is stored, not to empty", () => {
   assert.match(repo, /native = COALESCE\(\$3::jsonb, native\)/);
   // On a FIRST write there is nothing to preserve, so an omitted half starts
   // empty rather than null — the column is NOT NULL and a list by constraint.
-  assert.match(repo, /VALUES \(\$1, COALESCE\(\$2::jsonb, '\[\]'::jsonb\), COALESCE\(\$3::jsonb, '\[\]'::jsonb\), 1\)/);
+  assert.match(repo, /VALUES \(\$1, COALESCE\(\$2::jsonb, '\[\]'::jsonb\), COALESCE\(\$3::jsonb, '\[\]'::jsonb\), 1,/);
 });
 
 test("a write that carries neither half is refused rather than clearing the row", () => {
@@ -155,4 +155,49 @@ test("both halves still share one version, so two writers conflict like two devi
     path.join(__dirname, "..", "src", "repositories", "chartState.ts"), "utf8");
   assert.match(repo, /WHERE scope = \$1 AND version = \$4/,
     "a half-write is still guarded by the whole row's version");
+});
+
+test("a version answers 'has this changed', and cannot answer 'has my half existed'", () => {
+  /*
+   * Migration 031, and the reason it exists.
+   *
+   * Both halves of a pane share one `version`, which is correct for what a
+   * version is FOR — optimistic concurrency, "has anything changed since I
+   * read this row". It was also being asked whether the reader's own half had
+   * ever been written, and once either half created the row the answer was
+   * yes for both. One half then stopped uploading a user's Pine scripts
+   * forever; the other adopted an empty list over the top of the user's
+   * built-in studies and pushed that deletion everywhere.
+   */
+  const written = fs.readFileSync(
+    path.join(MIGRATIONS, "031_pane_half_written.sql"), "utf8").replace(/\s+/g, " ");
+  assert.match(written, /ADD COLUMN IF NOT EXISTS pine_written\s+boolean NOT NULL DEFAULT false/);
+  assert.match(written, /ADD COLUMN IF NOT EXISTS native_written boolean NOT NULL DEFAULT false/);
+
+  // Backfilled from content, which is the only safe reading of an existing
+  // row, and in the direction that re-uploads work rather than discarding it.
+  assert.match(written, /SET pine_written = true WHERE pine_written = false AND jsonb_array_length\(pine\) > 0/);
+  assert.match(written, /SET native_written = true WHERE native_written = false AND jsonb_array_length\(native\) > 0/);
+
+  // Additive: two columns and two narrow backfills, nothing dropped.
+  const statements = fs.readFileSync(
+    path.join(MIGRATIONS, "031_pane_half_written.sql"), "utf8").replace(/^\s*--.*$/gm, "");
+  for (const forbidden of [/DROP TABLE/i, /DROP COLUMN/i, /DELETE FROM/i, /TRUNCATE/i]) {
+    assert.doesNotMatch(statements, forbidden, `${forbidden} would not be additive`);
+  }
+});
+
+test("written means written, including written empty", () => {
+  const repo = fs.readFileSync(
+    path.join(__dirname, "..", "src", "repositories", "chartState.ts"), "utf8");
+  // A user who removed every study of one kind has made a decision. If the
+  // flag only tracked non-empty writes, the next client would read that
+  // deletion as "never uploaded" and resurrect them.
+  assert.match(repo, /pine_written = pine_written OR \$2::jsonb IS NOT NULL/);
+  assert.match(repo, /native_written = native_written OR \$3::jsonb IS NOT NULL/);
+  // And an insert marks only the halves it actually carried.
+  assert.match(repo, /\$2::jsonb IS NOT NULL, \$3::jsonb IS NOT NULL/);
+  // A row from before 031 has neither column; the fallback is the same rule
+  // the migration backfills with.
+  assert.match(repo, /pineWritten: r\.pine_written \?\? \(Array\.isArray\(r\.pine\) && r\.pine\.length > 0\)/);
 });

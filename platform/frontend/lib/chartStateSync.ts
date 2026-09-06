@@ -38,7 +38,8 @@
 import { api } from "@/lib/api";
 import { loadDrawings, saveDrawings, type Drawing } from "@/lib/drawings";
 import {
-  loadStoredNative, saveStoredNative, PRIMARY_SCOPE, type StoredNativeStudy,
+  loadStoredNative, saveStoredNative, unknownStoredNative, PRIMARY_SCOPE,
+  type StoredNativeStudy,
 } from "@/lib/native/storage";
 import type { StoredIndicator as StoredPineStudy } from "@/lib/indicators";
 
@@ -136,6 +137,22 @@ export function decideSync(input: {
   serverCount: number;
   localCount: number;
   alreadyImported: boolean;
+  /**
+   * Whether the server has ever held THIS list — even empty.
+   *
+   * Distinct from `serverVersion > 0`, which was doing this job and could not.
+   * A pane's Pine studies and its built-in studies share one row and one
+   * version, so once either half created the row the version was non-zero for
+   * both — and each half then read the other's existence as proof that its own
+   * empty list was a deliberate deletion. One half stopped uploading the
+   * user's scripts forever; the other adopted an empty list over the top of
+   * the user's studies and pushed that deletion to every device.
+   *
+   * For drawings there is only one list, so this IS `serverVersion > 0`. For a
+   * pane half it is that half's own written flag, which migration 031 added
+   * precisely because a concurrency token could not answer it.
+   */
+  serverEverWritten?: boolean;
   /** This device has edits it has not managed to send. */
   localDirty?: boolean;
   /** The server version this device last read or wrote; 0 if it has not. */
@@ -157,9 +174,16 @@ export function decideSync(input: {
     return { action: "adopt", reason: "server-has-state" };
   }
   if (input.localCount === 0) return { action: "nothing", reason: "both-empty" };
-  // A server row that exists but is EMPTY is a deliberate "the user deleted
-  // everything", so re-importing would resurrect it.
-  if (input.alreadyImported || input.serverVersion > 0) {
+  /*
+   * A list the server has held before and that is now empty is a deliberate
+   * "the user deleted everything", so re-importing would resurrect it.
+   *
+   * `serverEverWritten` rather than `serverVersion > 0`: see above. It falls
+   * back to the version only for a caller with a single list, where the two
+   * are the same statement.
+   */
+  const everWritten = input.serverEverWritten ?? input.serverVersion > 0;
+  if (input.alreadyImported || everWritten) {
     return { action: "nothing", reason: "already-imported" };
   }
   return { action: "import", reason: "first-sync" };
@@ -287,7 +311,10 @@ export async function syncPaneStudies(
   scope: string = PRIMARY_SCOPE, localPine: unknown[] = []
 ): Promise<PaneSync> {
   const localNative = loadStoredNative(scope);
-  let server: { pine: unknown[]; native: unknown[]; version: number };
+  let server: {
+    pine: unknown[]; native: unknown[]; version: number;
+    pineWritten: boolean; nativeWritten: boolean;
+  };
   try {
     server = await api.getChartPaneStudies(scope);
   } catch {
@@ -297,20 +324,29 @@ export async function syncPaneStudies(
     };
   }
 
+  /*
+   * Decided on the BUILT-IN half alone.
+   *
+   * It used to count `server.native.length + server.pine.length`, so the Pine
+   * half's studies were evidence that the built-in half had server state —
+   * and the adopt branch then wrote the server's empty native list over the
+   * user's own studies, locally and then everywhere.
+   */
   const decision = decideSync({
     serverVersion: server.version,
-    serverCount: server.native.length + server.pine.length,
-    localCount: localNative.length + localPine.length,
+    serverCount: server.native.length,
+    serverEverWritten: server.nativeWritten,
+    localCount: localNative.length,
     alreadyImported: hasImported("panes", scope),
   });
 
   if (decision.action === "adopt") {
     const native = server.native as StoredNativeStudy[];
-    // Written verbatim; `loadStoredNative` is what drops a row whose study id
-    // this build does not have, on the next read. That is what makes a layout
-    // written by a NEWER build degrade to a working chart rather than an empty
-    // one — the unknown rows are kept on disk for the build that understands
-    // them, and skipped by the one that does not.
+    // `loadStoredNative` returns only the rows this build can run, and
+    // `saveStoredNative` writes the unknown ones back beside them — so a
+    // layout written by a NEWER build degrades to a working chart rather than
+    // an empty one, and this build is never the thing that deletes a study it
+    // simply did not recognise.
     saveStoredNative(native, scope);
     noteImported("panes", scope);
     return { native, pine: server.pine, version: server.version, decision, offline: false };
@@ -318,8 +354,11 @@ export async function syncPaneStudies(
 
   if (decision.action === "import") {
     try {
+      // The built-in half only. `localPine` is this caller's view of somebody
+      // else's list, and writing it here is how the Pine half's own import
+      // came to be pre-empted by an empty one.
       const saved = await api.putChartPaneStudies(scope, {
-        pine: localPine, native: localNative, baseVersion: server.version,
+        native: localNative, baseVersion: server.version,
       });
       noteImported("panes", scope);
       const native = saved.native as StoredNativeStudy[];
@@ -348,7 +387,16 @@ export async function pushPaneStudies(
 ): Promise<{ native: StoredNativeStudy[]; version: number; conflicted: boolean; offline: boolean }> {
   saveStoredNative(native, scope);
   try {
-    const saved = await api.putChartPaneStudies(scope, { native, baseVersion });
+    /*
+     * Including the rows this build cannot run.
+     *
+     * Sending only what this build understands would make an older client the
+     * thing that deletes a newer one's study from the shared row — the same
+     * loss `saveStoredNative` now prevents on disk, one layer out.
+     */
+    const saved = await api.putChartPaneStudies(scope, {
+      native: [...native, ...unknownStoredNative(scope)], baseVersion,
+    });
     const conflicted = saved.version !== baseVersion + 1;
     const next = saved.native as StoredNativeStudy[];
     if (conflicted) saveStoredNative(next, scope);
@@ -374,7 +422,7 @@ export async function syncPanePine(
 ): Promise<{
   pine: StoredPineStudy[]; version: number; decision: SyncDecision; offline: boolean;
 }> {
-  let server: { pine: unknown[]; version: number };
+  let server: { pine: unknown[]; version: number; pineWritten: boolean };
   try {
     server = await api.getChartPaneStudies(scope);
   } catch {
@@ -387,6 +435,7 @@ export async function syncPanePine(
   const decision = decideSync({
     serverVersion: server.version,
     serverCount: server.pine.length,
+    serverEverWritten: server.pineWritten,
     localCount: localPine.length,
     alreadyImported: hasImported("pine", scope),
   });

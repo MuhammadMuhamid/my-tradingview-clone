@@ -58,6 +58,13 @@ function row(id: string, over: Partial<MaAlertRow>): MaAlertRow {
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
     macdFast: null, macdSlow: null, macdSignal: null, indicatorTarget: null,
     stPeriod: null, stMultiplier: null, stAtrMethod: null,
+    // The three families Wave B added. Spelled out rather than left to
+    // `Partial`, because `MaAlertRow` requires every column: a fixture that
+    // omits one is a fixture that stops compiling the day the row grows,
+    // which is what happened here.
+    bbLength: null, bbMult: null, bbBand: null, bbMaType: null,
+    stochKLength: null, stochKSmooth: null, stochDSmooth: null, stochLevel: null,
+    adxDiLength: null, adxSmoothing: null, adxLevel: null,
     filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
     filterMaType: null, filterMaLength: null, filterMaSide: null,
     filterStPeriod: null, filterStMultiplier: null,

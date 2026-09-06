@@ -35,6 +35,9 @@ import {
   computeWindow, describeParams, newNativeStudy, runNativeStudy, StudyCache,
   studySignature, type AppliedNativeStudy,
 } from "../lib/native/compute";
+import {
+  loadStoredNative, nativeStorageKey, saveStoredNative, unknownStoredNative, PRIMARY_SCOPE,
+} from "../lib/native/storage";
 import { PRICE_PANE_ID } from "../lib/chartSeries";
 import type { Candle, Interval } from "../lib/types";
 
@@ -590,4 +593,54 @@ test("a declared step is a rule about which values exist, not a spinner decorati
   // And a field with no step is left exactly as it was given.
   const rsi = studyById("rsi")!;
   assert.equal(normalizeParams(rsi, { length: 14 }).length, 14);
+});
+
+// ── forward compatibility ──────────────────────────────────────────────────
+
+/**
+ * A study this build cannot run is still a study the USER applied.
+ *
+ * The stored list used to be filtered on read and written back filtered, so an
+ * older build permanently deleted a newer build's study — from disk, and then
+ * from the shared server row the next time it pushed. Losing it was not this
+ * build's decision to make.
+ *
+ * A malformed row is a different case and is still dropped: there is nothing
+ * to preserve it FOR.
+ */
+test("an id this build does not have survives a load and a save", () => {
+  const store: Record<string, string> = {};
+  const original = globalThis.window;
+  (globalThis as { window?: unknown }).window = {
+    localStorage: {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => { store[k] = v; },
+      removeItem: (k: string) => { delete store[k]; },
+    },
+  };
+  try {
+    const key = nativeStorageKey(PRIMARY_SCOPE);
+    store[key] = JSON.stringify([
+      { key: "a", defId: "rsi", params: {}, visible: true, styles: {} },
+      { key: "c", defId: "A_STUDY_FROM_A_NEWER_BUILD", params: { x: 1 }, visible: true, styles: {} },
+      { key: "d", params: {}, visible: true, styles: {} },
+      "junk",
+    ]);
+
+    const loaded = loadStoredNative(PRIMARY_SCOPE);
+    assert.deepEqual(loaded.map((r) => r.defId), ["rsi"],
+      "only what this build can compute is returned to the chart");
+    assert.equal(unknownStoredNative(PRIMARY_SCOPE).length, 1,
+      "and the row from the future is kept aside, unread");
+
+    saveStoredNative(loaded, PRIMARY_SCOPE);
+    const after = JSON.parse(store[key]!) as { defId?: string }[];
+    assert.ok(after.some((r) => r.defId === "A_STUDY_FROM_A_NEWER_BUILD"),
+      "a save must never be the act that deletes a study this build did not recognise");
+    assert.deepEqual(after.map((r) => r.defId),
+      ["rsi", "A_STUDY_FROM_A_NEWER_BUILD"],
+      "the malformed rows are gone; there is nothing to preserve them for");
+  } finally {
+    (globalThis as { window?: unknown }).window = original;
+  }
 });

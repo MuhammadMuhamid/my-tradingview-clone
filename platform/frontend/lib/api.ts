@@ -551,6 +551,15 @@ export interface StoredPaneState {
   native: unknown[];
   version: number;
   updatedAt: string;
+  /**
+   * Whether each half has ever been written.
+   *
+   * The two halves share one `version`, so "the row exists" stopped meaning
+   * "my half was written" the moment they were written separately. These say
+   * what the version cannot.
+   */
+  pineWritten: boolean;
+  nativeWritten: boolean;
 }
 
 /** Alert modes the MA watcher understands; mirrors backend types/maAlerts.ts. */

@@ -66,6 +66,63 @@ test("a device that has never synced still pushes its unsent edit", () => {
   assert.equal(d.action, "push", "already-imported must not mean 'discard my edit'");
 });
 
+test("one half's studies are never evidence about the other half", () => {
+  /*
+   * The seam where two waves met, and the worst defect of the programme.
+   *
+   * A pane's Pine studies and its built-in studies share one row and one
+   * version. The built-in half asked "does the server have anything for this
+   * pane" and counted BOTH lists, so three Pine scripts were proof that the
+   * built-in half had server state — it adopted the server's empty native
+   * list over the user's own studies, wrote that over localStorage, and 1.2
+   * seconds later pushed the deletion to every other device.
+   *
+   * And the mirror: once either half created the row, `serverVersion > 0` was
+   * true for the other, which read it as "the user deleted my list" — so a
+   * user's Pine studies could never leave the browser at all.
+   *
+   * `serverEverWritten` is the fact a shared concurrency token cannot carry.
+   */
+  // The Pine half synced first: three scripts stored, no built-in studies.
+  assert.deepEqual(
+    decideSync({
+      serverVersion: 1, serverCount: 0, serverEverWritten: false,
+      localCount: 2, alreadyImported: false,
+    }),
+    { action: "import", reason: "first-sync" },
+    "the built-in half must not adopt an empty list because Pine is populated");
+
+  // The built-in half synced first: the Pine half must still be able to import.
+  assert.deepEqual(
+    decideSync({
+      serverVersion: 1, serverCount: 0, serverEverWritten: false,
+      localCount: 1, alreadyImported: false,
+    }),
+    { action: "import", reason: "first-sync" });
+
+  // But a half the server HAS held and that is now empty is a deletion, and
+  // re-importing would resurrect it. This is the property that must survive.
+  assert.deepEqual(
+    decideSync({
+      serverVersion: 4, serverCount: 0, serverEverWritten: true,
+      localCount: 2, alreadyImported: false,
+    }),
+    { action: "nothing", reason: "already-imported" },
+    "a deletion the server recorded must not be undone by a device that missed it");
+});
+
+test("each half reads and writes only its own column", () => {
+  const source = fs.readFileSync(path.join(ROOT, "lib", "chartStateSync.ts"), "utf8");
+  // The count that decides `adopt` must be this half's own.
+  assert.match(source, /serverCount: server\.native\.length,\n\s*serverEverWritten: server\.nativeWritten/);
+  assert.match(source, /serverCount: server\.pine\.length,\n\s*serverEverWritten: server\.pineWritten/);
+  // And the built-in half's IMPORT must not carry a pine key at all — writing
+  // somebody else's empty list is how the Pine half's own import was pre-empted.
+  assert.doesNotMatch(source, /pine: localPine, native: localNative/,
+    "the native import must not write the Pine column");
+  assert.match(source, /native: localNative, baseVersion: server\.version/);
+});
+
 test("a populated server wins, whatever this device happens to hold", () => {
   // The second device opening for the first time. Its own localStorage may
   // have anything in it; the server's content may be the first device's work,
@@ -175,10 +232,24 @@ test("each engine writes only the half of the pane it owns", () => {
   // A writer that sends `[]` for a list it does not own deletes it. The native
   // hook sent `pine: []` on every save, and the write replaced both columns.
   const sync = fs.readFileSync(path.join(ROOT, "lib", "chartStateSync.ts"), "utf8");
-  assert.match(sync, /api\.putChartPaneStudies\(scope, \{ native, baseVersion \}\)/,
-    "the native push must not mention pine at all");
-  assert.match(sync, /api\.putChartPaneStudies\(scope, \{ pine, baseVersion \}\)/,
-    "and the pine push must not mention native");
+  /*
+   * Every call to the pane writer, and what each one carries.
+   *
+   * The property is that no call names both halves: an omitted half is left
+   * alone by the route, and a sent one is replaced. A writer that sends `[]`
+   * for a list it does not own deletes it.
+   */
+  const calls = [...sync.matchAll(/putChartPaneStudies\(scope, \{([^}]*)\}/g)]
+    .map((m) => m[1]!);
+  assert.ok(calls.length >= 2, "both halves must have a writer");
+  for (const call of calls) {
+    const mentionsPine = /\bpine\b\s*[,:]/.test(call);
+    const mentionsNative = /\bnative\b\s*[,:]/.test(call);
+    assert.ok(mentionsPine !== mentionsNative,
+      `a pane write carries exactly one half, not both: {${call.trim()}}`);
+  }
+  assert.ok(calls.some((c) => /\bnative\b\s*[,:]/.test(c)), "the built-in half is written");
+  assert.ok(calls.some((c) => /\bpine\b\s*[,:]/.test(c)), "and so is the Pine half");
 
   const native = fs.readFileSync(path.join(ROOT, "lib", "useNativeStudies.ts"), "utf8");
   assert.doesNotMatch(native, /pushPaneStudies\(scope, \[\]/,
