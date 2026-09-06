@@ -16,6 +16,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   comparePercent, compareCorrelation, compareBeta, isSelfCompare,
   DEFAULT_BENCHMARK, type CompareSeries,
@@ -141,8 +143,8 @@ test("the default benchmark is an instrument, not a suffix rule", () => {
   // silently produce a symbol that does not trade the day a second quote asset
   // or a second venue exists. A named instrument fails clearly instead.
   assert.equal(DEFAULT_BENCHMARK, "BTCUSDT");
-  const source = require("node:fs").readFileSync(
-    require("node:path").join(__dirname, "..", "lib", "compare.ts"), "utf8") as string;
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "compare.ts"), "utf8");
   assert.doesNotMatch(source, /replace\(\s*\/USDT/,
     "a benchmark derived by string surgery is not an instrument");
 });

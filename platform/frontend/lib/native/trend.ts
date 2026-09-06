@@ -18,13 +18,11 @@
  *     computed from the fit rather than from a rolling window.
  */
 import {
-  aroon, atr, envelopes, genericMa, ichimoku, kama, linregSlope, mcginley,
-  parabolicSar, rSquared, stdev, vortex,
+  aroon, envelopes, genericMa, ichimoku, kama, linregSlope, mcginley,
+  parabolicSar, vortex,
   type GenericMaType,
 } from "@/lib/ta/core";
-import type {
-  NativeParams, NativeStudyDef,
-} from "@/lib/native/registry";
+import type { NativeStudyDef } from "@/lib/native/registry";
 import { num, ohlcv, resolveSource, str, MA_TYPE_OPTIONS, sourceInput, lengthInput,
   UP, DOWN, ACCENT, AMBER, VIOLET, MUTED } from "@/lib/native/shared";
 

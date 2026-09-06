@@ -274,7 +274,7 @@ function SystemMenu({ path }: { path: string }) {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   const health = ops ? compactHealth(ops) : null;
   const tone: HealthTone = health ? health.tone : "neutral";

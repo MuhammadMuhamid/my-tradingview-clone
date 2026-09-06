@@ -18,7 +18,7 @@
  * line on the chart and the line the server alerts on were different lines.
  */
 import {
-  adx, atr, bollinger, genericMa, hl2, hlc3, macd as macdOf, obv, ohlc4,
+  adx, atr, bollinger, genericMa, macd as macdOf, obv,
   rsi, stochastic, stochasticRsi, supertrend, vwap,
   type GenericMaType,
 } from "@/lib/ta/core";

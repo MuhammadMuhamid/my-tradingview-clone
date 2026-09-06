@@ -46,8 +46,7 @@ import {
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import {
-  CATEGORY_LABELS, NATIVE_STUDIES, loadFavourites, loadRecents, searchStudies,
-  toggleFavourite,
+  CATEGORY_LABELS, loadFavourites, loadRecents, searchStudies, toggleFavourite,
 } from "@/lib/native/catalog";
 import type { NativeStudyDef } from "@/lib/native/registry";
 import type { Interval } from "@/lib/types";

@@ -244,6 +244,7 @@ export function useTradingOverlays(input: TradingOverlaysInput): TradingOverlays
     selected: selectedOverlay,
     select: setSelectedOverlayId,
     setViewport: setOverlayViewport,
-  }), [overlayPrefs, setOverlayPrefs, overlayMenuOpen, tradingOverlayData, overlaysLoading,
-    overlayError, visibleTradingOverlays, tradingMarkers, tradingPriceLines, selectedOverlay]);
+  }), [overlayPrefs, setOverlayPrefs, overlayMenuOpen, setOverlayMenuOpen, tradingOverlayData,
+    overlaysLoading, overlayError, visibleTradingOverlays, tradingMarkers, tradingPriceLines,
+    selectedOverlay]);
 }

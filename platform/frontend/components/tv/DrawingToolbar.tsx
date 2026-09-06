@@ -189,7 +189,7 @@ export function DrawingToolbar({
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
-  }, [flyout]);
+  }, [flyout, setFlyout]);
 
   const btn = (on: boolean): string =>
     `flex h-9 w-9 items-center justify-center rounded-md transition-colors ${

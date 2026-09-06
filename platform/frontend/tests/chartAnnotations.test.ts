@@ -38,7 +38,8 @@ const candles = (n: number) => Array.from({ length: n }, (_, i) => candle(i));
 const alert = (over: Partial<MaAlert> = {}): MaAlert => ({
   id: "a1", symbol: "BTCUSDT", timeframe: "1h", conditionKind: "ma",
   maType: "ema", maLength: 200, mode: "cross_up",
-} as MaAlert & typeof over);
+  ...over,
+} as unknown as MaAlert);
 
 const event = (over: Partial<MaAlertEvent> = {}): MaAlertEvent => ({
   id: 1, alertId: "a1",

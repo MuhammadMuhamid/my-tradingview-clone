@@ -67,7 +67,7 @@
  * make the row fit, and nothing decorative was added to make it look like some
  * other product.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Separator } from "@/components/ui";
 import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
 import { LayoutSelector } from "@/components/tv/LayoutSelector";
@@ -269,7 +269,7 @@ function TimeframeMenu({
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   return (
     <div ref={boxRef} className="relative shrink-0">

@@ -944,7 +944,9 @@ export default function TvWorkspace() {
     setLevelKind(null); setOscillatorKind(null); setEditingAlert(null); setArmLine(null);
     setAlertOpen(false);
     setPanel((current) => current === "indicators" || current === "watchlist" ? current : null);
-  }, [candles]);
+    // `symbol` because the Replay history is scoped to it: a session begun on
+    // one instrument must not seed another's scope.
+  }, [candles, symbol]);
 
   const exitReplay = useCallback(() => {
     setReplay(null); setReplayPickerOpen(false); setReplayDrawings([]);

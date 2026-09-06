@@ -437,11 +437,19 @@ function ChartPaneImpl(props: ChartPaneProps) {
       props.candleOverlay.snapshot, pane.symbol, pane.interval, visibleCandles, Date.now()));
   }, [replayActive, props.candleOverlay, pane.symbol, pane.interval, visibleCandles]);
 
+  /*
+   * Everything drawn ON a bar, in one list.
+   *
+   * A Pine study's own markers, whatever the workspace scoped to this pane,
+   * then the two annotations this pane computes for itself. Built from
+   * `markers` rather than from `props.markers`, because dropping the Pine
+   * half here would silently un-draw every marker a script plots.
+   */
   const paneMarkers = useMemo(
     () => (firedMarkers.length > 0 || patternMarks.length > 0
-      ? [...props.markers, ...firedMarkers, ...patternMarks]
-      : props.markers),
-    [props.markers, firedMarkers, patternMarks]);
+      ? [...markers, ...firedMarkers, ...patternMarks]
+      : markers),
+    [markers, firedMarkers, patternMarks]);
 
   const showIntervals = density === "large" || density === "medium";
   const showReadout = density !== "tiny";
