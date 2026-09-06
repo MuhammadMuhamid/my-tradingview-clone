@@ -8,8 +8,10 @@
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run build"
+    "test": "npm run test:unit && npm run test:dom",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
+    "test:unit": "node --import tsx --test tests/*.test.ts",
+    "test:dom": "node --import tsx --import ./tests/dom/harness/register.ts --test --test-timeout=120000 tests/dom/*.test.tsx"
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",
@@ -20,12 +22,17 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",
+    "jsdom": "^26.1.0",
     "postcss": "^8.5.25",
     "tailwindcss": "^3.4.6",
     "tsx": "^4.23.12",

@@ -1814,7 +1814,14 @@ export function CandleChart({
           {/* Script drawings sit under the user's own drawing layer, so the
               user's tools keep priority for clicks and hit-testing. */}
           <PineDrawingLayer
-            key={chartReady}
+            /*
+             * Namespaced, because both this layer and the user's drawing
+             * canvas remount when the chart is rebuilt and both used the bare
+             * `chartReady` counter. Two siblings with the same key is
+             * explicitly unsupported by React, which warned about it on every
+             * render and reserved the right to duplicate or omit either one.
+             */
+            key={`pine-${chartReady}`}
             container={containerRef.current}
             chart={chartRef.current}
             series={seriesRef.current}
@@ -1824,7 +1831,7 @@ export function CandleChart({
           <PineTables drawings={pineDrawings ?? null} />
           {drawings && onDrawingsChange && (
             <DrawingCanvas
-              key={chartReady}
+              key={`draw-${chartReady}`}
               container={containerRef.current}
               chart={chartRef.current}
               series={seriesRef.current}

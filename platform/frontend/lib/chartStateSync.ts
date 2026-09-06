@@ -279,7 +279,11 @@ export async function pushDrawings(
   saveDrawings(symbol, drawings);
   try {
     const saved = await api.putChartDrawings(symbol, drawings, baseVersion);
-    const conflicted = saved.version !== baseVersion + 1;
+    // The server's own answer, not arithmetic over the version. A first write
+    // refused because the row already exists comes back at version 1 with
+    // `baseVersion` 0, and 0 + 1 is 1 — so the refusal used to be
+    // indistinguishable from success, and the edit was silently not saved.
+    const { conflicted } = saved;
     const next = saved.drawings as Drawing[];
     if (conflicted) saveDrawings(symbol, next);
     return { drawings: next, version: saved.version, conflicted, offline: false };
@@ -394,10 +398,29 @@ export async function pushPaneStudies(
      * thing that deletes a newer one's study from the shared row — the same
      * loss `saveStoredNative` now prevents on disk, one layer out.
      */
-    const saved = await api.putChartPaneStudies(scope, {
-      native: [...native, ...unknownStoredNative(scope)], baseVersion,
-    });
-    const conflicted = saved.version !== baseVersion + 1;
+    const payload = [...native, ...unknownStoredNative(scope)];
+    let saved = await api.putChartPaneStudies(scope, { native: payload, baseVersion });
+    /*
+     * ── A conflict that is not this half's conflict ────────────────────────
+     *
+     * The status is the only thing that knows whether the write landed (see
+     * `pushDrawings`), and for a PANE there are two writers on one row. The
+     * first study of each kind is saved a moment apart, so the second one
+     * arrives with `baseVersion: 0` — "I believe nothing is stored" — and
+     * meets a row the OTHER half has just created. The server is right to
+     * refuse it, and adopting the refusal would throw away the study the user
+     * has just applied: the server's copy of this half is empty because this
+     * half has never been written, not because anybody deleted anything.
+     *
+     * `nativeWritten` is what distinguishes those two, and it is already in
+     * the 409 body. So: refused, and the server has never held this half —
+     * write again against the version it just reported. Once, and only in that
+     * case; a genuine conflict with another device's edit still adopts.
+     */
+    if (saved.conflicted && !saved.nativeWritten) {
+      saved = await api.putChartPaneStudies(scope, { native: payload, baseVersion: saved.version });
+    }
+    const { conflicted } = saved;
     const next = saved.native as StoredNativeStudy[];
     if (conflicted) saveStoredNative(next, scope);
     return { native: next, version: saved.version, conflicted, offline: false };
@@ -470,8 +493,13 @@ export async function pushPanePine(
   scope: string, pine: unknown[], baseVersion: number
 ): Promise<{ pine: unknown[]; version: number; conflicted: boolean; offline: boolean }> {
   try {
-    const saved = await api.putChartPaneStudies(scope, { pine, baseVersion });
-    const conflicted = saved.version !== baseVersion + 1;
+    let saved = await api.putChartPaneStudies(scope, { pine, baseVersion });
+    // The mirror of `pushPaneStudies`: a first write refused because the
+    // BUILT-IN half created the row is not a conflict about Pine studies.
+    if (saved.conflicted && !saved.pineWritten) {
+      saved = await api.putChartPaneStudies(scope, { pine, baseVersion: saved.version });
+    }
+    const { conflicted } = saved;
     return { pine: saved.pine, version: saved.version, conflicted, offline: false };
   } catch {
     return { pine, version: baseVersion, conflicted: false, offline: true };

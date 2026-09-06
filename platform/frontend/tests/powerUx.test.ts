@@ -709,74 +709,30 @@ test("two menus cannot collide on an id", () => {
   }
 });
 
-test("a drawing's add-alert reads the drawing's level, not the pointer's price", () => {
-  // The two are separate `case` labels in separate switches. If they were ever
-  // merged again, the drawing branch would become unreachable exactly as before.
-  const chartCase = CHART_PAGE.indexOf('case "chart:add-alert"');
-  const drawingCase = CHART_PAGE.indexOf('case "drawing:add-alert"');
-  assert.ok(chartCase > 0 && drawingCase > chartCase);
-  const branch = CHART_PAGE.slice(drawingCase, drawingCase + 400);
-  assert.match(branch, /target\.points\[0\]\?\.price/,
-    "the drawing's own anchor is what the alert must be armed on");
-});
-
-// ── typed intervals, as a real key sequence ────────────────────────────────
-
-/**
- * The hook's decision, reproduced.
+/*
+ * "a drawing's add-alert reads the drawing's level, not the pointer's price"
+ * used to be here, as two `indexOf` calls over the chart page checking that
+ * one `case` label came after another. It could not see whether either branch
+ * ran, and it would have passed on a build where the drawing branch was
+ * unreachable for a different reason.
  *
- * `useShortcuts` cannot be exercised without a DOM, but the ORDER in which it
- * consults the buffer and the table is the whole defect: `h` and `m` are bound
- * to the horizontal-line tool and the magnet, and resolving the table first
- * made `4h` and `15m` — two of the most-used intervals on any chart — silently
- * impossible to type. This mirrors that order exactly, so a regression here
- * fails rather than shipping as a mysterious tool change.
+ * It is now `tests/dom/contextMenu.test.tsx`, which places a horizontal line,
+ * right-clicks four pixels off it, and reads the level the alert dialog was
+ * actually pre-filled with.
  */
-function typeKeys(keys: string[]): { interval: string | null; actions: string[] } {
-  let buffer = EMPTY_INTERVAL_BUFFER;
-  const actions: string[] = [];
-  let interval: string | null = null;
-  const now = 1_000_000;
-  for (const k of keys) {
-    if (k === "Enter") {
-      interval = resolveTypedInterval(buffer, INTERVAL_VALUES, now);
-      buffer = EMPTY_INTERVAL_BUFFER;
-      continue;
-    }
-    // The buffer wins while it is open — the fix.
-    if (buffer.text.length > 0) {
-      const next = appendIntervalKey(buffer, k, now);
-      if (next !== buffer) { buffer = next; continue; }
-    }
-    const action = resolveShortcut(key({ key: k }), CONTEXT);
-    if (action) { actions.push(action); buffer = EMPTY_INTERVAL_BUFFER; continue; }
-    buffer = appendIntervalKey(buffer, k, now);
-  }
-  return { interval, actions };
-}
 
-test("an interval with a unit letter can actually be typed", () => {
-  assert.deepEqual(typeKeys(["4", "h", "Enter"]), { interval: "4h", actions: [] });
-  assert.deepEqual(typeKeys(["1", "5", "m", "Enter"]), { interval: "15m", actions: [] });
-  assert.deepEqual(typeKeys(["1", "d", "Enter"]), { interval: "1d", actions: [] });
-  // A bare number still means minutes, and 60 still means an hour.
-  assert.equal(typeKeys(["1", "5", "Enter"]).interval, "15m");
-  assert.equal(typeKeys(["6", "0", "Enter"]).interval, "1h");
-});
-
-test("a bare unit letter is still its tool, because no interval is being typed", () => {
-  assert.deepEqual(typeKeys(["h"]), { interval: null, actions: ["tool:horizontal"] });
-  assert.deepEqual(typeKeys(["m"]), { interval: null, actions: ["magnet"] });
-  assert.deepEqual(typeKeys(["t"]), { interval: null, actions: ["tool:trend"] });
-});
-
-test("a tool key that cannot continue an interval still clears the buffer", () => {
-  // `1`, `5`, `t`: `t` is not an interval unit, so it arms the trend tool and
-  // the half-typed 15 must not be left waiting behind it.
-  const { interval, actions } = typeKeys(["1", "5", "t", "Enter"]);
-  assert.deepEqual(actions, ["tool:trend"]);
-  assert.equal(interval, null);
-});
+// ── typed intervals ───────────────────────────────────────────
+//
+// Three tests used to live here that reproduced `useShortcuts`' decision order
+// by hand — a buffer, a table, and the rule that the buffer wins while it is
+// open — because the hook could not run without a DOM. That mirror was a test
+// of the mirror: it would have kept passing on a build where the hook stopped
+// consulting the buffer first, which is the exact defect it existed to catch.
+// (`4h` and `15m` became untypable, and typing them silently armed a tool.)
+//
+// The hook is now pressed for real, at the real page, in
+// `tests/dom/keyboard.test.tsx`. The pure table it consults is still tested
+// above.
 
 // ── the shortcuts sheet is reachable ───────────────────────────────────────
 

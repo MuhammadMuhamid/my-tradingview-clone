@@ -518,15 +518,32 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
  * stored, and that body is exactly what the caller needs. Routing it through
  * `req` would turn "here is what is true" into `Error: 409 Conflict` and force
  * a second round trip to learn something the server already said.
+ *
+ * ── Why `conflicted` is carried out of here ────────────────────────────────
+ *
+ * Because the caller cannot work it out. It used to infer the refusal from
+ * arithmetic — "my write landed if the version came back as the one I sent
+ * plus one" — and that is true except in the case it was most needed: a FIRST
+ * write, `baseVersion: 0`, refused because the row already existed at version
+ * 1. Zero plus one is one, so a refusal looked exactly like a success, and the
+ * study or drawing the user had just added was reported saved and was not on
+ * the server at all. Two panes reach that state on any pane whose two halves
+ * are first written a moment apart. The status code is the only thing that
+ * actually knows, so the status code is what travels.
  */
-async function reqAcceptingConflict<T>(path: string, body: unknown): Promise<T> {
+async function reqAcceptingConflict<T>(
+  path: string, body: unknown
+): Promise<T & { conflicted: boolean }> {
   const res = await fetch(path, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
   });
-  if (res.ok || res.status === 409) return res.json() as Promise<T>;
+  if (res.ok || res.status === 409) {
+    const payload = (await res.json()) as T;
+    return { ...payload, conflicted: res.status === 409 };
+  }
   let msg = `${res.status} ${res.statusText}`;
   try {
     const parsed = (await res.json()) as { error?: string };

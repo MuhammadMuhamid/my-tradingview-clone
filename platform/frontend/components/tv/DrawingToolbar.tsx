@@ -199,6 +199,7 @@ export function DrawingToolbar({
   return (
     <div
       ref={railRef}
+      data-drawing-rail="true"
       className={`relative flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-border bg-surface py-2 ${
         // Floating: scrolls independently and casts a shadow so it reads as a
         // layer above the chart rather than part of it.
@@ -225,6 +226,14 @@ export function DrawingToolbar({
               onClick={() => onTool(current.tool)}
               onContextMenu={(e) => { e.preventDefault(); if (group.tools.length > 1) setFlyout(group.id); }}
               className={btn(groupOn)}
+              /*
+               * A tool button is a toggle, and until now the only thing that
+               * said which one was armed was a colour. That is invisible to a
+               * screen reader and to anything that is not a human eye — the
+               * timeframe strip has said `aria-pressed` all along, and this is
+               * the same control in a different rail.
+               */
+              aria-pressed={groupOn}
               title={current.label}
             >
               <Icon name={current.icon} />

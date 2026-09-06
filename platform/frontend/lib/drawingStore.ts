@@ -45,7 +45,7 @@ class DrawingStore {
   private readonly cache = new Map<string, Drawing[]>();
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly dirty = new Set<string>();
-  private readonly history = new DrawingHistory();
+  private history = new DrawingHistory();
   private readonly editListeners = new Set<EditListener>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private hideHandlerAttached = false;
@@ -184,6 +184,28 @@ class DrawingStore {
   adopt(symbol: string, drawings: Drawing[]): void {
     this.history.reset(symbol, drawings);
     this.write(symbol, drawings);
+  }
+
+  /**
+   * Forget every in-memory list and the whole undo history.
+   *
+   * The store is a module singleton — one per browser tab, which is what the
+   * product wants and what makes a shared authority possible. A test process
+   * loads the module once too, so without this the second test in a file would
+   * start with the first one's drawings already cached, and a Cmd+Z would
+   * reach an edit made by a chart that is no longer on screen. Subscriptions
+   * are deliberately left alone: they belong to whatever is currently mounted.
+   *
+   * `candleHistory.reset` and `resetTailRepairs` exist for the same reason.
+   */
+  resetAll(): void {
+    this.cache.clear();
+    this.dirty.clear();
+    if (this.flushTimer !== null) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.history = new DrawingHistory();
   }
 
   private write(symbol: string, drawings: Drawing[]): void {

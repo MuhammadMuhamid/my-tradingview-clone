@@ -274,16 +274,30 @@ test("no failure path clears local state", () => {
   assert.match(source, /return \{\s*drawings: local, version: 0, offline: true,/);
 });
 
-test("a conflict is adopted rather than retried", () => {
-  // The server's 409 body IS the current state. Writing again against the
-  // version that was just refused would loop, and forcing the local list back
-  // over it would undo whatever the other device did.
+test("a refused write is recognised from the status, not from arithmetic", () => {
+  /*
+   * This assertion used to read the opposite thing, and the opposite thing was
+   * wrong: `saved.version !== baseVersion + 1` cannot see a FIRST write —
+   * `baseVersion: 0` — refused because the row already exists at version 1,
+   * because 0 + 1 is 1. A pane's two halves are first written a moment apart,
+   * so the second one hit that case every time and reported a save that had
+   * not happened. `tests/dom/studies.test.tsx` is what found it, by adding a
+   * Pine study and a built-in study to one pane and then asking the server
+   * what it held.
+   *
+   * The behaviour now lives in the DOM tests, which exercise it. What is left
+   * here is the structural half: a 409 must reach the caller as a body, and
+   * the flag it carries must be the one the callers read.
+   */
   assert.match(source, /conflicted\)\s*saveDrawings\(symbol, next\)/);
-  assert.match(source, /const conflicted = saved\.version !== baseVersion \+ 1/);
+  assert.doesNotMatch(source, /saved\.version !== baseVersion \+ 1/,
+    "a version coincidence is not evidence that a write landed");
+  assert.equal((source.match(/const \{ conflicted \} = saved;/g) ?? []).length, 3,
+    "all three push paths must read the server's own answer");
 
   const api = fs.readFileSync(path.join(ROOT, "lib", "api.ts"), "utf8");
-  assert.match(api, /if \(res\.ok \|\| res\.status === 409\) return res\.json\(\)/,
-    "a 409 must reach the caller as a body, not as an Error");
+  assert.match(api, /conflicted: res\.status === 409/,
+    "a 409 must reach the caller as a body that says it was a 409");
 });
 
 test("the import log is per instrument and per pane, not one global flag", () => {
