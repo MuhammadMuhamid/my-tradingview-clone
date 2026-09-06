@@ -22,7 +22,7 @@
  */
 import {
   buildZones, DEFAULT_SR_OPTIONS, isPivotType, pivotLevels, swingPoints,
-  zonesAsOf, type PivotType,
+  zonesAsOfSeries, type PivotType,
 } from "@/lib/ta/core";
 import type { NativeStudyDef } from "@/lib/native/registry";
 import { INTERVAL_MS, type Candle } from "@/lib/types";
@@ -249,8 +249,18 @@ export const srZonesStudy: NativeStudyDef = {
     for (const id of [...ids.resistance, ...ids.support]) {
       plots[id] = new Array<number>(n).fill(NaN);
     }
+    /*
+     * One forward walk, not one query per bar.
+     *
+     * `zonesAsOf` in a loop is quadratic — a full filter and sort over every
+     * zone the series ever produced, for every bar — which measured 53 ms per
+     * tick at ten thousand bars and grew super-linearly past that.
+     * `zonesAsOfSeries` carries the live set forward instead, and returns
+     * exactly what the loop did.
+     */
+    const liveByBar = zonesAsOfSeries(zones, n, options);
     for (let i = 0; i < n; i++) {
-      const live = zonesAsOf(zones, i, options);
+      const live = liveByBar[i]!;
       const above = live.filter((z) => z.kind === "resistance" && z.price >= close[i]!)
         .sort((a, b) => a.price - b.price);
       const below = live.filter((z) => z.kind === "support" && z.price <= close[i]!)

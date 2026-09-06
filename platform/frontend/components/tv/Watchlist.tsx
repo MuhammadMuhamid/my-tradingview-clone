@@ -158,9 +158,24 @@ export function Watchlist({
   /** The row being dragged, in the manual order. Null when nothing is. */
   const [dragging, setDragging] = useState<string | null>(null);
 
-  const moveSymbol = (symbol: string, toIndex: number): void => {
-    if (!canReorder(sort)) return;
-    updateActive((l) => ({ ...l, symbols: reorderSymbols(l.symbols, symbol, toIndex) }));
+  /**
+   * Drop `symbol` onto the row currently occupied by `onto`.
+   *
+   * By SYMBOL rather than by index, because the two lists are not the same
+   * length: a symbol the catalog does not have — delisted, or a catalog still
+   * loading — is dropped from the view and kept in the stored list. A visible
+   * index applied to the stored array therefore lands somewhere else, and the
+   * drag either does nothing or moves the row one slot off. Both are the
+   * "drag looks broken" failure `canReorder` exists to prevent, reached by a
+   * different route.
+   */
+  const moveSymbolOnto = (symbol: string, onto: string): void => {
+    if (!canReorder(sort) || symbol === onto) return;
+    updateActive((l) => {
+      const target = l.symbols.indexOf(onto);
+      if (target < 0) return l;
+      return { ...l, symbols: reorderSymbols(l.symbols, symbol, target) };
+    });
   };
   const streamWords = describeStreamState(stream);
   /*
@@ -311,11 +326,10 @@ export function Watchlist({
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {visibleSymbols.length === 0 && <div className="px-4 py-8 text-center text-xs text-ink-faint">This watchlist is empty.<br />Add a USDT pair above.</div>}
-        {visibleSymbols.map((s, index) => {
+        {visibleSymbols.map((s) => {
           const selectedRow = s.symbol === selected;
           const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
           const up = t ? t.chgPct >= 0 : true;
-          const position = index;
           return <div key={s.symbol}
             draggable={canReorder(sort)}
             onDragStart={(e) => {
@@ -329,7 +343,7 @@ export function Watchlist({
             onDrop={(e) => {
               if (!canReorder(sort) || !dragging) return;
               e.preventDefault();
-              moveSymbol(dragging, position);
+              moveSymbolOnto(dragging, s.symbol);
               setDragging(null);
             }}
             onDragEnd={() => setDragging(null)}

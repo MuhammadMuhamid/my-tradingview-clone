@@ -2289,6 +2289,60 @@ export function zonesAsOf(
 }
 
 /**
+ * The live zones at EVERY bar, in one forward walk.
+ *
+ * `zonesAsOf` answers the question for one bar, and answering it in a loop is
+ * quadratic: a full `filter` plus a `sort` over every zone the series ever
+ * produced, for every bar, re-derived from scratch on each tick. At the
+ * product's default ten thousand bars that measured 53 ms per tick — several
+ * dropped frames a second while a tick stream is live — and it grew
+ * super-linearly beyond that.
+ *
+ * The observation that removes it: as the bar index advances, the live set
+ * only gains zones (at their confirmation bar) and loses zones (at the bar
+ * they break on). So it can be carried forward instead of rebuilt, and the
+ * per-bar cost becomes the cap rather than the history.
+ *
+ * The output is deliberately identical to calling `zonesAsOf` per bar,
+ * including the newest-first ordering and the `maxZones * 2` cap — the caller
+ * is choosing which levels to DRAW, and a different set would be a different
+ * chart, not a faster one.
+ */
+export function zonesAsOfSeries(
+  zones: readonly Zone[], barCount: number, opts: SrOptions = DEFAULT_SR_OPTIONS
+): Zone[][] {
+  const cap = Math.max(0, opts.maxZones * 2);
+  const out: Zone[][] = new Array(barCount);
+  if (barCount <= 0) return out;
+
+  // Confirmations grouped by the bar they happen on, so a bar's arrivals are
+  // added as a batch — `zonesAsOf`'s sort is stable, so zones confirmed on the
+  // same bar keep the order `buildZones` produced them in.
+  const arriving = new Map<number, Zone[]>();
+  for (const zone of zones) {
+    if (zone.brokenIndex !== null && zone.brokenIndex <= zone.confirmedIndex) continue;
+    const at = zone.confirmedIndex;
+    if (at >= barCount) continue;
+    const batch = arriving.get(at);
+    if (batch) batch.push(zone); else arriving.set(at, [zone]);
+  }
+
+  // Newest first, which is the order `zonesAsOf` sorts into.
+  let live: Zone[] = [];
+  for (let i = 0; i < barCount; i++) {
+    const born = arriving.get(i);
+    if (born) live = [...born].reverse().concat(live);
+    // A zone that broke on an earlier bar is not live at this one:
+    // `zonesAsOf` keeps only `brokenIndex === null || brokenIndex > index`.
+    if (live.some((z) => z.brokenIndex !== null && z.brokenIndex <= i)) {
+      live = live.filter((z) => z.brokenIndex === null || z.brokenIndex > i);
+    }
+    out[i] = live.length > cap ? live.slice(0, cap) : live;
+  }
+  return out;
+}
+
+/**
  * The nearest live support at or below `price`, and the nearest live
  * resistance at or above it.
  *

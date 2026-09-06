@@ -183,23 +183,50 @@ export async function listPaneStudies(): Promise<PaneStudyState[]> {
   return rows.map(toStudyState);
 }
 
+/**
+ * Replace one pane's studies, if `baseVersion` is still current.
+ *
+ * ── Why either half may be omitted ─────────────────────────────────────────
+ *
+ * A pane's Pine studies and its built-in studies are one row, because they are
+ * one list to the user and writing them separately would let a save land half
+ * applied. But they are owned by two different hooks, and a writer that has
+ * nothing to say about the other half must not be able to erase it: passing
+ * `undefined` leaves that column exactly as it is.
+ *
+ * This is not a convenience. The native hook sent `pine: []` on every save,
+ * and the write replaced both columns — so the moment Pine studies were also
+ * persisted, every native edit would have silently deleted them. An omitted
+ * half is `COALESCE`d to the stored one in SQL, so the guarantee holds even
+ * for a caller that has not read this comment.
+ *
+ * Both halves still share one version, so two writers race the same way two
+ * devices do: the second one conflicts, re-reads, and writes again.
+ */
 export async function putPaneStudies(
-  scope: string, pine: unknown[], native: unknown[], baseVersion: number
+  scope: string,
+  pine: unknown[] | undefined,
+  native: unknown[] | undefined,
+  baseVersion: number
 ): Promise<PaneStudyState | VersionConflict<PaneStudyState>> {
   const id = assertScope(scope);
-  if (!Array.isArray(pine) || !Array.isArray(native)) {
-    throw new Error("pine and native must both be lists");
+  if (pine !== undefined && !Array.isArray(pine)) throw new Error("pine must be a list");
+  if (native !== undefined && !Array.isArray(native)) throw new Error("native must be a list");
+  if (pine === undefined && native === undefined) {
+    throw new Error("a write must carry pine, native, or both");
   }
-  if (pine.length + native.length > MAX_ITEMS) {
+  if ((pine?.length ?? 0) + (native?.length ?? 0) > MAX_ITEMS) {
     throw new Error(`a pane may hold at most ${MAX_ITEMS} studies`);
   }
-  const pinePayload = JSON.stringify(pine);
-  const nativePayload = JSON.stringify(native);
+  const pinePayload = pine === undefined ? null : JSON.stringify(pine);
+  const nativePayload = native === undefined ? null : JSON.stringify(native);
 
   if (baseVersion <= 0) {
+    // First write. An omitted half starts empty, because there is no stored
+    // value to leave alone.
     const { rows } = await query<StudyRow>(
       `INSERT INTO chart_pane_studies (scope, pine, native, version)
-       VALUES ($1, $2::jsonb, $3::jsonb, 1)
+       VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '[]'::jsonb), 1)
        ON CONFLICT (scope) DO NOTHING
        RETURNING *`,
       [id, pinePayload, nativePayload]
@@ -210,7 +237,8 @@ export async function putPaneStudies(
 
   const { rows } = await query<StudyRow>(
     `UPDATE chart_pane_studies
-        SET pine = $2::jsonb, native = $3::jsonb,
+        SET pine = COALESCE($2::jsonb, pine),
+            native = COALESCE($3::jsonb, native),
             version = version + 1, updated_at = now()
       WHERE scope = $1 AND version = $4
       RETURNING *`,

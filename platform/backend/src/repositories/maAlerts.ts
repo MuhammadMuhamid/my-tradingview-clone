@@ -618,12 +618,42 @@ interface DbEvent {
   intrabar: boolean; frequency: AlertFrequency | null;
 }
 
-export async function listEvents(limit = 100): Promise<MaAlertEventRow[]> {
+/**
+ * The newest delivered events, optionally for one instrument and timeframe.
+ *
+ * The filter matters for the chart's fired-alert marks. Without it this is the
+ * newest N events across EVERY alert on the account, so a user with busy
+ * alerts elsewhere pushes this chart's events out of the window — and the
+ * chart, seeing none, was stating that none had fired. That is a negative the
+ * client cannot know. Filtering in SQL makes "the newest 200 for this chart"
+ * true, so the absence of a mark means what the copy says it means.
+ *
+ * The join is on the alert rather than on a column of the event, because an
+ * event records what fired, not what it was armed on; the alert owns that.
+ */
+export async function listEvents(
+  limit = 100, scope?: { symbol: string; timeframe: string }
+): Promise<MaAlertEventRow[]> {
+  if (scope) {
+    const { rows } = await query<DbEvent>(
+      `SELECT e.* FROM ma_alert_events e
+         JOIN ma_alerts a ON a.id = e.alert_id
+        WHERE upper(a.symbol) = upper($2) AND a.timeframe = $3
+        ORDER BY e.fired_at DESC
+        LIMIT $1`,
+      [Math.min(Math.max(limit, 1), 500), scope.symbol, scope.timeframe]
+    );
+    return rows.map(toEventRow);
+  }
   const { rows } = await query<DbEvent>(
     "SELECT * FROM ma_alert_events ORDER BY fired_at DESC LIMIT $1",
     [Math.min(Math.max(limit, 1), 500)]
   );
-  return rows.map((r) => ({
+  return rows.map(toEventRow);
+}
+
+function toEventRow(r: DbEvent): MaAlertEventRow {
+  return {
     id: Number(r.id),
     alertId: r.alert_id,
     firedAt: r.fired_at.toISOString(),
@@ -639,5 +669,5 @@ export async function listEvents(limit = 100): Promise<MaAlertEventRow[]> {
     deliveryStatus: r.delivery_status,
     intrabar: r.intrabar,
     frequency: r.frequency,
-  }));
+  };
 }

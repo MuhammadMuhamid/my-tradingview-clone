@@ -1252,7 +1252,23 @@ export const api = {
     req<BulkAlertResult>("/api/ma-alerts/bulk", {
       method: "POST", body: JSON.stringify({ action, ids }),
     }),
-  maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),
+  /**
+   * Delivered alert events, optionally scoped to one chart.
+   *
+   * Pass both `symbol` and `timeframe` or neither: a symbol alone would return
+   * a 1h alert's events to a 1m chart. Scoping matters for the chart's marks —
+   * unscoped, this is the newest N across every alert on the account, so busy
+   * alerts elsewhere hide this chart's and the absence of a mark stops meaning
+   * anything.
+   */
+  maAlertEvents: (limit = 100, scope?: { symbol: string; timeframe: string }) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (scope) {
+      query.set("symbol", scope.symbol);
+      query.set("timeframe", scope.timeframe);
+    }
+    return req<MaAlertEvent[]>(`/api/ma-alerts/events?${query.toString()}`);
+  },
 
   // watchlists (server-side, so the same lists appear on the phone)
   // chart state (drawings and applied studies, so a second device sees them)
@@ -1263,11 +1279,19 @@ export const api = {
       `/api/chart-state/drawings/${encodeURIComponent(symbol)}`, { drawings, baseVersion }),
   getChartPaneStudies: (scope: string) =>
     req<StoredPaneState>(`/api/chart-state/panes/${encodeURIComponent(scope)}`),
+  /**
+   * Write one pane's studies. An OMITTED half is left as the server has it.
+   *
+   * The two halves are owned by two different hooks, and a writer that has
+   * nothing to say about the other must not erase it — sending `pine: []` from
+   * the native hook is precisely how a pane's Pine studies got deleted.
+   */
   putChartPaneStudies: (
-    scope: string, pine: unknown[], native: unknown[], baseVersion: number
+    scope: string,
+    body: { pine?: unknown[]; native?: unknown[]; baseVersion: number }
   ) =>
     reqAcceptingConflict<StoredPaneState>(
-      `/api/chart-state/panes/${encodeURIComponent(scope)}`, { pine, native, baseVersion }),
+      `/api/chart-state/panes/${encodeURIComponent(scope)}`, body),
   listChartPanes: () => req<StoredPaneState[]>("/api/chart-state/panes"),
 
   listWatchlists: () => req<ServerWatchlist[]>("/api/watchlists"),

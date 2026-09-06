@@ -44,7 +44,7 @@ export const AVWAP_TOOL = "avwap";
 export type AvwapBands = 0 | 1 | 2;
 
 export function avwapBands(drawing: Drawing): AvwapBands {
-  const bands = (drawing.style as { bands?: number }).bands;
+  const bands = drawing.style.bands;
   return bands === 1 ? 1 : bands === 2 ? 2 : 0;
 }
 

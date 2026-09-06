@@ -47,6 +47,15 @@ export interface DrawingStyle {
   /** shapes: translucent interior */
   filled?: boolean;
   text?: string;
+  /**
+   * Anchored VWAP: how many standard-deviation bands to draw either side.
+   *
+   * Declared here rather than read through a cast, because a property the
+   * style type does not admit is a property nothing can WRITE: `applyStyle` is
+   * `Partial<DrawingStyle>`, so the control could never have set it and the
+   * bands were unreachable for every drawing a user could create.
+   */
+  bands?: 0 | 1 | 2;
 }
 
 export interface Drawing {

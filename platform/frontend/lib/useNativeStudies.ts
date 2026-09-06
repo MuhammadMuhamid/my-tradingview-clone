@@ -159,7 +159,9 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
       void (async () => {
-        const result = await pushPaneStudies(scope, [], list, version.current);
+        // Only the built-in half. The Pine half belongs to `useIndicators`,
+        // and sending `[]` for it would delete this pane's Pine studies.
+        const result = await pushPaneStudies(scope, list, version.current);
         version.current = result.version;
         // Another device wrote first: its list is the truth now.
         if (result.conflicted) setList(result.native.map((s) => ({ ...s })));

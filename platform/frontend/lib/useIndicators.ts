@@ -16,9 +16,10 @@ import type { PineDrawings } from "@/lib/api";
 import type { Interval, Trade } from "@/lib/types";
 import {
   NO_DRAWINGS, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput, loadStored, newKey,
-  runIndicator, saveStored,
+  runIndicator, saveStored, storable,
   type AppliedIndicator, type PineParams,
 } from "@/lib/indicators";
+import { pushPanePine, syncPanePine } from "@/lib/chartStateSync";
 
 export interface IndicatorContext {
   symbol: string;
@@ -51,25 +52,71 @@ export function useIndicators(ctx: IndicatorContext) {
   /** keys whose inputs changed and therefore need a re-run */
   const [dirtyKeys, setDirtyKeys] = useState<string[]>([]);
 
-  // Restore the previous session's studies once, on mount, then queue them —
-  // stored rows carry no run output, so each needs a first run to draw.
+  /*
+   * Restore once, on mount, from local storage AND from the server.
+   *
+   * Local first and synchronously, so the pane paints what the user had
+   * without waiting for a request — and because that is the answer if the
+   * server cannot be reached. The remote reconciliation lands after and only
+   * replaces the list when the server actually holds Pine studies;
+   * `syncPanePine` owns that decision.
+   *
+   * Stored rows carry no run output, so each restored study needs a first run
+   * to draw — whichever side it came from.
+   */
   useEffect(() => {
-    const restored = loadStored(scope).map(hydrate);
-    if (restored.length === 0) return;
-    setList(restored);
-    setDirtyKeys(restored.map((i) => i.key));
+    const local = loadStored(scope);
+    if (local.length > 0) {
+      const restored = local.map(hydrate);
+      setList(restored);
+      setDirtyKeys(restored.map((i) => i.key));
+    }
+    let live = true;
+    void (async () => {
+      const result = await syncPanePine(scope, local);
+      if (!live) return;
+      version.current = result.version;
+      if (result.decision.action !== "adopt") return;
+      // A row written by a newer build may name things this one cannot run;
+      // `hydrate` is total and each row stands or falls on its own.
+      const adopted = result.pine.filter(
+        (row) => row && typeof (row as { source?: unknown }).source === "string");
+      const hydrated = adopted.map(hydrate);
+      setList(hydrated);
+      setDirtyKeys(hydrated.map((i) => i.key));
+    })();
+    return () => { live = false; };
     // Restoring is a mount-time act for one pane; the scope cannot change
     // under a mounted pane, because a pane's id is its identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** The server version this pane's Pine half is written against. */
+  const version = useRef(0);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Skip the first pass: on mount `list` is still empty while the restore
   // effect is landing, and saving there would wipe the stored studies.
   const restored = useRef(false);
   useEffect(() => {
     if (!restored.current) { restored.current = true; return; }
+    // Local storage immediately — the pane must survive a reload even offline.
     saveStored(list, scope);
+    /*
+     * The server after a pause, and only this pane's PINE half: the built-in
+     * half belongs to `useNativeStudies`, and a writer that sends a list it
+     * does not own deletes it.
+     */
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      void (async () => {
+        const result = await pushPanePine(scope, storable(list), version.current);
+        version.current = result.version;
+      })();
+    }, 1_200);
   }, [list, scope]);
+
+  useEffect(() => () => { if (pushTimer.current) clearTimeout(pushTimer.current); }, []);
 
   /** Replace one instance in place, ignoring stale results for removed rows. */
   const settle = useCallback((next: AppliedIndicator, token: number, version: number) => {

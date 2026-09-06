@@ -109,3 +109,50 @@ test("a stale write answers 409 with the CURRENT state, not with an error", () =
   // an existing row rather than flatten it.
   assert.match(route, /Number\.isFinite\(n\) && n > 0 \? Math\.floor\(n\) : 0/);
 });
+
+// ── each engine writes only its own half ───────────────────────────────────
+
+/**
+ * The defect this closes.
+ *
+ * A pane's Pine studies and its built-in studies share one row, because they
+ * are one list to the user. But they are owned by two different hooks, and the
+ * write replaced BOTH columns — so the native hook, which sent `pine: []` on
+ * every save, would have deleted every Pine study on the pane the moment Pine
+ * studies were also persisted.
+ *
+ * The guarantee is in SQL rather than in the caller: an omitted half is
+ * `COALESCE`d to the stored value, so it holds even for a writer that has not
+ * read the comment explaining why it should.
+ */
+test("an omitted half is COALESCEd to what is stored, not to empty", () => {
+  const repo = fs.readFileSync(
+    path.join(__dirname, "..", "src", "repositories", "chartState.ts"), "utf8");
+  assert.match(repo, /SET pine = COALESCE\(\$2::jsonb, pine\)/);
+  assert.match(repo, /native = COALESCE\(\$3::jsonb, native\)/);
+  // On a FIRST write there is nothing to preserve, so an omitted half starts
+  // empty rather than null — the column is NOT NULL and a list by constraint.
+  assert.match(repo, /VALUES \(\$1, COALESCE\(\$2::jsonb, '\[\]'::jsonb\), COALESCE\(\$3::jsonb, '\[\]'::jsonb\), 1\)/);
+});
+
+test("a write that carries neither half is refused rather than clearing the row", () => {
+  const repo = fs.readFileSync(
+    path.join(__dirname, "..", "src", "repositories", "chartState.ts"), "utf8");
+  assert.match(repo, /a write must carry pine, native, or both/);
+  const route = fs.readFileSync(
+    path.join(__dirname, "..", "src", "api", "routes", "chartState.ts"), "utf8");
+  // The route refuses it too, so the 400 names the problem instead of a
+  // generic "invalid pane scope" from the repository's throw.
+  assert.match(route, /b\?\.pine === undefined && b\?\.native === undefined/);
+});
+
+test("both halves still share one version, so two writers conflict like two devices", () => {
+  // Not two independent versions: the row is written whole, and a second
+  // writer that raced must re-read rather than silently interleave.
+  assert.equal((flat.match(/version bigint NOT NULL DEFAULT 1/g) ?? []).length, 2,
+    "one version per ROW, and there are two tables");
+  const repo = fs.readFileSync(
+    path.join(__dirname, "..", "src", "repositories", "chartState.ts"), "utf8");
+  assert.match(repo, /WHERE scope = \$1 AND version = \$4/,
+    "a half-write is still guarded by the whole row's version");
+});

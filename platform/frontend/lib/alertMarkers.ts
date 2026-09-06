@@ -134,13 +134,26 @@ export function alertEventMarkers(placed: readonly PlacedAlertEvent[]): ChartMar
  * What the reader is owed about these marks, or null.
  *
  * The absence of marks in the past is the thing most likely to be misread, so
- * it is the thing said out loud.
+ * it is the thing said out loud — but only as far as the client can actually
+ * see. The events are the newest N the server holds FOR THIS CHART, which is a
+ * scope the server applies in SQL; even so, an alert that fired long enough
+ * ago to fall outside that window is not visible here, and stating flatly that
+ * nothing fired would be asserting a negative this side cannot know.
+ *
+ * `complete` says whether the window contained everything: false when the
+ * server returned a full page, because a full page means there may be more.
  */
 export function markerNotice(
-  placed: readonly PlacedAlertEvent[], armed: number
+  placed: readonly PlacedAlertEvent[], armed: number, complete = true
 ): string | null {
   if (armed === 0) return null;
-  if (placed.length > 0) return null;
-  return "No alert has fired on these bars. Marks appear only for alerts the " +
-    "server actually delivered — nothing is reconstructed from history.";
+  if (placed.length > 0) {
+    return complete ? null
+      : "More alert events exist than are loaded, so older bars may be missing a mark.";
+  }
+  return complete
+    ? "No alert has fired on these bars. Marks appear only for alerts the " +
+      "server actually delivered — nothing is reconstructed from history."
+    : "No alert firing appears in the most recent events loaded for this chart. " +
+      "Marks appear only for alerts the server actually delivered.";
 }

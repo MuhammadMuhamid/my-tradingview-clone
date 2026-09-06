@@ -76,7 +76,19 @@ export function useCompareSeries(
   options: { enabled?: boolean } = {}
 ): CompareSeries {
   const enabled = options.enabled !== false && symbol.trim().length > 0;
-  const [raw, setRaw] = useState<{ symbol: string; candles: Candle[] } | null>(null);
+  /*
+   * What was loaded, and WHAT FOR.
+   *
+   * The interval and depth are part of the identity, not just the request:
+   * switching 1h → 4h with the compared symbol unchanged re-runs the fetch,
+   * and until it lands a symbol-only guard still matched — so the previous
+   * interval's closes were aligned onto the new grid. Every fourth open time
+   * coincides, so the result was a plausible partly-populated series and a
+   * fabricated "375 bars missing", rather than an empty one.
+   */
+  const [raw, setRaw] = useState<
+    { symbol: string; interval: Interval; bars: number; candles: Candle[] } | null
+  >(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(new LatestRequest());
@@ -96,7 +108,7 @@ export function useCompareSeries(
       // otherwise switching the compared symbol twice quickly leaves the first
       // answer on screen under the second symbol's name.
       if (!seq.current.isCurrent(token)) return;
-      setRaw({ symbol: ticker, candles });
+      setRaw({ symbol: ticker, interval, bars, candles });
     } catch (cause) {
       if (isAbortError(cause)) return;
       if (!seq.current.isCurrent(token)) return;
@@ -115,7 +127,8 @@ export function useCompareSeries(
   }, []);
 
   return useMemo(() => {
-    if (!raw || raw.symbol !== ticker) {
+    // Everything the request was made FOR has to match, not only the symbol.
+    if (!raw || raw.symbol !== ticker || raw.interval !== interval || raw.bars !== bars) {
       return { ...EMPTY, symbol: ticker, loading, error };
     }
     const closes = alignByOpenTime(
@@ -124,7 +137,7 @@ export function useCompareSeries(
       raw.candles.map((c) => c.close));
     const missing = closes.reduce((n, v) => (Number.isNaN(v) ? n + 1 : n), 0);
     return { symbol: ticker, closes, missing, loading, error };
-  }, [raw, ticker, base, loading, error]);
+  }, [raw, ticker, interval, bars, base, loading, error]);
 }
 
 // ── the three comparisons ──────────────────────────────────────────────────

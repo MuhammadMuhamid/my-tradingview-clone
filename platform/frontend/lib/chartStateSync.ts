@@ -40,6 +40,7 @@ import { loadDrawings, saveDrawings, type Drawing } from "@/lib/drawings";
 import {
   loadStoredNative, saveStoredNative, PRIMARY_SCOPE, type StoredNativeStudy,
 } from "@/lib/native/storage";
+import type { StoredIndicator as StoredPineStudy } from "@/lib/indicators";
 
 /** Which instruments and panes have already been imported, per browser. */
 const IMPORTED_KEY = "tv.chartState.imported.v1";
@@ -47,8 +48,10 @@ const IMPORTED_KEY = "tv.chartState.imported.v1";
 interface ImportLog {
   /** Instrument keys — `BINANCE:BTCUSDT` — that have been imported. */
   drawings?: string[];
-  /** Pane scopes that have been imported. */
+  /** Pane scopes whose BUILT-IN studies have been imported. */
   panes?: string[];
+  /** Pane scopes whose PINE studies have been imported. */
+  pine?: string[];
 }
 
 function readImportLog(): ImportLog {
@@ -59,6 +62,7 @@ function readImportLog(): ImportLog {
     return {
       drawings: Array.isArray(parsed.drawings) ? parsed.drawings.map(String) : [],
       panes: Array.isArray(parsed.panes) ? parsed.panes.map(String) : [],
+      pine: Array.isArray(parsed.pine) ? parsed.pine.map(String) : [],
     };
   } catch {
     // A corrupt log means "we do not know what has been imported". Treating
@@ -68,7 +72,9 @@ function readImportLog(): ImportLog {
   }
 }
 
-function noteImported(kind: "drawings" | "panes", id: string): void {
+type ImportKind = "drawings" | "panes" | "pine";
+
+function noteImported(kind: ImportKind, id: string): void {
   if (typeof window === "undefined") return;
   const log = readImportLog();
   const list = new Set(log[kind] ?? []);
@@ -78,11 +84,13 @@ function noteImported(kind: "drawings" | "panes", id: string): void {
   } catch { /* quota: the import may run again, which is safe by construction */ }
 }
 
-export function hasImported(kind: "drawings" | "panes", id: string): boolean {
+export function hasImported(kind: ImportKind, id: string): boolean {
   return (readImportLog()[kind] ?? []).includes(id);
 }
 
 /** Reset the log. Exported for tests and for a deliberate "import again". */
+export type { StoredPineStudy };
+
 export function resetImportLog(): void {
   if (typeof window === "undefined") return;
   try { window.localStorage.removeItem(IMPORTED_KEY); } catch { /* nothing to do */ }
@@ -97,7 +105,7 @@ export type SyncDecision =
   | { action: "nothing"; reason: "both-empty" | "already-imported" }
   /** Local state has never been imported and the server is empty; send it. */
   | { action: "import"; reason: "first-sync" }
-  /** Ordinary save of an edit the user just made. */
+  /** This device has an edit the server has not seen; send it. */
   | { action: "push"; reason: "local-edit" };
 
 /**
@@ -106,15 +114,45 @@ export type SyncDecision =
  * Pure so it can be reasoned about and tested without a network or a browser —
  * this is the function that decides whether a user's work survives, and it
  * should not be discoverable only by running the app.
+ *
+ * ── Why `localDirty` is not optional ───────────────────────────────────────
+ *
+ * Without it this function preferred a non-empty server UNCONDITIONALLY, and
+ * `syncDrawings` writes the adopted list straight back through
+ * `saveDrawings`. So an edit that had not yet reached the server — a symbol
+ * switch inside the debounce window, a closed tab, a sleeping laptop, a
+ * network stall — was destroyed on the next sync, including its local copy.
+ * "Local data must not be discarded if a save fails" was honoured for a THROWN
+ * failure and not for a save that simply never happened.
+ *
+ * The rule is now about MOVEMENT rather than about content: adopt only when
+ * the server has genuinely moved past the version this device last saw. If it
+ * has not, this device's unsent work is the newest thing in existence and is
+ * pushed. If it has, another device really did write, and the conflict rule
+ * applies — its version wins, which is the same rule a stale write hits.
  */
 export function decideSync(input: {
   serverVersion: number;
   serverCount: number;
   localCount: number;
   alreadyImported: boolean;
+  /** This device has edits it has not managed to send. */
+  localDirty?: boolean;
+  /** The server version this device last read or wrote; 0 if it has not. */
+  lastSeenVersion?: number;
 }): SyncDecision {
-  // The server having anything at all wins. It may be a second device's work,
-  // and this device has no basis for believing its own copy is newer.
+  const dirty = input.localDirty === true;
+  const lastSeen = input.lastSeenVersion ?? 0;
+
+  // Unsent work, and the server has not moved since this device last looked:
+  // there is nothing to adopt that this device does not already have, and its
+  // own edit is the newest thing anywhere.
+  if (dirty && input.serverVersion <= lastSeen) {
+    return { action: "push", reason: "local-edit" };
+  }
+
+  // The server having anything at all wins — it has moved past what this
+  // device last saw, so it is another device's newer work.
   if (input.serverVersion > 0 && input.serverCount > 0) {
     return { action: "adopt", reason: "server-has-state" };
   }
@@ -144,7 +182,10 @@ export interface DrawingSync {
  * Total: every failure path returns the LOCAL list, because a sync that cannot
  * reach the server must leave the user exactly as they were.
  */
-export async function syncDrawings(symbol: string): Promise<DrawingSync> {
+export async function syncDrawings(
+  symbol: string,
+  state: { localDirty?: boolean; lastSeenVersion?: number } = {}
+): Promise<DrawingSync> {
   const local = loadDrawings(symbol);
   let server: { drawings: unknown[]; version: number };
   try {
@@ -161,7 +202,19 @@ export async function syncDrawings(symbol: string): Promise<DrawingSync> {
     serverCount: server.drawings.length,
     localCount: local.length,
     alreadyImported: hasImported("drawings", symbol),
+    localDirty: state.localDirty,
+    lastSeenVersion: state.lastSeenVersion,
   });
+
+  if (decision.action === "push") {
+    // An edit this device made and never managed to send. It is the newest
+    // thing in existence, so it goes up rather than being replaced.
+    const pushed = await pushDrawings(symbol, local, server.version);
+    return {
+      drawings: pushed.drawings, version: pushed.version,
+      decision, offline: pushed.offline,
+    };
+  }
 
   if (decision.action === "adopt") {
     const adopted = server.drawings as Drawing[];
@@ -222,6 +275,14 @@ export interface PaneSync {
   offline: boolean;
 }
 
+/**
+ * Reconcile one pane's studies.
+ *
+ * `localPine` is what the Pine hook holds. It is a parameter rather than
+ * something read from storage here because the two engines' stores are owned
+ * by two different hooks, and this module reading one of them behind its
+ * owner's back is how the two come to disagree about what is applied.
+ */
 export async function syncPaneStudies(
   scope: string = PRIMARY_SCOPE, localPine: unknown[] = []
 ): Promise<PaneSync> {
@@ -255,8 +316,9 @@ export async function syncPaneStudies(
 
   if (decision.action === "import") {
     try {
-      const saved = await api.putChartPaneStudies(
-        scope, localPine, localNative, server.version);
+      const saved = await api.putChartPaneStudies(scope, {
+        pine: localPine, native: localNative, baseVersion: server.version,
+      });
       noteImported("panes", scope);
       const native = saved.native as StoredNativeStudy[];
       saveStoredNative(native, scope);
@@ -271,19 +333,96 @@ export async function syncPaneStudies(
   };
 }
 
+/**
+ * Save this pane's BUILT-IN studies, leaving its Pine studies alone.
+ *
+ * The `pine` half is deliberately not sent. It belongs to another hook, and a
+ * writer that sends `[]` for a list it does not own deletes it — which is what
+ * this function used to do, and what would have destroyed every Pine study on
+ * the pane the moment Pine sync existed.
+ */
 export async function pushPaneStudies(
-  scope: string, pine: unknown[], native: StoredNativeStudy[], baseVersion: number
-): Promise<{ native: StoredNativeStudy[]; pine: unknown[]; version: number; conflicted: boolean; offline: boolean }> {
+  scope: string, native: StoredNativeStudy[], baseVersion: number
+): Promise<{ native: StoredNativeStudy[]; version: number; conflicted: boolean; offline: boolean }> {
   saveStoredNative(native, scope);
   try {
-    const saved = await api.putChartPaneStudies(scope, pine, native, baseVersion);
+    const saved = await api.putChartPaneStudies(scope, { native, baseVersion });
     const conflicted = saved.version !== baseVersion + 1;
     const next = saved.native as StoredNativeStudy[];
     if (conflicted) saveStoredNative(next, scope);
-    return {
-      native: next, pine: saved.pine, version: saved.version, conflicted, offline: false,
-    };
+    return { native: next, version: saved.version, conflicted, offline: false };
   } catch {
-    return { native, pine, version: baseVersion, conflicted: false, offline: true };
+    return { native, version: baseVersion, conflicted: false, offline: true };
+  }
+}
+
+/**
+ * Reconcile this pane's PINE studies with the server.
+ *
+ * A separate entry point from `syncPaneStudies` because the two halves are
+ * restored by two different hooks at two different moments, and each must be
+ * able to reconcile without waiting for — or speaking for — the other.
+ *
+ * A row whose Pine list is empty while its native list is not is NOT "nothing
+ * stored": the pane exists, the native half wrote it, and this half genuinely
+ * has nothing. So the decision is made on the Pine list alone.
+ */
+export async function syncPanePine(
+  scope: string, localPine: readonly StoredPineStudy[]
+): Promise<{
+  pine: StoredPineStudy[]; version: number; decision: SyncDecision; offline: boolean;
+}> {
+  let server: { pine: unknown[]; version: number };
+  try {
+    server = await api.getChartPaneStudies(scope);
+  } catch {
+    return {
+      pine: [...localPine], version: 0, offline: true,
+      decision: { action: "nothing", reason: "both-empty" },
+    };
+  }
+
+  const decision = decideSync({
+    serverVersion: server.version,
+    serverCount: server.pine.length,
+    localCount: localPine.length,
+    alreadyImported: hasImported("pine", scope),
+  });
+
+  if (decision.action === "adopt") {
+    noteImported("pine", scope);
+    return {
+      pine: server.pine as StoredPineStudy[], version: server.version,
+      decision, offline: false,
+    };
+  }
+
+  if (decision.action === "import") {
+    const pushed = await pushPanePine(scope, [...localPine], server.version);
+    noteImported("pine", scope);
+    return {
+      pine: pushed.pine as StoredPineStudy[], version: pushed.version,
+      decision, offline: pushed.offline,
+    };
+  }
+
+  return { pine: [...localPine], version: server.version, decision, offline: false };
+}
+
+/**
+ * Save this pane's PINE studies, leaving its built-in studies alone.
+ *
+ * The mirror of `pushPaneStudies`, and separate for the same reason: each hook
+ * writes only the half it owns.
+ */
+export async function pushPanePine(
+  scope: string, pine: unknown[], baseVersion: number
+): Promise<{ pine: unknown[]; version: number; conflicted: boolean; offline: boolean }> {
+  try {
+    const saved = await api.putChartPaneStudies(scope, { pine, baseVersion });
+    const conflicted = saved.version !== baseVersion + 1;
+    return { pine: saved.pine, version: saved.version, conflicted, offline: false };
+  } catch {
+    return { pine, version: baseVersion, conflicted: false, offline: true };
   }
 }

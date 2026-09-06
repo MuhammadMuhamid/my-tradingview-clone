@@ -284,8 +284,23 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/api/ma-alerts/events", async (req) => {
-    const { limit } = req.query as { limit?: string };
-    return maAlertRepo.listEvents(Number(limit ?? 100) || 100);
+    const { limit, symbol, timeframe } = req.query as {
+      limit?: string; symbol?: string; timeframe?: string;
+    };
+    /*
+     * `symbol` and `timeframe` together scope this to one chart.
+     *
+     * Both or neither: a symbol without a timeframe would return a 1h alert's
+     * events to a 1m chart, and the caller that wants everything is the alerts
+     * page, which wants exactly that. The chart passes both, so "the newest
+     * 200 for this chart" is true — without it, a user with busy alerts
+     * elsewhere pushed this chart's events out of the window and the chart
+     * concluded that none had fired.
+     */
+    const scope = symbol && timeframe
+      ? { symbol: String(symbol), timeframe: String(timeframe) }
+      : undefined;
+    return maAlertRepo.listEvents(Number(limit ?? 100) || 100, scope);
   });
 
   app.post("/api/ma-alerts", async (req, reply) => {

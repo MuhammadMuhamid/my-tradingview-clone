@@ -644,9 +644,16 @@ export function CandleChart({
     setOwnPriceScale(next);
     onPriceScaleChange?.(next);
   }, [onPriceScaleChange]);
-  /** First close in view, for the baseline presentation. See `addMainSeries`. */
+  /**
+   * First close in view, for the baseline presentation.
+   *
+   * `baselineRef` seeds the series at creation; `baselineAppliedRef` records
+   * what has actually been applied, so the data effect can re-anchor when the
+   * dataset changes and skip the call when it has not.
+   */
   const baselineRef = useRef(0);
   baselineRef.current = candles[0]?.close ?? baselineRef.current;
+  const baselineAppliedRef = useRef<number | null>(null);
 
   const scaleRef = useRef(scale);
   scaleRef.current = scale;
@@ -1034,6 +1041,33 @@ export function CandleChart({
     // scratch — but that is not a reason to refit the time scale, which is
     // what makes a presentation change viewport-preserving.
     const forced = mainSeriesDirtyRef.current || datasetKeyRef.current !== datasetKey;
+
+    /*
+     * The baseline's reference price, re-anchored whenever the data changes.
+     *
+     * It is applied HERE rather than only at creation, because the series is
+     * created before any bars exist: `useCandleHistory` is async, so on mount
+     * `candles` is empty and the reference was 0 — every price above it, and
+     * the whole chart rendered as a plain single-colour area with none of the
+     * two-colour split the type exists for. The other half of the same bug was
+     * a symbol change, which does not recreate the series: switching from an
+     * instrument near 60,000 to one under a dollar left the reference at
+     * 60,000 and painted everything below the line.
+     *
+     * `applyOptions` rather than a recreate, so re-anchoring costs nothing and
+     * cannot disturb the viewport.
+     */
+    if (renderKind(mainKindRef.current) === "baseline" && candles.length > 0) {
+      const reference = candles[0]!.close;
+      if (baselineAppliedRef.current !== reference) {
+        baselineAppliedRef.current = reference;
+        try {
+          (series as ISeriesApi<"Baseline">).applyOptions({
+            baseValue: { type: "price", price: reference },
+          });
+        } catch { /* the series went away between render and effect */ }
+      }
+    }
     const canonicalPlan =
       planColoredCandleMutation(candlesRef.current, candles, barColorRef.current, nextColors);
     const mutation = forced ? "replace" : canonicalPlan;

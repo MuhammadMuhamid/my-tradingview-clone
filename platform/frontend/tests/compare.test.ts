@@ -151,10 +151,10 @@ test("the default benchmark is an instrument, not a suffix rule", () => {
 
 // ── anchored VWAP ──────────────────────────────────────────────────────────
 
-const avwap = (id: string, timeSeconds: number, bands = 0): Drawing => ({
+const avwap = (id: string, timeSeconds: number, bands: 0 | 1 | 2 = 0): Drawing => ({
   id, tool: AVWAP_TOOL,
   points: [{ time: timeSeconds, price: 0 }],
-  style: { color: "#fff", width: 2, ...(bands ? { bands } : {}) } as Drawing["style"],
+  style: { color: "#fff", width: 2, ...(bands ? { bands } : {}) },
 });
 
 test("an anchor resolves to the last bar at or before it", () => {
@@ -195,6 +195,54 @@ test("an anchored VWAP cannot see a bar it was not given, which is what makes Re
   // bars it is handed, so a replay horizon gives the value that WAS true then.
   assert.equal(onFull!.data[19]!.value, onClipped!.data[19]!.value);
   assert.equal(onClipped!.data.length, 20);
+});
+
+test("the bands are reachable by the control a user actually has", () => {
+  /*
+   * `avwapBands` read `style.bands` through a CAST, and `bands` was not in
+   * `DrawingStyle` — so `applyStyle`, typed `Partial<DrawingStyle>`, could
+   * never set it. Every band overlay was dead code for every drawing a user
+   * could create, while the covering test built the value from its own
+   * fixture and passed.
+   *
+   * So this test goes the other way round: it starts from the style patch the
+   * control emits and asserts the overlays appear.
+   */
+  const style: Drawing["style"] = { color: "#fff", width: 2 };
+  // Exactly what the style bar's button does.
+  const patched: Drawing["style"] = { ...style, bands: 2 };
+  const drawing: Drawing = {
+    id: "a", tool: AVWAP_TOOL, points: [{ time: 0, price: 0 }], style: patched,
+  };
+  assert.equal(avwapBands(drawing), 2);
+  const overlays = anchoredVwapOverlays([drawing], bars(30), 2);
+  assert.equal(overlays.length, 5, "one line and four band lines");
+
+  // And the type admits it, which is what makes the control possible at all.
+  const bar = fs.readFileSync(
+    path.join(__dirname, "..", "components", "tv", "DrawingCanvas.tsx"), "utf8");
+  assert.match(bar, /applyStyle\(\{ bands: n \}\)/,
+    "the control must write through the same path every other style property does");
+  const drawings = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "drawings.ts"), "utf8");
+  assert.match(drawings, /bands\?: 0 \| 1 \| 2;/,
+    "a property the style type does not admit is a property nothing can write");
+  const avwap = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "anchoredVwap.ts"), "utf8");
+  assert.doesNotMatch(avwap, /as \{ bands\?: number \}/,
+    "the cast is what hid the fact that nothing could set it");
+});
+
+test("a band setting survives storage, so it is still there on the next load", () => {
+  // The bands are part of the drawing, so they travel with it — through
+  // localStorage and through the server write, which stores the drawing whole.
+  const drawing: Drawing = {
+    id: "a", tool: AVWAP_TOOL, points: [{ time: 0, price: 0 }],
+    style: { color: "#fff", width: 2, bands: 1 },
+  };
+  const roundTripped = JSON.parse(JSON.stringify(drawing)) as Drawing;
+  assert.equal(avwapBands(roundTripped), 1);
+  assert.equal(anchoredVwapOverlays([roundTripped], bars(30), 2).length, 3);
 });
 
 test("two anchored VWAPs never collide, and bands belong to their own line", () => {

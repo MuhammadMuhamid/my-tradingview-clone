@@ -45,9 +45,10 @@ import { drawingsAtReplayHorizon, replayCandles, type ReplaySession } from "@/li
 import { anchoredVwapOverlays } from "@/lib/anchoredVwap";
 import { compareOverlays, useCompareSeries } from "@/lib/compare";
 import { alertEventMarkers, placeAlertEvents } from "@/lib/alertMarkers";
+import { useAlertEvents } from "@/lib/useAlertEvents";
 import { patternMarkers, placePatterns } from "@/lib/candleOverlay";
 import type { CandleOverlayState } from "@/lib/useCandleOverlay";
-import type { MaAlert, MaAlertEvent } from "@/lib/api";
+import type { MaAlert } from "@/lib/api";
 
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
 const NO_FIRED: ChartMarker[] = [];
@@ -134,13 +135,14 @@ export interface ChartPaneProps {
   onCompareChange?: (paneId: string, next: PaneCompare | null) => void;
 
   /**
-   * Alerts the server actually delivered, and the alerts they belong to.
+   * The alerts armed on this account, so a fired event can be attributed.
    *
-   * Placed onto bars HERE rather than by the workspace, because placement
-   * needs this pane's own loaded window: an event outside it would otherwise
-   * be clamped onto an edge bar and claim something happened there.
+   * The EVENTS are fetched by the pane itself, scoped to its own instrument
+   * and timeframe — see `useAlertEvents` for why that scope has to be in SQL
+   * rather than applied here. Placement also happens here, because it needs
+   * this pane's own loaded window: an event outside it would be clamped onto
+   * an edge bar and claim something happened there.
    */
-  alertEvents?: readonly MaAlertEvent[];
   maAlerts?: readonly MaAlert[];
 
   /** The workspace-wide candlestick-pattern overlay, off by default. */
@@ -414,12 +416,12 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * Off during a Replay: a Replay is a reconstruction, and marking a live
    * delivery on a simulated bar would say the two are the same kind of thing.
    */
+  const alertEvents = useAlertEvents(pane.symbol, pane.interval, !replayActive);
   const firedMarkers = useMemo(() => {
-    if (replayActive || !props.alertEvents || !props.maAlerts) return NO_FIRED;
+    if (replayActive || !props.maAlerts) return NO_FIRED;
     return alertEventMarkers(placeAlertEvents(
-      props.alertEvents, props.maAlerts, pane.symbol, pane.interval, visibleCandles));
-  }, [replayActive, props.alertEvents, props.maAlerts, pane.symbol, pane.interval,
-    visibleCandles]);
+      alertEvents, props.maAlerts, pane.symbol, pane.interval, visibleCandles));
+  }, [replayActive, alertEvents, props.maAlerts, pane.symbol, pane.interval, visibleCandles]);
 
   /*
    * Candlestick patterns — the Screener's, not a second opinion.

@@ -98,6 +98,10 @@ export function reorderSymbols(
 ): string[] {
   const from = symbols.indexOf(symbol);
   if (from < 0) return [...symbols];
+  // `Math.trunc(NaN)` is `NaN`, which survives the clamp below and then relies
+  // on `splice` coercing it to 0 — a move to the front, by accident, from an
+  // index that meant nothing.
+  if (!Number.isFinite(toIndex)) return [...symbols];
   const target = Math.max(0, Math.min(symbols.length - 1, Math.trunc(toIndex)));
   if (from === target) return [...symbols];
   const next = [...symbols];

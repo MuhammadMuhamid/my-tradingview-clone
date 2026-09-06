@@ -58,15 +58,26 @@ export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  /*
+   * Either half may be omitted, and an omitted half is left alone.
+   *
+   * A pane's Pine studies and its built-in studies are owned by two different
+   * hooks. A writer that has nothing to say about the other half must not be
+   * able to erase it — which is exactly what sending `pine: []` from the
+   * native hook did.
+   */
   app.put("/api/chart-state/panes/:scope", async (req, reply) => {
     const { scope } = req.params as { scope: string };
     const b = req.body as { pine?: unknown; native?: unknown; baseVersion?: unknown };
-    const pine = listOr400(b?.pine);
-    const native = listOr400(b?.native);
-    if (!pine || !native) {
-      return reply.code(400).send({ error: "pine and native must both be lists" });
+    if (b?.pine === undefined && b?.native === undefined) {
+      return reply.code(400).send({ error: "a write must carry pine, native, or both" });
     }
-    if (pine.length + native.length > chartState.MAX_ITEMS) {
+    const pine = b?.pine === undefined ? undefined : listOr400(b.pine);
+    const native = b?.native === undefined ? undefined : listOr400(b.native);
+    if (pine === null || native === null) {
+      return reply.code(400).send({ error: "pine and native must be lists when present" });
+    }
+    if ((pine?.length ?? 0) + (native?.length ?? 0) > chartState.MAX_ITEMS) {
       return reply.code(400).send({
         error: `a pane may hold at most ${chartState.MAX_ITEMS} studies`,
       });

@@ -68,7 +68,7 @@ export function pineRunRange(ctx: { startTime: string; endTime: string }): {
 }
 
 /** What survives a reload — run output is always recomputed. */
-interface StoredIndicator {
+export interface StoredIndicator {
   key: string;
   scriptId: string | null;
   name: string;
@@ -109,16 +109,27 @@ export function loadStored(scope: string = PRIMARY_INDICATOR_SCOPE): StoredIndic
   }
 }
 
+/**
+ * The persistable half of an applied study.
+ *
+ * Run OUTPUT is never stored — plots, drawings and trades are recomputed from
+ * the bars on screen, and a stored copy would be a second, stale answer to a
+ * question the chart already answers. Extracted so local storage and the
+ * server write exactly the same shape rather than two that drift.
+ */
+export function storable(list: readonly AppliedIndicator[]): StoredIndicator[] {
+  return list.map((i) => ({
+    key: i.key, scriptId: i.scriptId, name: i.name,
+    source: i.source, params: i.params, visible: i.visible,
+  }));
+}
+
 export function saveStored(
   list: AppliedIndicator[], scope: string = PRIMARY_INDICATOR_SCOPE
 ): void {
   if (typeof window === "undefined") return;
-  const slim: StoredIndicator[] = list.map((i) => ({
-    key: i.key, scriptId: i.scriptId, name: i.name,
-    source: i.source, params: i.params, visible: i.visible,
-  }));
   try {
-    window.localStorage.setItem(indicatorStorageKey(scope), JSON.stringify(slim));
+    window.localStorage.setItem(indicatorStorageKey(scope), JSON.stringify(storable(list)));
   } catch { /* quota — the list is a convenience, not the source of truth */ }
 }
 

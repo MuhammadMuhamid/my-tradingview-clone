@@ -795,3 +795,74 @@ test("every Wave C catalog primitive is na before its window and finite after", 
     }
   }
 });
+test("the zone walk returns exactly what querying every bar returned", () => {
+  /*
+   * `zonesAsOf` in a loop was quadratic — a full filter and sort over every
+   * zone the series ever produced, for every bar — and measured 53 ms per tick
+   * at ten thousand bars. `zonesAsOfSeries` carries the live set forward
+   * instead.
+   *
+   * The output must be IDENTICAL, not merely similar: the caller is choosing
+   * which levels to draw, so a different set would be a different chart rather
+   * than a faster one. Compared by reference, per bar, so an equal-looking
+   * substitute cannot pass.
+   */
+  const n = 3_000;
+  const high: number[] = [];
+  const low: number[] = [];
+  const close: number[] = [];
+  let p = 100;
+  for (let i = 0; i < n; i++) {
+    p += Math.sin(i / 23) * 2 + Math.sin(i / 7);
+    high.push(p + 1.5); low.push(p - 1.5); close.push(p);
+  }
+  for (const opts of [
+    { ...core.DEFAULT_SR_OPTIONS, pivotLength: 15, maxZones: 3 },
+    { ...core.DEFAULT_SR_OPTIONS, pivotLength: 5, maxZones: 1 },
+    { ...core.DEFAULT_SR_OPTIONS, pivotLength: 30, maxZones: 10, invalidation: "wick" as const },
+  ]) {
+    const zones = core.buildZones({ high, low, close }, opts);
+    assert.ok(zones.length > 0, "the fixture must actually produce zones");
+    const series = core.zonesAsOfSeries(zones, n, opts);
+    for (let i = 0; i < n; i++) {
+      const expected = core.zonesAsOf(zones, i, opts);
+      const actual = series[i]!;
+      assert.equal(actual.length, expected.length, `bar ${i} holds a different number of zones`);
+      for (let k = 0; k < expected.length; k++) {
+        assert.equal(actual[k], expected[k],
+          `bar ${i} zone ${k} is a different zone, or the same ones in a different order`);
+      }
+    }
+  }
+});
+
+test("a zone is live from its confirmation bar until the bar it breaks on", () => {
+  /*
+   * The two boundaries the walk has to get exactly right, and they are not
+   * symmetric. `zonesAsOf` admits a zone at `confirmedIndex <= index` — so it
+   * is live ON its confirmation bar — and keeps it while `brokenIndex > index`
+   * — so it is gone ON the bar it breaks. That is the correct reading: a
+   * pivot becomes knowable at the bar that confirms it, and a level stops
+   * being a level at the close that goes through it.
+   *
+   * An off-by-one at either end moves every level's first or last bar.
+   */
+  const zones = [
+    { kind: "support" as const, price: 100, pivotIndex: 5, confirmedIndex: 10,
+      brokenIndex: 40, touches: 1 },
+    { kind: "resistance" as const, price: 120, pivotIndex: 6, confirmedIndex: 11,
+      brokenIndex: null, touches: 1 },
+  ];
+  const opts = { ...core.DEFAULT_SR_OPTIONS, maxZones: 5 };
+  const series = core.zonesAsOfSeries(zones, 60, opts);
+  assert.equal(series[9]!.length, 0, "nothing is live before its confirmation bar");
+  assert.equal(series[10]!.length, 1, "live from the confirmation bar itself");
+  assert.equal(series[39]!.length, 2, "still live on the last bar before the break");
+  assert.equal(series[40]!.length, 1, "and gone on the bar price closed through it");
+  assert.equal(series[40]![0], zones[1], "the survivor is the unbroken one");
+
+  // The same answer `zonesAsOf` gives, which is the contract this replaces.
+  for (const i of [9, 10, 39, 40, 41]) {
+    assert.deepEqual(series[i], core.zonesAsOf(zones, i, opts), `bar ${i}`);
+  }
+});

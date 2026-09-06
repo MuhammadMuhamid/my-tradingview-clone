@@ -61,8 +61,7 @@ import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
 import { newId, type Drawing, type DrawingTool } from "@/lib/drawings";
 import {
-  api, type MaAlert, type MaAlertEvent, type ManualTradingState, type OptimizerBest,
-  type PineScript,
+  api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript,
 } from "@/lib/api";
 import { currentMaValues, defaultMaLines, type MaType } from "@/lib/movingAverages";
 import { defaultParamsFor } from "@/lib/paramSchema";
@@ -403,19 +402,35 @@ export default function TvWorkspace() {
    * there. The version it returns is what the next save is written against.
    */
   const drawingVersion = useRef<Record<string, number>>({});
-  useEffect(() => {
-    let live = true;
-    void (async () => {
-      const result = await syncDrawings(symbol);
-      if (!live) return;
-      drawingVersion.current[symbol] = result.version;
-      // `adopt` is the only outcome that changes what is on screen, and it is
-      // adopted rather than recorded as an edit: undoing "the data arrived"
-      // is meaningless, and it must not enter this session's undo stack.
-      if (result.decision.action === "adopt") drawingStore.adopt(symbol, result.drawings);
-    })();
-    return () => { live = false; };
-  }, [symbol]);
+  /**
+   * Symbols whose local list holds an edit the server has not accepted.
+   *
+   * Set the moment the store announces an edit, cleared only by a push the
+   * server acknowledged. `syncDrawings` reads it: without it, a sync preferred
+   * a non-empty server unconditionally and wrote the adopted list back through
+   * `saveDrawings` — so an edit that missed its push window was destroyed on
+   * the next reload, including the local copy.
+   */
+  const dirtySymbols = useRef<Set<string>>(new Set());
+
+  /**
+   * Send one symbol's drawings, now.
+   *
+   * Separate from the debounce so it can also be called when the debounce must
+   * not be waited for — a symbol change, or the page going away.
+   */
+  const pushNow = useCallback(async (forSymbol: string): Promise<void> => {
+    const base = drawingVersion.current[forSymbol] ?? 0;
+    const result = await pushDrawings(forSymbol, drawingStore.get(forSymbol), base);
+    drawingVersion.current[forSymbol] = result.version;
+    // Still dirty if it did not actually land: an offline push has changed
+    // nothing on the server, and the next sync must still treat this device's
+    // copy as the newer one.
+    if (!result.offline) dirtySymbols.current.delete(forSymbol);
+    // A conflict means another device wrote first. Its list is now the truth,
+    // so adopt it rather than writing over it.
+    if (result.conflicted) drawingStore.adopt(forSymbol, result.drawings);
+  }, []);
 
   /**
    * Push an edit up, after the store has already accepted it.
@@ -423,27 +438,83 @@ export default function TvWorkspace() {
    * Debounced, because a drag emits a change per pointer sample and a request
    * per sample would be a denial of service against the user's own server. The
    * store's own persistence is immediate; this is the slower, remote half.
+   *
+   * One timer PER SYMBOL. A single shared timer meant editing BTC and then
+   * touching ETH within the debounce window cancelled the BTC push outright,
+   * and nothing ever rescheduled it.
    */
-  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pushTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const schedulePush = useCallback((forSymbol: string) => {
-    if (pushTimer.current) clearTimeout(pushTimer.current);
-    pushTimer.current = setTimeout(() => {
-      void (async () => {
-        const base = drawingVersion.current[forSymbol] ?? 0;
-        const result = await pushDrawings(
-          forSymbol, drawingStore.get(forSymbol), base);
-        drawingVersion.current[forSymbol] = result.version;
-        // A conflict means another device wrote first. Its list is now the
-        // truth, so adopt it rather than writing over it.
-        if (result.conflicted) drawingStore.adopt(forSymbol, result.drawings);
-      })();
-    }, 1_200);
-  }, []);
-  useEffect(() => () => { if (pushTimer.current) clearTimeout(pushTimer.current); }, []);
+    dirtySymbols.current.add(forSymbol);
+    const existing = pushTimers.current.get(forSymbol);
+    if (existing) clearTimeout(existing);
+    pushTimers.current.set(forSymbol, setTimeout(() => {
+      pushTimers.current.delete(forSymbol);
+      void pushNow(forSymbol);
+    }, 1_200));
+  }, [pushNow]);
+
+  /** Send everything outstanding immediately, without waiting for a timer. */
+  const flushPushes = useCallback(() => {
+    for (const [pending, timer] of pushTimers.current) {
+      clearTimeout(timer);
+      pushTimers.current.delete(pending);
+      void pushNow(pending);
+    }
+  }, [pushNow]);
+
+  useEffect(() => {
+    /*
+     * The page going away is the last chance to send.
+     *
+     * `pagehide` rather than `beforeunload`: it is the one mobile browsers
+     * actually fire when an app is backgrounded, which is exactly the case
+     * where a pending 1200 ms timer would otherwise never run.
+     */
+    const onHide = (): void => flushPushes();
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onHide);
+      flushPushes();
+    };
+  }, [flushPushes]);
 
   // Every user edit, from any surface: a pane's canvas, this page's context
   // menu, the keyboard. One subscription rather than a call at each site.
   useEffect(() => drawingStore.onEdit(schedulePush), [schedulePush]);
+
+  /*
+   * ── Server-held drawings ────────────────────────────────────────────────
+   *
+   * The store is still the authority for this session — the canvas needs the
+   * list synchronously, every frame — and the server is where it goes so a
+   * second device sees it. `syncDrawings` decides which side wins, and it is
+   * told whether this device is holding unsent work; see `lib/chartStateSync`
+   * for why each rule is there.
+   */
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const result = await syncDrawings(symbol, {
+        localDirty: dirtySymbols.current.has(symbol),
+        lastSeenVersion: drawingVersion.current[symbol] ?? 0,
+      });
+      if (!live) return;
+      drawingVersion.current[symbol] = result.version;
+      if (result.decision.action === "push" && !result.offline) {
+        dirtySymbols.current.delete(symbol);
+      }
+      // `adopt` is the only outcome that changes what is on screen, and it is
+      // adopted rather than recorded as an edit: undoing "the data arrived"
+      // is meaningless, and it must not enter this session's undo stack.
+      if (result.decision.action === "adopt") drawingStore.adopt(symbol, result.drawings);
+    })();
+    // Leaving this instrument sends whatever it is still holding, rather than
+    // letting the next symbol's edit cancel it.
+    return () => { live = false; flushPushes(); };
+  }, [symbol, flushPushes]);
 
   /** A library script the bottom panel's editor was asked to open. */
   const [editorScript, setEditorScript] = useState<PineScript | null>(null);
@@ -973,30 +1044,8 @@ export default function TvWorkspace() {
    * chart is not a level the 5m chart is watching, and drawing it there would
    * imply a line that will fire from what is on screen.
    */
-  /**
-   * Alerts that actually FIRED, as recorded by the server.
-   *
-   * Polled with the alerts themselves rather than pushed: an event is a
-   * historical fact and does not need to arrive within a second of happening.
-   * Nothing here re-evaluates a condition against history — a mark means "the
-   * runner delivered this", never "this would have fired", and the second
-   * claim on a chart a user reads to decide what happened is fabrication.
-   */
   /** The candlestick-pattern overlay: off by default, remembered per browser. */
   const candleOverlay = useCandleOverlay();
-
-  const [alertEvents, setAlertEvents] = useState<MaAlertEvent[]>([]);
-  useEffect(() => {
-    let live = true;
-    const load = (): void => {
-      void api.maAlertEvents(200)
-        .then((rows) => { if (live) setAlertEvents(rows); })
-        .catch(() => { /* the marks are an annotation; a failure leaves them off */ });
-    };
-    load();
-    const timer = setInterval(load, 60_000);
-    return () => { live = false; clearInterval(timer); };
-  }, []);
 
   const alertLinesFor = useCallback((paneInterval: Interval): ChartPriceLine[] =>
     maAlerts
@@ -1473,11 +1522,9 @@ export default function TvWorkspace() {
         resetSignal={paneResets[pane.id] ?? 0}
         drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
         onCompareChange={changePaneCompare}
-        // Placed against THIS pane's own bars, inside the pane: the workspace
-        // does not hold any pane's candles, and placing an event on a window
-        // it is not in would clamp the mark onto an edge bar and claim an
-        // event happened there.
-        alertEvents={alertEvents}
+        // The pane fetches its OWN fired events, scoped to its instrument and
+        // timeframe, and places them against its own bars. It needs only the
+        // armed alerts from here, to attribute an event to one.
         maAlerts={maAlerts}
         candleOverlay={candleOverlay}
         onIndicatorList={registerIndicatorList}
@@ -1492,7 +1539,7 @@ export default function TvWorkspace() {
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare,
-    alertEvents, maAlerts, candleOverlay]);
+    maAlerts, candleOverlay]);
 
   return (
     <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">

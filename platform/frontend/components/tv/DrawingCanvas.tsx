@@ -665,6 +665,31 @@ export function DrawingCanvas({
               {wd}
             </button>
           ))}
+          {/*
+            Anchored VWAP's standard-deviation bands, on the tool that has
+            them. A control here rather than in a dialog for the same reason
+            the colour swatches are here: the bar IS this product's per-drawing
+            settings, and it appears beside whatever is selected.
+          */}
+          {sel.tool === "avwap" && (
+            <>
+              <span className="mx-0.5 h-4 w-px bg-border" />
+              {([0, 1, 2] as const).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => applyStyle({ bands: n })}
+                  className={`px-1 text-[11px] ${
+                    (sel.style.bands ?? 0) === n ? "text-accent" : "text-ink-muted hover:text-ink"
+                  }`}
+                  aria-pressed={(sel.style.bands ?? 0) === n}
+                  aria-label={n === 0 ? "No deviation bands" : `${n} standard-deviation band${n === 1 ? "" : "s"}`}
+                  title={n === 0 ? "No bands" : `±${n}σ`}
+                >
+                  {n === 0 ? "0σ" : `${n}σ`}
+                </button>
+              ))}
+            </>
+          )}
           <button
             onClick={() => applyStyle({ dashed: !sel.style.dashed })}
             className={`px-1 text-[11px] ${sel.style.dashed ? "text-accent" : "text-ink-muted hover:text-ink"}`}
