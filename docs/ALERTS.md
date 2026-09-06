@@ -351,7 +351,8 @@ Length combinations are now bounded as a COMBINATION, not only individually.
 `adx_di_length` 700 with `adx_smoothing` 700 passes both 1..1000 checks and
 needs 1400 bars, which is more than the runner's 1200-bar window: the alert
 would have been stored, listed as armed, and never able to warm up.
-`ALERT_HISTORY_BARS` and `warmupBars` in `types/maAlerts.ts` are the one
+`ALERT_HISTORY_BARS` and `warmupBars` in
+`platform/backend/src/types/maAlerts.ts` are the one
 authority for that, and the API refuses the combination.
 
 **Now verified by execution.** These are applied in production, and 013–017

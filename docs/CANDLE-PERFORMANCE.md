@@ -167,16 +167,16 @@ Three later findings against the live path were closed together:
   another host…`, `live stream unavailable — history still updates`). `live` is
   claimed only once a frame has arrived; a completed handshake is `connected —
   waiting for data`. The CSP `connect-src` lists both origins and
-  `tests/marketTransport.test.ts` fails if the two lists drift. The watchlist is
+  `platform/frontend/tests/marketTransport.test.ts` fails if the two lists drift. The watchlist is
   seeded through `/api/symbols/tickers` (backend proxy of Binance's 24h ticker
   via the configured market-data host) so rows are never `—` for want of a
   socket.
 - *Cross-dataset tick.* After a symbol change the previous window stays on
   screen while the next loads; the new feed's first frame used to be drawn onto
   it. `useCandleHistory` now reports what its candles *are* (`dataset`), the
-  chart keys every decision on that, and `lib/liveDataset.ts`'s `LiveTickGate`
+  chart keys every decision on that, and `platform/frontend/lib/liveDataset.ts`'s `LiveTickGate`
   holds a tick for a dataset not yet on screen and applies it when that history
-  lands. `tests/candleDataset.test.ts` drives the exact sequence.
+  lands. `platform/frontend/tests/candleDataset.test.ts` drives the exact sequence.
 - *Boundary repaint.* On a full 10,000-bar window each bar close trimmed the
   state on the left, and the planners compared from index 0 and returned
   `replace` for candles, volume and every overlay, per pane, per boundary.
