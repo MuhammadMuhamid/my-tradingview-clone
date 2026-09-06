@@ -98,7 +98,16 @@ export function anchoredVwapOverlays(
     const line = anchoredVwap(typical, volume, index);
     const color = drawing.style.color;
     const width = drawing.style.width;
-    const label = anchorLabel(candles[index]!.openTime);
+    /*
+     * An anchor older than the loaded window resolves to the first bar there
+     * is, which is the honest answer — the series starts where the data does —
+     * but it is not where the user put it, and the line MOVES when more
+     * history loads. So the legend says so rather than presenting a resolved
+     * anchor as the chosen one.
+     */
+    const beforeHistory = anchorTime * 1000 < candles[0]!.openTime;
+    const label = anchorLabel(candles[index]!.openTime)
+      + (beforeHistory ? " (from the oldest loaded bar)" : "");
 
     out.push({
       id: `avwap:${drawing.id}`,

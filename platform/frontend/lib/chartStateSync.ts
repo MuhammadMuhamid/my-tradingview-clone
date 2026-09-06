@@ -306,9 +306,11 @@ export async function syncPaneStudies(
 
   if (decision.action === "adopt") {
     const native = server.native as StoredNativeStudy[];
-    // `saveStoredNative` drops rows whose study id this build does not have,
-    // which is what makes a layout written by a newer build degrade to a
-    // working chart rather than an empty one.
+    // Written verbatim; `loadStoredNative` is what drops a row whose study id
+    // this build does not have, on the next read. That is what makes a layout
+    // written by a NEWER build degrade to a working chart rather than an empty
+    // one — the unknown rows are kept on disk for the build that understands
+    // them, and skipped by the one that does not.
     saveStoredNative(native, scope);
     noteImported("panes", scope);
     return { native, pine: server.pine, version: server.version, decision, offline: false };

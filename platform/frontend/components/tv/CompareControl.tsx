@@ -12,6 +12,7 @@ import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { DEFAULT_BENCHMARK } from "@/lib/compare";
+import { tryStoredSymbol } from "@/lib/instrument";
 import { DEFAULT_COMPARE_LENGTH, type PaneCompare } from "@/lib/workspace";
 
 const FIELD =
@@ -51,6 +52,21 @@ export function CompareControl({
     const ticker = symbol.trim().toUpperCase();
     if (!/^[A-Z0-9:]{2,32}$/.test(ticker)) {
       setError("Enter a symbol like BTCUSDT.");
+      return;
+    }
+    /*
+     * And it has to be an instrument this installation can actually resolve.
+     *
+     * The shape check above passes `COINBASE:BTCUSDT`, which `tryStoredSymbol`
+     * then refuses — correctly, because no second venue is registered — after
+     * which the comparison silently drew nothing and said nothing. Refusing a
+     * venue is right; being quiet about it is not.
+     */
+    if (tryStoredSymbol(ticker) === null) {
+      setError(
+        `${ticker} is not an instrument this installation knows. ` +
+        "Use a bare symbol like BTCUSDT, or one qualified with BINANCE:."
+      );
       return;
     }
     if (!Number.isInteger(length) || length < 2 || length > 1000) {

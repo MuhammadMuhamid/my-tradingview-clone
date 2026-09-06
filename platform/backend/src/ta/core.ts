@@ -1348,10 +1348,16 @@ export function chandeMomentum(src: number[], len: number): number[] {
 /**
  * Detrended Price Oscillator: price minus a displaced SMA.
  *
- * The SMA is read from `len/2 + 1` bars back, which is what "detrended" means
- * here: the comparison is against the middle of the window, not its end. This
- * makes the DPO deliberately non-causal in the classic formulation — it is a
- * cycle-spotting tool, and the displacement is the tool.
+ * The PRICE is read from `len/2 + 1` bars back and compared with the average
+ * ending at this bar, which is what "detrended" means here: the comparison is
+ * against the middle of the window rather than its end, and the displacement
+ * is the tool. It is a cycle-spotting instrument, not a signal generator.
+ *
+ * Every input is at or before the bar it is plotted on, so it looks ahead at
+ * nothing — an earlier comment here called it "non-causal", which described a
+ * variant that plots the result BACKWARD by the same displacement. This one
+ * does not, and the difference matters: a non-causal series on a chart a
+ * backtest reads would be reading the future.
  */
 export function detrendedPriceOscillator(src: number[], len: number): number[] {
   const displacement = Math.floor(len / 2) + 1;
@@ -1869,66 +1875,22 @@ export function volumeFlowIndicator(
 
 // ── Structure and levels ────────────────────────────────────────────────────
 
-/**
- * The classic pivot families, from one prior period's H/L/C.
+/*
+ * Pivot levels live further down, in `pivotLevels`.
  *
- * All four are returned from one call because they share the same inputs and a
- * caller choosing between them should not have to know which formula needs
- * which. `woodie` weights the close twice, which is exactly what distinguishes
- * it from `standard`.
+ * There used to be a second implementation here — `pivotPoints`, returning a
+ * fixed six levels — and the two disagreed about Woodie: this one weighted the
+ * CLOSE twice, `pivotLevels` weights the OPEN, which is the definition. It was
+ * dead code, imported by nothing, sitting in the file this project calls its
+ * single mathematical authority. Two answers to one question in that file is
+ * worse than no answer, because the next author has no way to tell which one
+ * the product actually uses.
+ *
+ * `pivotLevels` is the survivor because it is what the alert engine fires on
+ * and what the chart draws, and because its per-type level list is the honest
+ * shape: Fibonacci defines three levels either side, Camarilla four,
+ * Traditional five, and a fixed six forced every family into the same mould.
  */
-export interface PivotSet {
-  pivot: number;
-  r1: number; r2: number; r3: number;
-  s1: number; s2: number; s3: number;
-}
-
-export type PivotFamily = "standard" | "fibonacci" | "camarilla" | "woodie";
-
-export function pivotPoints(
-  high: number, low: number, close: number, family: PivotFamily
-): PivotSet {
-  const range = high - low;
-  const nan: PivotSet = {
-    pivot: NaN, r1: NaN, r2: NaN, r3: NaN, s1: NaN, s2: NaN, s3: NaN,
-  };
-  if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return nan;
-
-  if (family === "camarilla") {
-    const p = (high + low + close) / 3;
-    return {
-      pivot: p,
-      r1: close + (range * 1.1) / 12,
-      r2: close + (range * 1.1) / 6,
-      r3: close + (range * 1.1) / 4,
-      s1: close - (range * 1.1) / 12,
-      s2: close - (range * 1.1) / 6,
-      s3: close - (range * 1.1) / 4,
-    };
-  }
-  if (family === "fibonacci") {
-    const p = (high + low + close) / 3;
-    return {
-      pivot: p,
-      r1: p + 0.382 * range, r2: p + 0.618 * range, r3: p + range,
-      s1: p - 0.382 * range, s2: p - 0.618 * range, s3: p - range,
-    };
-  }
-  if (family === "woodie") {
-    const p = (high + low + 2 * close) / 4;
-    return {
-      pivot: p,
-      r1: 2 * p - low, r2: p + range, r3: high + 2 * (p - low),
-      s1: 2 * p - high, s2: p - range, s3: low - 2 * (high - p),
-    };
-  }
-  const p = (high + low + close) / 3;
-  return {
-    pivot: p,
-    r1: 2 * p - low, r2: p + range, r3: high + 2 * (p - low),
-    s1: 2 * p - high, s2: p - range, s3: low - 2 * (high - p),
-  };
-}
 
 /** The value of the least-squares fit at every point of the final window. */
 export function linregLine(

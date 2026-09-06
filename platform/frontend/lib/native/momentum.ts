@@ -307,10 +307,14 @@ export const cmoStudy: NativeStudyDef = {
 /**
  * Detrended Price Oscillator.
  *
- * Deliberately non-causal: the moving average it subtracts is read from the
- * middle of the window rather than its end, which is what "detrended" means
- * here and what makes the DPO a cycle-spotting tool. It is NOT a signal
- * generator, and nothing in this product arms an alert on it.
+ * The price it plots is read from the middle of the window rather than its
+ * end, which is what "detrended" means here and what makes the DPO a
+ * cycle-spotting tool. It is NOT a signal generator, and nothing in this
+ * product arms an alert on it.
+ *
+ * Causal, despite how the displacement reads: every input is at or before the
+ * bar the value is plotted on. The variant that is not causal plots the result
+ * shifted backward, and this one does not.
  */
 export const dpoStudy: NativeStudyDef = {
   id: "dpo",
