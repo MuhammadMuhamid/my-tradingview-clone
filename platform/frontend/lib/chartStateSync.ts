@@ -379,6 +379,20 @@ export async function syncPaneStudies(
 }
 
 /**
+ * How many times a write is repeated when the server refuses it for a half it
+ * has never held.
+ *
+ * A refusal like that is not a conflict about this half's content (see
+ * `pushPaneStudies`), so the write is simply re-based and sent again. It is
+ * bounded because each attempt is one more round trip on a row that somebody
+ * else is actively writing, and unbounded retrying against a busy row is a
+ * spin rather than a save. Three is far past the case this exists for — a
+ * pane's two halves saved a moment apart — and short enough to give up
+ * politely, which is safe now that giving up no longer discards anything.
+ */
+const UNWRITTEN_HALF_ATTEMPTS = 3;
+
+/**
  * Save this pane's BUILT-IN studies, leaving its Pine studies alone.
  *
  * The `pine` half is deliberately not sent. It belongs to another hook, and a
@@ -388,7 +402,12 @@ export async function syncPaneStudies(
  */
 export async function pushPaneStudies(
   scope: string, native: StoredNativeStudy[], baseVersion: number
-): Promise<{ native: StoredNativeStudy[]; version: number; conflicted: boolean; offline: boolean }> {
+): Promise<{
+  native: StoredNativeStudy[]; version: number; conflicted: boolean;
+  /** The returned list is the SERVER's and replaces this device's. */
+  adopted: boolean;
+  offline: boolean;
+}> {
   saveStoredNative(native, scope);
   try {
     /*
@@ -417,15 +436,32 @@ export async function pushPaneStudies(
      * write again against the version it just reported. Once, and only in that
      * case; a genuine conflict with another device's edit still adopts.
      */
-    if (saved.conflicted && !saved.nativeWritten) {
+    for (let attempt = 0;
+      attempt < UNWRITTEN_HALF_ATTEMPTS && saved.conflicted && !saved.nativeWritten;
+      attempt += 1
+    ) {
       saved = await api.putChartPaneStudies(scope, { native: payload, baseVersion: saved.version });
     }
     const { conflicted } = saved;
-    const next = saved.native as StoredNativeStudy[];
-    if (conflicted) saveStoredNative(next, scope);
-    return { native: next, version: saved.version, conflicted, offline: false };
+    /*
+     * Adopt only a half the server has actually held.
+     *
+     * The retries above answer the ordinary case, and a single retry answered
+     * it — but if another writer lands during the retry too, the last refusal
+     * STILL carries an empty list for a half nobody has ever written, and
+     * saving that is the same silent deletion one race deeper. So the rule is
+     * about the flag rather than about how many attempts were spent: an empty
+     * list from a half the server has never written is the absence of a write,
+     * never a deletion. This device keeps what the user applied, reports that
+     * it adopted nothing, and writes again on the next edit — against the
+     * version the server has just told it about, which is the one that lands.
+     */
+    const adopted = conflicted && saved.nativeWritten;
+    const next = conflicted && !adopted ? native : (saved.native as StoredNativeStudy[]);
+    if (adopted) saveStoredNative(next, scope);
+    return { native: next, version: saved.version, conflicted, adopted, offline: false };
   } catch {
-    return { native, version: baseVersion, conflicted: false, offline: true };
+    return { native, version: baseVersion, conflicted: false, adopted: false, offline: true };
   }
 }
 
@@ -491,17 +527,31 @@ export async function syncPanePine(
  */
 export async function pushPanePine(
   scope: string, pine: unknown[], baseVersion: number
-): Promise<{ pine: unknown[]; version: number; conflicted: boolean; offline: boolean }> {
+): Promise<{
+  pine: unknown[]; version: number; conflicted: boolean;
+  /** The returned list is the SERVER's and replaces this device's. */
+  adopted: boolean;
+  offline: boolean;
+}> {
   try {
     let saved = await api.putChartPaneStudies(scope, { pine, baseVersion });
-    // The mirror of `pushPaneStudies`: a first write refused because the
-    // BUILT-IN half created the row is not a conflict about Pine studies.
-    if (saved.conflicted && !saved.pineWritten) {
+    // The mirror of `pushPaneStudies`: a write refused because the BUILT-IN
+    // half created the row is not a conflict about Pine studies, so it is
+    // re-based and sent again — and an empty list for a half the server has
+    // never written is never adopted over what this device holds.
+    for (let attempt = 0;
+      attempt < UNWRITTEN_HALF_ATTEMPTS && saved.conflicted && !saved.pineWritten;
+      attempt += 1
+    ) {
       saved = await api.putChartPaneStudies(scope, { pine, baseVersion: saved.version });
     }
     const { conflicted } = saved;
-    return { pine: saved.pine, version: saved.version, conflicted, offline: false };
+    const adopted = conflicted && saved.pineWritten;
+    return {
+      pine: conflicted && !adopted ? pine : saved.pine,
+      version: saved.version, conflicted, adopted, offline: false,
+    };
   } catch {
-    return { pine, version: baseVersion, conflicted: false, offline: true };
+    return { pine, version: baseVersion, conflicted: false, adopted: false, offline: true };
   }
 }

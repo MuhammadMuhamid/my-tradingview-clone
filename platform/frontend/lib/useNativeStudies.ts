@@ -163,8 +163,16 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
         // and sending `[]` for it would delete this pane's Pine studies.
         const result = await pushPaneStudies(scope, list, version.current);
         version.current = result.version;
-        // Another device wrote first: its list is the truth now.
-        if (result.conflicted) setList(result.native.map((s) => ({ ...s })));
+        /*
+         * Another device wrote first: its list is the truth now — but only
+         * when the server actually holds this half. A refusal that carries an
+         * empty list for a half nobody has ever written is not a deletion to
+         * adopt, and adopting it would both wipe the user's studies and set
+         * this effect writing an empty list on a loop. `adopted` is the one
+         * thing that distinguishes those two refusals; `version` is now the
+         * server's, so the next edit writes against the version that lands.
+         */
+        if (result.adopted) setList(result.native.map((s) => ({ ...s })));
       })();
     }, 1_200);
   }, [list, scope]);

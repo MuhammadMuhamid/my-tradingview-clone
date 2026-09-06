@@ -47,6 +47,9 @@ test that mocks its subject proves the mock. No test asserts a pixel.
 - `drag`, `clickAt`, `rightClickAt`, `press`, `selectTool` are gestures.
 - `server.hold(...)` stalls a response until the test releases it — that is how
   a race is reproduced rather than hoped for.
+- `server.interpose(fn)` lets another device write the stored row just before
+  each request is answered, which is how a refusal that is not this client's
+  own conflict is reproduced for longer than one round trip.
 - `advance(ms)` moves past a known debounce; `settle()` drains what is pending.
 - `resetBrowser()` belongs in `beforeEach`, `closeBrowser` in `after` — the
   chart's clock and the market stream's reconnect ladder keep Node's event loop

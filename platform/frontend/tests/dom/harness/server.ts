@@ -21,10 +21,11 @@
  * ── What it can be told to do ──────────────────────────────────────────────
  *
  * Fail (`server.offline`), stall a specific route until released
- * (`server.hold`), and record every request (`server.calls`). A race is not
- * reproducible by hoping two promises settle in an order; it is reproducible
- * by holding the first response until the second has landed, which is what
- * `hold` is for.
+ * (`server.hold`), let another writer land between two requests
+ * (`server.interpose`), and record every request (`server.calls`). A race is
+ * not reproducible by hoping two promises settle in an order; it is
+ * reproducible by holding the first response until the second has landed, and
+ * by moving the stored row under a client that is mid-conversation.
  */
 
 import { INTERVAL_MS, type Interval } from "@/lib/types";
@@ -94,6 +95,24 @@ export class FixtureServer {
   private readonly holds: { match: HoldMatch; held: Held }[] = [];
 
   /**
+   * Another device, landing between this client's requests.
+   *
+   * A race between two writers on one row cannot be staged with `hold` alone:
+   * `hold` stalls a request, and what is needed here is for the STORED state to
+   * move while a request is in flight. The interposer runs immediately before
+   * each request is dispatched, with the request in hand, so a test can decide
+   * — per attempt — that somebody else got there first. The refusals the client
+   * then sees are the fixture's real version rule refusing a real stale write,
+   * not a canned 409.
+   */
+  private interposer: ((request: RecordedCall) => void) | null = null;
+
+  /** Run `fn` just before each request is answered; `null` clears it. */
+  interpose(fn: ((request: RecordedCall) => void) | null): void {
+    this.interposer = fn;
+  }
+
+  /**
    * Bars, per `SYMBOL|interval`, plus a fallback used for any key not set.
    *
    * Served in whichever of the two wire formats the request asked for, exactly
@@ -153,6 +172,7 @@ export class FixtureServer {
     this.holds.length = 0;
     this.calls.length = 0;
     this.offline = false;
+    this.interposer = null;
     this.candlesByKey.clear();
     this.fallbackCandles = [];
   }
@@ -290,6 +310,11 @@ export class FixtureServer {
     if (init?.signal?.aborted) throw abortError();
     if (this.offline) throw new TypeError("fetch failed");
 
+    // The other writer gets its turn here, after any hold has been released
+    // and before this request is answered — which is exactly the window a
+    // second device's write lands in.
+    this.interposer?.({ method, path: `${path}${url.search}`, body });
+
     const custom = this.routes.get(`${method} ${path}`) ?? this.routes.get(path);
     if (custom) return json(200, await custom(body, url));
 
@@ -345,8 +370,8 @@ export class FixtureServer {
         { symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", isActive: true },
       ],
       "/api/symbols/tickers": [],
-      // The history repair path. It is exercised deliberately by
-      // `history.test.tsx`; everywhere else it must simply not 404.
+      // The history repair path. `chartShell.test.tsx` exercises a stale tail
+      // deliberately; everywhere else it must simply not 404.
       "/api/data/backfill": { fetched: 0 },
       "/api/strategies": [],
       "/api/pine": [],

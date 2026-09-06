@@ -228,6 +228,77 @@ test("the restore lands before the first save, so an empty list is never written
   assert.equal(server.getPane(SCOPE).pine.length, 1);
 });
 
+/**
+ * Another device writing the pane's PINE half, immediately before each of this
+ * client's own writes, `times` times.
+ *
+ * The row moves on, so every write this client sends is stale and is refused —
+ * and because the other device only ever writes Pine, `nativeWritten` stays
+ * false throughout. That is the shape of the refusal that is NOT a conflict
+ * about built-in studies, sustained for longer than one round trip.
+ */
+function otherDeviceKeepsWriting(times: number): (call: { method: string; path: string }) => void {
+  let landed = 0;
+  return (call) => {
+    if (call.method !== "PUT" || !call.path.includes("/panes/")) return;
+    if (landed >= times) return;
+    landed += 1;
+    const row = server.getPane(SCOPE);
+    server.seedPane(SCOPE, {
+      pine: [{ key: `other-${landed}`, source: SOURCE }],
+      version: row.version + 1,
+      pineWritten: true,
+    });
+  };
+}
+
+test("a half the server has never written is never adopted, however deep the race", async () => {
+  /*
+   * One race deeper than the retry.
+   *
+   * A first write that meets a row the OTHER half has just created is refused
+   * and simply re-based — that is the ordinary case, and it lands. But if a
+   * writer keeps getting there first, the LAST refusal still carries an empty
+   * list for a half nobody has ever written, and adopting that is the same
+   * silent deletion the re-base exists to prevent. The user's studies are on
+   * their chart; nothing that failed to be written may remove them.
+   */
+  server.interpose(otherDeviceKeepsWriting(Number.POSITIVE_INFINITY));
+
+  const pane = await mountPane();
+  await act(async () => { pane.handle().native.add("rsi"); });
+  await advance(1_400);
+
+  assert.equal(pane.handle().native.list.length, 1,
+    "a write that never landed must not empty the chart it was written from");
+  assert.equal(loadStoredNative(SCOPE).length, 1,
+    "and must not empty this browser's own copy either");
+  assert.equal(server.getPane(SCOPE).nativeWritten, false,
+    "the server still holds no built-in half — which is why there was nothing to adopt");
+
+  // And the retry is bounded: a row somebody else is writing is not a spin.
+  const writes = server.calls.filter(
+    (c) => c.method === "PUT" && c.path.includes("/panes/")).length;
+  assert.ok(writes > 1 && writes <= 8,
+    `the client sent ${writes} writes; a refusal it cannot resolve is re-tried a few times, not forever`);
+});
+
+test("a re-based write lands as soon as the other writer stops", async () => {
+  // Two interlopers, then quiet: the study must reach the server by itself,
+  // without the user touching the chart again.
+  server.interpose(otherDeviceKeepsWriting(2));
+
+  const pane = await mountPane();
+  await act(async () => { pane.handle().native.add("rsi"); });
+  await advance(1_400);
+
+  const row = server.getPane(SCOPE);
+  assert.equal(row.native.length, 1, "the built-in half is stored");
+  assert.equal(row.nativeWritten, true);
+  assert.equal(row.pine.length, 1, "and the other device's Pine half is untouched");
+  assert.equal(pane.handle().native.list.length, 1);
+});
+
 test("an unreachable server leaves the user exactly as they were", async () => {
   window.localStorage.setItem(nativeStorageKey(SCOPE), JSON.stringify([
     { key: "n1", defId: "rsi", params: {}, styles: {}, visible: true },
