@@ -124,11 +124,29 @@ export function useIndicators(ctx: IndicatorContext) {
     setList((cur) => cur.map((i) => (i.key === next.key ? next : i)));
   }, []);
 
+  /*
+   * The chart context, read when a run is STARTED rather than closed over.
+   *
+   * `add` does not only reach this hook from its own pane. The workspace hands
+   * the focused pane's API to the Indicators dialog and the Pine editor through
+   * a registry, and the page memoises that object on the pane's study list — so
+   * a surface holding it can be one or many renders behind the chart. Closing
+   * over `ctx` made every method carry the context of the render it was built
+   * in, which is how a study applied DURING a Replay was run to end-of-day and
+   * then drawn on a rewound chart: lookahead, with a plausible picture attached.
+   * The same staleness applied after a pane changed symbol or timeframe.
+   *
+   * A ref cannot be stale: whatever object a caller is holding, the run it
+   * starts uses the context the chart is on now.
+   */
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+
   const runOne = useCallback((ind: AppliedIndicator, token: number) => {
     const version = (runVersions.current.get(ind.key) ?? 0) + 1;
     runVersions.current.set(ind.key, version);
-    void runIndicator(ind, ctx).then((res) => settle(res, token, version));
-  }, [ctx, settle]);
+    void runIndicator(ind, ctxRef.current).then((res) => settle(res, token, version));
+  }, [settle]);
 
   // A ref mirror of the list, so the run effects can read the current
   // instances without taking `list` as a dependency (which would re-run them
@@ -147,7 +165,7 @@ export function useIndicators(ctx: IndicatorContext) {
       ? invalidateReplayOutput(i)
       : { ...i, loading: true, error: null }));
     for (const ind of pending) runOne(ind, token);
-    // runOne closes over ctx, which ctxKey already covers.
+    // `runOne` is stable and reads the context itself; ctxKey covers ctx.replay.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctxKey]);
 

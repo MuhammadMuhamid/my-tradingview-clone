@@ -23,7 +23,7 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { advance, closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
 import {
   drag, menuItems, mountChart, rightClickAt, selectTool, type MountedChart,
@@ -32,6 +32,23 @@ import { drawingStore } from "@/lib/drawingStore";
 import { loadDrawings } from "@/lib/drawings";
 
 const SYMBOL = "SOLUSDT";
+
+/**
+ * A script this installation has saved.
+ *
+ * A study has to reach the chart the way a person puts one there — from the
+ * Indicators dialog's own library — because what is under test is the WIRING
+ * between the replay clock and the Pine run, and a hook called directly would
+ * bypass exactly the wiring in question.
+ */
+const SAVED_SCRIPT = {
+  id: "probe-1",
+  name: "Probe",
+  source: '//@version=5\nindicator("Probe")\nplot(close)',
+  kind: "indicator",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+} as const;
 
 beforeEach(() => {
   resetBrowser();
@@ -59,6 +76,32 @@ async function startReplay(chart: MountedChart): Promise<void> {
   assert.equal(start.hasAttribute("disabled"), false,
     "the picker must pre-fill a replay point from the loaded bars");
   fireEvent.click(start);
+  await settle();
+}
+
+/** The bar the running session stands on, read from its own readout. */
+function replayHorizon(): string {
+  const exit = screen.getByRole("button", { name: "Exit Replay" });
+  const bar = exit.closest("div");
+  const stamp = bar?.querySelector<HTMLElement>("time[datetime]");
+  assert.ok(stamp, "a running session must show the bar it is standing on");
+  const horizon = stamp.getAttribute("datetime");
+  assert.ok(horizon, "the readout must carry a machine-readable time");
+  return horizon;
+}
+
+/** Apply the saved script to the focused chart, through the Indicators dialog. */
+async function addSavedStudy(chart: MountedChart): Promise<void> {
+  const open = chart.container.querySelector<HTMLElement>('button[aria-label="Indicators"]');
+  assert.ok(open, "the toolbar has no Indicators control");
+  fireEvent.click(open);
+  await settle();
+
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: /^My scripts/ }));
+  await settle();
+
+  fireEvent.click(within(dialog).getByTitle(new RegExp(`^Add .${SAVED_SCRIPT.name}`)));
   await settle();
 }
 
@@ -104,22 +147,38 @@ test("a drawing made during a Replay is session state and is never persisted", a
 });
 
 test("a study run during a Replay is bounded by the horizon, not by today", async () => {
+  // The installation's script library, so the study can be applied through the
+  // dialog the product offers rather than through a hook no user can reach.
+  server.routes.set("/api/pine", () => [SAVED_SCRIPT]);
+  server.routes.set(`/api/pine/${SAVED_SCRIPT.id}`, () => SAVED_SCRIPT);
+
   const chart = await mountChart();
 
   const liveRuns = server.callsTo("/api/pine/run").length;
   await startReplay(chart);
   await settle();
 
+  const horizon = replayHorizon();
+  assert.ok(new Date(horizon).getTime() < Date.now(),
+    "a session must stand on a completed bar, so its horizon is behind now");
+
   // Apply a study while the session is running, through the workspace's own
   // Pine path, and read what the request actually asked for.
-  const runs = server.callsTo("/api/pine/run");
-  const bodies = runs.slice(liveRuns).map((c) => c.body as { endTime?: string });
+  await addSavedStudy(chart);
+
+  const bodies = server.callsTo("/api/pine/run").slice(liveRuns)
+    .map((c) => c.body as { startTime?: string; endTime?: string });
+  assert.ok(bodies.length > 0,
+    "applying a study during a Replay must actually run it — a test that " +
+    "inspects no run says nothing about the horizon the run would have used");
   for (const body of bodies) {
-    assert.ok(body.endTime, "every run states its horizon");
-    assert.ok(new Date(body.endTime!).getTime() < Date.now(),
-      `a replayed run ended at ${body.endTime}, which is not a rewound horizon`);
+    assert.equal(body.endTime, horizon,
+      `a replayed run ended at ${body.endTime}, not at the session's own horizon ` +
+      `${horizon}; anything later is lookahead with a plausible picture attached`);
+    assert.ok(body.startTime, "every run states the window it read");
+    assert.ok(new Date(body.startTime!).getTime() <= new Date(horizon).getTime(),
+      `a run's window began at ${body.startTime}, after the horizon it ends at`);
   }
-  assert.ok(chart.container);
 });
 
 test("leaving a Replay restores the instrument's own drawings", async () => {
