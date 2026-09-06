@@ -510,6 +510,49 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * A write whose 409 is an ANSWER rather than a failure.
+ *
+ * `req` throws on any non-2xx, which is right for every other endpoint. Chart
+ * state is different: a stale write is refused with the state that is actually
+ * stored, and that body is exactly what the caller needs. Routing it through
+ * `req` would turn "here is what is true" into `Error: 409 Conflict` and force
+ * a second round trip to learn something the server already said.
+ */
+async function reqAcceptingConflict<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (res.ok || res.status === 409) return res.json() as Promise<T>;
+  let msg = `${res.status} ${res.statusText}`;
+  try {
+    const parsed = (await res.json()) as { error?: string };
+    if (parsed.error) msg = parsed.error;
+  } catch { /* keep status text */ }
+  throw new Error(msg);
+}
+
+/** One instrument's drawings, or one pane's studies, as the server holds them. */
+export interface StoredDrawingState {
+  venue: string;
+  symbol: string;
+  drawings: unknown[];
+  /** 0 means nothing is stored; every write carries the version it read. */
+  version: number;
+  updatedAt: string;
+}
+
+export interface StoredPaneState {
+  scope: string;
+  pine: unknown[];
+  native: unknown[];
+  version: number;
+  updatedAt: string;
+}
+
 /** Alert modes the MA watcher understands; mirrors backend types/maAlerts.ts. */
 export type MaAlertMode = "touch" | "cross_up" | "cross_down" | "near_above" | "near_below";
 export type MaType = "sma" | "ema";
@@ -1212,6 +1255,21 @@ export const api = {
   maAlertEvents: (limit = 100) => req<MaAlertEvent[]>(`/api/ma-alerts/events?limit=${limit}`),
 
   // watchlists (server-side, so the same lists appear on the phone)
+  // chart state (drawings and applied studies, so a second device sees them)
+  getChartDrawings: (symbol: string) =>
+    req<StoredDrawingState>(`/api/chart-state/drawings/${encodeURIComponent(symbol)}`),
+  putChartDrawings: (symbol: string, drawings: unknown[], baseVersion: number) =>
+    reqAcceptingConflict<StoredDrawingState>(
+      `/api/chart-state/drawings/${encodeURIComponent(symbol)}`, { drawings, baseVersion }),
+  getChartPaneStudies: (scope: string) =>
+    req<StoredPaneState>(`/api/chart-state/panes/${encodeURIComponent(scope)}`),
+  putChartPaneStudies: (
+    scope: string, pine: unknown[], native: unknown[], baseVersion: number
+  ) =>
+    reqAcceptingConflict<StoredPaneState>(
+      `/api/chart-state/panes/${encodeURIComponent(scope)}`, { pine, native, baseVersion }),
+  listChartPanes: () => req<StoredPaneState[]>("/api/chart-state/panes"),
+
   listWatchlists: () => req<ServerWatchlist[]>("/api/watchlists"),
   upsertWatchlist: (body: { name: string; symbols: string[]; position?: number }) =>
     req<ServerWatchlist>("/api/watchlists", { method: "POST", body: JSON.stringify(body) }),

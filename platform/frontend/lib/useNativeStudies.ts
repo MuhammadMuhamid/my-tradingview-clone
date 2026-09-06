@@ -38,117 +38,22 @@ import {
   type Viewport,
 } from "./native/compute";
 import { pricePrecision } from "./movingAverages";
+/*
+ * Persistence lives in `native/storage` so the server sync can read and write
+ * it without importing this hook, which imports the sync. Re-exported here
+ * because every existing caller knows these names from this module.
+ */
+export {
+  PRIMARY_SCOPE, clearStoredNative, copyStoredNativeForScope, loadStoredNative,
+  nativeStorageKey, newStudyKey, saveStoredNative,
+  type StoredNativeStudy,
+} from "./native/storage";
+import {
+  PRIMARY_SCOPE, loadStoredNative, newStudyKey, saveStoredNative,
+} from "./native/storage";
+import { pushPaneStudies, syncPaneStudies } from "./chartStateSync";
 import type { ChartDecoration, ChartOverlay } from "./chartSeries";
 import type { Candle, Interval } from "./types";
-
-/** What survives a reload. Run output is always recomputed, never stored. */
-export interface StoredNativeStudy {
-  key: string;
-  defId: string;
-  params: NativeParams;
-  visible: boolean;
-  styles: Record<string, PlotStyleOverride>;
-}
-
-const STORAGE_KEY = "tv.nativeStudies.v1";
-
-/**
- * Per pane, like Pine studies.
- *
- * The first pane keeps the unsuffixed key for the same reason
- * `lib/indicators` does: it is the chart an existing user already has.
- */
-export const PRIMARY_SCOPE = "p1";
-
-export function nativeStorageKey(scope: string): string {
-  return scope === PRIMARY_SCOPE ? STORAGE_KEY : `${STORAGE_KEY}.${scope}`;
-}
-
-export function newStudyKey(): string {
-  return `nat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-/**
- * Read a pane's stored studies.
- *
- * Total. A corrupt entry, a hand-edited file, a study id this build does not
- * have: each row is dropped individually rather than losing the whole list,
- * because losing eleven good studies because the twelfth named something
- * unknown is the worst possible response to a forward-compatible file.
- */
-export function loadStoredNative(scope: string = PRIMARY_SCOPE): StoredNativeStudy[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(nativeStorageKey(scope));
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((row) => {
-      const entry = row as Partial<StoredNativeStudy>;
-      if (typeof entry?.defId !== "string") return [];
-      const def = studyById(entry.defId);
-      if (!def) return [];
-      return [{
-        key: typeof entry.key === "string" && entry.key ? entry.key : newStudyKey(),
-        defId: def.id,
-        params: normalizeParams(def, entry.params as NativeParams | undefined),
-        visible: entry.visible !== false,
-        styles: sanitizeStyles(def.plots.map((p) => p.id), entry.styles),
-      }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-/** Keep only overrides for plots this build's definition actually declares. */
-function sanitizeStyles(
-  plotIds: readonly string[], raw: unknown
-): Record<string, PlotStyleOverride> {
-  const out: Record<string, PlotStyleOverride> = {};
-  if (!raw || typeof raw !== "object") return out;
-  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!plotIds.includes(id) || !value || typeof value !== "object") continue;
-    const style = value as PlotStyleOverride;
-    const kept: PlotStyleOverride = {};
-    if (typeof style.color === "string") kept.color = style.color;
-    if (typeof style.width === "number" && Number.isFinite(style.width)) {
-      kept.width = Math.max(1, Math.min(8, Math.round(style.width)));
-    }
-    if (typeof style.visible === "boolean") kept.visible = style.visible;
-    if (typeof style.style === "string") kept.style = style.style;
-    if (Object.keys(kept).length > 0) out[id] = kept;
-  }
-  return out;
-}
-
-export function saveStoredNative(
-  list: readonly AppliedNativeStudy[], scope: string = PRIMARY_SCOPE
-): void {
-  if (typeof window === "undefined") return;
-  const slim: StoredNativeStudy[] = list.map((s) => ({
-    key: s.key, defId: s.defId, params: s.params, visible: s.visible, styles: s.styles,
-  }));
-  try { window.localStorage.setItem(nativeStorageKey(scope), JSON.stringify(slim)); }
-  catch { /* quota — the list is a convenience until Wave C's server store */ }
-}
-
-export function clearStoredNative(scope: string): void {
-  if (typeof window === "undefined") return;
-  try { window.localStorage.removeItem(nativeStorageKey(scope)); }
-  catch { /* nothing to do */ }
-}
-
-/** A copy of one pane's studies for another, with params and styles cloned. */
-export function copyStoredNativeForScope(from: string, to: string): void {
-  if (typeof window === "undefined" || from === to) return;
-  try {
-    window.localStorage.setItem(nativeStorageKey(to), JSON.stringify(
-      loadStoredNative(from).map((s) => ({
-        ...s, key: newStudyKey(), params: { ...s.params }, styles: { ...s.styles },
-      }))
-    ));
-  } catch { /* quota — the new pane starts with no built-in studies */ }
-}
 
 /** One study, as the panel and the legend want to read it. */
 export interface NativeStudyRow {
@@ -206,20 +111,60 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
   const [list, setList] = useState<AppliedNativeStudy[]>([]);
   const cache = useRef(new StudyCache());
 
-  // Restore once, on mount. The scope cannot change under a mounted pane,
-  // because a pane's id is its identity.
+  /*
+   * Restore once, on mount, from local storage AND from the server.
+   *
+   * Local first and synchronously, because the pane must paint what the user
+   * had without waiting for a request — and because that is the answer if the
+   * server cannot be reached. The remote reconciliation lands after, and only
+   * replaces the list when the server actually has something (`syncPaneStudies`
+   * owns that decision; see `lib/chartStateSync` for why each rule is there).
+   *
+   * The scope cannot change under a mounted pane, because a pane's id is its
+   * identity.
+   */
   useEffect(() => {
-    const restored = loadStoredNative(scope);
-    if (restored.length > 0) setList(restored.map((s) => ({ ...s })));
+    const local = loadStoredNative(scope);
+    if (local.length > 0) setList(local.map((s) => ({ ...s })));
+    let live = true;
+    void (async () => {
+      const result = await syncPaneStudies(scope);
+      if (!live) return;
+      version.current = result.version;
+      if (result.decision.action === "adopt") {
+        setList(result.native.map((s) => ({ ...s })));
+      }
+    })();
+    return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** The server version this pane's next save is written against. */
+  const version = useRef(0);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (pushTimer.current) clearTimeout(pushTimer.current); }, []);
 
   // Skip the first pass: on mount `list` is still empty while the restore is
   // landing, and saving there would wipe the stored studies.
   const restored = useRef(false);
   useEffect(() => {
     if (!restored.current) { restored.current = true; return; }
+    // Local storage immediately — the pane must survive a reload even offline.
     saveStoredNative(list, scope);
+    /*
+     * The server after a pause. Dragging a settings slider changes `list` on
+     * every frame, and a request per frame would be a denial of service
+     * against the user's own server.
+     */
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      void (async () => {
+        const result = await pushPaneStudies(scope, [], list, version.current);
+        version.current = result.version;
+        // Another device wrote first: its list is the truth now.
+        if (result.conflicted) setList(result.native.map((s) => ({ ...s })));
+      })();
+    }, 1_200);
   }, [list, scope]);
 
   const precision = useMemo(

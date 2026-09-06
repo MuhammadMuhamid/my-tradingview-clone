@@ -13,6 +13,7 @@ import { pineRoutes } from "./routes/pine";
 import { pushRoutes } from "./routes/push";
 import { authRoutes } from "./routes/auth";
 import { watchlistRoutes } from "./routes/watchlists";
+import { chartStateRoutes } from "./routes/chartState";
 import { maAlertRoutes } from "./routes/maAlerts";
 import { operationsRoutes } from "./routes/operations";
 import { manualTradingRoutes } from "./routes/manualTrading";
@@ -151,6 +152,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(pushRoutes);
   app.register(maAlertRoutes);
   app.register(watchlistRoutes);
+  app.register(chartStateRoutes);
   app.register(operationsRoutes(getRunner));
   app.register(manualTradingRoutes);
   app.register(scannerRoutes);

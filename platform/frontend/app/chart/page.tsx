@@ -91,6 +91,7 @@ import {
 } from "@/lib/workspace";
 import { MAX_PANES } from "@/lib/layoutPresets";
 import { isMacPlatform } from "@/lib/shortcuts";
+import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
 import {
   activeReplayQuote, liveActionsDisabled, reconcileReplay, replayCandles, replayDelayMs,
   replayTick, startReplay, stepReplay,
@@ -387,6 +388,58 @@ export default function TvWorkspace() {
   const [drawHidden, setDrawHidden] = useState(false);
   const [activeDrawings, setActiveDrawings] = useState<Drawing[]>([]);
   useEffect(() => drawingStore.subscribe(symbol, setActiveDrawings), [symbol]);
+
+  /*
+   * ── Server-held drawings ────────────────────────────────────────────────
+   *
+   * The store is still the authority for this session — the canvas needs the
+   * list synchronously, every frame — and the server is where it goes so a
+   * second device sees it. `syncDrawings` decides which side wins on load and
+   * never discards local work; see `lib/chartStateSync` for why each rule is
+   * there. The version it returns is what the next save is written against.
+   */
+  const drawingVersion = useRef<Record<string, number>>({});
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const result = await syncDrawings(symbol);
+      if (!live) return;
+      drawingVersion.current[symbol] = result.version;
+      // `adopt` is the only outcome that changes what is on screen, and it is
+      // adopted rather than recorded as an edit: undoing "the data arrived"
+      // is meaningless, and it must not enter this session's undo stack.
+      if (result.decision.action === "adopt") drawingStore.adopt(symbol, result.drawings);
+    })();
+    return () => { live = false; };
+  }, [symbol]);
+
+  /**
+   * Push an edit up, after the store has already accepted it.
+   *
+   * Debounced, because a drag emits a change per pointer sample and a request
+   * per sample would be a denial of service against the user's own server. The
+   * store's own persistence is immediate; this is the slower, remote half.
+   */
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const schedulePush = useCallback((forSymbol: string) => {
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      void (async () => {
+        const base = drawingVersion.current[forSymbol] ?? 0;
+        const result = await pushDrawings(
+          forSymbol, drawingStore.get(forSymbol), base);
+        drawingVersion.current[forSymbol] = result.version;
+        // A conflict means another device wrote first. Its list is now the
+        // truth, so adopt it rather than writing over it.
+        if (result.conflicted) drawingStore.adopt(forSymbol, result.drawings);
+      })();
+    }, 1_200);
+  }, []);
+  useEffect(() => () => { if (pushTimer.current) clearTimeout(pushTimer.current); }, []);
+
+  // Every user edit, from any surface: a pane's canvas, this page's context
+  // menu, the keyboard. One subscription rather than a call at each site.
+  useEffect(() => drawingStore.onEdit(schedulePush), [schedulePush]);
 
   /** A library script the bottom panel's editor was asked to open. */
   const [editorScript, setEditorScript] = useState<PineScript | null>(null);
@@ -1051,8 +1104,13 @@ export default function TvWorkspace() {
 
   /** Replace the focused instrument's drawings, through the right authority. */
   const writeDrawings = useCallback((next: Drawing[], gesture: string | null = null) => {
-    if (replayActive) updateReplayDrawings(next, gesture);
-    else drawingStore.set(symbol, next, gesture);
+    if (replayActive) {
+      // Replay drawings are session state and are never persisted anywhere,
+      // locally or remotely — that is what makes a Replay a scratch pad.
+      updateReplayDrawings(next, gesture);
+      return;
+    }
+    drawingStore.set(symbol, next, gesture);
   }, [replayActive, updateReplayDrawings, symbol]);
 
   const openChartMenu = useCallback((

@@ -1,0 +1,243 @@
+/**
+ * Chart state: a user's drawings, and the studies applied to each pane.
+ *
+ * ── The one rule ───────────────────────────────────────────────────────────
+ *
+ * Every write carries the version the client last read. If the stored version
+ * has moved on, the write is refused and the caller is handed what is actually
+ * stored. That single rule is what makes a second device safe:
+ *
+ *   the first device deletes a trendline and saves      → version 2, no line
+ *   the second device still holds version 1 and saves   → refused, given v2
+ *   the second device adopts v2                         → the line stays gone
+ *
+ * Without it, "last write wins" would let the stale device resurrect a drawing
+ * its user had already deleted — silently, and on the device they were not
+ * looking at.
+ *
+ * ── Why the payloads are opaque ────────────────────────────────────────────
+ *
+ * A drawing's shape is `frontend/lib/drawings`' and a study's is the native
+ * registry's. Re-declaring either here would create a second definition that
+ * is always one release behind the real one, and the failure mode is a save
+ * that silently drops the field the server had not heard of yet. What IS
+ * checked is the shape the storage depends on — that the payload is a list —
+ * and that check lives in the schema as well as here.
+ */
+import { query } from "../db/pool";
+import { DEFAULT_VENUE, resolveInstrument } from "../types/instrument";
+
+export interface DrawingState {
+  venue: string;
+  symbol: string;
+  drawings: unknown[];
+  version: number;
+  updatedAt: string;
+}
+
+export interface PaneStudyState {
+  scope: string;
+  pine: unknown[];
+  native: unknown[];
+  version: number;
+  updatedAt: string;
+}
+
+/** A write refused because the stored version had moved on. */
+export interface VersionConflict<T> {
+  conflict: true;
+  current: T;
+}
+
+export function isConflict<T>(v: T | VersionConflict<T>): v is VersionConflict<T> {
+  return (v as VersionConflict<T>).conflict === true;
+}
+
+/** How many drawings or studies one row may hold. */
+export const MAX_ITEMS = 2_000;
+
+interface DrawingRow {
+  venue: string;
+  symbol: string;
+  drawings: unknown[];
+  version: string | number;
+  updated_at: Date;
+}
+
+const toDrawingState = (r: DrawingRow): DrawingState => ({
+  venue: r.venue,
+  symbol: r.symbol,
+  drawings: Array.isArray(r.drawings) ? r.drawings : [],
+  // pg returns bigint as a string to preserve precision; these versions are
+  // counters that will never approach 2^53, so Number is safe and keeps the
+  // API shape numeric.
+  version: Number(r.version),
+  updatedAt: r.updated_at.toISOString(),
+});
+
+/**
+ * One instrument's drawings.
+ *
+ * An instrument with nothing stored is `version: 0` rather than an error: "no
+ * row yet" and "an empty list" are the same thing to a chart, and making the
+ * caller distinguish them would put that decision in three places.
+ */
+export async function getDrawings(rawSymbol: string): Promise<DrawingState> {
+  const id = resolveInstrument(rawSymbol);
+  const { rows } = await query<DrawingRow>(
+    "SELECT * FROM chart_drawings WHERE venue = $1 AND symbol = $2",
+    [id.venue, id.ticker]
+  );
+  const row = rows[0];
+  if (!row) {
+    return {
+      venue: id.venue, symbol: id.ticker, drawings: [], version: 0,
+      updatedAt: new Date(0).toISOString(),
+    };
+  }
+  return toDrawingState(row);
+}
+
+/**
+ * Replace one instrument's drawings, if `baseVersion` is still current.
+ *
+ * `baseVersion: 0` means "I believe nothing is stored", which is how a first
+ * write and a one-time import both arrive. It conflicts if a row already
+ * exists — which is exactly the protection the import needs, so a device that
+ * has never synced cannot flatten a chart another device already populated.
+ */
+export async function putDrawings(
+  rawSymbol: string, drawings: unknown[], baseVersion: number
+): Promise<DrawingState | VersionConflict<DrawingState>> {
+  const id = resolveInstrument(rawSymbol);
+  if (!Array.isArray(drawings)) throw new Error("drawings must be a list");
+  if (drawings.length > MAX_ITEMS) {
+    throw new Error(`a chart may hold at most ${MAX_ITEMS} drawings`);
+  }
+  const payload = JSON.stringify(drawings);
+
+  if (baseVersion <= 0) {
+    // First write. `ON CONFLICT DO NOTHING` rather than an upsert: a row that
+    // already exists means somebody else got there first, and this write was
+    // made in ignorance of them.
+    const { rows } = await query<DrawingRow>(
+      `INSERT INTO chart_drawings (venue, symbol, drawings, version)
+       VALUES ($1, $2, $3::jsonb, 1)
+       ON CONFLICT (venue, symbol) DO NOTHING
+       RETURNING *`,
+      [id.venue, id.ticker, payload]
+    );
+    if (rows[0]) return toDrawingState(rows[0]);
+    return { conflict: true, current: await getDrawings(rawSymbol) };
+  }
+
+  const { rows } = await query<DrawingRow>(
+    `UPDATE chart_drawings
+        SET drawings = $3::jsonb, version = version + 1, updated_at = now()
+      WHERE venue = $1 AND symbol = $2 AND version = $4
+      RETURNING *`,
+    [id.venue, id.ticker, payload, baseVersion]
+  );
+  if (rows[0]) return toDrawingState(rows[0]);
+  return { conflict: true, current: await getDrawings(rawSymbol) };
+}
+
+interface StudyRow {
+  scope: string;
+  pine: unknown[];
+  native: unknown[];
+  version: string | number;
+  updated_at: Date;
+}
+
+const toStudyState = (r: StudyRow): PaneStudyState => ({
+  scope: r.scope,
+  pine: Array.isArray(r.pine) ? r.pine : [],
+  native: Array.isArray(r.native) ? r.native : [],
+  version: Number(r.version),
+  updatedAt: r.updated_at.toISOString(),
+});
+
+const SCOPE_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+
+function assertScope(scope: string): string {
+  if (!SCOPE_RE.test(scope)) throw new Error(`invalid pane scope: ${JSON.stringify(scope)}`);
+  return scope;
+}
+
+export async function getPaneStudies(scope: string): Promise<PaneStudyState> {
+  const id = assertScope(scope);
+  const { rows } = await query<StudyRow>(
+    "SELECT * FROM chart_pane_studies WHERE scope = $1", [id]);
+  const row = rows[0];
+  if (!row) {
+    return { scope: id, pine: [], native: [], version: 0, updatedAt: new Date(0).toISOString() };
+  }
+  return toStudyState(row);
+}
+
+/** Every pane that has anything stored — what a client restores on load. */
+export async function listPaneStudies(): Promise<PaneStudyState[]> {
+  const { rows } = await query<StudyRow>(
+    "SELECT * FROM chart_pane_studies ORDER BY scope");
+  return rows.map(toStudyState);
+}
+
+export async function putPaneStudies(
+  scope: string, pine: unknown[], native: unknown[], baseVersion: number
+): Promise<PaneStudyState | VersionConflict<PaneStudyState>> {
+  const id = assertScope(scope);
+  if (!Array.isArray(pine) || !Array.isArray(native)) {
+    throw new Error("pine and native must both be lists");
+  }
+  if (pine.length + native.length > MAX_ITEMS) {
+    throw new Error(`a pane may hold at most ${MAX_ITEMS} studies`);
+  }
+  const pinePayload = JSON.stringify(pine);
+  const nativePayload = JSON.stringify(native);
+
+  if (baseVersion <= 0) {
+    const { rows } = await query<StudyRow>(
+      `INSERT INTO chart_pane_studies (scope, pine, native, version)
+       VALUES ($1, $2::jsonb, $3::jsonb, 1)
+       ON CONFLICT (scope) DO NOTHING
+       RETURNING *`,
+      [id, pinePayload, nativePayload]
+    );
+    if (rows[0]) return toStudyState(rows[0]);
+    return { conflict: true, current: await getPaneStudies(id) };
+  }
+
+  const { rows } = await query<StudyRow>(
+    `UPDATE chart_pane_studies
+        SET pine = $2::jsonb, native = $3::jsonb,
+            version = version + 1, updated_at = now()
+      WHERE scope = $1 AND version = $4
+      RETURNING *`,
+    [id, pinePayload, nativePayload, baseVersion]
+  );
+  if (rows[0]) return toStudyState(rows[0]);
+  return { conflict: true, current: await getPaneStudies(id) };
+}
+
+/** Instruments that have any drawings stored, newest first. */
+export async function listDrawnInstruments(limit = 200): Promise<
+  { venue: string; symbol: string; count: number; updatedAt: string }[]
+> {
+  const { rows } = await query<{
+    venue: string; symbol: string; count: string | number; updated_at: Date;
+  }>(
+    `SELECT venue, symbol, jsonb_array_length(drawings) AS count, updated_at
+       FROM chart_drawings
+      WHERE jsonb_array_length(drawings) > 0
+      ORDER BY updated_at DESC
+      LIMIT $1`,
+    [Math.max(1, Math.min(limit, 1000))]
+  );
+  return rows.map((r) => ({
+    venue: r.venue, symbol: r.symbol, count: Number(r.count),
+    updatedAt: r.updated_at.toISOString(),
+  }));
+}
+
+export { DEFAULT_VENUE };

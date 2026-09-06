@@ -29,6 +29,16 @@ import { DrawingHistory, historyScope, type HistoryState } from "./drawingHistor
 
 type Listener = (drawings: Drawing[]) => void;
 
+/**
+ * Told when a symbol's list changed BECAUSE THE USER EDITED IT.
+ *
+ * Separate from `subscribe`, which is every change including a list arriving
+ * from the server. The server sync listens here so that adopting a remote list
+ * does not immediately push it back — which would be a write loop between two
+ * devices, each answering the other's save with an identical one.
+ */
+type EditListener = (symbol: string) => void;
+
 const PERSIST_DELAY_MS = 400;
 
 class DrawingStore {
@@ -36,6 +46,7 @@ class DrawingStore {
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly dirty = new Set<string>();
   private readonly history = new DrawingHistory();
+  private readonly editListeners = new Set<EditListener>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private hideHandlerAttached = false;
 
@@ -71,6 +82,23 @@ class DrawingStore {
   }
 
   /**
+   * Watch for user edits, across every symbol.
+   *
+   * One subscription rather than one per writer: a pane's canvas, the chart
+   * page's context menu and the keyboard's undo all reach `set`/`undo`/`redo`,
+   * and a caller that forgot to announce its own write would be a drawing that
+   * silently never syncs.
+   */
+  onEdit(listener: EditListener): () => void {
+    this.editListeners.add(listener);
+    return () => { this.editListeners.delete(listener); };
+  }
+
+  private announceEdit(symbol: string): void {
+    for (const listener of this.editListeners) listener(symbol);
+  }
+
+  /**
    * Replace a symbol's drawings and tell everyone watching it.
    *
    * `gesture` collapses consecutive changes into one undo step. Dragging an
@@ -81,18 +109,21 @@ class DrawingStore {
   set(symbol: string, drawings: Drawing[], gesture: string | null = null): void {
     this.history.record(symbol, drawings, gesture);
     this.write(symbol, drawings);
+    this.announceEdit(symbol);
   }
 
   /** Undo one step for this instrument. Returns the restored list, or null. */
   undo(symbol: string): Drawing[] | null {
     const restored = this.history.undo(symbol);
-    if (restored) this.write(symbol, restored);
+    // An undo is an edit: without announcing it, undoing on one device would
+    // be silently reverted by the next sync from another.
+    if (restored) { this.write(symbol, restored); this.announceEdit(symbol); }
     return restored;
   }
 
   redo(symbol: string): Drawing[] | null {
     const restored = this.history.redo(symbol);
-    if (restored) this.write(symbol, restored);
+    if (restored) { this.write(symbol, restored); this.announceEdit(symbol); }
     return restored;
   }
 
@@ -145,6 +176,10 @@ class DrawingStore {
    * Adopt a list that did NOT come from an edit — a server sync landing, a
    * layout being restored. It becomes the present without being undoable,
    * because undoing "the data arrived" is meaningless.
+   *
+   * Deliberately silent on `onEdit`: announcing it would push the list
+   * straight back to the server it just came from, and two devices would
+   * answer each other's saves forever.
    */
   adopt(symbol: string, drawings: Drawing[]): void {
     this.history.reset(symbol, drawings);
