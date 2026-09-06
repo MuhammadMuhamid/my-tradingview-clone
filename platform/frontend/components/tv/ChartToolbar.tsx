@@ -71,6 +71,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Separator } from "@/components/ui";
 import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
 import { LayoutSelector } from "@/components/tv/LayoutSelector";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { LayoutMenu } from "@/components/tv/LayoutMenu";
 import { SyncMenu } from "@/components/tv/SyncMenu";
 import { TradingOverlayMenu } from "@/components/tv/TradingOverlays";
@@ -250,7 +251,9 @@ function TimeframeMenu({
   interval: Interval;
   onInterval: (interval: Interval) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Through the registry, so this cannot sit open beside the chart-type menu
+  // forty pixels away in the same toolbar row.
+  const [open, setOpen] = useExclusivePopover("timeframe");
   const boxRef = useRef<HTMLDivElement>(null);
   const strip = timeframeStrip(interval);
 
@@ -271,7 +274,7 @@ function TimeframeMenu({
   return (
     <div ref={boxRef} className="relative shrink-0">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-pressed={strip.moreActive}

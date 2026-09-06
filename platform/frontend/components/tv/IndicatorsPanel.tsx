@@ -4,6 +4,9 @@ import { api, type PineScript } from "@/lib/api";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi, NativeStudyRow } from "@/lib/useNativeStudies";
 import type { AppliedIndicator } from "@/lib/indicators";
+import { ContextMenu } from "@/components/tv/ContextMenu";
+import { studyMenu } from "@/lib/menuPayloads";
+import type { MenuEntry } from "@/lib/contextMenu";
 
 /**
  * TradingView's "Indicators" dialog, as a side panel: a library of saved Pine
@@ -37,6 +40,74 @@ export function IndicatorsPanel({
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  /**
+   * The applied-study right-click menu.
+   *
+   * `studyMenu` was written in Wave B and imported by nothing but its test, so
+   * the payload's rules — a built-in has no source, the first study cannot move
+   * up — were exercised on a menu no user could open. It opens here, on the row
+   * that owns each of those facts.
+   */
+  const [studyMenuAt, setStudyMenuAt] = useState<
+    | null
+    | { at: { x: number; y: number }; label: string; entries: MenuEntry[];
+        kind: "native" | "pine"; key: string }
+  >(null);
+
+  const openStudyMenu = useCallback((
+    event: React.MouseEvent, kind: "native" | "pine",
+    ctx: { key: string; name: string; visible: boolean; first: boolean; last: boolean; hasSource: boolean }
+  ) => {
+    event.preventDefault();
+    setStudyMenuAt({
+      at: { x: event.clientX, y: event.clientY },
+      label: ctx.name,
+      kind,
+      key: ctx.key,
+      entries: studyMenu({
+        visible: ctx.visible, first: ctx.first, last: ctx.last, hasSource: ctx.hasSource,
+      }),
+    });
+  }, []);
+
+  const onStudyMenuSelect = useCallback((id: string) => {
+    const open = studyMenuAt;
+    if (!open) return;
+    const native = open.kind === "native" ? nativeStudies : null;
+    switch (id) {
+      case "study:settings":
+        if (native) onEditNative(open.key);
+        else {
+          const ind = indicators.list.find((i) => i.key === open.key);
+          if (ind) onEditIndicator(ind);
+        }
+        return;
+      case "study:toggle-visible":
+        if (native) native.toggleVisible(open.key);
+        else indicators.toggleVisible(open.key);
+        return;
+      case "study:move-up":
+        // Only built-ins carry an order; the payload disables this for a Pine
+        // study by reporting it both first and last.
+        native?.move(open.key, -1);
+        return;
+      case "study:move-down":
+        native?.move(open.key, 1);
+        return;
+      case "study:open-source": {
+        const ind = indicators.list.find((i) => i.key === open.key);
+        const script = ind ? library.find((s) => s.id === ind.scriptId) : undefined;
+        if (script) onOpenInEditor(script);
+        return;
+      }
+      case "study:remove":
+        if (native) native.remove(open.key);
+        else indicators.remove(open.key);
+        return;
+      default: return;
+    }
+  }, [studyMenuAt, nativeStudies, indicators, library, onEditNative, onEditIndicator,
+    onOpenInEditor]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // A second click of the same pane's gear should re-open it, so this follows
@@ -218,6 +289,11 @@ export function IndicatorsPanel({
               last={index === (nativeStudies?.rows.length ?? 1) - 1}
               studies={nativeStudies!}
               onEdit={() => onEditNative(row.study.key)}
+              onContextMenu={(e) => openStudyMenu(e, "native", {
+                key: row.study.key, name: row.name, visible: row.study.visible,
+                first: index === 0, last: index === (nativeStudies?.rows.length ?? 1) - 1,
+                hasSource: false,
+              })}
             />
           ))}
           {indicators.list.map((ind) => (
@@ -228,10 +304,24 @@ export function IndicatorsPanel({
               onToggleOpen={() => setExpanded((k) => (k === ind.key ? null : ind.key))}
               indicators={indicators}
               onEdit={() => onEditIndicator(ind)}
+              onContextMenu={(e) => openStudyMenu(e, "pine", {
+                key: ind.key, name: ind.shortTitle || ind.name, visible: ind.visible,
+                // A Pine study is not layered by this panel, so both move
+                // controls are off — reported as "first and last", which is
+                // the payload's own vocabulary for "there is nowhere to go".
+                first: true, last: true, hasSource: true,
+              })}
             />
           ))}
         </div>
       </div>
+      <ContextMenu
+        at={studyMenuAt?.at ?? null}
+        label={studyMenuAt?.label ?? ""}
+        entries={studyMenuAt?.entries ?? []}
+        onSelect={onStudyMenuSelect}
+        onClose={() => setStudyMenuAt(null)}
+      />
     </div>
   );
 }
@@ -245,17 +335,19 @@ export function IndicatorsPanel({
  * built-in has no source to open, and it has an order that decides layering,
  * so it gets move controls instead of an editor button.
  */
-function NativeRow({ row, first, last, studies, onEdit }: {
+function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
   row: NativeStudyRow;
   first: boolean;
   last: boolean;
   studies: NativeStudiesApi;
   onEdit: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
 }) {
   const { study } = row;
   const plotCount = Object.keys(row.values).length;
   return (
-    <div className="mb-1 rounded border border-border bg-surface-2/40">
+    <div className="mb-1 rounded border border-border bg-surface-2/40"
+      onContextMenu={onContextMenu}>
       <div className="flex items-center gap-1 px-1.5 py-1">
         <button
           onClick={() => studies.toggleVisible(study.key)}
@@ -312,17 +404,19 @@ function NativeRow({ row, first, last, studies, onEdit }: {
 
 /** One applied study: visibility, error state, and its input() settings. */
 function IndicatorRow({
-  ind, open, onToggleOpen, indicators, onEdit,
+  ind, open, onToggleOpen, indicators, onEdit, onContextMenu,
 }: {
   ind: AppliedIndicator;
   open: boolean;
   onToggleOpen: () => void;
   indicators: IndicatorsApi;
   onEdit: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
 }) {
   const overridden = Object.keys(ind.params).length;
   return (
-    <div className="mb-1 rounded border border-border bg-surface-2/40">
+    <div className="mb-1 rounded border border-border bg-surface-2/40"
+      onContextMenu={onContextMenu}>
       <div className="flex items-center gap-1 px-1.5 py-1">
         <button
           onClick={() => indicators.toggleVisible(ind.key)}

@@ -554,3 +554,19 @@ test("the Supertrend line is coloured by its own direction, not by one colour", 
   assert.ok(colours.size >= 2,
     "a single-colour Supertrend hides the only thing the indicator is asked");
 });
+
+test("a declared step is a rule about which values exist, not a spinner decoration", () => {
+  const bb = studyById("bb")!;
+  // The browser enforces `step` only for the arrows, so a pasted or typed
+  // value reached the maths and drew a band the dialog could not reproduce.
+  assert.equal(normalizeParams(bb, { mult: 2.03719 }).mult, 2);
+  assert.equal(normalizeParams(bb, { mult: 2.06 }).mult, 2.1);
+  // The default is on the grid by construction, and survives untouched.
+  assert.equal(normalizeParams(bb, { mult: 2 }).mult, 2);
+  // Snapping happens before clamping, so it can never push a value out of range.
+  assert.ok((normalizeParams(bb, { mult: 999 }).mult as number) <= 50);
+  assert.ok((normalizeParams(bb, { mult: -5 }).mult as number) >= 0.001);
+  // And a field with no step is left exactly as it was given.
+  const rsi = studyById("rsi")!;
+  assert.equal(normalizeParams(rsi, { length: 14 }).length, 14);
+});

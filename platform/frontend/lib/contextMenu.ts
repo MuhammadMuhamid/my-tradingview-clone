@@ -42,6 +42,16 @@ export interface MenuPlacement {
   /** The menu opens leftwards / upwards from the pointer. */
   flippedX: boolean;
   flippedY: boolean;
+  /**
+   * The tallest the panel may be, in pixels.
+   *
+   * A menu taller than the viewport used to be clamped to the top margin and
+   * rendered `overflow-hidden` with no bound, so its bottom items were simply
+   * cut off — and arrowing moved the cursor onto items that were not on
+   * screen. The caller applies this with `overflow-y: auto`, which is the only
+   * way a `position: fixed` panel can be scrolled at all.
+   */
+  maxHeight: number;
 }
 
 const DEFAULT_MARGIN = 8;
@@ -66,11 +76,15 @@ export function placeMenu(geometry: MenuGeometry): MenuPlacement {
   const left = flippedX ? geometry.x - geometry.width : geometry.x;
   const top = flippedY ? geometry.y - geometry.height : geometry.y;
 
+  const placedTop = Math.max(margin, Math.min(top, Math.max(margin, maxTop)));
   return {
     left: Math.max(margin, Math.min(left, Math.max(margin, maxLeft))),
-    top: Math.max(margin, Math.min(top, Math.max(margin, maxTop))),
+    top: placedTop,
     flippedX,
     flippedY,
+    // Whatever is left below the panel's top edge, never more than the menu
+    // actually needs — a short menu must not grow a scrollbar's worth of space.
+    maxHeight: Math.max(0, geometry.viewportHeight - margin - placedTop),
   };
 }
 

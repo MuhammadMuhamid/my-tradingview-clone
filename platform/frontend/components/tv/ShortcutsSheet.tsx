@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
-import { BINDINGS, type Binding } from "@/lib/shortcuts";
+import { BINDINGS, isMacPlatform, type Binding } from "@/lib/shortcuts";
 
 const GROUP_ORDER: Binding["group"][] = [
   "Edit", "Drawing tools", "Chart", "Replay", "Navigation",
@@ -44,13 +44,10 @@ function prettyKey(key: string): string {
 }
 
 export function ShortcutsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  // After mount, so the server-rendered markup and the first client render
+  // agree; the platform is only knowable in the browser.
   const [mac, setMac] = useState(false);
-  useEffect(() => {
-    if (typeof navigator === "undefined") return;
-    const platform = (navigator as { userAgentData?: { platform?: string } })
-      .userAgentData?.platform ?? navigator.platform ?? "";
-    setMac(/mac|iphone|ipad/i.test(platform));
-  }, []);
+  useEffect(() => { setMac(isMacPlatform()); }, []);
 
   /*
    * Several actions have two bindings (Redo is ⌘⇧Z and ⌘Y). Showing one row

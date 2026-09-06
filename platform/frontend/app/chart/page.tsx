@@ -55,7 +55,7 @@ import { drawingStore } from "@/lib/drawingStore";
 import { cloneDrawing } from "@/lib/drawingHistory";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import type { MenuEntry } from "@/lib/contextMenu";
-import { chartMenu, drawingMenu } from "@/lib/menuPayloads";
+import { chartMenu, drawingMenu, priceAxisMenu } from "@/lib/menuPayloads";
 import { useShortcuts } from "@/lib/useShortcuts";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
@@ -72,6 +72,10 @@ import {
   type SymbolInfo, type Trade,
 } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
+import {
+  DEFAULT_PRICE_SCALE, resetPriceScale, togglePriceScaleAuto, togglePriceScaleMode,
+  type PriceScaleState,
+} from "@/lib/priceScale";
 import { parseScannerChartTarget } from "@/lib/spotScene";
 import { sameSymbol } from "@/lib/manualTicket";
 import { resolveTradingTarget, tradingTargetNotice, type TradingTarget } from "@/lib/tradingTarget";
@@ -81,10 +85,12 @@ import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
-  paneById, removePane, saveWorkspace, setActivePane, setPaneMaVisibility, setPreset,
-  setWorkspaceBars, togglePaneMa, toggleMaximize, updatePane,
+  paneById, removePane, saveWorkspace, setActivePane, setPaneCount, setPaneMaVisibility,
+  setPreset, setWorkspaceBars, togglePaneMa, toggleMaximize, updatePane,
   type ChartWorkspace as Workspace, type PaneState,
 } from "@/lib/workspace";
+import { MAX_PANES } from "@/lib/layoutPresets";
+import { isMacPlatform } from "@/lib/shortcuts";
 import {
   activeReplayQuote, liveActionsDisabled, reconcileReplay, replayCandles, replayDelayMs,
   replayTick, startReplay, stepReplay,
@@ -595,7 +601,19 @@ export default function TvWorkspace() {
     setPanel("indicators");
   }, []);
 
-  const updateReplayDrawings = useCallback((next: Drawing[]) => setReplayDrawings(next), []);
+  /**
+   * An edit inside a Replay session.
+   *
+   * Recorded in the store's Replay scope so Cmd+Z works there too — it used to
+   * be silently dead, while the shortcuts sheet listed Undo unconditionally.
+   * The scope is separate from the instrument's, so an undo here can never
+   * reach the chart's persisted drawings, and leaving Replay leaves the
+   * history behind rather than merging it.
+   */
+  const updateReplayDrawings = useCallback((next: Drawing[], gesture: string | null = null) => {
+    drawingStore.setReplay(symbol, next, gesture);
+    setReplayDrawings(next);
+  }, [symbol]);
   const [toast, setToast] = useState<string | null>(null);
   const [loadingBest, setLoadingBest] = useState(false);
   const [bestRange, setBestRange] = useState<{ start: string; end: string; nonce: number; run?: boolean } | null>(null);
@@ -842,6 +860,10 @@ export default function TvWorkspace() {
   }, []);
 
   const beginReplay = useCallback((requestedTime: number) => {
+    // A new session starts with an empty, un-undoable Replay history: undoing
+    // "the session began" is meaningless, and the previous session's steps
+    // must not be reachable from this one.
+    drawingStore.resetReplay(symbol, []);
     const next = startReplay(candles, requestedTime);
     if (!next) { setErr("No completed candle exists at or before that replay point."); return; }
     setReplay(next);
@@ -966,8 +988,50 @@ export default function TvWorkspace() {
   const [menu, setMenu] = useState<
     | null
     | { at: { x: number; y: number }; label: string; entries: MenuEntry[];
-        kind: "chart" | "drawing"; paneId: string; price: number | null; drawingId: string | null }
+        kind: "chart" | "drawing" | "axis"; paneId: string; price: number | null;
+        drawingId: string | null }
   >(null);
+  /**
+   * Each pane's price scale, and a counter that asks a pane to refit.
+   *
+   * Owned here rather than inside `CandleChart` because the chart's context
+   * menu has to both REPORT the scale ("Auto ✓", "Log ✗") and change it. While
+   * the chart kept the state privately the menu was built from literals — it
+   * always claimed Auto on and Log off, whatever the axis was doing, and its
+   * three scale items reached no handler at all.
+   */
+  const [paneScales, setPaneScales] = useState<Record<string, PriceScaleState>>({});
+  /**
+   * Bumped per pane to ask its chart to refit. See `CandleChart.resetSignal`.
+   */
+  const [paneResets, setPaneResets] = useState<Record<string, number>>({});
+  /** Bumped per pane to move focus into the selected drawing's style bar. */
+  const [paneStyleFocus, setPaneStyleFocus] = useState<Record<string, number>>({});
+  const paneScale = useCallback((paneId: string): PriceScaleState =>
+    paneScales[paneId] ?? DEFAULT_PRICE_SCALE, [paneScales]);
+  const setPaneScale = useCallback((paneId: string, next: PriceScaleState) => {
+    setPaneScales((current) => ({ ...current, [paneId]: next }));
+  }, []);
+
+  /**
+   * Copy a price the way the chart shows it, and say when the copy failed.
+   *
+   * `String(price)` produced `43021.500000001` — a float's decimal expansion,
+   * not a price — and the clipboard promise's rejection was discarded, so on a
+   * non-secure origin or with the permission denied the menu closed and
+   * nothing was on the clipboard, with nothing said about it.
+   */
+  const copyPrice = useCallback((price: number) => {
+    const text = fmtPrice(price);
+    const write = navigator.clipboard?.writeText(text);
+    if (!write) {
+      setToast("This browser will not let the page use the clipboard");
+      return;
+    }
+    write.then(() => setToast(`Copied ${text}`))
+      .catch(() => setToast("The clipboard is not available here"));
+  }, []);
+
   /** Which drawing each pane has selected, so the keyboard can act on it. */
   const [selectedDrawings, setSelectedDrawings] = useState<Record<string, string | null>>({});
   /** One clipboard for the workspace, so a copy can be pasted onto any chart. */
@@ -987,18 +1051,40 @@ export default function TvWorkspace() {
 
   /** Replace the focused instrument's drawings, through the right authority. */
   const writeDrawings = useCallback((next: Drawing[], gesture: string | null = null) => {
-    if (replayActive) updateReplayDrawings(next);
+    if (replayActive) updateReplayDrawings(next, gesture);
     else drawingStore.set(symbol, next, gesture);
   }, [replayActive, updateReplayDrawings, symbol]);
 
   const openChartMenu = useCallback((
     paneId: string,
-    event: { x: number; y: number; drawingId: string | null; price: number | null }
+    event: {
+      x: number; y: number; drawingId: string | null; price: number | null;
+      /** Which strip was clicked: the plot, or the price axis. */
+      region: "plot" | "axis";
+    }
   ) => {
     activatePane(paneId);
     const pane = paneById(workspace, paneId);
     const paneSymbol = pane?.symbol ?? symbol;
     const drawings = replayActive ? replayDrawings : drawingStore.get(paneSymbol);
+    if (event.region === "axis") {
+      // The price axis's own short menu. It used to show Chrome's instead:
+      // the canvas returned before `preventDefault` for anything outside the
+      // plot, so the browser menu opened over the chart.
+      setMenu({
+        at: { x: event.x, y: event.y },
+        label: "Price scale",
+        kind: "axis",
+        paneId,
+        price: null,
+        drawingId: null,
+        entries: priceAxisMenu({
+          autoScale: paneScale(paneId).autoScale,
+          logScale: paneScale(paneId).mode === "logarithmic",
+        }),
+      });
+      return;
+    }
     if (event.drawingId) {
       const drawing = drawings.find((d) => d.id === event.drawingId) ?? null;
       setMenu({
@@ -1010,11 +1096,16 @@ export default function TvWorkspace() {
         drawingId: event.drawingId,
         entries: drawingMenu({
           locked: drawing?.locked === true,
-          hidden: drawHidden,
+          hidden: drawing?.hidden === true,
+          mac: isMacPlatform(),
           // Only a single-anchor horizontal level is a price an alert can watch.
           alertable: drawing?.tool === "hline" || drawing?.tool === "hray",
+          // THIS drawing's state, not the workspace's — the menu used to
+          // report the global "hide drawings" flag as the drawing's own.
           replayActive,
-          canReorder: true,
+          // Order is the array order, which every drawing shares — but a
+          // drawing already alone in the list has nothing to move past.
+          canReorder: drawings.length > 1,
         }),
       });
       return;
@@ -1029,35 +1120,64 @@ export default function TvWorkspace() {
       entries: chartMenu({
         price: event.price,
         replayActive,
-        autoScale: true,
-        logScale: false,
+        // The pane's real axis, not a literal. See `paneScales`.
+        autoScale: paneScale(paneId).autoScale,
+        logScale: paneScale(paneId).mode === "logarithmic",
         hasDrawings: drawings.length > 0,
         drawingsHidden: drawHidden,
         drawingsLocked: drawLocked,
-        tradingEnabled: true,
+        // Offering "prepare an order" where manual trading is switched off
+        // stages a ticket the installation will not accept.
+        tradingEnabled: manualState?.enabled === true,
       }),
     });
-  }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked]);
+  }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
+    paneScale, manualState]);
 
+  /*
+   * One handler per menu, keyed by the menu's own namespace.
+   *
+   * The ids used to be bare, and `add-alert` belonged to two menus. The shared
+   * switch ran first and returned unconditionally, so a drawing's "Add alert on
+   * this level" armed at the POINTER's price and the branch that read the
+   * drawing's own level was unreachable. Prefixed ids make that impossible to
+   * write; every id a payload can emit is answered below, and
+   * `tests/powerUx.test.ts` fails if one is not.
+   */
   const onMenuSelect = useCallback((id: string) => {
     if (!menu) return;
     const price = menu.price;
+    const paneId = menu.paneId;
+    const scale = paneScale(paneId);
     switch (id) {
-      case "copy-price":
-        if (price !== null) void navigator.clipboard?.writeText(String(price));
+      case "chart:copy-price":
+        if (price !== null) copyPrice(price);
         return;
-      case "add-alert":
+      case "chart:add-alert":
         if (price !== null) pickLevel(price);
         return;
-      case "trade-at-price":
+      case "chart:trade-at-price":
         // PREPARES a ticket. It does not submit, and no context-menu item in
         // this product ever will — that is the alert/automation boundary.
         setPanel("manual");
         return;
-      case "indicators": setIndicatorBrowserOpen(true); return;
-      case "chart-settings": setSettingsOpen(true); return;
-      case "toggle-drawings-hidden": setDrawHidden((v) => !v); return;
-      case "toggle-drawings-locked": setDrawLocked((v) => !v); return;
+      case "chart:indicators": setIndicatorBrowserOpen(true); return;
+      case "chart:chart-settings": setSettingsOpen(true); return;
+      case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
+      case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
+      case "chart:reset-view":
+      case "axis:reset":
+        setPaneScale(paneId, resetPriceScale());
+        setPaneResets((current) => ({ ...current, [paneId]: (current[paneId] ?? 0) + 1 }));
+        return;
+      case "chart:toggle-auto":
+      case "axis:toggle-auto":
+        setPaneScale(paneId, togglePriceScaleAuto(scale));
+        return;
+      case "chart:toggle-log":
+      case "axis:toggle-log":
+        setPaneScale(paneId, togglePriceScaleMode(scale));
+        return;
       default: break;
     }
     if (menu.kind !== "drawing" || !menu.drawingId) return;
@@ -1065,43 +1185,65 @@ export default function TvWorkspace() {
     const target = drawings.find((d) => d.id === menu.drawingId);
     if (!target) return;
     switch (id) {
-      case "clone": {
+      case "drawing:settings":
+        // The style bar is already beside the drawing — right-clicking it
+        // selects it. What this adds is a way IN from the keyboard, which the
+        // bar had no other route to.
+        setPaneStyleFocus((current) => ({ ...current, [paneId]: (current[paneId] ?? 0) + 1 }));
+        return;
+      case "drawing:clone": {
         const copy = cloneDrawing(target, newId, INTERVAL_MS[interval] / 1000);
-        writeDrawings([...drawings, copy]);
+        writeDrawings([...drawings, copy], "clone");
         return;
       }
-      case "copy": clipboard.current = target; return;
-      case "toggle-lock":
+      case "drawing:copy": clipboard.current = target; return;
+      case "drawing:toggle-lock":
         writeDrawings(drawings.map((d) =>
-          (d.id === target.id ? { ...d, locked: !d.locked } : d)));
+          (d.id === target.id ? { ...d, locked: !d.locked } : d)), "lock");
         return;
-      case "remove":
-        writeDrawings(drawings.filter((d) => d.id !== target.id));
+      case "drawing:toggle-hidden":
+        // Per-drawing, unlike the chart menu's workspace-wide "Hide drawings".
+        writeDrawings(drawings.map((d) =>
+          (d.id === target.id ? { ...d, hidden: !d.hidden } : d)), "hide");
         return;
-      case "bring-front":
-        writeDrawings([...drawings.filter((d) => d.id !== target.id), target]);
+      case "drawing:remove":
+        writeDrawings(drawings.filter((d) => d.id !== target.id), "remove");
         return;
-      case "send-back":
-        writeDrawings([target, ...drawings.filter((d) => d.id !== target.id)]);
+      case "drawing:bring-front":
+        writeDrawings([...drawings.filter((d) => d.id !== target.id), target], "reorder");
         return;
-      case "add-alert": {
+      case "drawing:send-back":
+        writeDrawings([target, ...drawings.filter((d) => d.id !== target.id)], "reorder");
+        return;
+      case "drawing:add-alert": {
+        // The DRAWING's level, never the pointer's price. That distinction is
+        // the whole reason these ids are namespaced.
         const level = target.points[0]?.price;
         if (level !== undefined) pickLevel(level);
         return;
       }
       default: return;
     }
-  }, [menu, currentDrawings, interval, writeDrawings, pickLevel]);
+  }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
+    copyPrice]);
 
   const shortcuts = useShortcuts({
     onAction: (action) => {
       switch (action) {
         case "undo": {
-          if (replayActive) return false;
+          if (replayActive) {
+            const restored = drawingStore.undoReplay(symbol);
+            if (restored) setReplayDrawings(restored);
+            return restored !== null;
+          }
           return drawingStore.undo(symbol) !== null;
         }
         case "redo": {
-          if (replayActive) return false;
+          if (replayActive) {
+            const restored = drawingStore.redoReplay(symbol);
+            if (restored) setReplayDrawings(restored);
+            return restored !== null;
+          }
           return drawingStore.redo(symbol) !== null;
         }
         case "clone": {
@@ -1221,6 +1363,10 @@ export default function TvWorkspace() {
         onNativeStudiesChanged={registerNativeChanged}
         onDrawingSelection={noteDrawingSelection}
         onChartContextMenu={openChartMenu}
+        priceScale={paneScale(pane.id)}
+        onPriceScaleChange={setPaneScale}
+        resetSignal={paneResets[pane.id] ?? 0}
+        drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         compact={isMobile}
@@ -1231,7 +1377,8 @@ export default function TvWorkspace() {
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnet, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
-    registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport]);
+    registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
+    paneScale, setPaneScale, paneResets, paneStyleFocus]);
 
   return (
     <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">
@@ -1442,6 +1589,22 @@ export default function TvWorkspace() {
         replayBlocksLiveActions={replayBlocksLiveActions}
         symbols={symbols}
         onSelectSymbol={(s) => changePaneSymbol(active.id, s)}
+        canOpenNewPane={paneCount < MAX_PANES}
+        onOpenSymbolInNewPane={(s) => {
+          // Grow the workspace by one pane and put the symbol on the new one,
+          // which is what "open in a new pane" means with a preset layout.
+          setWorkspace((ws) => {
+            const grown = setPaneCount(ws, ws.panes.length + 1);
+            const added = grown.panes[grown.panes.length - 1];
+            return added
+              ? setActivePane(applyPaneSymbol(grown, added.id, s, sync), added.id)
+              : grown;
+          });
+        }}
+        onAddSymbolAlert={(s) => {
+          changePaneSymbol(active.id, s);
+          setPriceAlertOpen(true);
+        }}
         onSymbolsChanged={refreshSymbols}
         replayQuote={activeReplayQuote(candles, replay)}
         onOpenAutomation={() => setAlertOpen(true)}

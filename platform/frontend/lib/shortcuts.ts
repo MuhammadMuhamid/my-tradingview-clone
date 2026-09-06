@@ -51,10 +51,38 @@ export interface EditableTargetLike {
   isContentEditable?: boolean;
   /** `true` on a container the app marks as owning its own keys (the editor). */
   closestEditor?: boolean;
+  /** The target's ARIA role, which can make a `div` a text box or a button. */
+  role?: string | null;
 }
 
 /** Tag names that own every keystroke aimed at them. */
 const TYPING_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+/**
+ * Elements that own Space, Enter and the arrow keys because ACTIVATING them is
+ * what those keys do.
+ *
+ * Only for those keys — a button does not own `t` or `/`. During a Replay,
+ * Space is bound to play/pause and the handler always claims it, so a
+ * keyboard-only user could not press any focused button at all while a session
+ * was running; the arrow keys are taken from radio groups and tab lists the
+ * same way.
+ */
+const ACTIVATABLE_TAGS = new Set(["BUTTON", "A", "SUMMARY"]);
+const ACTIVATABLE_ROLES = new Set([
+  "button", "switch", "checkbox", "radio", "tab", "menuitem", "option", "link",
+  "menuitemcheckbox", "menuitemradio", "slider", "spinbutton",
+]);
+const ACTIVATION_KEYS = new Set([
+  " ", "Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+]);
+
+function ownsActivationKeys(target: EditableTargetLike | null | undefined): boolean {
+  if (!target) return false;
+  const role = (target.role ?? "").toLowerCase();
+  if (ACTIVATABLE_ROLES.has(role)) return true;
+  return ACTIVATABLE_TAGS.has((target.tagName ?? "").toUpperCase());
+}
 
 /**
  * Is the user typing?
@@ -67,8 +95,29 @@ export function isTypingTarget(target: EditableTargetLike | null | undefined): b
   if (!target) return false;
   if (target.isContentEditable === true) return true;
   if (target.closestEditor === true) return true;
+  // A `div` carrying `role="textbox"` is a text box to every assistive
+  // technology and to the user typing into it, whatever its tag says.
+  if ((target.role ?? "").toLowerCase() === "textbox") return true;
   const tag = (target.tagName ?? "").toUpperCase();
   return TYPING_TAGS.has(tag);
+}
+
+/**
+ * Is this the platform where the modifier is Cmd?
+ *
+ * Here rather than beside the hook because three surfaces need the same
+ * answer — the key resolver, the shortcuts sheet and the drawing context menu
+ * — and three copies of a user-agent sniff is three chances to disagree about
+ * whether to print ⌘ or Ctrl.
+ *
+ * Read once per call site, from the user agent's platform string, because it
+ * cannot change during a session.
+ */
+export function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const platform = (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform
+    ?? navigator.platform ?? "";
+  return /mac|iphone|ipad/i.test(platform);
 }
 
 export interface Binding {
@@ -140,24 +189,50 @@ export interface ShortcutContext {
  * with `replayOnly` is inert outside Replay — Space must scroll a page and the
  * arrow keys must move a cursor when there is no Replay to step.
  */
+/**
+ * Whether Shift is a MODIFIER of this key, or part of producing it.
+ *
+ * `Shift+F` and `F` are two different presses, so the table distinguishes
+ * them. `?` is not: on a US or UK layout it IS Shift+`/`, so the browser
+ * reports `{ key: "?", shiftKey: true }` and a binding declared without
+ * `shift` could never match. The shortcuts sheet — the discovery surface for
+ * the whole keyboard layer — was unreachable by keyboard for exactly this
+ * reason, and the test that claimed every binding was reachable synthesised
+ * `shiftKey: false` for it, an event no keyboard emits.
+ *
+ * Declaring `shift: true` on the binding would fix `?` on those layouts and
+ * break it on the ones where `?` is unshifted. Ignoring the flag for a key
+ * that is already punctuation is correct on every layout.
+ */
+const shiftIsAModifier = (key: string): boolean =>
+  key.length > 1 || /^[a-z0-9]$/i.test(key);
+
 export function resolveShortcut(
   event: KeyEventLike, context: ShortcutContext
 ): ShortcutAction | null {
   if (isTypingTarget(event.target)) return null;
+  // Space on a focused button presses the button. See `ownsActivationKeys`.
+  if (ACTIVATION_KEYS.has(event.key) && ownsActivationKeys(event.target)) return null;
   const mod = context.mac ? event.metaKey : event.ctrlKey;
   // A modifier this table never uses means the press belongs to the browser
   // or the OS: Alt+ArrowLeft is Back, and must stay Back.
   if (event.altKey) return null;
+  /*
+   * And the modifier that is NOT this platform's.
+   *
+   * `mod` is Cmd on macOS and Ctrl everywhere else, so a macOS Ctrl+T matched
+   * the bare `t` binding and was preventDefault-ed — the app taking a chord it
+   * never claimed. Rejecting the other modifier outright also makes the old
+   * `if (!binding.mod && mod)` guard below unnecessary.
+   */
+  if (context.mac ? event.ctrlKey : event.metaKey) return null;
   for (const binding of BINDINGS) {
     if (binding.replayOnly && !context.replayActive) continue;
     if (binding.key.length === 1
       ? binding.key.toLowerCase() !== event.key.toLowerCase()
       : binding.key !== event.key) continue;
     if ((binding.mod ?? false) !== mod) continue;
-    if ((binding.shift ?? false) !== event.shiftKey) continue;
-    // A bare letter that arrives with the platform modifier held is not a
-    // tool selection; it is a browser command this app has no business taking.
-    if (!binding.mod && mod) continue;
+    if (shiftIsAModifier(binding.key) && (binding.shift ?? false) !== event.shiftKey) continue;
     return binding.action;
   }
   return null;

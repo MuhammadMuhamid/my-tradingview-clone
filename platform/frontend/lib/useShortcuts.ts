@@ -29,6 +29,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   appendIntervalKey, EMPTY_INTERVAL_BUFFER, isTypingTarget, resolveShortcut,
   resolveTypedInterval, type IntervalBuffer, type ShortcutAction,
+  isMacPlatform,
 } from "./shortcuts";
 import { INTERVAL_VALUES, isInterval, type Interval } from "./types";
 
@@ -43,20 +44,6 @@ export interface ShortcutOptions {
   replayActive: boolean;
   /** Off while a modal owns the keyboard entirely. */
   enabled?: boolean;
-}
-
-/**
- * Is this the platform where the modifier is Cmd?
- *
- * Read once, from the user agent's platform string, because it cannot change
- * during a session and reading it per keystroke is a needless touch of a
- * deprecated API.
- */
-function isMacPlatform(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const platform = (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform
-    ?? navigator.platform ?? "";
-  return /mac|iphone|ipad/i.test(platform);
 }
 
 export interface ShortcutState {
@@ -91,12 +78,25 @@ export function useShortcuts(
         target: target ? {
           tagName: target.tagName,
           isContentEditable: target.isContentEditable,
-          // The Pine editor owns every key aimed at it, including Cmd+Z.
-          closestEditor: target.closest?.("[data-owns-keys]") !== null
-            && target.closest?.("[data-owns-keys]") !== undefined,
+          role: target.getAttribute?.("role") ?? null,
+          // A surface that owns every key aimed at it, including Cmd+Z. The
+          // Pine editor marks itself this way; a plain textarea does not need
+          // to, because `TYPING_TAGS` already covers it.
+          closestEditor: target.closest?.("[data-owns-keys]") != null,
         } : null,
       };
       if (isTypingTarget(described.target)) return;
+
+      /*
+       * A dialog is modal to the keyboard layer too.
+       *
+       * The typing guard covers inputs, but the moment focus lands on a BUTTON
+       * inside an open dialog every bare-letter shortcut acted on the chart
+       * behind it — and `/` stacked a symbol search on top of the dialog.
+       * Asking the DOM is one check in one place, and it cannot go stale the
+       * way an `enabled` expression listing six dialog flags would.
+       */
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
 
       // Interval typing is checked BEFORE the table, because `1`..`9` and `d`,
       // `h`, `m` are digits and letters the table does not claim — and Enter
@@ -113,6 +113,29 @@ export function useShortcuts(
         // A buffer that resolves to nothing is cleared rather than left to
         // combine with the next thing typed.
         if (bufferRef.current.text.length > 0) setBuffer(EMPTY_INTERVAL_BUFFER);
+      }
+
+      /*
+       * A key that CONTINUES an interval belongs to the interval, not the table.
+       *
+       * `h` arms the horizontal-line tool and `m` toggles the magnet, and the
+       * table used to be resolved first — so typing `4`,`h` armed a tool and
+       * `1`,`5`,`m` toggled the magnet and wiped the buffer. `4h` and `15m`,
+       * the two most-used intervals on the product, were untypable, and what
+       * the user got instead was a silent tool change.
+       *
+       * Only while a buffer is already open, so a bare `h` still arms the tool
+       * and a bare `m` still toggles the magnet. Modified presses are never
+       * part of an interval.
+       */
+      if (bufferRef.current.text.length > 0
+          && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const next = appendIntervalKey(bufferRef.current, event.key, Date.now());
+        if (next !== bufferRef.current) {
+          event.preventDefault();
+          setBuffer(next);
+          return;
+        }
       }
 
       const action = resolveShortcut(described, { mac, replayActive: replayRef.current });

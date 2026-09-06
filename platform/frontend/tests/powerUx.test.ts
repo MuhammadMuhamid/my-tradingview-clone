@@ -29,6 +29,7 @@ import {
 } from "../lib/shortcuts";
 import {
   chartMenu, drawingMenu, priceAxisMenu, studyMenu, watchlistMenu,
+  CHART_MENU_IDS, DRAWING_MENU_IDS, STUDY_MENU_IDS, AXIS_MENU_IDS, WATCHLIST_MENU_IDS,
 } from "../lib/menuPayloads";
 import {
   cloneDrawing, DrawingHistory, historyScope, MAX_HISTORY, MAX_SCOPES, sameDrawings,
@@ -46,7 +47,9 @@ const VIEWPORT = { viewportWidth: 1000, viewportHeight: 800 };
 
 test("a menu with room opens down and right of the pointer", () => {
   const placed = placeMenu({ x: 100, y: 100, width: 200, height: 300, ...VIEWPORT });
-  assert.deepEqual(placed, { left: 100, top: 100, flippedX: false, flippedY: false });
+  assert.deepEqual(placed, {
+    left: 100, top: 100, flippedX: false, flippedY: false, maxHeight: 692,
+  });
 });
 
 test("a menu without room FLIPS back across the pointer rather than sliding", () => {
@@ -74,6 +77,33 @@ test("a menu too large to fit either way is clamped inside the viewport", () => 
   const flipped = placeMenu({ x: 20, y: 780, width: 200, height: 700, ...VIEWPORT });
   assert.equal(flipped.flippedY, true);
   assert.equal(flipped.top, 80);
+});
+
+/**
+ * A menu taller than the viewport must be SCROLLABLE, not silently cut off.
+ *
+ * Clamping alone put the panel's top at the margin and left the rest below the
+ * fold, with `overflow-hidden` and no bound — so the chart menu's last items
+ * were unreachable in a short window, and arrowing moved the cursor onto items
+ * that were not on screen. The placement now reports the height it could give,
+ * and the panel scrolls inside it.
+ */
+test("a menu taller than the viewport is bounded and scrollable", () => {
+  const tall = placeMenu({ x: 20, y: 400, width: 200, height: 900, ...VIEWPORT });
+  assert.equal(tall.top, 8, "clamped to the top margin, because nothing fits");
+  assert.equal(tall.maxHeight, 800 - 8 - 8, "and bounded by what is left below it");
+  assert.ok(tall.maxHeight <= 784);
+
+  // A menu that fits is never given less room than it needs.
+  const short = placeMenu({ x: 20, y: 100, width: 200, height: 200, ...VIEWPORT });
+  assert.ok(short.maxHeight >= 200);
+
+  // The panel applies it, with a scroll rather than a clip.
+  const component = read("components/tv/ContextMenu.tsx");
+  assert.match(component, /maxHeight: placement \? placement\.maxHeight : undefined/);
+  assert.match(component, /overflow-y-auto/);
+  assert.doesNotMatch(component, /overflow-hidden/,
+    "a fixed panel cannot be scrolled by the page, so a clip loses the items");
 });
 
 test("a menu is never placed so that the page has to scroll to show it", () => {
@@ -145,7 +175,7 @@ test("an action that cannot be taken is disabled with a reason, never hidden", (
     price: 100, replayActive: true, autoScale: true, logScale: false,
     hasDrawings: true, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
   });
-  for (const id of ["add-alert", "trade-at-price"]) {
+  for (const id of ["chart:add-alert", "chart:trade-at-price"]) {
     const item = byId(replay, id)!;
     assert.ok(item, `${id} must be present even when it cannot be used`);
     assert.equal((item as { disabled?: boolean }).disabled, true);
@@ -153,7 +183,7 @@ test("an action that cannot be taken is disabled with a reason, never hidden", (
       "a greyed item with no explanation is a mystery");
   }
   // Copying a price is not an action on the market, so Replay does not block it.
-  assert.notEqual((byId(replay, "copy-price") as { disabled?: boolean }).disabled, true);
+  assert.notEqual((byId(replay, "chart:copy-price") as { disabled?: boolean }).disabled, true);
 });
 
 test("the chart menu prepares an order and never submits one", () => {
@@ -161,7 +191,7 @@ test("the chart menu prepares an order and never submits one", () => {
     price: 100, replayActive: false, autoScale: true, logScale: false,
     hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
   });
-  const trade = byId(menu, "trade-at-price")!;
+  const trade = byId(menu, "chart:trade-at-price")!;
   assert.match((trade as { label: string }).label, /Prepare/,
     "a one-click order from a context menu would cross the alerts-never-trade line");
   assert.match((trade as { hint?: string }).hint ?? "", /ticket/);
@@ -181,63 +211,63 @@ test("the chart menu offers no control it cannot justify", () => {
   assert.ok(!labels.some((l) => /invert/i.test(l)),
     "a chart control whose only justification is that another product has one");
   // With no price under the pointer the price actions say why they are off.
-  assert.match((byId(menu, "copy-price") as { disabledReason?: string }).disabledReason ?? "",
+  assert.match((byId(menu, "chart:copy-price") as { disabledReason?: string }).disabledReason ?? "",
     /Right-click on the chart/);
   // Toggles reflect the CURRENT state rather than what they would do.
-  assert.equal((byId(menu, "toggle-log") as { checked?: boolean }).checked, true);
-  assert.equal((byId(menu, "toggle-auto") as { checked?: boolean }).checked, false);
+  assert.equal((byId(menu, "chart:toggle-log") as { checked?: boolean }).checked, true);
+  assert.equal((byId(menu, "chart:toggle-auto") as { checked?: boolean }).checked, false);
   // And with nothing drawn, the drawing toggles say so rather than doing nothing.
-  assert.equal((byId(menu, "toggle-drawings-hidden") as { disabled?: boolean }).disabled, true);
+  assert.equal((byId(menu, "chart:toggle-drawings-hidden") as { disabled?: boolean }).disabled, true);
 });
 
 test("a locked drawing refuses the edits that would change it", () => {
   const locked = drawingMenu({
-    locked: true, hidden: false, alertable: true, replayActive: false, canReorder: true,
+    locked: true, hidden: false, alertable: true, replayActive: false, canReorder: true, mac: true,
   });
-  for (const id of ["clone", "remove"]) {
+  for (const id of ["drawing:clone", "drawing:remove"]) {
     assert.equal((byId(locked, id) as { disabled?: boolean }).disabled, true, id);
   }
   // Unlocking is exactly what a locked drawing's menu must still offer.
-  assert.notEqual((byId(locked, "toggle-lock") as { disabled?: boolean }).disabled, true);
-  assert.equal((byId(locked, "toggle-lock") as { checked?: boolean }).checked, true);
+  assert.notEqual((byId(locked, "drawing:toggle-lock") as { disabled?: boolean }).disabled, true);
+  assert.equal((byId(locked, "drawing:toggle-lock") as { checked?: boolean }).checked, true);
 });
 
 test("only a level can carry a price alert, and not during Replay", () => {
   const notLevel = drawingMenu({
-    locked: false, hidden: false, alertable: false, replayActive: false, canReorder: true,
+    locked: false, hidden: false, alertable: false, replayActive: false, canReorder: true, mac: true,
   });
-  assert.match((byId(notLevel, "add-alert") as { disabledReason?: string }).disabledReason ?? "",
+  assert.match((byId(notLevel, "drawing:add-alert") as { disabledReason?: string }).disabledReason ?? "",
     /horizontal level/);
   const inReplay = drawingMenu({
-    locked: false, hidden: false, alertable: true, replayActive: true, canReorder: true,
+    locked: false, hidden: false, alertable: true, replayActive: true, canReorder: true, mac: true,
   });
-  assert.match((byId(inReplay, "add-alert") as { disabledReason?: string }).disabledReason ?? "",
+  assert.match((byId(inReplay, "drawing:add-alert") as { disabledReason?: string }).disabledReason ?? "",
     /Replay/);
 });
 
 test("a built-in study has no source to open, and says so", () => {
   const builtin = studyMenu({ visible: true, first: true, last: false, hasSource: false });
-  const open = byId(builtin, "open-source")!;
+  const open = byId(builtin, "study:open-source")!;
   assert.equal((open as { disabled?: boolean }).disabled, true);
   assert.match((open as { disabledReason?: string }).disabledReason ?? "", /built-in/i);
-  assert.equal((byId(builtin, "move-up") as { disabled?: boolean }).disabled, true,
+  assert.equal((byId(builtin, "study:move-up") as { disabled?: boolean }).disabled, true,
     "the first study has nothing above it");
-  assert.notEqual((byId(builtin, "move-down") as { disabled?: boolean }).disabled, true);
+  assert.notEqual((byId(builtin, "study:move-down") as { disabled?: boolean }).disabled, true);
 
   const pine = studyMenu({ visible: false, first: false, last: true, hasSource: true });
-  assert.notEqual((byId(pine, "open-source") as { disabled?: boolean }).disabled, true);
-  assert.equal((byId(pine, "toggle-visible") as { checked?: boolean }).checked, false);
+  assert.notEqual((byId(pine, "study:open-source") as { disabled?: boolean }).disabled, true);
+  assert.equal((byId(pine, "study:toggle-visible") as { checked?: boolean }).checked, false);
 });
 
 test("the price axis and watchlist menus state their own preconditions", () => {
   const axis = priceAxisMenu({ autoScale: true, logScale: false });
-  assert.equal((byId(axis, "toggle-auto") as { checked?: boolean }).checked, true);
-  assert.ok(byId(axis, "reset"));
+  assert.equal((byId(axis, "axis:toggle-auto") as { checked?: boolean }).checked, true);
+  assert.ok(byId(axis, "axis:reset"));
 
   const full = watchlistMenu({ symbol: "SOLUSDT", replayActive: false, canOpenNewPane: false });
-  assert.match((byId(full, "open-new-pane") as { disabledReason?: string }).disabledReason ?? "",
+  assert.match((byId(full, "watchlist:open-new-pane") as { disabledReason?: string }).disabledReason ?? "",
     /maximum number of panes/);
-  assert.match((byId(full, "add-alert") as { label: string }).label, /SOLUSDT/,
+  assert.match((byId(full, "watchlist:add-alert") as { label: string }).label, /SOLUSDT/,
     "the row's own symbol, so the action is not ambiguous in a long list");
 });
 
@@ -299,12 +329,25 @@ test("both redo bindings resolve, and every binding is reachable", () => {
   assert.equal(resolveShortcut(key({ key: "z", metaKey: true, shiftKey: true }), CONTEXT), "redo");
   assert.equal(resolveShortcut(key({ key: "y", metaKey: true }), CONTEXT), "redo");
   for (const binding of BINDINGS) {
-    const resolved = resolveShortcut(
-      key({
-        key: binding.key, metaKey: binding.mod === true, shiftKey: binding.shift === true,
-      }),
-      { mac: true, replayActive: true });
-    assert.ok(resolved !== null, `${binding.label} (${binding.key}) resolves to nothing`);
+    /*
+     * The event a keyboard would actually emit.
+     *
+     * The old version passed `shiftKey: binding.shift === true`, which for the
+     * `?` binding synthesised `{ key: "?", shiftKey: false }` — an event no US
+     * or UK keyboard produces. The binding was unreachable in the browser and
+     * the test said it was fine. A punctuation key is now checked BOTH ways,
+     * because which one a layout emits is not ours to assume.
+     */
+    const shifts = /^[a-z0-9]$/i.test(binding.key) || binding.key.length > 1
+      ? [binding.shift === true]
+      : [true, false];
+    for (const shiftKey of shifts) {
+      const resolved = resolveShortcut(
+        key({ key: binding.key, metaKey: binding.mod === true, shiftKey }),
+        { mac: true, replayActive: true });
+      assert.ok(resolved !== null,
+        `${binding.label} (${binding.key}${shiftKey ? " with shift" : ""}) resolves to nothing`);
+    }
   }
 });
 
@@ -463,10 +506,21 @@ test("there is exactly one keyboard listener and one menu, wired at the workspac
   assert.match(page, /chartMenu\(\{/);
   assert.match(page, /drawingMenu\(\{/);
 
-  // No component may grow its own global key listener beside the layer.
+  /*
+   * The canvas keeps one listener for Escape and Delete, which the workspace
+   * deliberately delegates to it — but `DrawingCanvas` mounts once per PANE,
+   * so a four-pane layout had four of them and one Delete removed a drawing in
+   * every pane that had one selected. Two properties matter now: the inactive
+   * panes decline the key, and the guard is the shared one rather than a
+   * narrower copy that omitted `<select>` and the editor surface.
+   */
   const canvas = read("components/tv/DrawingCanvas.tsx");
-  assert.match(canvas, /el\.tagName === "INPUT"/,
-    "the canvas's own Escape/Delete handler keeps its typing guard");
+  assert.match(canvas, /if \(!activeRef\.current\) return;/,
+    "an unfocused pane must not act on Delete");
+  assert.match(canvas, /isTypingTarget\(/,
+    "the canvas must use the shared typing guard, not a copy of part of it");
+  assert.doesNotMatch(canvas, /el\.tagName === "INPUT"/,
+    "a second, narrower guard is how the two drift apart");
 });
 
 test("the shortcuts sheet is generated from the table that implements the keys", () => {
@@ -516,13 +570,250 @@ test("subscribers are told which popover is open, so each renders its own state"
   assert.deepEqual(seen, ["a", "b", null], "and nothing after unsubscribing");
 });
 
+/**
+ * Derived, not listed.
+ *
+ * The old version iterated a hardcoded list of the four files that HAD been
+ * migrated, so the four that had not — the timeframe menu, the drawing
+ * flyout, the trading-overlay menu and the nav system menu — could not fail
+ * it. The timeframe and chart-type menus sit about forty pixels apart in the
+ * same toolbar row and could both be open at once, which is the exact defect
+ * the registry was written to remove.
+ *
+ * Now every popover the registry knows about must be claimed by some source
+ * file, and no file may keep a private `open` boolean beside it.
+ */
 test("every toolbar popover goes through the registry rather than its own state", () => {
-  for (const file of [
-    "components/tv/ChartTypeMenu.tsx", "components/tv/LayoutSelector.tsx",
-    "components/tv/LayoutMenu.tsx", "components/tv/SyncMenu.tsx",
-  ]) {
-    const source = read(file);
-    assert.match(source, /useExclusivePopover\("/, `${file} still owns its own open state`);
-    assert.doesNotMatch(source, /const \[open, setOpen\] = useState/, file);
+  const sources = new Map<string, string>();
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) { walk(rel); continue; }
+      if (/\.tsx?$/.test(entry.name)) sources.set(rel, read(rel));
+    }
+  };
+  walk("components");
+  walk("lib");
+
+  const registered = [...sources.values()]
+    .flatMap((source) => [...source.matchAll(/useExclusivePopover\("([^"]+)"\)/g)])
+    .map((m) => m[1]!);
+  // Every popover this product has, by name. A new one that keeps its own
+  // boolean will not appear here — and the check below is what catches it.
+  assert.deepEqual([...registered].sort(), [
+    "chart-type", "drawing-flyout", "layout-preset", "nav-system", "pane-sync",
+    "saved-layouts", "timeframe", "trading-overlays",
+  ]);
+  assert.equal(new Set(registered).size, registered.length, "two popovers share an id");
+
+  /*
+   * And no file may keep a PRIVATE open flag beside a popover menu, which is
+   * the shape the defect actually took: `const [open, setOpen] = useState(false)`
+   * in a component that renders `role="menu"`. The state may live in the
+   * component or in a hook it is given — what it may not do is escape the
+   * registry.
+   */
+  for (const [file, source] of sources) {
+    if (!/role="menu"|role="listbox"/.test(source)) continue;
+    assert.doesNotMatch(source, /const \[(open|menuOpen|flyout)[^\]]*\] = useState\(false\)/,
+      `${file} keeps a private open flag beside a popover menu`);
   }
+});
+
+// ── the menus reach something ──────────────────────────────────────────────
+
+/**
+ * A menu item that does nothing is worse than one that is not there.
+ *
+ * Five were: "Reset view", "Auto scale", "Logarithmic scale", the drawing's
+ * "Style…" and its "Hide". Each was rendered, enabled, and fell through to a
+ * `default:` — precisely what `lib/menuPayloads.ts`'s own header forbids ("an
+ * action that cannot be taken is DISABLED with a reason, never hidden").
+ *
+ * A source assertion because there is no DOM here, and because the failure it
+ * catches is structural: an id added to a payload and never answered.
+ */
+const CHART_PAGE = read("app/chart/page.tsx");
+
+const ALL_MENU_IDS = [
+  ...CHART_MENU_IDS, ...DRAWING_MENU_IDS, ...STUDY_MENU_IDS,
+  ...AXIS_MENU_IDS, ...WATCHLIST_MENU_IDS,
+];
+
+test("every id a menu can emit is answered by a handler", () => {
+  // The study and watchlist menus are opened by their own components, so their
+  // handlers are there rather than on the chart page.
+  const sources = [
+    CHART_PAGE,
+    read("components/tv/IndicatorsPanel.tsx"),
+    read("components/tv/Watchlist.tsx"),
+  ].join("\n");
+  for (const id of ALL_MENU_IDS) {
+    assert.ok(sources.includes(`case "${id}"`),
+      `${id} is offered by a menu and reaches no handler — the menu closes and nothing happens`);
+  }
+});
+
+test("two menus cannot collide on an id", () => {
+  // `add-alert` belonged to the chart menu, the drawing menu AND the watchlist
+  // menu, and one shared switch ran first: a drawing's "Add alert on this
+  // level" armed at the POINTER's price, and the branch that read the
+  // drawing's own level was unreachable. Prefixes make the collision
+  // impossible rather than fixing the one instance.
+  assert.equal(new Set(ALL_MENU_IDS).size, ALL_MENU_IDS.length,
+    "two menus share an id, so one handler will answer for both");
+  for (const [prefix, ids] of [
+    ["chart", CHART_MENU_IDS], ["drawing", DRAWING_MENU_IDS], ["study", STUDY_MENU_IDS],
+    ["axis", AXIS_MENU_IDS], ["watchlist", WATCHLIST_MENU_IDS],
+  ] as const) {
+    for (const id of ids) {
+      assert.ok(id.startsWith(`${prefix}:`), `${id} does not name its own menu`);
+    }
+  }
+});
+
+test("a drawing's add-alert reads the drawing's level, not the pointer's price", () => {
+  // The two are separate `case` labels in separate switches. If they were ever
+  // merged again, the drawing branch would become unreachable exactly as before.
+  const chartCase = CHART_PAGE.indexOf('case "chart:add-alert"');
+  const drawingCase = CHART_PAGE.indexOf('case "drawing:add-alert"');
+  assert.ok(chartCase > 0 && drawingCase > chartCase);
+  const branch = CHART_PAGE.slice(drawingCase, drawingCase + 400);
+  assert.match(branch, /target\.points\[0\]\?\.price/,
+    "the drawing's own anchor is what the alert must be armed on");
+});
+
+// ── typed intervals, as a real key sequence ────────────────────────────────
+
+/**
+ * The hook's decision, reproduced.
+ *
+ * `useShortcuts` cannot be exercised without a DOM, but the ORDER in which it
+ * consults the buffer and the table is the whole defect: `h` and `m` are bound
+ * to the horizontal-line tool and the magnet, and resolving the table first
+ * made `4h` and `15m` — two of the most-used intervals on any chart — silently
+ * impossible to type. This mirrors that order exactly, so a regression here
+ * fails rather than shipping as a mysterious tool change.
+ */
+function typeKeys(keys: string[]): { interval: string | null; actions: string[] } {
+  let buffer = EMPTY_INTERVAL_BUFFER;
+  const actions: string[] = [];
+  let interval: string | null = null;
+  const now = 1_000_000;
+  for (const k of keys) {
+    if (k === "Enter") {
+      interval = resolveTypedInterval(buffer, INTERVAL_VALUES, now);
+      buffer = EMPTY_INTERVAL_BUFFER;
+      continue;
+    }
+    // The buffer wins while it is open — the fix.
+    if (buffer.text.length > 0) {
+      const next = appendIntervalKey(buffer, k, now);
+      if (next !== buffer) { buffer = next; continue; }
+    }
+    const action = resolveShortcut(key({ key: k }), CONTEXT);
+    if (action) { actions.push(action); buffer = EMPTY_INTERVAL_BUFFER; continue; }
+    buffer = appendIntervalKey(buffer, k, now);
+  }
+  return { interval, actions };
+}
+
+test("an interval with a unit letter can actually be typed", () => {
+  assert.deepEqual(typeKeys(["4", "h", "Enter"]), { interval: "4h", actions: [] });
+  assert.deepEqual(typeKeys(["1", "5", "m", "Enter"]), { interval: "15m", actions: [] });
+  assert.deepEqual(typeKeys(["1", "d", "Enter"]), { interval: "1d", actions: [] });
+  // A bare number still means minutes, and 60 still means an hour.
+  assert.equal(typeKeys(["1", "5", "Enter"]).interval, "15m");
+  assert.equal(typeKeys(["6", "0", "Enter"]).interval, "1h");
+});
+
+test("a bare unit letter is still its tool, because no interval is being typed", () => {
+  assert.deepEqual(typeKeys(["h"]), { interval: null, actions: ["tool:horizontal"] });
+  assert.deepEqual(typeKeys(["m"]), { interval: null, actions: ["magnet"] });
+  assert.deepEqual(typeKeys(["t"]), { interval: null, actions: ["tool:trend"] });
+});
+
+test("a tool key that cannot continue an interval still clears the buffer", () => {
+  // `1`, `5`, `t`: `t` is not an interval unit, so it arms the trend tool and
+  // the half-typed 15 must not be left waiting behind it.
+  const { interval, actions } = typeKeys(["1", "5", "t", "Enter"]);
+  assert.deepEqual(actions, ["tool:trend"]);
+  assert.equal(interval, null);
+});
+
+// ── the shortcuts sheet is reachable ───────────────────────────────────────
+
+test("? opens the shortcuts sheet on a layout where ? is shifted", () => {
+  // The binding declares no `shift`, and on a US or UK layout `?` IS Shift+`/`
+  // — so the real event carries `shiftKey: true` and the binding was
+  // unreachable. The discovery surface for the entire keyboard layer could not
+  // be opened from the keyboard.
+  assert.equal(resolveShortcut(key({ key: "?", shiftKey: true }), CONTEXT), "shortcuts-sheet");
+  // And on a layout where it is not shifted.
+  assert.equal(resolveShortcut(key({ key: "?", shiftKey: false }), CONTEXT), "shortcuts-sheet");
+  // Shift remains a real modifier where it distinguishes two bindings.
+  assert.equal(resolveShortcut(key({ key: "f", shiftKey: true }), CONTEXT), "fullscreen");
+  assert.equal(resolveShortcut(key({ key: "f", shiftKey: false }), CONTEXT), "tool:fib");
+});
+
+test("the modifier that is not this platform's is left to the browser", () => {
+  // On macOS, Ctrl+T is not the trend tool — it is a chord this app never
+  // claimed, and taking it would preventDefault something the OS or the
+  // browser owns.
+  assert.equal(resolveShortcut(key({ key: "t", ctrlKey: true }), { mac: true, replayActive: false }),
+    null);
+  assert.equal(resolveShortcut(key({ key: "t", metaKey: true }), { mac: false, replayActive: false }),
+    null);
+  // And the platform's own modifier still resolves what the table declares.
+  assert.equal(resolveShortcut(key({ key: "z", metaKey: true }), { mac: true, replayActive: false }),
+    "undo");
+});
+
+// ── Replay's own undo stack ────────────────────────────────────────────────
+
+/**
+ * `historyScope` was exported, documented as the isolation mechanism, tested —
+ * and imported by nothing. Replay drawings lived in component state and never
+ * reached the store, so the isolation claim was satisfied by accident: they
+ * could not contaminate live history because they had no history at all, and
+ * Cmd+Z during a Replay did nothing while the shortcuts sheet listed Undo.
+ */
+test("a Replay session has its own undo stack, isolated from the chart's", () => {
+  const store = read("lib/drawingStore.ts");
+  assert.match(store, /import \{ DrawingHistory, historyScope/,
+    "the scope function must actually be used, not merely exported");
+  for (const method of ["resetReplay", "setReplay", "undoReplay", "redoReplay"]) {
+    assert.ok(store.includes(`${method}(`), `the store offers no ${method}`);
+  }
+  // Nothing may write a Replay scope to the cache or to disk: a Replay drawing
+  // that reached `saveDrawings` would appear on the live chart after the
+  // session ended.
+  const replaySection = store.slice(
+    store.indexOf("resetReplay"), store.indexOf("replayHistoryState"));
+  assert.doesNotMatch(replaySection, /this\.write\(/,
+    "a Replay edit must never be persisted or broadcast as the instrument's");
+
+  const page = read("app/chart/page.tsx");
+  assert.match(page, /drawingStore\.undoReplay\(symbol\)/);
+  assert.match(page, /drawingStore\.redoReplay\(symbol\)/);
+  assert.match(page, /drawingStore\.resetReplay\(symbol, \[\]\)/,
+    "a new session must not inherit the previous one's undo steps");
+});
+
+test("the two scopes cannot collide", () => {
+  // A symbol cannot contain "|", so no instrument's key can ever be a Replay
+  // key — which is what keeps one undo from reaching the other's list.
+  assert.equal(historyScope("BTCUSDT", false), "BTCUSDT");
+  assert.equal(historyScope("btcusdt", true), "replay|BTCUSDT");
+  assert.notEqual(historyScope("BTCUSDT", true), historyScope("BTCUSDT", false));
+
+  const history = new DrawingHistory();
+  const live = historyScope("BTCUSDT", false);
+  const replay = historyScope("BTCUSDT", true);
+  const one = [line("a", 10)];
+  history.reset(live, []);
+  history.reset(replay, []);
+  history.record(live, one, null);
+  assert.equal(history.undo(replay), null, "an undo in Replay cannot reach the live list");
+  assert.deepEqual(history.undo(live), []);
 });

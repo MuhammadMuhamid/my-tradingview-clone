@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
 import type { Candle, Interval } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
+import { isTypingTarget } from "@/lib/shortcuts";
 import {
   DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
   distToEllipse, distToLine, distToRay, distToRect, distToSegment, newId,
@@ -69,7 +70,7 @@ function geometryDigest(drawings: Drawing[]): number {
 export function DrawingCanvas({
   container, chart, series, candles, interval,
   tool, onToolDone, drawings, onChange, magnet, locked, hidden,
-  onSelectionChange, onContextMenu,
+  onSelectionChange, onContextMenu, styleFocusSignal, active = true,
 }: {
   container: HTMLDivElement | null;
   chart: IChartApi | null;
@@ -100,7 +101,31 @@ export function DrawingCanvas({
    */
   onSelectionChange?: (id: string | null) => void;
   /** A right-click landed on a drawing (or on empty chart, with a null id). */
-  onContextMenu?: (event: { x: number; y: number; drawingId: string | null; price: number | null }) => void;
+  onContextMenu?: (event: {
+    x: number; y: number; drawingId: string | null; price: number | null;
+    /** Which strip was clicked, so the workspace knows which menu to build. */
+    region: "plot" | "axis";
+  }) => void;
+  /**
+   * Bumped to move focus into the selected drawing's style bar.
+   *
+   * The bar IS this product's per-drawing settings — colour, width, dash,
+   * fill, lock, delete — and it appears beside whatever is selected. What it
+   * lacked was a way in from the keyboard, and a menu item that named it. The
+   * context menu's "Style…" bumps this; a signal rather than a boolean because
+   * focusing is an event, not a state the workspace can hold.
+   */
+  styleFocusSignal?: number;
+  /**
+   * Whether this pane has the workspace's focus.
+   *
+   * `DrawingCanvas` mounts once per pane and this effect listens on `window`,
+   * so a four-pane layout had four listeners, each with its own selection: one
+   * Delete removed a drawing in every pane that had one selected. The
+   * workspace's own keyboard layer deliberately delegates Delete here, so the
+   * fix is for the inactive panes to decline it.
+   */
+  active?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -200,13 +225,14 @@ export function DrawingCanvas({
     // Topmost first, and handles of the selected drawing win over any body.
     const ordered = [...list].reverse();
     const sel = list.find((d) => d.id === selectedRef.current);
-    if (sel && !sel.locked) {
+    if (sel && !sel.locked && !sel.hidden) {
       for (let i = 0; i < sel.points.length; i++) {
         const h = toPx(sel.points[i]!);
         if (Math.hypot(p.x - h.x, p.y - h.y) <= HIT_PX + 2) return { id: sel.id, handle: i };
       }
     }
     for (const d of ordered) {
+      if (d.hidden) continue;
       if (distToDrawing(p, d, toPx) <= HIT_PX) return { id: d.id, handle: null };
     }
     return null;
@@ -267,6 +293,14 @@ export function DrawingCanvas({
       return p.x >= 0 && p.x <= w && p.y >= 0 && p.y <= h;
     };
 
+    /** Which strip of the chart a point is in: the plot, the price axis, or the time axis. */
+    const regionOf = (p: Pt): "plot" | "axis" | "time" => {
+      const w = container.clientWidth - (chart.priceScale("right").width() ?? 0);
+      const h = container.clientHeight - (chart.timeScale().height() ?? 0);
+      if (p.y > h) return "time";
+      return p.x > w ? "axis" : "plot";
+    };
+
     /*
      * Right-click reports upward rather than opening a menu here.
      *
@@ -279,14 +313,28 @@ export function DrawingCanvas({
       const handler = onContextMenuRef.current;
       if (!handler) return;
       const p = rectOf(e);
-      if (!inPlot(p)) return;
+      const region = regionOf(p);
+      // The time scale is the one strip with nothing to offer, so it keeps the
+      // browser's own menu rather than being given an empty product one.
+      if (region === "time") return;
       e.preventDefault();
+      if (region === "axis") {
+        // The price axis has its own short menu — scale mode and reset — and
+        // no drawing under it. It used to return BEFORE `preventDefault`, so
+        // right-clicking the axis opened Chrome's menu over the chart.
+        handler({ x: e.clientX, y: e.clientY, drawingId: null, price: null, region: "axis" });
+        return;
+      }
       const hit = hiddenRef.current ? null : hitTest(p);
-      if (hit) setSelected(hit.id);
+      // Including the miss: right-clicking empty chart used to leave the
+      // previous drawing selected, so the chart menu opened over a drawing
+      // still wearing its handles and its style bar.
+      setSelected(hit?.id ?? null);
       handler({
         x: e.clientX, y: e.clientY,
         drawingId: hit?.id ?? null,
         price: toAnchor(p.x, p.y).price,
+        region: "plot",
       });
     };
 
@@ -451,11 +499,24 @@ export function DrawingCanvas({
     };
   }, [container, chart, series, hitTest, toAnchor, toPx, commit]);
 
-  // Escape cancels, Delete removes the selection.
+  // Escape cancels, Delete removes the selection — in the FOCUSED pane only.
+  const activeRef = useRef(active);
+  activeRef.current = active;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return;
       const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      // The same guard the shared keyboard layer applies, rather than a
+      // narrower copy of it: a `<select>` and a marked editor surface own
+      // their keys here for exactly the reasons they own them there.
+      if (isTypingTarget(el ? {
+        tagName: el.tagName,
+        isContentEditable: el.isContentEditable,
+        role: el.getAttribute?.("role") ?? null,
+        closestEditor: el.closest?.("[data-owns-keys]") != null,
+      } : null)) return;
+      // A dialog is modal to this listener too.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       if (e.key === "Escape") {
         if (draftRef.current) { draftRef.current = null; onToolDoneRef.current(); }
         else setSelected(null);
@@ -521,6 +582,10 @@ export function DrawingCanvas({
     ctx.clip();
 
     for (const d of drawings) {
+      // A drawing hidden on its own is not drawn. It is still in the list, so
+      // it can be un-hidden from the drawings panel; it is simply not on the
+      // chart, and `hitTest` agrees so it cannot be grabbed by an empty click.
+      if (d.hidden) continue;
       drawOne(ctx, d, toPx, plotW, plotH, d.id === selected, d.id === hoverRef.current);
     }
     // In-progress geometry follows the pointer.
@@ -550,11 +615,22 @@ export function DrawingCanvas({
   const sel = drawings.find((d) => d.id === selected) ?? null;
   const selPx = sel ? toPx(sel.points[0]!) : null;
 
+  const styleBarRef = useRef<HTMLDivElement>(null);
+  const styleFocusRef = useRef(styleFocusSignal);
+  useEffect(() => {
+    if (styleFocusSignal === styleFocusRef.current) return;
+    styleFocusRef.current = styleFocusSignal;
+    styleBarRef.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [styleFocusSignal, sel]);
+
   return (
     <>
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-10" />
-      {sel && selPx && !hidden && (
+      {sel && selPx && !hidden && !sel.hidden && (
         <div
+          ref={styleBarRef}
+          role="toolbar"
+          aria-label="Drawing style"
           className="absolute z-20 flex items-center gap-1 rounded-md border border-border bg-surface px-1.5 py-1 shadow-xl"
           style={{
             left: Math.max(4, Math.min(selPx.x, (container?.clientWidth ?? 400) - 300)),

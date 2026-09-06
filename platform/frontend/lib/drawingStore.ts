@@ -25,7 +25,7 @@
  * moment, with a flush on page hide so nothing is lost.
  */
 import { loadDrawings, saveDrawings, type Drawing } from "./drawings";
-import { DrawingHistory, type HistoryState } from "./drawingHistory";
+import { DrawingHistory, historyScope, type HistoryState } from "./drawingHistory";
 
 type Listener = (drawings: Drawing[]) => void;
 
@@ -99,6 +99,46 @@ class DrawingStore {
   /** Whether undo and redo have anything to do, for the toolbar's buttons. */
   historyState(symbol: string): HistoryState {
     return this.history.state(symbol);
+  }
+
+  /* ── Replay ───────────────────────────────────────────────────────────────
+   *
+   * A Replay session's drawings are workspace state, not the instrument's:
+   * they are never persisted, they vanish when the session ends, and an undo
+   * inside one must not reach the chart's real list. `historyScope` exists
+   * precisely to say so, and this is where it is used.
+   *
+   * They share this history object rather than getting their own, because one
+   * bounded LRU across every scope is what stops a long session of switching
+   * symbols and replaying them from growing without limit. The two never mix:
+   * the scope key for Replay cannot collide with a symbol, and nothing here
+   * writes a Replay scope to the cache or to disk.
+   *
+   * Cmd+Z during a Replay used to do nothing at all, silently, while the
+   * shortcuts sheet listed Undo unconditionally.
+   */
+
+  /** Seed the Replay scope when a session starts. Not an undoable step. */
+  resetReplay(symbol: string, drawings: Drawing[]): void {
+    this.history.reset(historyScope(symbol, true), drawings);
+  }
+
+  /** Record an edit made inside a Replay session. */
+  setReplay(symbol: string, drawings: Drawing[], gesture: string | null = null): void {
+    this.history.record(historyScope(symbol, true), drawings, gesture);
+  }
+
+  /** Undo inside a Replay session. Returns the restored list, or null. */
+  undoReplay(symbol: string): Drawing[] | null {
+    return this.history.undo(historyScope(symbol, true));
+  }
+
+  redoReplay(symbol: string): Drawing[] | null {
+    return this.history.redo(historyScope(symbol, true));
+  }
+
+  replayHistoryState(symbol: string): HistoryState {
+    return this.history.state(historyScope(symbol, true));
   }
 
   /**

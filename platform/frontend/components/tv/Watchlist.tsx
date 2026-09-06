@@ -4,6 +4,9 @@ import type { SymbolInfo } from "@/lib/types";
 import { api, type ServerWatchlist } from "@/lib/api";
 import { useWatchlistTickers } from "@/lib/useWatchlistTickers";
 import { describeStreamState } from "@/lib/marketStream";
+import { ContextMenu } from "@/components/tv/ContextMenu";
+import { watchlistMenu } from "@/lib/menuPayloads";
+import type { MenuEntry } from "@/lib/contextMenu";
 
 interface Ticker { last: number; chg: number; chgPct: number }
 type NamedWatchlist = ServerWatchlist;
@@ -16,18 +19,40 @@ type NamedWatchlist = ServerWatchlist;
 const LEGACY_KEY = "tv-clone-watchlists-v1";
 const ACTIVE_KEY = "tv.watchlist.active.v1";
 
-export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, replayQuote = null }: {
+export function Watchlist({
+  symbols, selected, onSelect, onSymbolsChanged, replayQuote = null,
+  onOpenInNewPane, onAddAlert, canOpenNewPane = false, replayActive = false,
+}: {
   symbols: SymbolInfo[];
   selected: string;
   onSelect: (symbol: string) => void;
   onSymbolsChanged: () => void;
   replayQuote?: Ticker | null;
+  /**
+   * The row's right-click actions. Facts about the WORKSPACE — whether another
+   * pane can be opened, whether Replay is running — so they arrive as props;
+   * the list itself knows only its symbols.
+   */
+  onOpenInNewPane?: (symbol: string) => void;
+  onAddAlert?: (symbol: string) => void;
+  canOpenNewPane?: boolean;
+  replayActive?: boolean;
 }) {
   const [adding, setAdding] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /**
+   * The row right-click menu.
+   *
+   * `watchlistMenu` was written in Wave B and imported by nothing but its
+   * test, so B7's required watchlist payload was dead code. It opens here.
+   */
+  const [rowMenu, setRowMenu] = useState<
+    | null
+    | { at: { x: number; y: number }; symbol: string; entries: MenuEntry[] }
+  >(null);
 
   const reload = async (selectId?: string) => {
     const rows = await api.listWatchlists();
@@ -225,7 +250,18 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, repla
           const selectedRow = s.symbol === selected;
           const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
           const up = t ? t.chgPct >= 0 : true;
-          return <div key={s.symbol} className={`group grid grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 px-3 py-[7px] text-[13px] tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_#4f8cff]" : "hover:bg-surface-2/60"}`}>
+          return <div key={s.symbol}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setRowMenu({
+                at: { x: e.clientX, y: e.clientY },
+                symbol: s.symbol,
+                entries: watchlistMenu({
+                  symbol: s.symbol, replayActive, canOpenNewPane,
+                }),
+              });
+            }}
+            className={`group grid grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 px-3 py-[7px] text-[13px] tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_#4f8cff]" : "hover:bg-surface-2/60"}`}>
             <button onClick={() => onSelect(s.symbol)} className="contents text-left">
               <span className="truncate font-medium text-ink">{s.baseAsset}<span className="text-ink-faint">USDT</span></span>
               <span className={`text-right ${t ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}
@@ -238,6 +274,27 @@ export function Watchlist({ symbols, selected, onSelect, onSymbolsChanged, repla
           </div>;
         })}
       </div>
+      <ContextMenu
+        at={rowMenu?.at ?? null}
+        label={rowMenu?.symbol ?? ""}
+        entries={rowMenu?.entries ?? []}
+        onClose={() => setRowMenu(null)}
+        onSelect={(id) => {
+          const symbol = rowMenu?.symbol;
+          if (!symbol) return;
+          switch (id) {
+            case "watchlist:open-focused": onSelect(symbol); return;
+            case "watchlist:open-new-pane": onOpenInNewPane?.(symbol); return;
+            case "watchlist:add-alert": onAddAlert?.(symbol); return;
+            case "watchlist:remove":
+              updateActive((l) => ({
+                ...l, symbols: l.symbols.filter((x) => x !== symbol),
+              }));
+              return;
+            default: return;
+          }
+        }}
+      />
     </aside>
   );
 }

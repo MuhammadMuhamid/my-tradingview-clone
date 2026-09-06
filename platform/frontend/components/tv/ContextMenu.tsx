@@ -25,7 +25,7 @@
  * do while a user is aiming at a price. So it flips back across the pointer,
  * and clamps only if flipping is not enough.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   initialMenuCursor, isSeparator, moveMenuCursor, placeMenu, tidyEntries,
   type MenuEntry, type MenuKey, type MenuPlacement,
@@ -43,6 +43,14 @@ export interface ContextMenuProps {
 
 export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMenuProps) {
   const items = tidyEntries(entries);
+  /**
+   * A stable prefix for this menu's item ids.
+   *
+   * `useId` rather than a counter so two menus mounted at once — a chart menu
+   * and a panel's study menu — cannot produce the same `aria-activedescendant`
+   * target.
+   */
+  const menuId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(-1);
   const [placement, setPlacement] = useState<MenuPlacement | null>(null);
@@ -89,7 +97,20 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
   }, [onSelect, onClose]);
 
   const onKeyDown = (event: React.KeyboardEvent): void => {
-    if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      /*
+       * And it stops here.
+       *
+       * `Escape` is also the global "back to the cursor" shortcut and every
+       * pane's clear-selection key. Without this, dismissing a menu also
+       * disarmed whatever drawing tool was in hand and dropped the selection —
+       * three handlers for one press.
+       */
+      event.stopPropagation();
+      onClose();
+      return;
+    }
     if (event.key === "Tab") {
       // A menu is modal for the keyboard; Tab closes it rather than escaping
       // into the page behind it with the menu still on screen.
@@ -130,13 +151,22 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
         aria-label={label}
         tabIndex={-1}
         onKeyDown={onKeyDown}
+        aria-activedescendant={
+          // What a screen reader follows as the arrow keys move: focus stays
+          // on the panel, so without this the cursor was a background colour
+          // and nothing else.
+          cursor >= 0 && items[cursor] && !isSeparator(items[cursor]!)
+            ? `${menuId}-${items[cursor]!.id}` : undefined}
         style={{
           left: placement ? placement.left : at.x,
           top: placement ? placement.top : at.y,
+          // Never taller than the space below it, and scrollable when the list
+          // does not fit — a fixed panel cannot be scrolled by the page.
+          maxHeight: placement ? placement.maxHeight : undefined,
           // Invisible until measured, so it is never seen at the wrong place.
           visibility: placement ? "visible" : "hidden",
         }}
-        className="fixed z-[91] min-w-[200px] max-w-[280px] overflow-hidden rounded-md border border-border bg-surface py-1 shadow-2xl outline-none"
+        className="fixed z-[91] min-w-[200px] max-w-[280px] overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-2xl outline-none"
       >
         {items.map((entry, index) => {
           if (isSeparator(entry)) {
@@ -146,11 +176,24 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
           return (
             <button
               key={entry.id}
-              role="menuitem"
+              id={`${menuId}-${entry.id}`}
+              /*
+               * `aria-checked` is defined for `menuitemcheckbox`, not for a
+               * plain `menuitem` — on the latter assistive technology usually
+               * drops it, so the state of Auto scale, Logarithmic, Lock and
+               * Hide was conveyed to sighted users only. The payloads set
+               * `checked` on exactly the toggles, so the role follows it.
+               */
+              role={entry.checked === undefined ? "menuitem" : "menuitemcheckbox"}
               type="button"
               disabled={entry.disabled}
               aria-disabled={entry.disabled || undefined}
               aria-checked={entry.checked}
+              // The reason a greyed item is greyed, for a reader as well as a
+              // pointer: `title` alone never reaches a screen reader.
+              aria-describedby={
+                entry.disabled && entry.disabledReason
+                  ? `${menuId}-${entry.id}-why` : undefined}
               title={entry.disabled ? entry.disabledReason : undefined}
               onMouseEnter={() => { if (!entry.disabled) setCursor(index); }}
               onClick={() => choose(entry.id)}
@@ -178,6 +221,11 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
                 )}
               </span>
               <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+              {entry.disabled && entry.disabledReason && (
+                <span id={`${menuId}-${entry.id}-why`} className="sr-only">
+                  {entry.disabledReason}
+                </span>
+              )}
               {entry.hint && (
                 <span className="shrink-0 text-[11px] text-ink-faint">{entry.hint}</span>
               )}

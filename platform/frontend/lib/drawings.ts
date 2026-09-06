@@ -44,6 +44,14 @@ export interface Drawing {
   points: Anchor[];
   style: DrawingStyle;
   locked?: boolean;
+  /**
+   * Hidden on its own, independently of the workspace-wide "Hide drawings".
+   *
+   * A hidden drawing is not drawn and cannot be hit-tested, but it is still
+   * stored, still counted, and still in the list — which is what separates
+   * hiding from deleting, and why the context menu offers both.
+   */
+  hidden?: boolean;
 }
 
 /** How many anchors each tool takes. `0` = freeform (finish explicitly). */

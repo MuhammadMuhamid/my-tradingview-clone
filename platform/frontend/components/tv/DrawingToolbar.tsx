@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { DrawingTool } from "@/lib/drawings";
 
 /** Icon set — 24×24 stroked paths in the TradingView left-rail style. */
@@ -145,7 +146,21 @@ export function DrawingToolbar({
   const [active, setActive] = useState<Record<string, DrawingTool>>(() =>
     Object.fromEntries(GROUPS.map((g) => [g.id, g.tools[0]!.tool]))
   );
-  const [flyout, setFlyout] = useState<string | null>(null);
+  /*
+   * The tool flyout, through the same registry as every other popover.
+   *
+   * It carries WHICH group is open rather than a boolean, so the registry
+   * holds the open/closed half and this holds the identity — opening a
+   * different group is still one state change, and opening any of them still
+   * closes the chart-type and timeframe menus.
+   */
+  const [flyoutOpen, setFlyoutOpen] = useExclusivePopover("drawing-flyout");
+  const [flyoutGroup, setFlyoutGroup] = useState<string | null>(null);
+  const flyout = flyoutOpen ? flyoutGroup : null;
+  const setFlyout = useCallback((id: string | null) => {
+    setFlyoutGroup(id);
+    setFlyoutOpen(id !== null);
+  }, [setFlyoutOpen]);
   const railRef = useRef<HTMLDivElement>(null);
 
   // Remember which variant of a group is in use, so the rail icon follows it.
@@ -207,7 +222,7 @@ export function DrawingToolbar({
               // 10x10, it was the smallest control in the application and the
               // only route to two thirds of the drawing tools.
               <button
-                onClick={() => setFlyout((f) => (f === group.id ? null : group.id))}
+                onClick={() => setFlyout(flyout === group.id ? null : group.id)}
                 title="More tools"
                 aria-label={`More ${group.id} tools`}
                 className="absolute bottom-0 right-0 flex h-6 w-6 items-end justify-end p-[3px] text-ink-faint hover:text-ink"

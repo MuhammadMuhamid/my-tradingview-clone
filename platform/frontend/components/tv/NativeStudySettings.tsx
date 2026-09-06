@@ -20,7 +20,7 @@
  * normalises again regardless — an out-of-range value must never reach a
  * study's arithmetic, whatever the UI did.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Modal } from "@/components/Modal";
 import { studyById } from "@/lib/native/catalog";
 import {
@@ -152,12 +152,35 @@ function InputRow({ input, value, onChange }: {
   onChange: (value: NativeInputValue) => void;
 }) {
   /*
-   * A number field holds TEXT while it is being typed. Committing only a
-   * parsable value means a user clearing the box to retype does not have the
-   * minimum written into it under their cursor.
+   * A number field holds TEXT while it is being typed.
+   *
+   * Two things follow, and the first version had both wrong.
+   *
+   * It used to commit on every parsable keystroke, and the committed value
+   * comes back through `coerceInput`, which CLAMPS. Typing `6000` into a field
+   * whose maximum is 5000 became `5000` after the third digit and then
+   * `50004`, rewritten under the cursor. And for a decimal field the
+   * intermediate `2.` is not a valid `<input type="number">` value, so the
+   * browser reports `""`, the commit was skipped and the draft was still
+   * blanked — the decimal point vanished as it was typed.
+   *
+   * So: the draft resyncs from the value only while the field is NOT focused,
+   * and the commit happens on blur or Enter, when the user has said what they
+   * mean. A field that is not focused still follows a reset-to-defaults.
    */
+  const ref = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(String(value));
-  useEffect(() => { setDraft(String(value)); }, [value]);
+  useEffect(() => {
+    if (typeof document !== "undefined" && document.activeElement === ref.current) return;
+    setDraft(String(value));
+  }, [value]);
+
+  /** Commit what is in the box, or put back what was there if it is nonsense. */
+  const commit = (): void => {
+    const parsed = Number(draft);
+    if (draft.trim() !== "" && Number.isFinite(parsed)) onChange(parsed);
+    else setDraft(String(value));
+  };
 
   switch (input.kind) {
     case "number":
@@ -168,6 +191,7 @@ function InputRow({ input, value, onChange }: {
             ? `${input.min ?? "—"} to ${input.max ?? "—"}` : undefined}
         >
           <input
+            ref={ref}
             type="number"
             className={FIELD}
             value={draft}
@@ -175,12 +199,9 @@ function InputRow({ input, value, onChange }: {
             max={input.max}
             step={input.step ?? (input.integer === false ? 0.1 : 1)}
             aria-label={input.title}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              const parsed = Number(e.target.value);
-              if (e.target.value !== "" && Number.isFinite(parsed)) onChange(parsed);
-            }}
-            onBlur={() => setDraft(String(value))}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); }}
+            onBlur={commit}
           />
         </Row>
       );

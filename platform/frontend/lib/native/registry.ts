@@ -274,6 +274,26 @@ function coerceInput(input: NativeInput, value: NativeInputValue | undefined): N
       const n = typeof value === "number" ? value : Number(value);
       if (!Number.isFinite(n)) return input.defval;
       let v = input.integer === false ? n : Math.round(n);
+      /*
+       * `step` is a rule about which values exist, not a spinner decoration.
+       *
+       * The dialog declares 0.1 for Bollinger's deviation and Supertrend's
+       * multiplier, and the browser enforces it only for the arrows — a pasted
+       * or typed `2.03719` was stored, serialised, and drawn as a band nobody
+       * could reproduce from the dialog.
+       *
+       * The grid is anchored on the DEFAULT rather than on `min`, because the
+       * default is by definition a value the study ships with: Bollinger's
+       * minimum deviation is 0.001 and its default is 2, and a grid from the
+       * minimum would snap that default to 2.001.
+       */
+      if (input.step !== undefined && input.step > 0) {
+        const base = input.defval;
+        const steps = Math.round((v - base) / input.step);
+        // Re-rounded because binary floating point turns 0.1 * 3 into
+        // 0.30000000000000004, which is not a value any dialog offered.
+        v = Number((base + steps * input.step).toFixed(10));
+      }
       if (input.min !== undefined) v = Math.max(input.min, v);
       if (input.max !== undefined) v = Math.min(input.max, v);
       return v;

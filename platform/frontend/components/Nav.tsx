@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { api, type OpsStatus } from "@/lib/api";
 import { compactHealth, type HealthTone } from "@/lib/operationsHealth";
 import { describeStreamState, marketStreams, type StreamState } from "@/lib/marketStream";
@@ -240,7 +241,7 @@ function LiveDataChip() {
  * trader needs from any page. The full runbook stays on Operations.
  */
 function SystemMenu({ path }: { path: string }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useExclusivePopover("nav-system");
   const [ops, setOps] = useState<OpsStatus | null>(null);
   const [opsError, setOpsError] = useState<string | null>(null);
   const [shariahMode, setShariahMode] = useState<ShariahMode | null>(null);
@@ -283,7 +284,7 @@ function SystemMenu({ path }: { path: string }) {
   return (
     <div ref={boxRef} className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-current={active ? "page" : undefined}

@@ -26,6 +26,18 @@
  */
 import type { MenuEntry } from "./contextMenu";
 
+/*
+ * ── Why every id carries its menu's name ───────────────────────────────────
+ *
+ * The chart menu and the drawing menu both offered "add-alert", and the
+ * handler ran one shared switch first. So right-clicking a horizontal line and
+ * choosing "Add alert on this level" armed the alert at the PIXEL price under
+ * the cursor — off by however far the click landed from the line — and the
+ * branch that read the drawing's own level was unreachable. Silent, plausible
+ * and wrong. Prefixing removes the class of defect rather than that one
+ * instance: two menus cannot collide on an id they cannot share.
+ */
+
 /** Shown on a disabled item so a greyed control is not a mystery. */
 const REPLAY_REASON = "Not while Replay is running — the price shown is not the market";
 const LOCKED_REASON = "This drawing is locked";
@@ -47,10 +59,10 @@ export interface ChartMenuContext {
 }
 
 export const CHART_MENU_IDS = [
-  "copy-price", "add-alert", "trade-at-price",
-  "reset-view", "toggle-auto", "toggle-log",
-  "toggle-drawings-hidden", "toggle-drawings-locked",
-  "indicators", "chart-settings",
+  "chart:copy-price", "chart:add-alert", "chart:trade-at-price",
+  "chart:reset-view", "chart:toggle-auto", "chart:toggle-log",
+  "chart:toggle-drawings-hidden", "chart:toggle-drawings-locked",
+  "chart:indicators", "chart:chart-settings",
 ] as const;
 export type ChartMenuId = (typeof CHART_MENU_IDS)[number];
 
@@ -67,16 +79,16 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
   const noPrice = "Right-click on the chart to pick a price";
   return [
     {
-      id: "copy-price", label: "Copy price",
+      id: "chart:copy-price", label: "Copy price",
       disabled: !hasPrice, disabledReason: noPrice,
     },
     {
-      id: "add-alert", label: "Add alert at this price",
+      id: "chart:add-alert", label: "Add alert at this price",
       disabled: !hasPrice || ctx.replayActive,
       disabledReason: ctx.replayActive ? REPLAY_REASON : noPrice,
     },
     {
-      id: "trade-at-price", label: "Prepare an order at this price",
+      id: "chart:trade-at-price", label: "Prepare an order at this price",
       hint: "fills the ticket",
       disabled: !hasPrice || ctx.replayActive || !ctx.tradingEnabled,
       disabledReason: !ctx.tradingEnabled
@@ -84,57 +96,71 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
         : ctx.replayActive ? REPLAY_REASON : noPrice,
     },
     { id: "sep-view", separator: true },
-    { id: "reset-view", label: "Reset view" },
-    { id: "toggle-auto", label: "Auto scale", checked: ctx.autoScale },
-    { id: "toggle-log", label: "Logarithmic scale", checked: ctx.logScale },
+    { id: "chart:reset-view", label: "Reset view" },
+    { id: "chart:toggle-auto", label: "Auto scale", checked: ctx.autoScale },
+    { id: "chart:toggle-log", label: "Logarithmic scale", checked: ctx.logScale },
     { id: "sep-drawings", separator: true },
     {
-      id: "toggle-drawings-hidden", label: "Hide drawings",
+      id: "chart:toggle-drawings-hidden", label: "Hide drawings",
       checked: ctx.drawingsHidden,
       disabled: !ctx.hasDrawings, disabledReason: "There are no drawings on this instrument",
     },
     {
-      id: "toggle-drawings-locked", label: "Lock drawings",
+      id: "chart:toggle-drawings-locked", label: "Lock drawings",
       checked: ctx.drawingsLocked,
       disabled: !ctx.hasDrawings, disabledReason: "There are no drawings on this instrument",
     },
     { id: "sep-studies", separator: true },
-    { id: "indicators", label: "Indicators…", hint: "I" },
-    { id: "chart-settings", label: "Chart settings…" },
+    { id: "chart:indicators", label: "Indicators…", hint: "I" },
+    { id: "chart:chart-settings", label: "Chart settings…" },
   ];
 }
 
 export interface DrawingMenuContext {
   locked: boolean;
+  /** THIS drawing's own hidden state, not the workspace's "hide drawings". */
   hidden: boolean;
   /** The drawing is a single horizontal level an alert can be armed on. */
   alertable: boolean;
   replayActive: boolean;
   /** Rendering order can be changed safely for this drawing. */
   canReorder: boolean;
+  /**
+   * macOS uses ⌘ where every other platform uses Ctrl.
+   *
+   * The hints used to be the literal `⌘D` and `⌘C`, so a Windows or Linux user
+   * was shown a combination that does nothing on their keyboard.
+   */
+  mac: boolean;
 }
 
 export const DRAWING_MENU_IDS = [
-  "settings", "clone", "copy", "toggle-lock", "toggle-hidden",
-  "add-alert", "bring-front", "send-back", "remove",
+  "drawing:settings", "drawing:clone", "drawing:copy", "drawing:toggle-lock",
+  "drawing:toggle-hidden", "drawing:add-alert", "drawing:bring-front",
+  "drawing:send-back", "drawing:remove",
 ] as const;
 export type DrawingMenuId = (typeof DRAWING_MENU_IDS)[number];
 
 export function drawingMenu(ctx: DrawingMenuContext): MenuEntry[] {
   return [
-    { id: "settings", label: "Settings…" },
+    // "Style", because that is what it opens: the colour / width / dash / fill
+    // bar beside the drawing. Calling it "Settings" would promise a dialog
+    // this product does not have.
+    { id: "drawing:settings", label: "Style…" },
     {
-      id: "clone", label: "Duplicate", hint: "⌘D",
+      id: "drawing:clone", label: "Duplicate", hint: `${ctx.mac ? "⌘" : "Ctrl+"}D`,
       // Cloning a locked drawing is fine — the copy is unlocked — but cloning
       // is an edit of the LIST, so it follows the same rule as the rest.
       disabled: ctx.locked, disabledReason: LOCKED_REASON,
     },
-    { id: "copy", label: "Copy", hint: "⌘C" },
+    { id: "drawing:copy", label: "Copy", hint: `${ctx.mac ? "⌘" : "Ctrl+"}C` },
     { id: "sep-state", separator: true },
-    { id: "toggle-lock", label: "Lock", checked: ctx.locked, hint: "L" },
-    { id: "toggle-hidden", label: "Hide", checked: ctx.hidden, hint: "J" },
+    // No hints on these two: `L` and `J` are the WORKSPACE-wide lock and hide,
+    // which are a different action from locking or hiding this one drawing.
+    { id: "drawing:toggle-lock", label: "Lock", checked: ctx.locked },
+    { id: "drawing:toggle-hidden", label: "Hide", checked: ctx.hidden },
     {
-      id: "add-alert", label: "Add alert on this level",
+      id: "drawing:add-alert", label: "Add alert on this level",
       disabled: !ctx.alertable || ctx.replayActive,
       disabledReason: ctx.replayActive
         ? REPLAY_REASON
@@ -142,18 +168,18 @@ export function drawingMenu(ctx: DrawingMenuContext): MenuEntry[] {
     },
     { id: "sep-order", separator: true },
     {
-      id: "bring-front", label: "Bring to front",
+      id: "drawing:bring-front", label: "Bring to front",
       disabled: !ctx.canReorder,
       disabledReason: "Rendering order is not adjustable for this drawing",
     },
     {
-      id: "send-back", label: "Send to back",
+      id: "drawing:send-back", label: "Send to back",
       disabled: !ctx.canReorder,
       disabledReason: "Rendering order is not adjustable for this drawing",
     },
     { id: "sep-remove", separator: true },
     {
-      id: "remove", label: "Remove", hint: "Del", destructive: true,
+      id: "drawing:remove", label: "Remove", hint: "Del", destructive: true,
       disabled: ctx.locked, disabledReason: LOCKED_REASON,
     },
   ];
@@ -168,33 +194,34 @@ export interface StudyMenuContext {
 }
 
 export const STUDY_MENU_IDS = [
-  "settings", "toggle-visible", "move-up", "move-down", "open-source", "remove",
+  "study:settings", "study:toggle-visible", "study:move-up", "study:move-down",
+  "study:open-source", "study:remove",
 ] as const;
 export type StudyMenuId = (typeof STUDY_MENU_IDS)[number];
 
 export function studyMenu(ctx: StudyMenuContext): MenuEntry[] {
   return [
-    { id: "settings", label: "Settings…" },
-    { id: "toggle-visible", label: "Visible", checked: ctx.visible },
+    { id: "study:settings", label: "Settings…" },
+    { id: "study:toggle-visible", label: "Visible", checked: ctx.visible },
     { id: "sep-order", separator: true },
     {
-      id: "move-up", label: "Move up",
+      id: "study:move-up", label: "Move up",
       disabled: ctx.first, disabledReason: "Already first",
     },
     {
-      id: "move-down", label: "Move down",
+      id: "study:move-down", label: "Move down",
       disabled: ctx.last, disabledReason: "Already last",
     },
     { id: "sep-source", separator: true },
     {
-      id: "open-source", label: "Open source in the Pine Editor",
+      id: "study:open-source", label: "Open source in the Pine Editor",
       // A built-in has no Pine source to open. Offering it and then doing
       // nothing would be worse than saying so.
       disabled: !ctx.hasSource,
       disabledReason: "A built-in study has no Pine source",
     },
     { id: "sep-remove", separator: true },
-    { id: "remove", label: "Remove", destructive: true },
+    { id: "study:remove", label: "Remove", destructive: true },
   ];
 }
 
@@ -203,15 +230,17 @@ export interface AxisMenuContext {
   logScale: boolean;
 }
 
-export const AXIS_MENU_IDS = ["toggle-auto", "toggle-log", "reset"] as const;
+export const AXIS_MENU_IDS = [
+  "axis:toggle-auto", "axis:toggle-log", "axis:reset",
+] as const;
 export type AxisMenuId = (typeof AXIS_MENU_IDS)[number];
 
 export function priceAxisMenu(ctx: AxisMenuContext): MenuEntry[] {
   return [
-    { id: "toggle-auto", label: "Auto scale", checked: ctx.autoScale },
-    { id: "toggle-log", label: "Logarithmic scale", checked: ctx.logScale },
+    { id: "axis:toggle-auto", label: "Auto scale", checked: ctx.autoScale },
+    { id: "axis:toggle-log", label: "Logarithmic scale", checked: ctx.logScale },
     { id: "sep", separator: true },
-    { id: "reset", label: "Reset scale" },
+    { id: "axis:reset", label: "Reset scale" },
   ];
 }
 
@@ -223,24 +252,24 @@ export interface WatchlistMenuContext {
 }
 
 export const WATCHLIST_MENU_IDS = [
-  "open-focused", "open-new-pane", "add-alert", "remove",
+  "watchlist:open-focused", "watchlist:open-new-pane", "watchlist:add-alert", "watchlist:remove",
 ] as const;
 export type WatchlistMenuId = (typeof WATCHLIST_MENU_IDS)[number];
 
 export function watchlistMenu(ctx: WatchlistMenuContext): MenuEntry[] {
   return [
-    { id: "open-focused", label: "Open in the focused chart" },
+    { id: "watchlist:open-focused", label: "Open in the focused chart" },
     {
-      id: "open-new-pane", label: "Open in a new pane",
+      id: "watchlist:open-new-pane", label: "Open in a new pane",
       disabled: !ctx.canOpenNewPane,
       disabledReason: "The workspace is already at its maximum number of panes",
     },
     { id: "sep", separator: true },
     {
-      id: "add-alert", label: `Add alert on ${ctx.symbol}`,
+      id: "watchlist:add-alert", label: `Add alert on ${ctx.symbol}`,
       disabled: ctx.replayActive, disabledReason: REPLAY_REASON,
     },
     { id: "sep-remove", separator: true },
-    { id: "remove", label: "Remove from this list", destructive: true },
+    { id: "watchlist:remove", label: "Remove from this list", destructive: true },
   ];
 }

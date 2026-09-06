@@ -32,6 +32,7 @@ import type { PaneAction } from "@/components/tv/IndicatorPane";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
 import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { Viewport } from "@/lib/native/compute";
+import type { PriceScaleState } from "@/lib/priceScale";
 import type { AppliedIndicator } from "@/lib/indicators";
 import { buildMaOverlays } from "@/lib/movingAverages";
 import { drawingStore } from "@/lib/drawingStore";
@@ -67,7 +68,8 @@ export interface ChartPaneProps {
   replay: ReplaySession | null;
   /** In-session replay drawings, which are workspace-wide and not persisted. */
   replayDrawings: Drawing[];
-  onReplayDrawingsChange: (next: Drawing[]) => void;
+  /** `gesture` collapses a drag into one undo step, as on the live chart. */
+  onReplayDrawingsChange: (next: Drawing[], gesture?: string | null) => void;
 
   // ── synchronisation, already resolved for this pane ──
   crosshairTime: number | null;
@@ -95,10 +97,27 @@ export interface ChartPaneProps {
   /** A right-click landed on this pane's plot. */
   onChartContextMenu?: (
     paneId: string,
-    event: { x: number; y: number; drawingId: string | null; price: number | null }
+    event: {
+      x: number; y: number; drawingId: string | null; price: number | null;
+      /** Which strip was clicked: the plot, or the price axis. */
+      region: "plot" | "axis";
+    }
   ) => void;
   /** The active pane reports its viewport so evidence can be fetched for it. */
   onViewportChange?: (range: { from: number; to: number }) => void;
+
+  /**
+   * The price scale, owned by the workspace.
+   *
+   * Controlled rather than internal because the chart's own context menu both
+   * reports it ("Auto ✓") and changes it, and the menu is built one level up.
+   */
+  priceScale?: PriceScaleState;
+  onPriceScaleChange?: (paneId: string, next: PriceScaleState) => void;
+  /** Bumped by the workspace to refit this pane. */
+  resetSignal?: number;
+  /** Bumped to move focus into the selected drawing's style bar. */
+  drawingStyleFocusSignal?: number;
 
   /** Pine run window, which follows the workspace replay horizon. */
   startTime: string;
@@ -493,6 +512,13 @@ function ChartPaneImpl(props: ChartPaneProps) {
             magnet={props.magnet}
             drawingsLocked={props.drawingsLocked}
             drawingsHidden={props.drawingsHidden}
+            priceScale={props.priceScale}
+            onPriceScaleChange={
+              props.onPriceScaleChange
+                ? (next) => props.onPriceScaleChange?.(paneId, next) : undefined}
+            resetSignal={props.resetSignal}
+            drawingStyleFocusSignal={props.drawingStyleFocusSignal}
+            paneActive={props.active}
             onIndicatorPaneAction={paneAction}
           />
         )}

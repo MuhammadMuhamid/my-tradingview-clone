@@ -97,8 +97,15 @@ test("every category is derived from data the installation really holds", () => 
 
 test("the on-chart count includes both engines, because the user sees one chart", () => {
   const source = read(BROWSER);
-  assert.match(source, /applied\.length \+ \(props\.nativeStudies\?\.list\.length \?\? 0\)/,
+  // Pine studies and built-ins, both narrowed by the search box — a chip
+  // beside a filter has to say how many that filter would show. It used to
+  // report totals, so "Built-in 12" sat above a single row.
+  assert.match(source, /case "onChart": \{[\s\S]*?appliedNative[\s\S]*?\}/,
     "a count that omitted built-in studies would contradict the chart");
+  assert.match(source, /const categoryCount = useCallback/,
+    "every chip counts what its own list would show");
+  assert.doesNotMatch(source, /\? NATIVE_STUDIES\.length/,
+    "a total beside a search box is a count of something the user cannot see");
 });
 
 test("the browser is a modal with the application's own focus and Escape handling", () => {

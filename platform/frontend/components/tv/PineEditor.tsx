@@ -294,6 +294,15 @@ export function PineEditor({
             </pre>
             <textarea
               ref={taRef}
+              /*
+               * This surface owns every key aimed at it, including Cmd+Z.
+               *
+               * `useShortcuts` reads the attribute; it is not decorative. The
+               * textarea would already be covered as a typing tag, but the
+               * marker is what the guard's own comment describes, and it is
+               * what will still hold if the editor ever becomes a `div`.
+               */
+              data-owns-keys=""
               value={source}
               onChange={(e) => setSource(e.target.value)}
               onKeyDown={onKeyDown}

@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChartMarker, ChartPriceLine } from "@/components/CandleChart";
 import { api } from "./api";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
+import { useExclusivePopover } from "./useExclusivePopover";
 import { INTERVAL_MS, type Candle, type Interval } from "./types";
 import {
   anchorTradingOverlays, compactOverlaySource, DEFAULT_OVERLAY_PREFERENCES, loadOverlayPreferences,
@@ -67,7 +68,8 @@ export function useTradingOverlays(input: TradingOverlaysInput): TradingOverlays
   const replayActive = input.replayCutoff !== null;
 
   const [overlayPrefs, setOverlayPrefsState] = useState<TradingOverlayPreferences>(DEFAULT_OVERLAY_PREFERENCES);
-  const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
+  // Through the registry: this menu sits in the same toolbar as the others.
+  const [overlayMenuOpen, setOverlayMenuOpen] = useExclusivePopover("trading-overlays");
   const [overlayViewport, setOverlayViewport] = useState<{ from: number; to: number } | null>(null);
   const [settledOverlayRange, setSettledOverlayRange] = useState<{ from: number; to: number } | null>(null);
   const [settledOverlayContext, setSettledOverlayContext] = useState<string | null>(null);

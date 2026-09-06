@@ -186,6 +186,44 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     setStatus(`Added ${def.name} to ${props.symbol} ${props.interval}`);
   }, [props.nativeStudies, props.symbol, props.interval]);
 
+  /**
+   * How many rows a category would show, with the current search applied.
+   *
+   * Each arm reproduces the filter that category's list actually uses, which
+   * is why they are gathered here rather than inlined: two expressions for one
+   * question is how the chip and the list came to disagree.
+   */
+  const categoryCount = useCallback((id: string): number => {
+    const needle = q.trim().toLowerCase();
+    const nameMatches = (name: string): boolean =>
+      needle.length === 0 || name.toLowerCase().includes(needle);
+    const matchedStudies = searchStudies(q);
+    switch (id) {
+      case "templates":
+        return templates.filter((t) => nameMatches(t.name)).length;
+      case "onChart": {
+        const ids = new Set(applied.map((i) => i.scriptId).filter((v): v is string => v !== null));
+        const pine = library.filter((s) => ids.has(s.id) && nameMatches(s.name)).length;
+        const appliedNative = new Set((props.nativeStudies?.list ?? []).map((s) => s.defId));
+        return pine + matchedStudies.filter((d) => appliedNative.has(d.id)).length;
+      }
+      case "all":
+        return library.filter((s) => nameMatches(s.name)).length;
+      case "builtin":
+        return matchedStudies.length;
+      case "favourites": {
+        const wanted = new Set(favourites);
+        return matchedStudies.filter((d) => wanted.has(d.id)).length;
+      }
+      case "recents": {
+        const seen = new Set(recents);
+        return matchedStudies.filter((d) => seen.has(d.id)).length;
+      }
+      default:
+        return library.filter((s) => s.kind === id && nameMatches(s.name)).length;
+    }
+  }, [q, templates, applied, library, favourites, recents, props.nativeStudies]);
+
   const filteredTemplates = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return needle.length === 0
@@ -315,28 +353,42 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         ref={searchRef}
         value={q}
         onChange={(e) => setQ(e.target.value)}
+        /*
+         * Enter adds the first result.
+         *
+         * Search is focused when the browser opens, and the rows are a list of
+         * `div`s with two buttons each — so reaching the third result cost six
+         * Tabs and Enter in the box did nothing at all. Typing a name and
+         * pressing Enter is what a user reaching for a known study actually
+         * does, and it is the whole distance from the search box to the chart.
+         */
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || q.trim() === "") return;
+          const first = nativeList[0];
+          if (first && props.nativeStudies) { e.preventDefault(); addNative(first); return; }
+          const script = filtered[0];
+          if (script) { e.preventDefault(); void addScript(script); }
+        }}
         placeholder="Search this installation’s scripts and templates…"
         aria-label="Search indicators"
         className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
       />
+      <p className="mt-1 text-[11px] text-ink-faint">
+        Press Enter to add the first result.
+      </p>
 
-      {/* ── categories, all derived from real data ── */}
+      {/*
+        ── categories, all derived from what is CURRENTLY listed ──
+
+        The counts used to be totals — "Built-in 12" beside a single row,
+        because the chip read `NATIVE_STUDIES.length` while the list read the
+        search. A count next to a filter has to say how many that filter would
+        show, or it is telling the user the search did not happen.
+      */}
       <div role="group" aria-label="Indicator category" className="mt-3 flex flex-wrap gap-1.5">
         {CATEGORIES.map((c) => {
           const active = category === c.id;
-          const count = c.id === "templates"
-            ? templates.length
-            : c.id === "onChart"
-              ? applied.length + (props.nativeStudies?.list.length ?? 0)
-              : c.id === "all"
-                ? library.length
-                : c.id === "builtin"
-                  ? NATIVE_STUDIES.length
-                  : c.id === "favourites"
-                    ? favourites.length
-                    : c.id === "recents"
-                      ? recents.length
-                      : library.filter((s) => s.kind === c.id).length;
+          const count = categoryCount(c.id);
           return (
             <button
               key={c.id}

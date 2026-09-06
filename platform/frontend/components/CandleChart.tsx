@@ -382,7 +382,7 @@ export function CandleChart({
   onCrosshairMove, crosshairTime,
   onVisibleRangeChange, visibleRange, followEdgeTime,
   onIndicatorPaneAction,
-  priceScale, onPriceScaleChange,
+  priceScale, onPriceScaleChange, resetSignal, drawingStyleFocusSignal, paneActive,
 }: {
   symbol: string;
   interval: Interval;
@@ -418,7 +418,11 @@ export function CandleChart({
   onDrawingSelection?: (id: string | null) => void;
   /** A right-click landed on the plot, with what it hit and the price under it. */
   onChartContextMenu?: (
-    event: { x: number; y: number; drawingId: string | null; price: number | null }
+    event: {
+      x: number; y: number; drawingId: string | null; price: number | null;
+      /** Which strip was clicked: the plot, or the price axis. */
+      region: "plot" | "axis";
+    }
   ) => void;
   magnet?: boolean;
   drawingsLocked?: boolean;
@@ -472,6 +476,19 @@ export function CandleChart({
    */
   priceScale?: PriceScaleState;
   onPriceScaleChange?: (next: PriceScaleState) => void;
+  /**
+   * Bumped to reset the view from outside — the chart's context menu.
+   *
+   * A signal rather than a callback prop because "reset" is not a state the
+   * owner can hold: fitting the time scale to the loaded bars is something the
+   * chart does once, and the owner has no handle on the library's time scale.
+   * Any change of value performs one reset; the initial value never does.
+   */
+  resetSignal?: number;
+  /** Bumped to move focus into the selected drawing's style bar. */
+  drawingStyleFocusSignal?: number;
+  /** Whether this pane has the workspace's focus; gates Delete and Escape. */
+  paneActive?: boolean;
   /**
    * Phone layout: drop the per-series price-axis badges and shorten the
    * legend. Ten moving averages each stamp a label on the scale, which on a
@@ -645,6 +662,20 @@ export function CandleChart({
     try { chartRef.current?.timeScale().fitContent(); }
     catch { /* nothing loaded yet */ }
   }, [applyScale]);
+
+  /*
+   * The reset signal, honoured once per change.
+   *
+   * The first render is not a reset: a pane that has just been restored with a
+   * saved range must keep it. `useRef` seeded from the prop is what makes the
+   * initial value inert.
+   */
+  const resetSignalRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSignal === resetSignalRef.current) return;
+    resetSignalRef.current = resetSignal;
+    resetView();
+  }, [resetSignal, resetView]);
 
   syncPaneRangesRef.current = (source, range) => {
     if (syncingPaneRangeRef.current || disposalRef.current.disposed) return;
@@ -1723,6 +1754,8 @@ export function CandleChart({
               magnet={magnet}
               locked={drawingsLocked}
               hidden={drawingsHidden}
+              styleFocusSignal={drawingStyleFocusSignal}
+              active={paneActive}
             />
           )}
         </>

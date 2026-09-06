@@ -44,6 +44,10 @@ export interface ChartSidePanelProps {
 
   symbols: SymbolInfo[];
   onSelectSymbol: (symbol: string) => void;
+  /** Watchlist row actions, which are workspace facts rather than list facts. */
+  onOpenSymbolInNewPane?: (symbol: string) => void;
+  onAddSymbolAlert?: (symbol: string) => void;
+  canOpenNewPane?: boolean;
   onSymbolsChanged: () => void;
   replayQuote: ReplayQuote | null;
 
@@ -111,7 +115,11 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           {props.panel === "watchlist" && (
             <Watchlist symbols={props.symbols} selected={props.symbol}
               onSelect={props.onSelectSymbol}
-              onSymbolsChanged={props.onSymbolsChanged} replayQuote={props.replayQuote} />
+              onSymbolsChanged={props.onSymbolsChanged} replayQuote={props.replayQuote}
+              onOpenInNewPane={props.onOpenSymbolInNewPane}
+              onAddAlert={props.onAddSymbolAlert}
+              canOpenNewPane={props.canOpenNewPane ?? false}
+              replayActive={props.replayActive} />
           )}
           {props.panel === "alerts" && !props.replayActive
     && <AlertsPanel onCreateAlert={props.onOpenAutomation} />}
