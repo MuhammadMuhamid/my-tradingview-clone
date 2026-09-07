@@ -4,6 +4,7 @@ import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import { AlertScopeField } from "@/components/tv/AlertScopeField";
 import {
   AlertFiltersField, emptyFilters, filterRequest, 
 } from "@/components/tv/AlertFiltersField";
@@ -27,7 +28,16 @@ import type { Interval } from "@/lib/types";
 const TIMEFRAMES: Interval[] = ["5m", "15m", "1h", "4h"];
 
 /** Pivot anchors the platform stores candles for. */
-const ANCHORS: { id: Interval; label: string }[] = [
+/**
+ * The periods pivot levels can be taken from.
+ *
+ * Weekly and monthly are not chart intervals — the server derives them from
+ * daily candles by calendar, Monday-start weeks and real calendar months, so
+ * the boundaries match what the chart draws. See `engine/anchorPeriods.ts`.
+ */
+const ANCHORS: { id: string; label: string }[] = [
+  { id: "1M", label: "Monthly" },
+  { id: "1w", label: "Weekly" },
   { id: "1d", label: "Daily" },
   { id: "12h", label: "12 hours" },
   { id: "6h", label: "6 hours" },
@@ -61,12 +71,14 @@ export function LevelAlertModal({
   const [srSide, setSrSide] = useState<SrSide>("support");
   const [pivotType, setPivotType] = useState<PivotType>("Fibonacci");
   const [levelName, setLevelName] = useState("any");
-  const [anchor, setAnchor] = useState<Interval>("1d");
+  const [anchor, setAnchor] = useState<string>("1d");
   const [mode, setMode] = useState<MaAlertMode>("near_above");
   const [nearMinPct, setNearMinPct] = useState(0.2);
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
   const [filters, setFilters] = useState<AlertFilter[]>(emptyFilters);
   const [note, setNote] = useState("");
+  const [scopeId, setScopeId] = useState<string | null>(null);
+  const [scopeSymbols, setScopeSymbols] = useState<string[]>([]);
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
@@ -79,7 +91,7 @@ export function LevelAlertModal({
     if (open) {
       setTimeframes([defaultTimeframe]);
       setKind(initialKind);
-      setNote("");
+      setNote(""); setScopeId(null); setScopeSymbols([]);
       setErr(null);
     }
   }, [open, defaultTimeframe, initialKind]);
@@ -101,7 +113,8 @@ export function LevelAlertModal({
       // on, which is only meaningful if each timeframe is its own alert.
       for (const timeframe of timeframes) {
         await api.createMaAlert({
-          symbol, timeframe, conditionKind: kind, mode,
+          ...(scopeSymbols.length > 1 ? { symbols: scopeSymbols } : { symbol }),
+          timeframe, conditionKind: kind, mode,
           nearMinPct, nearMaxPct, frequency, cooldownMin,
           ...(kind === "sr_zone"
             ? { srSide }
@@ -112,9 +125,17 @@ export function LevelAlertModal({
           note: note.trim() || null,
         });
       }
+      /*
+       * The real total, not the timeframe count. Arming four timeframes across
+       * a forty-coin watchlist is a hundred and sixty alerts, and a message
+       * that said "4 alerts armed" would be untrue in the direction that
+       * matters — the user would not know what they had just committed to.
+       */
+      const coins = Math.max(scopeSymbols.length, 1);
+      const total = coins * timeframes.length;
       onSaved(
-        `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${symbol} · ` +
-        `${timeframes.join(", ")}`
+        `${total} alert${total === 1 ? "" : "s"} armed on ` +
+        `${coins > 1 ? `${coins} coins` : symbol} · ${timeframes.join(", ")}`
       );
       onClose();
     } catch (e) {
@@ -141,7 +162,7 @@ export function LevelAlertModal({
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={() => void save()} disabled={busy}>
-            {busy ? "Saving…" : `Create ${timeframes.length || ""}`}
+            {busy ? "Saving…" : `Create ${Math.max(scopeSymbols.length, 1) * timeframes.length || ""}`}
           </Button>
         </>
       }
@@ -181,7 +202,7 @@ export function LevelAlertModal({
               </select>
             </Row>
             <Row label="Pivots from">
-              <select value={anchor} onChange={(e) => setAnchor(e.target.value as Interval)} className={box}>
+              <select value={anchor} onChange={(e) => setAnchor(e.target.value)} className={box}>
                 {ANCHORS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
               </select>
             </Row>
@@ -244,6 +265,12 @@ export function LevelAlertModal({
         <AlertFiltersField value={filters} onChange={setFilters} chartTimeframe={timeframes[0] ?? defaultTimeframe} />
 
         <div className="my-1 border-t border-border" />
+
+        <AlertScopeField
+          symbol={symbol}
+          value={scopeId}
+          onChange={(id, syms) => { setScopeId(id); setScopeSymbols(syms); }}
+        />
 
         <AlertNoteField value={note} onChange={setNote} />
 

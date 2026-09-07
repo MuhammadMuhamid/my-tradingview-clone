@@ -50,6 +50,9 @@ import { acceptsIntrabarSample } from "../alerts/alertFrequency";
 import {
   planAlert, stateAfterPlan, type AlertSpec, type FeedSample,
 } from "../alerts/alertPlan";
+import {
+  DAILY_BARS_FOR, completedPeriodFromDaily, isDerivedAnchor,
+} from "./anchorPeriods";
 import { gateReading } from "../alerts/filterSeries";
 import { formatAlertPush } from "../alerts/alertMessage";
 import { sendPush, type PushResult } from "../alerts/webPush";
@@ -230,6 +233,30 @@ export class MaAlertRunner {
 
     for (const key of wanted) {
       const [symbol, rawAnchor] = key.split("|") as [string, string];
+
+      /*
+       * Weekly and monthly anchors are aggregated from daily candles by
+       * calendar rather than fetched as their own interval — a month has no
+       * fixed length and a week does not start at the epoch. See
+       * `engine/anchorPeriods.ts`.
+       */
+      if (isDerivedAnchor(rawAnchor)) {
+        try {
+          const bars = DAILY_BARS_FOR(rawAnchor);
+          const endMs = Date.now();
+          await ensureCandles(symbol, "1d", endMs - INTERVAL_MS["1d"] * bars, endMs);
+          const daily = await candleRepo.getCandles(symbol, "1d", { limit: bars });
+          const period = completedPeriodFromDaily(daily, rawAnchor);
+          if (period) this.anchorPeriods.set(key, period);
+        } catch (err) {
+          this.log.warn(
+            { symbol, anchor: rawAnchor, err: (err as Error).message },
+            "pivot anchor period unavailable"
+          );
+        }
+        continue;
+      }
+
       if (!isInterval(rawAnchor)) {
         this.log.warn({ symbol, anchor: rawAnchor }, "pivot anchor is not a supported interval");
         continue;

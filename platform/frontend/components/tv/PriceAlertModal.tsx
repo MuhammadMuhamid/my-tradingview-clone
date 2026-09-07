@@ -9,7 +9,7 @@ import {
   
 } from "@/components/tv/AlertFiltersField";
 import {
-  api,
+  api, isBulkResult,
   type AlertFilter, DEFAULT_ALERT_FREQUENCY,
   type AlertFrequency, type MaAlert, type PriceDirection,
 } from "@/lib/api";
@@ -119,6 +119,9 @@ export function PriceAlertModal({
         ...filterRequest(filters),
         note: note.trim() || null,
       });
+      // A price alert is always one symbol — the bulk shape cannot occur here,
+      // and offering it would arm forty coins on a level true of one.
+      if (isBulkResult(row)) throw new Error("unexpected bulk response for a price alert");
       onSaved(`${match ? "Updated" : "Alert set"} — ${symbol} ${timeframe} · ${describeAlert(row)}`);
       onClose();
     } catch (e) {

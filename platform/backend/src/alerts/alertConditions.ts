@@ -27,6 +27,7 @@ import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
   PIVOT_LEVEL_ANY, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS, MAX_ALERT_FILTERS,
+  PIVOT_ANCHORS, isPivotAnchor,
   isBollingerBand, isMaType, isRsiTarget, isMacdTarget, isStAtrMethod, isStochasticTarget,
   type BollingerBand, type ConditionKind, type MaAlertMode, type MaType,
   type PriceDirection, type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
@@ -1024,7 +1025,11 @@ export function validateCondition(condition: AlertCondition): string | null {
             `(it defines ${names.join(", ")})`;
         }
       }
-      if (!condition.anchor.trim()) return "anchor timeframe is required";
+      // The anchor has its own vocabulary: weekly and monthly are periods the
+      // runner derives from daily candles, not intervals it can subscribe to.
+      if (!isPivotAnchor(condition.anchor)) {
+        return `anchor must be one of ${PIVOT_ANCHORS.join(", ")}`;
+      }
       return filterError(condition.filters)
         ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
 

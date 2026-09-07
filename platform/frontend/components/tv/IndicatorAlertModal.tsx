@@ -4,6 +4,7 @@ import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import { AlertScopeField } from "@/components/tv/AlertScopeField";
 import {
   AlertFiltersField, emptyFilters, filterRequest, 
 } from "@/components/tv/AlertFiltersField";
@@ -104,6 +105,8 @@ export function IndicatorAlertModal({
 
   const [filters, setFilters] = useState<AlertFilter[]>(emptyFilters);
   const [note, setNote] = useState("");
+  const [scopeId, setScopeId] = useState<string | null>(null);
+  const [scopeSymbols, setScopeSymbols] = useState<string[]>([]);
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
@@ -111,7 +114,7 @@ export function IndicatorAlertModal({
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) { setTimeframes([defaultTimeframe]); setNote(""); setErr(null); }
+    if (open) { setTimeframes([defaultTimeframe]); setNote(""); setScopeId(null); setScopeSymbols([]); setErr(null); }
   }, [open, defaultTimeframe, kind]);
 
   const toggleTf = (tf: Interval): void =>
@@ -175,7 +178,8 @@ export function IndicatorAlertModal({
     try {
       for (const timeframe of timeframes) {
         await api.createMaAlert({
-          symbol, timeframe, conditionKind: kind,
+          ...(scopeSymbols.length > 1 ? { symbols: scopeSymbols } : { symbol }),
+          timeframe, conditionKind: kind,
           mode: armedMode,
           frequency, cooldownMin,
           ...(kind === "rsi"
@@ -202,9 +206,17 @@ export function IndicatorAlertModal({
           note: note.trim() || null,
         });
       }
+      /*
+       * The real total, not the timeframe count. Arming four timeframes across
+       * a forty-coin watchlist is a hundred and sixty alerts, and a message
+       * that said "4 alerts armed" would be untrue in the direction that
+       * matters — the user would not know what they had just committed to.
+       */
+      const coins = Math.max(scopeSymbols.length, 1);
+      const total = coins * timeframes.length;
       onSaved(
-        `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${symbol} · ` +
-        `${timeframes.join(", ")}`
+        `${total} alert${total === 1 ? "" : "s"} armed on ` +
+        `${coins > 1 ? `${coins} coins` : symbol} · ${timeframes.join(", ")}`
       );
       onClose();
     } catch (e) {
@@ -258,7 +270,7 @@ export function IndicatorAlertModal({
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={() => void save()} disabled={busy}>
-            {busy ? "Saving…" : `Create ${timeframes.length || ""}`}
+            {busy ? "Saving…" : `Create ${Math.max(scopeSymbols.length, 1) * timeframes.length || ""}`}
           </Button>
         </>
       }
@@ -524,6 +536,12 @@ export function IndicatorAlertModal({
         <AlertFiltersField value={filters} onChange={setFilters} chartTimeframe={timeframes[0] ?? defaultTimeframe} />
 
         <div className="my-1 border-t border-border" />
+
+        <AlertScopeField
+          symbol={symbol}
+          value={scopeId}
+          onChange={(id, syms) => { setScopeId(id); setScopeSymbols(syms); }}
+        />
 
         <AlertNoteField value={note} onChange={setNote} />
 

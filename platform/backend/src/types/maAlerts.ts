@@ -211,6 +211,18 @@ export const isSrSide = (v: string): v is SrSide =>
   (SR_SIDES as readonly string[]).includes(v);
 
 /**
+ * The periods a pivot alert can take its levels from.
+ *
+ * `1w` and `1M` are NOT `Interval`s and deliberately never become ones — see
+ * `engine/anchorPeriods.ts` for why a month has no fixed length and a week does
+ * not start at the epoch. They are aggregated from daily candles by calendar.
+ */
+export const PIVOT_ANCHORS = ["4h", "6h", "12h", "1d", "1w", "1M"] as const;
+export type PivotAnchor = (typeof PIVOT_ANCHORS)[number];
+export const isPivotAnchor = (v: string): v is PivotAnchor =>
+  (PIVOT_ANCHORS as readonly string[]).includes(v);
+
+/**
  * `any` watches every level of the chosen pivot type and reports whichever is
  * nearest, which is what "tell me when price approaches a pivot" means in
  * practice. A specific name watches only that line.

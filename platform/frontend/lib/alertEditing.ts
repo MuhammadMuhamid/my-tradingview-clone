@@ -34,6 +34,8 @@ export const EDIT_INTERVALS: Interval[] = [
 
 /** Pivot anchors the platform stores candles for. Mirrors LevelAlertModal. */
 export const PIVOT_ANCHORS: { id: string; label: string }[] = [
+  { id: "1M", label: "Monthly" },
+  { id: "1w", label: "Weekly" },
   { id: "1d", label: "Daily" },
   { id: "12h", label: "12 hours" },
   { id: "6h", label: "6 hours" },

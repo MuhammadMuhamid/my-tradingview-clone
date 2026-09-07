@@ -14,6 +14,7 @@ import {
   SR_SIDES, PIVOT_LEVEL_ANY, isSrSide, type SrSide,
   RSI_TARGETS, MACD_TARGETS, RSI_DEFAULTS, MACD_DEFAULTS,
   ST_ATR_METHODS, SUPERTREND_DEFAULTS, isStAtrMethod, type StAtrMethod,
+  PIVOT_ANCHORS, isPivotAnchor,
   isRsiTarget, isMacdTarget,
   BOLLINGER_BANDS, BOLLINGER_DEFAULTS, isBollingerBand,
   STOCHASTIC_TARGETS, STOCHASTIC_DEFAULTS, isStochasticTarget,
@@ -363,6 +364,9 @@ export function readCondition(
     const pivotType = String(b.pivotType ?? "Fibonacci");
     const levelName = String(b.levelName ?? PIVOT_LEVEL_ANY);
     const anchor = String(b.anchor ?? "1d");
+    if (!isPivotAnchor(anchor)) {
+      return bad(`anchor must be one of ${PIVOT_ANCHORS.join(", ")}`);
+    }
     const pMode = String(b.mode ?? "near_above");
     if (!isPivotType(pivotType)) return bad(`pivotType must be one of ${PIVOT_TYPES.join(", ")}`);
     if (!isMaAlertMode(pMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);

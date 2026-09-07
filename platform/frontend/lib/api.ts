@@ -909,6 +909,24 @@ export interface MaAlertUpdate {
   filters?: AlertFilter[];
 }
 
+/**
+ * The response when `symbols` was used.
+ *
+ * `failed` is per symbol and deliberately not fatal: arming forty of
+ * forty-two coins is a useful outcome, and rolling all of it back because one
+ * symbol's row failed would be worse than saying which two did not take.
+ */
+export interface BulkMaAlertResult {
+  alerts: MaAlert[];
+  created: number;
+  failed: { symbol: string; error: string }[];
+  warning: string | null;
+}
+
+/** Whether a create response was the bulk shape. */
+export const isBulkResult = (r: MaAlert | BulkMaAlertResult): r is BulkMaAlertResult =>
+  "created" in r && Array.isArray((r as BulkMaAlertResult).alerts);
+
 export type BulkAlertAction = "pause" | "resume" | "delete";
 export interface BulkAlertResult {
   action: BulkAlertAction;
@@ -1257,8 +1275,17 @@ export const api = {
     return req<MaAlert[]>(`/api/ma-alerts${qs ? `?${qs}` : ""}`);
   },
   maAlertOptions: () => req<MaAlertOptions>("/api/ma-alerts/options"),
+  /**
+   * Arm one alert, or the same alert across many symbols.
+   *
+   * `symbols` is how "every coin in this watchlist" reaches the server in ONE
+   * request; the response is then `BulkMaAlertResult` rather than a single
+   * row. A fifty-coin watchlist over four timeframes would otherwise be two
+   * hundred round trips, and a failure halfway would leave no way to tell
+   * which half was armed.
+   */
   createMaAlert: (body: {
-    symbol: string; timeframe: Interval;
+    symbol?: string; symbols?: string[]; timeframe: Interval;
     conditionKind?: ConditionKind;
     srSide?: SrSide;
     pivotType?: PivotType;
@@ -1292,7 +1319,9 @@ export const api = {
     frequency?: AlertFrequency;
     nearMinPct?: number; nearMaxPct?: number;
     cooldownMin?: number; note?: string | null;
-  }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
+  }) => req<MaAlert | BulkMaAlertResult>(
+    "/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }
+  ),
   updateMaAlert: (id: string, body: MaAlertUpdate) =>
     req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),

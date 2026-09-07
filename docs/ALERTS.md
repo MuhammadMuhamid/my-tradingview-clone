@@ -222,6 +222,51 @@ not about storage; an unbounded note would push the price off the end of the
 notification or exceed the 4 KB Web Push payload. A blank or whitespace-only
 note is stored as NULL, so the formatter never appends a bare separator.
 
+### Arming one alert across a watchlist
+
+`POST /api/ma-alerts` accepts `symbols` as well as `symbol`. "The same 15m
+support alert on every coin in my watchlist" is one decision, and it reaches
+the server in ONE request: a fifty-coin watchlist over four timeframes would
+otherwise be two hundred round trips, each re-validating the same condition,
+and a failure halfway would leave no way to tell which half was armed.
+
+Every symbol is validated before anything is written, so a malformed one
+refuses the whole request rather than arming an arbitrary prefix. The writes
+themselves are **not** a transaction and the response reports `failed` per
+symbol: arming forty of forty-two coins is a useful outcome, and rolling it all
+back because one row failed would be worse than saying which two did not take.
+
+Bounded at 200 symbols, because each one becomes a live websocket subscription
+and a per-bar evaluation. Deliberately **not** offered for `price` alerts — a
+price level is a fact about one instrument, and "BTC crosses 64,000" applied to
+forty coins is forty alerts that are wrong about thirty-nine of them.
+
+The dialog's create button carries the real total, not the timeframe count. Four
+timeframes across forty coins is a hundred and sixty alerts, and that should
+never be a surprise.
+
+### Weekly and monthly pivot anchors are derived, not intervals
+
+`pivot_anchor` accepts `4h`, `6h`, `12h`, `1d`, `1w` and `1M`. The first four
+are `Interval`s the runner fetches directly. **`1w` and `1M` are not, and must
+never become ones**, for two reasons that would both fail silently:
+
+- **A month has no fixed length.** `INTERVAL_MS` is a constant per interval,
+  relied on in sixty places for bar arithmetic, fetch windows, gap detection and
+  feed health. Any constant for `1M` is wrong for most months — false gaps
+  reported, real gaps missed, backfill windows off by days.
+- **A week does not start at the epoch.** `floor(t / WEEK) * WEEK` puts
+  boundaries on **Thursdays**, because 1970-01-01 was a Thursday. Binance's
+  weekly bar opens Monday 00:00 UTC, and a pivot computed from a
+  Thursday-to-Thursday window is a level no chart ever drew.
+
+So both are aggregated from daily candles by calendar in
+`platform/backend/src/engine/anchorPeriods.ts` — Monday-start ISO weeks and real
+calendar months, in UTC. Nothing else in the platform has to learn about them,
+and the newest group is discarded for the same reason the interval path drops
+its newest bar: a level from the period still forming would move under the alert
+all week.
+
 ### Crosses need a previous side
 
 `cross_up` and `cross_down` fire on a **close**, and only when the previous

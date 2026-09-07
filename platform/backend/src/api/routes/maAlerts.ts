@@ -235,6 +235,15 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
 const NOTE_MAX_LENGTH = 280;
 
 /**
+ * The most symbols one request may arm.
+ *
+ * A bound rather than a guess: each symbol becomes a live websocket
+ * subscription and a per-bar evaluation, so an unbounded watchlist would let
+ * one click commit the runner to work it cannot keep up with.
+ */
+const MAX_BULK_SYMBOLS = 200;
+
+/**
  * The user's own reason for arming an alert.
  *
  * Trimmed, and an all-whitespace note becomes null rather than an empty string:
@@ -314,15 +323,46 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/ma-alerts", async (req, reply) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
-    // An armed alert's symbol is interpolated straight into the Binance
-    // websocket stream name, where a `/` would inject extra streams. This is
-    // the same choke point every market-data call already uses.
-    let symbol: string;
+    /*
+     * One alert, or the same alert across many symbols.
+     *
+     * `symbols` exists so "arm this on every coin in my watchlist" is ONE
+     * request. The client could loop, but a fifty-coin watchlist over four
+     * timeframes is two hundred round trips, each re-validating the same
+     * condition — and a failure halfway leaves the user with no idea which
+     * half was armed.
+     *
+     * Every symbol is validated before anything is written, so a malformed one
+     * refuses the whole request rather than arming an arbitrary prefix of it.
+     * An armed symbol is interpolated straight into the Binance websocket
+     * stream name, where a `/` would inject extra streams, so this is the same
+     * choke point every market-data call already uses.
+     */
+    const bulk = b.symbols !== undefined;
+    if (bulk && !Array.isArray(b.symbols)) {
+      return reply.code(400).send(bad("symbols must be an array"));
+    }
+    const requested = bulk
+      ? (b.symbols as unknown[]).map((x) => String(x))
+      : [String(b?.symbol ?? "")];
+    if (requested.length === 0) {
+      return reply.code(400).send(bad("symbols must name at least one symbol"));
+    }
+    if (requested.length > MAX_BULK_SYMBOLS) {
+      return reply.code(400).send(
+        bad(`at most ${MAX_BULK_SYMBOLS} symbols may be armed in one request`)
+      );
+    }
+
+    let symbols: string[];
     try {
-      symbol = assertSymbol(String(b?.symbol ?? ""));
+      // Deduplicated: the same symbol twice would upsert onto itself and
+      // report two creations for one alert.
+      symbols = [...new Set(requested.map((x) => assertSymbol(x)))];
     } catch {
       return reply.code(400).send(bad("symbol must be 2-24 uppercase letters or digits"));
     }
+    const symbol = symbols[0]!;
 
     const timeframe = String(b?.timeframe ?? "");
     if (!isInterval(timeframe)) {
@@ -354,12 +394,38 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     const note = readNote(b.note);
     if ("error" in note) return reply.code(400).send(note);
 
-    const row = await maAlertRepo.upsertAlert({
-      symbol, timeframe, frequency, cooldownMin,
+    const columns = {
+      timeframe, frequency, cooldownMin,
       ...toColumns(read.condition),
       enabled: b.enabled === undefined ? true : Boolean(b.enabled),
       note: note.value,
-    });
+    };
+
+    if (bulk) {
+      /*
+       * Written one at a time, and reported per symbol. Not a transaction:
+       * arming forty of forty-two coins is a useful outcome, and rolling all
+       * of it back because one symbol's row failed would be worse than saying
+       * which two did not take.
+       */
+      const created: MaAlertRow[] = [];
+      const failed: { symbol: string; error: string }[] = [];
+      for (const s of symbols) {
+        try {
+          created.push(await maAlertRepo.upsertAlert({ ...columns, symbol: s }));
+        } catch (error) {
+          failed.push({ symbol: s, error: (error as Error).message });
+        }
+      }
+      return reply.code(201).send({
+        alerts: created,
+        created: created.length,
+        failed,
+        warning: isIntrabar(frequency) ? INTRABAR_WARNING : null,
+      });
+    }
+
+    const row = await maAlertRepo.upsertAlert({ ...columns, symbol });
     return reply.code(201).send({
       ...row,
       // The UI must show this beside an intrabar alert; serving it with the row
