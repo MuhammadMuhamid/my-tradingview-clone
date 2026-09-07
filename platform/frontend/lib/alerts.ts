@@ -11,6 +11,7 @@ import {
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
   type AlertFrequency, type MaAlert,
 } from "@/lib/api";
+import type { AlertFilter } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { fmtPrice } from "@/lib/format";
 
@@ -256,33 +257,61 @@ export function stLabel(
 }
 
 /**
- * The trend gates on an alert, phrased as the precondition they are.
+ * The gates on an alert, phrased as the precondition they are.
  *
  * "only while" rather than "and": a gate never fires anything itself, it just
- * decides whether the level event is worth telling you about. Reading it as a
- * second trigger is the misunderstanding this wording exists to prevent.
+ * decides whether the event is worth telling you about. Reading it as a second
+ * trigger is the misunderstanding this wording exists to prevent.
+ *
+ * A gate on another timeframe names it; one on the alert's own does not.
+ * Labelling both would put "15m" on every gate of a 15m alert, and labelling
+ * neither would hide the multi-timeframe case entirely.
+ *
+ * Must match `describeFilters` on the server, which writes the notification.
  */
 export function describeFilters(a: MaAlert): string {
-  const parts: string[] = [];
+  const filters = a.filters ?? legacyFilters(a);
+  if (filters.length === 0) return "";
+  const parts = filters.map((f) => {
+    const at = f.timeframe ? `${f.timeframe} ` : "";
+    switch (f.kind) {
+      case "rsi":
+        return `${at}RSI ${f.length} is ${f.side} ${f.level}`;
+      case "ma":
+        return `${at}price is ${f.side} the ${maLabel(f.type, f.length)}`;
+      case "supertrend":
+        return `${at}price is ${f.side} the ` + stLabel({
+          stPeriod: f.period, stMultiplier: f.multiplier, stAtrMethod: f.atrMethod,
+        });
+    }
+  });
+  return ` — only while ${parts.join(" and ")}`;
+}
+
+/** The pre-032 shape, for a row that has not been rewritten yet. */
+function legacyFilters(a: MaAlert): AlertFilter[] {
+  const out: AlertFilter[] = [];
   if (a.filterRsiLength !== null && a.filterRsiSide !== null) {
-    parts.push(`RSI ${a.filterRsiLength} is ${a.filterRsiSide} ${a.filterRsiLevel}`);
+    out.push({
+      kind: "rsi", timeframe: null, length: a.filterRsiLength,
+      level: a.filterRsiLevel ?? 50, side: a.filterRsiSide as "above" | "below",
+    });
   }
   if (a.filterMaType !== null && a.filterMaLength !== null && a.filterMaSide !== null) {
-    parts.push(
-      `price is ${a.filterMaSide} the ${maLabel(a.filterMaType, a.filterMaLength)}`
-    );
+    out.push({
+      kind: "ma", timeframe: null, type: a.filterMaType,
+      length: a.filterMaLength, side: a.filterMaSide as "above" | "below",
+    });
   }
   if (a.filterStPeriod !== null && a.filterStSide !== null) {
-    parts.push(
-      `price is ${a.filterStSide} the ` +
-      stLabel({
-        stPeriod: a.filterStPeriod,
-        stMultiplier: a.filterStMultiplier,
-        stAtrMethod: a.filterStAtrMethod,
-      })
-    );
+    out.push({
+      kind: "supertrend", timeframe: null, period: a.filterStPeriod,
+      multiplier: a.filterStMultiplier ?? 3,
+      atrMethod: (a.filterStAtrMethod as "rma" | "sma" | null) ?? "rma",
+      side: a.filterStSide as "above" | "below",
+    });
   }
-  return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";
+  return out;
 }
 
 /** The mode phrase shared by every kind that compares against a level. */

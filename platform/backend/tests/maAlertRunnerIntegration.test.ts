@@ -69,6 +69,7 @@ function row(id: string, over: Partial<MaAlertRow>): MaAlertRow {
     filterMaType: null, filterMaLength: null, filterMaSide: null,
     filterStPeriod: null, filterStMultiplier: null,
     filterStAtrMethod: null, filterStSide: null,
+    filters: [],
     nearMinPct: 0.2, nearMaxPct: 0.5,
     enabled: true, frequency: "once_per_bar_close", cooldownMin: 0, note: null,
     lastSide: "below", lastFiredAt: null, lastFiredBarTime: null,

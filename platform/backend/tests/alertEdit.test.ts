@@ -42,6 +42,7 @@ const BASE: MaAlertRow = {
   filterMaType: null, filterMaLength: null, filterMaSide: null,
   filterStPeriod: null, filterStMultiplier: null,
   filterStAtrMethod: null, filterStSide: null,
+  filters: [],
   nearMinPct: 0.2, nearMaxPct: 0.5, enabled: true,
   frequency: "once_per_bar_close", cooldownMin: 60, note: "keep me",
   lastSide: "below", lastFiredAt: "2026-08-01T00:00:00.000Z",
@@ -65,6 +66,13 @@ const ROWS: Record<ConditionKind, MaAlertRow> = {
     ...BASE, conditionKind: "sr_zone", targetPrice: null, priceDirection: null,
     srSide: "support", srPivotLength: 7, srInvalidation: "wick",
     mode: "near_below", nearMinPct: 0.25, nearMaxPct: 0.75,
+    filters: [
+      { kind: "rsi", timeframe: null, length: 21, level: 55, side: "above" },
+      { kind: "ma", timeframe: null, type: "sma", length: 100, side: "below" },
+      // A gate on ANOTHER timeframe — the shape only the list can express, and
+      // the one an edit must not quietly drop.
+      { kind: "rsi", timeframe: "1h", length: 50, level: 50, side: "above" },
+    ],
     filterRsiLength: 21, filterRsiLevel: 55, filterRsiSide: "above",
     filterMaType: "sma", filterMaLength: 100, filterMaSide: "below",
   },
@@ -82,6 +90,12 @@ const ROWS: Record<ConditionKind, MaAlertRow> = {
     macdFast: 8, macdSlow: 21, macdSignal: 5, indicatorTarget: "zero", mode: "cross_up",
     // Carries a Supertrend gate, because gates are no longer a level-family
     // privilege and the round trip must prove an oscillator keeps one.
+    filters: [
+      {
+        kind: "supertrend", timeframe: null, period: 14, multiplier: 2,
+        atrMethod: "sma", side: "below",
+      },
+    ],
     filterStPeriod: 14, filterStMultiplier: 2, filterStAtrMethod: "sma",
     filterStSide: "below",
   },
@@ -99,6 +113,11 @@ const ROWS: Record<ConditionKind, MaAlertRow> = {
     stochKLength: 21, stochKSmooth: 3, stochDSmooth: 5, stochLevel: 80,
     indicatorTarget: "level", mode: "cross_down",
     // A gate on an oscillator family, for the same reason `macd` carries one.
+    // `filters` is authoritative; the legacy columns mirror the first
+    // own-timeframe gate of each kind, which is what a pre-032 reader sees.
+    filters: [
+      { kind: "ma", timeframe: null, type: "ema", length: 200, side: "above" },
+    ],
     filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
   },
   adx: {
@@ -137,19 +156,51 @@ test("a body naming no condition field leaves the condition alone", () => {
   }
 });
 
-test("a level gate is added, changed and removed through the merged request", () => {
+/*
+ * The flat gate fields are how every client written before migration 032 edits
+ * a gate, and they must keep working now that the storage is a list. Same three
+ * behaviours as before, asserted against the list the merge now produces.
+ */
+test("a legacy gate edit is added, changed and removed through the merged request", () => {
+  const rsiOf = (body: Record<string, unknown>, timeframe: string | null = null) =>
+    (body.filters as Record<string, unknown>[]).find(
+      (f) => f.kind === "rsi" && (f.timeframe ?? null) === timeframe
+    );
+
   const added = mergeConditionRequest(ROWS.pivot_level, { filterRsiLevel: 60 })!;
-  assert.equal(added.filterRsi, true, "a bare gate value must switch the gate on");
-  assert.equal(added.filterRsiLevel, 60);
+  assert.equal(rsiOf(added)?.level, 60, "a bare gate value must switch the gate on");
 
   const changed = mergeConditionRequest(ROWS.sr_zone, { filterRsiLevel: 45 })!;
-  assert.equal(changed.filterRsiLength, 21, "the untouched half of the gate is preserved");
-  assert.equal(changed.filterRsiLevel, 45);
+  assert.equal(rsiOf(changed)?.length, 21, "the untouched half of the gate is preserved");
+  assert.equal(rsiOf(changed)?.level, 45);
 
   const removed = mergeConditionRequest(ROWS.sr_zone, { filterRsi: false })!;
-  assert.equal(removed.filterRsi, undefined);
-  assert.equal(removed.filterRsiLength, undefined);
-  assert.equal(removed.filterMa, true, "removing one gate must not remove the other");
+  assert.equal(rsiOf(removed), undefined);
+  const kinds = (removed.filters as Record<string, unknown>[]).map((f) => f.kind);
+  assert.ok(kinds.includes("ma"), "removing one gate must not remove the other");
+
+  /*
+   * And the property the list exists for: the flat form cannot NAME another
+   * timeframe, so it must not destroy a gate on one. `sr_zone` carries a 1h RSI
+   * gate; switching the own-timeframe RSI gate off must leave it standing.
+   */
+  assert.ok(
+    rsiOf(removed, "1h"),
+    "an old client editing a gate it cannot express must not delete it"
+  );
+});
+
+test("the list form replaces the gates outright, and wins over the flat form", () => {
+  const body = mergeConditionRequest(ROWS.sr_zone, {
+    filters: [{ kind: "rsi", timeframe: "4h", length: 14, level: 60, side: "below" }],
+    // Sent alongside, and deliberately ignored: two descriptions of the same
+    // thing would otherwise be merged into a third that is neither.
+    filterRsiLevel: 99,
+  })!;
+  assert.deepEqual(body.filters, [
+    { kind: "rsi", timeframe: "4h", length: 14, level: 60, side: "below" },
+  ]);
+  assert.equal(body.filterRsiLevel, undefined);
 });
 
 // ── The endpoint ───────────────────────────────────────────────────────────

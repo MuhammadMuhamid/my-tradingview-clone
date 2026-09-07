@@ -19,8 +19,10 @@
  */
 import {
   evaluateCondition,
-  type AlertCondition, type AlertFilters, type Sample, type Side,
+  type AlertCondition, type AlertFilter, type AlertFilters,
+  type Sample, type Side,
 } from "./alertConditions";
+import type { Interval } from "../types/market";
 import {
   acceptsIntrabarSample, decideFire, stateAfterFire,
   type AlertFrequency, type FireState, type SuppressionReason,
@@ -88,6 +90,16 @@ export interface FeedSample {
   macd?: (
     fast: number, slow: number, signal: number, target: MacdTarget
   ) => { value: number; reference: number } | undefined;
+  /**
+   * One gate's reading on a timeframe that is NOT this feed's.
+   *
+   * The runner resolves it from that timeframe's bars truncated to
+   * `closeTime <= this bar's closeTime`, so the value is the last CLOSED bar
+   * of the gate's period — the same rule `engine/mtf.ts` uses for
+   * `lookahead_off`. Returns undefined when that timeframe has no usable bar
+   * yet, which fails the gate closed.
+   */
+  otherTimeframe?: (timeframe: Interval, filter: AlertFilter) => number | undefined;
   /**
    * Supertrend at this bar: its direction (+1 / -1) and the band it is
    * currently drawing. Both come from the runner, which holds the bar history
@@ -202,7 +214,7 @@ export function planAlert(spec: AlertSpec, sample: FeedSample, now: number): Ale
 function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
   const base: Sample = {
     high: sample.high, low: sample.low, close: sample.close,
-    ...filterValues(condition.filters, sample),
+    ...filterReadings(condition.filters, sample),
   };
   switch (condition.kind) {
     case "price":
@@ -271,36 +283,42 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
 }
 
 /**
- * Resolve the gate inputs from the feed.
+ * Resolve one reading per gate, in order.
  *
- * Both come from resolvers the runner already provides for their own alert
- * families, so a gate costs no extra computation beyond the cache lookup: the
- * 200 EMA a filter reads is the same array an MA alert on that line uses.
+ * A gate on the alert's own timeframe reads from the feed already loaded, so
+ * it costs a cache lookup: the 200 EMA a gate reads is the same array an MA
+ * alert on that line uses. A gate naming another timeframe goes through
+ * `otherTimeframe`, which the runner backs with that timeframe's bars
+ * truncated to the alert bar's close — see `AlertFilter`.
+ *
+ * An unresolved reading is left `undefined` rather than defaulted, because
+ * `filtersPass` fails closed on it. A gate whose series has not warmed up must
+ * silence the alert, not wave it through.
  */
-function filterValues(
+function filterReadings(
   filters: AlertFilters | undefined, sample: FeedSample
-): { filterRsiValue?: number; filterMaValue?: number; filterSupertrendValue?: number } {
-  if (!filters) return {};
-  const out: {
-    filterRsiValue?: number; filterMaValue?: number; filterSupertrendValue?: number;
-  } = {};
-  if (filters.rsi) {
-    // The gate only needs the reading, so the target it is compared against
-    // here is irrelevant — "level" keeps the resolver on its cheapest path.
-    out.filterRsiValue = sample.rsi?.(
-      filters.rsi.length, "level", filters.rsi.level, filters.rsi.length
-    )?.value;
-  }
-  if (filters.ma) {
-    out.filterMaValue = sample.series(filters.ma.type, filters.ma.length);
-  }
-  if (filters.supertrend) {
-    out.filterSupertrendValue = sample.supertrend?.(
-      filters.supertrend.period, filters.supertrend.multiplier,
-      filters.supertrend.atrMethod
-    )?.trend;
-  }
-  return out;
+): { filterReadings?: (number | undefined)[] } {
+  if (!filters || filters.length === 0) return {};
+
+  const readings = filters.map((filter) => {
+    const own = filter.timeframe === null || filter.timeframe === sample.timeframe;
+    if (!own) return sample.otherTimeframe?.(filter.timeframe!, filter);
+
+    switch (filter.kind) {
+      case "rsi":
+        // The gate needs the reading only, so the target it would be compared
+        // against is irrelevant — "level" keeps the resolver on its cheapest path.
+        return sample.rsi?.(filter.length, "level", filter.level, filter.length)?.value;
+      case "ma":
+        return sample.series(filter.type, filter.length);
+      case "supertrend":
+        return sample.supertrend?.(
+          filter.period, filter.multiplier, filter.atrMethod
+        )?.trend;
+    }
+  });
+
+  return { filterReadings: readings };
 }
 
 /** The alert state to persist after acting on `plan`. */

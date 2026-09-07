@@ -29,6 +29,7 @@ import {
 } from "../types/maAlerts";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 import type { AlertColumns } from "./alertRequest";
+import { conditionFromRow } from "./alertConditions";
 
 /**
  * The request keys each family lets a user edit.
@@ -51,6 +52,11 @@ import type { AlertColumns } from "./alertRequest";
  * merge, so an unlisted field is a field that quietly reverts.
  */
 const GATE_FIELDS = [
+  // The list form, which is the only one that can carry a timeframe or a
+  // second gate of the same kind.
+  "filters",
+  // The flat form, still accepted so a client written before the list is not
+  // broken by an upgrade.
   "filterRsi", "filterRsiLength", "filterRsiLevel", "filterRsiSide",
   "filterMa", "filterMaType", "filterMaLength", "filterMaSide",
   "filterSt", "filterStPeriod", "filterStMultiplier", "filterStAtrMethod", "filterStSide",
@@ -140,29 +146,18 @@ const REFERENCE_COLUMNS: Record<ConditionKind, readonly (keyof AlertColumns)[]> 
  * back into `toColumns` and asserts the columns are identical.
  */
 export function alertRequestFromRow(row: MaAlertRow): Record<string, unknown> {
-  const gates: Record<string, unknown> = {};
-  if (row.filterRsiLength !== null && row.filterRsiSide !== null) {
-    gates.filterRsi = true;
-    gates.filterRsiLength = row.filterRsiLength;
-    gates.filterRsiLevel = row.filterRsiLevel;
-    gates.filterRsiSide = row.filterRsiSide;
-  }
-  if (row.filterMaType !== null && row.filterMaLength !== null && row.filterMaSide !== null) {
-    gates.filterMa = true;
-    gates.filterMaType = row.filterMaType;
-    gates.filterMaLength = row.filterMaLength;
-    gates.filterMaSide = row.filterMaSide;
-  }
-  if (
-    row.filterStPeriod !== null && row.filterStMultiplier !== null &&
-    row.filterStAtrMethod !== null && row.filterStSide !== null
-  ) {
-    gates.filterSt = true;
-    gates.filterStPeriod = row.filterStPeriod;
-    gates.filterStMultiplier = row.filterStMultiplier;
-    gates.filterStAtrMethod = row.filterStAtrMethod;
-    gates.filterStSide = row.filterStSide;
-  }
+  /*
+   * The gates, in the shape `readCondition` reads them back.
+   *
+   * The LIST form, always — even for a row whose gates came from the legacy
+   * columns, because `filtersFromRow` has already normalised those into a list
+   * with `timeframe: null`. Emitting the flat form here instead would silently
+   * drop any gate on another timeframe and any second gate of a kind, which is
+   * the exact failure the round-trip test in `alertEdit.test.ts` exists to
+   * catch: an edit that resets a field the user never touched.
+   */
+  const condition = conditionFromRow(row);
+  const gates: Record<string, unknown> = { filters: condition?.filters ?? [] };
 
   switch (row.conditionKind) {
     case "price":
@@ -245,25 +240,72 @@ export function mergeConditionRequest(
   const merged = alertRequestFromRow(row);
   for (const key of provided) merged[key] = body[key];
 
-  // A gate is enabled by its checkbox OR by any of its values arriving; it is
-  // removed only by an explicit `false`. Without the first rule a client that
-  // sent just `filterRsiLevel` on an ungated alert would have it silently
-  // dropped by `readFilters`; without the second, a gate could never be taken
-  // off, because the merged body always still carries the row's own values.
-  for (const [flag, keys] of [
-    ["filterRsi", ["filterRsiLength", "filterRsiLevel", "filterRsiSide"]],
-    ["filterMa", ["filterMaType", "filterMaLength", "filterMaSide"]],
-    ["filterSt", [
-      "filterStPeriod", "filterStMultiplier", "filterStAtrMethod", "filterStSide",
-    ]],
+  /*
+   * Gate edits, in whichever shape the client sent.
+   *
+   * If it sent `filters`, that list IS the answer and the flat keys are
+   * dropped — otherwise a client that sent both would get a merge of two
+   * descriptions of the same thing.
+   *
+   * If it sent the flat keys instead, they are applied ONTO the list, because
+   * the list is what gets stored. A flag set to `false` removes that kind's
+   * own-timeframe gate; any value arriving adds or replaces it. Both rules
+   * predate the list and must keep working: without the first a gate could
+   * never be taken off, because the merged body always still carries the row's
+   * own values; without the second, a client sending just `filterRsiLevel` on
+   * an ungated alert would have it silently dropped.
+   *
+   * Gates on ANOTHER timeframe are untouched by the flat form, which has no
+   * way to name one. An old client editing a multi-timeframe alert therefore
+   * leaves its cross-timeframe gates alone rather than destroying what it
+   * cannot express.
+   */
+  if (body.filters !== undefined) {
+    merged.filters = body.filters;
+    for (const key of GATE_FIELDS) if (key !== "filters") delete merged[key];
+    return merged;
+  }
+
+  const list = [...((merged.filters as Record<string, unknown>[] | undefined) ?? [])];
+  const ownOf = (kind: string): number =>
+    list.findIndex((f) => f.kind === kind && (f.timeframe ?? null) === null);
+
+  for (const [flag, kind, build] of [
+    ["filterRsi", "rsi", () => ({
+      kind: "rsi", timeframe: null,
+      length: body.filterRsiLength, level: body.filterRsiLevel, side: body.filterRsiSide,
+    })],
+    ["filterMa", "ma", () => ({
+      kind: "ma", timeframe: null,
+      type: body.filterMaType, length: body.filterMaLength, side: body.filterMaSide,
+    })],
+    ["filterSt", "supertrend", () => ({
+      kind: "supertrend", timeframe: null,
+      period: body.filterStPeriod, multiplier: body.filterStMultiplier,
+      atrMethod: body.filterStAtrMethod, side: body.filterStSide,
+    })],
   ] as const) {
+    const keys = Object.keys(build()).filter((k) => k !== "kind" && k !== "timeframe");
+    const flatKeys = GATE_FIELDS.filter(
+      (k) => k !== "filters" && k.startsWith(flag) && k !== flag
+    );
+    const touched = flatKeys.some((k) => body[k] !== undefined);
+
     if (body[flag] === false) {
-      delete merged[flag];
-      for (const key of keys) delete merged[key];
-    } else if (keys.some((key) => body[key] !== undefined)) {
-      merged[flag] = true;
+      const at = ownOf(kind);
+      if (at >= 0) list.splice(at, 1);
+    } else if (touched || body[flag] === true) {
+      const at = ownOf(kind);
+      const existing = at >= 0 ? list[at]! : {};
+      const next = { ...existing, kind, timeframe: null } as Record<string, unknown>;
+      const built = build() as Record<string, unknown>;
+      for (const k of keys) if (built[k] !== undefined) next[k] = built[k];
+      if (at >= 0) list[at] = next; else list.push(next);
     }
   }
+  merged.filters = list;
+  for (const key of GATE_FIELDS) if (key !== "filters") delete merged[key];
+
   return merged;
 }
 

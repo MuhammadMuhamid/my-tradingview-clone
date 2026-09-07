@@ -6,10 +6,11 @@ import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import {
   AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
-  type AlertFilterState,
+  
 } from "@/components/tv/AlertFiltersField";
 import {
-  api, DEFAULT_ALERT_FREQUENCY,
+  api,
+  type AlertFilter, DEFAULT_ALERT_FREQUENCY,
   type AlertFrequency, type MaAlert, type PriceDirection,
 } from "@/lib/api";
 import { describeAlert } from "@/lib/alerts";
@@ -63,7 +64,7 @@ export function PriceAlertModal({
   const [direction, setDirection] = useState<PriceDirection>("either");
   const [timeframe, setTimeframe] = useState<Interval>(chartTimeframe);
   const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
-  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [filters, setFilters] = useState<AlertFilter[]>(emptyFilters);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -232,7 +233,7 @@ export function PriceAlertModal({
         </Row>
 
         <div className="my-1 border-t border-border" />
-        <AlertFiltersField value={filters} onChange={setFilters} />
+        <AlertFiltersField value={filters} onChange={setFilters} chartTimeframe={timeframe} />
 
         <div className="my-1 border-t border-border" />
         <AlertNoteField value={note} onChange={setNote} />

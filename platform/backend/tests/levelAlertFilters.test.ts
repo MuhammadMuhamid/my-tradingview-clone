@@ -11,6 +11,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { AlertFilters } from "../src/alerts/alertConditions";
 import {
   evaluateCondition, filtersPass, describeFilters, validateCondition,
   conditionFromRow, type AlertCondition,
@@ -33,8 +34,19 @@ const srNear = (
   ...(filters ? { filters } : {}),
 });
 
-const RSI_UP = { rsi: { length: 50, level: 50, side: "above" as const } };
-const MA_UP = { ma: { type: "ema" as const, length: 200, side: "above" as const } };
+/*
+ * Gates are a LIST since migration 032, each element naming its own timeframe.
+ * `timeframe: null` is the alert's own — the only shape that existed before,
+ * and what these tests continue to exercise. Readings are supplied positionally
+ * in `filterReadings`, aligned with the list, because an alert may carry two
+ * gates of the same kind and a named field could hold only one of them.
+ */
+const RSI_UP: AlertFilters = [
+  { kind: "rsi", timeframe: null, length: 50, level: 50, side: "above" },
+];
+const MA_UP: AlertFilters = [
+  { kind: "ma", timeframe: null, type: "ema", length: 200, side: "above" },
+];
 
 test("with no gate the alert behaves exactly as before", () => {
   const e = evaluateCondition(srNear(), { ...bar, refValue: 99.5 }, "above");
@@ -43,50 +55,50 @@ test("with no gate the alert behaves exactly as before", () => {
 
 test("an open RSI gate lets the level alert through", () => {
   const e = evaluateCondition(
-    srNear(RSI_UP), { ...bar, refValue: 99.5, filterRsiValue: 61 }, "above"
+    srNear(RSI_UP), { ...bar, refValue: 99.5, filterReadings: [61] }, "above"
   );
   assert.equal(e.triggered, true);
 });
 
 test("a shut RSI gate silences the same event", () => {
   const e = evaluateCondition(
-    srNear(RSI_UP), { ...bar, refValue: 99.5, filterRsiValue: 43 }, "above"
+    srNear(RSI_UP), { ...bar, refValue: 99.5, filterReadings: [43] }, "above"
   );
   assert.equal(e.triggered, false);
 });
 
 test("the boundary is strict: RSI exactly at the level does not open an 'above' gate", () => {
   const e = evaluateCondition(
-    srNear(RSI_UP), { ...bar, refValue: 99.5, filterRsiValue: 50 }, "above"
+    srNear(RSI_UP), { ...bar, refValue: 99.5, filterReadings: [50] }, "above"
   );
   assert.equal(e.triggered, false, "50 is not above 50");
 });
 
 test("the EMA gate compares the CLOSE against the moving average", () => {
   const open = evaluateCondition(
-    srNear(MA_UP), { ...bar, refValue: 99.5, filterMaValue: 90 }, "above"
+    srNear(MA_UP), { ...bar, refValue: 99.5, filterReadings: [90] }, "above"
   );
   assert.equal(open.triggered, true, "close 100 is above EMA 90");
 
   const shut = evaluateCondition(
-    srNear(MA_UP), { ...bar, refValue: 99.5, filterMaValue: 110 }, "above"
+    srNear(MA_UP), { ...bar, refValue: 99.5, filterReadings: [110] }, "above"
   );
   assert.equal(shut.triggered, false, "close 100 is below EMA 110");
 });
 
 test("two gates are ANDed — both must be open", () => {
-  const both = { ...RSI_UP, ...MA_UP };
+  const both: AlertFilters = [...RSI_UP, ...MA_UP];
   const s = { ...bar, refValue: 99.5 };
   assert.equal(
-    evaluateCondition(srNear(both), { ...s, filterRsiValue: 61, filterMaValue: 90 }, "above").triggered,
+    evaluateCondition(srNear(both), { ...s, filterReadings: [61, 90] }, "above").triggered,
     true
   );
   assert.equal(
-    evaluateCondition(srNear(both), { ...s, filterRsiValue: 61, filterMaValue: 110 }, "above").triggered,
+    evaluateCondition(srNear(both), { ...s, filterReadings: [61, 110] }, "above").triggered,
     false, "MA gate shut"
   );
   assert.equal(
-    evaluateCondition(srNear(both), { ...s, filterRsiValue: 43, filterMaValue: 90 }, "above").triggered,
+    evaluateCondition(srNear(both), { ...s, filterReadings: [43, 90] }, "above").triggered,
     false, "RSI gate shut"
   );
 });
@@ -96,7 +108,7 @@ test("a gate whose input has not resolved fails CLOSED", () => {
   // "Only when the trend is up" must not fire because the trend is UNKNOWN.
   assert.equal(filtersPass(RSI_UP, { ...bar }), false);
   assert.equal(filtersPass(MA_UP, { ...bar }), false);
-  assert.equal(filtersPass(RSI_UP, { ...bar, filterRsiValue: NaN }), false);
+  assert.equal(filtersPass(RSI_UP, { ...bar, filterReadings: [NaN] }), false);
   const e = evaluateCondition(srNear(RSI_UP), { ...bar, refValue: 99.5 }, "above");
   assert.equal(e.triggered, false);
 });
@@ -111,7 +123,7 @@ test("a shut gate suppresses the notification but not the recorded side", () => 
     ...srNear(RSI_UP), mode: "cross_up" as const,
   };
   const shut = evaluateCondition(
-    cross, { ...bar, close: 100, refValue: 99.5, filterRsiValue: 10 }, "below"
+    cross, { ...bar, close: 100, refValue: 99.5, filterReadings: [10] }, "below"
   );
   assert.equal(shut.triggered, false, "gate is shut");
   assert.equal(shut.side, "above", "the side must still move with the market");
@@ -123,7 +135,7 @@ test("a gate never turns an untriggered condition ON", () => {
   // Price far away from the zone: no level event, so an open gate changes
   // nothing. A gate can only ever subtract.
   const e = evaluateCondition(
-    srNear(RSI_UP), { ...bar, close: 500, refValue: 99.5, filterRsiValue: 99 }, "above"
+    srNear(RSI_UP), { ...bar, close: 500, refValue: 99.5, filterReadings: [99] }, "above"
   );
   assert.equal(e.triggered, false);
 });
@@ -139,11 +151,12 @@ test("gates are opt-in: a request without them produces no filters", () => {
 test("the requested defaults are RSI 50 above 50 and price above the EMA 200", () => {
   const r = readCondition("sr_zone", { srSide: "support", filterRsi: true, filterMa: true });
   assert.ok("condition" in r);
-  const f = (r.condition as { filters?: Record<string, unknown> }).filters;
-  assert.deepEqual(f, {
-    rsi: { length: 50, level: 50, side: "above" },
-    ma: { type: "ema", length: 200, side: "above" },
-  });
+  // The flat request shape still works and still means "on the alert's own
+  // timeframe" — it becomes list entries with a null timeframe.
+  assert.deepEqual(r.condition.filters, [
+    { kind: "rsi", timeframe: null, length: 50, level: 50, side: "above" },
+    { kind: "ma", timeframe: null, type: "ema", length: 200, side: "above" },
+  ]);
 });
 
 test("a gate that could never open is refused", () => {
@@ -164,7 +177,7 @@ test("gates survive the trip through columns and back", () => {
   for (const c of [
     srNear(RSI_UP),
     srNear(MA_UP),
-    srNear({ ...RSI_UP, ...MA_UP }),
+    srNear([...RSI_UP, ...MA_UP]),
     srNear(),
   ]) {
     const cols = toColumns(c);
@@ -191,16 +204,29 @@ test("a half-written gate row is read as no gate rather than guessed at", () => 
 
 test("a gate that cannot be satisfied fails validation", () => {
   assert.match(
-    validateCondition(srNear({ rsi: { length: 50, level: 150, side: "above" } })) ?? "",
-    /filterRsiLevel/
+    validateCondition(srNear([
+      { kind: "rsi", timeframe: null, length: 50, level: 150, side: "above" },
+    ])) ?? "",
+    /RSI level must be between 0 and 100/
   );
   assert.equal(validateCondition(srNear(RSI_UP)), null);
 });
 
 test("the description says the gate is a precondition, not a trigger", () => {
   assert.equal(
-    describeFilters({ ...RSI_UP, ...MA_UP }),
+    describeFilters([...RSI_UP, ...MA_UP]),
     " — only while RSI 50 is above 50 and price is above the EMA 200"
   );
   assert.equal(describeFilters(undefined), "");
+  assert.equal(describeFilters([]), "");
+
+  // A gate on another timeframe names it; one on the alert's own does not.
+  // Labelling both would put "15m" on every gate of a 15m alert.
+  assert.equal(
+    describeFilters([
+      { kind: "rsi", timeframe: "1h", length: 50, level: 50, side: "above" },
+      { kind: "rsi", timeframe: null, length: 50, level: 50, side: "above" },
+    ]),
+    " — only while 1h RSI 50 is above 50 and RSI 50 is above 50"
+  );
 });

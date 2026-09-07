@@ -579,6 +579,33 @@ export type MacdTarget = "signal" | "zero";
 /** Which side of a gate's reference the market must be on. */
 export type FilterSide = "above" | "below";
 
+/** The timeframes a gate may be measured on. Mirrors `FILTER_TIMEFRAMES`. */
+export const FILTER_TIMEFRAMES: Interval[] = [
+  "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d",
+];
+
+/** The most gates one alert may carry. Mirrors `MAX_ALERT_FILTERS`. */
+export const MAX_ALERT_FILTERS = 6;
+
+/**
+ * One precondition on an alert.
+ *
+ * `timeframe: null` means the alert's own — what every gate meant before
+ * multi-timeframe gates existed. Naming another makes it a cross-timeframe
+ * question, read from that timeframe's last CLOSED bar so it cannot see into a
+ * period that has not finished.
+ *
+ * A list rather than one slot per kind, so an alert can require the 15m RSI
+ * and the 1h RSI at once.
+ */
+export type AlertFilter =
+  | { kind: "rsi"; timeframe: Interval | null; length: number; level: number; side: FilterSide }
+  | { kind: "ma"; timeframe: Interval | null; type: MaType; length: number; side: FilterSide }
+  | {
+      kind: "supertrend"; timeframe: Interval | null;
+      period: number; multiplier: number; atrMethod: StAtrMethod; side: FilterSide;
+    };
+
 /** Which average of true range a Supertrend uses. `rma` is Wilder's. */
 export type StAtrMethod = "rma" | "sma";
 
@@ -714,6 +741,11 @@ export interface MaAlert {
   filterStMultiplier: number | null;
   filterStAtrMethod: string | null;
   filterStSide: string | null;
+  /**
+   * The gates, in order — authoritative since migration 032. Null only on a
+   * row written before it, where the `filter*` fields above are read instead.
+   */
+  filters: AlertFilter[] | null;
   /** Populated for `ma` and `ma_vs_ma`. */
   maType: MaType | null;
   maLength: number | null;
@@ -780,6 +812,9 @@ export interface MaAlertOptions {
   intrabarWarning: string;
   /** The server's own cap on a note, so the dialogs never invent their own. */
   noteMaxLength?: number;
+  filterKinds?: string[];
+  filterTimeframes?: Interval[];
+  maxFilters?: number;
   frequencies: AlertFrequencyOption[];
 }
 
@@ -870,6 +905,8 @@ export interface MaAlertUpdate {
   filterStMultiplier?: number;
   filterStAtrMethod?: StAtrMethod;
   filterStSide?: FilterSide;
+  /** The list form. Replaces the gates outright and wins over the flat fields. */
+  filters?: AlertFilter[];
 }
 
 export type BulkAlertAction = "pause" | "resume" | "delete";
@@ -1243,6 +1280,8 @@ export const api = {
     filterSt?: boolean;
     filterStPeriod?: number; filterStMultiplier?: number;
     filterStAtrMethod?: StAtrMethod; filterStSide?: FilterSide;
+    /** The list form — the only shape that can carry a timeframe. */
+    filters?: AlertFilter[];
     maType?: MaType; maLength?: number; mode?: MaAlertMode;
     ma2Type?: MaType; ma2Length?: number;
     bbLength?: number; bbMult?: number; bbBand?: BollingerBand; bbMaType?: MaType;

@@ -42,11 +42,15 @@ import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
 import {
   levelByName, nearestLevel, pivotLevels, type PivotType, type Period,
 } from "./pivotLevels";
-import { conditionFromRow, type AlertCondition, type Side } from "../alerts/alertConditions";
+import {
+  conditionFromRow,
+  type AlertCondition, type AlertFilter, type Side,
+} from "../alerts/alertConditions";
 import { acceptsIntrabarSample } from "../alerts/alertFrequency";
 import {
   planAlert, stateAfterPlan, type AlertSpec, type FeedSample,
 } from "../alerts/alertPlan";
+import { gateReading } from "../alerts/filterSeries";
 import { formatAlertPush } from "../alerts/alertMessage";
 import { sendPush, type PushResult } from "../alerts/webPush";
 
@@ -346,6 +350,17 @@ export class MaAlertRunner {
       : alerts.filter((a) => acceptsIntrabarSample(a.frequency));
     if (relevant.length === 0) return;
 
+    /*
+     * Gates naming another timeframe need that timeframe's bars, and fetching
+     * them is asynchronous, so it happens here — once for the whole feed,
+     * before the per-alert loop — rather than inside a resolver the evaluator
+     * calls synchronously.
+     *
+     * Collecting the distinct set first matters: twelve alerts each gated on
+     * the 1h RSI are one fetch, not twelve.
+     */
+    const gateBars = await this.loadFilterTimeframes(symbol, interval, relevant);
+
     const closes = bars.map((b) => b.close);
     // Supertrend needs the full range, not just closes: its bands are built
     // from true range, which is a high/low/close quantity.
@@ -549,6 +564,21 @@ export class MaAlertRunner {
       return { value, reference: level };
     };
 
+    /**
+     * One gate's reading on a timeframe that is not this feed's.
+     *
+     * The truncation and the indicator both live in `alerts/filterSeries.ts`,
+     * which is pure — the look-ahead boundary is the part most worth testing
+     * directly, and it should not need a runner, a feed or a database to pin.
+     */
+    const otherTimeframe = (
+      timeframe: Interval, filter: AlertFilter
+    ): number | undefined => {
+      const all = gateBars.get(timeframe);
+      if (!all) return undefined;
+      return gateReading(all, sampleBar.closeTime, filter);
+    };
+
     const sample: FeedSample = {
       symbol, timeframe: interval,
       barTime: sampleBar.openTime,
@@ -562,6 +592,7 @@ export class MaAlertRunner {
       rsi: rsiFor,
       macd: macdFor,
       supertrend: stFor,
+      otherTimeframe,
       bollinger: bbFor,
       stochastic: stochFor,
       adx: adxFor,
@@ -596,6 +627,44 @@ export class MaAlertRunner {
         complete: next.fireState.completed && !spec.fireState.completed,
       });
     }
+  }
+
+  /**
+   * Bars for every timeframe a gate on this feed names, other than its own.
+   *
+   * Distinct timeframes only — twelve alerts gated on the 1h RSI cost one
+   * fetch. Backfill failures are logged and the timeframe is left absent,
+   * which makes the gate unresolved, which fails it closed: an alert gated on
+   * data the runner could not fetch stays silent rather than firing on a guess.
+   */
+  private async loadFilterTimeframes(
+    symbol: string, own: Interval, alerts: MaAlertRow[]
+  ): Promise<Map<Interval, Candle[]>> {
+    const wanted = new Set<Interval>();
+    for (const alert of alerts) {
+      const condition = conditionFromRow(alert);
+      for (const filter of condition?.filters ?? []) {
+        if (filter.timeframe && filter.timeframe !== own) wanted.add(filter.timeframe);
+      }
+    }
+
+    const out = new Map<Interval, Candle[]>();
+    for (const timeframe of wanted) {
+      try {
+        const endMs = Date.now();
+        await ensureCandles(
+          symbol, timeframe, endMs - INTERVAL_MS[timeframe] * HISTORY_BARS, endMs
+        );
+      } catch (err) {
+        this.log.warn(
+          { symbol, timeframe, err: (err as Error).message },
+          "gate timeframe backfill failed"
+        );
+      }
+      const rows = await candleRepo.getCandles(symbol, timeframe, { limit: HISTORY_BARS });
+      if (rows.length > 0) out.set(timeframe, rows);
+    }
+    return out;
   }
 
   /**

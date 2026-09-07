@@ -22,10 +22,11 @@ import {
   PIVOT_TYPES, isPivotType, pivotLevels, type PivotType,
 } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
+import { isInterval, type Interval } from "../types/market";
 import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
   PIVOT_LEVEL_ANY, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
-  STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
+  STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS, MAX_ALERT_FILTERS,
   isBollingerBand, isMaType, isRsiTarget, isMacdTarget, isStAtrMethod, isStochasticTarget,
   type BollingerBand, type ConditionKind, type MaAlertMode, type MaType,
   type PriceDirection, type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
@@ -89,37 +90,88 @@ export interface MaVsMaCondition {
 /**
  * A precondition that must hold for an alert to notify.
  *
- * This is a GATE, not a trigger: it never fires anything on its own, it only
- * decides whether the event is worth telling you about. "Alert me when price
- * approaches 1h support, but only while the 1h trend is up" is one alert with a
- * filter, not two alerts to correlate by hand.
+ * A gate is not a trigger: it never fires anything on its own, it only decides
+ * whether the event is worth telling you about. "Alert me when price
+ * approaches 15m support, but only while the 1h trend is up" is one alert with
+ * a filter, not two alerts to correlate by hand.
  *
- * Every gate is evaluated on the alert's OWN timeframe and symbol, against the
- * same bar as the trigger, so a 1h alert is gated by 1h RSI and the 1h EMA.
- * There is deliberately no per-gate timeframe: allowing one would turn every
- * alert into a multi-timeframe query, and the alert's own timeframe is the one
- * whose event is being judged.
+ * ── Each gate names its own timeframe ──────────────────────────────────────
  *
- * Gates are available on EVERY family, not only the level ones. "MACD crosses
- * up, but only while price is above the Supertrend" is the same shape of
- * request as the level version, and refusing it on some families would be an
- * artefact of the order the families were built in rather than a rule.
+ * `timeframe: null` means the alert's own, which is what every gate written
+ * before this existed did. Naming a different one makes the gate a
+ * multi-timeframe question, which is the point: a 15m level alert can require
+ * that the 1h RSI agrees.
+ *
+ * The value read from another timeframe is the one from that timeframe's
+ * LAST CLOSED bar at or before the alert's bar — `closeTime <= closeTime`.
+ * That is the same `chartClose` rule `engine/mtf.ts` implements for
+ * `request.security(..., lookahead_off)`, and it is what stops a gate seeing
+ * into a period that has not finished. It also means an HTF gate does not
+ * repaint: once the 1h bar has closed, the value the gate used is fixed.
+ *
+ * The cost is staleness, and it is deliberate. A 1h gate on a 15m alert is
+ * reading up to an hour-old data, because the alternative is a gate whose
+ * answer changes inside the hour and whose past answers cannot be reproduced.
  */
-export interface AlertFilters {
-  /** RSI(length) must sit above/below `level`. */
-  rsi?: { length: number; level: number; side: Side };
-  /** The close must sit above/below this moving average. */
-  ma?: { type: MaType; length: number; side: Side };
-  /**
-   * Price must be on the named side of the Supertrend — "above" is its
-   * uptrend. Read from the indicator's own trend rather than by comparing the
-   * close to the drawn line: the two agree by construction, and the trend is
-   * the value the study itself acts on.
-   */
-  supertrend?: {
-    period: number; multiplier: number; atrMethod: StAtrMethod; side: Side;
-  };
+export type FilterTimeframe = Interval | null;
+
+/** RSI(length) on `timeframe` must sit above/below `level`. */
+export interface RsiFilter {
+  kind: "rsi";
+  timeframe: FilterTimeframe;
+  length: number;
+  level: number;
+  side: Side;
 }
+
+/**
+ * The close must sit above/below this moving average.
+ *
+ * When the gate names another timeframe, the moving average is computed from
+ * THAT timeframe's bars while the close compared against it is the alert's own
+ * — "price is above the 1h EMA 200" read literally. Comparing the 1h close
+ * instead would answer a staler question than the one asked.
+ */
+export interface MaFilter {
+  kind: "ma";
+  timeframe: FilterTimeframe;
+  type: MaType;
+  length: number;
+  side: Side;
+}
+
+/**
+ * Price must be on the named side of the Supertrend — "above" is its uptrend.
+ *
+ * Read from the indicator's own trend rather than by comparing the close to
+ * the drawn line: the two agree by construction, and the trend is the value
+ * the study itself acts on.
+ */
+export interface SupertrendFilter {
+  kind: "supertrend";
+  timeframe: FilterTimeframe;
+  period: number;
+  multiplier: number;
+  atrMethod: StAtrMethod;
+  side: Side;
+}
+
+export type AlertFilter = RsiFilter | MaFilter | SupertrendFilter;
+
+/**
+ * The gates an alert carries, in order.
+ *
+ * A list rather than one slot per kind, so an alert can require the 15m RSI
+ * AND the 1h RSI at once — the same indicator on two timeframes is the most
+ * common multi-timeframe question there is, and one-slot-per-kind could not
+ * express it.
+ */
+export type AlertFilters = AlertFilter[];
+
+export const FILTER_KINDS = ["rsi", "ma", "supertrend"] as const;
+export type FilterKind = (typeof FILTER_KINDS)[number];
+export const isFilterKind = (v: string): v is FilterKind =>
+  (FILTER_KINDS as readonly string[]).includes(v);
 
 /**
  * The nearest live support or resistance on the alert's own timeframe.
@@ -306,12 +358,18 @@ export interface Sample {
    */
   indicatorValue?: number;
   indicatorReference?: number;
-  /** RSI reading for a filter gate, resolved on the alert's own timeframe. */
-  filterRsiValue?: number;
-  /** Moving-average value for a filter gate, same bar and timeframe. */
-  filterMaValue?: number;
-  /** Supertrend direction (+1 / -1) for a filter gate, same bar and timeframe. */
-  filterSupertrendValue?: number;
+  /**
+   * One reading per gate, aligned by index with `condition.filters`.
+   *
+   * Indexed rather than named because an alert may carry two RSI gates on
+   * different timeframes, and a named field could only hold one of them. An
+   * entry of `undefined` means the gate's indicator has not resolved — the
+   * series is still warming up, or its timeframe has no bars yet.
+   *
+   * What each reading holds: the RSI value, the moving average, or the
+   * Supertrend's direction (+1 / -1).
+   */
+  filterReadings?: (number | undefined)[];
 }
 
 export interface Evaluation {
@@ -504,42 +562,39 @@ function evaluateAgainstReference(
 /**
  * Whether every configured gate currently holds.
  *
- * **Fails closed.** A gate whose input has not resolved — RSI still warming up,
- * an EMA without enough history — blocks the alert rather than passing it. The
- * user asked for "only when the trend is up"; firing because the trend is
- * *unknown* answers a different question, and would do so silently.
+ * **Fails closed.** A gate whose input has not resolved — RSI still warming
+ * up, an EMA without enough history, a higher timeframe with no closed bar yet
+ * — blocks the alert rather than passing it. The user asked for "only when the
+ * trend is up"; firing because the trend is *unknown* answers a different
+ * question, and would do so silently.
+ *
+ * Every gate must hold: they are ANDed. "15m RSI above 50 and 1h RSI above 50"
+ * is the request this feature exists for, and OR would make a two-gate alert
+ * fire more often than a one-gate alert, which is the opposite of what adding
+ * a precondition means.
  */
 export function filtersPass(
   filters: AlertFilters | undefined, sample: Sample
 ): boolean {
-  if (!filters) return true;
+  if (!filters || filters.length === 0) return true;
+  const readings = sample.filterReadings ?? [];
 
-  if (filters.rsi) {
-    const v = sample.filterRsiValue;
-    if (v === undefined || !Number.isFinite(v)) return false;
-    if (filters.rsi.side === "above" ? !(v > filters.rsi.level) : !(v < filters.rsi.level)) {
-      return false;
+  return filters.every((filter, index) => {
+    const value = readings[index];
+    if (value === undefined || !Number.isFinite(value)) return false;
+
+    switch (filter.kind) {
+      case "rsi":
+        return filter.side === "above" ? value > filter.level : value < filter.level;
+      case "ma":
+        // The close is the alert's own; the average may come from another
+        // timeframe. See `MaFilter`.
+        return filter.side === "above" ? sample.close > value : sample.close < value;
+      case "supertrend":
+        // The indicator's own direction: +1 uptrend, -1 downtrend.
+        return filter.side === "above" ? value > 0 : value < 0;
     }
-  }
-
-  if (filters.ma) {
-    const v = sample.filterMaValue;
-    if (v === undefined || !Number.isFinite(v)) return false;
-    if (filters.ma.side === "above" ? !(sample.close > v) : !(sample.close < v)) {
-      return false;
-    }
-  }
-
-  if (filters.supertrend) {
-    // The indicator's own direction: +1 uptrend, -1 downtrend. Comparing the
-    // close to the drawn line instead would agree on every bar but one — the
-    // flip bar, where the line has already moved to the other side of price.
-    const v = sample.filterSupertrendValue;
-    if (v === undefined || !Number.isFinite(v)) return false;
-    if (filters.supertrend.side === "above" ? !(v > 0) : !(v < 0)) return false;
-  }
-
-  return true;
+  });
 }
 
 /**
@@ -1059,13 +1114,23 @@ export function validateCondition(condition: AlertCondition): string | null {
 }
 
 /**
- * Rebuild the optional gates from their columns.
+ * Rebuild the gates a row carries.
+ *
+ * Two shapes are read, in this order:
+ *
+ *  1. `filters` — the JSONB list written since migration 032. Authoritative
+ *     whenever it is present, including when it is an empty list, which means
+ *     "this alert deliberately has no gates".
+ *  2. the legacy `filter_*` columns — one gate per kind, no timeframe. A row
+ *     written before 032 and never edited since still has only these, and it
+ *     must keep working.
  *
  * A half-written gate — a length with no side — is treated as no gate at all
- * rather than guessed at, so a row that cannot express a complete rule can
- * never silently become a different one.
+ * rather than guessed at, in both shapes. A row that cannot express a complete
+ * rule must never silently become a different one.
  */
 function filtersFromRow(row: {
+  filters?: unknown;
   filterRsiLength?: number | null;
   filterRsiLevel?: number | null;
   filterRsiSide?: string | null;
@@ -1077,17 +1142,85 @@ function filtersFromRow(row: {
   filterStAtrMethod?: string | null;
   filterStSide?: string | null;
 }): { filters?: AlertFilters } {
-  const filters: AlertFilters = {};
-  const side = (v: string | null | undefined): Side | null =>
-    v === "above" || v === "below" ? v : null;
+  if (row.filters !== null && row.filters !== undefined) {
+    const parsed = parseStoredFilters(row.filters);
+    return parsed.length > 0 ? { filters: parsed } : {};
+  }
+  const legacy = legacyFiltersFromRow(row);
+  return legacy.length > 0 ? { filters: legacy } : {};
+}
 
+const side = (v: unknown): Side | null =>
+  v === "above" || v === "below" ? v : null;
+
+/**
+ * Read the stored JSONB list.
+ *
+ * Every element is validated rather than trusted. This is a database column,
+ * and a row is data: an element that does not describe a complete, evaluable
+ * gate is dropped, because carrying it forward would produce a gate whose
+ * reading can never resolve — which fails closed and silences the alert
+ * forever with nothing to show why.
+ */
+export function parseStoredFilters(raw: unknown): AlertFilters {
+  const list = Array.isArray(raw) ? raw : [];
+  const out: AlertFilters = [];
+  for (const entry of list) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const e = entry as Record<string, unknown>;
+    const s = side(e.side);
+    if (!s) continue;
+    const timeframe = typeof e.timeframe === "string" && isInterval(e.timeframe)
+      ? e.timeframe
+      : null;
+
+    if (e.kind === "rsi") {
+      if (typeof e.length !== "number" || typeof e.level !== "number") continue;
+      out.push({ kind: "rsi", timeframe, length: e.length, level: e.level, side: s });
+    } else if (e.kind === "ma") {
+      if (typeof e.length !== "number") continue;
+      if (e.type !== "sma" && e.type !== "ema") continue;
+      out.push({ kind: "ma", timeframe, type: e.type, length: e.length, side: s });
+    } else if (e.kind === "supertrend") {
+      if (typeof e.period !== "number" || typeof e.multiplier !== "number") continue;
+      const method = typeof e.atrMethod === "string" ? e.atrMethod : "";
+      if (!isStAtrMethod(method)) continue;
+      out.push({
+        kind: "supertrend", timeframe, period: e.period,
+        multiplier: e.multiplier, atrMethod: method, side: s,
+      });
+    }
+  }
+  return out;
+}
+
+/** The pre-032 shape: at most one gate per kind, always on the alert's own timeframe. */
+function legacyFiltersFromRow(row: {
+  filterRsiLength?: number | null;
+  filterRsiLevel?: number | null;
+  filterRsiSide?: string | null;
+  filterMaType?: MaType | null;
+  filterMaLength?: number | null;
+  filterMaSide?: string | null;
+  filterStPeriod?: number | null;
+  filterStMultiplier?: number | null;
+  filterStAtrMethod?: string | null;
+  filterStSide?: string | null;
+}): AlertFilters {
+  const out: AlertFilters = [];
   const rsiSide = side(row.filterRsiSide);
   if (row.filterRsiLength != null && row.filterRsiLevel != null && rsiSide) {
-    filters.rsi = { length: row.filterRsiLength, level: row.filterRsiLevel, side: rsiSide };
+    out.push({
+      kind: "rsi", timeframe: null,
+      length: row.filterRsiLength, level: row.filterRsiLevel, side: rsiSide,
+    });
   }
   const maSide = side(row.filterMaSide);
   if (row.filterMaType != null && row.filterMaLength != null && maSide) {
-    filters.ma = { type: row.filterMaType, length: row.filterMaLength, side: maSide };
+    out.push({
+      kind: "ma", timeframe: null,
+      type: row.filterMaType, length: row.filterMaLength, side: maSide,
+    });
   }
   const stSide = side(row.filterStSide);
   const stMethod = row.filterStAtrMethod;
@@ -1095,32 +1228,38 @@ function filtersFromRow(row: {
     row.filterStPeriod != null && row.filterStMultiplier != null && stSide &&
     stMethod != null && isStAtrMethod(stMethod)
   ) {
-    filters.supertrend = {
-      period: row.filterStPeriod,
-      multiplier: row.filterStMultiplier,
-      atrMethod: stMethod,
-      side: stSide,
-    };
+    out.push({
+      kind: "supertrend", timeframe: null,
+      period: row.filterStPeriod, multiplier: row.filterStMultiplier,
+      atrMethod: stMethod, side: stSide,
+    });
   }
-  return Object.keys(filters).length > 0 ? { filters } : {};
+  return out;
 }
 
-/** "RSI 50 above 50" / "price above EMA 200" — the gates, for the UI list. */
+/**
+ * "RSI 50 is above 50" / "1h price is above the EMA 200" — the gates, for the
+ * notification and the UI list.
+ *
+ * A gate on the alert's own timeframe is not labelled with one; a gate on any
+ * other names it. Labelling both would put "15m" on every gate of a 15m alert,
+ * which is noise, and leaving both unlabelled would make the multi-timeframe
+ * case — the one this feature exists for — invisible.
+ */
 export function describeFilters(filters: AlertFilters | undefined): string {
-  if (!filters) return "";
-  const parts: string[] = [];
-  if (filters.rsi) {
-    parts.push(`RSI ${filters.rsi.length} is ${filters.rsi.side} ${filters.rsi.level}`);
-  }
-  if (filters.ma) {
-    parts.push(
-      `price is ${filters.ma.side} the ${maLabel(filters.ma.type, filters.ma.length)}`
-    );
-  }
-  if (filters.supertrend) {
-    parts.push(`price is ${filters.supertrend.side} the ${stLabel(filters.supertrend)}`);
-  }
-  return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";
+  if (!filters || filters.length === 0) return "";
+  const parts = filters.map((f) => {
+    const at = f.timeframe ? `${f.timeframe} ` : "";
+    switch (f.kind) {
+      case "rsi":
+        return `${at}RSI ${f.length} is ${f.side} ${f.level}`;
+      case "ma":
+        return `${at}price is ${f.side} the ${maLabel(f.type, f.length)}`;
+      case "supertrend":
+        return `${at}price is ${f.side} the ${stLabel(f)}`;
+    }
+  });
+  return ` — only while ${parts.join(" and ")}`;
 }
 
 /**
@@ -1130,35 +1269,56 @@ export function describeFilters(filters: AlertFilters | undefined): string {
  */
 function filterError(filters: AlertFilters | undefined): string | null {
   if (!filters) return null;
-  if (filters.rsi) {
-    const { length, level, side } = filters.rsi;
-    if (!Number.isInteger(length) || length < 1) {
-      return "filterRsiLength must be a positive integer";
-    }
-    // RSI is bounded 0..100, so a gate outside that range is either always
-    // open or permanently shut.
-    if (!Number.isFinite(level) || level <= 0 || level >= 100) {
-      return "filterRsiLevel must be between 0 and 100 (exclusive)";
-    }
-    if (side !== "above" && side !== "below") return "filterRsiSide must be above or below";
+  if (filters.length > MAX_ALERT_FILTERS) {
+    return `an alert may carry at most ${MAX_ALERT_FILTERS} filters`;
   }
-  if (filters.ma) {
-    const { length, side } = filters.ma;
-    if (!Number.isInteger(length) || length < 1) {
-      return "filterMaLength must be a positive integer";
+  for (const f of filters) {
+    if (f.timeframe !== null && !isInterval(f.timeframe)) {
+      return "filter timeframe is not a supported interval";
     }
-    if (side !== "above" && side !== "below") return "filterMaSide must be above or below";
+    if (f.side !== "above" && f.side !== "below") {
+      return "filter side must be above or below";
+    }
+    switch (f.kind) {
+      case "rsi":
+        if (!Number.isInteger(f.length) || f.length < 1 || f.length > 1000) {
+          return "filter RSI length must be an integer between 1 and 1000";
+        }
+        // RSI is bounded 0..100, so a gate outside that range is either always
+        // open or permanently shut.
+        if (!Number.isFinite(f.level) || f.level <= 0 || f.level >= 100) {
+          return "filter RSI level must be between 0 and 100 (exclusive)";
+        }
+        break;
+      case "ma":
+        if (!Number.isInteger(f.length) || f.length < 1 || f.length > 1000) {
+          return "filter moving-average length must be an integer between 1 and 1000";
+        }
+        break;
+      case "supertrend":
+        if (!Number.isInteger(f.period) || f.period < 1 || f.period > 1000) {
+          return "filter Supertrend ATR period must be an integer between 1 and 1000";
+        }
+        if (!Number.isFinite(f.multiplier) || f.multiplier <= 0 || f.multiplier > 100) {
+          return "filter Supertrend multiplier must be greater than 0 and at most 100";
+        }
+        if (!isStAtrMethod(f.atrMethod)) {
+          return "filter Supertrend ATR method must be rma or sma";
+        }
+        break;
+    }
   }
-  if (filters.supertrend) {
-    const { period, multiplier, atrMethod, side } = filters.supertrend;
-    if (!Number.isInteger(period) || period < 1) {
-      return "filterStPeriod must be a positive integer";
-    }
-    if (!Number.isFinite(multiplier) || multiplier <= 0) {
-      return "filterStMultiplier must be a positive number";
-    }
-    if (!isStAtrMethod(atrMethod)) return "filterStAtrMethod must be rma or sma";
-    if (side !== "above" && side !== "below") return "filterStSide must be above or below";
+  /*
+   * Two gates that are the same question asked twice are almost certainly a
+   * mistake — the user meant two timeframes and picked the same one twice.
+   * Storing both would double the cost and change nothing, because a duplicate
+   * of an ANDed condition is a no-op.
+   */
+  const seen = new Set<string>();
+  for (const f of filters) {
+    const key = JSON.stringify(f);
+    if (seen.has(key)) return "two filters are identical — remove one, or change its timeframe";
+    seen.add(key);
   }
   return null;
 }

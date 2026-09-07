@@ -15,7 +15,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { ALERT_HISTORY_BARS, type ConditionKind, type MaAlert } from "../lib/api";
+import {
+  ALERT_HISTORY_BARS,
+  type ConditionKind, type MaAlert, type MaAlertUpdate,
+} from "../lib/api";
 import {
   ALERT_FAMILY_LABELS, alertEditForm, alertEditRequest, hasAlertChanges,
   leavesFilteredView, modesFor, pivotLevelNames, usesBand, usesGates,
@@ -36,6 +39,9 @@ const BASE: MaAlert = {
   filterMaType: null, filterMaLength: null, filterMaSide: null,
   filterStPeriod: null, filterStMultiplier: null,
   filterStAtrMethod: null, filterStSide: null,
+  // null = a row written before migration 032, so the legacy `filter*` columns
+  // below are what describes its gates. Exercises the fallback path.
+  filters: null,
   stPeriod: null, stMultiplier: null, stAtrMethod: null,
   bbLength: null, bbMult: null, bbBand: null, bbMaType: null,
   stochKLength: null, stochKSmooth: null, stochDSmooth: null, stochLevel: null,
@@ -209,25 +215,70 @@ test("common fields are editable and normalised on every family", () => {
   }
 });
 
+/*
+ * The editor saves gates as a LIST since migration 032 — the only shape that
+ * can carry a timeframe or two gates of the same kind. The three behaviours
+ * that mattered before still matter: a gate can be removed, a change sends the
+ * whole gate rather than half of it, and an untouched alert saves nothing.
+ */
 test("a gate is switched on, altered and removed as a whole", () => {
   const gated = ALERTS.sr_zone;
-  const off = alertEditRequest(gated, { ...alertEditForm(gated), filterRsi: false });
-  assert.equal(off.filterRsi, false, "removing a gate needs an explicit false");
-  assert.equal(off.filterRsiLength, undefined);
+  const form = alertEditForm(gated);
+  const rsiAt = (body: MaAlertUpdate) =>
+    (body.filters ?? []).find((f) => f.kind === "rsi");
 
-  const changed = alertEditRequest(gated, { ...alertEditForm(gated), filterRsiLevel: 45 });
-  assert.equal(changed.filterRsi, true);
-  // Every part of the gate is sent, so a half-written gate can never be stored.
+  const off = alertEditRequest(gated, {
+    ...form, filters: form.filters.filter((f) => f.kind !== "rsi"),
+  });
+  assert.ok(off.filters, "removing a gate sends the whole remaining list");
+  assert.equal(rsiAt(off), undefined);
+
+  const changed = alertEditRequest(gated, {
+    ...form,
+    filters: form.filters.map((f) => (f.kind === "rsi" ? { ...f, level: 45 } : f)),
+  });
+  const rsi = rsiAt(changed);
+  // Every part of the gate travels, so a half-written gate can never be stored.
   assert.deepEqual(
-    [changed.filterRsiLength, changed.filterRsiLevel, changed.filterRsiSide], [21, 45, "above"]
+    [rsi?.kind === "rsi" ? rsi.length : null, rsi?.kind === "rsi" ? rsi.level : null, rsi?.side],
+    [21, 45, "above"]
   );
 
+  const base = alertEditForm(ALERTS.pivot_level);
   const added = alertEditRequest(ALERTS.pivot_level, {
-    ...alertEditForm(ALERTS.pivot_level), filterMa: true,
+    ...base,
+    filters: [
+      ...base.filters,
+      { kind: "ma", timeframe: null, type: "ema", length: 200, side: "above" },
+    ],
   });
-  assert.equal(added.filterMa, true);
-  assert.equal(typeof added.filterMaLength, "number");
-  assert.equal(added.filterRsi, undefined, "an untouched gate is not sent");
+  assert.equal((added.filters ?? []).some((f) => f.kind === "ma"), true);
+});
+
+test("an untouched form saves nothing, gates included", () => {
+  for (const kind of KINDS) {
+    const alert = ALERTS[kind];
+    assert.equal(
+      hasAlertChanges(alertEditRequest(alert, alertEditForm(alert))),
+      false,
+      `${kind} saved something without being edited`
+    );
+  }
+});
+
+test("a gate can name another timeframe, which the flat fields could not", () => {
+  const alert = ALERTS.sr_zone;
+  const form = alertEditForm(alert);
+  const body = alertEditRequest(alert, {
+    ...form,
+    filters: [
+      ...form.filters,
+      { kind: "rsi", timeframe: "1h", length: 50, level: 50, side: "above" },
+    ],
+  });
+  const htf = (body.filters ?? []).find((f) => f.timeframe === "1h");
+  assert.ok(htf, "the 1h gate must reach the request");
+  assert.equal(htf.kind, "rsi");
 });
 
 test("the family is never sent as a change, so an edit cannot convert an alert", () => {
@@ -324,31 +375,38 @@ test("every family offers gates, and every family actually saves them", () => {
     const form = alertEditForm(alert);
     const body = alertEditRequest(alert, {
       ...form,
-      filterSt: true,
-      filterStPeriod: 14,
-      filterStMultiplier: 2,
-      filterStAtrMethod: "sma",
-      filterStSide: "below",
+      filters: [
+        ...form.filters,
+        {
+          kind: "supertrend", timeframe: "4h", period: 14, multiplier: 2,
+          atrMethod: "sma", side: "below",
+        },
+      ],
     });
-    assert.equal(body.filterSt, true, `${kind} dropped the gate it offered`);
-    assert.equal(body.filterStPeriod, 14, kind);
-    assert.equal(body.filterStSide, "below", kind);
+    const added = (body.filters ?? []).find((f) => f.timeframe === "4h");
+    assert.ok(added, `${kind} dropped the gate it offered`);
+    assert.equal(added.kind, "supertrend", kind);
+    assert.equal(added.side, "below", kind);
   }
 });
 
-test("switching a gate off sends the explicit false that clears it", () => {
-  // Omitting the key would leave the row's own gate in place, because the
-  // server merges an edit onto what it already holds — so the dialog would show
-  // the gate unchecked while the alert kept applying it.
+test("removing the last gate sends an empty list, not nothing", () => {
+  /*
+   * An omitted `filters` means "leave the gates alone" on the server, so
+   * clearing the last one has to be an explicit empty list. Sending nothing
+   * would look identical to not having touched them, and the gate would
+   * survive a removal the editor showed as done.
+   */
   const gated: MaAlert = {
     ...ALERTS.rsi,
-    filterStPeriod: 10, filterStMultiplier: 3,
-    filterStAtrMethod: "rma", filterStSide: "above",
+    filters: [{ kind: "rsi", timeframe: "1h", length: 50, level: 50, side: "above" }],
   };
   const form = alertEditForm(gated);
-  assert.equal(form.filterSt, true, "a persisted gate must load as enabled");
-  const body = alertEditRequest(gated, { ...form, filterSt: false });
-  assert.equal(body.filterSt, false);
+  assert.equal(form.filters.length, 1, "a persisted gate must load into the form");
+
+  const body = alertEditRequest(gated, { ...form, filters: [] });
+  assert.deepEqual(body.filters, []);
+  assert.equal(hasAlertChanges(body), true);
 });
 
 test("a Supertrend edit sends its own inputs and nothing else", () => {

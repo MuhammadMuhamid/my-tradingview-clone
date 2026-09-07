@@ -62,6 +62,25 @@ export const isFilterSide = (v: string): v is FilterSide =>
   (FILTER_SIDES as readonly string[]).includes(v);
 
 /**
+ * The timeframes a gate may be measured on.
+ *
+ * A gate with no timeframe is measured on the alert's OWN, which is what every
+ * gate written before migration 032 did and what an omitted field still means.
+ */
+export const FILTER_TIMEFRAMES = [
+  "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d",
+] as const;
+
+/**
+ * The most gates one alert may carry.
+ *
+ * Each gate on a timeframe other than the alert's own costs a candle series to
+ * fetch and an indicator to compute per evaluation, so this is a real cost
+ * bound rather than a tidiness rule.
+ */
+export const MAX_ALERT_FILTERS = 6;
+
+/**
  * Defaults for the gates: RSI 50 > 50, price > EMA 200, price above Supertrend.
  *
  * The Supertrend gate's defaults are the study's own inputs, so "only while the
@@ -284,7 +303,14 @@ export interface MaAlertRow {
    */
   indicatorTarget: string | null;
 
-  // ── optional gates, available on every family ──
+  /**
+   * The gates this alert carries, in order, as stored in the `filters` JSONB
+   * column. Null on a row written before migration 032; the legacy `filter_*`
+   * columns below are then read instead. See `filtersFromRow`.
+   */
+  filters: unknown;
+
+  // ── legacy single gates, superseded by `filters` (migration 032) ──
   /** Null when no RSI gate is configured. */
   filterRsiLength: number | null;
   filterRsiLevel: number | null;

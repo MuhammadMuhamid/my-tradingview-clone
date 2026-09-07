@@ -55,6 +55,7 @@ interface DbAlert {
   filter_st_multiplier: string | number | null;
   filter_st_atr_method: string | null;
   filter_st_side: string | null;
+  filters: unknown;
   near_min_pct: string | number;
   near_max_pct: string | number;
   enabled: boolean;
@@ -120,6 +121,7 @@ function toRow(r: DbAlert): MaAlertRow {
       r.filter_st_multiplier === null ? null : num(r.filter_st_multiplier),
     filterStAtrMethod: r.filter_st_atr_method,
     filterStSide: r.filter_st_side,
+    filters: r.filters,
     srSide: r.sr_side,
     srPivotLength: r.sr_pivot_length,
     srInvalidation: r.sr_invalidation,
@@ -185,6 +187,8 @@ export interface MaAlertInput {
   filterStMultiplier?: number | null;
   filterStAtrMethod?: StAtrMethod | null;
   filterStSide?: string | null;
+  /** The gates, in order. Stored as JSONB; authoritative since migration 032. */
+  filters?: unknown;
   bbLength?: number | null;
   bbMult?: number | null;
   bbBand?: string | null;
@@ -260,11 +264,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         adx_di_length, adx_smoothing, adx_level,
         filter_rsi_length, filter_rsi_level, filter_rsi_side,
         filter_ma_type, filter_ma_length, filter_ma_side,
-        filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side)
+        filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side,
+        filters)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
-             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53)
+             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -311,6 +316,7 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        filter_st_multiplier = EXCLUDED.filter_st_multiplier,
        filter_st_atr_method = EXCLUDED.filter_st_atr_method,
        filter_st_side      = EXCLUDED.filter_st_side,
+       filters             = EXCLUDED.filters,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -341,6 +347,7 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.filterMaSide ?? null,
       input.filterStPeriod ?? null, input.filterStMultiplier ?? null,
       input.filterStAtrMethod ?? null, input.filterStSide ?? null,
+      JSON.stringify(input.filters ?? []),
     ]
   );
   return toRow(rows[0]!);
@@ -435,6 +442,7 @@ const PATCH_COLUMNS: Record<string, string> = {
   filterStMultiplier: "filter_st_multiplier",
   filterStAtrMethod: "filter_st_atr_method",
   filterStSide: "filter_st_side",
+  filters: "filters",
 };
 
 /**
@@ -465,7 +473,16 @@ export async function updateAlert(id: string, patch: MaAlertPatch): Promise<MaAl
   const cols: Record<string, unknown> = {};
   for (const [key, column] of Object.entries(PATCH_COLUMNS)) {
     const value = (patch as Record<string, unknown>)[key];
-    if (value !== undefined) cols[column] = key === "symbol" ? String(value).toUpperCase() : value;
+    if (value === undefined) continue;
+    if (key === "symbol") { cols[column] = String(value).toUpperCase(); continue; }
+    /*
+     * `filters` is jsonb. node-pg renders a JS array as a Postgres ARRAY
+     * literal — `{...}` — which jsonb rejects, so the gates must be serialised
+     * here rather than handed over as an array. Missing this stores nothing
+     * and fails loudly, which is the good case; the bad case would be a driver
+     * that coerced it into something jsonb accepted but nobody meant.
+     */
+    cols[column] = key === "filters" ? JSON.stringify(value ?? []) : value;
   }
   // Re-enabling a retired once_only alert must actually re-arm it. Otherwise the
   // UI shows an enabled alert that can never fire.

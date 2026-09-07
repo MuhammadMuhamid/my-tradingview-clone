@@ -6,6 +6,7 @@
  * 400 an alert client can see is decided — is testable as pure functions,
  * without a Fastify instance or a database connection.
  */
+import { isInterval, type Interval } from "../types/market";
 import {
   MA_ALERT_MODES, PRICE_DIRECTIONS,
   isMaAlertMode, isMaType, isPriceDirection,
@@ -20,7 +21,10 @@ import {
   FILTER_DEFAULTS, isFilterSide,
   ALERT_HISTORY_BARS, warmupBars,
 } from "../types/maAlerts";
-import type { AlertCondition, AlertFilters } from "./alertConditions";
+import {
+  FILTER_KINDS, isFilterKind,
+  type AlertCondition, type AlertFilter, type AlertFilters,
+} from "./alertConditions";
 import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 
@@ -49,14 +53,98 @@ const tooLong = (need: number): Rejection =>
       `${ALERT_HISTORY_BARS}; the alert could never warm up`);
 
 /**
- * Read the optional gates a level alert may carry.
+ * Read the gates a request carries.
  *
- * Absent keys mean "no gate", which is the pre-existing behaviour every alert
- * created before this feature has. A gate is only built when the client asks
- * for it explicitly, so an unrelated request can never acquire one by default.
+ * Two shapes are accepted, and the newer one wins when both are present:
+ *
+ *  1. `filters: [{ kind, timeframe?, … }, …]` — the list form. It is the only
+ *     shape that can express two gates of the same kind, which is the whole
+ *     reason it exists: "15m RSI above 50 AND 1h RSI above 50".
+ *  2. `filterRsi` / `filterMa` / `filterSt` with their flat fields — the
+ *     single-gate-per-kind shape every client written before this sent. Still
+ *     accepted so an older client is not broken by an upgrade, and still
+ *     meaning "on the alert's own timeframe".
+ *
+ * Absent keys mean "no gate", which is what an unrelated request must keep
+ * meaning: a gate is only ever built when asked for explicitly.
  */
 function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | Rejection {
-  const filters: AlertFilters = {};
+  if (b.filters !== undefined) {
+    if (!Array.isArray(b.filters)) return bad("filters must be an array");
+    const out: AlertFilters = [];
+    for (const [index, raw] of b.filters.entries()) {
+      const one = readOneFilter(raw, index);
+      if ("error" in one) return one;
+      out.push(one.filter);
+    }
+    return out.length > 0 ? { filters: out } : {};
+  }
+  return readLegacyFilters(b);
+}
+
+/** The timeframe a gate names, or null for the alert's own. */
+function readFilterTimeframe(v: unknown, index: number): Interval | null | Rejection {
+  if (v === undefined || v === null || v === "") return null;
+  const tf = String(v);
+  if (!isInterval(tf)) {
+    return bad(`filters[${index}].timeframe is not a supported interval`);
+  }
+  return tf;
+}
+
+/** One element of the list form. */
+function readOneFilter(
+  raw: unknown, index: number
+): { filter: AlertFilter } | Rejection {
+  if (typeof raw !== "object" || raw === null) {
+    return bad(`filters[${index}] must be an object`);
+  }
+  const f = raw as Record<string, unknown>;
+  const kind = String(f.kind ?? "");
+  if (!isFilterKind(kind)) {
+    return bad(`filters[${index}].kind must be one of ${FILTER_KINDS.join(", ")}`);
+  }
+  const tf = readFilterTimeframe(f.timeframe, index);
+  if (tf !== null && typeof tf === "object") return tf;
+  const timeframe = tf as Interval | null;
+
+  const side = String(f.side ?? "above");
+  if (!isFilterSide(side)) return bad(`filters[${index}].side must be above or below`);
+
+  if (kind === "rsi") {
+    const length = Number(f.length ?? FILTER_DEFAULTS.rsi.length);
+    const level = Number(f.level ?? FILTER_DEFAULTS.rsi.level);
+    if (!isLength(length)) return bad(`filters[${index}].length must be an integer 1..1000`);
+    if (!(Number.isFinite(level) && level > 0 && level < 100)) {
+      return bad(`filters[${index}].level must be a number between 0 and 100 (exclusive)`);
+    }
+    return { filter: { kind: "rsi", timeframe, length, level, side } };
+  }
+
+  if (kind === "ma") {
+    const type = String(f.type ?? FILTER_DEFAULTS.ma.type);
+    const length = Number(f.length ?? FILTER_DEFAULTS.ma.length);
+    if (!isMaType(type)) return bad(`filters[${index}].type must be sma or ema`);
+    if (!isLength(length)) return bad(`filters[${index}].length must be an integer 1..1000`);
+    return { filter: { kind: "ma", timeframe, type, length, side } };
+  }
+
+  const period = Number(f.period ?? FILTER_DEFAULTS.supertrend.period);
+  const multiplier = Number(f.multiplier ?? FILTER_DEFAULTS.supertrend.multiplier);
+  const atrMethod = String(f.atrMethod ?? FILTER_DEFAULTS.supertrend.atrMethod);
+  if (!isLength(period)) return bad(`filters[${index}].period must be an integer 1..1000`);
+  if (!isMultiplier(multiplier)) return bad(multiplierMessage(`filters[${index}].multiplier`));
+  if (!isStAtrMethod(atrMethod)) {
+    return bad(`filters[${index}].atrMethod must be one of ${ST_ATR_METHODS.join(", ")}`);
+  }
+  return { filter: { kind: "supertrend", timeframe, period, multiplier, atrMethod, side } };
+}
+
+/** The pre-list shape: at most one gate per kind, always the alert's own timeframe. */
+function readLegacyFilters(
+  b: Record<string, unknown>
+): { filters?: AlertFilters } | Rejection {
+  const filters: AlertFilters = [];
 
   if (b.filterRsi === true || b.filterRsiLength !== undefined) {
     const length = Number(b.filterRsiLength ?? FILTER_DEFAULTS.rsi.length);
@@ -67,7 +155,7 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
       return bad("filterRsiLevel must be a number between 0 and 100 (exclusive)");
     }
     if (!isFilterSide(side)) return bad("filterRsiSide must be above or below");
-    filters.rsi = { length, level, side };
+    filters.push({ kind: "rsi", timeframe: null, length, level, side });
   }
 
   if (b.filterMa === true || b.filterMaLength !== undefined) {
@@ -77,7 +165,7 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
     if (!isMaType(type)) return bad("filterMaType must be sma or ema");
     if (!isLength(length)) return bad("filterMaLength must be an integer 1..1000");
     if (!isFilterSide(side)) return bad("filterMaSide must be above or below");
-    filters.ma = { type, length, side };
+    filters.push({ kind: "ma", timeframe: null, type, length, side });
   }
 
   if (b.filterSt === true || b.filterStPeriod !== undefined) {
@@ -91,10 +179,10 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
       return bad(`filterStAtrMethod must be one of ${ST_ATR_METHODS.join(", ")}`);
     }
     if (!isFilterSide(side)) return bad("filterStSide must be above or below");
-    filters.supertrend = { period, multiplier, atrMethod, side };
+    filters.push({ kind: "supertrend", timeframe: null, period, multiplier, atrMethod, side });
   }
 
-  return Object.keys(filters).length > 0 ? { filters } : {};
+  return filters.length > 0 ? { filters } : {};
 }
 
 /**
@@ -404,6 +492,8 @@ export type AlertColumns = {
   filterMaSide: string | null;
   filterStPeriod: number | null; filterStMultiplier: number | null;
   filterStAtrMethod: StAtrMethod | null; filterStSide: string | null;
+  /** The gates, in order. The authoritative storage since migration 032. */
+  filters: AlertFilters;
 };
 
 /** Flatten a condition back into the column shape the repository writes. */
@@ -430,18 +520,39 @@ export function toColumns(condition: AlertCondition): AlertColumns {
    * way to the database, which presents to the user as a filter that does
    * nothing — the hardest kind of alert bug to notice.
    */
-  const gates = (f: AlertFilters | undefined) => ({
-    filterRsiLength: f?.rsi?.length ?? null,
-    filterRsiLevel: f?.rsi?.level ?? null,
-    filterRsiSide: f?.rsi?.side ?? null,
-    filterMaType: f?.ma?.type ?? null,
-    filterMaLength: f?.ma?.length ?? null,
-    filterMaSide: f?.ma?.side ?? null,
-    filterStPeriod: f?.supertrend?.period ?? null,
-    filterStMultiplier: f?.supertrend?.multiplier ?? null,
-    filterStAtrMethod: f?.supertrend?.atrMethod ?? null,
-    filterStSide: f?.supertrend?.side ?? null,
-  });
+  const gates = (f: AlertFilters | undefined) => {
+    /*
+     * `filters` is the storage. The legacy columns are still written for the
+     * first gate of each kind that names no timeframe, so a row stays readable
+     * by code that predates the list — the rollback path, and any query
+     * someone has already written against those columns.
+     *
+     * A gate on another timeframe, or a second gate of the same kind, has no
+     * legacy column that could express it, so it lives only in `filters`.
+     * Writing a partial truth into the old columns instead would be worse than
+     * leaving them null: it would read as a complete gate that is not the one
+     * being enforced.
+     */
+    const list = f ?? [];
+    const firstOwn = (kind: AlertFilter["kind"]) =>
+      list.find((x) => x.kind === kind && x.timeframe === null);
+    const rsi = firstOwn("rsi") as Extract<AlertFilter, { kind: "rsi" }> | undefined;
+    const ma = firstOwn("ma") as Extract<AlertFilter, { kind: "ma" }> | undefined;
+    const st = firstOwn("supertrend") as Extract<AlertFilter, { kind: "supertrend" }> | undefined;
+    return {
+      filters: list,
+      filterRsiLength: rsi?.length ?? null,
+      filterRsiLevel: rsi?.level ?? null,
+      filterRsiSide: rsi?.side ?? null,
+      filterMaType: ma?.type ?? null,
+      filterMaLength: ma?.length ?? null,
+      filterMaSide: ma?.side ?? null,
+      filterStPeriod: st?.period ?? null,
+      filterStMultiplier: st?.multiplier ?? null,
+      filterStAtrMethod: st?.atrMethod ?? null,
+      filterStSide: st?.side ?? null,
+    };
+  };
   switch (condition.kind) {
     case "price":
       return {

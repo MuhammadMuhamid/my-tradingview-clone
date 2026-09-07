@@ -18,6 +18,9 @@ const base: MaAlert = {
   filterMaType: null, filterMaLength: null, filterMaSide: null,
   filterStPeriod: null, filterStMultiplier: null,
   filterStAtrMethod: null, filterStSide: null,
+  // null = a row written before migration 032, so the legacy `filter*` columns
+  // below are what describes its gates. Exercises the fallback path.
+  filters: null,
   stPeriod: null, stMultiplier: null, stAtrMethod: null,
   bbLength: null, bbMult: null, bbBand: null, bbMaType: null,
   stochKLength: null, stochKSmooth: null, stochDSmooth: null, stochLevel: null,

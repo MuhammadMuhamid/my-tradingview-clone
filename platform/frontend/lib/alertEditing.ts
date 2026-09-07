@@ -18,11 +18,13 @@
 import {
   ADX_DEFAULTS, ALERT_HISTORY_BARS, BOLLINGER_DEFAULTS, DEFAULT_ALERT_FREQUENCY, FILTER_DEFAULTS,
   MACD_DEFAULTS, RSI_DEFAULTS, STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
-  type AlertFrequency, type BollingerBand, type ConditionKind, type FilterSide,
+  MAX_ALERT_FILTERS,
+  type AlertFilter, type AlertFrequency, type BollingerBand, type ConditionKind, type FilterSide,
   type MaAlert, type StAtrMethod, type StochasticTarget,
   type MaAlertMode, type MaAlertUpdate, type MacdTarget, type MaType,
   type PivotType, type PriceDirection, type RsiTarget, type SrSide,
 } from "@/lib/api";
+import { filtersFromAlert } from "@/components/tv/AlertFiltersField";
 import type { Interval } from "@/lib/types";
 
 /** Every timeframe the backend supports, in toolbar order. */
@@ -180,6 +182,12 @@ export interface AlertEditForm {
   filterStMultiplier: number;
   filterStAtrMethod: StAtrMethod;
   filterStSide: FilterSide;
+  /**
+   * The gates, in order — the shape actually saved since migration 032. The
+   * flat `filter*` fields above are kept only so nothing that still reads them
+   * breaks; `alertEditRequest` sends this list.
+   */
+  filters: AlertFilter[];
 }
 
 /** Default swing length for support/resistance; mirrors DEFAULT_SR_OPTIONS. */
@@ -253,6 +261,7 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     filterStAtrMethod:
       (alert.filterStAtrMethod as StAtrMethod | null) ?? FILTER_DEFAULTS.supertrend.atrMethod,
     filterStSide: (alert.filterStSide as FilterSide | null) ?? FILTER_DEFAULTS.supertrend.side,
+    filters: filtersFromAlert(alert),
   };
 }
 
@@ -357,6 +366,34 @@ export function validateAlertForm(
     return `These lengths need ${need} bars of history and the alert runner keeps ` +
       `${ALERT_HISTORY_BARS}. Reduce them, or the alert can never warm up.`;
   }
+  if (form.filters.length > MAX_ALERT_FILTERS) {
+    return `An alert may carry at most ${MAX_ALERT_FILTERS} filters.`;
+  }
+  for (const f of form.filters) {
+    if (f.kind === "rsi") {
+      if (!isLength(f.length)) return "A filter's RSI length must be from 1 to 1000.";
+      if (!(f.level > 0 && f.level < 100)) {
+        return "A filter's RSI level must be between 0 and 100.";
+      }
+    }
+    if (f.kind === "ma" && !isLength(f.length)) {
+      return "A filter's moving-average length must be from 1 to 1000.";
+    }
+    if (f.kind === "supertrend") {
+      if (!isLength(f.period)) return "A filter's Supertrend ATR period must be from 1 to 1000.";
+      if (!isMultiplier(f.multiplier)) return MULTIPLIER_MESSAGE;
+    }
+  }
+  // Two identical gates are the same question asked twice — almost always a
+  // timeframe the user meant to change and did not.
+  const seen = new Set<string>();
+  for (const f of form.filters) {
+    const key = JSON.stringify(f);
+    if (seen.has(key)) {
+      return "Two filters are identical — remove one, or change its timeframe.";
+    }
+    seen.add(key);
+  }
   if (usesGates(kind)) {
     if (form.filterRsi) {
       if (!isLength(form.filterRsiLength)) return "The RSI filter length must be from 1 to 1000.";
@@ -419,10 +456,17 @@ export function alertEditRequest(
   const note = form.note.trim() === "" ? null : form.note;
   if (note !== (alert.note === "" ? null : alert.note)) body.note = note;
 
-  // Gates are editable on every family, so they are handled once outside the
-  // switch. A per-family call is a line a new family can silently omit — which
-  // presents as a gate the editor shows, lets you change, and never saves.
-  setGates(body, form, alert);
+  /*
+   * Gates are editable on every family, so they are handled once outside the
+   * switch. A per-family call is a line a new family can silently omit — which
+   * presents as a gate the editor shows, lets you change, and never saves.
+   *
+   * The whole list is sent whenever it differs, rather than a diff: the server
+   * replaces the gates outright with what it receives, and an empty list is how
+   * "I removed the last one" is expressed. A diff would have no way to say that.
+   */
+  const before = JSON.stringify(filtersFromAlert(alert));
+  if (JSON.stringify(form.filters) !== before) body.filters = form.filters;
 
   switch (alert.conditionKind) {
     case "price":
@@ -507,59 +551,6 @@ function setBand(body: MaAlertUpdate, form: AlertEditForm, alert: MaAlert): void
   if (form.nearMaxPct !== alert.nearMaxPct) body.nearMaxPct = form.nearMaxPct;
 }
 
-/**
- * A gate is all-or-nothing: switching it off sends the explicit `false` the
- * server needs to clear the columns, and switching it on sends every part of it
- * so a half-written gate can never be stored.
- */
-function setGates(body: MaAlertUpdate, form: AlertEditForm, alert: MaAlert): void {
-  const hadRsi = alert.filterRsiLength !== null && alert.filterRsiSide !== null;
-  if (!form.filterRsi) {
-    if (hadRsi) body.filterRsi = false;
-  } else if (
-    !hadRsi ||
-    form.filterRsiLength !== alert.filterRsiLength ||
-    form.filterRsiLevel !== alert.filterRsiLevel ||
-    form.filterRsiSide !== alert.filterRsiSide
-  ) {
-    body.filterRsi = true;
-    body.filterRsiLength = form.filterRsiLength;
-    body.filterRsiLevel = form.filterRsiLevel;
-    body.filterRsiSide = form.filterRsiSide;
-  }
-
-  const hadMa = alert.filterMaType !== null && alert.filterMaLength !== null;
-  if (!form.filterMa) {
-    if (hadMa) body.filterMa = false;
-  } else if (
-    !hadMa ||
-    form.filterMaType !== alert.filterMaType ||
-    form.filterMaLength !== alert.filterMaLength ||
-    form.filterMaSide !== alert.filterMaSide
-  ) {
-    body.filterMa = true;
-    body.filterMaType = form.filterMaType;
-    body.filterMaLength = form.filterMaLength;
-    body.filterMaSide = form.filterMaSide;
-  }
-
-  const hadSt = alert.filterStPeriod !== null && alert.filterStSide !== null;
-  if (!form.filterSt) {
-    if (hadSt) body.filterSt = false;
-  } else if (
-    !hadSt ||
-    form.filterStPeriod !== alert.filterStPeriod ||
-    form.filterStMultiplier !== alert.filterStMultiplier ||
-    form.filterStAtrMethod !== alert.filterStAtrMethod ||
-    form.filterStSide !== alert.filterStSide
-  ) {
-    body.filterSt = true;
-    body.filterStPeriod = form.filterStPeriod;
-    body.filterStMultiplier = form.filterStMultiplier;
-    body.filterStAtrMethod = form.filterStAtrMethod;
-    body.filterStSide = form.filterStSide;
-  }
-}
 
 /**
  * How many bars this configuration must see before it produces a first value.

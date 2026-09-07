@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { supertrend } from "../src/engine/ta";
+import type { AlertFilters } from "../src/alerts/alertConditions";
 import {
   evaluateCondition, describeCondition, validateCondition, conditionFromRow,
   filtersPass, stLabel, type AlertCondition, type Sample,
@@ -241,13 +242,15 @@ test("the notification says the direction changed, not that price crossed a line
 // ── the gate, on every family ──────────────────────────────────────────────
 
 test("a Supertrend gate reads the direction, and fails closed when it is unknown", () => {
-  const gate = { supertrend: { period: 10, multiplier: 3, atrMethod: "rma" as const, side: "above" as const } };
-  assert.equal(filtersPass(gate, { ...bar, filterSupertrendValue: 1 }), true);
-  assert.equal(filtersPass(gate, { ...bar, filterSupertrendValue: -1 }), false);
+  const gate: AlertFilters = [
+  { kind: "supertrend", timeframe: null, period: 10, multiplier: 3, atrMethod: "rma", side: "above" },
+];
+  assert.equal(filtersPass(gate, { ...bar, filterReadings: [1] }), true);
+  assert.equal(filtersPass(gate, { ...bar, filterReadings: [-1] }), false);
   // Not warmed up. The user asked for "only while the trend is up"; firing
   // because the trend is UNKNOWN answers a different question.
   assert.equal(filtersPass(gate, { ...bar }), false);
-  assert.equal(filtersPass(gate, { ...bar, filterSupertrendValue: NaN }), false);
+  assert.equal(filtersPass(gate, { ...bar, filterReadings: [NaN] }), false);
 });
 
 test("every family accepts a gate, and every family's gate actually suppresses", () => {
@@ -264,7 +267,7 @@ test("every family accepts a gate, and every family's gate actually suppresses",
   for (const [kind, body] of Object.entries(bodies)) {
     const read = readCondition(kind as "price", { ...body, filterSt: true });
     assert.ok("condition" in read, `${kind}: ${JSON.stringify(read)}`);
-    assert.ok(read.condition.filters?.supertrend, `${kind} dropped the gate`);
+    assert.ok(read.condition.filters?.[0], `${kind} dropped the gate`);
     // And it survives being flattened into columns — a gate accepted at the API
     // and lost on the way to the database is a filter that silently does
     // nothing, which is the failure this asserts against.
@@ -279,12 +282,12 @@ test("a shut gate suppresses the trigger without touching the cross memory", () 
   assert.ok("condition" in condition);
 
   const open = evaluateCondition(
-    condition.condition, { ...bar, maValue: 95, filterSupertrendValue: 1 }, "below"
+    condition.condition, { ...bar, maValue: 95, filterReadings: [1] }, "below"
   );
   assert.equal(open.triggered, true);
 
   const shut = evaluateCondition(
-    condition.condition, { ...bar, maValue: 95, filterSupertrendValue: -1 }, "below"
+    condition.condition, { ...bar, maValue: 95, filterReadings: [-1] }, "below"
   );
   assert.equal(shut.triggered, false);
   // The side is the memory a cross is detected against. Withholding it while

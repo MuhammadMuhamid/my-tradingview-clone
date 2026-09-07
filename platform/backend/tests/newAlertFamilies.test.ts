@@ -162,10 +162,10 @@ test("gates apply to the new families, because they apply to every family", () =
   });
   const below: Side = "below";
   const open = evaluateCondition(
-    gated, sample({ indicatorValue: 26, indicatorReference: 25, filterRsiValue: 60 }), below);
+    gated, sample({ indicatorValue: 26, indicatorReference: 25, filterReadings: [60] }), below);
   assert.equal(open.triggered, true, "the gate is open, so the event notifies");
   const shut = evaluateCondition(
-    gated, sample({ indicatorValue: 26, indicatorReference: 25, filterRsiValue: 40 }), below);
+    gated, sample({ indicatorValue: 26, indicatorReference: 25, filterReadings: [40] }), below);
   assert.equal(shut.triggered, false, "the gate is shut, so it does not");
   assert.equal(shut.side, "above", "and the side is still tracked, so the next cross is real");
 });

@@ -5,10 +5,11 @@ import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import {
-  AlertFiltersField, emptyFilters, filterRequest, type AlertFilterState,
+  AlertFiltersField, emptyFilters, filterRequest, 
 } from "@/components/tv/AlertFiltersField";
 import {
-  api, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
+  api,
+  type AlertFilter, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
   type AlertFrequency, type BollingerBand, type MacdTarget, type MaAlertMode,
   type RsiTarget, type StAtrMethod, type StochasticTarget,
@@ -101,7 +102,7 @@ export function IndicatorAlertModal({
   const [adxSmoothing, setAdxSmoothing] = useState<number>(ADX_DEFAULTS.smoothing);
   const [adxLevel, setAdxLevel] = useState<number>(ADX_DEFAULTS.level);
 
-  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [filters, setFilters] = useState<AlertFilter[]>(emptyFilters);
   const [note, setNote] = useState("");
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
@@ -520,7 +521,7 @@ export function IndicatorAlertModal({
 
         <div className="my-1 border-t border-border" />
 
-        <AlertFiltersField value={filters} onChange={setFilters} />
+        <AlertFiltersField value={filters} onChange={setFilters} chartTimeframe={timeframes[0] ?? defaultTimeframe} />
 
         <div className="my-1 border-t border-border" />
 

@@ -4,9 +4,10 @@ import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import { AlertFiltersField } from "@/components/tv/AlertFiltersField";
 import { api, type MaAlert } from "@/lib/api";
 import type {
-  BollingerBand, FilterSide, MaAlertMode, MacdTarget, MaType, PivotType,
+  BollingerBand, MaAlertMode, MacdTarget, MaType, PivotType,
   PriceDirection, RsiTarget, SrSide, StAtrMethod, StochasticTarget,
 } from "@/lib/api";
 import {
@@ -592,89 +593,13 @@ export function AlertEditor({
         {usesGates(kind) && (
           <>
             <Divider />
-            <div className="text-sm text-ink-muted">Only fire when</div>
-            <label className="flex items-center gap-2 py-1 text-sm text-ink">
-              <input type="checkbox" checked={form.filterRsi} className="accent-accent"
-                onChange={(e) => update("filterRsi", e.target.checked)} />
-              RSI filter
-            </label>
-            {form.filterRsi && (
-              <div className="flex items-center gap-2 pl-6">
-                <span className="text-sm text-ink-muted">RSI</span>
-                <input type="number" min={1} max={1000} value={form.filterRsiLength}
-                  aria-label="Filter RSI length" className={`${BOX} w-[70px]`}
-                  onChange={(e) => update("filterRsiLength", intOf(e.target.value))} />
-                <select value={form.filterRsiSide} aria-label="Filter RSI side"
-                  className={`${BOX} w-[92px]`}
-                  onChange={(e) => update("filterRsiSide", e.target.value as FilterSide)}>
-                  <option value="above">is above</option>
-                  <option value="below">is below</option>
-                </select>
-                <input type="number" min={1} max={99} value={form.filterRsiLevel}
-                  aria-label="Filter RSI level" className={`${BOX} w-[70px]`}
-                  onChange={(e) => update("filterRsiLevel", numOf(e.target.value))} />
-              </div>
-            )}
-            <label className="flex items-center gap-2 py-1 text-sm text-ink">
-              <input type="checkbox" checked={form.filterMa} className="accent-accent"
-                onChange={(e) => update("filterMa", e.target.checked)} />
-              Moving-average filter
-            </label>
-            {form.filterMa && (
-              <div className="flex items-center gap-2 pl-6">
-                <span className="text-sm text-ink-muted">Price</span>
-                <select value={form.filterMaSide} aria-label="Filter MA side"
-                  className={`${BOX} w-[92px]`}
-                  onChange={(e) => update("filterMaSide", e.target.value as FilterSide)}>
-                  <option value="above">is above</option>
-                  <option value="below">is below</option>
-                </select>
-                <select value={form.filterMaType} aria-label="Filter MA type"
-                  className={`${BOX} w-[80px]`}
-                  onChange={(e) => update("filterMaType", e.target.value as MaType)}>
-                  <option value="ema">EMA</option>
-                  <option value="sma">SMA</option>
-                </select>
-                <input type="number" min={1} max={1000} value={form.filterMaLength}
-                  aria-label="Filter MA length" className={`${BOX} w-[80px]`}
-                  onChange={(e) => update("filterMaLength", intOf(e.target.value))} />
-              </div>
-            )}
-            <label className="flex items-center gap-2 py-1 text-sm text-ink">
-              <input type="checkbox" checked={form.filterSt} className="accent-accent"
-                onChange={(e) => update("filterSt", e.target.checked)} />
-              Supertrend filter
-            </label>
-            {form.filterSt && (
-              <>
-                <div className="flex items-center gap-2 pl-6">
-                  <span className="text-sm text-ink-muted">Price</span>
-                  <select value={form.filterStSide} aria-label="Filter Supertrend side"
-                    className={`${BOX} w-[92px]`}
-                    onChange={(e) => update("filterStSide", e.target.value as FilterSide)}>
-                    <option value="above">is above</option>
-                    <option value="below">is below</option>
-                  </select>
-                  <span className="whitespace-nowrap text-sm text-ink-muted">Supertrend</span>
-                  <input type="number" min={1} max={1000} value={form.filterStPeriod}
-                    aria-label="Filter Supertrend ATR period" className={`${BOX} w-[64px]`}
-                    onChange={(e) => update("filterStPeriod", intOf(e.target.value))} />
-                  <input type="number" min="0.1" max="100" step="0.1"
-                    value={form.filterStMultiplier}
-                    aria-label="Filter Supertrend multiplier" className={`${BOX} w-[64px]`}
-                    onChange={(e) => update("filterStMultiplier", numOf(e.target.value))} />
-                </div>
-                <Hint>
-                  ATR period · multiplier. Above the Supertrend is its uptrend,
-                  below is its downtrend.
-                </Hint>
-              </>
-            )}
-            <Hint>
-              Measured on this alert&apos;s own timeframe, on the same bar. While a
-              filter is not met the alert stays silent — it does not queue up and
-              fire later.
-            </Hint>
+            {/* The same list the creation dialogs offer. One component, so a
+                gate cannot mean one thing when armed and another when edited. */}
+            <AlertFiltersField
+              value={form.filters}
+              onChange={(next) => update("filters", next)}
+              chartTimeframe={form.timeframe}
+            />
           </>
         )}
 

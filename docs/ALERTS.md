@@ -111,13 +111,57 @@ useless, in opposite directions.
 
 ### Trend gates, on every family
 
-Any alert may carry optional preconditions, stored in the `filter_*` columns:
-RSI(length) above/below a level, the close above/below a moving average, or
-price above/below a Supertrend. "Approaching 1h support, but only while 1h RSI
-50 is above 50" is one alert rather than two to correlate by hand. Every gate is
-measured on the alert's **own** symbol and timeframe, on the same bar as the
-trigger. There is deliberately no per-gate timeframe: allowing one would turn
-every alert into a multi-timeframe query.
+Any alert may carry optional preconditions, stored as an ordered JSONB list in
+the `filters` column: RSI(length) above/below a level, the close above/below a
+moving average, or price above/below a Supertrend. "Approaching 15m support,
+but only while both the 15m and the 1h RSI are above 50" is one alert rather
+than three to correlate by hand.
+
+Gates are **ANDed** — every one must hold. OR would make a two-gate alert fire
+more often than a one-gate alert, which is the opposite of what adding a
+precondition means.
+
+### Each gate names its own timeframe
+
+`timeframe: null` means the alert's own, which is what every gate meant before
+migration `032`. Naming another makes the gate a multi-timeframe question, which
+is the point: a 15m level alert can require that the 1h RSI agrees.
+
+**A list, not one slot per kind.** The old shape held at most one gate of each
+kind, which could not express the most common multi-timeframe question there
+is — the same indicator on two timeframes. No amount of adding columns fixes
+that without inventing `filter_rsi2_*`, `filter_rsi3_*`, and a new column every
+time someone wants one more.
+
+**The value read from another timeframe comes from that timeframe's last CLOSED
+bar** at or before the alert's bar — `closeTime <= closeTime`. That is the same
+`chartClose` rule `platform/backend/src/engine/mtf.ts` implements for
+`request.security(..., lookahead_off)`, and it is what stops a gate seeing into
+a period that has not finished. Two consequences, both deliberate:
+
+- **The value is stale.** A 1h gate on a 15m alert reads data up to an hour old.
+  The alternative is a gate whose answer changes inside the hour and whose past
+  answers cannot be reproduced.
+- **It does not repaint.** Once the 1h bar has closed, every later evaluation
+  that selects it gets the same number.
+
+The truncation and the reading live in `platform/backend/src/alerts/filterSeries.ts`,
+which is pure — the look-ahead boundary is the part most worth testing directly,
+and it should not need a runner, a feed or a database to pin.
+
+Readings reach the evaluator **positionally**, aligned by index with the list.
+A named field could hold only one RSI, so two gates of the same kind would
+collide silently.
+
+> **Changed in `032`.** The gates moved from the flat `filter_*` columns to the
+> `filters` list. The migration backfills every existing gate as a list entry
+> with `timeframe: null`, which is lossless — it changes no alert's behaviour.
+> The old columns are still written for the first own-timeframe gate of each
+> kind, so a row stays readable by code that predates the list, and they are
+> still read for any row written before `032` and not edited since. A gate on
+> another timeframe has no legacy column that could express it and lives only in
+> `filters`; writing a partial truth into the old columns would read as a
+> complete gate that is not the one being enforced.
 
 > **Changed in `025`.** Gates were originally confined to `sr_zone` and
 > `pivot_level` by `ma_alerts_filter_kind_ck`. That restriction was an artefact
@@ -129,7 +173,9 @@ every alert into a multi-timeframe query.
 
 Two single points of application make that safe. `evaluateCondition` applies the
 gates once, around the family switch, and `withSeries` resolves their readings
-once for every kind. A per-family call is a line a new family can silently omit,
+once for every kind. A gate on another timeframe is fetched once per feed
+before the per-alert loop — twelve alerts gated on the 1h RSI are one fetch,
+not twelve. A per-family call is a line a new family can silently omit,
 which would present as a filter the UI shows, lets you set, and never applies.
 
 The Supertrend gate reads the indicator's `trend` rather than comparing the
@@ -318,7 +364,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–031
+## 8. Migrations 010–032
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -334,7 +380,8 @@ families, `015` and `016` widened the kind CHECK for them and for the
 oscillators, `017` added the trend gates, and `025` added the `supertrend`
 family, the Supertrend gate and the note length bound — while dropping `017`'s
 `ma_alerts_filter_kind_ck`, which had confined gates to the two level families.
-Each new kind's completeness rule
+`026`–`031` came with the TradingView-grade programme, and `032` moved the gates
+to a list so each can name its own timeframe. Each new kind's completeness rule
 lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
 **effective** vocabulary — the last definition across the whole set — against
 `CONDITION_KINDS`, so columns can never be added without widening the CHECK

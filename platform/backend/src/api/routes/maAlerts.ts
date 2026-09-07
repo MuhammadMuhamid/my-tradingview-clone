@@ -17,6 +17,7 @@ import { AlertConflictError } from "../../repositories/maAlerts";
 import { assertSymbol } from "../../data/binanceRest";
 import { isInterval } from "../../types/market";
 import {
+  FILTER_TIMEFRAMES, MAX_ALERT_FILTERS,
   CONDITION_KINDS, MA_ALERT_MODES, MA_LENGTHS, MA_TYPES, PRICE_DIRECTIONS,
   BULK_ALERT_ACTIONS, isBulkAlertAction, isConditionKind,
 } from "../../types/maAlerts";
@@ -30,7 +31,7 @@ import {
   ALERT_FREQUENCIES, DEFAULT_ALERT_FREQUENCY, INTRABAR_WARNING,
   describeFrequency, explainFrequency, isAlertFrequency, isIntrabar,
 } from "../../alerts/alertFrequency";
-import { validateCondition } from "../../alerts/alertConditions";
+import { FILTER_KINDS, validateCondition } from "../../alerts/alertConditions";
 
 export const MAX_BULK_ALERTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -263,6 +264,14 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     conditionKinds: CONDITION_KINDS,
     priceDirections: PRICE_DIRECTIONS,
     noteMaxLength: NOTE_MAX_LENGTH,
+    /*
+     * The gate vocabulary, so the dialogs never hardcode it. `filterTimeframes`
+     * is what a gate may be measured on; a gate that names none is measured on
+     * the alert's own.
+     */
+    filterKinds: FILTER_KINDS,
+    filterTimeframes: FILTER_TIMEFRAMES,
+    maxFilters: MAX_ALERT_FILTERS,
     defaultFrequency: DEFAULT_ALERT_FREQUENCY,
     intrabarWarning: INTRABAR_WARNING,
     frequencies: ALERT_FREQUENCIES.map((f) => ({

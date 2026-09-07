@@ -5,10 +5,11 @@ import { Button } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import {
-  AlertFiltersField, emptyFilters, filterRequest, type AlertFilterState,
+  AlertFiltersField, emptyFilters, filterRequest, 
 } from "@/components/tv/AlertFiltersField";
 import {
   api,
+  type AlertFilter,
   type AlertFrequency, type MaAlertMode, type PivotType, type SrSide,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
@@ -64,7 +65,7 @@ export function LevelAlertModal({
   const [mode, setMode] = useState<MaAlertMode>("near_above");
   const [nearMinPct, setNearMinPct] = useState(0.2);
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
-  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [filters, setFilters] = useState<AlertFilter[]>(emptyFilters);
   const [note, setNote] = useState("");
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
@@ -240,7 +241,7 @@ export function LevelAlertModal({
 
         <div className="my-1 border-t border-border" />
 
-        <AlertFiltersField value={filters} onChange={setFilters} />
+        <AlertFiltersField value={filters} onChange={setFilters} chartTimeframe={timeframes[0] ?? defaultTimeframe} />
 
         <div className="my-1 border-t border-border" />
 

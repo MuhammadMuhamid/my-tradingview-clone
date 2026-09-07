@@ -6,10 +6,11 @@ import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import {
   AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
-  type AlertFilterState,
+  
 } from "@/components/tv/AlertFiltersField";
 import {
-  api, DEFAULT_ALERT_FREQUENCY,
+  api,
+  type AlertFilter, DEFAULT_ALERT_FREQUENCY,
   type AlertFrequency, type MaAlert, type MaAlertMode, type MaType,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
@@ -58,7 +59,7 @@ export function MaAlertModal({
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
   const [cooldownMin, setCooldownMin] = useState(60);
   const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
-  const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
+  const [filters, setFilters] = useState<AlertFilter[]>(emptyFilters);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -205,7 +206,7 @@ export function MaAlertModal({
         )}
 
         <div className="my-1 border-t border-border" />
-        <AlertFiltersField value={filters} onChange={setFilters} />
+        <AlertFiltersField value={filters} onChange={setFilters} chartTimeframe={timeframe} />
 
         <div className="my-1 border-t border-border" />
         <AlertNoteField value={note} onChange={setNote} />
