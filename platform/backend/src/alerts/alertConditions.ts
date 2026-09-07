@@ -27,7 +27,7 @@ import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
   PIVOT_LEVEL_ANY, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS, MAX_ALERT_FILTERS,
-  PIVOT_ANCHORS, isPivotAnchor,
+  PIVOT_ANCHORS, isPivotAnchor, type PivotAnchor,
   isBollingerBand, isMaType, isRsiTarget, isMacdTarget, isStAtrMethod, isStochasticTarget,
   type BollingerBand, type ConditionKind, type MaAlertMode, type MaType,
   type PriceDirection, type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
@@ -157,7 +157,34 @@ export interface SupertrendFilter {
   side: Side;
 }
 
-export type AlertFilter = RsiFilter | MaFilter | SupertrendFilter;
+/**
+ * Price must be within a percentage band of a pivot level.
+ *
+ * Shaped differently from the other gates on purpose. The rest ask "which side
+ * of this line is price on"; this one asks "is price NEAR this line", which is
+ * a distance question and needs a band rather than a side. `either` is the
+ * default and the reason the side vocabulary was widened — "near S1" usually
+ * means near it from whichever direction price happens to approach.
+ *
+ * The period is an `anchor`, not a `timeframe`. A pivot level comes from a
+ * completed day, week or month; it is not an indicator sampled on a chart
+ * interval, so reusing `timeframe` here would name the wrong concept.
+ */
+export interface PivotFilter {
+  kind: "pivot";
+  /** Unused — a pivot is anchored to a period, not sampled on a timeframe. */
+  timeframe: null;
+  anchor: PivotAnchor;
+  pivotType: PivotType;
+  /** "P", "S1"… or `PIVOT_LEVEL_ANY` for whichever level price is nearest. */
+  levelName: string;
+  side: Side | "either";
+  /** Band edges in percent. 0–0.5 reads as "within half a percent". */
+  minPct: number;
+  maxPct: number;
+}
+
+export type AlertFilter = RsiFilter | MaFilter | SupertrendFilter | PivotFilter;
 
 /**
  * The gates an alert carries, in order.
@@ -169,7 +196,7 @@ export type AlertFilter = RsiFilter | MaFilter | SupertrendFilter;
  */
 export type AlertFilters = AlertFilter[];
 
-export const FILTER_KINDS = ["rsi", "ma", "supertrend"] as const;
+export const FILTER_KINDS = ["rsi", "ma", "supertrend", "pivot"] as const;
 export type FilterKind = (typeof FILTER_KINDS)[number];
 export const isFilterKind = (v: string): v is FilterKind =>
   (FILTER_KINDS as readonly string[]).includes(v);
@@ -594,6 +621,19 @@ export function filtersPass(
       case "supertrend":
         // The indicator's own direction: +1 uptrend, -1 downtrend.
         return filter.side === "above" ? value > 0 : value < 0;
+      case "pivot": {
+        /*
+         * `value` is the LEVEL's price; the distance is computed here so the
+         * runner only has to resolve the level. A zero or non-finite level
+         * would make the percentage meaningless, and the guard above has
+         * already rejected non-finite — zero is rejected here.
+         */
+        if (value === 0) return false;
+        const distPct = ((sample.close - value) / value) * 100;
+        const from = filter.side === "either" ? Math.abs(distPct)
+          : filter.side === "above" ? distPct : -distPct;
+        return from >= filter.minPct && from <= filter.maxPct;
+      }
     }
   });
 }
@@ -1158,6 +1198,10 @@ function filtersFromRow(row: {
 const side = (v: unknown): Side | null =>
   v === "above" || v === "below" ? v : null;
 
+/** Pivot gates are a distance question, so they also accept "either". */
+const bandSide = (v: unknown): Side | "either" | null =>
+  v === "above" || v === "below" || v === "either" ? v : null;
+
 /**
  * Read the stored JSONB list.
  *
@@ -1173,20 +1217,34 @@ export function parseStoredFilters(raw: unknown): AlertFilters {
   for (const entry of list) {
     if (typeof entry !== "object" || entry === null) continue;
     const e = entry as Record<string, unknown>;
+    // Read per kind below: pivot gates also accept "either", the others do not.
     const s = side(e.side);
-    if (!s) continue;
     const timeframe = typeof e.timeframe === "string" && isInterval(e.timeframe)
       ? e.timeframe
       : null;
 
     if (e.kind === "rsi") {
+      if (!s) continue;
       if (typeof e.length !== "number" || typeof e.level !== "number") continue;
       out.push({ kind: "rsi", timeframe, length: e.length, level: e.level, side: s });
     } else if (e.kind === "ma") {
+      if (!s) continue;
       if (typeof e.length !== "number") continue;
       if (e.type !== "sma" && e.type !== "ema") continue;
       out.push({ kind: "ma", timeframe, type: e.type, length: e.length, side: s });
+    } else if (e.kind === "pivot") {
+      const bs = bandSide(e.side);
+      const anchor = typeof e.anchor === "string" ? e.anchor : "";
+      const type = typeof e.pivotType === "string" ? e.pivotType : "";
+      if (!bs || !isPivotAnchor(anchor) || !isPivotType(type)) continue;
+      if (typeof e.minPct !== "number" || typeof e.maxPct !== "number") continue;
+      out.push({
+        kind: "pivot", timeframe: null, anchor, pivotType: type,
+        levelName: typeof e.levelName === "string" ? e.levelName : PIVOT_LEVEL_ANY,
+        side: bs, minPct: e.minPct, maxPct: e.maxPct,
+      });
     } else if (e.kind === "supertrend") {
+      if (!s) continue;
       if (typeof e.period !== "number" || typeof e.multiplier !== "number") continue;
       const method = typeof e.atrMethod === "string" ? e.atrMethod : "";
       if (!isStAtrMethod(method)) continue;
@@ -1262,6 +1320,14 @@ export function describeFilters(filters: AlertFilters | undefined): string {
         return `${at}price is ${f.side} the ${maLabel(f.type, f.length)}`;
       case "supertrend":
         return `${at}price is ${f.side} the ${stLabel(f)}`;
+      case "pivot": {
+        const level = f.levelName === PIVOT_LEVEL_ANY
+          ? `the nearest ${f.pivotType} pivot`
+          : `${f.pivotType} ${f.levelName}`;
+        const where = f.side === "either" ? "either side of"
+          : f.side === "above" ? "above" : "below";
+        return `price is ${f.minPct}–${f.maxPct}% ${where} ${level} (${f.anchor})`;
+      }
     }
   });
   return ` — only while ${parts.join(" and ")}`;
@@ -1281,8 +1347,13 @@ function filterError(filters: AlertFilters | undefined): string | null {
     if (f.timeframe !== null && !isInterval(f.timeframe)) {
       return "filter timeframe is not a supported interval";
     }
-    if (f.side !== "above" && f.side !== "below") {
-      return "filter side must be above or below";
+    // Only the pivot gate asks a distance question, so only it accepts
+    // "either". Allowing it everywhere would make "RSI is either 50" storable.
+    const allowed = f.kind === "pivot"
+      ? ["above", "below", "either"]
+      : ["above", "below"];
+    if (!allowed.includes(f.side)) {
+      return `filter side must be ${allowed.join(" or ")}`;
     }
     switch (f.kind) {
       case "rsi":
@@ -1300,6 +1371,30 @@ function filterError(filters: AlertFilters | undefined): string | null {
           return "filter moving-average length must be an integer between 1 and 1000";
         }
         break;
+      case "pivot": {
+        if (!isPivotAnchor(f.anchor)) {
+          return `filter pivot anchor must be one of ${PIVOT_ANCHORS.join(", ")}`;
+        }
+        if (!isPivotType(f.pivotType)) {
+          return `filter pivot type must be one of ${PIVOT_TYPES.join(", ")}`;
+        }
+        // A level the chosen type does not define would gate on something that
+        // can never resolve, silencing the alert forever — Fibonacci has no R4.
+        if (f.levelName !== PIVOT_LEVEL_ANY) {
+          const names = pivotLevels({ open: 1, high: 2, low: 0, close: 1 }, f.pivotType)
+            .map((l) => l.name);
+          if (!names.includes(f.levelName.toUpperCase())) {
+            return `${f.pivotType} has no level "${f.levelName}" (it defines ${names.join(", ")})`;
+          }
+        }
+        if (!Number.isFinite(f.minPct) || f.minPct < 0) {
+          return "filter pivot band must start at zero or above";
+        }
+        if (!(f.maxPct > f.minPct)) {
+          return "filter pivot band must end above where it starts";
+        }
+        break;
+      }
       case "supertrend":
         if (!Number.isInteger(f.period) || f.period < 1 || f.period > 1000) {
           return "filter Supertrend ATR period must be an integer between 1 and 1000";

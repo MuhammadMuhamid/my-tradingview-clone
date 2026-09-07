@@ -42,6 +42,19 @@ function blankFilter(kind: AlertFilter["kind"]): AlertFilter {
       side: FILTER_DEFAULTS.ma.side,
     };
   }
+  if (kind === "pivot") {
+    /*
+     * 0–0.5% and `either`: "within half a percent of the level, from whichever
+     * side" is what "near a pivot" means to most people. Raising the floor
+     * turns it into an approach band instead — coming up on the level but not
+     * there yet — which is the same reading the near_above alert mode has.
+     */
+    return {
+      kind: "pivot", timeframe: null, anchor: "1d",
+      pivotType: "Fibonacci", levelName: "any",
+      side: "either", minPct: 0, maxPct: 0.5,
+    };
+  }
   return {
     kind: "supertrend", timeframe: null,
     period: FILTER_DEFAULTS.supertrend.period,
@@ -103,7 +116,26 @@ const KIND_LABEL: Record<AlertFilter["kind"], string> = {
   rsi: "RSI",
   ma: "Moving average",
   supertrend: "Supertrend",
+  pivot: "Pivot points",
 };
+
+/** Fibonacci defines P and three levels either side — it has no R4/R5. */
+const FIB_LEVELS = ["any", "P", "R1", "S1", "R2", "S2", "R3", "S3"];
+const FULL_LEVELS = [
+  "any", "P", "R1", "S1", "R2", "S2", "R3", "S3", "R4", "S4", "R5", "S5",
+];
+const levelsFor = (type: string): string[] =>
+  type === "Fibonacci" ? FIB_LEVELS : FULL_LEVELS;
+
+/** The periods pivot levels are taken from. Mirrors `PIVOT_ANCHORS`. */
+const PIVOT_ANCHOR_OPTIONS = [
+  { id: "1M", label: "Monthly" },
+  { id: "1w", label: "Weekly" },
+  { id: "1d", label: "Daily" },
+  { id: "12h", label: "12 hours" },
+  { id: "6h", label: "6 hours" },
+  { id: "4h", label: "4 hours" },
+];
 
 export function AlertFiltersField({
   value, onChange, chartTimeframe,
@@ -177,7 +209,9 @@ export function AlertFiltersField({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {timeframeSelect(f, i)}
+            {/* A pivot gate is anchored to a completed period, so it names an
+                anchor below instead of a chart timeframe. */}
+            {f.kind !== "pivot" && timeframeSelect(f, i)}
 
             {f.kind === "rsi" && (
               <>
@@ -211,6 +245,58 @@ export function AlertFiltersField({
               </>
             )}
 
+            {f.kind === "pivot" && (
+              <>
+                <select value={f.anchor} aria-label="Filter pivot anchor"
+                  onChange={(e) => patch(i, { anchor: e.target.value })}
+                  className={`${BOX} w-[112px]`}>
+                  {PIVOT_ANCHOR_OPTIONS.map((a) => (
+                    <option key={a.id} value={a.id}>{a.label}</option>
+                  ))}
+                </select>
+                <select value={f.pivotType} aria-label="Filter pivot type"
+                  onChange={(e) => {
+                    const pivotType = e.target.value as typeof f.pivotType;
+                    // Switching to Fibonacci while R4 is chosen would leave a
+                    // level that type never computes, and the gate could never
+                    // resolve — which fails closed and silences the alert.
+                    const levelName = levelsFor(pivotType).includes(f.levelName)
+                      ? f.levelName : "any";
+                    patch(i, { pivotType, levelName });
+                  }}
+                  className={`${BOX} w-[112px]`}>
+                  {["Fibonacci", "Traditional", "Classic", "Woodie", "Camarilla"].map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <select value={f.levelName} aria-label="Filter pivot level"
+                  onChange={(e) => patch(i, { levelName: e.target.value })}
+                  className={`${BOX} w-[104px]`}>
+                  {levelsFor(f.pivotType).map((l) => (
+                    <option key={l} value={l}>{l === "any" ? "Nearest" : l}</option>
+                  ))}
+                </select>
+                <select value={f.side} aria-label="Filter pivot side"
+                  onChange={(e) =>
+                    patch(i, { side: e.target.value as typeof f.side })}
+                  className={`${BOX} w-[104px]`}>
+                  <option value="either">either side</option>
+                  <option value="above">above</option>
+                  <option value="below">below</option>
+                </select>
+                <input type="number" min="0" step="0.05" value={f.minPct}
+                  aria-label="Filter pivot band start"
+                  onChange={(e) => patch(i, { minPct: parseFloat(e.target.value || "0") })}
+                  className={`${BOX} w-[64px]`} />
+                <span className="text-sm text-ink-faint">to</span>
+                <input type="number" min="0" step="0.05" value={f.maxPct}
+                  aria-label="Filter pivot band end"
+                  onChange={(e) => patch(i, { maxPct: parseFloat(e.target.value || "0") })}
+                  className={`${BOX} w-[64px]`} />
+                <span className="text-sm text-ink-muted">%</span>
+              </>
+            )}
+
             {f.kind === "supertrend" && (
               <>
                 <span className="text-sm text-ink-muted">Price</span>
@@ -227,13 +313,25 @@ export function AlertFiltersField({
               </>
             )}
           </div>
+
+          {f.kind === "pivot" && (
+            <p className="text-xs text-ink-faint">
+              {f.minPct > 0
+                ? `Price approaching the level — ${f.minPct}–${f.maxPct}% away, not yet at it.`
+                : `Price within ${f.maxPct}% of the level.`}
+              {" "}Levels come from the last completed {
+                PIVOT_ANCHOR_OPTIONS.find((a) => a.id === f.anchor)?.label.toLowerCase()
+                  ?? f.anchor
+              } period, so they do not move during it.
+            </p>
+          )}
         </div>
       ))}
 
       {value.length < MAX_ALERT_FILTERS && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-ink-faint">Add filter</span>
-          {(["rsi", "ma", "supertrend"] as const).map((kind) => (
+          {(["rsi", "ma", "supertrend", "pivot"] as const).map((kind) => (
             <button
               key={kind}
               type="button"

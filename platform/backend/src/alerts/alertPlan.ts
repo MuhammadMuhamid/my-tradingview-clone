@@ -301,7 +301,14 @@ function filterReadings(
   if (!filters || filters.length === 0) return {};
 
   const readings = filters.map((filter) => {
-    const own = filter.timeframe === null || filter.timeframe === sample.timeframe;
+    /*
+     * A pivot gate is anchored to a completed period rather than sampled on a
+     * chart interval, so it is always resolved from this feed's own resolver —
+     * `otherTimeframe` would have no series to compute it from.
+     */
+    const own = filter.kind === "pivot"
+      || filter.timeframe === null
+      || filter.timeframe === sample.timeframe;
     if (!own) return sample.otherTimeframe?.(filter.timeframe!, filter);
 
     switch (filter.kind) {
@@ -315,6 +322,16 @@ function filterReadings(
         return sample.supertrend?.(
           filter.period, filter.multiplier, filter.atrMethod
         )?.trend;
+      case "pivot":
+        /*
+         * The LEVEL's price. `filtersPass` turns that into a distance from the
+         * close, so the runner resolves a level and nothing else — the same
+         * resolver a `pivot_level` alert already uses, on the same completed
+         * anchor period.
+         */
+        return sample.pivotLevel?.(
+          filter.pivotType, filter.anchor, filter.levelName
+        )?.price;
     }
   });
 

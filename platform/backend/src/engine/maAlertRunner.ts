@@ -224,8 +224,19 @@ export class MaAlertRunner {
   private async refreshAnchorPeriods(alerts: MaAlertRow[]): Promise<void> {
     const wanted = new Set<string>();
     for (const a of alerts) {
-      if (a.conditionKind !== "pivot_level" || !a.pivotAnchor) continue;
-      wanted.add(`${a.symbol}|${a.pivotAnchor}`);
+      if (a.conditionKind === "pivot_level" && a.pivotAnchor) {
+        wanted.add(`${a.symbol}|${a.pivotAnchor}`);
+      }
+      /*
+       * A pivot GATE needs the same completed period as a pivot alert, and any
+       * family may carry one. Collecting only from `pivot_level` alerts would
+       * leave a gated MACD alert with an anchor that never resolves — which
+       * fails closed and silences it forever, with nothing to show why.
+       */
+      const condition = conditionFromRow(a);
+      for (const f of condition?.filters ?? []) {
+        if (f.kind === "pivot") wanted.add(`${a.symbol}|${f.anchor}`);
+      }
     }
     for (const key of [...this.anchorPeriods.keys()]) {
       if (!wanted.has(key)) this.anchorPeriods.delete(key);

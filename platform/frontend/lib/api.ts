@@ -604,6 +604,19 @@ export type AlertFilter =
   | {
       kind: "supertrend"; timeframe: Interval | null;
       period: number; multiplier: number; atrMethod: StAtrMethod; side: FilterSide;
+    }
+  /**
+   * Price within a percentage band of a pivot level.
+   *
+   * Shaped unlike the others: they ask which side of a line price is on, this
+   * asks how far from it. Hence a band, and `either` — "near S1" usually means
+   * near it from whichever direction price approaches. The period is an
+   * `anchor` (a completed day, week or month), not a chart `timeframe`.
+   */
+  | {
+      kind: "pivot"; timeframe: null;
+      anchor: string; pivotType: PivotType; levelName: string;
+      side: FilterSide | "either"; minPct: number; maxPct: number;
     };
 
 /** Which average of true range a Supertrend uses. `rma` is Wilder's. */

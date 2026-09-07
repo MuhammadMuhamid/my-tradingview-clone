@@ -283,6 +283,13 @@ export function describeFilters(a: MaAlert): string {
         return `${at}price is ${f.side} the ` + stLabel({
           stPeriod: f.period, stMultiplier: f.multiplier, stAtrMethod: f.atrMethod,
         });
+      case "pivot": {
+        const level = f.levelName === "any"
+          ? `the nearest ${f.pivotType} pivot`
+          : `${f.pivotType} ${f.levelName}`;
+        const where = f.side === "either" ? "either side of" : f.side;
+        return `price is ${f.minPct}–${f.maxPct}% ${where} ${level} (${f.anchor})`;
+      }
     }
   });
   return ` — only while ${parts.join(" and ")}`;

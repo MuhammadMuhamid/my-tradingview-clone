@@ -280,3 +280,140 @@ test("the description names a gate's timeframe only when it is not the alert's o
     " — only while RSI 50 is above 50 and 1h RSI 50 is above 50"
   );
 });
+
+// ── the pivot gate ─────────────────────────────────────────────────────────
+
+/**
+ * "Only fire while price is near a daily pivot."
+ *
+ * Shaped unlike the other three gates, and the difference is the point: they
+ * ask which SIDE of a line price is on, this asks how FAR from it. So it
+ * carries a band rather than a bare side, and it accepts `either` — "near S1"
+ * usually means near it from whichever direction price approaches.
+ *
+ * The reading the runner supplies is the LEVEL'S PRICE. The distance is
+ * computed in `filtersPass`, so the runner resolves a level and nothing else —
+ * the same resolver a `pivot_level` alert already uses, on the same completed
+ * anchor period.
+ */
+const pivotGate = (over: Partial<Extract<AlertFilters[number], { kind: "pivot" }>> = {}) => ({
+  kind: "pivot" as const, timeframe: null, anchor: "1d" as const,
+  pivotType: "Fibonacci" as const, levelName: "S1",
+  side: "either" as const, minPct: 0, maxPct: 0.5,
+  ...over,
+});
+
+test("the pivot gate measures distance from the level, not which side of it", () => {
+  // Level at 100. A close of 100.3 is 0.30% above; 99.7 is 0.30% below.
+  const at = (close: number, filter = pivotGate()) =>
+    filtersPass([filter], { high: close, low: close, close, filterReadings: [100] });
+
+  assert.equal(at(100.3), true, "0.30% above is inside a 0–0.5% band");
+  assert.equal(at(99.7), true, "0.30% below is too, when the side is either");
+  assert.equal(at(101), false, "1.00% away is outside the band");
+  assert.equal(at(100), true, "exactly on the level is zero away, inside 0–0.5%");
+});
+
+test("a directional pivot gate rejects the side it was not asked about", () => {
+  const above = pivotGate({ side: "above" });
+  const below = pivotGate({ side: "below" });
+  const at = (close: number, f: AlertFilters[number]) =>
+    filtersPass([f], { high: close, low: close, close, filterReadings: [100] });
+
+  assert.equal(at(100.3, above), true);
+  assert.equal(at(99.7, above), false, "below the level is not 'above' it");
+  assert.equal(at(99.7, below), true);
+  assert.equal(at(100.3, below), false);
+});
+
+test("a band with a floor is an approach, not a proximity", () => {
+  // 0.2–0.5% is "coming up on it but not there yet" — the same reading the
+  // near_above alert mode has. Sitting exactly on the level fails it.
+  const approach = pivotGate({ minPct: 0.2, maxPct: 0.5 });
+  const at = (close: number) =>
+    filtersPass([approach], { high: close, low: close, close, filterReadings: [100] });
+  assert.equal(at(100), false, "on the level is not approaching it");
+  assert.equal(at(100.3), true);
+  assert.equal(at(100.6), false, "past the far edge");
+});
+
+test("an unresolved or zero level fails the gate closed", () => {
+  const f = pivotGate();
+  const bar = { high: 100, low: 100, close: 100 };
+  // No completed anchor period yet.
+  assert.equal(filtersPass([f], { ...bar, filterReadings: [undefined] }), false);
+  // A zero level would make the percentage meaningless rather than infinite.
+  assert.equal(filtersPass([f], { ...bar, filterReadings: [0] }), false);
+});
+
+test("a pivot gate is resolved from the anchor, never across a timeframe", () => {
+  const read = readCondition("macd", {
+    mode: "cross_up",
+    filters: [{ kind: "pivot", anchor: "1w", pivotType: "Fibonacci", levelName: "P" }],
+  });
+  assert.ok("condition" in read);
+
+  const spec: AlertSpec = {
+    id: "a", symbol: "BTCUSDT", timeframe: "15m", enabled: true,
+    condition: read.condition, frequency: "once_per_bar_close",
+    lastSide: "below", fireState: initialFireState(0), lastBarTime: null,
+  };
+  const asked: string[] = [];
+  const feed: FeedSample = {
+    symbol: "BTCUSDT", timeframe: "15m", barTime: 1, isClosedBar: true,
+    high: 101, low: 99, close: 100,
+    series: () => undefined,
+    macd: () => ({ value: 0.3, reference: 0.1 }),
+    pivotLevel: (type, anchor, name) => {
+      asked.push(`pivot:${type}:${anchor}:${name}`);
+      return { price: 100, label: name };
+    },
+    otherTimeframe: () => { asked.push("otherTimeframe"); return undefined; },
+  };
+
+  const plan = planAlert(spec, feed, Date.now());
+  assert.ok(plan.act && plan.fire, "the MACD cross fires with the gate open");
+  assert.deepEqual(asked, ["pivot:Fibonacci:1w:P"],
+    "a pivot gate uses the anchored resolver and never crosses a timeframe");
+});
+
+test("a pivot gate is refused when its level could never resolve", () => {
+  // Fibonacci defines no R4, so gating on it would silence the alert forever.
+  const bad = readCondition("sr_zone", {
+    srSide: "support",
+    filters: [{ kind: "pivot", pivotType: "Fibonacci", levelName: "R4" }],
+  });
+  assert.ok("condition" in bad);
+  assert.match(validateCondition(bad.condition) ?? "", /has no level "R4"/);
+
+  for (const f of [
+    { kind: "pivot", anchor: "3d" },
+    { kind: "pivot", pivotType: "Nonsense" },
+    { kind: "pivot", minPct: 0.5, maxPct: 0.2 },
+    { kind: "pivot", minPct: -1 },
+    { kind: "pivot", side: "sideways" },
+  ]) {
+    assert.ok(
+      "error" in readCondition("sr_zone", { srSide: "support", filters: [f] }),
+      JSON.stringify(f)
+    );
+  }
+});
+
+test("only the pivot gate accepts 'either' — it is the only distance question", () => {
+  assert.ok("error" in readCondition("sr_zone", {
+    srSide: "support",
+    filters: [{ kind: "rsi", side: "either" }],
+  }), "'RSI is either 50' is not a rule");
+});
+
+test("the pivot gate describes itself as a distance", () => {
+  assert.equal(
+    describeFilters([pivotGate({ minPct: 0.2, maxPct: 0.5 })]),
+    " — only while price is 0.2–0.5% either side of Fibonacci S1 (1d)"
+  );
+  assert.equal(
+    describeFilters([pivotGate({ levelName: "any", anchor: "1w", side: "above" })]),
+    " — only while price is 0–0.5% above the nearest Fibonacci pivot (1w)"
+  );
+});

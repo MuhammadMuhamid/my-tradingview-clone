@@ -222,6 +222,43 @@ not about storage; an unbounded note would push the price off the end of the
 notification or exceed the 4 KB Web Push payload. A blank or whitespace-only
 note is stored as NULL, so the formatter never appends a bare separator.
 
+### The pivot gate asks a distance, not a side
+
+`kind: "pivot"` is the fourth gate, and it is shaped unlike the other three.
+They ask which SIDE of a line price is on; this asks how FAR from it — "only
+while price is within 0.5% of yesterday's S1". So it carries a band rather than
+a bare side, and it accepts `either`, which is the common reading: "near S1"
+usually means near it from whichever direction price approaches.
+
+`either` is refused on every other kind. "RSI is either 50" is not a rule, and
+the per-kind vocabulary lives in `filterError` while the column-level CHECK
+stays the coarse structural floor it has always been.
+
+The period is an **anchor** — a completed day, week or month — not a chart
+`timeframe`. A pivot level is not an indicator sampled on an interval, so
+reusing `timeframe` would name the wrong concept, and the field is fixed at
+null for this kind.
+
+The runner resolves it through the same resolver a `pivot_level` alert already
+uses, on the same completed anchor period, and supplies the LEVEL'S PRICE as the
+reading. The distance is computed in `filtersPass`, so the runner resolves a
+level and nothing else.
+
+**A gate's anchor is collected too.** `refreshAnchorPeriods` gathers anchors
+from `pivot_level` alerts *and* from pivot gates on any family. Collecting only
+from the former would leave a gated MACD alert with an anchor that never
+resolves — which fails closed and silences it forever, with nothing to show why.
+
+A level the chosen type does not define is refused: Fibonacci has no R4, and
+gating on it would arm an alert that can never fire. The dialog narrows the
+level list when the type changes, for the same reason.
+
+> **Changed in `033`.** The `032` shape constraint pinned `kind` to three values
+> and `side` to two. Both widen here — `pivot` and `either`. The jsonpath is one
+> literal rather than a `||` concatenation: `||` yields `text` and
+> `jsonb_path_exists` takes `jsonpath`, so the concatenated form fails to
+> resolve the function at all.
+
 ### Arming one alert across a watchlist
 
 `POST /api/ma-alerts` accepts `symbols` as well as `symbol`. "The same 15m
@@ -409,7 +446,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–032
+## 8. Migrations 010–033
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -425,8 +462,8 @@ families, `015` and `016` widened the kind CHECK for them and for the
 oscillators, `017` added the trend gates, and `025` added the `supertrend`
 family, the Supertrend gate and the note length bound — while dropping `017`'s
 `ma_alerts_filter_kind_ck`, which had confined gates to the two level families.
-`026`–`031` came with the TradingView-grade programme, and `032` moved the gates
-to a list so each can name its own timeframe. Each new kind's completeness rule
+`026`–`031` came with the TradingView-grade programme, `032` moved the gates
+to a list so each can name its own timeframe, and `033` added the pivot gate. Each new kind's completeness rule
 lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
 **effective** vocabulary — the last definition across the whole set — against
 `CONDITION_KINDS`, so columns can never be added without widening the CHECK

@@ -109,7 +109,50 @@ function readOneFilter(
   if (tf !== null && typeof tf === "object") return tf;
   const timeframe = tf as Interval | null;
 
-  const side = String(f.side ?? "above");
+  /*
+   * Only the pivot gate asks a distance question, so only it accepts "either" —
+   * and it defaults to it, because "near S1" almost always means from whichever
+   * direction price happens to approach.
+   */
+  const side = String(f.side ?? (kind === "pivot" ? "either" : "above"));
+  if (kind === "pivot") {
+    if (side !== "above" && side !== "below" && side !== "either") {
+      return bad(`filters[${index}].side must be above, below or either`);
+    }
+  } else if (!isFilterSide(side)) {
+    return bad(`filters[${index}].side must be above or below`);
+  }
+
+  if (kind === "pivot") {
+    const anchor = String(f.anchor ?? "1d");
+    const pivotType = String(f.pivotType ?? "Fibonacci");
+    const levelName = String(f.levelName ?? PIVOT_LEVEL_ANY);
+    // Defaults to "within half a percent", which is what "near a pivot" means
+    // to most people; a non-zero floor turns it into an approach band instead.
+    const minPct = f.minPct === undefined ? 0 : Number(f.minPct);
+    const maxPct = f.maxPct === undefined ? 0.5 : Number(f.maxPct);
+    if (!isPivotAnchor(anchor)) {
+      return bad(`filters[${index}].anchor must be one of ${PIVOT_ANCHORS.join(", ")}`);
+    }
+    if (!isPivotType(pivotType)) {
+      return bad(`filters[${index}].pivotType must be one of ${PIVOT_TYPES.join(", ")}`);
+    }
+    if (!Number.isFinite(minPct) || minPct < 0) {
+      return bad(`filters[${index}].minPct must be zero or more`);
+    }
+    if (!(maxPct > minPct)) {
+      return bad(`filters[${index}].maxPct must be greater than minPct`);
+    }
+    return {
+      filter: {
+        kind: "pivot", timeframe: null, anchor, pivotType, levelName,
+        side: side as "above" | "below" | "either", minPct, maxPct,
+      },
+    };
+  }
+
+  // Past the pivot branch every remaining kind takes a strict side; the check
+  // above has already refused anything else, so this only narrows the type.
   if (!isFilterSide(side)) return bad(`filters[${index}].side must be above or below`);
 
   if (kind === "rsi") {
