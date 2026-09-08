@@ -3,7 +3,9 @@ import { ScannerServiceError, scannerRequest } from "../../scanner/client";
 import { parseResolution } from "../../data/resolution";
 
 const TIMEFRAMES = new Set(["5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w"]);
-const INDICATORS = new Set(["ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr"]);
+const INDICATORS = new Set([
+  "ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr", "classical",
+]);
 const SLOTS = new Set(["1h", "15m", "5m"]);
 const ASSET = /^[A-Z0-9]{1,20}$/;
 const PRESET = /^[A-Za-z0-9_. -]{1,80}$/;
@@ -129,6 +131,13 @@ export async function scannerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/scanner/patterns/analyze", (req, reply) => send(reply,
     () => scannerRequest({
       method: "POST", path: "/api/patterns/analyze", body: patternAnalysisRequest(req.body),
+    }, { timeoutMs: 30_000 })));
+  app.get("/api/scanner/classical-patterns/catalog", (_req, reply) => send(reply,
+    () => scannerRequest({ method: "GET", path: "/api/classical-patterns/catalog" })));
+  app.post("/api/scanner/classical-patterns/analyze", (req, reply) => send(reply,
+    () => scannerRequest({
+      method: "POST", path: "/api/classical-patterns/analyze",
+      body: patternAnalysisRequest(req.body),
     }, { timeoutMs: 30_000 })));
 
   app.patch("/api/scanner/config", (req, reply) => send(reply,

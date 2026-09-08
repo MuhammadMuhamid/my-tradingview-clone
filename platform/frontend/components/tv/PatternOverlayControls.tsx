@@ -30,8 +30,9 @@ export function PatternOverlayControls(props: {
   const all = props.overlay.selectedIds === null;
   const safe = `${props.symbol.replace(/[^A-Za-z0-9]/g, "")}-${props.timeframe}-candlestick-patterns`;
   return (
-    <details className="absolute right-2 top-2 z-20 w-72 max-w-[calc(100%-1rem)] rounded border border-border bg-surface/95 text-xs text-ink shadow-xl">
-      <summary className="cursor-pointer select-none px-2 py-1.5 font-medium">
+    <details name="chart-pattern-controls"
+      className="w-72 max-w-full overflow-auto rounded border border-border bg-surface/95 text-xs text-ink shadow-xl">
+      <summary className="flex min-h-11 cursor-pointer select-none items-center px-2 py-1.5 font-medium">
         Patterns · {props.result.analysis?.patterns.length ?? 0}
         {props.result.loading ? " · analyzing" : ""}
       </summary>

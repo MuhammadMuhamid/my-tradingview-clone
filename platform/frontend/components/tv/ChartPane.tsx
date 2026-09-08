@@ -51,6 +51,13 @@ import { useAlertEvents } from "@/lib/useAlertEvents";
 import { overlayNotice, patternMarkers, placePatterns } from "@/lib/candleOverlay";
 import { usePatternAnalysis, type CandleOverlayState } from "@/lib/useCandleOverlay";
 import { PatternOverlayControls } from "@/components/tv/PatternOverlayControls";
+import {
+  classicalMarkers, classicalNotice, classicalOverlays,
+} from "@/lib/classicalPatterns";
+import {
+  useClassicalAnalysis, type ClassicalOverlayState,
+} from "@/lib/useClassicalPatterns";
+import { ClassicalPatternControls } from "@/components/tv/ClassicalPatternControls";
 import type { MaAlert } from "@/lib/api";
 
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
@@ -148,6 +155,8 @@ export interface ChartPaneProps {
 
   /** The workspace-wide candlestick-pattern overlay, off by default. */
   candleOverlay?: CandleOverlayState;
+  /** Workspace-wide causal classical-pattern geometry, off by default. */
+  classicalOverlay?: ClassicalOverlayState;
 
   /** Pine run window, which follows the workspace replay horizon. */
   startTime: string;
@@ -420,7 +429,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
       fixedRefinementInput),
     [fixedProfileDrawings, visibleCandles, pane.interval, fixedRefinementInput]);
 
-  const overlays = useMemo(
+  const baseOverlays = useMemo(
     () => [
       ...maOverlays, ...avwapOverlays, ...fixedProfileOverlays, ...compared.overlays,
       ...nativeStudies.overlays, ...indicators.overlays,
@@ -515,6 +524,27 @@ function ChartPaneImpl(props: ChartPaneProps) {
     const ids = props.candleOverlay?.selectedIds;
     return ids === null || ids === undefined ? null : new Set(ids);
   }, [props.candleOverlay?.selectedIds]);
+  const classicalAnalysis = useClassicalAnalysis({
+    enabled: !replayActive && props.classicalOverlay?.enabled === true && holdingRequested,
+    symbol: pane.symbol, timeframe: pane.interval, candles: visibleCandles,
+    includeDeveloping: props.classicalOverlay?.includeDeveloping ?? true,
+    status: props.classicalOverlay?.status ?? "all",
+  });
+  const selectedClassicalIds = useMemo(() => {
+    const ids = props.classicalOverlay?.selectedIds;
+    return ids === null || ids === undefined ? null : new Set(ids);
+  }, [props.classicalOverlay?.selectedIds]);
+  const classicalDrawingOverlays = useMemo(() => {
+    if (replayActive || !props.classicalOverlay?.enabled) return [];
+    return classicalOverlays(
+      classicalAnalysis.analysis, visibleCandles, selectedClassicalIds,
+      props.classicalOverlay.showTargets,
+    );
+  }, [replayActive, props.classicalOverlay?.enabled, props.classicalOverlay?.showTargets,
+    classicalAnalysis.analysis, visibleCandles, selectedClassicalIds]);
+  const overlays = useMemo(
+    () => [...baseOverlays, ...classicalDrawingOverlays],
+    [baseOverlays, classicalDrawingOverlays]);
 
   /*
    * Fired-alert marks.
@@ -549,6 +579,11 @@ function ChartPaneImpl(props: ChartPaneProps) {
     return patternMarkers(placePatterns(patternAnalysis.analysis, visibleCandles, selectedPatternIds));
   }, [replayActive, props.candleOverlay?.enabled, patternAnalysis.analysis,
     visibleCandles, selectedPatternIds]);
+  const classicalPatternMarks = useMemo(() => {
+    if (replayActive || !props.classicalOverlay?.enabled) return NO_FIRED;
+    return classicalMarkers(classicalAnalysis.analysis, selectedClassicalIds);
+  }, [replayActive, props.classicalOverlay?.enabled, classicalAnalysis.analysis,
+    selectedClassicalIds]);
 
   /*
    * Everything drawn ON a bar, in one list.
@@ -559,10 +594,10 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * half here would silently un-draw every marker a script plots.
    */
   const paneMarkers = useMemo(
-    () => (firedMarkers.length > 0 || patternMarks.length > 0
-      ? [...markers, ...firedMarkers, ...patternMarks]
+    () => (firedMarkers.length > 0 || patternMarks.length > 0 || classicalPatternMarks.length > 0
+      ? [...markers, ...firedMarkers, ...patternMarks, ...classicalPatternMarks]
       : markers),
-    [markers, firedMarkers, patternMarks]);
+    [markers, firedMarkers, patternMarks, classicalPatternMarks]);
 
   /*
    * A legend shows less as the pane gets smaller, and stops entirely at tiny.
@@ -618,15 +653,31 @@ function ChartPaneImpl(props: ChartPaneProps) {
       )}
 
       <div className="relative min-h-0 flex-1">
-        {props.candleOverlay?.enabled && !replayActive && active && (
-          <>
-            <PatternOverlayControls overlay={props.candleOverlay} result={patternAnalysis}
-              symbol={pane.symbol} timeframe={pane.interval} />
-            <span className="sr-only" role="status" aria-live="polite">
-              {overlayNotice(patternAnalysis.analysis, patternAnalysis.loading,
-                patternAnalysis.error, pane.symbol)}
-            </span>
-          </>
+        {!replayActive && active
+          && (props.candleOverlay?.enabled || props.classicalOverlay?.enabled) && (
+          <div className="absolute right-2 top-2 z-20 flex max-h-[calc(100%-1rem)]
+            max-w-[calc(100%-1rem)] flex-col items-end gap-2 overflow-y-auto">
+            {props.candleOverlay?.enabled && (
+              <>
+                <PatternOverlayControls overlay={props.candleOverlay} result={patternAnalysis}
+                  symbol={pane.symbol} timeframe={pane.interval} />
+                <span className="sr-only" role="status" aria-live="polite">
+                  {overlayNotice(patternAnalysis.analysis, patternAnalysis.loading,
+                    patternAnalysis.error, pane.symbol)}
+                </span>
+              </>
+            )}
+            {props.classicalOverlay?.enabled && (
+              <>
+                <ClassicalPatternControls overlay={props.classicalOverlay}
+                  result={classicalAnalysis} symbol={pane.symbol} timeframe={pane.interval} />
+                <span className="sr-only" role="status" aria-live="polite">
+                  {classicalNotice(classicalAnalysis.analysis, classicalAnalysis.loading,
+                    classicalAnalysis.error, pane.symbol)}
+                </span>
+              </>
+            )}
+          </div>
         )}
         {history.loading && !holdingRequested && history.candles.length > 0 && (
           // The previous instrument's bars are still drawn underneath; say so

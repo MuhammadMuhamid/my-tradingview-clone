@@ -85,6 +85,24 @@
         "max_distance_bars": 500,
         "atr_length": 20
       }
+    },
+    "classical": {
+      "enabled": true,
+      "timeframe": "1h",
+      "params": {
+        "pivot_left": 5,
+        "pivot_right": 5,
+        "search_bars": 600,
+        "price_tolerance": 0.12,
+        "line_tolerance": 0.18,
+        "min_height_atr": 1.0,
+        "min_pattern_bars": 8,
+        "max_pattern_bars": 180,
+        "cup_min_bars": 20,
+        "flagpole_min_atr": 3.0,
+        "max_results": 25,
+        "include_developing": true
+      }
     }
   },
   "scoring": {

@@ -1,6 +1,7 @@
 import type { Calibration, Snapshot } from "./types";
 import type { PatternAnalysis, PatternCatalog } from "../candleOverlay";
 import type { Candle } from "../types";
+import type { ClassicalAnalysis, ClassicalCatalog } from "../classicalPatterns";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
@@ -38,6 +39,22 @@ export const api = {
       venue: "BINANCE", market_type: "spot", symbol: input.symbol.replace(/^BINANCE:/, ""),
       timeframe: input.timeframe, as_of: input.asOf,
       candles: input.candles.slice(-2_000).map((bar) => ({
+        open_time: bar.openTime, open: bar.open, high: bar.high, low: bar.low,
+        close: bar.close, close_time: bar.closeTime,
+      })),
+      ...(input.settings ? { settings: input.settings } : {}),
+    }),
+  }),
+  classicalCatalog: () => request<ClassicalCatalog>("/api/scanner/classical-patterns/catalog"),
+  analyzeClassical: (input: {
+    symbol: string; timeframe: string; asOf: number; candles: readonly Candle[];
+    settings?: Record<string, unknown>;
+  }) => request<ClassicalAnalysis>("/api/scanner/classical-patterns/analyze", {
+    method: "POST",
+    body: JSON.stringify({
+      venue: "BINANCE", market_type: "spot", symbol: input.symbol.replace(/^BINANCE:/, ""),
+      timeframe: input.timeframe, as_of: input.asOf,
+      candles: input.candles.slice(-600).map((bar) => ({
         open_time: bar.openTime, open: bar.open, high: bar.high, low: bar.low,
         close: bar.close, close_time: bar.closeTime,
       })),

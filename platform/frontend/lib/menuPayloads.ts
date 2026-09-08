@@ -65,6 +65,8 @@ export interface ChartMenuContext {
   tradingEnabled: boolean;
   /** The Screener's candlestick-pattern marks are being drawn. */
   candlePatterns: boolean;
+  /** The canonical classical-pattern geometry is being drawn. */
+  classicalPatterns?: boolean;
 }
 
 export const CHART_MENU_IDS = [
@@ -72,6 +74,7 @@ export const CHART_MENU_IDS = [
   "chart:reset-view", "chart:toggle-auto", "chart:toggle-log",
   "chart:toggle-drawings-hidden", "chart:toggle-drawings-locked",
   "chart:toggle-candle-patterns",
+  "chart:toggle-classical-patterns",
   "chart:indicators", "chart:chart-settings",
 ] as const;
 export type ChartMenuId = (typeof CHART_MENU_IDS)[number];
@@ -136,6 +139,11 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
       // Named as the Screener's, because that is whose opinion it is — the
       // chart contains no pattern logic and never will.
       hint: "Screener",
+    },
+    {
+      id: "chart:toggle-classical-patterns", label: "Classical chart patterns",
+      checked: ctx.classicalPatterns === true,
+      hint: "5/5 pivots · close breakouts",
     },
     { id: "sep-studies", separator: true },
     { id: "chart:indicators", label: "Indicators…", hint: "I" },

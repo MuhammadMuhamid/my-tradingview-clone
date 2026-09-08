@@ -126,6 +126,13 @@ test("pattern analysis boundary is explicit, Spot-only, and bounded", async (t) 
   assert.equal(response.statusCode, 200);
   assert.equal(calls[0]?.url, "http://127.0.0.1:8000/api/patterns/analyze");
   assert.deepEqual(JSON.parse(calls[0]!.body!), body);
+
+  const classical = await app.inject({
+    method: "POST", url: "/api/scanner/classical-patterns/analyze", payload: body,
+  });
+  assert.equal(classical.statusCode, 200);
+  assert.equal(calls[1]?.url, "http://127.0.0.1:8000/api/classical-patterns/analyze");
+  assert.deepEqual(JSON.parse(calls[1]!.body!), body);
 });
 
 test("Platform session gate protects Scanner reads and permits a signed owner session", async (t) => {

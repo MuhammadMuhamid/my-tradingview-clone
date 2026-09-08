@@ -99,6 +99,7 @@ import { MAX_PANES } from "@/lib/layoutPresets";
 import { isMacPlatform } from "@/lib/shortcuts";
 import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
 import { useCandleOverlay } from "@/lib/useCandleOverlay";
+import { useClassicalOverlay } from "@/lib/useClassicalPatterns";
 import {
   activeReplayQuote, liveActionsDisabled, reconcileReplay, replayCandles, replayDelayMs,
   replayTick, startReplay, stepReplay,
@@ -1081,6 +1082,8 @@ export default function TvWorkspace() {
    */
   /** The candlestick-pattern overlay: off by default, remembered per browser. */
   const candleOverlay = useCandleOverlay();
+  /** Automatic classical patterns share one server detector across product surfaces. */
+  const classicalOverlay = useClassicalOverlay();
 
   const alertLinesFor = useCallback((paneInterval: Resolution): ChartPriceLine[] =>
     maAlerts
@@ -1330,10 +1333,11 @@ export default function TvWorkspace() {
         // stages a ticket the installation will not accept.
         tradingEnabled: manualState?.enabled === true,
         candlePatterns: candleOverlay.enabled,
+        classicalPatterns: classicalOverlay.enabled,
       }),
     });
   }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
-    paneScale, manualState, candleOverlay.enabled]);
+    paneScale, manualState, candleOverlay.enabled, classicalOverlay.enabled]);
 
   /*
    * One handler per menu, keyed by the menu's own namespace.
@@ -1368,6 +1372,9 @@ export default function TvWorkspace() {
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
       case "chart:toggle-candle-patterns":
         candleOverlay.setEnabled(!candleOverlay.enabled);
+        return;
+      case "chart:toggle-classical-patterns":
+        classicalOverlay.setEnabled(!classicalOverlay.enabled);
         return;
       case "chart:reset-view":
       case "axis:reset":
@@ -1439,7 +1446,7 @@ export default function TvWorkspace() {
       default: return;
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
-    copyPrice, candleOverlay]);
+    copyPrice, candleOverlay, classicalOverlay]);
 
   const shortcuts = useShortcuts({
     onAction: (action) => {
@@ -1588,6 +1595,7 @@ export default function TvWorkspace() {
         // armed alerts from here, to attribute an event to one.
         maAlerts={maAlerts}
         candleOverlay={candleOverlay}
+        classicalOverlay={classicalOverlay}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         compact={isMobile}
@@ -1600,7 +1608,7 @@ export default function TvWorkspace() {
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare,
-    maAlerts, candleOverlay, resolutions]);
+    maAlerts, candleOverlay, classicalOverlay, resolutions]);
 
   return (
     <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">

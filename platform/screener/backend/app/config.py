@@ -22,7 +22,9 @@ DEFAULT_PATH = CONFIG_DIR / "default.json"
 USER_PATH = CONFIG_DIR / "user.json"
 SYMBOLS_PATH = CONFIG_DIR / "symbols.json"
 
-INDICATOR_KEYS = ("ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr")
+INDICATOR_KEYS = (
+    "ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr", "classical",
+)
 
 
 class ConfigError(ValueError):

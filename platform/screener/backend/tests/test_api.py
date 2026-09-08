@@ -53,14 +53,14 @@ def test_health_reports_resolution_state(client):
     assert body["last_refresh_at"] is not None
 
 
-def test_screener_returns_one_row_per_symbol_with_all_eight_indicators(client):
+def test_screener_returns_one_row_per_symbol_with_all_canonical_indicators(client):
     body = client.get("/api/screener").json()
     assert len(body["rows"]) == 36
 
     row = next(r for r in body["rows"] if r["symbol"] == "BTC/USDT")
     assert row["state"] == "ok"
     assert set(row["indicators"]) == {
-        "ema", "rsi", "macd", "adx", "vfi", "supertrend", "sr", "candles"
+        "ema", "rsi", "macd", "adx", "vfi", "supertrend", "sr", "candles", "classical"
     }
     assert row["errors"] == {}
     assert row["price"] is not None
@@ -137,6 +137,18 @@ def test_pattern_catalog_is_versioned_causal_and_complete(client):
     assert len({item["id"] for item in body["patterns"]}) == 44
 
 
+def test_classical_catalog_is_versioned_causal_and_matches_current_official_surface(client):
+    body = client.get("/api/classical-patterns/catalog").json()
+    assert body["detector_id"] == "trading-scene-classical-patterns"
+    assert body["detector_version"] == "1.0.0"
+    assert body["search_horizon_bars"] == 600
+    assert body["pivot_confirmation"] == {"left_bars": 5, "right_bars": 5}
+    assert body["causal"] is True
+    assert body["predictive_claim"] is False
+    assert len(body["patterns"]) == 16
+    assert len({item["id"] for item in body["patterns"]}) == 16
+
+
 def test_pattern_analysis_excludes_forming_bar_and_preserves_provenance(client):
     request = _pattern_request(client)
     body = client.post("/api/patterns/analyze", json=request).json()
@@ -151,6 +163,21 @@ def test_pattern_analysis_excludes_forming_bar_and_preserves_provenance(client):
     for hit in body["patterns"]:
         assert hit["confirmed_at"] == hit["open_time"] + 3_600_000
         assert hit["detector_version"] == body["detector_version"]
+
+
+def test_classical_analysis_excludes_forming_bar_and_preserves_causal_provenance(client):
+    request = _pattern_request(client)
+    body = client.post("/api/classical-patterns/analyze", json=request).json()
+    assert body["source"]["closed_bars_analyzed"] == 89
+    assert body["source"]["forming_bars_excluded"] == 1
+    assert body["source"]["venue"] == "BINANCE"
+    assert body["source"]["market_type"] == "spot"
+    assert body["settings"]["bar_duration_ms"] == 3_600_000
+    assert body["search_horizon_bars"] == 600
+    for hit in body["patterns"]:
+        assert hit["detected_at_index"] >= hit["anchors"][-1]["confirmed_at_index"]
+        assert hit["detector_version"] == body["detector_version"]
+        assert hit["predictive_claim"] is False
         assert hit["settings_hash"] == body["settings_hash"]
 
 
@@ -246,7 +273,7 @@ def test_disabling_an_indicator_drops_it_from_every_row(client):
     client.patch("/api/config", json={"indicators": {"vfi": {"enabled": False}}})
     row = next(r for r in client.get("/api/screener").json()["rows"] if r["symbol"] == "BTC/USDT")
     assert "vfi" not in row["indicators"]
-    assert len(row["indicators"]) == 7
+    assert len(row["indicators"]) == 8
 
 
 # --- symbols -----------------------------------------------------------
@@ -333,7 +360,7 @@ def test_one_failing_indicator_does_not_blank_the_row(client, monkeypatch):
 
     assert row["state"] == "partial"
     assert "synthetic failure" in row["errors"]["rsi"]
-    assert len(row["indicators"]) == 7, "the other seven must still be there"
+    assert len(row["indicators"]) == 8, "the other eight must still be there"
 
 
 # --- scoring (§6.1) ----------------------------------------------------

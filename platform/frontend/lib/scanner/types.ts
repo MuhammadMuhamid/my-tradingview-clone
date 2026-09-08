@@ -1,8 +1,9 @@
 export type IndicatorKey =
-  | "ema" | "rsi" | "macd" | "vfi" | "adx" | "candles" | "supertrend" | "sr";
+  | "ema" | "rsi" | "macd" | "vfi" | "adx" | "candles" | "supertrend" | "sr"
+  | "classical";
 
 export const INDICATOR_KEYS: IndicatorKey[] = [
-  "ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr",
+  "ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr", "classical",
 ];
 
 export const TIMEFRAMES = [

@@ -259,7 +259,7 @@ class ScreenerService:
                 continue
             try:
                 params = spec["params"]
-                if name == "candles":
+                if name in {"candles", "classical"}:
                     # Exact confirmation time is part of the canonical pattern
                     # contract. The detector cannot infer a timeframe from a
                     # DataFrame, so the owning service supplies it explicitly.
@@ -304,7 +304,7 @@ class ScreenerService:
     def snapshot(self, force: bool = False) -> dict:
         """The cached snapshot, rebuilt on refresh rather than per request.
 
-        Building it means eight indicators plus a three-timeframe strategy pass
+        Building it means the canonical indicators plus a three-timeframe strategy pass
         for every symbol — seconds of arithmetic. The UI polls; recomputing that
         on every poll wasted the work and made the page feel slow for no reason.
         """
@@ -377,8 +377,8 @@ class ScreenerService:
 
         ctx: dict[str, Any] = {}
         for name, module in {**REGISTRY, **STRATEGY_EXTRAS}.items():
-            if name == "candles":
-                continue          # the strategy has no candle-pattern rule
+            if name in {"candles", "classical"}:
+                continue          # the strategy has no automatic-pattern rule
             try:
                 if name == "pivots":
                     ctx[name] = module.compute(df, params.get(name), timeframe=timeframe)

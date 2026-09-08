@@ -16,9 +16,9 @@ def cfg(isolated_config):
     return isolated_config
 
 
-def test_ships_exactly_the_eight_indicators(cfg):
+def test_ships_the_canonical_screener_indicators(cfg):
     assert set(cfg.doc["indicators"]) == {
-        "ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr"
+        "ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr", "classical"
     }
 
 

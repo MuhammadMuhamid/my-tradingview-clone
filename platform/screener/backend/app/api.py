@@ -22,6 +22,7 @@ from .config import ConfigError
 from .service import ScreenerService
 from .timeframes import SUPPORTED, duration_ms
 from .indicators import candles as candle_patterns
+from .indicators import classical as classical_patterns
 
 _ANALYSIS_TIMEFRAME = re.compile(r"^([1-9][0-9]{0,3})([smhd])$")
 _ANALYSIS_UNITS = {"s": 1_000, "m": 60_000, "h": 3_600_000, "d": 86_400_000}
@@ -198,6 +199,94 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
                 raise ValueError("settings must be an object")
             params = {**(settings or {}), "bar_duration_ms": step}
             result = candle_patterns.scan(pd.DataFrame(rows), params)
+            return {
+                **result,
+                "source": {
+                    "venue": "BINANCE", "market_type": "spot", "symbol": symbol,
+                    "timeframe": timeframe, "ohlc": "caller_supplied_binance_spot",
+                    "as_of": as_of, "closed_bars_analyzed": len(rows),
+                    "forming_bars_excluded": excluded,
+                },
+            }
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/classical-patterns/catalog")
+    async def classical_pattern_catalog() -> dict:
+        """Current 16-family catalog with deterministic detector provenance."""
+        settings = classical_patterns.normalized_settings()
+        return {
+            "detector_id": classical_patterns.DETECTOR_ID,
+            "detector_version": classical_patterns.DETECTOR_VERSION,
+            "catalog_observed_at": classical_patterns.CATALOG_OBSERVED_AT,
+            "search_horizon_bars": classical_patterns.SEARCH_BARS,
+            "confirmation": "close",
+            "pivot_confirmation": {"left_bars": 5, "right_bars": 5},
+            "causal": True,
+            "predictive_claim": False,
+            "settings": settings,
+            "settings_hash": classical_patterns.settings_hash(settings),
+            "patterns": classical_patterns.catalog(),
+        }
+
+    @app.post("/api/classical-patterns/analyze")
+    async def analyze_classical_patterns(payload: dict[str, Any] = Body(...)) -> dict:
+        """Analyze only completed caller-supplied Binance Spot OHLC bars."""
+        try:
+            allowed = {"venue", "market_type", "symbol", "timeframe", "as_of", "candles", "settings"}
+            extra = set(payload) - allowed
+            if extra:
+                raise ValueError(f"unsupported field: {sorted(extra)[0]}")
+            if str(payload.get("venue", "")).upper() != "BINANCE":
+                raise ValueError("venue must be BINANCE")
+            if payload.get("market_type") != "spot":
+                raise ValueError("market_type must be spot")
+            symbol = str(payload.get("symbol", "")).upper()
+            if not symbol.isalnum() or not 3 <= len(symbol) <= 30:
+                raise ValueError("symbol must be an alphanumeric Binance Spot symbol")
+            timeframe = str(payload.get("timeframe", ""))
+            step = _analysis_duration_ms(timeframe)
+            as_of = int(payload.get("as_of"))
+            if as_of <= 0:
+                raise ValueError("as_of must be a positive Unix time in milliseconds")
+            source = payload.get("candles")
+            if not isinstance(source, list) or not 1 <= len(source) <= 2_000:
+                raise ValueError("candles must contain between 1 and 2000 bars")
+            rows: list[dict[str, float | int]] = []
+            previous = -1
+            excluded = 0
+            for raw in source:
+                if not isinstance(raw, dict):
+                    raise ValueError("each candle must be an object")
+                required = {"open_time", "open", "high", "low", "close", "close_time"}
+                if set(raw) != required:
+                    raise ValueError("each candle requires exactly open_time, open, high, low, close, close_time")
+                opened = int(raw["open_time"])
+                closed = int(raw["close_time"])
+                if opened <= previous:
+                    raise ValueError("candle open_time values must be unique and strictly increasing")
+                previous = opened
+                if closed != opened + step - 1:
+                    raise ValueError("close_time does not match timeframe")
+                values = [float(raw[key]) for key in ("open", "high", "low", "close")]
+                if not all(math.isfinite(value) and value > 0 for value in values):
+                    raise ValueError("OHLC values must be finite and positive")
+                opened_price, high, low, close = values
+                if high < max(opened_price, close) or low > min(opened_price, close) or high <= low:
+                    raise ValueError("invalid OHLC geometry")
+                if closed > as_of:
+                    excluded += 1
+                    continue
+                rows.append({
+                    "ts": opened, "open": opened_price, "high": high,
+                    "low": low, "close": close,
+                })
+            settings = payload.get("settings")
+            if settings is not None and not isinstance(settings, dict):
+                raise ValueError("settings must be an object")
+            result = classical_patterns.scan(
+                pd.DataFrame(rows), {**(settings or {}), "bar_duration_ms": step},
+            )
             return {
                 **result,
                 "source": {

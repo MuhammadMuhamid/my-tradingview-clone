@@ -1,14 +1,10 @@
-"""Indicator registry.
-
-Exactly the eight modules of §4. Nothing else goes in here — no SMA, no Bollinger
-Bands, no Pivot Points, no "helpful extras". §5 is explicit about that.
-"""
+"""Canonical Screener indicator registry."""
 
 from __future__ import annotations
 
 from types import ModuleType
 
-from . import adx, candles, ema, macd, pivots, rsi, sr, supertrend, vfi, vwap
+from . import adx, candles, classical, ema, macd, pivots, rsi, sr, supertrend, vfi, vwap
 
 REGISTRY: dict[str, ModuleType] = {
     "ema": ema,
@@ -19,11 +15,12 @@ REGISTRY: dict[str, ModuleType] = {
     "supertrend": supertrend,
     "sr": sr,
     "candles": candles,
+    "classical": classical,
 }
 
-#: Indicators the MTF scalping strategy needs that are not in the spec's eight.
+#: Indicators the MTF scalping strategy needs that are not in the table registry.
 #: They are deliberately kept out of REGISTRY so the main table stays at the
-#: eight columns §5 allows, while the strategy can still reach them.
+#: canonical columns, while the strategy can still reach them.
 STRATEGY_EXTRAS: dict[str, ModuleType] = {
     "pivots": pivots,
     "vwap": vwap,

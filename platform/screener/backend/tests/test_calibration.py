@@ -355,7 +355,9 @@ def test_current_mtf_payload_scores_exactly_like_live_inputs(btc_1h, cfg):
     live_payload = {
         name: REGISTRY[name].compute(frames[spec["timeframe"]], spec["params"])
         for name, spec in mixed["indicators"].items()
-        if spec["enabled"]
+        # Classical occurrences are exposed in the live Screener but are not
+        # a scoring input. P4 owns pattern-outcome science/calibration.
+        if spec["enabled"] and name != "classical"
     }
 
     assert set(historical_payload) == set(live_payload)

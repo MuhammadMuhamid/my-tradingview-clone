@@ -6,6 +6,7 @@ import { StrategyPanel } from "./StrategyPanel";
 import { fmtNum, fmtPrice, fmtTime } from "@/lib/scanner/format";
 import { scannerActionHrefs } from "@/lib/spotScene";
 import type { CandlePattern, RowScore, ScreenerRow, SrLevel } from "@/lib/scanner/types";
+import type { ClassicalOccurrence } from "@/lib/classicalPatterns";
 
 /**
  * Expanded row: the confluence sub-score breakdown, the full candle-pattern
@@ -121,6 +122,7 @@ export function RowDetail({ row, span, onRemove, busy }: {
   busy?: boolean;
 }) {
   const patterns = (row.indicators.candles?.patterns ?? []) as CandlePattern[];
+  const classical = (row.indicators.classical?.patterns ?? []) as unknown as ClassicalOccurrence[];
   const levels = (row.indicators.sr?.levels ?? []) as SrLevel[];
   const actions = scannerActionHrefs(row);
   const marketLabel = row.market?.spot
@@ -227,6 +229,32 @@ export function RowDetail({ row, span, onRemove, busy }: {
             <p className="mt-2 text-[10px] leading-tight text-[var(--color-ink-dim)]">
               Strength is 0.0 at the detection threshold and 1.0 at the ideal form of the
               pattern. Hover a row for the exact ratio it comes from.
+            </p>
+          </section>
+
+          <section className="min-w-0">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+              Chart patterns ({classical.length})
+            </h3>
+            {classical.length === 0 ? (
+              <p className="text-xs text-[var(--color-ink-dim)]">No qualifying 5/5-pivot formation.</p>
+            ) : (
+              <ul className="space-y-1 text-xs break-words">
+                {classical.slice(0, 8).map((pattern) => (
+                  <li key={pattern.occurrence_id}>
+                    <span className="mr-2 font-medium">{pattern.name}</span>
+                    <span className={pattern.status === "reached"
+                      ? "text-[var(--color-pos)]" : pattern.status === "failed"
+                        ? "text-[var(--color-neg)]" : "text-[var(--color-ink-dim)]"}>
+                      {pattern.status} · {(pattern.quality.score * 100).toFixed(0)}% geometry
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+              Pivots are knowable only after five bars on the right. Breakouts use completed closes;
+              targets are measured geometry, not forecasts.
             </p>
           </section>
 

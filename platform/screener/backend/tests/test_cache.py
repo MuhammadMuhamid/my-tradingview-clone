@@ -19,7 +19,7 @@ def cfg(isolated_config) -> ConfigStore:
 
 
 def test_one_fetch_per_symbol_timeframe_not_per_indicator(store, cfg):
-    """§8.3 — all eight indicators on 1h must cost one fetch per symbol.
+    """§8.3 — all canonical indicators on 1h cost one fetch per symbol.
 
     The MTF strategy is disabled here so the assertion isolates the property it
     is about: indicators sharing a timeframe share a fetch. The strategy's own
@@ -30,7 +30,7 @@ def test_one_fetch_per_symbol_timeframe_not_per_indicator(store, cfg):
     indicators = cfg.doc["indicators"]
 
     assert len(symbols) == 36
-    assert len(indicators) == 8
+    assert len(indicators) == 9
     assert all(spec["timeframe"] == "1h" for spec in indicators.values())
     assert all(spec["enabled"] for spec in indicators.values())
 

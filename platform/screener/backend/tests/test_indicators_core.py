@@ -16,7 +16,7 @@ from app.indicators import REGISTRY, adx, ema, get, macd, rsi
 from app.indicators.base import InsufficientData
 
 CORE = ("ema", "rsi", "macd", "adx")
-IMPLEMENTED = CORE + ("vfi", "supertrend", "sr", "candles")
+IMPLEMENTED = CORE + ("vfi", "supertrend", "sr", "candles", "classical")
 
 
 # --- ta primitives ----------------------------------------------------
@@ -103,12 +103,12 @@ def test_short_series_raises_rather_than_returning_garbage(name, btc_1h):
         get(name).compute(btc_1h.iloc[:5].reset_index(drop=True), None)
 
 
-def test_registry_holds_exactly_the_eight_indicators_of_section_4():
-    """All eight are implemented. §5 forbids anything else — no SMA, no Bollinger."""
+def test_registry_holds_the_canonical_screener_indicators():
+    """The shipped registry is closed; unrelated study modules stay out."""
     from app.config import INDICATOR_KEYS
 
     assert set(REGISTRY) == set(IMPLEMENTED) == set(INDICATOR_KEYS)
-    assert len(REGISTRY) == 8
+    assert len(REGISTRY) == 9
     for extra in ("bollinger", "sma", "pivots", "fib", "obv", "stoch", "ichimoku"):
         with pytest.raises(KeyError):
             get(extra)

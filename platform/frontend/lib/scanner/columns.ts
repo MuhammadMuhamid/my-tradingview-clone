@@ -38,7 +38,7 @@ const ind = (row: ScreenerRow, key: IndicatorKey, field: string): unknown =>
 
 export const GROUPS = [
   "Symbol", "Strategy", "EMA", "RSI", "MACD", "VFI", "ADX", "VWAP",
-  "Candles", "Supertrend", "S&R", "Pivots",
+  "Candles", "Chart Patterns", "Supertrend", "S&R", "Pivots",
 ] as const;
 export type GroupName = (typeof GROUPS)[number];
 
@@ -50,6 +50,7 @@ export type GroupName = (typeof GROUPS)[number];
  */
 export const GROUP_INDICATOR: Partial<Record<GroupName, IndicatorKey>> = {
   Candles: "candles",
+  "Chart Patterns": "classical",
 };
 
 const SLOTS = ["1h", "15m", "5m"] as const;
@@ -184,6 +185,20 @@ export const COLUMNS: ColumnSpec[] = [
     title: "Conflicting patterns on the same bar cancel to none — never a majority vote.",
     kind: "category", accessor: (r) => ind(r, "candles", "net_bias") },
 
+  // --- Classical chart patterns (confirmed 5/5 pivots, primary timeframe) ---
+  { id: "classical_top", group: "Chart Patterns", slot: null, indicator: "classical",
+    header: "Pattern", title: "Most recently detected deterministic classical formation.",
+    kind: "text", accessor: (r) => ind(r, "classical", "top_pattern") },
+  { id: "classical_family", group: "Chart Patterns", slot: null, indicator: "classical",
+    header: "Family", title: "Filterable canonical family of the most recent formation.",
+    kind: "category", accessor: (r) => ind(r, "classical", "top_family") },
+  { id: "classical_status", group: "Chart Patterns", slot: null, indicator: "classical",
+    header: "Status", title: "developing, awaiting measured target, reached, or failed.",
+    kind: "category", accessor: (r) => ind(r, "classical", "top_status") },
+  { id: "classical_direction", group: "Chart Patterns", slot: null, indicator: "classical",
+    header: "Direction", title: "Structural measured-move direction; both means breakout decides.",
+    kind: "category", accessor: (r) => ind(r, "classical", "top_direction") },
+
   // --- Supertrend, per timeframe -------------------------------------
   ...SLOTS.map<ColumnSpec>((slot) => ({
     id: `st_${slot}`, group: "Supertrend", slot, indicator: null, header: slot,
@@ -245,8 +260,10 @@ export const CATEGORY_OPTIONS: Record<string, string[]> = {
   adx_5m_regime: ["ranging", "transitional", "trending"],
   vwap_5m_bias: ["bull", "bear"],
   candles_bias: ["bull", "bear", "none"],
+  classical_family: ["flag", "pennant", "double", "triple", "head_and_shoulders", "wedge", "triangle", "rectangle", "cup_and_handle"],
+  classical_status: ["developing", "awaiting", "reached", "failed"],
+  classical_direction: ["bull", "bear", "both"],
   st_1h: ["bull", "bear"],
   st_15m: ["bull", "bear"],
   st_5m: ["bull", "bear"],
 };
-
