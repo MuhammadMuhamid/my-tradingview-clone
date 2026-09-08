@@ -18,7 +18,7 @@ import { act, render } from "@testing-library/react";
 import { advance, closeBrowser, resetBrowser, settle } from "./harness/env";
 import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
 import { loadStoredNative } from "@/lib/native/storage";
-import { studySourceToken } from "@/lib/native/graph";
+import { MAX_SOURCE_DEPTH, studySourceToken } from "@/lib/native/graph";
 import type { Candle } from "@/lib/types";
 
 const SCOPE = "p1";
@@ -168,16 +168,29 @@ test("deleting a source is reported, and never becomes an average of price", asy
   const pane = await mountPane();
   const { rsi, ma } = await chain(pane);
   const chained = overlayOf(pane.handle().api, ma, "ma")!.data.at(-1)!.value;
+  let downstream = "";
+  await act(async () => { downstream = pane.handle().api.add("ma") ?? ""; });
+  await act(async () => {
+    pane.handle().api.setParam(downstream, "source", studySourceToken(ma, "ma"));
+  });
+  await settle();
+  assert.ok(overlayOf(pane.handle().api, downstream, "ma"));
 
   await act(async () => { pane.handle().api.remove(rsi); });
   await settle();
 
   assert.equal(pane.handle().api.issues.get(ma), "missing");
+  assert.equal(pane.handle().api.issues.get(downstream), "missing",
+    "the diagnostic propagates beyond the direct orphan");
   assert.equal(overlayOf(pane.handle().api, ma, "ma"), null,
     "a study that cannot compute draws nothing");
   const row = pane.handle().api.rows.find((r) => r.study.key === ma)!;
+  const downstreamRow = pane.handle().api.rows.find((r) => r.study.key === downstream)!;
   assert.equal(row.sourceIssue, "missing");
   assert.equal(row.insufficient, false, "more history would not help, so it must not say that");
+  assert.equal(downstreamRow.sourceIssue, "missing");
+  assert.equal(downstreamRow.insufficient, false);
+  assert.equal(overlayOf(pane.handle().api, downstream, "ma"), null);
 
   // The parameter is untouched, so the chain is repairable rather than lost.
   assert.equal(row.study.params.source, studySourceToken(rsi, "rsi"));
@@ -243,32 +256,28 @@ test("the picker never offers a choice that would close a loop", async () => {
   pane.unmount();
 });
 
-test("a chain of three computes, and a fourth link is refused", async () => {
+test("four study-to-study links compute, and the fifth link is refused", async () => {
   const pane = await mountPane();
-  const { rsi, ma } = await chain(pane);
-  let second = "";
-  await act(async () => { second = pane.handle().api.add("ma") ?? ""; });
-  await act(async () => {
-    pane.handle().api.setParam(second, "source", studySourceToken(ma, "ma"));
-  });
-  await settle();
-
-  assert.equal(pane.handle().api.issues.size, 0);
-  assert.ok(overlayOf(pane.handle().api, second, "ma"), "three deep is a working chain");
-
-  /*
-   * A hostile parameter, of the kind a hand-edited layout supplies: point the
-   * RSI back at the top of its own chain. The graph must refuse the whole loop
-   * rather than recursing into it, and the pane must still render.
-   */
-  await act(async () => {
-    pane.handle().api.setParam(rsi, "source", studySourceToken(second, "ma"));
-  });
-  await settle();
-  for (const key of [rsi, ma, second]) {
-    assert.equal(pane.handle().api.issues.get(key), "cycle", `${key} is in the cycle`);
-    assert.equal(overlayOf(pane.handle().api, key, key === rsi ? "rsi" : "ma"), null);
+  let previous = "";
+  await act(async () => { previous = pane.handle().api.add("rsi") ?? ""; });
+  for (let edge = 1; edge <= MAX_SOURCE_DEPTH + 1; edge++) {
+    let next = "";
+    await act(async () => { next = pane.handle().api.add("ma") ?? ""; });
+    await act(async () => {
+      pane.handle().api.setParam(
+        next, "source", studySourceToken(previous, edge === 1 ? "rsi" : "ma"));
+    });
+    await settle();
+    if (edge <= MAX_SOURCE_DEPTH) {
+      assert.equal(pane.handle().api.issues.get(next), undefined, `edge ${edge} is allowed`);
+      assert.ok(overlayOf(pane.handle().api, next, "ma"), `edge ${edge} computes`);
+    } else {
+      assert.equal(pane.handle().api.issues.get(next), "depth", `edge ${edge} is refused`);
+      assert.equal(overlayOf(pane.handle().api, next, "ma"), null);
+    }
+    previous = next;
   }
-  assert.equal(pane.handle().api.list.length, 3, "and nothing was deleted to achieve that");
+  assert.equal(pane.handle().api.list.length, MAX_SOURCE_DEPTH + 2,
+    "the refused study stays visible so the panel can diagnose it");
   pane.unmount();
 });

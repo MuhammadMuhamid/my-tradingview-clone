@@ -35,7 +35,7 @@ import { PROFILE_COLORS } from "@/lib/native/profile";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import type { Candle } from "@/lib/types";
 import {
-  barsInRange, computeVolumeProfile, normalizeProfileSettings,
+  barsInRange, computeVolumeProfile, normalizeProfileSettings, profileBasisNotice,
   type VolumeProfile,
 } from "@/lib/volumeProfile";
 
@@ -63,6 +63,11 @@ export interface FixedRangeProfile {
   profile: VolumeProfile;
 }
 
+export interface ProfileRefinementInput {
+  candles: readonly Candle[];
+  interval: Resolution;
+}
+
 /**
  * The profile of every fixed range on this instrument.
  *
@@ -71,7 +76,8 @@ export interface FixedRangeProfile {
  * that says which bars each one covers and at what resolution they were taken.
  */
 export function fixedRangeProfiles(
-  drawings: readonly Drawing[], candles: readonly Candle[], interval: Resolution
+  drawings: readonly Drawing[], candles: readonly Candle[], interval: Resolution,
+  refinement?: ProfileRefinementInput,
 ): FixedRangeProfile[] {
   if (candles.length === 0) return [];
   const out: FixedRangeProfile[] = [];
@@ -84,6 +90,12 @@ export function fixedRangeProfiles(
     const fromMs = Math.min(a, b) * 1000;
     const toMs = Math.max(a, b) * 1000;
     const bars = barsInRange(candles, fromMs, toMs);
+    const refinedBars = refinement
+      ? barsInRange(
+          refinement.candles, fromMs,
+          toMs + resolutionMs(interval) - 1,
+        )
+      : [];
     const settings = normalizeProfileSettings({
       layout: drawing.style.profile?.layout,
       rowSize: drawing.style.profile?.rowSize ?? DEFAULT_VP_RANGE_STYLE.rowSize,
@@ -94,7 +106,9 @@ export function fixedRangeProfiles(
     out.push({
       drawingId: drawing.id,
       fromMs, toMs,
-      profile: computeVolumeProfile(bars, settings, interval, "chart"),
+      profile: refinedBars.length > 0
+        ? computeVolumeProfile(refinedBars, settings, refinement!.interval, "refined")
+        : computeVolumeProfile(bars, settings, interval, "chart"),
     });
   }
   return out;
@@ -123,12 +137,13 @@ function presentation(drawing: Drawing) {
  * half.
  */
 export function fixedRangeDecorations(
-  drawings: readonly Drawing[], candles: readonly Candle[], interval: Resolution
+  drawings: readonly Drawing[], candles: readonly Candle[], interval: Resolution,
+  refinement?: ProfileRefinementInput,
 ): ChartProfileDecoration[] {
   const byId = new Map(drawings.map((d) => [d.id, d]));
   const step = resolutionMs(interval);
   const out: ChartProfileDecoration[] = [];
-  for (const found of fixedRangeProfiles(drawings, candles, interval)) {
+  for (const found of fixedRangeProfiles(drawings, candles, interval, refinement)) {
     const drawing = byId.get(found.drawingId);
     if (!drawing) continue;
     const { profile } = found;
@@ -138,6 +153,9 @@ export function fixedRangeDecorations(
       id: `vprange:${drawing.id}`,
       paneId: PRICE_PANE_ID,
       title: "Fixed Range Volume Profile",
+      basis: profile.basis,
+      sourceInterval: profile.sourceInterval,
+      basisNotice: profileBasisNotice(profile),
       from: Math.floor(profile.from / 1000),
       to: Math.floor((profile.to + step) / 1000),
       rows: profile.rows,
@@ -170,15 +188,16 @@ export function fixedRangeDecorations(
  */
 export function fixedRangeOverlays(
   drawings: readonly Drawing[], candles: readonly Candle[], interval: Resolution,
-  precision: number
+  precision: number, refinement?: ProfileRefinementInput,
 ): ChartOverlay[] {
   if (candles.length === 0) return [];
   const times = candles.map((c) => Math.floor(c.openTime / 1000));
   const out: ChartOverlay[] = [];
-  for (const found of fixedRangeProfiles(drawings, candles, interval)) {
+  for (const found of fixedRangeProfiles(drawings, candles, interval, refinement)) {
     const { profile } = found;
     if (profile.poc === null) continue;
-    const label = `${profile.bars} bar${profile.bars === 1 ? "" : "s"}`;
+    const label = `${profile.bars} ${profile.sourceInterval} bar${profile.bars === 1 ? "" : "s"} · ${
+      profile.basis === "refined" ? "refined" : "chart-bar estimate"}`;
     const levels: [string, string, number | null, string, boolean][] = [
       ["poc", "POC", profile.poc, PROFILE_COLORS.poc, false],
       ["vah", "VAH", profile.valueAreaHigh, PROFILE_COLORS.valueArea, true],

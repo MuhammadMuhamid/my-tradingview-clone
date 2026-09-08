@@ -48,13 +48,20 @@ const CONCURRENCY = 3;
 export interface CorrelationSet {
   series: MatrixSeries[];
   loading: boolean;
+  /** Exact request identity the series (or loading state) belongs to. */
+  key: string;
+  interval: Resolution | null;
+  bars: number;
   /** Instruments that could not be loaded, and why. */
   errors: { symbol: string; message: string }[];
   /** How many instruments were dropped for being past the cap. */
   truncated: number;
 }
 
-const EMPTY: CorrelationSet = { series: [], loading: false, errors: [], truncated: 0 };
+const EMPTY: CorrelationSet = {
+  series: [], loading: false, key: "", interval: null, bars: 0,
+  errors: [], truncated: 0,
+};
 
 export function useCorrelationSet(
   symbols: readonly string[], interval: Resolution, bars: number,
@@ -87,12 +94,16 @@ export function useCorrelationSet(
   const load = useCallback(async () => {
     const list = key.length > 0 ? key.split(",") : [];
     if (!enabled || list.length === 0) {
-      setState({ ...EMPTY, truncated });
+      setState({ ...EMPTY, key, interval, bars, truncated });
       return;
     }
     const token = seq.current.next();
     const signal = inFlight.current.start();
-    setState((current) => ({ ...current, loading: true }));
+    // Identity and values move together. Retaining the old series here made a
+    // 1h matrix appear under a new 15m heading until this request completed.
+    setState({
+      series: [], loading: true, key, interval, bars, errors: [], truncated,
+    });
 
     const series: MatrixSeries[] = [];
     const errors: { symbol: string; message: string }[] = [];
@@ -132,6 +143,9 @@ export function useCorrelationSet(
       // Back into the order asked for. The workers finish out of order, and a
       // table whose rows moved between refreshes would be unreadable.
       series: list.flatMap((symbol) => series.filter((s) => s.symbol === symbol)),
+      key,
+      interval,
+      bars,
       errors,
       loading: false,
       truncated,

@@ -153,6 +153,17 @@ test("a source that has been deleted is reported, not silently repointed at pric
   assert.equal(orphan.params.source, "study:gone:rsi");
 });
 
+test("a missing source is reported through every dependent, not as short history", () => {
+  const orphan = applied("ma", "a", { source: studySourceToken("gone", "rsi") });
+  const reader = applied("ma", "b", { source: studySourceToken("a", "ma") });
+  const secondReader = applied("cci", "c", { source: studySourceToken("b", "ma") });
+  const graph = graphOf([orphan, reader, secondReader]);
+  assert.equal(graph.issues.get("a"), "missing");
+  assert.equal(graph.issues.get("b"), "missing");
+  assert.equal(graph.issues.get("c"), "missing");
+  assert.equal(reader.params.source, "study:a:ma", "the reparable token survives");
+});
+
 test("a chain longer than the limit is refused, and the picker never offers one", () => {
   const chain: AppliedNativeStudy[] = [applied("rsi", "k0")];
   for (let i = 1; i <= MAX_SOURCE_DEPTH + 1; i++) {

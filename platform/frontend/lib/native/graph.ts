@@ -56,12 +56,12 @@ export const STUDY_SOURCE_PREFIX = "study:";
 /**
  * How long a chain may be.
  *
- * Four is past anything with a name — an average of an RSI of a smoothed
- * close is three — and it is what bounds the cost: the window a group is
- * evaluated over grows with the chain, so an unbounded depth would let a
- * layout ask for an unbounded window. The picker stops offering sources that
- * would exceed it, so the limit is met as a missing option rather than as an
- * error after the fact.
+ * Depth means study-to-study EDGES, not study nodes: four permits five studies
+ * in one chain, and a fifth link is refused. This is what bounds the cost: the
+ * window a group is evaluated over grows with the chain, so an unbounded depth
+ * would let a layout ask for an unbounded window. The picker stops offering
+ * sources that would exceed it, so the limit is met as a missing option rather
+ * than as an error after the fact.
  */
 export const MAX_SOURCE_DEPTH = 4;
 
@@ -218,6 +218,28 @@ export function buildStudyGraph(
   for (const study of list) visit(study.key);
   for (const key of bad) issues.set(key, "cycle");
 
+  /*
+   * A valid edge to a study that is itself missing or too deep is still
+   * unusable. Propagate those causes downstream just as cycles are propagated;
+   * otherwise a dependent receives all-NaN input and incorrectly tells the
+   * user to load more history. Keep the edge and source token intact so
+   * restoring the root repairs the whole chain.
+   */
+  let propagated = true;
+  while (propagated) {
+    propagated = false;
+    for (const study of list) {
+      if (issues.has(study.key)) continue;
+      const upstream = (edges.get(study.key) ?? [])
+        .map((edge) => issues.get(edge.key))
+        .find((issue): issue is SourceIssue => issue === "missing" || issue === "depth");
+      if (upstream) {
+        issues.set(study.key, upstream);
+        propagated = true;
+      }
+    }
+  }
+
   // ── depth and lead-in ────────────────────────────────────────────────────
   const depth = new Map<string, number>();
   const chainWarmup = new Map<string, number>();
@@ -248,6 +270,19 @@ export function buildStudyGraph(
   for (const study of list) measure(study.key);
   for (const [key, value] of depth) {
     if (value > MAX_SOURCE_DEPTH && !issues.has(key)) issues.set(key, "depth");
+  }
+
+  // Depth poisoning can only be known after measuring the graph.
+  propagated = true;
+  while (propagated) {
+    propagated = false;
+    for (const study of list) {
+      if (issues.has(study.key)) continue;
+      if ((edges.get(study.key) ?? []).some((edge) => issues.has(edge.key))) {
+        issues.set(study.key, "depth");
+        propagated = true;
+      }
+    }
   }
 
   // ── connected groups ─────────────────────────────────────────────────────
@@ -458,7 +493,7 @@ export function sourceIssueMessage(issue: SourceIssue): string {
     case "cycle":
       return "This study and the one it reads depend on each other, which has no value to compute.";
     case "depth":
-      return `Studies may be chained ${MAX_SOURCE_DEPTH} deep; this chain is longer.`;
+      return `Studies may use at most ${MAX_SOURCE_DEPTH} study-to-study links; this chain is longer.`;
   }
 }
 

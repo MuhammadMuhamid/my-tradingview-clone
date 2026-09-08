@@ -207,9 +207,11 @@ test("each pair surface gets its own pane, never the price scale", () => {
       assert.equal(overlay.instanceId, `compare:SOLUSDT:${mode}`);
     }
   }
-  // The percentage overlay is the one that IS a price story.
+  // Percent values and currency candles are different units, so percent also
+  // gets a dedicated pane instead of flattening both on one normal axis.
   const percent = compareOverlays(base, other, "percent", 20, "BTCUSDT");
-  assert.ok(percent.overlays.every((o) => o.paneId === "price"));
+  assert.ok(percent.overlays.every((o) => o.paneId === "compare:SOLUSDT:percent"));
+  assert.ok(percent.overlays.every((o) => o.instanceParams === "% from first shared bar"));
 });
 
 test("the z-spread carries the reference lines that make a z-score readable", () => {

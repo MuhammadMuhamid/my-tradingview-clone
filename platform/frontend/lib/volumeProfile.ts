@@ -132,6 +132,8 @@ export interface VolumeProfile {
   basis: ProfileBasis;
   /** The resolution of the bars actually used. */
   sourceInterval: Resolution;
+  /** How each source bar's volume was assigned to price rows. */
+  allocation: VolumeAllocation;
 }
 
 /** A profile of nothing: an empty range, or one with no traded volume. */
@@ -141,7 +143,7 @@ export function emptyProfile(interval: Resolution, basis: ProfileBasis = "chart"
     valueAreaHigh: null, valueAreaLow: null, valueAreaRows: [], valueAreaVolume: 0,
     totalVolume: 0, peakVolume: 0,
     priceLow: 0, priceHigh: 0, from: null, to: null, bars: 0,
-    basis, sourceInterval: interval,
+    basis, sourceInterval: interval, allocation: DEFAULT_PROFILE_SETTINGS.allocation,
   };
 }
 
@@ -338,7 +340,7 @@ export function computeVolumeProfile(
     totalVolume, peakVolume,
     priceLow, priceHigh,
     from: first.openTime, to: last.openTime, bars: candles.length,
-    basis, sourceInterval: interval,
+    basis, sourceInterval: interval, allocation: settings.allocation,
   };
   if (pocIndex < 0 || totalVolume <= 0) return base;
 
@@ -407,7 +409,9 @@ export function profileBasisNotice(profile: VolumeProfile): string {
     ? `Built from ${profile.sourceInterval} bars loaded for this range`
     : `Built from this chart's own ${profile.sourceInterval} bars`;
   const how = profile.rows.length > 0 && profile.rows.some((r) => r.total > 0)
-    ? ", each bar's volume spread across the rows its high–low covers"
+    ? profile.allocation === "close"
+      ? ", each bar's volume placed at its close"
+      : ", each bar's volume spread across the rows its high–low covers"
     : "";
   const caveat = profile.basis === "refined"
     ? "."

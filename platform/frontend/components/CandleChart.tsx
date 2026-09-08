@@ -1469,6 +1469,15 @@ export function CandleChart({
     () => groupedOverlays.priceDecorations.filter(
       (d): d is ChartProfileDecoration => d.kind === "profile"),
     [groupedOverlays.priceDecorations]);
+  const profileNotices = useMemo(() => {
+    const seen = new Set<string>();
+    return priceProfiles.flatMap((profile) => {
+      const key = `${profile.title}|${profile.basisNotice}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [profile];
+    });
+  }, [priceProfiles]);
 
   const pinePriceToCoordinate = useCallback((overlayId: string, value: number): number | null => {
     const entry = overlayRefs.current.get(overlayId);
@@ -1925,6 +1934,21 @@ export function CandleChart({
         row below — see `identity` in the props.
       */}
       {identity}
+      {profileNotices.map((profile) => (
+        <div
+          key={`${profile.title}:${profile.basisNotice}`}
+          data-volume-profile-basis={profile.basis}
+          role="status"
+          title={profile.basisNotice}
+          className={`max-w-full rounded border bg-surface/90 px-1.5 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${
+            profile.basis === "refined"
+              ? "border-border text-ink-muted"
+              : "border-warn/40 text-warn"
+          }`}
+        >
+          {profile.title.replace("Volume Profile", "VP")} · {profile.basisNotice}
+        </div>
+      ))}
       {/*
         The synthetic disclosure, on the chart itself rather than only in the
         toolbar. The toolbar describes the ACTIVE pane; in a sixteen-pane

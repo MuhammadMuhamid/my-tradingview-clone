@@ -20,6 +20,9 @@ import {
 import { PRICE_PANE_ID, type ChartProfileDecoration } from "../lib/chartSeries";
 import type { Drawing } from "../lib/drawings";
 import type { Candle } from "../lib/types";
+import {
+  MAX_PROFILE_REFINEMENT_BARS, profileRefinementPlan,
+} from "../lib/useVolumeProfileRefinement";
 
 const MINUTE = 60_000;
 const T0 = 1_700_000_000_000;
@@ -104,11 +107,57 @@ test("a profile reaches the renderer as a price-pane decoration covering its las
   assert.ok(drawn.rows.length > 0);
   assert.ok(drawn.peakVolume > 0);
   assert.ok(drawn.pocIndex >= 0);
+  assert.equal(drawn.basis, "chart");
+  assert.equal(drawn.sourceInterval, "1m");
+  assert.match(drawn.basisNotice, /does not say where inside a bar/);
   // The legend gets the levels as values, so the profile is readable as
   // numbers and not only as a shape.
   assert.ok(output.values.poc !== null);
   assert.ok(output.values.vah !== null);
   assert.ok(output.values.val !== null);
+});
+
+test("visible and fixed profiles use supplied finer bars and disclose that source", () => {
+  const chartBars = bars(4).map((c, i) => ({
+    ...c, openTime: T0 + i * 15 * MINUTE,
+    closeTime: T0 + (i + 1) * 15 * MINUTE - 1,
+  }));
+  const finer = bars(60);
+  const applied = newNativeStudy(vrvp, "vp-refined");
+  const visible = runNativeStudy(vrvp, applied, chartBars, "15m", 2, {
+    visibleRange: { fromMs: T0, toMs: T0 + 45 * MINUTE },
+    profileCandles: finer,
+    profileInterval: "1m",
+  });
+  const visibleDecoration = visible.decorations.find(
+    (d): d is ChartProfileDecoration => d.kind === "profile")!;
+  assert.equal(visibleDecoration.basis, "refined");
+  assert.equal(visibleDecoration.sourceInterval, "1m");
+  assert.match(visibleDecoration.basisNotice, /1m bars loaded for this range/);
+
+  const fixed = fixedRangeDecorations(
+    [range("refined", 0, 2)], chartBars, "15m", { candles: finer, interval: "1m" },
+  )[0]!;
+  assert.equal(fixed.basis, "refined");
+  assert.equal(fixed.sourceInterval, "1m");
+  assert.match(fixed.basisNotice, /1m bars loaded for this range/);
+});
+
+test("refinement chooses the finest divisor inside its hard request budget", () => {
+  const short = profileRefinementPlan("SOLUSDT", "15m", T0, T0 + 59 * MINUTE);
+  assert.equal(short?.sourceInterval, "1s");
+  assert.equal(short?.expectedBars, 3_541);
+
+  const long = profileRefinementPlan(
+    "SOLUSDT", "1d", T0, T0 + 599 * 24 * 60 * MINUTE,
+  );
+  assert.equal(long?.sourceInterval, "4h");
+  assert.ok((long?.expectedBars ?? Infinity) <= MAX_PROFILE_REFINEMENT_BARS);
+  assert.equal(
+    profileRefinementPlan("SOLUSDT", "1m", T0, T0 + 599 * MINUTE),
+    null,
+    "a 36k-second request falls back to chart bars rather than exceeding the cap",
+  );
 });
 
 test("a hidden or unparameterised profile draws nothing rather than throwing", () => {
@@ -230,7 +279,7 @@ test("a fixed range's levels are drawn only over the bars it profiles", () => {
   for (const overlay of overlays) {
     assert.equal(overlay.paneId, PRICE_PANE_ID);
     assert.equal(overlay.instanceTitle, "Fixed Range Volume Profile");
-    assert.equal(overlay.instanceParams, "10 bars");
+    assert.equal(overlay.instanceParams, "10 1m bars · chart-bar estimate");
     const inside = overlay.data.filter((p) => p.value !== null);
     assert.equal(inside.length, 10);
     assert.equal(overlay.data[0]!.value, null);

@@ -17,6 +17,9 @@ import {
   baseAssetOf, isTicketStaged, positionsForSymbol, resetForAccountChange,
   resetForSymbolChange, ticketSubmitBlocker,
 } from "../../lib/manualTicket";
+import {
+  manualTradingPollingAllowed, noteManualTradingFailure,
+} from "@/lib/manualTradingPolling";
 
 const newRequestId = (): string => window.crypto.randomUUID();
 const n = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
@@ -168,6 +171,7 @@ export function ManualTradingPanel({
   const [disarmedFrom, setDisarmedFrom] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!manualTradingPollingAllowed()) return;
     try {
       /*
        * Account-wide, not symbol-scoped.
@@ -179,9 +183,14 @@ export function ManualTradingPanel({
        * depends on the fetch having been filtered.
        */
       const next = await api.manualState();
+      if (!next.enabled) noteManualTradingFailure("manual trading is disabled");
       setState(next); onStateChange(next); setError(null);
       if (!accountId && next.accounts[0]) setAccountId(next.accounts[0].id);
-    } catch (e) { setError((e as Error).message); }
+    } catch (e) {
+      const message = (e as Error).message;
+      noteManualTradingFailure(message);
+      setError(message);
+    }
   }, [accountId, onStateChange]);
 
   useEffect(() => { void refresh(); const id = setInterval(() => void refresh(), 10_000);

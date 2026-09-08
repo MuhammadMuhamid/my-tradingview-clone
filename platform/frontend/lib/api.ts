@@ -1086,8 +1086,13 @@ export const api = {
    * resolution it is on; the translation belongs on the side that owns the
    * candle store.
    */
-  backfill: (symbol: string, interval: Resolution, start: string, end: string) =>
-    req<{ fetched: number; interval: Resolution; source: Interval }>("/api/data/backfill", { method: "POST", body: JSON.stringify({ symbol, interval, start, end }) }),
+  backfill: (
+    symbol: string, interval: Resolution, start: string, end: string,
+    signal?: AbortSignal,
+  ) => req<{ fetched: number; interval: Resolution; source: Interval }>(
+    "/api/data/backfill",
+    { method: "POST", body: JSON.stringify({ symbol, interval, start, end }), ...(signal ? { signal } : {}) },
+  ),
 
   // strategies + configs
   listStrategies: () => req<Strategy[]>("/api/strategies"),

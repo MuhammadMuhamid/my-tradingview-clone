@@ -258,6 +258,12 @@ test("the basis is stated rather than implied", () => {
   assert.doesNotMatch(profileBasisNotice(refined), /does not say/);
 
   assert.equal(profileBasisNotice(emptyProfile("1h")), "No bars in this range.");
+
+  const byClose = computeVolumeProfile(
+    [bar(0, 1, 2, 1, 2, 5)], settings({ allocation: "close" }), "1h",
+  );
+  assert.match(profileBasisNotice(byClose), /placed at its close/);
+  assert.doesNotMatch(profileBasisNotice(byClose), /spread across/);
 });
 
 test("a refined profile of the same range agrees on totals and disagrees on shape", () => {

@@ -195,6 +195,10 @@ export interface NativeComputeInput {
   candles: readonly Candle[];
   params: NativeParams;
   interval: Resolution;
+  /** Genuine finer venue bars for a Volume Profile range, when available. */
+  profileCandles?: readonly Candle[];
+  /** Resolution of `profileCandles`; never inferred from the chart interval. */
+  profileInterval?: Resolution;
   /**
    * Exactly what the user can see, in epoch milliseconds, snapped to the bar
    * grid — for the few studies whose ANSWER is about the viewport rather than

@@ -13,6 +13,8 @@ import { installFetch, server, type CompactBar } from "./server";
 import { candleHistory } from "@/lib/candleHistory";
 import { drawingStore } from "@/lib/drawingStore";
 import { resetTailRepairs } from "@/lib/historyFreshness";
+import { resetVolumeProfileRefinementCache } from "@/lib/useVolumeProfileRefinement";
+import { resetManualTradingPollingCapability } from "@/lib/manualTradingPolling";
 
 /**
  * A websocket that opens and then says nothing.
@@ -77,6 +79,8 @@ export function resetBrowser(): void {
    */
   candleHistory.reset();
   resetTailRepairs();
+  resetVolumeProfileRefinementCache();
+  resetManualTradingPollingCapability();
   drawingStore.resetAll();
   window.sessionStorage.clear();
   server.reset();

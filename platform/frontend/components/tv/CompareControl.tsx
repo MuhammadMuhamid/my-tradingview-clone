@@ -22,7 +22,7 @@ const FIELD =
 const MODES: { value: PaneCompare["mode"]; label: string; hint: string }[] = [
   {
     value: "percent", label: "Percent change",
-    hint: "Both instruments rebased to 0 % at the first bar they share, drawn on the price pane.",
+    hint: "Both instruments rebased to 0 % at the first bar they share, in a dedicated percent pane.",
   },
   {
     value: "correlation", label: "Rolling correlation",

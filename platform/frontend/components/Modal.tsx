@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /** Everything that can hold keyboard focus inside the panel. */
 const FOCUSABLE =
@@ -123,8 +124,8 @@ export function Modal({
   }, [open]);
 
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+  return createPortal(
+    <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       {/*
         The backdrop is presentational: closing by clicking it is a convenience,
         and the labelled close button plus Escape are the accessible paths, so it
@@ -159,6 +160,7 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

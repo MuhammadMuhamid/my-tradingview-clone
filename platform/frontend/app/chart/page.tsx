@@ -105,6 +105,9 @@ import {
   type ReplaySession, type ReplaySpeed,
 } from "@/lib/replay";
 import { useTradingOverlays } from "@/lib/useTradingOverlays";
+import {
+  manualTradingPollingAllowed, noteManualTradingFailure,
+} from "@/lib/manualTradingPolling";
 
 type Panel = ChartPanel;
 
@@ -320,13 +323,17 @@ export default function TvWorkspace() {
     if (replayActive) return;
     let live = true;
     const refreshManual = async () => {
+      if (!manualTradingPollingAllowed()) return;
       try {
         const next = await api.manualState(tradingSymbol);
+        if (!next.enabled) noteManualTradingFailure("manual trading is disabled");
         if (live) recordManualState(next);
       } catch (e) {
         // Normally the feature is disabled on this install; the strip says
         // so in the Bot's own words rather than showing an empty table.
-        if (live) setManualUnavailable((e as Error).message);
+        const message = (e as Error).message;
+        noteManualTradingFailure(message);
+        if (live) setManualUnavailable(message);
       }
     };
     void refreshManual();

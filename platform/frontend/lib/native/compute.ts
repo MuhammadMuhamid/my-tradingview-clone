@@ -39,6 +39,7 @@ import { resolutionMs } from "@/lib/resolution";
 import type { ChartDecoration, ChartOverlay, ChartPoint } from "@/lib/chartSeries";
 import { PRICE_PANE_ID } from "@/lib/chartSeries";
 import { type Candle } from "@/lib/types";
+import { profileBasisNotice } from "@/lib/volumeProfile";
 import {
   defaultParams, normalizeParams, type NativeParams, type NativeStudyDef, type PlotDef,
 } from "./registry";
@@ -163,6 +164,8 @@ export function runNativeStudy(
   extra: {
     visibleRange?: { fromMs: number; toMs: number };
     sources?: Readonly<Record<string, readonly number[]>>;
+    profileCandles?: readonly Candle[];
+    profileInterval?: Parameters<NativeStudyDef["compute"]>[0]["interval"];
     /** Human-readable names for study sources, for the legend. */
     sourceLabels?: Readonly<Record<string, string>>;
     /** Keep the plot arrays, because another study reads this one. */
@@ -177,6 +180,8 @@ export function runNativeStudy(
       candles, params, interval,
       visibleRange: extra.visibleRange,
       sources: extra.sources,
+      profileCandles: extra.profileCandles,
+      profileInterval: extra.profileInterval,
     });
   } catch {
     // A study that cannot compute says nothing. The alternative — letting the
@@ -268,7 +273,7 @@ export function runNativeStudy(
        * of the range it summarises, which on a 30-bar fixed range is visibly
        * wrong and on a two-bar one is half the range.
        */
-      to: Math.floor((profile.to + resolutionMs(interval)) / 1000),
+      to: Math.floor((profile.to + resolutionMs(profile.sourceInterval)) / 1000),
       side: output.side,
       widthRatio: output.widthRatio,
       rows: profile.rows,
@@ -280,6 +285,9 @@ export function runNativeStudy(
       showPoc: output.showPoc,
       showRange: output.showRange,
       colors: output.colors,
+      basis: profile.basis,
+      sourceInterval: profile.sourceInterval,
+      basisNotice: profileBasisNotice(profile),
     });
   }
   for (const fill of def.fills ?? []) {

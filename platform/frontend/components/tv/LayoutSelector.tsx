@@ -131,8 +131,10 @@ export function LayoutSelector({
         onClick={() => {
           setCount(n);
           // Picking a count applies its default shape immediately;
-          // the variants below refine it without a second trip here.
+          // the variants can be chosen on a later trip. Close now so the new
+          // pane is immediately reachable instead of sitting under this menu.
           onChange(defaultPresetFor(n).id);
+          setOpen(false);
         }}
         aria-pressed={isBrowsing}
         aria-label={`${n} chart${n === 1 ? "" : "s"}${isCurrent ? " — current layout" : ""}`}

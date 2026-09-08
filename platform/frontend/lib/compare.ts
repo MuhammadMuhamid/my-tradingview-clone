@@ -40,7 +40,7 @@ import {
   alignByOpenTime, beta as betaOf, correlation as correlationOf, logReturns,
   normalizedCompare, zscore,
 } from "./ta/core";
-import { PRICE_PANE_ID, type ChartOverlay } from "./chartSeries";
+import type { ChartOverlay } from "./chartSeries";
 import type { Candle } from "./types";
 import type { Resolution } from "./resolution";
 import type { PaneCompare } from "./workspace";
@@ -321,11 +321,11 @@ export { storedSymbol };
 /**
  * The comparison a pane is drawing, as chart overlays.
  *
- * `percent` goes on the price pane because it IS a price story: two lines
- * rebased to the same zero, read against each other. Correlation and beta go
- * in their own pane because their scale is not price and never will be —
- * drawing a number between −1 and 1 on an axis that runs to 60,000 renders it
- * as a flat line on the floor.
+ * Every comparison gets a unit-coherent pane. Percent change cannot share a
+ * normal currency axis with raw candles: doing so puts values near zero and
+ * prices near 60,000 on one scale and makes both unreadable. Its dedicated
+ * pane keeps both rebased lines together on an axis explicitly labelled `%`.
+ * Correlation and beta likewise use their own statistical scales.
  */
 export function compareOverlays(
   base: readonly Candle[],
@@ -343,19 +343,22 @@ export function compareOverlays(
 
   if (mode === "percent") {
     const { plots, notice } = comparePercent(base, other);
+    const paneId = instanceId;
     return {
       notice,
       overlays: [
         {
           id: `${instanceId}:base`, title: `${baseSymbol} %`, color: COMPARE_BASE_COLOR,
-          width: 2, style: "line", paneId: PRICE_PANE_ID,
-          instanceId, instanceTitle: `Compare ${other.symbol}`, instanceParams: "% change",
+          width: 2, style: "line", paneId,
+          instanceId, instanceTitle: `Percent change vs ${other.symbol}`,
+          instanceParams: "% from first shared bar",
           precision: 2, data: point(plots.base!),
         },
         {
           id: `${instanceId}:other`, title: `${other.symbol} %`, color: COMPARE_OTHER_COLOR,
-          width: 2, style: "line", paneId: PRICE_PANE_ID,
-          instanceId, instanceTitle: `Compare ${other.symbol}`, instanceParams: "% change",
+          width: 2, style: "line", paneId,
+          instanceId, instanceTitle: `Percent change vs ${other.symbol}`,
+          instanceParams: "% from first shared bar",
           precision: 2, data: point(plots.other!),
         },
       ],

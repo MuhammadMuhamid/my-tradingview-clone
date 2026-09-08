@@ -63,6 +63,12 @@ export interface ChartProfileDecoration {
   paneId: string;
   /** Legend title, e.g. "Visible Range Volume Profile". */
   title: string;
+  /** Whether this is a chart-bar estimate or a lower-timeframe refinement. */
+  basis: "chart" | "refined";
+  /** Resolution of the bars that actually shaped the rows. */
+  sourceInterval: string;
+  /** User-facing provenance and estimate limitation. */
+  basisNotice: string;
   /** Range the profile covers, in chart seconds. */
   from: number;
   to: number;

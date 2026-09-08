@@ -59,6 +59,8 @@ import { pushPaneStudies, syncPaneStudies } from "./chartStateSync";
 import type { ChartDecoration, ChartOverlay } from "./chartSeries";
 import type { Candle } from "./types";
 import type { Resolution } from "./resolution";
+import { resolutionMs } from "./resolution";
+import { useVolumeProfileRefinement } from "./useVolumeProfileRefinement";
 
 /** One study, as the panel and the legend want to read it. */
 export interface NativeStudyRow {
@@ -138,6 +140,23 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
   const scope = ctx.scope ?? PRIMARY_SCOPE;
   const [list, setList] = useState<AppliedNativeStudy[]>([]);
   const cache = useRef(new StudyCache());
+
+  const wantsVisibleProfile = list.some((study) => study.visible && study.defId === "vrvp");
+  const lastChartBar = ctx.candles[ctx.candles.length - 1];
+  const profileFrom = ctx.visibleRange?.fromMs ?? null;
+  const profileTo = ctx.visibleRange && lastChartBar
+    ? Math.min(
+        ctx.visibleRange.toMs + resolutionMs(ctx.interval) - 1,
+        lastChartBar.closeTime,
+      )
+    : null;
+  const profileRefinement = useVolumeProfileRefinement({
+    enabled: wantsVisibleProfile,
+    symbol: lastChartBar?.symbol ?? "",
+    chartInterval: ctx.interval,
+    fromMs: profileFrom,
+    toMs: profileTo,
+  });
 
   /*
    * Restore once, on mount, from local storage AND from the server.
@@ -299,8 +318,11 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
         ? `w${graph.componentWarmup[index]}:${
           edges.map((edge) => `${edge.token}=${signatures.get(edge.key) ?? "?"}`).join("+")}`
         : undefined;
+      const fullSourceSignature = def.id === "vrvp"
+        ? `${sourceSignature ?? ""}|profile=${profileRefinement.dataKey}`
+        : sourceSignature;
       const signature = studySignature(
-        study, def, precision, viewport, ctx.visibleRange, sourceSignature);
+        study, def, precision, viewport, ctx.visibleRange, fullSourceSignature);
       signatures.set(key, signature);
 
       const issue = graph.issues.get(key);
@@ -318,6 +340,12 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
           sources: series,
           sourceLabels: labels,
           captureSeries: readBy.has(key),
+          ...(def.id === "vrvp" && profileRefinement.candles.length > 0
+            ? {
+                profileCandles: profileRefinement.candles,
+                profileInterval: profileRefinement.plan!.sourceInterval,
+              }
+            : {}),
         });
       if (!cached) cache.current.set(study, ctx.candles, signature, result);
       out.set(key, result);
@@ -328,7 +356,10 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
       }
     }
     return out;
-  }, [list, graph, ctx.candles, ctx.interval, precision, viewport, ctx.visibleRange]);
+  }, [
+    list, graph, ctx.candles, ctx.interval, precision, viewport, ctx.visibleRange,
+    profileRefinement.dataKey, profileRefinement.candles, profileRefinement.plan,
+  ]);
 
   const rows = useMemo<NativeStudyRow[]>(() => list.flatMap((study) => {
     const def = studyById(study.defId);

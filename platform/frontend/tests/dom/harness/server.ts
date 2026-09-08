@@ -318,7 +318,10 @@ export class FixtureServer {
     this.interposer?.({ method, path: `${path}${url.search}`, body });
 
     const custom = this.routes.get(`${method} ${path}`) ?? this.routes.get(path);
-    if (custom) return json(200, await custom(body, url));
+    if (custom) {
+      const response = await custom(body, url);
+      return response instanceof Response ? response : json(200, response);
+    }
 
     const drawingMatch = /^\/api\/chart-state\/drawings\/(.+)$/.exec(path);
     if (drawingMatch) {

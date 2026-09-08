@@ -73,7 +73,25 @@ export async function manualTradingRoutes(
   }));
 
   app.get("/api/manual-trading/state", async (req, reply) => send(reply, async () => {
-    if (!config.manualTradingEnabled) throw new ManualBotError("manual trading is disabled", 404);
+    if (!config.manualTradingEnabled) {
+      // This read is also the browser's capability handshake. A stable 200
+      // keeps an intentionally disabled installation out of the error console;
+      // no Bot is contacted, and every mutating route remains fail-closed.
+      return {
+        enabled: false,
+        mainnetEnabled: false,
+        dryRun: true,
+        mixed: false,
+        accounts: [],
+        orders: [],
+        positions: [],
+        protection: {
+          type: "bot-managed",
+          exchangeResting: false,
+          note: "Manual trading is disabled; no execution Bot was contacted.",
+        },
+      };
+    }
     const symbol = (req.query as { symbol?: unknown }).symbol;
     const query = typeof symbol === "string" ? `?symbol=${encodeURIComponent(symbol)}` : "";
     return manualBotRequest({ method: "GET", path: `/api/manual-trading/state${query}` });

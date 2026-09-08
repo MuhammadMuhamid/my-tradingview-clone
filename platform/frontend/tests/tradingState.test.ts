@@ -21,6 +21,10 @@ import {
   clockLabel, TradingStateStrip, tradingStateFreshness,
 } from "../components/tv/TradingStateStrip";
 import type { ManualOrder, ManualPosition, ManualTradingState } from "../lib/api";
+import {
+  manualTradingPollingAllowed, noteManualTradingFailure,
+  resetManualTradingPollingCapability,
+} from "../lib/manualTradingPolling";
 
 const ROOT = path.join(__dirname, "..");
 const read = (f: string): string => fs.readFileSync(path.join(ROOT, f), "utf8");
@@ -129,9 +133,22 @@ test("the chart page records each successful read, and the panel passes the time
   // failure records only the reason: the last good state is kept.
   assert.match(page, /if \(live\) recordManualState\(next\);/);
   assert.match(page, /onManualState=\{recordManualState\}/);
-  assert.match(page, /if \(live\) setManualUnavailable\(\(e as Error\)\.message\);/);
+  assert.match(page, /noteManualTradingFailure\(message\);/);
+  assert.match(page, /if \(live\) setManualUnavailable\(message\);/);
   assert.doesNotMatch(page, /catch[^}]*setManualState\(null\)/, "a failed refresh must not discard retained state");
   assert.match(read("components/tv/ChartBottomPanel.tsx"), /readAt=\{props\.manualReadAt\}/);
+});
+
+test("a disabled capability is learned once and suppresses every later poll", () => {
+  resetManualTradingPollingCapability();
+  assert.equal(manualTradingPollingAllowed(), true);
+  assert.equal(noteManualTradingFailure("temporary network error"), false);
+  assert.equal(manualTradingPollingAllowed(), true, "transient failures remain retryable");
+  assert.equal(noteManualTradingFailure("manual trading is disabled"), true);
+  assert.equal(manualTradingPollingAllowed(), false);
+  assert.equal(noteManualTradingFailure("anything later"), true,
+    "the installation capability remains terminal for this browser session");
+  resetManualTradingPollingCapability();
 });
 
 test("the bottom drawer does not open on a tab that can only show a notice", () => {

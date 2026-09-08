@@ -205,6 +205,49 @@ const ORDER = {
   symbol: "BTCUSDT", side: "BUY", orderType: "MARKET", quoteQuantity: 25,
 };
 
+test("disabled manual trading exposes one stable capability without contacting the Bot", async (t) => {
+  const previous = { ...config };
+  config.manualTradingEnabled = false;
+  t.after(() => Object.assign(config, previous));
+
+  const realFetch = globalThis.fetch;
+  let reached = false;
+  globalThis.fetch = (async () => {
+    reached = true;
+    throw new Error("a disabled installation must not contact the execution Bot");
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = realFetch; });
+
+  const app = await manualApp(deps("enforce", "ELIGIBLE"));
+  t.after(() => app.close());
+
+  const state = await app.inject({
+    method: "GET", url: "/api/manual-trading/state?symbol=BTCUSDT",
+  });
+  assert.equal(state.statusCode, 200);
+  assert.deepEqual(state.json(), {
+    enabled: false,
+    mainnetEnabled: false,
+    dryRun: true,
+    mixed: false,
+    accounts: [],
+    orders: [],
+    positions: [],
+    protection: {
+      type: "bot-managed",
+      exchangeResting: false,
+      note: "Manual trading is disabled; no execution Bot was contacted.",
+    },
+  });
+  assert.equal(reached, false);
+
+  const order = await app.inject({
+    method: "POST", url: "/api/manual-trading/orders", payload: ORDER,
+  });
+  assert.equal(order.statusCode, 404, "mutating routes remain disabled and fail closed");
+  assert.equal(reached, false);
+});
+
 test("a blocked manual BUY is a 403 with the reason, and never reaches the Bot", async (t) => {
   const previous = { ...config };
   config.manualTradingEnabled = true;

@@ -59,6 +59,7 @@ import type { ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { PaneCompare } from "@/lib/workspace";
 import { pricePrecision } from "@/lib/movingAverages";
 import { type Candle, type Trade } from "@/lib/types";
+import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
 
 export interface ChartPaneProps {
   pane: PaneState;
@@ -369,14 +370,54 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const fixedProfileDrawings = useMemo(
     () => drawingsAtReplayHorizon(replay, drawings, props.replayDrawings),
     [replay, drawings, props.replayDrawings]);
+  const fixedProfileRange = useMemo(() => {
+    const first = visibleCandles[0];
+    const last = visibleCandles[visibleCandles.length - 1];
+    if (!first || !last) return null;
+    let fromMs = Number.POSITIVE_INFINITY;
+    let toMs = Number.NEGATIVE_INFINITY;
+    for (const drawing of fixedProfileDrawings) {
+      if (drawing.tool !== "vprange" || drawing.hidden) continue;
+      const a = drawing.points[0]?.time;
+      const b = drawing.points[1]?.time ?? a;
+      if (a === undefined || b === undefined) continue;
+      fromMs = Math.min(fromMs, a * 1000, b * 1000);
+      toMs = Math.max(toMs, a * 1000, b * 1000);
+    }
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+    const clippedFrom = Math.max(first.openTime, fromMs);
+    const clippedTo = Math.min(
+      last.closeTime,
+      toMs + resolutionMs(pane.interval) - 1,
+    );
+    return clippedFrom <= clippedTo ? { fromMs: clippedFrom, toMs: clippedTo } : null;
+  }, [fixedProfileDrawings, visibleCandles, pane.interval]);
+  const fixedProfileRefinement = useVolumeProfileRefinement({
+    enabled: fixedProfileRange !== null,
+    symbol: pane.symbol,
+    chartInterval: pane.interval,
+    fromMs: fixedProfileRange?.fromMs ?? null,
+    toMs: fixedProfileRange?.toMs ?? null,
+  });
+  const fixedRefinementInput = useMemo(
+    () => fixedProfileRefinement.candles.length > 0 && fixedProfileRefinement.plan
+      ? {
+          candles: fixedProfileRefinement.candles,
+          interval: fixedProfileRefinement.plan.sourceInterval,
+        }
+      : undefined,
+    [fixedProfileRefinement.candles, fixedProfileRefinement.plan],
+  );
   const fixedProfileDecorations = useMemo(
-    () => fixedRangeDecorations(fixedProfileDrawings, visibleCandles, pane.interval),
-    [fixedProfileDrawings, visibleCandles, pane.interval]);
+    () => fixedRangeDecorations(
+      fixedProfileDrawings, visibleCandles, pane.interval, fixedRefinementInput),
+    [fixedProfileDrawings, visibleCandles, pane.interval, fixedRefinementInput]);
   const fixedProfileOverlays = useMemo(
     () => fixedRangeOverlays(
       fixedProfileDrawings, visibleCandles, pane.interval,
-      pricePrecision(visibleCandles[visibleCandles.length - 1]?.close ?? 0)),
-    [fixedProfileDrawings, visibleCandles, pane.interval]);
+      pricePrecision(visibleCandles[visibleCandles.length - 1]?.close ?? 0),
+      fixedRefinementInput),
+    [fixedProfileDrawings, visibleCandles, pane.interval, fixedRefinementInput]);
 
   const overlays = useMemo(
     () => [

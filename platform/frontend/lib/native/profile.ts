@@ -33,10 +33,11 @@
  *
  * ── Honesty about resolution ───────────────────────────────────────────────
  *
- * This study profiles the bars the pane is drawing and says so. It does not
- * fetch a finer resolution behind the user's back, and it does not pretend a
- * daily bar's volume traded at its close. See `lib/volumeProfile` for what
- * each bar's volume is actually taken to mean.
+ * The pane may supply a bounded, cancellable finer venue window. When it does,
+ * that source interval is recorded on the result; while it is unavailable or
+ * over budget this study profiles the chart bars and visibly says that their
+ * intrabar volume location is unknown. See `lib/volumeProfile` for the exact
+ * allocation rule.
  */
 import {
   barsInRange, computeVolumeProfile, normalizeProfileSettings,
@@ -177,13 +178,19 @@ const visibleRangeProfile: NativeStudyDef = {
    */
   warmup: () => 0,
   usesVisibleRange: true,
-  compute: ({ candles, params, interval, visibleRange }) => {
+  compute: ({
+    candles, params, interval, visibleRange, profileCandles, profileInterval,
+  }) => {
     const settings = profileSettingsFrom(params);
     const presentation = profilePresentationFrom(params);
     const range = visibleRange
       ? barsInRange(candles, visibleRange.fromMs, visibleRange.toMs)
       : candles;
-    const profile = computeVolumeProfile(range, settings, interval, "chart");
+    const refined = profileCandles && profileInterval && profileCandles.length > 0
+      ? profileCandles : null;
+    const profile = refined
+      ? computeVolumeProfile(refined, settings, profileInterval!, "refined")
+      : computeVolumeProfile(range, settings, interval, "chart");
     return {
       plots: profileLevelPlots(candles, profile),
       profiles: profile.rows.length === 0 ? [] : [{

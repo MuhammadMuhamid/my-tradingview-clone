@@ -8,7 +8,7 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { CorrelationPanel } from "@/components/tv/CorrelationPanel";
 import { drawingStore } from "@/lib/drawingStore";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace";
@@ -26,6 +26,7 @@ beforeEach(() => {
 after(closeBrowser);
 
 test("a fixed-range profile is selected by gesture and keeps independent settings", async () => {
+  server.setCandles(SYMBOL, "1m", compactSeries(10_000, { intervalMs: 60_000 }));
   const chart = await mountChart();
 
   fireEvent.click(screen.getByRole("button", { name: "More anchored tools" }));
@@ -38,6 +39,18 @@ test("a fixed-range profile is selected by gesture and keeps independent setting
   assert.equal(created[0]!.points.length, 2);
   assert.ok(created[0]!.points[1]!.time > created[0]!.points[0]!.time,
     "the selected bar range comes from the chart's time scale");
+  assert.match(
+    chart.pane().querySelector<HTMLElement>("[data-volume-profile-basis]")?.textContent ?? "",
+    /chart's own 15m bars/,
+    "the immediate fallback visibly discloses its chart-bar estimate basis",
+  );
+
+  await advance(150);
+  const refinedNotice = chart.pane().querySelector<HTMLElement>(
+    '[data-volume-profile-basis="refined"]',
+  );
+  assert.match(refinedNotice?.textContent ?? "", /1m bars loaded for this range/,
+    "the rendered profile names the finer source when refinement lands");
 
   fireEvent.change(screen.getByRole("combobox", { name: "Profile rows" }), {
     target: { value: "100" },
@@ -73,6 +86,9 @@ test("a pane applies, persists and removes a z-scored pair spread", async () => 
   const chart = await mountChart();
 
   fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
+  const dialog = screen.getByRole("dialog");
+  assert.equal(dialog.parentElement?.parentElement, document.body,
+    "the modal is portaled outside the legend's pointer-disabled ancestor");
   fireEvent.change(screen.getByRole("combobox", { name: "Which comparison" }), {
     target: { value: "zspread" },
   });
@@ -109,6 +125,40 @@ test("a pane applies, persists and removes a z-scored pair spread", async () => 
   assert.ok(chart.container);
 });
 
+test("the pane Compare modal closes from its portaled backdrop", async () => {
+  await mountChart();
+  fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
+  const dialog = screen.getByRole("dialog");
+  const modalRoot = dialog.parentElement as HTMLElement;
+  const backdrop = modalRoot.firstElementChild as HTMLElement;
+  fireEvent.click(backdrop);
+  assert.equal(screen.queryByRole("dialog"), null);
+});
+
+test("percent comparison keeps candles on price and declares a dedicated percent pane", async () => {
+  const chart = await mountChart();
+  fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
+  fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+  await settle();
+  assert.ok(screen.getByText("Percent change vs BTCUSDT"));
+  assert.ok(screen.getAllByText("% from first shared bar").length >= 1);
+  assert.ok(chart.pane().querySelectorAll(".tv-lightweight-charts").length >= 2,
+    "the price chart and unit-safe percent pane both render real chart hosts");
+});
+
+test("choosing two charts closes layout and leaves pane two immediately operable", async () => {
+  const chart = await mountChart();
+  fireEvent.click(screen.getByRole("button", { name: /^Chart layout/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^2 charts/ }));
+  await settle();
+  assert.equal(screen.queryByRole("menu", { name: "Chart layout" }), null);
+  const second = chart.pane(1);
+  fireEvent.click(within(second).getByRole("button", {
+    name: /Timeframe for this pane/,
+  }));
+  assert.ok(screen.getByRole("menu", { name: "Pane timeframe" }));
+});
+
 test("a correlation cell opens the covariance and observation evidence behind it", async () => {
   render(
     <CorrelationPanel
@@ -131,4 +181,37 @@ test("a correlation cell opens the covariance and observation evidence behind it
   assert.ok(screen.getByText("Bars used"));
   assert.match(screen.getByText(/Each pair uses the bars both instruments have/).textContent ?? "",
     /Missing bars are left out, never filled in/);
+});
+
+test("correlation clears old-interval values while the new interval is loading", async () => {
+  const view = render(
+    <CorrelationPanel
+      symbols={["SOLUSDT", "BTCUSDT"]}
+      interval="1h"
+      bars={600}
+      selected="SOLUSDT"
+      onSelect={() => {}}
+    />,
+  );
+  await settle();
+  assert.ok(screen.getByRole("button", { name: /^SOLUSDT against BTCUSDT:/ }));
+
+  const release = server.hold("/candles");
+  view.rerender(
+    <CorrelationPanel
+      symbols={["SOLUSDT", "BTCUSDT"]}
+      interval="15m"
+      bars={600}
+      selected="SOLUSDT"
+      onSelect={() => {}}
+    />,
+  );
+  await settle();
+  assert.ok(screen.getByText("Log returns on 15m bars"));
+  assert.equal(screen.queryByRole("button", { name: /^SOLUSDT against BTCUSDT:/ }), null,
+    "the 1h value is never rendered under the 15m provenance label");
+  assert.ok(screen.getByText(/Loading these instruments/));
+  release();
+  await settle();
+  assert.ok(screen.getByRole("button", { name: /^SOLUSDT against BTCUSDT:/ }));
 });
