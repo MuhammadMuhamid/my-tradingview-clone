@@ -1,22 +1,11 @@
 "use client";
-/**
- * The candlestick-pattern overlay's state: whether it is on, and what the
- * Screener currently reports.
- *
- * Off by default and remembered per browser. Pattern marks are opinions about
- * bars, drawn on top of the bars themselves, and a chart that arrives already
- * covered in them has made a choice on the user's behalf about what matters.
- *
- * The snapshot is polled, not streamed: the Screener recomputes on its own
- * cadence and a pattern is a statement about closed bars, so a mark that
- * appears within a minute of the bar closing is as timely as the fact is.
- */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api as scannerApi } from "@/lib/scanner/api";
-import type { Snapshot } from "@/lib/scanner/types";
-import { CANDLE_OVERLAY_KEY } from "@/lib/candleOverlay";
-
-const POLL_MS = 60_000;
+import type { Candle } from "@/lib/types";
+import type { Resolution } from "@/lib/resolution";
+import {
+  CANDLE_OVERLAY_KEY, type PatternAnalysis, type PatternCatalog, type PatternDirection,
+} from "@/lib/candleOverlay";
 
 export function loadCandleOverlayEnabled(): boolean {
   if (typeof window === "undefined") return false;
@@ -29,46 +18,79 @@ export function saveCandleOverlayEnabled(enabled: boolean): void {
   try {
     if (enabled) window.localStorage.setItem(CANDLE_OVERLAY_KEY, "1");
     else window.localStorage.removeItem(CANDLE_OVERLAY_KEY);
-  } catch { /* the toggle still works for this session */ }
+  } catch { /* session state still works */ }
 }
 
 export interface CandleOverlayState {
   enabled: boolean;
   setEnabled: (next: boolean) => void;
-  /** The Screener's own answer, or null while it has not given one. */
-  snapshot: Snapshot | null;
+  catalog: PatternCatalog | null;
+  direction: "both" | Exclude<PatternDirection, "none">;
+  setDirection: (next: "both" | "bull" | "bear") => void;
+  /** Null means the whole catalog; an empty list intentionally means none. */
+  selectedIds: readonly string[] | null;
+  setSelectedIds: (next: readonly string[] | null) => void;
 }
 
 export function useCandleOverlay(): CandleOverlayState {
   const [enabled, setEnabledState] = useState(false);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-
-  // After mount, so the server-rendered markup and the first client render
-  // agree about a value only the browser knows.
+  const [catalog, setCatalog] = useState<PatternCatalog | null>(null);
+  const [direction, setDirection] = useState<"both" | "bull" | "bear">("both");
+  const [selectedIds, setSelectedIds] = useState<readonly string[] | null>(null);
   useEffect(() => { setEnabledState(loadCandleOverlayEnabled()); }, []);
-
   useEffect(() => {
-    if (!enabled) { setSnapshot(null); return; }
+    if (!enabled || catalog) return;
     let live = true;
-    const load = (): void => {
-      void scannerApi.screener()
-        .then((next) => { if (live) setSnapshot(next); })
-        // A Screener that is not running leaves the overlay with no snapshot,
-        // which `overlayNotice` reports as exactly that rather than as "no
-        // patterns" — the two mean very different things.
-        .catch(() => { if (live) setSnapshot(null); });
-    };
-    load();
-    const timer = setInterval(load, POLL_MS);
-    return () => { live = false; clearInterval(timer); };
-  }, [enabled]);
-
+    void scannerApi.patternCatalog().then((value) => { if (live) setCatalog(value); }).catch(() => {});
+    return () => { live = false; };
+  }, [enabled, catalog]);
   return {
-    enabled,
-    snapshot,
-    setEnabled: (next: boolean) => {
-      setEnabledState(next);
-      saveCandleOverlayEnabled(next);
-    },
+    enabled, catalog, direction, setDirection, selectedIds, setSelectedIds,
+    setEnabled: (next) => { setEnabledState(next); saveCandleOverlayEnabled(next); },
   };
+}
+
+export interface PatternAnalysisState {
+  analysis: PatternAnalysis | null;
+  loading: boolean;
+  error: string | null;
+}
+
+/** Analyze only when the completed source window changes; forming ticks do not poll. */
+export function usePatternAnalysis(input: {
+  enabled: boolean; symbol: string; timeframe: Resolution; candles: readonly Candle[];
+  direction: "both" | "bull" | "bear";
+}): PatternAnalysisState {
+  const closed = useMemo(() => {
+    const now = Date.now();
+    return input.candles.filter((bar) => bar.closeTime <= now).slice(-2_000);
+  }, [input.candles]);
+  const latestRef = useRef(closed);
+  latestRef.current = closed;
+  const key = closed.length
+    ? `${closed.length}:${closed[0]!.openTime}:${closed[closed.length - 1]!.openTime}` : "empty";
+  const [state, setState] = useState<PatternAnalysisState>({
+    analysis: null, loading: false, error: null,
+  });
+  useEffect(() => {
+    if (!input.enabled || key === "empty") {
+      setState({ analysis: null, loading: false, error: null });
+      return;
+    }
+    const controller = new AbortController();
+    setState((current) => ({ ...current, loading: true, error: null }));
+    void scannerApi.analyzePatterns({
+      symbol: input.symbol, timeframe: input.timeframe, asOf: Date.now(),
+      candles: latestRef.current, settings: { direction: input.direction },
+    }).then((analysis) => {
+      if (!controller.signal.aborted) setState({ analysis, loading: false, error: null });
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setState({
+        analysis: null, loading: false,
+        error: error instanceof Error ? error.message : "request failed",
+      });
+    });
+    return () => controller.abort();
+  }, [input.enabled, input.symbol, input.timeframe, input.direction, key]);
+  return state;
 }

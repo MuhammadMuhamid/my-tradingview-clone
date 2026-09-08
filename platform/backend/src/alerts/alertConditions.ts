@@ -261,6 +261,12 @@ export interface AdxCondition {
   mode: MaCrossMode;
 }
 
+/** One canonical candlestick formation, evaluated only on a closed bar. */
+export interface CandlestickPatternCondition {
+  kind: "candlestick_pattern";
+  patternId: string;
+}
+
 /**
  * Every family may carry gates, so the property lives on the union rather than
  * being repeated in each member. Narrowing on `kind` still works through the
@@ -276,6 +282,7 @@ export type AlertCondition = (
   | SrZoneCondition | PivotLevelCondition
   | RsiCondition | MacdCondition | SupertrendCondition
   | BollingerCondition | StochasticCondition | AdxCondition
+  | CandlestickPatternCondition
 ) & WithFilters;
 
 // ── Evaluation ──────────────────────────────────────────────────────────────
@@ -312,6 +319,9 @@ export interface Sample {
   filterMaValue?: number;
   /** Supertrend direction (+1 / -1) for a filter gate, same bar and timeframe. */
   filterSupertrendValue?: number;
+  /** Stable ids recognized on this exact completed bar by the canonical service. */
+  patternIds?: readonly string[];
+  patternName?: string;
 }
 
 export interface Evaluation {
@@ -418,6 +428,12 @@ function evaluateTrigger(
       return evaluateMacd(condition, sample, prevSide);
     case "supertrend":
       return evaluateSupertrend(condition, sample, prevSide);
+    case "candlestick_pattern":
+      return {
+        side: "above", distancePct: 0,
+        triggered: sample.patternIds?.includes(condition.patternId) === true,
+        reference: sample.close,
+      };
   }
 }
 
@@ -722,6 +738,8 @@ const maLabel = (type: MaType, length: number): string => `${type.toUpperCase()}
 /** What the alert is watching, for the notification body and the UI list. */
 export function describeCondition(condition: AlertCondition): string {
   switch (condition.kind) {
+    case "candlestick_pattern":
+      return `${condition.patternId.replaceAll("_", " ")} confirmed`;
     case "price":
       switch (condition.direction) {
         case "cross_up": return `crosses above ${condition.targetPrice}`;
@@ -901,6 +919,7 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
     case "bollinger": return [];
     case "stochastic": return [];
     case "adx": return [];
+    case "candlestick_pattern": return [];
   }
 }
 
@@ -912,6 +931,11 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
  */
 export function validateCondition(condition: AlertCondition): string | null {
   switch (condition.kind) {
+    case "candlestick_pattern":
+      if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(condition.patternId)) {
+        return "patternId must be a stable lowercase catalog id";
+      }
+      return filterError(condition.filters);
     case "price":
       if (!Number.isFinite(condition.targetPrice) || condition.targetPrice <= 0) {
         return "targetPrice must be a positive number";
@@ -1188,6 +1212,7 @@ export function conditionFromRow(row: {
   ma2Length: number | null;
   targetPrice: number | null;
   priceDirection: PriceDirection | null;
+  patternId?: string | null;
   nearMinPct: number;
   nearMaxPct: number;
   srSide?: SrSide | null;
@@ -1229,6 +1254,10 @@ export function conditionFromRow(row: {
   adxLevel?: number | null;
 }): AlertCondition | null {
   switch (row.conditionKind) {
+    case "candlestick_pattern":
+      return row.patternId ? {
+        ...filtersFromRow(row), kind: "candlestick_pattern", patternId: row.patternId,
+      } : null;
     case "price":
       if (row.targetPrice === null || row.priceDirection === null) return null;
       return {

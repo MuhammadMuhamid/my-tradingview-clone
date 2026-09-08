@@ -30,6 +30,7 @@ const BASE: MaAlertRow = {
   id: ID, symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
   maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,
   targetPrice: 100, priceDirection: "either",
+  patternId: null,
   srSide: null, srPivotLength: null, srInvalidation: null,
   pivotType: null, pivotLevelName: null, pivotAnchor: null,
   rsiLength: null, rsiLevel: null, rsiMaLength: null,
@@ -52,6 +53,10 @@ const BASE: MaAlertRow = {
 
 /** One representative persisted row per family, with non-default values. */
 const ROWS: Record<ConditionKind, MaAlertRow> = {
+  candlestick_pattern: {
+    ...BASE, conditionKind: "candlestick_pattern", targetPrice: null, priceDirection: null,
+    patternId: "engulfing_bullish",
+  },
   price: { ...BASE, conditionKind: "price", targetPrice: 64250.5, priceDirection: "cross_up" },
   ma: {
     ...BASE, conditionKind: "ma", targetPrice: null, priceDirection: null,
@@ -224,15 +229,18 @@ test("each family's own fields are editable and land in the patch", async () => 
 
 test("common fields are editable on every family", async () => {
   for (const kind of CONDITION_KINDS) {
+    // Pattern truth is defined only on a completed bar, so this family is
+    // deliberately not editable to an intrabar/once-only frequency.
+    const frequency = kind === "candlestick_pattern" ? "once_per_bar_close" : "once_only";
     const { status, call } = await patch(
-      { symbol: "ethusdt", timeframe: "4h", frequency: "once_only", cooldownMin: 0,
+      { symbol: "ethusdt", timeframe: "4h", frequency, cooldownMin: 0,
         note: "revised", enabled: false },
       ROWS[kind]
     );
     assert.equal(status, 200, kind);
     assert.equal(call!.patch.symbol, "ETHUSDT", `${kind}: symbol is normalised`);
     assert.equal(call!.patch.timeframe, "4h");
-    assert.equal(call!.patch.frequency, "once_only");
+    assert.equal(call!.patch.frequency, frequency);
     assert.equal(call!.patch.cooldownMin, 0);
     assert.equal(call!.patch.note, "revised");
     assert.equal(call!.patch.enabled, false);

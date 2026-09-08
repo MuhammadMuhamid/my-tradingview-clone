@@ -258,7 +258,13 @@ class ScreenerService:
                 row.errors[name] = f"no data for {tf}"
                 continue
             try:
-                row.indicators[name] = REGISTRY[name].compute(df, spec["params"])
+                params = spec["params"]
+                if name == "candles":
+                    # Exact confirmation time is part of the canonical pattern
+                    # contract. The detector cannot infer a timeframe from a
+                    # DataFrame, so the owning service supplies it explicitly.
+                    params = {**params, "bar_duration_ms": duration_ms(tf)}
+                row.indicators[name] = REGISTRY[name].compute(df, params)
             except InsufficientData as exc:
                 row.errors[name] = str(exc)
             except Exception as exc:  # one bad indicator must not blank the row

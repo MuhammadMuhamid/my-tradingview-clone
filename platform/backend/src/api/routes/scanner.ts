@@ -1,11 +1,13 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { ScannerServiceError, scannerRequest } from "../../scanner/client";
+import { parseResolution } from "../../data/resolution";
 
 const TIMEFRAMES = new Set(["5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w"]);
 const INDICATORS = new Set(["ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr"]);
 const SLOTS = new Set(["1h", "15m", "5m"]);
 const ASSET = /^[A-Z0-9]{1,20}$/;
 const PRESET = /^[A-Za-z0-9_. -]{1,80}$/;
+const PATTERN_SYMBOL = /^[A-Z0-9]{3,30}$/;
 
 function record(value: unknown, label = "request body"): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -70,6 +72,42 @@ function preset(value: string): string {
   return encodeURIComponent(value);
 }
 
+/** Strict allowlist for the explicit pattern-analysis service boundary. */
+export function patternAnalysisRequest(value: unknown): Record<string, unknown> {
+  const body = record(value, "pattern analysis");
+  exactKeys(body, new Set([
+    "venue", "market_type", "symbol", "timeframe", "as_of", "candles", "settings",
+  ]), "pattern analysis");
+  if (body.venue !== "BINANCE" || body.market_type !== "spot") {
+    throw new ScannerServiceError("pattern analysis requires BINANCE spot provenance", 400);
+  }
+  if (typeof body.symbol !== "string" || !PATTERN_SYMBOL.test(body.symbol)) {
+    throw new ScannerServiceError("invalid Binance Spot symbol", 400);
+  }
+  if (typeof body.timeframe !== "string" || parseResolution(body.timeframe) === null) {
+    throw new ScannerServiceError("invalid chart timeframe", 400);
+  }
+  if (!Number.isSafeInteger(body.as_of) || Number(body.as_of) <= 0) {
+    throw new ScannerServiceError("as_of must be a positive integer", 400);
+  }
+  if (!Array.isArray(body.candles) || body.candles.length < 1 || body.candles.length > 2_000) {
+    throw new ScannerServiceError("candles must contain between 1 and 2000 bars", 400);
+  }
+  const allowedCandle = new Set(["open_time", "open", "high", "low", "close", "close_time"]);
+  const candles = body.candles.map((raw, index) => {
+    const candle = record(raw, `candle ${index}`);
+    exactKeys(candle, allowedCandle, `candle ${index}`);
+    for (const key of allowedCandle) {
+      if (typeof candle[key] !== "number" || !Number.isFinite(candle[key])) {
+        throw new ScannerServiceError(`candle ${index}.${key} must be finite`, 400);
+      }
+    }
+    return candle;
+  });
+  if (body.settings !== undefined) record(body.settings, "settings");
+  return { ...body, candles };
+}
+
 async function send<T>(reply: FastifyReply, action: () => Promise<T>) {
   try { return await action(); }
   catch (error) {
@@ -86,6 +124,12 @@ export async function scannerRoutes(app: FastifyInstance): Promise<void> {
     () => scannerRequest({ method: "GET", path: "/api/health" })));
   app.get("/api/scanner/presets", (_req, reply) => send(reply,
     () => scannerRequest({ method: "GET", path: "/api/presets" })));
+  app.get("/api/scanner/patterns/catalog", (_req, reply) => send(reply,
+    () => scannerRequest({ method: "GET", path: "/api/patterns/catalog" })));
+  app.post("/api/scanner/patterns/analyze", (req, reply) => send(reply,
+    () => scannerRequest({
+      method: "POST", path: "/api/patterns/analyze", body: patternAnalysisRequest(req.body),
+    }, { timeoutMs: 30_000 })));
 
   app.patch("/api/scanner/config", (req, reply) => send(reply,
     () => scannerRequest({ method: "PATCH", path: "/api/config", body: scannerConfigPatch(req.body) })));

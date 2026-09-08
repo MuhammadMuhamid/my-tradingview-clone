@@ -685,6 +685,7 @@ export interface MaAlert {
   symbol: string;
   timeframe: Interval;
   conditionKind: ConditionKind;
+  patternId?: string | null;
   srSide: SrSide | null;
   srPivotLength: number | null;
   srInvalidation: string | null;
@@ -1286,6 +1287,13 @@ export const api = {
     nearMinPct?: number; nearMaxPct?: number;
     cooldownMin?: number; note?: string | null;
   }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
+  createPatternAlert: (body: {
+    symbol: string; timeframe: Interval; patternId: string;
+  }) => req<Record<string, unknown>>("/api/ma-alerts", {
+    method: "POST", body: JSON.stringify({
+      ...body, conditionKind: "candlestick_pattern", frequency: "once_per_bar_close",
+    }),
+  }),
   updateMaAlert: (id: string, body: MaAlertUpdate) =>
     req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),

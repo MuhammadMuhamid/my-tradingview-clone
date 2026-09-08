@@ -156,6 +156,14 @@ export function readCondition(
   const gates = readFilters(b);
   if ("error" in gates) return gates;
 
+  if (kind === "candlestick_pattern") {
+    const patternId = String(b.patternId ?? "");
+    if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(patternId)) {
+      return bad("patternId must be a stable lowercase catalog id");
+    }
+    return { condition: { kind: "candlestick_pattern", patternId, ...gates } };
+  }
+
   if (kind === "price") {
     const targetPrice = Number(b.targetPrice);
     const direction = String(b.priceDirection ?? "either");
@@ -385,6 +393,7 @@ export type AlertColumns = {
   maType: MaType | null; maLength: number | null; mode: MaAlertMode | null;
   ma2Type: MaType | null; ma2Length: number | null;
   targetPrice: number | null; priceDirection: PriceDirection | null;
+  patternId: string | null;
   nearMinPct: number; nearMaxPct: number;
   srSide: SrSide | null; srPivotLength: number | null; srInvalidation: string | null;
   pivotType: string | null; pivotLevelName: string | null; pivotAnchor: string | null;
@@ -411,6 +420,7 @@ export function toColumns(condition: AlertCondition): AlertColumns {
   // Columns that belong to no kind are null, so a row never carries another
   // kind's settings for an operator to misread.
   const empty = {
+    patternId: null,
     srSide: null, srPivotLength: null, srInvalidation: null,
     pivotType: null, pivotLevelName: null, pivotAnchor: null,
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
@@ -443,6 +453,13 @@ export function toColumns(condition: AlertCondition): AlertColumns {
     filterStSide: f?.supertrend?.side ?? null,
   });
   switch (condition.kind) {
+    case "candlestick_pattern":
+      return {
+        conditionKind: "candlestick_pattern",
+        maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,
+        targetPrice: null, priceDirection: null, nearMinPct: 0.2, nearMaxPct: 0.5,
+        ...empty, patternId: condition.patternId, ...gates(condition.filters),
+      };
     case "price":
       return {
         conditionKind: "price",
@@ -581,4 +598,3 @@ export function toColumns(condition: AlertCondition): AlertColumns {
       };
   }
 }
-

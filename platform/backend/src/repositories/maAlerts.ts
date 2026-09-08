@@ -18,6 +18,7 @@ interface DbAlert {
   ma2_length: number | null;
   target_price: string | number | null;
   price_direction: PriceDirection | null;
+  pattern_id: string | null;
   sr_side: SrSide | null;
   sr_pivot_length: number | null;
   sr_invalidation: string | null;
@@ -88,6 +89,7 @@ function toRow(r: DbAlert): MaAlertRow {
     ma2Length: r.ma2_length,
     targetPrice: r.target_price === null ? null : num(r.target_price),
     priceDirection: r.price_direction,
+    patternId: r.pattern_id,
     rsiLength: r.rsi_length,
     rsiLevel: r.rsi_level === null ? null : num(r.rsi_level),
     rsiMaLength: r.rsi_ma_length,
@@ -153,6 +155,7 @@ export interface MaAlertInput {
   ma2Length?: number | null;
   targetPrice?: number | null;
   priceDirection?: PriceDirection | null;
+  patternId?: string | null;
   nearMinPct?: number;
   nearMaxPct?: number;
   enabled?: boolean;
@@ -200,6 +203,8 @@ export interface MaAlertInput {
 
 /** The unique index that governs "the same alert" for each condition kind. */
 const CONFLICT_TARGET: Record<ConditionKind, string> = {
+  candlestick_pattern:
+    "(symbol, timeframe, pattern_id) WHERE condition_kind = 'candlestick_pattern'",
   ma: "(symbol, timeframe, ma_type, ma_length, mode) WHERE condition_kind = 'ma'",
   price: "(symbol, timeframe, target_price, price_direction) WHERE condition_kind = 'price'",
   ma_vs_ma:
@@ -260,11 +265,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         adx_di_length, adx_smoothing, adx_level,
         filter_rsi_length, filter_rsi_level, filter_rsi_side,
         filter_ma_type, filter_ma_length, filter_ma_side,
-        filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side)
+        filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side,
+        pattern_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
-             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53)
+             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -311,6 +317,7 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        filter_st_multiplier = EXCLUDED.filter_st_multiplier,
        filter_st_atr_method = EXCLUDED.filter_st_atr_method,
        filter_st_side      = EXCLUDED.filter_st_side,
+       pattern_id          = EXCLUDED.pattern_id,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -341,6 +348,7 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.filterMaSide ?? null,
       input.filterStPeriod ?? null, input.filterStMultiplier ?? null,
       input.filterStAtrMethod ?? null, input.filterStSide ?? null,
+      input.patternId ?? null,
     ]
   );
   return toRow(rows[0]!);
@@ -409,6 +417,7 @@ const PATCH_COLUMNS: Record<string, string> = {
   ma2Length: "ma2_length",
   targetPrice: "target_price",
   priceDirection: "price_direction",
+  patternId: "pattern_id",
   srSide: "sr_side",
   srPivotLength: "sr_pivot_length",
   srInvalidation: "sr_invalidation",

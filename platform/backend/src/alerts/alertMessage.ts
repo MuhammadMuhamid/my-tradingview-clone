@@ -84,6 +84,14 @@ function buildBase(
   const tag = `ma-${alert.id}`;
 
   switch (condition.kind) {
+    case "candlestick_pattern": {
+      const name = label ?? condition.patternId.replaceAll("_", " ");
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — ${name}`,
+        body: `${name} confirmed at bar close. Formation recognition is not a return forecast.`,
+        tag, url,
+      };
+    }
     case "ma":
       // Unchanged wording, produced by the original formatter.
       return formatMaAlertPush(

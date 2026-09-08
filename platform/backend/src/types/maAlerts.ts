@@ -27,7 +27,7 @@ export const isMaAlertMode = (v: string): v is MaAlertMode =>
  */
 export const CONDITION_KINDS = [
   "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level", "rsi", "macd", "supertrend",
-  "bollinger", "stochastic", "adx",
+  "bollinger", "stochastic", "adx", "candlestick_pattern",
 ] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
 
@@ -227,6 +227,8 @@ export interface MaAlertRow {
   /** Populated for `price`. */
   targetPrice: number | null;
   priceDirection: PriceDirection | null;
+  /** Stable canonical detector id, populated only for candlestick_pattern. */
+  patternId?: string | null;
 
   // ── sr_zone ──
   srSide: SrSide | null;

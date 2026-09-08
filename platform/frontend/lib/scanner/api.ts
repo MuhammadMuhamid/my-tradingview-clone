@@ -1,4 +1,6 @@
 import type { Calibration, Snapshot } from "./types";
+import type { PatternAnalysis, PatternCatalog } from "../candleOverlay";
+import type { Candle } from "../types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
@@ -26,6 +28,22 @@ function symbolPath(symbol: string): string {
 export const api = {
   screener: () => request<Snapshot>("/api/scanner"),
   health: () => request<Record<string, unknown>>("/api/scanner/health"),
+  patternCatalog: () => request<PatternCatalog>("/api/scanner/patterns/catalog"),
+  analyzePatterns: (input: {
+    symbol: string; timeframe: string; asOf: number; candles: readonly Candle[];
+    settings?: Record<string, unknown>;
+  }) => request<PatternAnalysis>("/api/scanner/patterns/analyze", {
+    method: "POST",
+    body: JSON.stringify({
+      venue: "BINANCE", market_type: "spot", symbol: input.symbol.replace(/^BINANCE:/, ""),
+      timeframe: input.timeframe, as_of: input.asOf,
+      candles: input.candles.slice(-2_000).map((bar) => ({
+        open_time: bar.openTime, open: bar.open, high: bar.high, low: bar.low,
+        close: bar.close, close_time: bar.closeTime,
+      })),
+      ...(input.settings ? { settings: input.settings } : {}),
+    }),
+  }),
   patchConfig: (patch: unknown) => request<{ config: unknown; refresh: unknown }>(
     "/api/scanner/config", { method: "PATCH", body: JSON.stringify(patch) }),
   refresh: (force = false) => request<Record<string, unknown>>(

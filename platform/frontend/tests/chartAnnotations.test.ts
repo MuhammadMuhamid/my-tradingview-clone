@@ -21,11 +21,12 @@ import {
   alertEventMarkers, markerNotice, placeAlertEvents,
 } from "../lib/alertMarkers";
 import {
-  anchorIndex, overlayNotice, patternMarkers, placePatterns,
+  overlayNotice, patternExportCsv, patternExportJson, patternMarkers, placePatterns,
+  type PatternAnalysis,
 } from "../lib/candleOverlay";
 import type { MaAlert, MaAlertEvent } from "../lib/api";
 import type { Candle } from "../lib/types";
-import type { Snapshot } from "../lib/scanner/types";
+import realExactBarFixture from "./fixtures/p2_btcusdt_15m_exact_bar.json";
 
 const HOUR = 3_600_000;
 const candle = (i: number): Candle => ({
@@ -130,59 +131,64 @@ test("the markers module evaluates no condition of its own", () => {
 
 // ── candlestick patterns ───────────────────────────────────────────────────
 
-const snapshot = (patterns: unknown[]): Snapshot => ({
-  rows: [{
-    symbol: "BTC/USDT", timeframe: "1h",
-    market: { native_symbol: "BTCUSDT", config_symbol: "BTC/USDT" },
-    indicators: { candles: { patterns } },
-  }],
-} as unknown as Snapshot);
-
-const pattern = (barsAgo: number, over: Record<string, unknown> = {}) => ({
-  name: "Bullish Engulfing", direction: "bull", strength: 0.82,
-  basis: "body ratio", bars_ago: barsAgo, ...over,
+const pattern = (openTime: number, over: Record<string, unknown> = {}) => ({
+  id: "engulfing_bullish", name: "Engulfing - Bullish", direction: "bull",
+  bars: 2, confirmation: "bar_close", predictive_claim: false,
+  strength: 0.82, basis: "geometric fit", open_time: openTime,
+  confirmed_at: openTime + HOUR, detector_id: "trading-scene-candlesticks",
+  detector_version: "2.0.0", settings_hash: "abc123", ...over,
 });
 
-test("patterns are anchored on the last CLOSED bar, not the forming one", () => {
-  // `bars_ago: 0` is the Screener's newest closed bar, and the chart's newest
-  // bar is usually still forming. Off by one here would put every mark on the
-  // bar AFTER the one that formed the pattern.
+const analysis = (patterns: unknown[]): PatternAnalysis => ({
+  detector_id: "trading-scene-candlesticks", detector_version: "2.0.0",
+  catalog_observed_at: "2026-09-08", catalog_size: 44,
+  confirmation: "bar_close", causal: true, predictive_claim: false,
+  settings: { trend_method: "sma50" }, settings_hash: "abc123",
+  input_end_open_time: 8 * HOUR, patterns,
+  source: { venue: "BINANCE", market_type: "spot", symbol: "BTCUSDT", timeframe: "1h",
+    ohlc: "caller_supplied_binance_spot", as_of: 9 * HOUR,
+    closed_bars_analyzed: 9, forming_bars_excluded: 1 },
+} as PatternAnalysis);
+
+test("patterns are anchored by exact authoritative open-time", () => {
   const series = candles(10);
-  const now = 9 * HOUR + 100; // bar 9 is forming
-  assert.equal(anchorIndex(series, now), 8);
-  const placed = placePatterns(snapshot([pattern(0)]), "BTCUSDT", "1h", series, now);
+  const placed = placePatterns(analysis([pattern(8 * HOUR)]), series);
   assert.equal(placed.length, 1);
   assert.equal(placed[0]!.index, 8);
   assert.equal(placed[0]!.time, (8 * HOUR) / 1000);
-  // And two bars back is two bars back from THAT.
-  const older = placePatterns(snapshot([pattern(2)]), "BTCUSDT", "1h", series, now);
+  const older = placePatterns(analysis([pattern(6 * HOUR)]), series);
   assert.equal(older[0]!.index, 6);
 });
 
-test("the Screener naming its pairs differently does not silently mean no patterns", () => {
-  // The Screener says `BTC/USDT` and the chart says `BTCUSDT`. Comparing those
-  // as strings would never match and would look exactly like "no patterns".
-  const series = candles(10);
-  const now = 9 * HOUR + 100;
-  assert.equal(placePatterns(snapshot([pattern(0)]), "BINANCE:BTCUSDT", "1h", series, now).length, 1);
-  // A pair the Screener does not track produces nothing, which is honest.
-  assert.equal(placePatterns(snapshot([pattern(0)]), "SOLUSDT", "1h", series, now).length, 0);
+test("reviewed Binance Spot OHLC places canonical occurrences on their exact real bars", () => {
+  const fixture = realExactBarFixture as unknown as {
+    candles: Candle[];
+    analysis: PatternAnalysis;
+  };
+  const placed = placePatterns(fixture.analysis, fixture.candles);
+  assert.deepEqual(
+    placed.map(({ pattern: occurrence, index, time }) => ({
+      id: occurrence.id, index, time,
+    })),
+    [
+      { id: "marubozu_black_bearish", index: 1, time: 1788700500 },
+      { id: "doji", index: 2, time: 1788701400 },
+    ],
+  );
+  assert.equal(placed[1]!.pattern.confirmed_at, fixture.candles[2]!.closeTime + 1);
 });
 
 test("a pattern older than the loaded window is omitted, not clamped", () => {
   const series = candles(5);
-  const now = 4 * HOUR + 100;
-  assert.equal(placePatterns(snapshot([pattern(50)]), "BTCUSDT", "1h", series, now).length, 0);
+  assert.equal(placePatterns(analysis([pattern(50 * HOUR)]), series).length, 0);
 });
 
-test("the notice distinguishes 'no answer' from 'no patterns' from 'recent only'", () => {
-  // Three different truths, and each changes what the marks mean.
-  assert.match(String(overlayNotice(null, [], "BTCUSDT")), /has not answered/);
-  assert.match(String(overlayNotice(snapshot([]), [], "BTCUSDT")), /no recent pattern/);
-  const series = candles(10);
-  const placed = placePatterns(snapshot([pattern(0)]), "BTCUSDT", "1h", series, 9 * HOUR + 100);
-  assert.match(String(overlayNotice(snapshot([pattern(0)]), placed, "BTCUSDT")),
-    /not every pattern in the chart's history/);
+test("the notice distinguishes loading, failure, empty, and non-predictive results", () => {
+  assert.match(overlayNotice(null, true, null, "BTCUSDT"), /Analyzing completed/);
+  assert.match(overlayNotice(null, false, "offline", "BTCUSDT"), /unavailable: offline/);
+  assert.match(overlayNotice(analysis([]), false, null, "BTCUSDT"), /No recognized/);
+  assert.match(overlayNotice(analysis([pattern(HOUR)]), false, null, "BTCUSDT"),
+    /not a return forecast/);
 });
 
 test("the overlay module contains no pattern logic at all", () => {
@@ -211,10 +217,30 @@ test("the overlay module contains no pattern logic at all", () => {
 
 test("a marker says what it is and how textbook, without pretending to predict", () => {
   const series = candles(10);
-  const placed = placePatterns(snapshot([pattern(0)]), "BTCUSDT", "1h", series, 9 * HOUR + 100);
+  const placed = placePatterns(analysis([pattern(8 * HOUR)]), series);
   const [marker] = patternMarkers(placed);
-  assert.match(marker!.text!, /Bullish Engulfing/);
+  assert.match(marker!.text!, /Engulfing - Bullish/);
   assert.match(marker!.text!, /82%/);
+  assert.match(marker!.text!, /fit/);
   assert.equal(marker!.shape, "arrowUp");
   assert.equal(marker!.position, "belowBar");
+});
+
+test("Research JSON and CSV retain exact time, settings, version, and Spot provenance", () => {
+  const value = analysis([pattern(8 * HOUR)]);
+  const json = JSON.parse(patternExportJson(value)) as PatternAnalysis;
+  assert.equal(json.source.venue, "BINANCE");
+  assert.equal(json.settings_hash, "abc123");
+  assert.equal(json.patterns[0]!.open_time, 8 * HOUR);
+  const csv = patternExportCsv(value);
+  for (const field of ["BTCUSDT", "engulfing_bullish", "2.0.0", "abc123",
+    "caller_supplied_binance_spot", String(8 * HOUR)]) assert.match(csv, new RegExp(field));
+});
+
+test("catalog selection filters annotations without re-evaluating OHLC", () => {
+  const value = analysis([
+    pattern(HOUR), pattern(2 * HOUR, { id: "doji", name: "Doji", direction: "none" }),
+  ]);
+  assert.deepEqual(placePatterns(value, candles(4), new Set(["doji"])).map((p) => p.pattern.id), ["doji"]);
+  assert.equal(placePatterns(value, candles(4), new Set()).length, 0);
 });

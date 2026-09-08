@@ -9,15 +9,33 @@ be persisted.
 from __future__ import annotations
 
 import logging
+import math
+import re
 from contextlib import asynccontextmanager
 from typing import Any
 
+import pandas as pd
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import ConfigError
 from .service import ScreenerService
-from .timeframes import SUPPORTED
+from .timeframes import SUPPORTED, duration_ms
+from .indicators import candles as candle_patterns
+
+_ANALYSIS_TIMEFRAME = re.compile(r"^([1-9][0-9]{0,3})([smhd])$")
+_ANALYSIS_UNITS = {"s": 1_000, "m": 60_000, "h": 3_600_000, "d": 86_400_000}
+
+
+def _analysis_duration_ms(value: str) -> int:
+    """Fixed chart resolutions, including exact derived Binance Spot bars."""
+    match = _ANALYSIS_TIMEFRAME.fullmatch(value)
+    if match is None:
+        raise ValueError("unsupported timeframe")
+    duration = int(match.group(1)) * _ANALYSIS_UNITS[match.group(2)]
+    if duration > 86_400_000:
+        raise ValueError("unsupported timeframe")
+    return duration
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +120,95 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
     @app.get("/api/config")
     async def get_config() -> dict:
         return {"config": svc.config.doc, "supported_timeframes": list(SUPPORTED)}
+
+    @app.get("/api/patterns/catalog")
+    async def pattern_catalog() -> dict:
+        """Versioned catalog shared by chart, Screener, export, and alerts."""
+        settings = candle_patterns.normalized_settings()
+        return {
+            "detector_id": candle_patterns.DETECTOR_ID,
+            "detector_version": candle_patterns.DETECTOR_VERSION,
+            "catalog_observed_at": candle_patterns.CATALOG_OBSERVED_AT,
+            "confirmation": "bar_close",
+            "causal": True,
+            "predictive_claim": False,
+            "settings": settings,
+            "settings_hash": candle_patterns.settings_hash(settings),
+            "patterns": candle_patterns.catalog(),
+        }
+
+    @app.post("/api/patterns/analyze")
+    async def analyze_patterns(payload: dict[str, Any] = Body(...)) -> dict:
+        """Analyze caller-supplied, completed Binance Spot OHLC bars only.
+
+        This endpoint deliberately does not fetch and does not accept a generic
+        exchange identity. Its result is suitable for annotations and exports:
+        every occurrence names the exact source-bar open and confirmation time.
+        """
+        try:
+            allowed = {"venue", "market_type", "symbol", "timeframe", "as_of", "candles", "settings"}
+            extra = set(payload) - allowed
+            if extra:
+                raise ValueError(f"unsupported field: {sorted(extra)[0]}")
+            if str(payload.get("venue", "")).upper() != "BINANCE":
+                raise ValueError("venue must be BINANCE")
+            if payload.get("market_type") != "spot":
+                raise ValueError("market_type must be spot")
+            symbol = str(payload.get("symbol", "")).upper()
+            if not symbol.isalnum() or not 3 <= len(symbol) <= 30:
+                raise ValueError("symbol must be an alphanumeric Binance Spot symbol")
+            timeframe = str(payload.get("timeframe", ""))
+            step = _analysis_duration_ms(timeframe)
+            as_of = int(payload.get("as_of"))
+            if as_of <= 0:
+                raise ValueError("as_of must be a positive Unix time in milliseconds")
+            source = payload.get("candles")
+            if not isinstance(source, list) or not 1 <= len(source) <= 2_000:
+                raise ValueError("candles must contain between 1 and 2000 bars")
+
+            rows: list[dict[str, float | int]] = []
+            previous = -1
+            excluded = 0
+            for raw in source:
+                if not isinstance(raw, dict):
+                    raise ValueError("each candle must be an object")
+                required = {"open_time", "open", "high", "low", "close", "close_time"}
+                if set(raw) != required:
+                    raise ValueError("each candle requires exactly open_time, open, high, low, close, close_time")
+                opened = int(raw["open_time"])
+                closed = int(raw["close_time"])
+                if opened <= previous:
+                    raise ValueError("candle open_time values must be unique and strictly increasing")
+                previous = opened
+                if closed != opened + step - 1:
+                    raise ValueError("close_time does not match timeframe")
+                values = [float(raw[k]) for k in ("open", "high", "low", "close")]
+                if not all(math.isfinite(v) and v > 0 for v in values):
+                    raise ValueError("OHLC values must be finite and positive")
+                o, h, low, c = values
+                if h < max(o, c) or low > min(o, c) or h <= low:
+                    raise ValueError("invalid OHLC geometry")
+                if closed > as_of:
+                    excluded += 1
+                    continue
+                rows.append({"ts": opened, "open": o, "high": h, "low": low, "close": c})
+
+            settings = payload.get("settings")
+            if settings is not None and not isinstance(settings, dict):
+                raise ValueError("settings must be an object")
+            params = {**(settings or {}), "bar_duration_ms": step}
+            result = candle_patterns.scan(pd.DataFrame(rows), params)
+            return {
+                **result,
+                "source": {
+                    "venue": "BINANCE", "market_type": "spot", "symbol": symbol,
+                    "timeframe": timeframe, "ohlc": "caller_supplied_binance_spot",
+                    "as_of": as_of, "closed_bars_analyzed": len(rows),
+                    "forming_bars_excluded": excluded,
+                },
+            }
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # --- write --------------------------------------------------------
 

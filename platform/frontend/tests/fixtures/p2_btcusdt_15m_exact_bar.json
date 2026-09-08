@@ -1,0 +1,49 @@
+{
+  "provenance": {
+    "source": "Binance Spot public market-data API",
+    "symbol": "BTCUSDT",
+    "timeframe": "15m",
+    "window_ohlc_sha256": "b4b3543d3b44d51e0e3177826568c45a7541013f7a9cf7439f244ffa94eb53e1",
+    "reviewed_corpus": "platform/screener/backend/tests/fixtures/p2_differential_corpus.json"
+  },
+  "candles": [
+    { "symbol": "BTCUSDT", "interval": "15m", "openTime": 1788699600000, "closeTime": 1788700499999, "open": 79922.04, "high": 79968.0, "low": 79874.0, "close": 79886.0, "volume": 0 },
+    { "symbol": "BTCUSDT", "interval": "15m", "openTime": 1788700500000, "closeTime": 1788701399999, "open": 79886.01, "high": 79886.01, "low": 79790.03, "close": 79794.07, "volume": 0 },
+    { "symbol": "BTCUSDT", "interval": "15m", "openTime": 1788701400000, "closeTime": 1788702299999, "open": 79794.07, "high": 79857.99, "low": 79760.39, "close": 79794.23, "volume": 0 },
+    { "symbol": "BTCUSDT", "interval": "15m", "openTime": 1788702300000, "closeTime": 1788703199999, "open": 79794.23, "high": 79845.17, "low": 79772.59, "close": 79829.98, "volume": 0 },
+    { "symbol": "BTCUSDT", "interval": "15m", "openTime": 1788703200000, "closeTime": 1788704099999, "open": 79829.99, "high": 79840.25, "low": 79744.0, "close": 79750.0, "volume": 0 }
+  ],
+  "analysis": {
+    "detector_id": "trading-scene-candlesticks",
+    "detector_version": "2.0.0",
+    "catalog_observed_at": "2026-09-08",
+    "catalog_size": 44,
+    "confirmation": "bar_close",
+    "causal": true,
+    "predictive_claim": false,
+    "settings": { "bar_duration_ms": 900000, "direction": "both" },
+    "settings_hash": "15ef04a2504d4d8a",
+    "input_end_open_time": 1788703200000,
+    "patterns": [
+      {
+        "id": "marubozu_black_bearish", "name": "Marubozu Black - Bearish", "direction": "bear", "bars": 1,
+        "confirmation": "bar_close", "predictive_claim": false, "strength": 0.1582,
+        "basis": "geometric margin past named thresholds; not predictive",
+        "open_time": 1788700500000, "confirmed_at": 1788701400000,
+        "detector_id": "trading-scene-candlesticks", "detector_version": "2.0.0", "settings_hash": "15ef04a2504d4d8a"
+      },
+      {
+        "id": "doji", "name": "Doji", "direction": "none", "bars": 1,
+        "confirmation": "bar_close", "predictive_claim": false, "strength": 0.9836,
+        "basis": "geometric margin past named thresholds; not predictive",
+        "open_time": 1788701400000, "confirmed_at": 1788702300000,
+        "detector_id": "trading-scene-candlesticks", "detector_version": "2.0.0", "settings_hash": "15ef04a2504d4d8a"
+      }
+    ],
+    "source": {
+      "venue": "BINANCE", "market_type": "spot", "symbol": "BTCUSDT", "timeframe": "15m",
+      "ohlc": "cached_binance_spot_p2_differential_corpus", "as_of": 1788704100000,
+      "closed_bars_analyzed": 5, "forming_bars_excluded": 0
+    }
+  }
+}

@@ -262,15 +262,24 @@ test("a notification says what happened, on the right scale", () => {
 
 // ── the migration ──────────────────────────────────────────────────────────
 
-test("migration 027 widens the kind check and refuses an unfireable row", () => {
+test("migration 027 widens its kind check and refuses an unfireable row", () => {
   const sql = fs.readFileSync(path.join(
     __dirname, "..", "src", "db", "migrations",
     "027_bollinger_stochastic_adx_alerts.sql"), "utf8");
 
   // Every kind the application knows must be admitted, or the UI saves a row
   // the database refuses.
-  for (const kind of CONDITION_KINDS) {
+  for (const kind of CONDITION_KINDS.filter((kind) => kind !== "candlestick_pattern")) {
     assert.ok(sql.includes(`'${kind}'`), `${kind} is not admitted by the widened CHECK`);
+  }
+
+  // A later additive migration owns later families; the effective last CHECK
+  // must still admit the complete application vocabulary.
+  const latest = fs.readFileSync(path.join(
+    __dirname, "..", "src", "db", "migrations",
+    "032_candlestick_pattern_alerts.sql"), "utf8");
+  for (const kind of CONDITION_KINDS) {
+    assert.ok(latest.includes(`'${kind}'`), `${kind} is not admitted by the effective CHECK`);
   }
 
   // The mode branches spell out IS NOT NULL, which 025 found is load-bearing:

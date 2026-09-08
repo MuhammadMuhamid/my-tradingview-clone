@@ -109,6 +109,87 @@ def test_snapshot_market_identity_is_explicitly_spot(client):
     assert btc["market"]["spot"] is True
 
 
+def _pattern_request(client, **overrides):
+    rows = client.feed.series("BTC/USDT", "1h", 90)
+    candles = [
+        {
+            "open_time": int(row[0]), "open": row[1], "high": row[2],
+            "low": row[3], "close": row[4], "close_time": int(row[0]) + 3_600_000 - 1,
+        }
+        for row in rows
+    ]
+    body = {
+        "venue": "BINANCE", "market_type": "spot", "symbol": "BTCUSDT",
+        "timeframe": "1h", "as_of": candles[-2]["close_time"], "candles": candles,
+    }
+    body.update(overrides)
+    return body
+
+
+def test_pattern_catalog_is_versioned_causal_and_complete(client):
+    body = client.get("/api/patterns/catalog").json()
+    assert body["detector_id"] == "trading-scene-candlesticks"
+    assert body["detector_version"] == "2.0.0"
+    assert body["confirmation"] == "bar_close"
+    assert body["causal"] is True
+    assert body["predictive_claim"] is False
+    assert len(body["patterns"]) == 44
+    assert len({item["id"] for item in body["patterns"]}) == 44
+
+
+def test_pattern_analysis_excludes_forming_bar_and_preserves_provenance(client):
+    request = _pattern_request(client)
+    body = client.post("/api/patterns/analyze", json=request).json()
+    assert body["source"] == {
+        "venue": "BINANCE", "market_type": "spot", "symbol": "BTCUSDT",
+        "timeframe": "1h", "ohlc": "caller_supplied_binance_spot",
+        "as_of": request["as_of"], "closed_bars_analyzed": 89,
+        "forming_bars_excluded": 1,
+    }
+    assert body["settings"]["bar_duration_ms"] == 3_600_000
+    assert body["input_end_open_time"] == request["candles"][-2]["open_time"]
+    for hit in body["patterns"]:
+        assert hit["confirmed_at"] == hit["open_time"] + 3_600_000
+        assert hit["detector_version"] == body["detector_version"]
+        assert hit["settings_hash"] == body["settings_hash"]
+
+
+@pytest.mark.parametrize("patch", [
+    {"venue": "COINBASE"},
+    {"market_type": "future"},
+    {"symbol": "BTC/USDT"},
+    {"timeframe": "calendar"},
+])
+def test_pattern_analysis_rejects_noncanonical_market_identity(client, patch):
+    assert client.post("/api/patterns/analyze", json=_pattern_request(client, **patch)).status_code == 422
+
+
+def test_pattern_analysis_rejects_bad_ohlc_duplicate_time_and_bad_close_time(client):
+    for mutate in ("geometry", "duplicate", "close_time"):
+        request = _pattern_request(client)
+        if mutate == "geometry":
+            request["candles"][10]["high"] = request["candles"][10]["low"] - 1
+        elif mutate == "duplicate":
+            request["candles"][10]["open_time"] = request["candles"][9]["open_time"]
+        else:
+            request["candles"][10]["close_time"] += 1
+        response = client.post("/api/patterns/analyze", json=request)
+        assert response.status_code == 422, mutate
+
+
+def test_pattern_analysis_rejects_settings_that_are_not_canonical(client):
+    response = client.post("/api/patterns/analyze", json=_pattern_request(
+        client, settings={"future_confirmation": True},
+    ))
+    assert response.status_code == 422
+    assert "unsupported candlestick setting" in response.json()["detail"]
+
+
+def test_screener_supplies_exact_pattern_confirmation_duration(client):
+    row = next(r for r in client.get("/api/screener").json()["rows"] if r["symbol"] == "BTC/USDT")
+    assert row["indicators"]["candles"]["settings"]["bar_duration_ms"] == 3_600_000
+
+
 # --- refresh -----------------------------------------------------------
 
 

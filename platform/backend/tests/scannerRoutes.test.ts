@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { config } from "../src/config";
 import { buildServer } from "../src/api/server";
-import { scannerRoutes, scannerConfigPatch } from "../src/api/routes/scanner";
+import {
+  scannerRoutes, scannerConfigPatch, patternAnalysisRequest,
+} from "../src/api/routes/scanner";
 import { scannerRequest, ScannerServiceError } from "../src/scanner/client";
 import { SESSION_COOKIE, signSession } from "../src/security/session";
 import type { LiveRunner } from "../src/engine/liveRunner";
@@ -85,6 +87,45 @@ test("Scanner unavailable maps to a bounded 503 without exposing an internal URL
     (error: unknown) => error instanceof ScannerServiceError && error.status === 503 &&
       error.message === "Scanner service is unavailable" && !error.message.includes("internal"),
   );
+});
+
+test("pattern analysis boundary is explicit, Spot-only, and bounded", async (t) => {
+  const body = {
+    venue: "BINANCE", market_type: "spot", symbol: "BTCUSDT", timeframe: "45m",
+    as_of: 4_500_000,
+    candles: [{
+      open_time: 900_000, open: 100, high: 105, low: 98, close: 103,
+      close_time: 3_599_999,
+    }],
+  };
+  assert.deepEqual(patternAnalysisRequest(body), body);
+  for (const invalid of [
+    { ...body, venue: "BYBIT" },
+    { ...body, market_type: "future" },
+    { ...body, timeframe: "1w" },
+    { ...body, candles: [] },
+    { ...body, extra: true },
+  ]) {
+    assert.throws(() => patternAnalysisRequest(invalid), ScannerServiceError);
+  }
+
+  const app = Fastify({ logger: false });
+  await app.register(scannerRoutes);
+  t.after(() => app.close());
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body?: string }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), body: init?.body?.toString() });
+    return jsonResponse({ detector_version: "2.0.0", patterns: [] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const response = await app.inject({
+    method: "POST", url: "/api/scanner/patterns/analyze", payload: body,
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(calls[0]?.url, "http://127.0.0.1:8000/api/patterns/analyze");
+  assert.deepEqual(JSON.parse(calls[0]!.body!), body);
 });
 
 test("Platform session gate protects Scanner reads and permits a signed owner session", async (t) => {

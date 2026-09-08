@@ -57,6 +57,7 @@ const GATE_FIELDS = [
 ] as const;
 
 export const EDITABLE_CONDITION_FIELDS: Record<ConditionKind, readonly string[]> = {
+  candlestick_pattern: ["patternId", ...GATE_FIELDS],
   price: ["targetPrice", "priceDirection", ...GATE_FIELDS],
   ma: ["maType", "maLength", "mode", "nearMinPct", "nearMaxPct", ...GATE_FIELDS],
   ma_vs_ma: ["maType", "maLength", "ma2Type", "ma2Length", "mode", ...GATE_FIELDS],
@@ -111,6 +112,7 @@ export const INTERNAL_ALERT_FIELDS = [
  * down, so switching direction keeps its memory.
  */
 const REFERENCE_COLUMNS: Record<ConditionKind, readonly (keyof AlertColumns)[]> = {
+  candlestick_pattern: ["patternId"],
   price: ["targetPrice"],
   ma: ["maType", "maLength"],
   ma_vs_ma: ["maType", "maLength", "ma2Type", "ma2Length"],
@@ -165,6 +167,8 @@ export function alertRequestFromRow(row: MaAlertRow): Record<string, unknown> {
   }
 
   switch (row.conditionKind) {
+    case "candlestick_pattern":
+      return { patternId: row.patternId, ...gates };
     case "price":
       return { targetPrice: row.targetPrice, priceDirection: row.priceDirection, ...gates };
     case "ma":

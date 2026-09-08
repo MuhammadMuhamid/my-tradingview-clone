@@ -1,165 +1,127 @@
-"use client";
-/**
- * Candlestick patterns on the chart — the Screener's, not a second opinion.
- *
- * ── Why this file contains no pattern logic at all ─────────────────────────
- *
- * Because there must be exactly one implementation of "is this a hammer", and
- * it already exists: `screener/backend/app/indicators/candles.py`, with every
- * threshold a named parameter and every strength a documented function of the
- * bar's own ratios. Writing a TypeScript port here would produce a second
- * implementation that agrees on the day it is written and drifts thereafter —
- * and the failure mode is the worst kind: the Screener says a bar is a Bullish
- * Engulfing, the chart does not mark it, and the user has to decide which of
- * their own tools to believe.
- *
- * So the chart READS what the Screener reports for this instrument and
- * timeframe and places it on the bars it names. Agreement is by construction
- * rather than by discipline.
- *
- * ── What that costs, stated honestly ───────────────────────────────────────
- *
- * The Screener reports the patterns it found in its own recent window
- * (`lookback`, five closed bars by default), for the symbols and timeframes it
- * tracks. So this is NOT a full-history pattern overlay and does not pretend
- * to be: it marks what the Screener is reporting NOW. `overlayNotice` says so
- * on the chart rather than leaving a user to conclude that the last five bars
- * are the only patterns that ever formed.
- *
- * ── Off by default ─────────────────────────────────────────────────────────
- *
- * Pattern marks are opinions about bars, drawn on top of the bars themselves.
- * A chart that arrives already covered in them has made a choice on the user's
- * behalf about what matters.
- */
+/** Exact-bar view models for the canonical server-side candlestick detector. */
 import type { ChartMarker } from "@/components/CandleChart";
-import type { CandlePattern, Snapshot } from "@/lib/scanner/types";
-import { sameInstrument } from "@/lib/instrument";
 import type { Candle } from "@/lib/types";
-import type { Resolution } from "@/lib/resolution";
 
-export const CANDLE_OVERLAY_KEY = "tv.candleOverlay.v1";
+export const CANDLE_OVERLAY_KEY = "tv.candleOverlay.v2";
 
-/** A pattern the Screener reported, placed on the bar it belongs to. */
+export type PatternDirection = "bull" | "bear" | "none";
+
+export interface PatternCatalogItem {
+  id: string;
+  name: string;
+  direction: PatternDirection;
+  bars: number;
+  confirmation: "bar_close";
+  predictive_claim: false;
+}
+
+export interface PatternOccurrence extends PatternCatalogItem {
+  strength: number;
+  basis: string;
+  open_time: number;
+  confirmed_at: number;
+  detector_id: string;
+  detector_version: string;
+  settings_hash: string;
+}
+
+export interface PatternCatalog {
+  detector_id: string;
+  detector_version: string;
+  catalog_observed_at: string;
+  confirmation: "bar_close";
+  causal: true;
+  predictive_claim: false;
+  settings: Record<string, unknown>;
+  settings_hash: string;
+  patterns: PatternCatalogItem[];
+}
+
+export interface PatternAnalysis extends Omit<PatternCatalog, "patterns"> {
+  catalog_size: number;
+  input_end_open_time: number | null;
+  patterns: PatternOccurrence[];
+  source: {
+    venue: "BINANCE";
+    market_type: "spot";
+    symbol: string;
+    timeframe: string;
+    ohlc: string;
+    as_of: number;
+    closed_bars_analyzed: number;
+    forming_bars_excluded: number;
+  };
+}
+
 export interface PlacedPattern {
-  pattern: CandlePattern;
-  /** Index into the chart's bars. */
+  pattern: PatternOccurrence;
   index: number;
-  /** Bar open time in seconds, which is what the chart marks against. */
   time: number;
 }
 
-/**
- * Which chart bar a `bars_ago` refers to.
- *
- * `bars_ago: 0` is the Screener's newest CLOSED bar. The chart's newest bar is
- * usually the one still FORMING, so the anchor is the last closed bar, not the
- * last bar. Getting this wrong by one would put every mark on the bar after
- * the one that formed the pattern — which is exactly the kind of off-by-one
- * that looks plausible and is completely wrong.
- */
-export function anchorIndex(candles: readonly Candle[], now: number): number {
-  for (let i = candles.length - 1; i >= 0; i--) {
-    if (candles[i]!.closeTime < now) return i;
-  }
-  return -1;
-}
-
-/**
- * Place the Screener's patterns onto this chart's bars.
- *
- * Returns nothing at all when the snapshot has no row for this instrument and
- * timeframe — an absent row means the Screener does not track this pair, not
- * that the pair has no patterns, and inventing marks from the chart's own bars
- * is precisely what this module exists to avoid.
- */
+/** Place only against an exact source open-time; never infer or clamp a bar. */
 export function placePatterns(
-  snapshot: Snapshot | null,
-  symbol: string,
-  timeframe: Resolution,
+  analysis: PatternAnalysis | null,
   candles: readonly Candle[],
-  now: number
+  selectedIds: ReadonlySet<string> | null = null,
 ): PlacedPattern[] {
-  if (!snapshot || candles.length === 0) return [];
-  const row = findRow(snapshot, symbol, timeframe);
-  if (!row) return [];
-  const patterns = row.patterns ?? [];
-  const anchor = anchorIndex(candles, now);
-  if (anchor < 0) return [];
-
+  if (!analysis || candles.length === 0) return [];
+  const byOpen = new Map(candles.map((bar, index) => [bar.openTime, index]));
   const out: PlacedPattern[] = [];
-  for (const pattern of patterns) {
-    const index = anchor - Math.max(0, Math.trunc(pattern.bars_ago));
-    // A pattern older than the chart's own window has no bar to sit on. Better
-    // to omit it than to clamp it onto the first bar, where it would claim a
-    // pattern formed on a bar it did not.
-    if (index < 0 || index >= candles.length) continue;
-    out.push({ pattern, index, time: Math.floor(candles[index]!.openTime / 1000) });
+  for (const pattern of analysis.patterns) {
+    if (selectedIds && !selectedIds.has(pattern.id)) continue;
+    const index = byOpen.get(pattern.open_time);
+    if (index === undefined) continue;
+    out.push({ pattern, index, time: Math.floor(pattern.open_time / 1000) });
   }
   return out;
 }
 
-/**
- * Find the Screener row for this instrument and timeframe.
- *
- * Matched through the canonical instrument resolver rather than by string
- * equality: the Screener names pairs `SOL/USDT` and the chart names them
- * `SOLUSDT`, and comparing those directly would silently never match.
- */
-function findRow(
-  snapshot: Snapshot, symbol: string, timeframe: Resolution
-): { patterns?: CandlePattern[] } | null {
-  const rows = (snapshot as unknown as {
-    rows?: { symbol?: string; market?: { native_symbol?: string | null; config_symbol?: string };
-      timeframe?: string; indicators?: { candles?: { patterns?: CandlePattern[] } } }[];
-  }).rows ?? [];
-  for (const row of rows) {
-    if (row.timeframe !== timeframe) continue;
-    const candidates = [
-      row.market?.native_symbol ?? undefined,
-      row.market?.config_symbol,
-      row.symbol?.replace("/", ""),
-    ].filter((v): v is string => typeof v === "string" && v.length > 0);
-    if (candidates.some((c) => sameInstrument(c, symbol))) {
-      return row.indicators?.candles ?? null;
-    }
-  }
-  return null;
-}
-
-/** Chart markers for placed patterns, coloured by the direction they claim. */
 export function patternMarkers(placed: readonly PlacedPattern[]): ChartMarker[] {
   return placed.map(({ pattern, time }) => ({
     time,
     position: pattern.direction === "bear" ? "aboveBar" : "belowBar",
     color: pattern.direction === "bull" ? "#2ebd85"
       : pattern.direction === "bear" ? "#f6465d" : "#8b93a7",
-    // The name, and how textbook the example is. `strength` is comparable
-    // within a pattern and only loosely across patterns — the Screener says so
-    // itself, so the label does not present it as a score.
-    text: `${pattern.name} · ${(pattern.strength * 100).toFixed(0)}%`,
+    text: `${pattern.name} · ${(pattern.strength * 100).toFixed(0)}% fit`,
     shape: pattern.direction === "bull" ? "arrowUp"
       : pattern.direction === "bear" ? "arrowDown" : "circle",
   }));
 }
 
-/**
- * What the reader is owed about this overlay, or null when nothing is.
- *
- * Three separate truths, and each of them changes what the marks mean:
- * whether the Screener tracks this pair at all, that its window is recent
- * rather than complete, and that the strengths measure textbook-ness rather
- * than a prediction.
- */
 export function overlayNotice(
-  snapshot: Snapshot | null, placed: readonly PlacedPattern[], symbol: string
-): string | null {
-  if (!snapshot) {
-    return "The Screener has not answered, so no patterns are shown. Nothing is inferred from the chart's own bars.";
-  }
-  if (placed.length === 0) {
-    return `The Screener reports no recent pattern for ${symbol} on this timeframe.`;
-  }
-  return "The Screener's own recent window — these are the patterns it is reporting now, " +
-    "not every pattern in the chart's history.";
+  analysis: PatternAnalysis | null, loading: boolean, error: string | null, symbol: string,
+): string {
+  if (loading) return `Analyzing completed ${symbol} bars…`;
+  if (error) return `Candlestick analysis unavailable: ${error}`;
+  if (!analysis) return "Candlestick analysis has not run.";
+  if (analysis.patterns.length === 0) return `No recognized formation in the loaded completed ${symbol} bars.`;
+  return `${analysis.patterns.length} formations on exact completed bars. Geometric recognition is not a return forecast.`;
+}
+
+/** Research-ready JSON retains the complete version/settings/source envelope. */
+export function patternExportJson(analysis: PatternAnalysis): string {
+  return `${JSON.stringify(analysis, null, 2)}\n`;
+}
+
+function csv(value: unknown): string {
+  const valueText = value === null || value === undefined ? "" : String(value);
+  return `"${valueText.replaceAll('"', '""')}"`;
+}
+
+/** One row per exact occurrence; provenance is repeated so rows remain portable. */
+export function patternExportCsv(analysis: PatternAnalysis): string {
+  const header = [
+    "venue", "market_type", "symbol", "timeframe", "open_time", "confirmed_at",
+    "pattern_id", "pattern_name", "direction", "bars", "strength_geometric_fit",
+    "confirmation", "detector_id", "detector_version", "settings_hash", "settings_json",
+    "ohlc_provenance", "predictive_claim",
+  ];
+  const rows = analysis.patterns.map((p) => [
+    analysis.source.venue, analysis.source.market_type, analysis.source.symbol,
+    analysis.source.timeframe, p.open_time, p.confirmed_at, p.id, p.name, p.direction,
+    p.bars, p.strength, p.confirmation, p.detector_id, p.detector_version, p.settings_hash,
+    JSON.stringify(analysis.settings), analysis.source.ohlc, false,
+  ]);
+  return [header, ...rows].map((row) => row.map(csv).join(",")).join("\n") + "\n";
 }

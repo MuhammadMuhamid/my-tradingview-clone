@@ -31,6 +31,7 @@ import {
   describeFrequency, explainFrequency, isAlertFrequency, isIntrabar,
 } from "../../alerts/alertFrequency";
 import { validateCondition } from "../../alerts/alertConditions";
+import { scannerRequest } from "../../scanner/client";
 
 export const MAX_BULK_ALERTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -176,6 +177,9 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
         return reply.code(400).send(bad(`frequency must be one of ${ALERT_FREQUENCIES.join(", ")}`));
       }
       patch.frequency = f;
+      if (row.conditionKind === "candlestick_pattern" && f !== "once_per_bar_close") {
+        return reply.code(400).send(bad("candlestick pattern alerts run only once per bar close"));
+      }
     }
     if (b.cooldownMin !== undefined) {
       const cooldownMin = Number(b.cooldownMin);
@@ -198,6 +202,15 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
       if ("error" in read) return reply.code(400).send(read);
       const invalid = validateCondition(read.condition);
       if (invalid) return reply.code(400).send(bad(invalid));
+      if (read.condition.kind === "candlestick_pattern") {
+        const patternId = read.condition.patternId;
+        const catalog = await scannerRequest<{ patterns: Array<{ id: string }> }>({
+          method: "GET", path: "/api/patterns/catalog",
+        });
+        if (!catalog.patterns.some((item) => item.id === patternId)) {
+          return reply.code(400).send(bad("patternId is not in the canonical catalog"));
+        }
+      }
       columns = toColumns(read.condition);
       // Everything the condition owns is written together, including the
       // columns the edit did not name — they came out of the row itself, so
@@ -346,11 +359,23 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     if (!isAlertFrequency(frequency)) {
       return reply.code(400).send(bad(`frequency must be one of ${ALERT_FREQUENCIES.join(", ")}`));
     }
+    if (kind === "candlestick_pattern" && frequency !== "once_per_bar_close") {
+      return reply.code(400).send(bad("candlestick pattern alerts run only once per bar close"));
+    }
 
     const read = readCondition(kind, b);
     if ("error" in read) return reply.code(400).send(read);
     const invalid = validateCondition(read.condition);
     if (invalid) return reply.code(400).send(bad(invalid));
+    if (read.condition.kind === "candlestick_pattern") {
+      const patternId = read.condition.patternId;
+      const catalog = await scannerRequest<{ patterns: Array<{ id: string }> }>({
+        method: "GET", path: "/api/patterns/catalog",
+      });
+      if (!catalog.patterns.some((item) => item.id === patternId)) {
+        return reply.code(400).send(bad("patternId is not in the canonical catalog"));
+      }
+    }
 
     const cooldownMin = b.cooldownMin === undefined ? 60 : Number(b.cooldownMin);
     if (!Number.isInteger(cooldownMin) || cooldownMin < 0) {

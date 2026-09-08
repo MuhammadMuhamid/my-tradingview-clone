@@ -48,8 +48,9 @@ import { fixedRangeDecorations, fixedRangeOverlays } from "@/lib/volumeProfileDr
 import { compareOverlays, useCompareSeries } from "@/lib/compare";
 import { alertEventMarkers, placeAlertEvents } from "@/lib/alertMarkers";
 import { useAlertEvents } from "@/lib/useAlertEvents";
-import { patternMarkers, placePatterns } from "@/lib/candleOverlay";
-import type { CandleOverlayState } from "@/lib/useCandleOverlay";
+import { overlayNotice, patternMarkers, placePatterns } from "@/lib/candleOverlay";
+import { usePatternAnalysis, type CandleOverlayState } from "@/lib/useCandleOverlay";
+import { PatternOverlayControls } from "@/components/tv/PatternOverlayControls";
 import type { MaAlert } from "@/lib/api";
 
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
@@ -505,6 +506,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
 
   const replayActive = replay !== null;
 
+  const patternAnalysis = usePatternAnalysis({
+    enabled: !replayActive && props.candleOverlay?.enabled === true && holdingRequested,
+    symbol: pane.symbol, timeframe: pane.interval, candles: visibleCandles,
+    direction: props.candleOverlay?.direction ?? "both",
+  });
+  const selectedPatternIds = useMemo(() => {
+    const ids = props.candleOverlay?.selectedIds;
+    return ids === null || ids === undefined ? null : new Set(ids);
+  }, [props.candleOverlay?.selectedIds]);
+
   /*
    * Fired-alert marks.
    *
@@ -535,9 +546,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
    */
   const patternMarks = useMemo(() => {
     if (replayActive || !props.candleOverlay?.enabled) return NO_FIRED;
-    return patternMarkers(placePatterns(
-      props.candleOverlay.snapshot, pane.symbol, pane.interval, visibleCandles, Date.now()));
-  }, [replayActive, props.candleOverlay, pane.symbol, pane.interval, visibleCandles]);
+    return patternMarkers(placePatterns(patternAnalysis.analysis, visibleCandles, selectedPatternIds));
+  }, [replayActive, props.candleOverlay?.enabled, patternAnalysis.analysis,
+    visibleCandles, selectedPatternIds]);
 
   /*
    * Everything drawn ON a bar, in one list.
@@ -607,6 +618,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
       )}
 
       <div className="relative min-h-0 flex-1">
+        {props.candleOverlay?.enabled && !replayActive && active && (
+          <>
+            <PatternOverlayControls overlay={props.candleOverlay} result={patternAnalysis}
+              symbol={pane.symbol} timeframe={pane.interval} />
+            <span className="sr-only" role="status" aria-live="polite">
+              {overlayNotice(patternAnalysis.analysis, patternAnalysis.loading,
+                patternAnalysis.error, pane.symbol)}
+            </span>
+          </>
+        )}
         {history.loading && !holdingRequested && history.candles.length > 0 && (
           // The previous instrument's bars are still drawn underneath; say so
           // rather than let them pass for the new one for a few seconds.

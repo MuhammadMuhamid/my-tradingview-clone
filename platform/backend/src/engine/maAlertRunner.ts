@@ -49,6 +49,7 @@ import {
 } from "../alerts/alertPlan";
 import { formatAlertPush } from "../alerts/alertMessage";
 import { sendPush, type PushResult } from "../alerts/webPush";
+import { scannerRequest } from "../scanner/client";
 
 /**
  * Bars of history pulled per evaluation: enough to seed the longest MA.
@@ -78,6 +79,9 @@ export interface MaAlertRunnerDependencies {
   createEvent: typeof maAlertRepo.createEvent;
   sendPush: typeof sendPush;
   now: () => number;
+  analyzePatterns: (input: {
+    symbol: string; interval: Interval; bars: Candle[]; asOf: number;
+  }) => Promise<{ patterns: Array<{ id: string; name: string; open_time: number }> }>;
 }
 
 const DEFAULT_DEPENDENCIES: MaAlertRunnerDependencies = {
@@ -86,6 +90,16 @@ const DEFAULT_DEPENDENCIES: MaAlertRunnerDependencies = {
   createEvent: maAlertRepo.createEvent,
   sendPush,
   now: Date.now,
+  analyzePatterns: ({ symbol, interval, bars, asOf }) => scannerRequest({
+    method: "POST", path: "/api/patterns/analyze",
+    body: {
+      venue: "BINANCE", market_type: "spot", symbol, timeframe: interval, as_of: asOf,
+      candles: bars.slice(-HISTORY_BARS).map((bar) => ({
+        open_time: bar.openTime, open: bar.open, high: bar.high, low: bar.low,
+        close: bar.close, close_time: bar.closeTime,
+      })),
+    },
+  }),
 };
 
 /** A deterministic local frame that enters the same evaluator as live bars. */
@@ -346,6 +360,24 @@ export class MaAlertRunner {
       : alerts.filter((a) => acceptsIntrabarSample(a.frequency));
     if (relevant.length === 0) return;
 
+    let canonicalPatterns: { ids: readonly string[]; nameFor: (id: string) => string | undefined } | null = null;
+    if (isClosedBar && relevant.some((alert) => alert.conditionKind === "candlestick_pattern")) {
+      try {
+        const result = await this.dependencies.analyzePatterns({
+          symbol, interval, bars, asOf: sampleBar.closeTime,
+        });
+        const exact = result.patterns.filter((hit) => hit.open_time === sampleBar.openTime);
+        const names = new Map(exact.map((hit) => [hit.id, hit.name]));
+        canonicalPatterns = { ids: [...names.keys()], nameFor: (id) => names.get(id) };
+      } catch (err) {
+        // Do not advance pattern-alert state when canonical truth is
+        // unavailable. The next closed-bar pass can recover; guessing false
+        // here would permanently consume the bar.
+        this.log.error({ symbol, interval, err: (err as Error).message },
+          "canonical candlestick analysis unavailable");
+      }
+    }
+
     const closes = bars.map((b) => b.close);
     // Supertrend needs the full range, not just closes: its bands are built
     // from true range, which is a high/low/close quantity.
@@ -565,10 +597,12 @@ export class MaAlertRunner {
       bollinger: bbFor,
       stochastic: stochFor,
       adx: adxFor,
+      ...(canonicalPatterns ? { patterns: canonicalPatterns } : {}),
     };
     const now = replayNow ?? this.dependencies.now();
 
     for (const alert of relevant) {
+      if (alert.conditionKind === "candlestick_pattern" && canonicalPatterns === null) continue;
       const condition = conditionFromRow(alert);
       if (!condition) {
         this.log.warn({ alertId: alert.id, kind: alert.conditionKind }, "alert row is not evaluable");

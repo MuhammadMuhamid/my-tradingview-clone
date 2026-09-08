@@ -114,6 +114,8 @@ export interface FeedSample {
   adx?: (
     diLength: number, smoothing: number, level: number
   ) => { value: number; reference: number } | undefined;
+  /** Canonical server result for this exact completed bar. */
+  patterns?: { ids: readonly string[]; nameFor: (id: string) => string | undefined };
 }
 
 export type SkipReason =
@@ -205,6 +207,11 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
     ...filterValues(condition.filters, sample),
   };
   switch (condition.kind) {
+    case "candlestick_pattern":
+      return {
+        ...base, patternIds: sample.patterns?.ids,
+        refLabel: sample.patterns?.nameFor(condition.patternId),
+      };
     case "price":
       return base;
     case "ma":
