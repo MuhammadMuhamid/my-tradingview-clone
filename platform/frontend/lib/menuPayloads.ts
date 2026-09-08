@@ -255,17 +255,35 @@ export function studyMenu(ctx: StudyMenuContext): MenuEntry[] {
 export interface AxisMenuContext {
   autoScale: boolean;
   logScale: boolean;
+  /** The axis reads as movement since the left edge rather than as a price. */
+  percentScale: boolean;
+  indexedScale: boolean;
+  inverted: boolean;
 }
 
 export const AXIS_MENU_IDS = [
-  "axis:toggle-auto", "axis:toggle-log", "axis:reset",
+  "axis:toggle-auto", "axis:toggle-log", "axis:toggle-percent",
+  "axis:toggle-indexed", "axis:toggle-invert", "axis:reset",
 ] as const;
 export type AxisMenuId = (typeof AXIS_MENU_IDS)[number];
 
+/**
+ * The price axis's own menu.
+ *
+ * Spacing first, then meaning, then orientation — because those are three
+ * different questions and grouping them as one list of five checkboxes is how
+ * a reader ends up believing "Logarithmic" and "Percent" are alternatives to
+ * each other rather than to Linear. The separators carry that grouping.
+ */
 export function priceAxisMenu(ctx: AxisMenuContext): MenuEntry[] {
   return [
     { id: "axis:toggle-auto", label: "Auto scale", checked: ctx.autoScale },
     { id: "axis:toggle-log", label: "Logarithmic scale", checked: ctx.logScale },
+    { id: "sep-meaning", separator: true },
+    { id: "axis:toggle-percent", label: "Percent scale", checked: ctx.percentScale },
+    { id: "axis:toggle-indexed", label: "Indexed to 100", checked: ctx.indexedScale },
+    { id: "sep-invert", separator: true },
+    { id: "axis:toggle-invert", label: "Invert scale", checked: ctx.inverted },
     { id: "sep", separator: true },
     { id: "axis:reset", label: "Reset scale" },
   ];

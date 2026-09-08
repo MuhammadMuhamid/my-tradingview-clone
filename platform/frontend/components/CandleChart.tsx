@@ -44,8 +44,9 @@ import {
   DEFAULT_RENKO_ATR_PERIOD, type TransformCursor, type TransformKind,
 } from "@/lib/chartTransforms";
 import {
-  DEFAULT_PRICE_SCALE, priceScaleLabel, resetPriceScale, setPriceScaleAuto,
-  togglePriceScaleAuto, togglePriceScaleMode, type PriceScaleState,
+  DEFAULT_PRICE_SCALE, priceScaleLabel, priceScaleModeLabel, resetPriceScale,
+  scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
+  togglePriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
 import {
   availableRangeShortcuts, loadedWindow, resolveRangeShortcut, sameViewport,
@@ -164,6 +165,20 @@ function defaultPaneHeight(paneCount: number): number {
   if (paneCount === 3) return 104;
   return 94;
 }
+
+/**
+ * This product's scale modes, in the library's own enum.
+ *
+ * A record rather than a chain of ternaries so the compiler requires an entry
+ * for every mode: a fifth mode added to `lib/priceScale` fails the build here
+ * rather than silently falling through to a linear axis at runtime.
+ */
+const LIBRARY_SCALE_MODE: Record<PriceScaleState["mode"], PriceScaleMode> = {
+  normal: PriceScaleMode.Normal,
+  logarithmic: PriceScaleMode.Logarithmic,
+  percentage: PriceScaleMode.Percentage,
+  indexedTo100: PriceScaleMode.IndexedTo100,
+};
 
 function overlaySeriesKind(overlay: ChartOverlay): OverlaySeriesEntry["kind"] {
   if (overlay.style === "histogram" || overlay.style === "columns") return "Histogram";
@@ -621,12 +636,10 @@ export function CandleChart({
   /**
    * The price scale, when nothing outside owns it.
    *
-   * Held here rather than in `lib/workspace` deliberately: the workspace
-   * record is persisted and versioned, and a reading preference is not worth
-   * a schema migration. It survives everything that actually happens to a
-   * chart — candle updates, presentation changes, series recreation — because
-   * the effect that applies it re-runs on `chartReady`, and it is reset only
-   * by the user asking for that.
+   * An ordinary workspace passes a controlled value that is persisted per
+   * pane. The internal value remains for standalone chart consumers such as
+   * previews and test fixtures. In either case it survives candle updates and
+   * series recreation because the applying effect re-runs on `chartReady`.
    */
   const [ownPriceScale, setOwnPriceScale] = useState<PriceScaleState>(DEFAULT_PRICE_SCALE);
   /** Which range shortcut produced the current viewport, if one did. */
@@ -711,9 +724,9 @@ export function CandleChart({
     if (!chart) return;
     try {
       chart.priceScale("right").applyOptions({
-        mode: scale.mode === "logarithmic"
-          ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+        mode: LIBRARY_SCALE_MODE[scale.mode],
         autoScale: scale.autoScale,
+        invertScale: scale.invert === true,
       });
     } catch { /* the chart went away between render and effect */ }
   }, [scale, chartReady]);
@@ -2163,8 +2176,24 @@ export function CandleChart({
             <span
               role="group"
               aria-label={`Price scale — ${priceScaleLabel(scale)}`}
+              /*
+               * Under percent or indexed-to-100 the axis stops reading in the
+               * instrument's currency, and a reader who did not switch it — a
+               * second person at the same screen, or the same person an hour
+               * later — has no other way to know that "−1.24" beside the last
+               * candle is not a price. The drawings, the alerts and the
+               * studies are all still on real prices; only the axis changed.
+               */
+              title={scaleShowsPrices(scale) ? undefined
+                : `${priceScaleModeLabel(scale.mode)} axis — these numbers are movement `
+                  + "since the first bar in view, not prices"}
               className="flex items-center gap-0.5"
             >
+              {!scaleShowsPrices(scale) && (
+                <span className="rounded bg-surface-2 px-1 py-0.5 font-semibold text-ink">
+                  {priceScaleModeLabel(scale.mode)}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => applyScale(togglePriceScaleMode(scale))}
@@ -2177,6 +2206,25 @@ export function CandleChart({
                 }`}
               >
                 log
+              </button>
+              {/*
+                Percent, beside log rather than inside a cycle through four.
+                Linear-or-log and currency-or-percent are two independent
+                questions, and a single stepping button would make answering
+                one of them mean passing through the other.
+              */}
+              <button
+                type="button"
+                onClick={() => applyScale(togglePercentScale(scale))}
+                aria-pressed={scale.mode === "percentage"}
+                title="Percent price scale — movement since the first bar in view"
+                className={`rounded px-1.5 py-0.5 transition-colors ${
+                  scale.mode === "percentage"
+                    ? "bg-surface-2 font-semibold text-ink"
+                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                }`}
+              >
+                %
               </button>
               <button
                 type="button"

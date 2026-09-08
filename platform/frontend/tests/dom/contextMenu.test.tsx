@@ -27,6 +27,7 @@ import {
 } from "./harness/chart";
 import { drawingStore } from "@/lib/drawingStore";
 import { fmtPrice } from "@/lib/format";
+import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace";
 
 const SYMBOL = "SOLUSDT";
 
@@ -68,7 +69,10 @@ test("each strip of the chart opens its own menu, and the time axis opens none",
     "the price axis has its own short menu; it used to show the browser's own");
   assert.deepEqual(
     menuItems().map((i) => i.label.replace(/\s+/g, " ").trim()),
-    ["Auto scale", "Logarithmic scale", "Reset scale"]);
+    [
+      "Auto scale", "Logarithmic scale", "Percent scale", "Indexed to 100",
+      "Invert scale", "Reset scale",
+    ]);
   await press("Escape");
 
   await rightClickAt(chart.plot, PLOT.x, TIME_Y);
@@ -165,6 +169,53 @@ test("the axis menu changes the axis it was opened on", async () => {
     .getAttribute("aria-checked");
   assert.notEqual(checkedAfter, checkedBefore,
     "the menu must both report the axis's state and change it; it was once built from literals");
+});
+
+test("axis meaning and orientation are visible, actionable and persisted", async () => {
+  const chart = await mountChart();
+
+  await rightClickAt(chart.plot, AXIS_X, PLOT.y);
+  await chooseMenuItem("Percent scale");
+  await settle();
+
+  assert.ok(screen.getByRole("group", { name: /Price scale — Percent · Auto/ }));
+  assert.ok(screen.getByText("Percent", { selector: "span" }),
+    "a non-price axis must identify its meaning without requiring the menu");
+
+  await rightClickAt(chart.plot, AXIS_X, PLOT.y);
+  assert.equal(
+    screen.getByRole("menuitemcheckbox", { name: /Percent scale/ })
+      .getAttribute("aria-checked"),
+    "true",
+  );
+  await chooseMenuItem("Indexed to 100");
+  await settle();
+  assert.ok(screen.getByRole("group", { name: /Price scale — Indexed to 100 · Auto/ }));
+
+  await rightClickAt(chart.plot, AXIS_X, PLOT.y);
+  await chooseMenuItem("Invert scale");
+  await settle();
+  assert.ok(screen.getByRole("group", {
+    name: /Price scale — Indexed to 100 · Auto · Inverted/,
+  }));
+
+  const stored = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "null") as {
+    panes?: { priceScale?: { mode?: string; autoScale?: boolean; invert?: boolean } }[];
+  } | null;
+  assert.deepEqual(stored?.panes?.[0]?.priceScale, {
+    mode: "indexedTo100", autoScale: true, invert: true,
+  }, "the axis is part of the pane's persisted workspace, not transient component state");
+
+  await rightClickAt(chart.plot, AXIS_X, PLOT.y);
+  await chooseMenuItem("Reset scale");
+  await settle();
+  assert.ok(screen.getByRole("group", { name: /Price scale — Linear · Auto$/ }));
+
+  const reset = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "null") as {
+    panes?: { priceScale?: unknown }[];
+  } | null;
+  assert.equal(reset?.panes?.[0]?.priceScale, undefined,
+    "the default is removed from storage rather than leaving redundant state behind");
 });
 
 test("every enabled item in the chart menu is answered by a handler", async () => {

@@ -77,7 +77,8 @@ import {
 } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
 import {
-  DEFAULT_PRICE_SCALE, resetPriceScale, togglePriceScaleAuto, togglePriceScaleMode,
+  DEFAULT_PRICE_SCALE, resetPriceScale, setPriceScaleMode, togglePercentScale,
+  togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
   type PriceScaleState,
 } from "@/lib/priceScale";
 import { parseScannerChartTarget } from "@/lib/spotScene";
@@ -90,6 +91,7 @@ import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPri
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
+  setPanePriceScale,
   setPreset, setWorkspaceBars, togglePaneMa, toggleMaximize, updatePane,
   type ChartWorkspace as Workspace, type PaneCompare, type PaneState,
 } from "@/lib/workspace";
@@ -1171,7 +1173,17 @@ export default function TvWorkspace() {
    * always claimed Auto on and Log off, whatever the axis was doing, and its
    * three scale items reached no handler at all.
    */
-  const [paneScales, setPaneScales] = useState<Record<string, PriceScaleState>>({});
+  /*
+   * The price scale lives in the WORKSPACE now, not beside it.
+   *
+   * It used to be a `Record<paneId, PriceScaleState>` in component state, so a
+   * chart deliberately put on a logarithmic axis came back linear on the next
+   * reload, and a saved layout — which is supposed to be "the way I look at
+   * this" — did not carry the way its axis was read. Moving it into the pane
+   * gives it the workspace's own persistence, its saved layouts and its
+   * validation, and costs nothing else: it is still per pane and still never
+   * synced across panes.
+   */
   /**
    * Bumped per pane to ask its chart to refit. See `CandleChart.resetSignal`.
    */
@@ -1179,9 +1191,10 @@ export default function TvWorkspace() {
   /** Bumped per pane to move focus into the selected drawing's style bar. */
   const [paneStyleFocus, setPaneStyleFocus] = useState<Record<string, number>>({});
   const paneScale = useCallback((paneId: string): PriceScaleState =>
-    paneScales[paneId] ?? DEFAULT_PRICE_SCALE, [paneScales]);
+    workspace.panes.find((p) => p.id === paneId)?.priceScale ?? DEFAULT_PRICE_SCALE,
+  [workspace]);
   const setPaneScale = useCallback((paneId: string, next: PriceScaleState) => {
-    setPaneScales((current) => ({ ...current, [paneId]: next }));
+    setWorkspace((ws) => setPanePriceScale(ws, paneId, next));
   }, []);
 
   /**
@@ -1257,6 +1270,9 @@ export default function TvWorkspace() {
         entries: priceAxisMenu({
           autoScale: paneScale(paneId).autoScale,
           logScale: paneScale(paneId).mode === "logarithmic",
+          percentScale: paneScale(paneId).mode === "percentage",
+          indexedScale: paneScale(paneId).mode === "indexedTo100",
+          inverted: paneScale(paneId).invert === true,
         }),
       });
       return;
@@ -1297,7 +1313,7 @@ export default function TvWorkspace() {
         price: event.price,
         priceLabel: event.price === null ? "" : fmtPrice(event.price),
         replayActive,
-        // The pane's real axis, not a literal. See `paneScales`.
+      // The pane's real persisted axis, not a literal.
         autoScale: paneScale(paneId).autoScale,
         logScale: paneScale(paneId).mode === "logarithmic",
         hasDrawings: drawings.length > 0,
@@ -1358,6 +1374,16 @@ export default function TvWorkspace() {
       case "chart:toggle-log":
       case "axis:toggle-log":
         setPaneScale(paneId, togglePriceScaleMode(scale));
+        return;
+      case "axis:toggle-percent":
+        setPaneScale(paneId, togglePercentScale(scale));
+        return;
+      case "axis:toggle-indexed":
+        setPaneScale(paneId, setPriceScaleMode(
+          scale, scale.mode === "indexedTo100" ? "normal" : "indexedTo100"));
+        return;
+      case "axis:toggle-invert":
+        setPaneScale(paneId, togglePriceScaleInvert(scale));
         return;
       default: break;
     }

@@ -39,6 +39,9 @@ import { isChartType, type ChartType } from "./chartType";
 import { defaultMaLines, type MaLine, type MaType } from "./movingAverages";
 import type { SyncOptions } from "./paneSync";
 import { isResolution, type Resolution } from "./resolution";
+import {
+  isDefaultPriceScale, normalizePriceScale, resetPriceScale, type PriceScaleState,
+} from "./priceScale";
 
 /** Stable across layout changes, maximise, and reloads. */
 export type PaneId = string;
@@ -63,6 +66,18 @@ export interface PaneState {
    * every reader treats it as optional rather than required.
    */
   compare?: PaneCompare | null;
+  /**
+   * How this pane's price axis reads, and whether it is fitting itself.
+   *
+   * Per pane and PERSISTED, which it was not: the scale lived in a record
+   * beside the workspace, so a chart deliberately put on a logarithmic axis
+   * came back linear after a reload — and a saved layout, which is supposed to
+   * be "the way I look at this", did not carry the way the axis was read.
+   *
+   * Absent on a pane restored from an older record, which is why every reader
+   * treats it as optional and defaults it.
+   */
+  priceScale?: PriceScaleState;
 }
 
 /** What a pane is comparing against, and how it is drawing the comparison. */
@@ -344,6 +359,36 @@ export function applyPaneSymbol(
  * would silently put the same second instrument on four charts the user was
  * using to look at four different things.
  */
+/**
+ * Set one pane's price scale.
+ *
+ * Never synced, like `compare` and for the same reason: reading a chart on a
+ * logarithmic or percent axis is a statement about that chart. It is also the
+ * one pane field a user changes by DRAGGING — the axis drag turns auto-fit off
+ * — so it is written far more often than the others, and the default is
+ * removed rather than stored so an untouched pane carries nothing.
+ */
+export function setPanePriceScale(
+  ws: ChartWorkspace, id: PaneId, priceScale: PriceScaleState
+): ChartWorkspace {
+  if (!ws.panes.some((p) => p.id === id)) return ws;
+  return {
+    ...ws,
+    panes: ws.panes.map((p) => {
+      if (p.id !== id) return p;
+      if (isDefaultPriceScale(priceScale)) {
+        const { priceScale: _removed, ...rest } = p;
+        return rest;
+      }
+      return { ...p, priceScale };
+    }),
+  };
+}
+
+export function panePriceScale(ws: ChartWorkspace, id: PaneId): PriceScaleState {
+  return ws.panes.find((p) => p.id === id)?.priceScale ?? resetPriceScale();
+}
+
 export function setPaneCompare(
   ws: ChartWorkspace, id: PaneId, compare: PaneCompare | null
 ): ChartWorkspace {
@@ -429,11 +474,20 @@ function validPane(value: unknown): PaneState | null {
    * fine, and losing the user's whole workspace over one is the wrong trade.
    */
   const compare = validCompare(raw.compare);
+  /*
+   * Same trade as the comparison above: a corrupt scale is a decoration on a
+   * chart that is otherwise fine, so it degrades to the default rather than
+   * discarding the pane — and with it, because `parseWorkspace` is
+   * all-or-nothing, the user's whole layout.
+   */
+  const priceScale = raw.priceScale === undefined
+    ? null : normalizePriceScale(raw.priceScale);
 
   return {
     id: raw.id, symbol: raw.symbol, interval: raw.interval,
     chartType: raw.chartType, bars: raw.bars, maLines,
     ...(compare ? { compare } : {}),
+    ...(priceScale && !isDefaultPriceScale(priceScale) ? { priceScale } : {}),
   };
 }
 

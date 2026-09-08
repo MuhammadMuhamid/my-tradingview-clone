@@ -24,9 +24,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { PriceScaleMode } from "lightweight-charts";
 import {
-  DEFAULT_PRICE_SCALE, isDefaultPriceScale, isPriceScaleMode, PRICE_SCALE_MODES,
-  priceScaleAfterManualScale, priceScaleLabel, resetPriceScale, setPriceScaleAuto,
-  setPriceScaleMode, togglePriceScaleAuto, togglePriceScaleMode,
+  DEFAULT_PRICE_SCALE, isDefaultPriceScale, isPriceScaleMode, normalizePriceScale,
+  PRICE_SCALE_MODES, priceScaleAfterManualScale, priceScaleLabel, resetPriceScale,
+  scaleShowsPrices, setPriceScaleAuto, setPriceScaleMode, togglePercentScale,
+  togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
 } from "../lib/priceScale";
 import {
   availableRangeShortcuts, loadedWindow, MIN_BARS_IN_RANGE, RANGE_SHORTCUTS,
@@ -81,35 +82,93 @@ function candles(count: number, startMs = START, stepMs = HOUR): Candle[] {
 
 // ══ 1–5  PRICE SCALE ═══════════════════════════════════════════════════════
 
-test("PRICE SCALE — the default is linear and auto-fitting", () => {
-  assert.deepEqual(DEFAULT_PRICE_SCALE, { mode: "normal", autoScale: true });
+test("PRICE SCALE — the default is linear, auto-fitting and the right way up", () => {
+  assert.deepEqual(DEFAULT_PRICE_SCALE, { mode: "normal", autoScale: true, invert: false });
   assert.ok(isDefaultPriceScale(DEFAULT_PRICE_SCALE));
   assert.equal(priceScaleLabel(DEFAULT_PRICE_SCALE), "Linear · Auto");
 });
 
-test("PRICE SCALE — only the two modes the library implements are offered", () => {
-  assert.deepEqual(PRICE_SCALE_MODES.map((m) => m.value), ["normal", "logarithmic"]);
-  assert.ok(isPriceScaleMode("logarithmic"));
-  // Percentage and indexed-to-100 exist in lightweight-charts and are
-  // deliberately NOT exposed: nothing decided what they should mean here.
-  assert.equal(isPriceScaleMode("percentage"), false);
+test("PRICE SCALE — four modes, and each is one the library implements", () => {
+  /*
+   * Percentage and indexed-to-100 were deliberately withheld until something
+   * asked for them. Comparison did: a pair, a benchmark overlay and a ratio
+   * pane are all questions about relative movement, and on a currency axis the
+   * answer to each is dominated by whichever instrument has the larger number.
+   */
+  assert.deepEqual(PRICE_SCALE_MODES.map((m) => m.value),
+    ["normal", "logarithmic", "percentage", "indexedTo100"]);
+  for (const mode of PRICE_SCALE_MODES) assert.ok(isPriceScaleMode(mode.value));
   assert.equal(isPriceScaleMode("nonsense"), false);
+  // Every mode reads differently on the control and in the label.
+  assert.equal(new Set(PRICE_SCALE_MODES.map((m) => m.short)).size, PRICE_SCALE_MODES.length);
+  assert.equal(new Set(PRICE_SCALE_MODES.map((m) => m.label)).size, PRICE_SCALE_MODES.length);
 });
 
-test("PRICE SCALE — logarithmic maps onto the library's own enum", () => {
-  // The chart must use the library's mode, not a lookalike of its own.
+test("PRICE SCALE — every mode maps onto the library's own enum, exhaustively", () => {
+  // The chart must use the library's modes, not a lookalike of its own — and
+  // the mapping must be a total record, so a mode added to `lib/priceScale`
+  // fails the build rather than silently drawing a linear axis.
   assert.equal(PriceScaleMode.Normal, 0);
   assert.equal(PriceScaleMode.Logarithmic, 1);
-  assert.match(CHART, /mode: scale\.mode === "logarithmic"\s*\n?\s*\? PriceScaleMode\.Logarithmic : PriceScaleMode\.Normal/);
+  assert.equal(PriceScaleMode.Percentage, 2);
+  assert.equal(PriceScaleMode.IndexedTo100, 3);
+  assert.match(CHART, /const LIBRARY_SCALE_MODE: Record<PriceScaleState\["mode"\], PriceScaleMode>/);
+  assert.match(CHART, /mode: LIBRARY_SCALE_MODE\[scale\.mode\]/);
+  for (const mode of PRICE_SCALE_MODES) {
+    assert.match(CHART, new RegExp(`\\b${mode.value}: PriceScaleMode\\.`),
+      `${mode.value} has no entry in the chart's mapping`);
+  }
 });
 
 test("PRICE SCALE — switching mapping leaves auto-fit alone, and vice versa", () => {
   const log = togglePriceScaleMode(DEFAULT_PRICE_SCALE);
-  assert.deepEqual(log, { mode: "logarithmic", autoScale: true });
+  assert.deepEqual(log, { mode: "logarithmic", autoScale: true, invert: false });
   const manual = togglePriceScaleAuto(log);
-  assert.deepEqual(manual, { mode: "logarithmic", autoScale: false });
+  assert.deepEqual(manual, { mode: "logarithmic", autoScale: false, invert: false });
   // …and back, without either having disturbed the other on the way.
-  assert.deepEqual(togglePriceScaleMode(manual), { mode: "normal", autoScale: false });
+  assert.deepEqual(togglePriceScaleMode(manual),
+    { mode: "normal", autoScale: false, invert: false });
+});
+
+test("PRICE SCALE — percent and log are alternatives to linear, not to each other", () => {
+  /*
+   * Two independent questions — how the axis is SPACED, and what it MEANS —
+   * so each toggle returns to linear rather than cycling through the other.
+   * A single stepping control would make choosing percent mean passing
+   * through log.
+   */
+  const percent = togglePercentScale(DEFAULT_PRICE_SCALE);
+  assert.equal(percent.mode, "percentage");
+  assert.equal(togglePercentScale(percent).mode, "normal");
+  assert.equal(togglePriceScaleMode(percent).mode, "logarithmic");
+  assert.equal(togglePercentScale(togglePriceScaleMode(DEFAULT_PRICE_SCALE)).mode, "percentage");
+});
+
+test("PRICE SCALE — an inverted axis says so, and is not the default", () => {
+  const inverted = togglePriceScaleInvert(DEFAULT_PRICE_SCALE);
+  assert.equal(inverted.invert, true);
+  assert.equal(isDefaultPriceScale(inverted), false);
+  assert.match(priceScaleLabel(inverted), /Inverted/);
+  assert.equal(togglePriceScaleInvert(inverted).invert, false);
+  assert.match(CHART, /invertScale: scale\.invert === true/);
+});
+
+test("PRICE SCALE — only the axis reads in prices under two of the four modes", () => {
+  assert.ok(scaleShowsPrices({ mode: "normal", autoScale: true }));
+  assert.ok(scaleShowsPrices({ mode: "logarithmic", autoScale: true }));
+  assert.equal(scaleShowsPrices({ mode: "percentage", autoScale: true }), false);
+  assert.equal(scaleShowsPrices({ mode: "indexedTo100", autoScale: true }), false);
+});
+
+test("PRICE SCALE — a stored scale is coerced, never trusted", () => {
+  assert.deepEqual(normalizePriceScale(undefined), DEFAULT_PRICE_SCALE);
+  assert.deepEqual(normalizePriceScale("log"), DEFAULT_PRICE_SCALE);
+  assert.deepEqual(
+    normalizePriceScale({ mode: "sideways", autoScale: "yes", invert: 1 }),
+    DEFAULT_PRICE_SCALE);
+  assert.deepEqual(
+    normalizePriceScale({ mode: "percentage", autoScale: false, invert: true }),
+    { mode: "percentage", autoScale: false, invert: true });
 });
 
 test("PRICE SCALE — an unchanged set returns the identical object", () => {
@@ -135,20 +194,32 @@ test("PRICE SCALE — a manual axis drag is recorded as manual", () => {
 
 test("PRICE SCALE — the mode is always identifiable", () => {
   const seen = new Set<string>();
-  for (const mode of ["normal", "logarithmic"] as const) {
+  for (const mode of PRICE_SCALE_MODES) {
     for (const autoScale of [true, false]) {
-      seen.add(priceScaleLabel({ mode, autoScale }));
+      for (const invert of [true, false]) {
+        seen.add(priceScaleLabel({ mode: mode.value, autoScale, invert }));
+      }
     }
   }
-  assert.equal(seen.size, 4, "every combination must read differently");
+  assert.equal(seen.size, PRICE_SCALE_MODES.length * 4,
+    "every combination must read differently");
 });
 
-test("PRICE SCALE — it is pane-local, and a candle update cannot reset it", () => {
-  // Each chart holds its own; nothing writes it to the shared workspace record.
+test("PRICE SCALE — it is per pane, persisted, and a candle update cannot reset it", () => {
+  // A chart with no owner above it still holds its own.
   assert.match(CHART, /useState<PriceScaleState>\(DEFAULT_PRICE_SCALE\)/);
+  /*
+   * And the workspace now carries it, which it deliberately did not: the scale
+   * lived beside the workspace, so a chart put on a logarithmic axis came back
+   * linear after a reload and a saved layout did not carry the way its axis
+   * was read. Per pane and never synced across panes, exactly like `compare`.
+   */
+  const workspace = read("lib/workspace.ts");
+  assert.match(workspace, /priceScale\?: PriceScaleState/);
+  assert.match(workspace, /export function setPanePriceScale/);
   assert.equal(
-    read("lib/workspace.ts").includes("priceScale"), false,
-    "the workspace record must not have grown a price scale field"
+    /syncTargets\([^)]*priceScale/.test(workspace), false,
+    "a price scale is a statement about ONE chart and must never be synced"
   );
   // The applying effect is keyed on the scale and on chart/series recreation —
   // NOT on `candles`, so a tick cannot re-apply (or reset) anything.

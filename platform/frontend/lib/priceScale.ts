@@ -24,38 +24,72 @@
  */
 
 /**
- * The two mappings this product offers.
+ * The four mappings this product offers.
  *
- * Percentage and indexed-to-100 exist in the library and are deliberately not
- * exposed: they change what the axis *means* rather than how it is spaced, and
- * nothing in this wave asked for them. A menu that offers a mode nobody has
- * decided the semantics of is worse than a menu with two entries that work.
+ * `normal` and `logarithmic` are about SPACING: the same prices, placed
+ * differently. `percentage` and `indexedTo100` are about MEANING — the axis
+ * stops reading in the instrument's currency and starts reading as movement
+ * since the left edge of what is on screen.
+ *
+ * The last two were deliberately withheld until something asked for them,
+ * because a menu entry whose semantics nobody has decided is worse than a
+ * shorter menu. What asked for them is comparison: a pair of instruments, a
+ * benchmark overlay and a ratio pane are all questions about relative
+ * movement, and on a currency axis the answer to every one of them is
+ * dominated by whichever instrument has the larger number.
+ *
+ * Both are the library's own modes, so the mapping is its arithmetic and not a
+ * transform of the data: the candles handed to the chart are the canonical
+ * ones under every mode, and switching modes cannot change a price, an alert,
+ * a drawing's anchor or anything a study computes.
  */
-export type PriceScaleMode = "normal" | "logarithmic";
+export type PriceScaleMode = "normal" | "logarithmic" | "percentage" | "indexedTo100";
 
 export interface PriceScaleState {
   mode: PriceScaleMode;
   /** The library's `autoScale`: the axis refits itself to the viewport. */
   autoScale: boolean;
+  /**
+   * Draw the axis upside down — high prices at the bottom.
+   *
+   * A real reading tool rather than a novelty: an inverted chart is how a
+   * trader checks whether a pattern they believe they can see is a pattern or
+   * a habit, because the eye that finds a head and shoulders finds it far less
+   * often when the picture is flipped. Absent on a state written before this
+   * existed, which is why every reader treats it as optional.
+   */
+  invert?: boolean;
 }
 
 /** What a chart opens with, and what "Reset" restores. */
-export const DEFAULT_PRICE_SCALE: PriceScaleState = { mode: "normal", autoScale: true };
+export const DEFAULT_PRICE_SCALE: PriceScaleState = {
+  mode: "normal", autoScale: true, invert: false,
+};
 
 export interface PriceScaleModeSpec {
   value: PriceScaleMode;
   label: string;
   hint: string;
+  /** The short form on the chart's own scale control. */
+  short: string;
 }
 
 export const PRICE_SCALE_MODES: readonly PriceScaleModeSpec[] = [
   {
-    value: "normal", label: "Linear",
+    value: "normal", label: "Linear", short: "lin",
     hint: "Equal price differences take equal vertical space",
   },
   {
-    value: "logarithmic", label: "Log",
+    value: "logarithmic", label: "Log", short: "log",
     hint: "Equal percentage moves take equal vertical space",
+  },
+  {
+    value: "percentage", label: "Percent", short: "%",
+    hint: "Movement since the first bar in view, in percent — what a comparison is read on",
+  },
+  {
+    value: "indexedTo100", label: "Indexed to 100", short: "100",
+    hint: "The first bar in view is 100 and everything else is relative to it",
   },
 ];
 
@@ -75,13 +109,15 @@ export function priceScaleModeLabel(mode: PriceScaleMode): string {
  * visibly differently from one that is — so both halves are always stated.
  */
 export function priceScaleLabel(state: PriceScaleState): string {
-  return `${priceScaleModeLabel(state.mode)} · ${state.autoScale ? "Auto" : "Manual"}`;
+  return `${priceScaleModeLabel(state.mode)} · ${state.autoScale ? "Auto" : "Manual"}`
+    + (state.invert ? " · Inverted" : "");
 }
 
 /** True when the scale is exactly what a fresh chart would have. */
 export function isDefaultPriceScale(state: PriceScaleState): boolean {
   return state.mode === DEFAULT_PRICE_SCALE.mode
-    && state.autoScale === DEFAULT_PRICE_SCALE.autoScale;
+    && state.autoScale === DEFAULT_PRICE_SCALE.autoScale
+    && (state.invert ?? false) === false;
 }
 
 export function setPriceScaleMode(
@@ -98,7 +134,47 @@ export function setPriceScaleMode(
  * kind of surprise that makes a scale control feel unreliable.
  */
 export function togglePriceScaleMode(state: PriceScaleState): PriceScaleState {
-  return setPriceScaleMode(state, state.mode === "normal" ? "logarithmic" : "normal");
+  return setPriceScaleMode(state, state.mode === "logarithmic" ? "normal" : "logarithmic");
+}
+
+/**
+ * Flip between the currency axis and the percent axis.
+ *
+ * Its own toggle rather than a step through all four, because linear/log and
+ * currency/percent are two independent questions and a single cycle button
+ * would make choosing one of them mean passing through the other.
+ */
+export function togglePercentScale(state: PriceScaleState): PriceScaleState {
+  return setPriceScaleMode(state, state.mode === "percentage" ? "normal" : "percentage");
+}
+
+export function setPriceScaleInvert(
+  state: PriceScaleState, invert: boolean
+): PriceScaleState {
+  return (state.invert ?? false) === invert ? state : { ...state, invert };
+}
+
+export function togglePriceScaleInvert(state: PriceScaleState): PriceScaleState {
+  return setPriceScaleInvert(state, !(state.invert ?? false));
+}
+
+/**
+ * Coerce a stored or hand-edited scale onto something a chart can be given.
+ *
+ * Total, like every other restore in this product: a mode this build does not
+ * have, a missing field or a string where a boolean belongs each fall back to
+ * the default rather than reaching `applyOptions`, where an unknown mode is a
+ * thrown error inside a render.
+ */
+export function normalizePriceScale(raw: unknown): PriceScaleState {
+  if (!raw || typeof raw !== "object") return resetPriceScale();
+  const value = raw as Partial<PriceScaleState>;
+  return {
+    mode: isPriceScaleMode(value.mode) ? value.mode : DEFAULT_PRICE_SCALE.mode,
+    autoScale: typeof value.autoScale === "boolean"
+      ? value.autoScale : DEFAULT_PRICE_SCALE.autoScale,
+    invert: value.invert === true,
+  };
 }
 
 export function setPriceScaleAuto(
@@ -119,6 +195,19 @@ export function togglePriceScaleAuto(state: PriceScaleState): PriceScaleState {
  */
 export function resetPriceScale(): PriceScaleState {
   return { ...DEFAULT_PRICE_SCALE };
+}
+
+/**
+ * Whether this scale reads in the instrument's own currency.
+ *
+ * The one distinction the rest of the product needs: a price readout, an
+ * axis-price context menu and a click-to-arm-an-alert are all about a PRICE,
+ * and under a percent or indexed axis the number beside the pointer is not
+ * one. Callers ask this rather than testing for two specific modes, so a fifth
+ * mode cannot be added without every one of them being reconsidered.
+ */
+export function scaleShowsPrices(state: PriceScaleState): boolean {
+  return state.mode === "normal" || state.mode === "logarithmic";
 }
 
 /**

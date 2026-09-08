@@ -297,9 +297,21 @@ test("a built-in study has no source to open, and says so", () => {
 });
 
 test("the price axis and watchlist menus state their own preconditions", () => {
-  const axis = priceAxisMenu({ autoScale: true, logScale: false });
+  const axis = priceAxisMenu({
+    autoScale: true, logScale: false, percentScale: true, indexedScale: false,
+    inverted: false,
+  });
   assert.equal((byId(axis, "axis:toggle-auto") as { checked?: boolean }).checked, true);
   assert.ok(byId(axis, "axis:reset"));
+  /*
+   * The axis reads in one of four ways, and the menu must show which. A
+   * percent axis whose menu still ticked "Logarithmic scale" would describe a
+   * chart nobody is looking at.
+   */
+  assert.equal((byId(axis, "axis:toggle-percent") as { checked?: boolean }).checked, true);
+  assert.equal((byId(axis, "axis:toggle-log") as { checked?: boolean }).checked, false);
+  assert.equal((byId(axis, "axis:toggle-indexed") as { checked?: boolean }).checked, false);
+  assert.equal((byId(axis, "axis:toggle-invert") as { checked?: boolean }).checked, false);
 
   const full = watchlistMenu({ symbol: "SOLUSDT", replayActive: false, canOpenNewPane: false });
   assert.match((byId(full, "watchlist:open-new-pane") as { disabledReason?: string }).disabledReason ?? "",
