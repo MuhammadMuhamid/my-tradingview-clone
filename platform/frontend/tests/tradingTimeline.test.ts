@@ -6,7 +6,7 @@ import path from "node:path";
 const ROOT = path.join(__dirname, "..");
 const timeline = fs.readFileSync(path.join(ROOT, "components", "TradeOrderTimeline.tsx"), "utf8");
 const manual = fs.readFileSync(path.join(ROOT, "components", "tv", "ManualTradingPanel.tsx"), "utf8");
-const deployments = fs.readFileSync(path.join(ROOT, "app", "deployments", "page.tsx"), "utf8");
+const deployments = fs.readFileSync(path.join(ROOT, "app", "trading", "page.tsx"), "utf8");
 const api = fs.readFileSync(path.join(ROOT, "lib", "api.ts"), "utf8");
 
 test("timeline distinguishes persisted events from current snapshot state in text", () => {

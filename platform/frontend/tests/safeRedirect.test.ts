@@ -9,7 +9,7 @@ import { DEFAULT_AFTER_LOGIN, safeNextPath } from "../lib/safeRedirect";
 test("a normal in-app path is preserved, query and fragment included", () => {
   assert.equal(safeNextPath("/chart"), "/chart");
   assert.equal(safeNextPath("/chart?symbol=APTUSDT&interval=15m"), "/chart?symbol=APTUSDT&interval=15m");
-  assert.equal(safeNextPath("/backtests/42#trades"), "/backtests/42#trades");
+  assert.equal(safeNextPath("/research/42#trades"), "/research/42#trades");
 });
 
 test("an absent or empty target falls back to the default", () => {
@@ -62,7 +62,7 @@ test("a malformed percent-encoding is refused rather than passed through", () =>
 
 test("the returned value is always a same-origin absolute path", () => {
   const probes = [
-    "/chart", "/deployments", "https://evil.test", "//evil.test", "javascript:1",
+    "/chart", "/trading", "https://evil.test", "//evil.test", "javascript:1",
     "", null, "/login", "/a?b=c#d",
   ];
   for (const raw of probes) {

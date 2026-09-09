@@ -5,8 +5,8 @@
   "start_url": "/chart",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0d1117",
-  "theme_color": "#0d1117",
+  "background_color": "#0f0f0f",
+  "theme_color": "#2e2e2e",
   "icons": [
     {
       "src": "/icon.svg",

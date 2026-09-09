@@ -27,21 +27,21 @@ function row(symbol: string, state: ScreenerRow["state"], bull: number | null): 
 }
 
 test("native Scanner route and navigation preserve visible Binance Spot identity", () => {
-  const page = read("app/scanner/page.tsx");
+  const page = read("app/screener/page.tsx");
   const nav = read("lib/navigation.ts");
   assert.match(page, /Spot Scanner/);
   assert.match(page, /snapshot\?\.market\.spot/);
   assert.match(page, /Binance Spot/);
   assert.doesNotMatch(page, /USD-M|perpetual|not Spot/);
-  assert.ok(nav.indexOf('href: "/chart"') < nav.indexOf('href: "/scanner"'));
-  assert.ok(nav.indexOf('href: "/scanner"') < nav.indexOf('href: "/alerts"'));
+  assert.ok(nav.indexOf('href: "/chart"') < nav.indexOf('href: "/screener"'));
+  assert.ok(nav.indexOf('href: "/screener"') < nav.indexOf('href: "/alerts"'));
 });
 
 test("browser Scanner client is same-origin and exposes no service URL", () => {
   const api = read("lib/scanner/api.ts");
   assert.match(api, /"\/api\/scanner"/);
   assert.doesNotMatch(api, /8000|NEXT_PUBLIC|SCANNER_SERVICE_URL|https?:\/\//);
-  assert.doesNotMatch(read("app/scanner/page.tsx"), /8000|NEXT_PUBLIC|https?:\/\//);
+  assert.doesNotMatch(read("app/screener/page.tsx"), /8000|NEXT_PUBLIC|https?:\/\//);
 });
 
 test("normal, partial and unresolved rows survive core Scanner filtering and sorting", () => {
@@ -107,7 +107,7 @@ test("Scanner navigation prefills existing Spot workflows without direct mutatio
 });
 
 test("Scanner writes are explicit and polling pauses while the page is hidden", () => {
-  const page = read("app/scanner/page.tsx");
+  const page = read("app/screener/page.tsx");
   for (const operation of ["refresh", "patchConfig", "addSymbol", "removeSymbol",
     "loadPreset", "savePreset", "deletePreset"]) {
     assert.match(page, new RegExp(`api\\.${operation}`));

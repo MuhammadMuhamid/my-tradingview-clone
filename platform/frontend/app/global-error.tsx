@@ -20,7 +20,7 @@ export default function GlobalError({
 
   return (
     <html lang="en">
-      <body style={{ margin: 0, background: "#0b0e14", color: "#e6e9ef",
+      <body style={{ margin: 0, background: "#2e2e2e", color: "#dbdbdb",
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif" }}>
         <div style={{ display: "flex", minHeight: "100vh", flexDirection: "column",
           alignItems: "center", justifyContent: "center", gap: "1rem", padding: "1rem",
@@ -28,13 +28,13 @@ export default function GlobalError({
           <h1 style={{ fontSize: "1.125rem", fontWeight: 600, margin: 0 }}>
             The application failed to start
           </h1>
-          <p style={{ fontSize: "0.875rem", color: "#9aa4b6", margin: 0, maxWidth: "32rem" }}>
+          <p style={{ fontSize: "0.875rem", color: "#a8a8a8", margin: 0, maxWidth: "32rem" }}>
             This is a display failure in the browser. Nothing was sent to your bot and no orders
             were affected.
           </p>
-          <pre style={{ maxWidth: "32rem", overflow: "auto", background: "#1a2030",
-            border: "1px solid #232b3a", borderRadius: "0.375rem", padding: "0.5rem 0.75rem",
-            fontSize: "0.75rem", color: "#9aa4b6", textAlign: "left" }}>
+          <pre style={{ maxWidth: "32rem", overflow: "auto", background: "#0f0f0f",
+            border: "1px solid #4a4a4a", borderRadius: "0.375rem", padding: "0.5rem 0.75rem",
+            fontSize: "0.75rem", color: "#a8a8a8", textAlign: "left" }}>
             {error.message || "Unknown error"}
           </pre>
           <button

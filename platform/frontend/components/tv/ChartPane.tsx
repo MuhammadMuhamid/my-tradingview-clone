@@ -194,6 +194,12 @@ export interface ChartPaneProps {
 
 function ChartPaneImpl(props: ChartPaneProps) {
   const { pane, active, replay } = props;
+  /*
+   * More than one chart is on screen. `canClose` is exactly that condition —
+   * the only pane in a workspace cannot be closed — so this reads it rather
+   * than adding a second prop that could disagree with it.
+   */
+  const multiPane = props.canClose;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<{ width: number; height: number }>(
     { width: 900, height: 520 });
@@ -634,8 +640,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
         width. `tests/chartWorkspace.test.ts` now asserts this pairing so the
         class cannot be dropped again.
       */
-      className={`group/pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-sm border bg-surface transition-colors ${
-        active ? "border-accent/70" : "border-border"
+      /*
+        The focus frame is only drawn when there is something to distinguish.
+
+        With one pane on screen, "which pane is focused" has one answer and
+        does not need asking, and the accent border was drawing a permanent
+        blue rectangle around the whole chart — the single largest piece of
+        chrome on the workspace, saying nothing. TradingView frames nothing at
+        one chart either. From two panes up the frame is exactly as it was: it
+        is the thing that says where an order ticket points.
+      */
+      className={`group/pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface ${
+        multiPane
+          ? `rounded-sm border transition-colors ${active ? "border-accent/70" : "border-border"}`
+          : ""
       }`}
     >
       {/*
@@ -644,7 +662,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
         and this one decides where an order ticket points.
       */}
       <span className="sr-only">
-        {pane.symbol} {pane.interval}{active ? " — focused pane" : ""}
+        {pane.symbol} {pane.interval}{multiPane && active ? " — focused pane" : ""}
       </span>
       {history.error && (
         <div className="border-b border-down/30 bg-down/10 px-2 py-1 text-[11px] text-down">
@@ -685,7 +703,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
           <div
             role="status"
             aria-live="polite"
-            className="pointer-events-none absolute left-2 top-2 z-10 rounded border border-border bg-surface/90 px-2 py-0.5 font-mono text-[10px] text-ink-muted sm:text-[11px]"
+            className="pointer-events-none absolute left-2 top-2 z-10 rounded-sm border border-border bg-surface/90 px-2 text-[11px] leading-[18px] text-ink-muted"
           >
             Loading {pane.symbol} {pane.interval}… showing {history.dataset.symbol} {history.dataset.interval} until it arrives
           </div>

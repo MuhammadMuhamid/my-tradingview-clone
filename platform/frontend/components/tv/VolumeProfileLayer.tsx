@@ -31,6 +31,21 @@ type PriceSeries =
 /** A row thinner than this is drawn without its separating gap. */
 const GAP_THRESHOLD_PX = 3;
 
+/**
+ * How solidly a profile row is painted.
+ *
+ * The value-area rows were 0.8 — an almost-opaque accent slab laid across the
+ * candles for the whole of the visible range, which is the part of the chart a
+ * trader is actually reading. A volume profile is context for price, not a
+ * subject in front of it, and TradingView draws its own at roughly this
+ * weight for the same reason: the shape of the distribution stays completely
+ * legible at 0.45, and the candles stay legible THROUGH it, which they did not
+ * before. The rows outside the value area drop in step so the two bands keep
+ * the same relative emphasis.
+ */
+const IN_AREA_ALPHA = 0.45;
+const OUT_AREA_ALPHA = 0.2;
+
 export function VolumeProfileLayer({
   container, chart, series, profiles,
 }: {
@@ -146,13 +161,13 @@ export function VolumeProfileLayer({
           const upWidth = (row.up / profile.peakVolume) * maxWidth;
           const downWidth = (row.down / profile.peakVolume) * maxWidth;
           paint(ctx, anchor, direction, upWidth, top, barHeight,
-            profile.colors.up, inArea ? 0.85 : 0.35);
+            profile.colors.up, inArea ? IN_AREA_ALPHA : OUT_AREA_ALPHA);
           paint(ctx, anchor + direction * upWidth, direction, downWidth, top, barHeight,
-            profile.colors.down, inArea ? 0.85 : 0.35);
+            profile.colors.down, inArea ? IN_AREA_ALPHA : OUT_AREA_ALPHA);
         } else {
           paint(ctx, anchor, direction, full, top, barHeight,
             inArea ? profile.colors.valueArea : profile.colors.total,
-            inArea ? 0.8 : 0.34);
+            inArea ? IN_AREA_ALPHA : OUT_AREA_ALPHA);
         }
       }
 

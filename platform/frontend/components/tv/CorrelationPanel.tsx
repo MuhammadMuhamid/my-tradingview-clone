@@ -134,7 +134,7 @@ export function CorrelationPanel({
                         <button
                           onClick={() => setPair(i === j ? null : { a: i, b: j })}
                           className="flex h-6 w-full items-center justify-center rounded-sm text-[10px] tabular-nums"
-                          style={{ background: cellColor(cell.correlation), color: "#e6e9ef" }}
+                          style={{ background: cellColor(cell.correlation), color: "#dbdbdb" }}
                           aria-label={`${rowSymbol} against ${columnSymbol}: ${
                             cell.correlation === null
                               ? `not enough overlapping bars (${cell.observations})`

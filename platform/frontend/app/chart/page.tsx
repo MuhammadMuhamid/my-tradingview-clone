@@ -363,7 +363,6 @@ export default function TvWorkspace() {
    */
   const fullscreen = useFullscreen<HTMLDivElement>();
   /** Site navigation, which is hidden on the phone chart to reclaim a whole row. */
-  const [navOpen, setNavOpen] = useState(false);
 
   // ── pane synchronisation ──
   const [sync, setSyncState] = useState<SyncOptions>(DEFAULT_SYNC);
@@ -1611,7 +1610,7 @@ export default function TvWorkspace() {
     maAlerts, candleOverlays, classicalOverlays, resolutions]);
 
   return (
-    <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">
+    <div ref={fullscreen.ref} className="flex min-h-0 flex-1 bg-bg pb-[52px] md:pb-0">
       {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
       <div className="hidden md:flex">
         <DrawingToolbar {...drawingToolbarProps} />
@@ -1706,7 +1705,6 @@ export default function TvWorkspace() {
           layoutHandlers={savedLayouts.handlers}
           moreOpen={moreOpen}
           onMoreOpen={setMoreOpen}
-          onOpenNav={() => setNavOpen(true)}
         />
 
         <ReplayControls
@@ -1865,8 +1863,6 @@ export default function TvWorkspace() {
         onToast={setToast}
         toolsOpen={toolsOpen}
         onToolsOpen={setToolsOpen}
-        navOpen={navOpen}
-        onCloseNav={() => setNavOpen(false)}
       />
 
       {/*
@@ -1886,7 +1882,7 @@ export default function TvWorkspace() {
         <div
           role="status"
           aria-live="polite"
-          className="pointer-events-none fixed bottom-16 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 font-mono text-lg text-ink shadow-xl"
+          className="pointer-events-none fixed bottom-16 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-border bg-surface px-4 py-2 text-lg tabular text-ink shadow-xl"
         >
           {shortcuts.intervalBuffer}
           <span className="ml-2 text-xs text-ink-faint">Enter to apply</span>

@@ -18,7 +18,7 @@ export function ThemeToggle() {
     document.documentElement.style.colorScheme = next;
     try { localStorage.setItem(THEME_KEY, next); } catch { /* storage can be disabled */ }
     document.querySelector('meta[name="theme-color"]')?.setAttribute(
-      "content", next === "dark" ? "#0b0e14" : "#f8f9fd"
+      "content", next === "dark" ? "#2e2e2e" : "#ebebeb"
     );
     window.dispatchEvent(new CustomEvent("trading-scene-theme", { detail: next }));
     setTheme(next);

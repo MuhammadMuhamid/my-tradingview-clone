@@ -9,7 +9,7 @@
 import { chromium, devices } from "playwright";
 
 const BASE = "http://127.0.0.1:3111";
-const PAGES = ["/chart", "/alerts", "/backtests", "/deployments", "/optimizers", "/operations", "/login", "/nope-404"];
+const PAGES = ["/chart", "/alerts", "/research", "/trading", "/optimizers", "/operations", "/login", "/nope-404"];
 
 const VIEWPORTS = [
   { name: "desktop-1440", viewport: { width: 1440, height: 900 }, isMobile: false },

@@ -82,7 +82,7 @@ export function patternMarkers(placed: readonly PlacedPattern[]): ChartMarker[] 
     time,
     position: pattern.direction === "bear" ? "aboveBar" : "belowBar",
     color: pattern.direction === "bull" ? "#2ebd85"
-      : pattern.direction === "bear" ? "#f6465d" : "#8b93a7",
+      : pattern.direction === "bear" ? "#f6465d" : "#9c9c9c",
     text: `${pattern.name} · ${(pattern.strength * 100).toFixed(0)}% fit`,
     shape: pattern.direction === "bull" ? "arrowUp"
       : pattern.direction === "bear" ? "arrowDown" : "circle",

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { SYNC_LABELS, type SyncOptions } from "@/lib/paneSync";
+import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
 
 /**
  * Which properties the charts in this layout follow from one another.
@@ -84,14 +85,14 @@ export function SyncMenu({
         title={disabled
           ? "Add a second chart to synchronise it"
           : "What every chart in this layout follows"}
-        className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        className={`${TOOL_BUTTON} disabled:opacity-40 ${
           open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
         }`}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
           <path d="M4 8h11a4 4 0 010 8H9" /><path d="M7 5L4 8l3 3" />
         </svg>
-        <span className="hidden xl:inline">Sync</span>
+        <span className="hidden 2xl:inline">Sync</span>
         {!disabled && activeCount > 0 && (
           <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-white">
             {activeCount}
@@ -101,7 +102,7 @@ export function SyncMenu({
 
       {open && (
         <div role="menu" aria-label="Sync across charts"
-          className="absolute right-0 top-[34px] z-50 w-[300px] rounded-md border border-border bg-surface py-1 shadow-xl">
+          className="absolute right-0 top-full z-50 w-[300px] rounded-sm border border-border bg-surface py-1 shadow-2xl">
           <div className="px-3 pb-1 pt-2">
             <div className="text-[10px] uppercase tracking-wide text-ink-faint">
               Sync across charts

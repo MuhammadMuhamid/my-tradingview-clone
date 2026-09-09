@@ -15,12 +15,37 @@
  */
 import { ColorType, CrosshairMode, LineStyle, type DeepPartial, type ChartOptions, type IChartApi } from "lightweight-charts";
 
-export const CHART_SURFACE = "#121722";
-export const CHART_GRID = "#161c28";
-export const CHART_BORDER = "#232b3a";
-export const CHART_TEXT = "#9aa4b6";
-export const CHART_TEXT_STRONG = "#e6e9ef";
-export const CHART_FONT = "ui-monospace, SFMono-Regular, Menlo, monospace";
+export const CHART_SURFACE = "#0f0f0f";
+export const CHART_GRID = "#1e1e1e";
+export const CHART_BORDER = "#2e2e2e";
+export const CHART_TEXT = "#a8a8a8";
+export const CHART_TEXT_STRONG = "#dbdbdb";
+
+/**
+ * The chart speaks the UI's voice, not a terminal's.
+ *
+ * This was `ui-monospace, SFMono-Regular, Menlo, monospace` at 11px, and it
+ * put the entire pane legend, the OHLC row, every indicator value and every
+ * axis label into a typewriter face — twenty-four monospaced elements on the
+ * default chart. TradingView has exactly zero anywhere in its chart UI and
+ * draws the same content in the platform UI sans at 13-16px, which is why a
+ * side-by-side reads as two different classes of product before a single
+ * colour is compared.
+ *
+ * Monospace earns its place on code — the Pine editor keeps it. It does not
+ * earn its place on prose ("Built from 1m bars loaded for this range"), on
+ * indicator names, or on a price. Where numbers genuinely need to line up in a
+ * column, `font-variant-numeric: tabular-nums` on the proportional face does
+ * that job without changing what the product sounds like; `body` sets
+ * `font-feature-settings: "tnum" 1` globally and `.tabular` is the opt-in for
+ * anything that needs it locally.
+ *
+ * Kept in sync with `--ts-font-ui` in `app/globals.css`, which is the same
+ * stack for everything a class can reach. A canvas cannot read a custom
+ * property, so this literal is the canvas's copy.
+ */
+export const CHART_FONT =
+  '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif';
 
 /*
  * The chart's semantic colours — the same values as the Tailwind tokens `up`,
@@ -36,9 +61,9 @@ export const CHART_CAUTION = "#f0b90b";
 export const CHART_VOLUME_UP = "#1c3a30";
 export const CHART_VOLUME_DOWN = "#3a1c24";
 /** A series with no direction yet (an empty volume histogram, a muted line). */
-export const CHART_MUTED = "#2a3346";
-export const CHART_CROSSHAIR = "#4b556b";
-export const CHART_LABEL_BG = "#2c3548";
+export const CHART_MUTED = "#3a3a3a";
+export const CHART_CROSSHAIR = "#5c5c5c";
+export const CHART_LABEL_BG = "#3d3d3d";
 
 function cssToken(name: string, fallback: string): string {
   if (typeof document === "undefined") return fallback;
@@ -82,7 +107,7 @@ export function baseChartOptions(): DeepPartial<ChartOptions> {
       background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" },
       textColor: text,
       fontFamily: CHART_FONT,
-      fontSize: 11,
+      fontSize: 12,
       attributionLogo: false,
     },
     grid: {

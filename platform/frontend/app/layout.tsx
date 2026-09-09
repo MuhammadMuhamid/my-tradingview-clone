@@ -26,8 +26,8 @@ export const viewport: Viewport = {
   // Must match `bg` in tailwind.config.ts, or mobile Safari paints its chrome
   // a different near-black and the page appears to start with a seam.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f8f9fd" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b0e14" },
+    { media: "(prefers-color-scheme: light)", color: "#ebebeb" },
+    { media: "(prefers-color-scheme: dark)", color: "#2e2e2e" },
   ],
 };
 
@@ -41,7 +41,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="#main" className="skip-link">Skip to content</a>
           <Nav />
           <ThemeToggle />
-          <main id="main" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none">
+          {/*
+            A flex column, not a block.
+
+            The chart workspace fills this element, and it used to do that with
+            `h-full` — a percentage height, which resolves against the parent's
+            SPECIFIED height. `main` is a flex item with `flex-1`, so its
+            specified height is `auto` and the percentage fell back to the
+            workspace's own content height: 890px inside a 900px `main`, a 10px
+            band of page ground across the bottom of the workspace that grew or
+            shrank with whatever was in the bottom panel. Making this a column
+            lets the workspace say `flex-1` and actually mean it. Every other
+            page's root is a single block that stretches to full width either
+            way, so nothing else changes.
+
+            `overflow-x-hidden` for the same reason `body` has it. This element
+            is its own scroll container, and one pixel of sub-pixel rounding in
+            a 52 + 1042 + 294 + 52 workspace row was enough to give it a
+            horizontal scrollbar — which, at the 10px scrollbar this product
+            styles, silently took 10px of height off the chart at every
+            viewport. Wide tables and toolbars scroll in their own containers;
+            the page never does.
+          */}
+          <main id="main" tabIndex={-1}
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden outline-none">
             {children}
           </main>
         </div>

@@ -1927,7 +1927,7 @@ export function CandleChart({
         wrap, which is exactly when a second overlay pinned to a fixed offset
         would have been drawn straight through it.
       */}
-      <div className="pointer-events-none absolute left-2 top-1.5 z-20 flex max-w-[min(60%,760px)] flex-col items-start gap-0.5">
+      <div className="pointer-events-none absolute left-2 top-1.5 z-20 flex max-w-[min(68%,880px)] flex-col items-start gap-0.5">
       {/*
         The pane's identity and its own controls, when a pane supplied them.
 
@@ -1937,19 +1937,42 @@ export function CandleChart({
         row below — see `identity` in the props.
       */}
       {identity}
+      {/*
+        FC2-M4: one line per series, with the explanation behind it.
+
+        This used to render the whole basis sentence — "Built from 1m bars
+        loaded for this range, each bar's volume spread across the rows its
+        high-low covers" — as a 624 x 38px block laid over the candles at the
+        top-left of the canvas, growing to three lines at 390px. That is the
+        most-read corner of a chart and it was being spent on prose the reader
+        needs once. TradingView's legend is one compact line per series with
+        the explanation on hover, and that is what this is now: the series
+        name, a marker saying whether the basis is refined or approximate, and
+        the sentence itself in the tooltip and for a screen reader.
+
+        The information is not lost and is not hidden behind a click. What
+        changed is that it stops covering price by default. A `caution` basis
+        still gets the amber treatment, because "these numbers are approximate"
+        is a warning and a warning may take the room it needs.
+      */}
       {profileNotices.map((profile) => (
         <div
           key={`${profile.title}:${profile.basisNotice}`}
           data-volume-profile-basis={profile.basis}
           role="status"
           title={profile.basisNotice}
-          className={`max-w-full rounded border bg-surface/90 px-1.5 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${
+          className={`flex max-w-full items-center gap-1 rounded-sm border bg-surface/90 px-1.5 text-[11px] leading-[18px] ${
             profile.basis === "refined"
-              ? "border-border text-ink-muted"
+              ? "border-border/70 text-ink-muted"
               : "border-warn/40 text-warn"
           }`}
         >
-          {profile.title.replace("Volume Profile", "VP")} · {profile.basisNotice}
+          <span className="truncate">{profile.title.replace("Volume Profile", "VP")}</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" className="shrink-0 opacity-70" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 7.6h.01" />
+          </svg>
+          <span className="sr-only"> — {profile.basisNotice}</span>
         </div>
       ))}
       {/*
@@ -1962,7 +1985,7 @@ export function CandleChart({
       {syntheticDisclosure(chartType) && (
         <div
           title={SYNTHETIC_DISCLOSURE_HINT}
-          className="rounded border border-warn/40 bg-surface/90 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-warn sm:text-[11px]"
+          className="rounded-sm border border-warn/40 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-warn"
         >
           <span aria-hidden="true">◆ </span>
           {syntheticDisclosure(chartType)}
@@ -1970,7 +1993,7 @@ export function CandleChart({
         </div>
       )}
       {legend && (
-        <div className="flex flex-wrap items-baseline gap-x-2 rounded bg-surface/75 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-ink-muted sm:text-[11px]">
+        <div className="flex flex-wrap items-baseline gap-x-2 rounded-sm bg-surface/75 px-1.5 text-[13px] leading-[20px] tabular text-ink-muted">
           {/*
             Named here only when nothing above named them. A pane passes an
             `identity` slot whose whole job is to say which instrument and which
@@ -2063,7 +2086,7 @@ export function CandleChart({
           studies are still applied and are deliberately not drawn, rather
           than conclude the chart lost them.
         */
-        <div className="max-w-full rounded border border-warn/30 bg-surface/90 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-ink-muted">
+        <div className="max-w-full rounded-sm border border-warn/30 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-ink-muted">
           Time-anchored layers hidden
           <span className="hidden md:inline"> — {RENKO_ALIGNMENT_NOTE}</span>
           <span className="sr-only md:hidden"> — {RENKO_ALIGNMENT_NOTE}</span>
@@ -2089,7 +2112,7 @@ export function CandleChart({
           role="status"
           aria-live="polite"
           title={describeStreamState(feedState).detail}
-          className={`flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 font-mono text-[10px] leading-4 sm:text-[11px] ${FEED_BADGE[feedState.status].className}`}
+          className={`flex max-w-full items-center gap-1.5 rounded-sm px-2 text-[11px] leading-[18px] ${FEED_BADGE[feedState.status].className}`}
         >
           <span aria-hidden="true">●</span>
           {describeStreamState(feedState).label}
@@ -2170,7 +2193,7 @@ export function CandleChart({
                 onClick={() => applyRangeShortcut(shortcut.id)}
                 aria-pressed={activeRange === shortcut.id}
                 title={`${shortcut.hint} — the visible range only; the timeframe stays ${interval}`}
-                className={`rounded px-1.5 py-0.5 font-mono text-[10px] leading-4 transition-colors ${
+                className={`rounded-sm px-1.5 text-[12px] leading-5 ${
                   activeRange === shortcut.id
                     ? "bg-surface-2 font-semibold text-ink"
                     : "text-ink-muted hover:bg-surface-2 hover:text-ink"
@@ -2181,7 +2204,7 @@ export function CandleChart({
             ))}
           </div>
           )}
-          <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] leading-4 text-ink-faint">
+          <span className="ml-auto flex items-center gap-1.5 text-[11px] leading-[18px] tabular text-ink-faint">
             {/*
               The clock names the zone the axis beside it is already in. It is
               a label on an existing authority, not a new one: lightweight-

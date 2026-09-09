@@ -4,6 +4,7 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
   CHART_TYPES, SYNTHETIC_DISCLOSURE_HINT, syntheticDisclosure, type ChartType,
 } from "@/lib/chartType";
+import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
 
 /** 14px glyphs, one per type, drawn rather than imported. */
 const ICONS: Record<ChartType, React.ReactNode> = {
@@ -120,7 +121,7 @@ export function ChartTypeMenu({
       role="menuitemradio"
       aria-checked={t.value === value}
       onClick={() => { onChange(t.value); setOpen(false); }}
-      className={`flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 ${
+      className={`flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left hover:bg-surface-2 ${
         t.value === value ? "text-accent" : "text-ink"
       }`}
     >
@@ -151,11 +152,11 @@ export function ChartTypeMenu({
           : `Chart type — currently ${active.label}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 transition-colors ${
+        className={`${TOOL_BUTTON} gap-1 ${
           open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
         }`}
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
           {ICONS[value]}
         </svg>
         {/* The label is the disclosure, so it is only ever drawn for a
@@ -172,7 +173,7 @@ export function ChartTypeMenu({
         <div
           role="menu"
           aria-label="Chart type"
-          className="absolute left-0 top-[32px] z-50 w-[248px] rounded-md border border-border bg-surface py-1 shadow-xl"
+          className="absolute left-0 top-full z-50 w-[248px] rounded-sm border border-border bg-surface py-1 shadow-2xl"
         >
           {PRESENTATIONS.map(row)}
           <div className="mt-1 border-t border-border pt-1">

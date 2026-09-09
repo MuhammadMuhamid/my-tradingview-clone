@@ -126,9 +126,23 @@ export function isPrimaryControl(id: ToolbarControlId): boolean {
 /** `w-[340px]` plus its own left border, from `ManualTradingPanel`. */
 export const MANUAL_TICKET_ROW_WIDTH = 341;
 
-/** Tailwind's `md` and `xl`, in pixels, because the row has to do the sum itself. */
+/** Tailwind's `md` and `2xl`, in pixels, because the row has to do the sum itself. */
 export const TOOLBAR_CLUSTER_WIDTH = 768;
-export const TOOLBAR_LABEL_WIDTH = 1280;
+/*
+ * FC2R: 1536, not 1280.
+ *
+ * The same class of error as the ticket one described above, one level up. The
+ * chart column is not the viewport either: the watchlist and the two 52px
+ * rails take a fixed ~400px out of it, so a 1440px screen gives this row 1040px
+ * — and at 1280 the labels had already fired. Measured on the repaired bar at
+ * 1440: 1123px of content in a 1040px row, which the timeframe strip absorbed
+ * by scrolling, so a laptop user saw `1m 5m 15m 1|` with the rest of their own
+ * favourites clipped mid-glyph. The favourites strip is the thing a trader
+ * actually aims at; the word "Indicators" beside an already-legible chart icon
+ * is not. So the labels wait for a row that can hold both, and every control
+ * that loses its label keeps its `title` and its `aria-label`.
+ */
+export const TOOLBAR_LABEL_WIDTH = 1536;
 
 /** The viewports at which the ROW reaches those widths with the ticket open. */
 export const TOOLBAR_CLUSTER_WIDTH_WITH_TICKET = TOOLBAR_CLUSTER_WIDTH + MANUAL_TICKET_ROW_WIDTH;

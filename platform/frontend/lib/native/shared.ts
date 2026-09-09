@@ -28,7 +28,7 @@ export const DOWN = "#f6465d";
 export const ACCENT = "#4f8cff";
 export const AMBER = "#f0b90b";
 export const VIOLET = "#9b7cf5";
-export const MUTED = "#8b93a7";
+export const MUTED = "#9c9c9c";
 
 // ── reading parameters ──────────────────────────────────────────────────────
 //

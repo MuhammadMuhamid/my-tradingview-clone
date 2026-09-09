@@ -651,7 +651,7 @@ test("every toolbar popover goes through the registry rather than its own state"
   // boolean will not appear here — and the check below is what catches it.
   assert.deepEqual([...registered].sort(), [
     "chart-type", "drawing-flyout", "layout-preset", "nav-system", "pane-sync",
-    "saved-layouts", "timeframe", "trading-overlays",
+    "product-menu", "saved-layouts", "timeframe", "trading-overlays",
   ]);
   assert.equal(new Set(registered).size, registered.length, "two popovers share an id");
 

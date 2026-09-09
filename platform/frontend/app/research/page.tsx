@@ -87,7 +87,7 @@ export default function BacktestsPage() {
                   return (
                     <tr
                       key={r.id}
-                      onClick={() => clickable && router.push(`/backtests/${r.id}`)}
+                      onClick={() => clickable && router.push(`/research/${r.id}`)}
                       className={`border-b border-border/50 ${clickable ? "hover:bg-surface-2 cursor-pointer" : ""}`}
                     >
                       {/*
@@ -100,7 +100,7 @@ export default function BacktestsPage() {
                       */}
                       <td className="px-4 py-2 font-medium">
                         {clickable ? (
-                          <Link href={`/backtests/${r.id}`}
+                          <Link href={`/research/${r.id}`}
                             onClick={(e) => e.stopPropagation()}
                             className="rounded text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                             {r.symbol}

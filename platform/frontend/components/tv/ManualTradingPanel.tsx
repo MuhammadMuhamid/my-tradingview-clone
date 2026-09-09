@@ -518,7 +518,7 @@ export function ManualTradingPanel({
         same words as the sentence above, so printing both just said it twice.
       */}
       {unavailable.raw && unavailable.raw.toLowerCase() !== unavailable.title.toLowerCase() && (
-        <p className="pt-1 font-mono text-[11px] leading-4 text-ink-faint">{unavailable.raw}</p>
+        <p className="pt-1 text-[11px] leading-4 text-ink-faint">{unavailable.raw}</p>
       )}
     </div>
     : !state ? <div role="status" className="p-4 text-sm text-ink-faint">Loading manual trading…</div>

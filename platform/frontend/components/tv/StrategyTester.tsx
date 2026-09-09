@@ -146,7 +146,8 @@ export function StrategyTester({
 
   const m = run?.metrics ?? null;
   const running = run !== null && (run.status === "queued" || run.status === "running");
-  const inputBox = "h-7 rounded-md border border-border bg-surface-2 px-2 text-xs text-ink outline-none focus:border-accent";
+  /* FC2-M3: `.ts-date` is the design-system date field; see app/globals.css. */
+  const inputBox = "ts-date shrink-0";
 
   return (
     <div className="shrink-0 bg-surface">

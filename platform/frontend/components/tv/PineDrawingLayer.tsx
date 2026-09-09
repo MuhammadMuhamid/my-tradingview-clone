@@ -258,7 +258,7 @@ export function PineTables({ drawings }: { drawings: PineDrawings | null }) {
              * action on a phone — clipping the far columns is recoverable by
              * rotating or widening; hiding the chart is not.
              */
-            className={`pointer-events-none absolute z-[6] max-w-[min(90%,32rem)] overflow-hidden rounded border border-border bg-surface/85 p-1 font-mono text-[10px] ${corner(t.position)}`}
+            className={`pointer-events-none absolute z-[6] max-w-[min(90%,32rem)] overflow-hidden rounded border border-border bg-surface/85 p-1 text-[11px] ${corner(t.position)}`}
           >
             <table className="border-collapse">
               <tbody>
@@ -269,7 +269,7 @@ export function PineTables({ drawings }: { drawings: PineDrawings | null }) {
                         key={c}
                         className="whitespace-nowrap px-1.5 py-0.5"
                         style={{
-                          color: cell?.textColor || "#d1d4dc",
+                          color: cell?.textColor || "#d1d1d1",
                           background: cell?.bgColor || "transparent",
                         }}
                       >

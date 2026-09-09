@@ -95,7 +95,7 @@ const QUICK_START: ReadonlyArray<{ step: string; where: string; href: string }> 
   { step: "Find a market", where: "Chart — press / for symbol search, or add it to the watchlist", href: "/chart" },
   { step: "Inspect it", where: "Chart — timeframe strip, Indicators, drawings; the feed badge says whether prices are live", href: "/chart" },
   { step: "Arm an alert", where: "Chart → Alert, or the bell beside a moving average. Alerts notify only; they never trade", href: "/alerts" },
-  { step: "Paper first", where: "Trading → Automations → New automation → Paper. Simulated fills, no orders", href: "/deployments" },
+  { step: "Paper first", where: "Trading → Automations → New automation → Paper. Simulated fills, no orders", href: "/trading" },
   { step: "Trade by hand when you mean to", where: "Chart → Trade. The ticket stages, you confirm, the execution bot sends", href: "/chart" },
   { step: "Review", where: "Chart → Positions & Orders for now; Trading → Journal for what accumulated", href: "/journal" },
 ];
@@ -421,10 +421,10 @@ export default function GettingStarted() {
             />
             <Terms
               rows={[
-                ["Find something", <>The <A href="/scanner">Scanner</A> ranks Spot symbols against a fixed multi-timeframe checklist. Symbol search — <C>/</C> on the chart — goes straight to one you already have in mind.</>],
+                ["Find something", <>The <A href="/screener">Scanner</A> ranks Spot symbols against a fixed multi-timeframe checklist. Symbol search — <C>/</C> on the chart — goes straight to one you already have in mind.</>],
                 ["Look at it", <>The <A href="/chart">Chart</A> workspace: up to sixteen panes, indicators, drawings, Bar Replay.</>],
                 ["Decide what to watch for", <>An <A href="/alerts">alert</A> notifies you. It cannot trade.</>],
-                ["Decide to trade", <>Either by hand, in the chart&rsquo;s <C>Trade</C> ticket, or by deploying a strategy on <A href="/deployments">Live trading</A>.</>],
+                ["Decide to trade", <>Either by hand, in the chart&rsquo;s <C>Trade</C> ticket, or by deploying a strategy on <A href="/trading">Live trading</A>.</>],
                 ["Prove it first", <>A deployment can run in Paper, which simulates the fill instead of sending it.</>],
                 ["Watch it", <>Orders and positions appear in the ticket and as chart overlays. Any order row opens a <C>Timeline</C> of the evidence behind it.</>],
                 ["Account for it", <>The <A href="/journal">Journal</A> accumulates what happened; <A href="/operations">Operations</A> says whether the machinery is healthy.</>],
@@ -549,7 +549,7 @@ export default function GettingStarted() {
           {/* ── 6 ── */}
           <Section id="scanner" title={SECTIONS[5]!.title}>
             <p>
-              <A href="/scanner">Scanner</A> — headed <C>Spot Scanner</C> — ranks Binance
+              <A href="/screener">Scanner</A> — headed <C>Spot Scanner</C> — ranks Binance
               Spot symbols against a fixed 1h / 15m / 5m checklist and shows the result
               as one dense table. The calculation belongs to a separate service; this
               page is the authenticated window onto its cached snapshot, refreshed on
@@ -734,7 +734,7 @@ export default function GettingStarted() {
           {/* ── 10 ── */}
           <Section id="automation" title={SECTIONS[9]!.title}>
             <p>
-              <A href="/deployments">Live trading</A> is where a strategy is deployed. A
+              <A href="/trading">Live trading</A> is where a strategy is deployed. A
               deployment names a symbol, a timeframe, its strategy parameters, a buy size
               in quote USDT and a delivery mode. From then on the live runner evaluates
               it on every confirmed bar close and acts on the result.
@@ -902,7 +902,7 @@ export default function GettingStarted() {
             </p>
             <Terms
               rows={[
-                ["Backtests", <><A href="/backtests">Backtests</A> runs a strategy over history and lets you inspect every trade it took. A run is queued and polled to <C>done</C>; the window is labelled <C>Window (UTC)</C>, and its detail page has a <C>chart</C> tab and a <C>trades</C> tab. Above roughly forty markers the arrows keep their position and colour and drop their price labels — the Trades tab has every fill price.</>],
+                ["Backtests", <><A href="/research">Backtests</A> runs a strategy over history and lets you inspect every trade it took. A run is queued and polled to <C>done</C>; the window is labelled <C>Window (UTC)</C>, and its detail page has a <C>chart</C> tab and a <C>trades</C> tab. Above roughly forty markers the arrows keep their position and colour and drop their price labels — the Trades tab has every fill price.</>],
                 ["Optimizers", <><A href="/optimizers">Optimizers</A> shows in-sample leaderboards beside the out-of-sample window each row was never fitted on. Read its own <C>How these numbers were produced — read before trusting one</C> card before acting on a row; it is opened for you the first time. A <C>FAILED</C> verdict means the edge did not survive on unseen data.</>],
                 ["Where the research lives", <>The trees and the runs themselves belong to the Backtester, not to this application. If no research checkout is configured, Optimizers reports an empty registry rather than inventing one.</>],
               ]}
@@ -955,7 +955,7 @@ export default function GettingStarted() {
             <div className="space-y-3">
               <Panel title="Inspect a coin">
                 <Ol>
-                  <li>Open <A href="/chart">Chart</A> and press <C>/</C>, or open <A href="/scanner">Scanner</A>, expand a row and choose <C>Open Chart</C>.</li>
+                  <li>Open <A href="/chart">Chart</A> and press <C>/</C>, or open <A href="/screener">Scanner</A>, expand a row and choose <C>Open Chart</C>.</li>
                   <li>Pick a timeframe, and a layout if you want several timeframes side by side. Leave <C>Symbol</C> sync on so the panes follow one instrument.</li>
                   <li>Add studies from <C>Indicators</C>, and drawings from the tool rail. Drawings are per symbol, so every pane on that coin shows them.</li>
                   <li>Frame the span with the range shortcuts, and raise <C>History depth</C> if you need more bars than are loaded.</li>
@@ -964,7 +964,7 @@ export default function GettingStarted() {
 
               <Panel title="Paper-test a strategy">
                 <Ol>
-                  <li>Open <A href="/deployments">Live trading</A> and create a deployment for the symbol, timeframe and parameters you want.</li>
+                  <li>Open <A href="/trading">Live trading</A> and create a deployment for the symbol, timeframe and parameters you want.</li>
                   <li>Set <C>Delivery</C> to <C>Paper (simulate fills — no orders)</C>. It is created paused.</li>
                   <li>Activate it, acknowledging the dialog — which will state that fills are simulated and that no order is sent anywhere.</li>
                   <li>Let it run across the conditions you care about, then open <C>Paper results</C>.</li>

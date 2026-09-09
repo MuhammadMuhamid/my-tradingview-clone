@@ -135,7 +135,7 @@ export const DEFAULT_STYLE: DrawingStyle = { color: "#4f8cff", width: 2 };
 
 export const PALETTE = [
   "#4f8cff", "#2ebd85", "#f6465d", "#f0b90b", "#a855f7",
-  "#e6e9ef", "#9aa4b6", "#22d3ee", "#fb923c",
+  "#dbdbdb", "#a8a8a8", "#22d3ee", "#fb923c",
 ];
 
 /** Standard TradingView retracement levels. */

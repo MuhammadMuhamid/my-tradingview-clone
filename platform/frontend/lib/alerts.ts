@@ -82,7 +82,7 @@ export function alertColor(a: MaAlert): string {
   // relationship that does not exist.
   // Kinds that sit on no moving average borrow their own hue rather than a
   // line's, so the swatch never implies a relationship that does not exist.
-  if (a.conditionKind === "price") return "#7d8590";
+  if (a.conditionKind === "price") return "#8c8c8c";
   if (a.conditionKind === "sr_zone") {
     return a.srSide === "resistance" ? "#f23645" : "#089981";
   }

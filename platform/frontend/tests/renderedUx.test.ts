@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fmtDate, fmtDateTime } from "../lib/format";
 import { TRADE_LABEL_LIMIT, tradeMarkerCount } from "../components/CandleChart";
-import { allNavLinks } from "../lib/navigation";
+import { allNavLinks, productMenuLinks, SYSTEM_LINKS } from "../lib/navigation";
 import type { Trade } from "../lib/types";
 
 const ROOT = path.join(__dirname, "..");
@@ -101,8 +101,8 @@ test("an event time is still the reader's own, and both zones are named", () => 
   assert.match(read("lib/format.ts"), /LOCAL_TIME_NOTE/);
   assert.match(read("lib/format.ts"), /UTC_DATE_NOTE/);
   assert.match(read("app/journal/page.tsx"), /LOCAL_TIME_NOTE/);
-  assert.match(read("app/backtests/page.tsx"), /Window \(UTC\)/);
-  assert.match(read("app/deployments/page.tsx"), /Bar \(\{CHART_TIME_ZONE\}\)/);
+  assert.match(read("app/research/page.tsx"), /Window \(UTC\)/);
+  assert.match(read("app/trading/page.tsx"), /Bar \(\{CHART_TIME_ZONE\}\)/);
 });
 
 test("trade markers stop carrying prices before they stop being readable", () => {
@@ -125,7 +125,7 @@ test("trade markers stop carrying prices before they stop being readable", () =>
   const chart = read("components/CandleChart.tsx");
   assert.match(chart, /const labelled = tradeMarkerCount\(trades, inWindow\) <= TRADE_LABEL_LIMIT/);
   // Suppressed labels are announced, not silently dropped.
-  assert.match(read("app/backtests/[id]/page.tsx"), /TRADE_LABEL_LIMIT/);
+  assert.match(read("app/research/[id]/page.tsx"), /TRADE_LABEL_LIMIT/);
 });
 
 // ── One state at a time ─────────────────────────────────────────────────────
@@ -148,15 +148,15 @@ test("the trading panel never shows an error and a spinner at the same time", ()
 
 test("a screen that could not read something does not claim it is empty", () => {
   const cases: [string, RegExp][] = [
-    ["app/backtests/page.tsx", /this is not a statement that you have none/],
-    ["app/deployments/page.tsx", /this is not a statement that you have none/],
+    ["app/research/page.tsx", /this is not a statement that you have none/],
+    ["app/trading/page.tsx", /this is not a statement that you have none/],
     ["app/shariah/page.tsx", /this is not a statement that it is empty/],
     ["app/shariah/page.tsx", /this is not a statement that there are none/],
   ];
   for (const [file, claim] of cases) assert.match(read(file), claim, `${file} still guesses`);
 
   // …and the list that swallowed its failure outright now keeps it.
-  assert.doesNotMatch(read("app/backtests/page.tsx"), /listBacktests\(\)\.then\(setRows\)\.catch\(\(\) => \{\}\)/);
+  assert.doesNotMatch(read("app/research/page.tsx"), /listBacktests\(\)\.then\(setRows\)\.catch\(\(\) => \{\}\)/);
 });
 
 test("a placeholder stops claiming that an answer is coming", () => {
@@ -165,7 +165,7 @@ test("a placeholder stops claiming that an answer is coming", () => {
   assert.match(shariah, /universeLoaded \? "unknown" : "…"/);
   assert.match(shariah, /Bot floor: could not be read/);
 
-  const scanner = read("app/scanner/page.tsx");
+  const scanner = read("app/screener/page.tsx");
   assert.match(scanner, /error \? "market identity unknown" : "market identity loading"/);
   assert.match(scanner, /error \? "No snapshot loaded" : "Loading cached snapshot…"/);
 
@@ -176,7 +176,7 @@ test("a placeholder stops claiming that an answer is coming", () => {
 });
 
 test("a backtest that is still running is asked about again", () => {
-  const detail = read("app/backtests/[id]/page.tsx");
+  const detail = read("app/research/[id]/page.tsx");
   assert.match(detail, /setTimeout\(\(\) => void load\(\), 2500\)/);
   assert.match(detail, /if \(b\.status === "error"\) return;/,
     "polling must stop at a terminal state");
@@ -194,7 +194,7 @@ test("a failed operator control is not erased by the next poll", () => {
 });
 
 test("the Shariah status the Scanner cannot read is stated, not hidden", () => {
-  const scanner = read("app/scanner/page.tsx");
+  const scanner = read("app/screener/page.tsx");
   assert.match(scanner, /Shariah classifications could not be read/);
   assert.match(scanner, /buying is gated by the server either\s*\n?\s*way/);
 });
@@ -220,7 +220,7 @@ test("the product has one word for paper trading, and one name per subsystem", (
 
   assert.doesNotMatch(read("app/journal/page.tsx"), /Simulation evidence/);
   assert.doesNotMatch(read("app/optimizers/page.tsx"), /optimiser/i);
-  for (const f of ["app/deployments/page.tsx", "app/operations/page.tsx"]) {
+  for (const f of ["app/trading/page.tsx", "app/operations/page.tsx"]) {
     assert.doesNotMatch(read(f), />Realised</, `${f} still spells the label two ways`);
   }
 });
@@ -228,21 +228,34 @@ test("the product has one word for paper trading, and one name per subsystem", (
 // ── Reachability ────────────────────────────────────────────────────────────
 
 test("a backtest result can be opened without a mouse", () => {
-  const list = read("app/backtests/page.tsx");
+  const list = read("app/research/page.tsx");
   // A <tr onClick> has no tab stop and no Enter handler, and this was the only
   // route to a result.
-  assert.match(list, /<Link href=\{`\/backtests\/\$\{r\.id\}`\}/);
+  assert.match(list, /<Link href=\{`\/research\/\$\{r\.id\}`\}/);
   assert.match(list, /onClick=\{\(e\) => e\.stopPropagation\(\)\}/);
 });
 
-test("the not-found page and the phone drawer offer every destination the nav has", () => {
-  // Both render from `allNavLinks()`, so a destination cannot be in the header
-  // and missing from either. Pinned by source so the shared list stays shared.
+test("the not-found page and the chart's product menu offer every destination the nav has", () => {
+  // The not-found page renders `allNavLinks()` directly. The chart workspace,
+  // which has no header bar at all after FC2-H3 and is also the manifest's
+  // start_url, reaches the same set through `productMenuLinks()` plus
+  // `SYSTEM_LINKS` — the split exists only so section tabs can be indented
+  // under their destination. What may never happen is a destination existing
+  // in one list and not the other, so that is asserted as set equality rather
+  // than by grepping for a call.
   assert.match(read("app/not-found.tsx"), /allNavLinks\(\)\.map/);
-  assert.match(read("components/tv/ChartSidePanel.tsx"), /allNavLinks\(\)\.map/);
+  const menu = read("components/tv/ProductMenu.tsx");
+  assert.match(menu, /productMenuLinks\(\)\.map/);
+  assert.match(menu, /SYSTEM_LINKS\.map/);
+  assert.deepEqual(
+    [...productMenuLinks().map((e) => e.link.href), ...SYSTEM_LINKS.map((l) => l.href)].sort(),
+    allNavLinks().map((l) => l.href).sort(),
+    "the chart's only navigation must offer exactly what the header offers"
+  );
+
   const links = allNavLinks().map((l) => l.href);
-  for (const route of ["/chart", "/scanner", "/alerts", "/optimizers", "/backtests",
-    "/deployments", "/journal", "/operations", "/shariah", "/getting-started"]) {
+  for (const route of ["/chart", "/screener", "/alerts", "/optimizers", "/research",
+    "/trading", "/journal", "/operations", "/shariah", "/getting-started"]) {
     assert.ok(links.includes(route), `${route} is no longer reachable from navigation`);
   }
 });
@@ -252,5 +265,5 @@ test("controls that speak, and failures that are announced", () => {
   assert.match(read("app/shariah/page.tsx"), /aria-label="Filter the screening universe"/);
   assert.match(read("app/login/page.tsx"), /\{err && <p role="alert"/);
   assert.match(read("app/shariah/page.tsx"), /<div role="alert" className="mb-3 rounded-md border border-down/);
-  assert.match(read("app/scanner/page.tsx"), /<div role="status" aria-live="polite">/);
+  assert.match(read("app/screener/page.tsx"), /<div role="status" aria-live="polite">/);
 });

@@ -26,12 +26,22 @@ import {
   availablePaneCounts, defaultPresetFor, presetOrDefault, presetsForCount,
   type LayoutPreset,
 } from "@/lib/layoutPresets";
+import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
 
 /** The pane counts that get a first-class button with a thumbnail. */
 const COMMON_COUNTS = [1, 2, 3, 4];
 
-/** A miniature of the preset's grid, drawn from the same cells the host uses. */
-function PresetThumbnail({ preset, size = 22 }: { preset: LayoutPreset; size?: number }) {
+/**
+ * A miniature of the preset's grid, drawn from the same cells the host uses.
+ *
+ * Outlined panes with a faint wash, not solid blocks. Filled at 0.65 the
+ * single-pane preset — which is the layout nearly everyone is in nearly all
+ * the time — rendered as a featureless light-grey square on the toolbar: the
+ * one control on the bar that looked like a rendering fault rather than an
+ * icon. An outline says "this is a frame containing panes" at one pane and at
+ * four, which is what the control is about.
+ */
+function PresetThumbnail({ preset, size = 18 }: { preset: LayoutPreset; size?: number }) {
   const unit = size / Math.max(preset.cols, preset.rows);
   const w = unit * preset.cols;
   const h = unit * preset.rows;
@@ -40,13 +50,15 @@ function PresetThumbnail({ preset, size = 22 }: { preset: LayoutPreset; size?: n
       {preset.cells.map((cell, index) => (
         <rect
           key={index}
-          x={(cell.col - 1) * unit + 0.6}
-          y={(cell.row - 1) * unit + 0.6}
-          width={cell.colSpan * unit - 1.2}
-          height={cell.rowSpan * unit - 1.2}
+          x={(cell.col - 1) * unit + 1}
+          y={(cell.row - 1) * unit + 1}
+          width={cell.colSpan * unit - 2}
+          height={cell.rowSpan * unit - 2}
           rx="1"
           fill="currentColor"
-          opacity="0.65"
+          fillOpacity="0.18"
+          stroke="currentColor"
+          strokeWidth="1.2"
         />
       ))}
     </svg>
@@ -139,7 +151,7 @@ export function LayoutSelector({
         aria-pressed={isBrowsing}
         aria-label={`${n} chart${n === 1 ? "" : "s"}${isCurrent ? " — current layout" : ""}`}
         title={defaultPresetFor(n).label}
-        className={`tabular flex h-7 shrink-0 items-center justify-center gap-1.5 rounded px-1.5 text-[12px] transition-colors ${
+        className={`tabular flex h-7 shrink-0 items-center justify-center gap-1.5 rounded px-1.5 text-[12px] ${
           withThumbnail ? "min-w-[46px]" : "min-w-[28px]"
         } ${
           isBrowsing
@@ -166,7 +178,7 @@ export function LayoutSelector({
         aria-label={`Chart layout — ${current.label}`}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] transition-colors ${
+        className={`${TOOL_BUTTON} ${
           open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
         }`}
       >
@@ -178,7 +190,7 @@ export function LayoutSelector({
 
       {open && (
         <div ref={menuRef} role="menu" aria-label="Chart layout"
-          className="absolute right-0 top-[34px] z-50 w-[276px] rounded-md border border-border bg-surface p-2 shadow-xl">
+          className="absolute right-0 top-full z-50 w-[276px] rounded-sm border border-border bg-surface p-2 shadow-2xl">
           <div className="px-1 pb-1.5 text-[10px] uppercase tracking-wide text-ink-faint">
             Charts in this layout
           </div>

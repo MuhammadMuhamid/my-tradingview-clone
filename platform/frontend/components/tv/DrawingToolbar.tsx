@@ -3,7 +3,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { DrawingTool } from "@/lib/drawings";
 
-/** Icon set — 24×24 stroked paths in the TradingView left-rail style. */
+/**
+ * Icon set — 24x24 stroked paths in the TradingView left-rail style.
+ *
+ * Drawn at 24px with a 1.8px stroke (FC2-M1). They were 19px at 1.5px inside
+ * 36px buttons on a 48px rail, against TradingView's 28px FILLED glyphs in
+ * 52x38 buttons on a 52px rail — roughly half the visual weight, which is why
+ * the rail read as decoration beside the chart rather than as the drawing
+ * surface it is. The family itself was already consistent and optically
+ * centred; only its weight and the geometry around it were wrong.
+ */
 const ICONS: Record<string, JSX.Element> = {
   cursor: <><path d="M12 3v6M12 15v6M3 12h6M15 12h6" /></>,
   eraser: <><path d="M4 16l7-7 6 6-4 4H7z" /><path d="M3 21h18" /></>,
@@ -45,9 +54,9 @@ const ICONS: Record<string, JSX.Element> = {
   trash: <><path d="M4 7h16" /><path d="M9 7V5h6v2" /><path d="M6 7l1 13h10l1-13" /></>,
 };
 
-const Icon = ({ name }: { name: string }) => (
-  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+const Icon = ({ name, size = 24 }: { name: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     {ICONS[name]}
   </svg>
 );
@@ -200,8 +209,17 @@ export function DrawingToolbar({
     return () => window.removeEventListener("mousedown", onDown);
   }, [flyout, setFlyout]);
 
+  /*
+   * A rail button is the full width of the rail (FC2-M1, FC2-L1).
+   *
+   * 52x38 and square-cornered, like TradingView's, rather than a 36px pill
+   * inset in a 48px column: a drawing tool is aimed at from muscle memory
+   * dozens of times an hour, and an inset pill throws away a third of the hit
+   * area it could have had for the sake of looking like a web control. No
+   * hover transition, for the reason given on the toolbar.
+   */
   const btn = (on: boolean): string =>
-    `flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
+    `flex h-[38px] w-[52px] items-center justify-center ${
       on ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
     }`;
 
@@ -209,7 +227,7 @@ export function DrawingToolbar({
     <div
       ref={railRef}
       data-drawing-rail="true"
-      className={`relative flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-border bg-surface py-2 ${
+      className={`relative flex w-[52px] shrink-0 flex-col items-center border-r border-border bg-surface py-1 ${
         // Floating: scrolls independently and casts a shadow so it reads as a
         // layer above the chart rather than part of it.
         floating ? "h-full overflow-y-auto shadow-2xl" : ""
@@ -219,7 +237,7 @@ export function DrawingToolbar({
         <button
           onClick={onClose}
           aria-label="Close drawing tools"
-          className="mb-1 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint hover:bg-surface-2 hover:text-ink"
+          className="mb-1 flex h-[38px] w-[52px] items-center justify-center text-ink-faint hover:bg-surface-2 hover:text-ink"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M4 4l16 16M20 4L4 20" />
@@ -264,16 +282,16 @@ export function DrawingToolbar({
               </button>
             )}
             {flyout === group.id && (
-              <div className="absolute left-[46px] top-0 z-50 w-[240px] rounded-md border border-border bg-surface py-1 shadow-2xl">
+              <div className="absolute left-[51px] top-0 z-50 w-[248px] rounded-sm border border-border bg-surface py-1 shadow-2xl">
                 {group.tools.map((t) => (
                   <button
                     key={t.tool}
                     onClick={() => { onTool(t.tool); setActive((a) => ({ ...a, [group.id]: t.tool })); setFlyout(null); }}
-                    className={`flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-surface-2 ${
+                    className={`flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm hover:bg-surface-2 ${
                       t.tool === tool ? "text-accent" : "text-ink"
                     }`}
                   >
-                    <Icon name={t.icon} />
+                    <Icon name={t.icon} size={20} />
                     <span className="truncate">{t.label}</span>
                   </button>
                 ))}
@@ -283,7 +301,7 @@ export function DrawingToolbar({
         );
       })}
 
-      <div className="my-1 h-px w-6 bg-border" />
+      <div className="my-1 h-px w-8 bg-border" />
 
       <button onClick={() => onMagnet(!magnet)} className={btn(magnet)}
         title={magnet ? "Magnet on — anchors snap to OHLC" : "Magnet off"}>
@@ -298,7 +316,7 @@ export function DrawingToolbar({
         <Icon name={hidden ? "eyeOff" : "eye"} />
       </button>
 
-      <div className="my-1 h-px w-6 bg-border" />
+      <div className="my-1 h-px w-8 bg-border" />
 
       <button
         onClick={onDeleteAll}

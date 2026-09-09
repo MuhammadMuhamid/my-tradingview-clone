@@ -43,7 +43,7 @@ const COLOR_BY_LENGTH: Record<number, string> = {
   15: "#26c6a4",
 };
 
-export const maColor = (length: number): string => COLOR_BY_LENGTH[length] ?? "#8b93a7";
+export const maColor = (length: number): string => COLOR_BY_LENGTH[length] ?? "#9c9c9c";
 
 /**
  * The one line a new chart draws, and the nine it keeps ready.

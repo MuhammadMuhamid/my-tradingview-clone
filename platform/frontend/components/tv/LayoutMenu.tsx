@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { Layout } from "@/lib/layouts";
+import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
 
 /**
  * The saved layout this workspace is on, and what can be done with it.
@@ -119,7 +120,7 @@ export function LayoutMenu({
     <button
       onClick={() => { if (!disabled) { onClick(); setOpen(false); } }}
       disabled={disabled}
-      className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink transition-colors hover:bg-surface-2 disabled:opacity-40"
+      className="flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2 disabled:opacity-40"
     >
       {children}
     </button>
@@ -132,16 +133,18 @@ export function LayoutMenu({
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
+        className={`${TOOL_BUTTON} min-w-0`}
         title={`${current?.name ?? "Unnamed layout"} — ${status.help}`}
         aria-label={`Saved layouts — ${current?.name ?? "not saved"}, ${status.label}`}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h18M12 3v18" />
         </svg>
-        {/* Below xl the primary row is already full at 1024 with the watchlist
-            open; the name is in the menu and the tooltip, the icon stays. */}
-        <span className="hidden min-w-0 max-w-[130px] truncate xl:inline">{current?.name ?? "Unnamed"}</span>
+        {/* Below 2xl the primary row is already full — the chart column is the
+            viewport minus ~400px of rails and watchlist — so the name lives in
+            the menu and the tooltip and the icon stays. Same threshold as
+            every other label on the bar; see `lib/toolbarLayout`. */}
+        <span className="hidden min-w-0 max-w-[130px] truncate 2xl:inline">{current?.name ?? "Unnamed"}</span>
         {/*
           "Not saved" is only worth a word once there is something to save: a
           fresh workspace with no layouts and no changes is not in a state that

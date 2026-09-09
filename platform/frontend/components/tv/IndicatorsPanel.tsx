@@ -180,7 +180,7 @@ export function IndicatorsPanel({
   const btn = "rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-ink hover:border-accent";
 
   return (
-    <div className="flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-surface">
+    <div className="flex h-full w-[294px] shrink-0 flex-col border-l border-border bg-surface">
       {/* ── library ── */}
       <div className="border-b border-border px-3 py-2">
         <div className="mb-2 flex items-center gap-2">
@@ -489,13 +489,13 @@ function IndicatorRow({
       </div>
 
       {ind.error && (
-        <div className="border-t border-down/25 bg-down/10 px-2 py-1 font-mono text-[10px] text-down">
+        <div className="border-t border-down/25 bg-down/10 px-2 py-1 text-[11px] text-down">
           {ind.error}
         </div>
       )}
 
       {ind.warnings.length > 0 && (
-        <div className="border-t border-warn/25 bg-warn/10 px-2 py-1 font-mono text-[10px] text-warn">
+        <div className="border-t border-warn/25 bg-warn/10 px-2 py-1 text-[11px] text-warn">
           {ind.warnings.map((warning) => (
             <div key={`${warning.line}:${warning.message}`}>
               line {warning.line}: {warning.message}

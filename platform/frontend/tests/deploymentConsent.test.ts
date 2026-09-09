@@ -21,7 +21,7 @@ test("non-live modes state that no order is sent", () => {
 });
 
 test("deployments page gates Activate but leaves Pause direct", () => {
-  const page = fs.readFileSync(path.join(import.meta.dirname, "../app/deployments/page.tsx"), "utf8");
+  const page = fs.readFileSync(path.join(import.meta.dirname, "../app/trading/page.tsx"), "utf8");
   assert.match(page, /setActivationTarget\(d\)/, "inactive rows must open the consent dialog");
   assert.match(page, /!activationAcknowledged/, "confirmation must remain disabled until checked");
   assert.match(page, /api\.pauseDeployment\(d\.id\)/, "Pause must remain a direct safety action");

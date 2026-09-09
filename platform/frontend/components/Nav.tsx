@@ -3,9 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
-import { api, type OpsStatus } from "@/lib/api";
-import { compactHealth, type HealthTone } from "@/lib/operationsHealth";
-import { describeStreamState, marketStreams, type StreamState } from "@/lib/marketStream";
+import { HEALTH_DOT, useOpsHealth, useStreamSummary } from "@/lib/navStatus";
 import {
   isSystemPath, PRIMARY_LINKS, primaryFor, PRODUCT_NAME, sectionTabsFor, SYSTEM_LINKS,
 } from "@/lib/navigation";
@@ -27,14 +25,6 @@ import { shariahApi, type ShariahMode } from "@/lib/shariah";
  * where a reader looks for help, and nothing here opens it on first launch.
  */
 const HELP_HREF = "/getting-started";
-
-const DOT_TONE: Record<HealthTone, string> = {
-  positive: "bg-up",
-  neutral: "bg-ink-faint",
-  warning: "bg-warn",
-  critical: "bg-down",
-  halted: "bg-down",
-};
 
 export function Nav() {
   const path = usePathname();
@@ -58,16 +48,30 @@ export function Nav() {
 
   if (path === "/login") return null;
 
-  // The chart carries its own compact header and ☰ drawer on phones; showing
-  // this bar too would spend a whole row of a 390px screen on navigation.
-  const hideOnMobile = path === "/chart";
+  /*
+   * FC2-H3: the chart workspace has no bar above it, at any width.
+   *
+   * It used to hide this only below `md`, on the reasoning that a phone has no
+   * room for it. FC2 measured what it cost on a desktop: 40px of product band
+   * plus 33px of first-run band above a workspace whose chart was already 110px
+   * shorter than TradingView's at the same viewport, with chart WIDTH at
+   * parity — so the entire deficit was this. TradingView has no layer above its
+   * toolbar on any screen, and neither does this now: the five destinations,
+   * the operator surfaces, the manual, sign-out and both live readouts moved
+   * into `components/tv/ProductMenu`, one 38px control at the left of the chart
+   * toolbar. That also retired a duplicate — the wordmark and the `Chart` tab
+   * both pointed at `/chart`, twenty pixels apart.
+   *
+   * Every other route keeps the bar. A page of alerts is a page; there is no
+   * chart on it to tax, and a horizontal row is the right shape for one.
+   */
+  if (path === "/chart") return null;
+
   const primary = primaryFor(path);
   const tabs = sectionTabsFor(path);
 
   return (
-    <header className={`sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur ${
-      hideOnMobile ? "hidden md:block" : ""
-    }`}>
+    <header className="sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur">
       {/*
         A 40px bar, not 52. This sits above every page including the chart, and
         a trading workspace's vertical budget is spent on data — the extra
@@ -199,39 +203,21 @@ function FirstRunHint({ path }: { path: string }) {
 }
 
 /**
- * Whether prices are streaming into this tab, from the one registry every
- * market socket goes through. Shown only while a stream is held (the chart,
- * the watchlist, the ticket), so pages without a market view carry nothing.
+ * Whether prices are streaming into this tab. The registry read and the
+ * worst-stream rule live in `lib/navStatus`, shared with the chart workspace's
+ * product menu so the two cannot disagree about what "live" means.
  */
 function LiveDataChip() {
-  const [state, setState] = useState<StreamState | null>(null);
-  useEffect(() => {
-    const summarise = (): void => {
-      const states = [...marketStreams.states().values()];
-      if (states.length === 0) { setState(null); return; }
-      // The worst stream is the tab's answer: one refused socket is a problem
-      // even while another is live.
-      const rank = (s: StreamState): number => ({
-        live: 0, open: 1, connecting: 1, idle: 2, reconnecting: 3, stale: 4,
-      })[s.status];
-      setState(states.reduce((worst, s) => (rank(s) > rank(worst) ? s : worst)));
-    };
-    summarise();
-    return marketStreams.observe(summarise);
-  }, []);
-  if (!state) return null;
-  const words = describeStreamState(state);
-  const tone = state.status === "live" ? "bg-up"
-    : state.status === "stale" ? "bg-down"
-    : state.status === "reconnecting" ? "bg-warn" : "bg-ink-faint";
+  const stream = useStreamSummary();
+  if (!stream) return null;
   return (
     <span
       role="status"
-      title={words.detail}
+      title={stream.detail}
       className="hidden items-center gap-1.5 text-[11px] text-ink-muted md:flex"
     >
-      <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${tone}`} />
-      {state.status === "live" ? "Live data" : words.label}
+      <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${stream.dot}`} />
+      {stream.label}
     </span>
   );
 }
@@ -242,16 +228,13 @@ function LiveDataChip() {
  */
 function SystemMenu({ path }: { path: string }) {
   const [open, setOpen] = useExclusivePopover("nav-system");
-  const [ops, setOps] = useState<OpsStatus | null>(null);
-  const [opsError, setOpsError] = useState<string | null>(null);
+  const health = useOpsHealth();
   const [shariahMode, setShariahMode] = useState<ShariahMode | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let live = true;
     const read = async (): Promise<void> => {
-      try { const next = await api.opsStatus(); if (live) { setOps(next); setOpsError(null); } }
-      catch (e) { if (live) setOpsError((e as Error).message); }
       try { const m = await shariahApi.mode(); if (live) setShariahMode(m.mode); }
       catch { if (live) setShariahMode(null); }
     };
@@ -276,9 +259,6 @@ function SystemMenu({ path }: { path: string }) {
     };
   }, [open, setOpen]);
 
-  const health = ops ? compactHealth(ops) : null;
-  const tone: HealthTone = health ? health.tone : "neutral";
-  const healthLabel = health ? health.status : opsError ? "Unknown" : "…";
   const active = isSystemPath(path);
 
   return (
@@ -288,14 +268,14 @@ function SystemMenu({ path }: { path: string }) {
         aria-expanded={open}
         aria-haspopup="menu"
         aria-current={active ? "page" : undefined}
-        title={health ? health.summary : opsError ? `Operations status could not be read: ${opsError}` : "Reading system status…"}
+        title={health.summary}
         className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors ${
           open || active ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
         }`}
       >
-        <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${DOT_TONE[tone]}`} />
+        <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${HEALTH_DOT[health.tone]}`} />
         <span>System</span>
-        <span className="sr-only">— {healthLabel}</span>
+        <span className="sr-only">— {health.label}</span>
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
           <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" />
         </svg>
@@ -305,11 +285,11 @@ function SystemMenu({ path }: { path: string }) {
           className="absolute right-0 top-[34px] z-50 w-72 rounded-md border border-border bg-surface py-1 shadow-xl">
           <div className="px-3 pb-2 pt-2">
             <div className="flex items-center gap-2 text-[13px] text-ink">
-              <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${DOT_TONE[tone]}`} />
-              <span className="font-medium">{healthLabel}</span>
+              <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${HEALTH_DOT[health.tone]}`} />
+              <span className="font-medium">{health.label}</span>
             </div>
             <p className="mt-0.5 text-[11px] leading-tight text-ink-faint">
-              {health ? health.summary : opsError ? `Operations status could not be read: ${opsError}` : "Reading system status…"}
+              {health.summary}
             </p>
           </div>
           {SYSTEM_LINKS.map((l) => {

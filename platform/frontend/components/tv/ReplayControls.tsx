@@ -92,7 +92,7 @@ export function ReplayControls({
         Replay
       </span>
       <time
-        className="mr-1 font-mono text-[11px] text-ink"
+        className="mr-1 text-[13px] tabular text-ink"
         dateTime={new Date(session.horizonCloseTime).toISOString()}
       >
         {new Date(session.horizonCloseTime).toLocaleString()}

@@ -454,7 +454,7 @@ export function compareOverlays(
 }
 
 /** Present but not the subject: a reference line, not a series. */
-const COMPARE_LEVEL_COLOR = "#8b93a7";
+const COMPARE_LEVEL_COLOR = "#9c9c9c";
 
 /** The base instrument keeps the chart's own accent; the second gets its own. */
 const COMPARE_BASE_COLOR = "#4f8cff";

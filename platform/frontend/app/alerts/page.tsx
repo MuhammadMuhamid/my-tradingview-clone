@@ -186,7 +186,7 @@ export default function AlertsPage() {
             {/* inline-block with vertical padding, so these links clear the
                 24 CSS-pixel target minimum the Phase 6 QA measures everything
                 against. A 15px-tall link is a link only a mouse can hit. */}
-            <a href="/deployments" className="inline-block py-1.5 underline hover:text-ink">
+            <a href="/trading" className="inline-block py-1.5 underline hover:text-ink">
               Trading → Automations
             </a>, and their delivery health is on{" "}
             <a href="/operations" className="inline-block py-1.5 underline hover:text-ink">

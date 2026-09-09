@@ -84,6 +84,32 @@ const nextConfig = {
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${BACKEND}/api/:path*` }];
   },
+  /**
+   * FC2-L2: the three destinations whose slug did not match their name.
+   *
+   * `Screener` resolved to `/scanner`, `Trading` to `/deployments` and
+   * `Research` to `/backtests`. Nothing was broken — every one returned 200 —
+   * but the mismatch surfaced everywhere a URL is seen rather than clicked:
+   * the address bar, a bookmark, a link pasted to someone else. The pages moved
+   * to the slugs their labels promise; these keep every link that already
+   * exists working, including a bookmarked backtest detail page.
+   *
+   * `permanent: true` (308) because the move is permanent and the method must
+   * be preserved. The API paths are untouched — `/api/scanner`,
+   * `/api/deployments` and `/api/backtests` are the backend's contract, not
+   * this application's navigation, and renaming a page is no reason to rename
+   * a wire format.
+   */
+  async redirects() {
+    return [
+      { source: "/scanner", destination: "/screener", permanent: true },
+      { source: "/scanner/:path*", destination: "/screener/:path*", permanent: true },
+      { source: "/deployments", destination: "/trading", permanent: true },
+      { source: "/deployments/:path*", destination: "/trading/:path*", permanent: true },
+      { source: "/backtests", destination: "/research", permanent: true },
+      { source: "/backtests/:path*", destination: "/research/:path*", permanent: true },
+    ];
+  },
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },

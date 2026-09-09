@@ -209,17 +209,24 @@ test("no measured viewport asks for labels the row cannot hold", () => {
   assert.deepEqual(toolbarDensity(1024, true), { labels: false, clusterOnPrimaryRow: false });
   // The clean ones stay exactly as they were measured.
   assert.deepEqual(toolbarDensity(1152, true), { labels: false, clusterOnPrimaryRow: true });
-  assert.deepEqual(toolbarDensity(1680, true), { labels: true, clusterOnPrimaryRow: true });
+  // 1680 with the ticket open leaves a 1339px row, which is below the FC2R
+  // label threshold. It used to clear the old 1280 one; the whole point of
+  // raising it is that a 1339px row cannot hold the labels AND the timeframe
+  // favourites at the same time.
+  assert.deepEqual(toolbarDensity(1680, true), { labels: false, clusterOnPrimaryRow: true });
+  assert.deepEqual(toolbarDensity(1920, true), { labels: true, clusterOnPrimaryRow: true });
 });
 
-test("closing the ticket restores the plain viewport breakpoints exactly", () => {
-  // Nothing about the bar changes on a screen with no ticket open: this repair
-  // may not move a breakpoint anyone has already lived with.
-  for (const viewport of [320, 640, 767, 768, 1023, 1024, 1279, 1280, 1536, 1920]) {
+test("with the ticket closed the decisions are plain md / 2xl viewport queries", () => {
+  // FC2R moved the label threshold from xl to 2xl: the chart column is not the
+  // viewport either, and at 1440 a 1040px row could not hold both the labels
+  // and the user's own timeframe favourites. The cluster threshold is
+  // untouched. Everything here is still one comparison against the row width.
+  for (const viewport of [320, 640, 767, 768, 1023, 1024, 1279, 1280, 1535, 1536, 1920]) {
     assert.deepEqual(toolbarDensity(viewport, false), {
-      labels: viewport >= 1280,
+      labels: viewport >= 1536,
       clusterOnPrimaryRow: viewport >= 768,
-    }, `${viewport}px with the ticket closed must behave as md/xl always did`);
+    }, `${viewport}px with the ticket closed must behave as md/2xl`);
   }
 });
 
@@ -229,7 +236,7 @@ test("the classes the bar actually ships are the shifted breakpoints, not a seco
   // arithmetic from drifting apart.
   const source = read(TOOLBAR);
   assert.equal(TOOLBAR_CLUSTER_WIDTH_WITH_TICKET, 1109);
-  assert.equal(TOOLBAR_LABEL_WIDTH_WITH_TICKET, 1621);
+  assert.equal(TOOLBAR_LABEL_WIDTH_WITH_TICKET, 1877);
   for (const variant of [
     `min-[${TOOLBAR_LABEL_WIDTH_WITH_TICKET}px]:inline`,
     `min-[${TOOLBAR_CLUSTER_WIDTH_WITH_TICKET}px]:flex`,
@@ -239,7 +246,7 @@ test("the classes the bar actually ships are the shifted breakpoints, not a seco
     assert.ok(source.includes(variant), `${variant} is not what the bar renders`);
   }
   // And the ticket-closed set is untouched Tailwind.
-  assert.match(source, /label: "hidden xl:inline"/);
+  assert.match(source, /label: "hidden 2xl:inline"/);
   assert.match(source, /cluster: "hidden md:flex"/);
 
   // The bar can only make this decision if it is told; the page is the only
@@ -549,9 +556,12 @@ test("a browser-driven exit — Escape — is observed rather than missed", asyn
 
 test("the fullscreen control targets the chart workspace, not the whole document", () => {
   const page = read("app/chart/page.tsx");
-  // The ref sits on the page's own root — drawing rail, charts, side panels —
-  // which excludes the site navigation bar rendered by app/layout.tsx.
-  assert.match(page, /<div ref=\{fullscreen\.ref\} className="flex h-full/);
+  // The ref sits on the page's own root — drawing rail, charts, side panels.
+  // It used to be `h-full`; FC2R made it a flex item of `main` (a percentage
+  // height cannot resolve against a `flex-1` parent, which was costing the
+  // workspace its last 10px). What matters to this test is unchanged: the ref
+  // is on the workspace root and not on the document.
+  assert.match(page, /<div ref=\{fullscreen\.ref\} className="flex min-h-0 flex-1 bg-bg/);
   assert.match(page, /onToggleFullscreen=\{fullscreen\.toggle\}/);
   assert.match(page, /fullscreenSupported=\{fullscreen\.supported\}/);
 

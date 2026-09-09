@@ -80,7 +80,7 @@ export default function BacktestDetail() {
   const shell = (body: ReactNode): ReactNode => (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
       <div className="flex items-center gap-3">
-        <Link href="/backtests"><Button variant="ghost">← Backtests</Button></Link>
+        <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
         <h1 className="text-lg font-semibold">Backtest</h1>
       </div>
       {body}
@@ -98,7 +98,7 @@ export default function BacktestDetail() {
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
       <div className="flex items-center gap-3">
-        <Link href="/backtests"><Button variant="ghost">← Backtests</Button></Link>
+        <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
         <h1 className="text-lg font-semibold">{bt.symbol} · {bt.timeframe}</h1>
         <StatusBadge status={bt.status} />
         <span className="text-sm text-ink-faint" title={UTC_DATE_NOTE}>

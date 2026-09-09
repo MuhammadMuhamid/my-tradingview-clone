@@ -14,7 +14,6 @@
  */
 import type { ReactNode } from "react";
 import { type Resolution } from "@/lib/resolution";
-import { allNavLinks, PRODUCT_NAME } from "@/lib/navigation";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
 import { ManualTradingPanel } from "@/components/tv/ManualTradingPanel";
@@ -90,13 +89,17 @@ export interface ChartSidePanelProps {
 
   toolsOpen: boolean;
   onToolsOpen: (open: boolean) => void;
-  navOpen: boolean;
-  onCloseNav: () => void;
 }
 
 export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
+  /*
+   * The far-right rail is built like the left one (FC2-M1): full-width,
+   * square-cornered, 52 x 38 hit zones rather than 36px pills inset in a 48px
+   * column, and no hover transition. The two rails frame the same chart and
+   * had no reason to be two different controls.
+   */
   const railBtn = (isActive: boolean): string =>
-    `flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
+    `flex h-[38px] w-[52px] items-center justify-center ${
       isActive ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
     }`;
 
@@ -156,7 +159,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 focusKey={props.indicatorFocusKey}
               />
             ) : (
-              <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 items-center justify-center border-l border-border bg-surface p-4 text-xs text-ink-faint md:w-[300px]">
+              <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 items-center justify-center border-l border-border bg-surface p-4 text-xs text-ink-faint md:w-[294px]">
                 Preparing this pane&apos;s studies…
               </aside>
             )
@@ -168,7 +171,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
             onClose={props.onClosePanel}
             onStateChange={props.onManualState} />}
           {props.panel === "ma" && (
-            <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
+            <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[294px]">
               <MaPanel
                 lines={props.maLines}
                 values={props.maValues}
@@ -195,13 +198,13 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
     )}
 
     {/* ── far-right icon rail (TV-style) ── */}
-    <div className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-border bg-surface py-2 md:flex">
+    <div className="hidden w-[52px] shrink-0 flex-col items-center border-l border-border bg-surface py-1 md:flex">
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}
         title="Watchlist"
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 6h16M4 12h16M4 18h10" />
         </svg>
       </button>
@@ -212,7 +215,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Manual Binance Spot trading"}
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Manual Binance Spot trading"}
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
         </svg>
       </button>
@@ -221,7 +224,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         className={railBtn(props.panel === "indicators")}
         title="Indicators"
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
         </svg>
         {props.indicatorCount > 0 && (
@@ -235,7 +238,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         className={railBtn(props.panel === "ma")}
         title="Moving averages and the alerts armed on them"
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
         </svg>
         {props.maAlerts.length > 0 && (
@@ -249,7 +252,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         className={railBtn(props.panel === "correlation")}
         title="Correlation — how the watchlist's instruments move together"
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
           <path d="M9 3.5v17M15 3.5v17M3.5 9h17M3.5 15h17" />
         </svg>
@@ -260,7 +263,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         className={railBtn(props.panel === "alerts")}
         title={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations — running strategies and their order log"}
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
         </svg>
       </button>
@@ -305,40 +308,6 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       ))}
     </nav>
 
-    {/* Site navigation, reachable from the phone toolbar's ☰ */}
-    {props.navOpen && (
-      <>
-        <button aria-label="Close menu" onClick={props.onCloseNav}
-          className="fixed inset-0 z-40 bg-black/60 md:hidden" />
-        <div className="fixed left-0 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-surface p-3 md:hidden">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm font-semibold">
-              <span className="inline-block h-2 w-2 rounded-full bg-accent" />{PRODUCT_NAME}
-            </span>
-            <button onClick={props.onCloseNav} aria-label="Close"
-              className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 4l16 16M20 4L4 20" />
-              </svg>
-            </button>
-          </div>
-          {allNavLinks().map(({ href, label }) => (
-            <a key={href} href={href}
-              className="rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">
-              {label}
-            </a>
-          ))}
-          <button
-            onClick={async () => {
-              await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
-              window.location.href = "/login";
-            }}
-            className="mt-auto rounded-md px-3 py-2 text-left text-sm text-ink-muted hover:bg-surface-2 hover:text-ink"
-          >
-            Sign out
-          </button>
-        </div>
-      </>
-    )}    </>
+    </>
   );
 }

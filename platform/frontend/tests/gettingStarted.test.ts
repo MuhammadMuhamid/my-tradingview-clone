@@ -23,7 +23,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeStreamState, MARKET_STREAM_ORIGINS, type StreamState } from "../lib/marketStream";
-import { allNavLinks } from "../lib/navigation";
+import { allNavLinks, SYSTEM_LINKS } from "../lib/navigation";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -67,12 +67,14 @@ test("it is reachable from permanent navigation, and forces itself on nobody", (
   // The global header, on every page that shows it.
   assert.ok(read("components/Nav.tsx").includes(href),
     "the header must offer Getting started");
-  // The chart's phone drawer, which is the site nav on a phone because the
-  // global bar is hidden there, renders every navigation link — including it.
-  assert.match(read("components/tv/ChartSidePanel.tsx"), /allNavLinks\(\)\.map/,
-    "the chart's mobile menu must render the shared navigation list");
-  assert.ok(allNavLinks().some((l) => l.href === "/getting-started"),
-    "the chart's mobile menu must offer Getting started");
+  // The chart workspace has no header bar at all after FC2-H3, so its product
+  // menu IS the site navigation there, at every width. It renders the shared
+  // system list, which is where the manual lives.
+  assert.match(read("components/tv/ProductMenu.tsx"), /SYSTEM_LINKS\.map/,
+    "the chart's product menu must render the shared system list");
+  assert.ok(SYSTEM_LINKS.some((l) => l.href === "/getting-started"),
+    "the chart's product menu must offer Getting started");
+  assert.ok(allNavLinks().some((l) => l.href === "/getting-started"));
   // A stale or mistyped URL should be able to reach it too: the not-found
   // page renders the same shared list.
   assert.match(read("app/not-found.tsx"), /allNavLinks\(\)\.map/,

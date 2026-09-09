@@ -148,14 +148,23 @@ function PickerRow({
   const plan = parseResolution(resolution);
   const selected = current === resolution;
   return (
-    <div className="group flex items-center gap-1 rounded pr-1 hover:bg-surface-2/60">
+    /*
+      The selected row is FILLED, not just bolded. It was bold accent text on
+      the panel's own background, which at a glance is indistinguishable from
+      the row above it; TradingView inverts the whole row, and a resolution
+      picker is a place where "which one am I on" has to be answerable without
+      reading.
+    */
+    <div className={`group flex items-center gap-1 rounded-sm pr-1 ${
+      selected ? "bg-accent text-white" : "hover:bg-surface-2"
+    }`}>
       <button
         role="menuitemradio"
         aria-checked={selected}
         aria-label={`${describeResolution(resolution)} — ${explainResolution(resolution)}`}
         onClick={() => onPick(resolution)}
-        className={`flex flex-1 items-baseline gap-2 rounded px-2 py-1.5 text-left text-[13px] transition-colors ${
-          selected ? "font-semibold text-ink" : "text-ink-muted group-hover:text-ink"
+        className={`flex flex-1 items-baseline gap-2 rounded-sm px-2 py-1.5 text-left text-sm ${
+          selected ? "font-semibold text-white" : "text-ink-muted group-hover:text-ink"
         }`}
       >
         <span className="w-10 shrink-0 tabular">{resolution}</span>
@@ -163,7 +172,7 @@ function PickerRow({
           // Said on the row, not in a tooltip: what a derived bar is made of is
           // the reason it can be trusted, and a tooltip is not an answer to a
           // question a reader did not know to ask.
-          <span className="text-[11px] text-ink-faint">
+          <span className={`text-[11px] ${selected ? "text-white/75" : "text-ink-faint"}`}>
             {plan.factor} × {plan.source}
           </span>
         )}
@@ -173,7 +182,9 @@ function PickerRow({
           onClick={() => onRemove(resolution)}
           title={`Remove the custom ${resolution} resolution`}
           aria-label={`Remove the custom ${resolution} resolution`}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity hover:bg-surface-2 hover:text-ink focus:opacity-100 group-hover:opacity-100"
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100 ${
+            selected ? "text-white/70 hover:bg-white/20 hover:text-white" : "text-ink-faint hover:bg-surface-2 hover:text-ink"
+          }`}
         >
           <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
             <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.6" />
@@ -185,10 +196,12 @@ function PickerRow({
         aria-pressed={favourite}
         title={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         aria-label={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity hover:bg-surface-2 ${
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity ${
+          selected ? "hover:bg-white/20" : "hover:bg-surface-2"
+        } ${
           favourite
-            ? "text-accent opacity-100"
-            : "text-ink-faint opacity-0 focus:opacity-100 group-hover:opacity-100"
+            ? `opacity-100 ${selected ? "text-white" : "text-accent"}`
+            : `opacity-0 focus:opacity-100 group-hover:opacity-100 ${selected ? "text-white/70" : "text-ink-faint"}`
         }`}
       >
         <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"
@@ -355,9 +368,16 @@ function useDismiss(
   }, [open, setOpen, boxRef]);
 }
 
+/*
+ * FC2 recorded this popover as the strongest area of the product — row pitch,
+ * sectioning, favourites, Escape and focus restoration are all at parity, and
+ * the `5 x 1s` derivation hints are better than the reference. What it did
+ * flag was type one step small and a 6px radius where TradingView has none.
+ * Both are here; nothing about the structure moved.
+ */
 const MENU_BOX =
-  "absolute z-50 max-h-[70vh] w-[228px] overflow-y-auto rounded-md border " +
-  "border-border bg-surface p-1 shadow-xl";
+  "absolute z-50 max-h-[70vh] w-[212px] overflow-y-auto rounded-sm border " +
+  "border-border bg-surface p-1 shadow-2xl";
 
 export interface LegendTimeframeProps {
   /** The pane's id, so two panes' menus cannot both be open. */
@@ -430,6 +450,40 @@ export interface TimeframePickerProps {
  * the controls beside it off the bar, which is what keeps the toolbar a single
  * row at every width. The picker button sits OUTSIDE that scrolling box on
  * purpose: a popover inside an `overflow-x-auto` container is clipped by it.
+ *
+ * ── FC2-B1: why the strip is not rendered on a phone ───────────────────────
+ *
+ * It was, and it broke the toolbar. The wrapper carried `flex-1 min-w-0` at
+ * every width. `min-width: 0` is exactly the permission a flex item needs to
+ * shrink BELOW its own minimum content size, and at 390px the row's
+ * incompressible siblings already exceeded the viewport, so the wrapper was
+ * squeezed to 15px while the picker button inside it stayed 90px wide and
+ * overflowed its own parent. The measured result: the `Timeframe` button
+ * painted from x=169 to x=259 straight across the chart-type button at x=188,
+ * and because the chart-type button comes later in the DOM it won the hit test.
+ * `elementFromPoint(195, 26)` and `(215, 26)` both returned the chart-type
+ * control while the user was looking at the word "Timeframe". Tapping the
+ * middle of a visible label opened a different menu — a functional break, and
+ * an accessibility one, on the primary mobile toolbar of the primary surface.
+ *
+ * Two changes fix it, and both are needed:
+ *
+ *   1. The wrapper is only flexible from `sm` up. Below that it sizes to its
+ *      content, so it can never be smaller than the button inside it.
+ *   2. The quick strip itself is hidden below `sm`. Six 44px touch targets
+ *      cannot share a 390px row with a symbol, a presentation menu and an
+ *      overflow control, and the honest answer at that width is the picker —
+ *      which reaches every resolution rather than six of them.
+ *
+ * Because the strip is gone there, the picker button stops saying "Timeframe"
+ * and says the CURRENT resolution instead, which is both narrower and more
+ * useful: on a phone it is the only thing on the bar that names the timeframe.
+ * Both labels are rendered and CSS chooses, so there is no second source of
+ * truth and no hydration branch.
+ *
+ * The row's remaining give comes from the symbol button in `ChartToolbar`,
+ * which truncates. That is what keeps the guarantee — no two interactive boxes
+ * on this bar intersect at any width from 320px up — true rather than lucky.
  */
 export function TimeframePicker(props: TimeframePickerProps) {
   const { interval, preferences } = props;
@@ -448,17 +502,17 @@ export function TimeframePicker(props: TimeframePickerProps) {
     <div
       role="group"
       aria-label="Timeframe"
-      className={props.className ?? "flex min-w-0 flex-1 items-center gap-0.5 sm:flex-initial"}
+      className={props.className ?? "flex shrink-0 items-center sm:min-w-0 sm:flex-initial"}
     >
-      <div className="no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto">
+      <div className="no-scrollbar hidden min-w-0 items-center overflow-x-auto sm:flex">
         {strip.quick.map((i) => (
           <button key={i} onClick={() => pick(i)}
             aria-pressed={interval === i}
             title={explainResolution(i)}
-            className={`flex h-7 shrink-0 items-center rounded px-2 text-[13px] transition-colors ${
+            className={`flex h-[38px] shrink-0 items-center px-1.5 text-sm ${
               interval === i
                 ? "bg-surface-2 font-semibold text-ink"
-                : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+                : "text-ink-muted hover:bg-surface-2 hover:text-ink"
             }`}>
             {i}
           </button>
@@ -479,20 +533,41 @@ export function TimeframePicker(props: TimeframePickerProps) {
           aria-label={strip.currentInQuick
             ? "All timeframes"
             : `Timeframe — currently ${interval}. All timeframes`}
-          className={`flex h-7 shrink-0 items-center gap-1 rounded px-1.5 text-[13px] transition-colors ${
+          className={`flex h-[38px] shrink-0 items-center gap-1 px-1.5 text-sm ${
             strip.currentInQuick
-              ? "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+              ? "text-ink-muted hover:bg-surface-2 hover:text-ink"
               : "bg-surface-2 font-semibold text-ink"
-          }`}
+          } sm:font-normal`}
         >
-          {strip.menuLabel}
+          {/*
+            Below `sm` the favourites strip is not rendered, so this control is
+            the only thing on the bar that says what resolution the chart is on.
+            It names it. From `sm` up the strip is back and shows the armed
+            resolution itself, so the button goes back to being the way into
+            the rest of the catalogue and says so.
+
+            The two variants are only needed when the strip HAS the current
+            resolution — otherwise `menuLabel` is already the resolution and
+            both widths want the same string. Rendering one span in that case
+            is not a micro-optimisation: two spans put the text in the
+            accessible name twice ("45m45m"), because CSS is what hides one of
+            them and an accessibility tree is not styled.
+          */}
+          {strip.currentInQuick ? (
+            <>
+              <span className="font-semibold sm:hidden">{interval}</span>
+              <span className="hidden sm:inline">{strip.menuLabel}</span>
+            </>
+          ) : (
+            <span className="font-semibold">{strip.menuLabel}</span>
+          )}
           <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
             <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>
 
         {open && (
-          <div role="menu" aria-label="All timeframes" className={`${MENU_BOX} left-0 top-[34px]`}>
+          <div role="menu" aria-label="All timeframes" className={`${MENU_BOX} left-0 top-full`}>
             <ResolutionMenu interval={interval} onPick={pick} preferences={preferences} />
           </div>
         )}

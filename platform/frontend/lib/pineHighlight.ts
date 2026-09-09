@@ -103,13 +103,13 @@ export function highlightLine(line: string): PineToken[] {
 }
 
 export const TOKEN_COLOR: Record<PineTokenClass, string> = {
-  comment: "#6b7486",
+  comment: "#8c8c8c",
   string: "#2ebd85",
   number: "#f0b90b",
   keyword: "#c792ea",
   builtin: "#4f8cff",
   func: "#22d3ee",
-  plain: "#e6e9ef",
+  plain: "#dbdbdb",
 };
 
 /** Starter script offered by the editor's "New" action. */

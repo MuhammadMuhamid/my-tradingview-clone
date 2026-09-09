@@ -84,8 +84,8 @@ export function TradingOverlayDetails({ item, onClose }: {
       <button onClick={onClose} aria-label="Close overlay details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink md:h-8 md:w-8">×</button>
     </div>
     <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-      <div><dt className="text-ink-faint">Price</dt><dd className="font-mono text-ink">{item.price.toLocaleString(undefined, { maximumFractionDigits: 8 })}</dd></div>
-      <div><dt className="text-ink-faint">Quantity</dt><dd className="font-mono text-ink-muted">{item.quantity ?? "Unknown"}</dd></div>
+      <div><dt className="text-ink-faint">Price</dt><dd className="tabular text-ink">{item.price.toLocaleString(undefined, { maximumFractionDigits: 8 })}</dd></div>
+      <div><dt className="text-ink-faint">Quantity</dt><dd className="tabular text-ink-muted">{item.quantity ?? "Unknown"}</dd></div>
       <div className="col-span-2"><dt className="text-ink-faint">{item.eventTime ? "Original event time" : "Observed current state"}</dt>
         <dd className="text-ink-muted">{time ? new Date(time).toLocaleString() : "Unknown"}</dd></div>
       {item.state && <div><dt className="text-ink-faint">State</dt><dd className="uppercase text-ink-muted">{item.state.replaceAll("_", " ")}</dd></div>}
@@ -107,7 +107,7 @@ export function TradingOverlayDetails({ item, onClose }: {
     </details>}
     <div className="mt-2 flex flex-wrap gap-3 border-t border-border pt-2 text-xs">
       <Link href="/journal" className="inline-flex min-h-11 items-center underline text-ink-muted hover:text-ink">Open Trade Journal</Link>
-      {item.provenance.deploymentId && <Link href="/deployments" className="inline-flex min-h-11 items-center underline text-ink-muted hover:text-ink">Open deployment Timeline</Link>}
+      {item.provenance.deploymentId && <Link href="/trading" className="inline-flex min-h-11 items-center underline text-ink-muted hover:text-ink">Open deployment Timeline</Link>}
     </div>
   </aside>;
 }

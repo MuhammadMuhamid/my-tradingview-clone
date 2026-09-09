@@ -129,7 +129,7 @@ function JournalItem({ row }: { row: JournalRow }) {
             {row.deploymentId ? ` · Deployment ${row.deploymentId}` : ""}
           </p>}
         </div>
-        {row.deploymentId ? <Link href="/deployments" className="inline-flex min-h-11 shrink-0 items-center underline text-ink-muted hover:text-ink">
+        {row.deploymentId ? <Link href="/trading" className="inline-flex min-h-11 shrink-0 items-center underline text-ink-muted hover:text-ink">
           Open deployment timeline
         </Link> : row.source === "MANUAL" ? <Link href="/chart" className="inline-flex min-h-11 shrink-0 items-center underline text-ink-muted hover:text-ink">
           Open manual trading

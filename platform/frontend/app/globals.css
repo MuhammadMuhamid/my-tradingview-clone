@@ -13,65 +13,113 @@
    * `lib/chartTheme` instead) so a surface, line or status colour is never
    * typed as a literal twice. Dark is the preserved default; the light block
    * below overrides the same semantic roles rather than recolouring components.
+   *
+   * ── Why these are pure greys, and why `bg` is LIGHTER than `surface` ──────
+   *
+   * Both of those were wrong until FC2 measured them against the product this
+   * workspace is meant to sit beside.
+   *
+   * The dark ramp used to be a navy family — `#0b0e14 / #121722 / #1a2030`,
+   * every step at hue ~220 degrees and 16-31% saturation. It was not a taste
+   * decision that drifted: `--ts-surface: #121722` is one byte from
+   * TradingView's own PRE-2023 `#131722`, and the light block below is that
+   * legacy palette verbatim. The reference was accurate and out of date.
+   * TradingView's dark theme is now one pure-neutral scale it calls
+   * `cold-gray` — `#f2f2f2 . #dbdbdb . #8c8c8c . #4a4a4a . #2e2e2e . #1f1f1f .
+   * #0f0f0f` — where every step is exactly R = G = B. A uniform 220-degree
+   * cast on every surface, border, grid line and muted label does not read as
+   * "one blue element"; it reads as the whole application being a different,
+   * bluer product. So the neutrals here are now R = G = B to the byte, and the
+   * four semantic tokens below them (`accent`, `positive`, `negative`,
+   * `caution`) are deliberately NOT desaturated: chromatic colour in this
+   * product means something, and reserving it for meaning is the point.
+   *
+   * The second error was hierarchy. `--ts-bg` was DARKER than `--ts-surface`,
+   * so panels read as raised cards floating on a darker page — a dashboard
+   * idiom. A workstation is the other way round: the chart is the darkest
+   * thing on screen and the chrome around it is lighter, so the chart reads as
+   * the recessed working surface and not as a widget. `--ts-surface` is
+   * therefore `#0f0f0f` (TradingView's chart canvas exactly) and `--ts-bg` is
+   * `#2e2e2e`, the frame it sits in. The light block mirrors the same step:
+   * a white chart against an `#ebebeb` frame.
    */
-  --ts-bg: #0b0e14;
-  --ts-surface: #121722;
-  --ts-surface-2: #1a2030;
-  --ts-surface-3: #232b3a;
-  --ts-line: #232b3a;
-  --ts-line-strong: #2c3548;
-  --ts-ink: #e6e9ef;
-  --ts-ink-muted: #9aa4b6;
-  --ts-ink-faint: #6b7486;
+  --ts-bg: #2e2e2e;
+  --ts-surface: #0f0f0f;
+  --ts-surface-2: #1f1f1f;
+  --ts-surface-3: #2e2e2e;
+  --ts-line: #2e2e2e;
+  --ts-line-strong: #4a4a4a;
+  --ts-ink: #dbdbdb;
+  --ts-ink-muted: #a8a8a8;
+  --ts-ink-faint: #8c8c8c;
   --ts-accent: #4f8cff;
   --ts-positive: #2ebd85;
   --ts-negative: #f6465d;
   --ts-caution: #f0b90b;
-  --ts-bg-rgb: 11 14 20;
-  --ts-surface-rgb: 18 23 34;
-  --ts-surface-2-rgb: 26 32 48;
-  --ts-line-rgb: 35 43 58;
-  --ts-ink-rgb: 230 233 239;
-  --ts-ink-muted-rgb: 154 164 182;
-  --ts-ink-faint-rgb: 107 116 134;
+  --ts-bg-rgb: 46 46 46;
+  --ts-surface-rgb: 15 15 15;
+  --ts-surface-2-rgb: 31 31 31;
+  --ts-line-rgb: 46 46 46;
+  --ts-ink-rgb: 219 219 219;
+  --ts-ink-muted-rgb: 168 168 168;
+  --ts-ink-faint-rgb: 140 140 140;
   --ts-accent-rgb: 79 140 255;
   --ts-positive-rgb: 46 189 133;
   --ts-negative-rgb: 246 70 93;
   --ts-caution-rgb: 240 185 11;
-  --ts-chart-grid: #161c28;
-  --ts-chart-crosshair: #4b556b;
-  --ts-chart-label: #2c3548;
+  --ts-chart-grid: #1e1e1e;
+  --ts-chart-crosshair: #5c5c5c;
+  --ts-chart-label: #3d3d3d;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --ts-bg: #f8f9fd;
+  --ts-bg: #ebebeb;
   --ts-surface: #ffffff;
-  --ts-surface-2: #f0f3fa;
-  --ts-surface-3: #e6e9f0;
-  --ts-line: #e0e3eb;
-  --ts-line-strong: #b2b5be;
-  --ts-ink: #131722;
-  --ts-ink-muted: #5d606b;
-  --ts-ink-faint: #787b86;
+  --ts-surface-2: #f2f2f2;
+  --ts-surface-3: #e6e6e6;
+  --ts-line: #e1e1e1;
+  --ts-line-strong: #b8b8b8;
+  --ts-ink: #131313;
+  --ts-ink-muted: #5c5c5c;
+  --ts-ink-faint: #787878;
   --ts-accent: #2962ff;
   --ts-positive: #089981;
   --ts-negative: #f23645;
   --ts-caution: #946200;
-  --ts-bg-rgb: 248 249 253;
+  --ts-bg-rgb: 235 235 235;
   --ts-surface-rgb: 255 255 255;
-  --ts-surface-2-rgb: 240 243 250;
-  --ts-line-rgb: 224 227 235;
-  --ts-ink-rgb: 19 23 34;
-  --ts-ink-muted-rgb: 93 96 107;
-  --ts-ink-faint-rgb: 120 123 134;
+  --ts-surface-2-rgb: 242 242 242;
+  --ts-line-rgb: 225 225 225;
+  --ts-ink-rgb: 19 19 19;
+  --ts-ink-muted-rgb: 92 92 92;
+  --ts-ink-faint-rgb: 120 120 120;
   --ts-accent-rgb: 41 98 255;
   --ts-positive-rgb: 8 153 129;
   --ts-negative-rgb: 242 54 69;
   --ts-caution-rgb: 148 98 0;
-  --ts-chart-grid: #eef0f3;
-  --ts-chart-crosshair: #9598a1;
-  --ts-chart-label: #5d606b;
+  --ts-chart-grid: #f0f0f0;
+  --ts-chart-crosshair: #9c9c9c;
+  --ts-chart-label: #5c5c5c;
+}
+
+/*
+ * One UI face for the whole product, including the canvas.
+ *
+ * `lib/chartTheme.ts` holds the same stack as a literal because a canvas
+ * cannot read a custom property; `tailwind.config.ts` points `fontFamily.sans`
+ * at this variable so preflight, every utility and the chart all resolve to
+ * the same face. Before this the DOM asked for `ui-sans-serif, system-ui` and
+ * the chart asked for `ui-monospace` — two voices on one screen.
+ */
+:root {
+  --ts-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --ts-font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Chevron for every custom-drawn `select`; see the `select` rule below. */
+  --ts-chevron-glyph: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M2 4l3 3 3-3'/%3E%3C/svg%3E");
+  /* Calendar glyph for date fields, used as a mask so it takes currentColor. */
+  --ts-calendar-glyph: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
 }
 
 html {
@@ -80,6 +128,16 @@ html {
 
 body {
   @apply bg-bg text-ink;
+  font-family: var(--ts-font-ui);
+  /*
+   * Tabular figures everywhere by default.
+   *
+   * This is what a monospace family was being used for on the chart legend,
+   * the OHLC row and the watchlist — a price that does not jitter sideways as
+   * its digits change. A proportional face with `tnum` does the same job and
+   * still sounds like the rest of the application, which is why the chart no
+   * longer switches family to get it.
+   */
   font-feature-settings: "tnum" 1;
   /* Wide tables/toolbars scroll in their own containers, never the page. */
   overflow-x: hidden;
@@ -194,6 +252,89 @@ body {
   top: 0.5rem;
 }
 
+/*
+ * Date fields that belong to this design system (FC2-M3).
+ *
+ * A bare `<input type="date">` renders the platform's own chrome — Chrome's
+ * blue-tinted calendar glyph, WebKit's own field metrics, the light-mode
+ * spinners — inside a fully custom dark panel, which is why the Strategy
+ * Tester's date range was the one control on the workspace that read as
+ * unfinished.
+ *
+ * The native control is KEPT rather than replaced. It is keyboard-operable,
+ * locale-aware, announced correctly, and it is what a user's browser and OS
+ * already agree a date is; a hand-built popover would have to earn all of that
+ * back. What is replaced is its appearance: the box takes the surface tokens,
+ * the segments take the ink tokens, and the picker glyph is redrawn as a
+ * currentColor mask so it inherits the field's own colour in both themes
+ * instead of arriving pre-coloured.
+ */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+input[type="date"]::-webkit-datetime-edit { color: var(--ts-ink); padding: 0; }
+input[type="date"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+input[type="date"]::-webkit-datetime-edit-text { color: var(--ts-ink-faint); padding: 0 1px; }
+input[type="date"]::-webkit-inner-spin-button,
+input[type="date"]::-webkit-clear-button { display: none; -webkit-appearance: none; }
+input[type="date"]::-webkit-calendar-picker-indicator {
+  /*
+   * The platform glyph, redrawn. `background-image` on this pseudo-element is
+   * ignored by WebKit unless the default is cleared first, so the icon is a
+   * mask over `currentColor` — which is how it follows the theme without a
+   * second asset or a `filter: invert()` guess.
+   */
+  opacity: 1;
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  padding: 0;
+  cursor: pointer;
+  background: currentColor;
+  color: var(--ts-ink-faint);
+  -webkit-mask-image: var(--ts-calendar-glyph);
+  mask-image: var(--ts-calendar-glyph);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+input[type="date"]:hover::-webkit-calendar-picker-indicator { color: var(--ts-ink); }
+
+/*
+ * Dropdowns that belong to this design system.
+ *
+ * Same reasoning as the date field above, and the same choice: the native
+ * control is kept — it is the only listbox that behaves correctly on a phone,
+ * with a screen reader, and under keyboard type-ahead — and only its skin is
+ * replaced. Without this, every `<select>` in an alert dialog or the order
+ * ticket rendered the platform's own dropdown button inside a custom dark
+ * panel, which is the same "unfinished" tell FC2 recorded on the Strategy
+ * Tester's dates.
+ *
+ * `padding-right` is `!important` because the chevron is PAINTED in that
+ * space: a caller's `px-2` would otherwise win on specificity and run the
+ * option text underneath it. This is the same reason the touch rule above uses
+ * it. A multiple/size select is a list box, not a dropdown, and keeps its own
+ * appearance.
+ */
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: var(--ts-chevron-glyph);
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 1.5rem !important;
+}
+
+/* The compact form of the same field, for a toolbar row. */
+.ts-date {
+  @apply h-7 rounded-sm border border-border bg-surface-2 px-2 text-[13px] text-ink outline-none focus:border-accent;
+}
+
 .tabular { font-variant-numeric: tabular-nums; }
 
 /* Scrollable rows (nav, chart toolbar) without a visible scrollbar. */
@@ -237,7 +378,7 @@ body {
   @apply h-7 rounded-md border border-border bg-bg py-0 pl-2 pr-5 text-xs text-ink outline-none focus:border-accent;
   -webkit-appearance: none;
   appearance: none;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='none' stroke='%239aa4b6' stroke-width='2'%3E%3Cpath d='M2 4l3 3 3-3'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='none' stroke='%23a8a8a8' stroke-width='2'%3E%3Cpath d='M2 4l3 3 3-3'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 5px center;
 }

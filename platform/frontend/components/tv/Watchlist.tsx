@@ -72,6 +72,8 @@ export function Watchlist({
   replayActive?: boolean;
 }) {
   const [adding, setAdding] = useState("");
+  /** The add-symbol field is opened from the header, not permanently reserved. */
+  const [addOpen, setAddOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);
@@ -264,6 +266,7 @@ export function Watchlist({
     // base asset follows from it. Adding a pair through the symbol dialog
     // instead registers it from the venue's own metadata.
     await addSymbols([s]);
+    setAddOpen(false);
   };
 
   const createList = async () => {
@@ -297,27 +300,54 @@ export function Watchlist({
   };
 
   return (
-    <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
-      <div className="relative border-b border-border px-2 py-2">
-        <div className="flex items-center gap-1">
-          <button onClick={() => setMenuOpen((v) => !v)} className="flex min-w-0 flex-1 items-center justify-between rounded px-2 py-1.5 text-left hover:bg-surface-2">
+    <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[294px]">
+      {/*
+        FC2-L3: one header row, not three.
+
+        The list name, the feed state, the add control and the count used to
+        stack 139px deep before the first symbol, against TradingView's 118px —
+        roughly one symbol's worth of a list whose whole job is showing
+        symbols. The feed dot is now IN the title row (it is a two-state dot,
+        not a sentence, and its sentence is still in the tooltip and still
+        announced), and adding a symbol is an icon that opens the field rather
+        than a permanently reserved row.
+      */}
+      <div className="relative border-b border-border px-2 py-1.5">
+        <div className="flex items-center gap-0.5">
+          <button onClick={() => setMenuOpen((v) => !v)} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-2">
+            {priceState && (
+              <span
+                role="status"
+                aria-live="polite"
+                title={priceState.detail}
+                className={`shrink-0 text-[9px] leading-none ${priceState.tone}`}
+              >
+                <span aria-hidden="true">●</span>
+                <span className="sr-only">Prices {priceState.label}</span>
+              </span>
+            )}
             <span className="truncate text-sm font-semibold">{active?.name ?? "Watchlist"}</span>
-            <span className="ml-2 text-[10px] text-ink-faint">▼</span>
+            <span className="ml-auto pl-1 text-[10px] text-ink-faint">▼</span>
           </button>
-          <button onClick={() => void createList()} title="Create watchlist" className="rounded px-2 py-1 text-lg text-ink-muted hover:bg-surface-2 hover:text-ink">＋</button>
-          <span className="w-7 text-right text-xs text-ink-faint">{visibleSymbols.length}</span>
-        </div>
-        {priceState && (
-          <div
-            role="status"
-            aria-live="polite"
-            title={priceState.detail}
-            className={`mt-0.5 flex items-center gap-1 px-2 text-[10px] ${priceState.tone}`}
+          <button
+            onClick={() => setAddOpen((v) => !v)}
+            aria-expanded={addOpen}
+            title="Add a symbol to this list"
+            aria-label="Add a symbol to this list"
+            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink"
           >
-            <span aria-hidden="true">●</span>
-            <span className="truncate">Prices {priceState.label}</span>
-          </div>
-        )}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <button onClick={() => void createList()} title="Create watchlist" aria-label="Create watchlist"
+            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M4 6h10M4 12h7M4 18h7" /><path d="M17 10v8M13 14h8" />
+            </svg>
+          </button>
+          <span className="w-6 shrink-0 text-right text-[11px] text-ink-faint">{visibleSymbols.length}</span>
+        </div>
         {menuOpen && lists && (
           <div className="absolute left-2 right-2 top-[44px] z-50 rounded-md border border-border bg-surface py-1 shadow-xl">
             <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">My watchlists</div>
@@ -333,20 +363,29 @@ export function Watchlist({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-        {/* A placeholder is not an accessible name, and it disappears as soon
-            as the field is typed into. Measured in a browser: this was the one
-            control on the chart with no name at all. */}
-        <input value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} aria-label="Add a symbol to this watchlist" placeholder="+ Add symbol to this list…" className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-border focus:bg-surface-2" />
-        {adding && <button onClick={add} className="rounded bg-accent px-2 py-1 text-xs font-medium text-white">Add</button>}
-      </div>
+      {addOpen && (
+        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+          {/* A placeholder is not an accessible name, and it disappears as soon
+              as the field is typed into. Measured in a browser: this was the one
+              control on the chart with no name at all. */}
+          <input autoFocus value={adding} onChange={(e) => setAdding(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void add();
+              if (e.key === "Escape") { setAdding(""); setAddOpen(false); }
+            }}
+            aria-label="Add a symbol to this watchlist" placeholder="Symbol, e.g. BTCUSDT"
+            className="w-full rounded-sm border border-border bg-bg px-1.5 py-1 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-accent" />
+          <button onClick={add} disabled={!adding}
+            className="rounded-sm bg-accent px-2 py-1 text-[13px] font-medium text-white disabled:opacity-40">Add</button>
+        </div>
+      )}
       {err && <div className="px-3 py-1.5 text-xs text-down">{err}</div>}
       {/*
         Column headers that sort. A third click returns to the user's own
         order, so a sort is never a one-way door out of an arrangement they
         spent time on.
       */}
-      <div className="grid grid-cols-[1fr_auto_auto_18px] gap-x-2 border-b border-border px-3 py-1.5 text-[11px] text-ink-faint">
+      <div className="grid grid-cols-[1fr_auto_auto_18px] gap-x-2 border-b border-border px-3 py-1 text-[11px] text-ink-faint">
         {([["symbol", "Symbol", ""], ["last", "Last", ""],
            ["change", "Chg%", "w-[64px] text-right"]] as [SortColumn, string, string][])
           .map(([column, label, extra]) => (
@@ -434,7 +473,16 @@ export function Watchlist({
                 }),
               });
             }}
-            className={`group grid grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 px-3 py-[7px] text-[13px] tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_#4f8cff]" : "hover:bg-surface-2/60"}`}>
+            /*
+              FC2-M1: 29px rows with a hairline, at 14px.
+
+              They were 33.5px at 13px with `border-bottom: 0` — 14% taller
+              than TradingView's, showing two fewer symbols per screen, in
+              smaller type, with nothing ruling one row off from the next. All
+              three pulled the same way: the list read as looser and less
+              scannable than the reference while occupying the same width.
+            */
+            className={`group grid h-[29px] grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 border-b border-border px-3 text-sm tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-surface-2"}`}>
             <button onClick={() => onSelect(s.symbol)} className="contents text-left">
               <span className="truncate font-medium text-ink">{s.baseAsset}<span className="text-ink-faint">USDT</span></span>
               <span className={`text-right ${t ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}

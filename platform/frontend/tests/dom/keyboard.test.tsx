@@ -32,8 +32,18 @@ beforeEach(() => {
 });
 after(closeBrowser);
 
-/** The workspace's own text input: the watchlist's "add a pair" box. */
+/**
+ * The workspace's own text input: the watchlist's "add a pair" box.
+ *
+ * Opened first, because FC2-L3 took it out of the permanently-reserved header
+ * row — the header stacked 139px deep before the first symbol against
+ * TradingView's 118px — and put it behind the `+` affordance beside the list
+ * name. Clicking that is what a user does, so it is what this does.
+ */
 function textInput(container: HTMLElement): HTMLInputElement {
+  const open = container.querySelector<HTMLElement>('button[aria-label="Add a symbol to this list"]');
+  assert.ok(open, "the watchlist offers no way to add a symbol");
+  fireEvent.click(open);
   const input = container.querySelector<HTMLInputElement>("input:not([type='checkbox'])");
   assert.ok(input, "the workspace renders no text input");
   return input;

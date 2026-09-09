@@ -944,7 +944,7 @@ function drawOne(
     ctx.globalAlpha = 0.92;
     ctx.fillRect(x, y - 11, tw + pad * 2, 15);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#0b0e14";
+    ctx.fillStyle = "#0f0f0f";
     ctx.fillText(text, x + pad, y);
     ctx.fillStyle = color;
   };
@@ -1132,13 +1132,13 @@ function drawOne(
       // profit zone (entry → target), risk zone (entry → stop)
       fillAlpha(() => { ctx.fillStyle = "#2ebd85"; ctx.fillRect(x1, Math.min(pe.y, pt.y), rw, Math.abs(pt.y - pe.y)); }, 0.18);
       fillAlpha(() => { ctx.fillStyle = "#f6465d"; ctx.fillRect(x1, Math.min(pe.y, ps.y), rw, Math.abs(ps.y - pe.y)); }, 0.18);
-      ctx.strokeStyle = "#9aa4b6";
+      ctx.strokeStyle = "#a8a8a8";
       line({ x: x1, y: pe.y }, { x: x1 + rw, y: pe.y });
       const risk = Math.abs(entry.price - stop.price);
       const reward = Math.abs(target.price - entry.price);
       const rr = risk > 0 ? reward / risk : 0;
-      ctx.fillStyle = "#e6e9ef";
-      label(`${d.tool === "long" ? "LONG" : "SHORT"}  R:R ${rr.toFixed(2)}`, x1 + 4, Math.min(pe.y, pt.y) - 6, "#9aa4b6");
+      ctx.fillStyle = "#dbdbdb";
+      label(`${d.tool === "long" ? "LONG" : "SHORT"}  R:R ${rr.toFixed(2)}`, x1 + 4, Math.min(pe.y, pt.y) - 6, "#a8a8a8");
       ctx.fillStyle = "#2ebd85";
       ctx.fillText(`TP ${fmtPrice(target.price)}`, x1 + 4, pt.y + (pt.y < pe.y ? 12 : -4));
       ctx.fillStyle = "#f6465d";
@@ -1180,7 +1180,7 @@ function drawOne(
     for (const p of q) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, HANDLE_PX, 0, Math.PI * 2);
-      ctx.fillStyle = "#121722";
+      ctx.fillStyle = "#0f0f0f";
       ctx.fill();
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;

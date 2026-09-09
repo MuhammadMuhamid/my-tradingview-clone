@@ -32,8 +32,16 @@ const config: Config = {
          */
         warn: token("caution"),
       },
+      /*
+       * FC2-H2: `sans` is declared, not inherited from Tailwind's default, so
+       * the DOM and the chart canvas (`lib/chartTheme.ts`, which cannot read a
+       * custom property) resolve to one face. `mono` stays — it is still
+       * correct for the Pine editor and for raw JSON payloads, which is the
+       * only place it is now used.
+       */
       fontFamily: {
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ["var(--ts-font-ui)"],
+        mono: ["var(--ts-font-code)"],
       },
     },
   },

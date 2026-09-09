@@ -27,7 +27,7 @@ export function EquityCurve({ points, initialCapital, className = "h-[260px]" }:
       lineWidth: 2,
     });
     baseRef.current = chart.addLineSeries({
-      color: "#6b7486", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false,
+      color: "#8c8c8c", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false,
     });
     chartRef.current = chart;
     return () => { unsubscribeTheme(); chart.remove(); chartRef.current = null; areaRef.current = null; baseRef.current = null; };

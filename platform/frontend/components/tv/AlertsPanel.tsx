@@ -122,7 +122,7 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
         {tab === "alerts" ? (
           deps.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6b7486" strokeWidth="1.2">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#8c8c8c" strokeWidth="1.2">
                 <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
               </svg>
               <p className="text-sm text-ink-muted">

@@ -62,7 +62,7 @@ export function IndicatorLegend({
 
   if (groups.length === 0) return null;
   return (
-    <div className={`flex items-start gap-1 font-mono text-[10px] leading-4 ${className}`}>
+    <div className={`flex items-start gap-1 text-[13px] leading-5 tabular ${className}`}>
       {collapsible && (
       <button
         type="button"
@@ -94,11 +94,24 @@ export function IndicatorLegend({
           </div>
         ) : (
           groups.map((group, index) => (
-            <div key={`${group.title}:${index}`} className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-semibold text-ink">{group.title}</span>
-              {group.params && <span className="text-ink-faint">{group.params}</span>}
+            /*
+              One line per series, and it does not wrap.
+
+              TradingView's legend is one compact row per study with the name
+              truncated when it is long; this wrapped instead, so at 390px
+              "Visible Range Volume Profile" alone took three lines over the
+              candles and the legend grew downward into the price action every
+              time a study was added. Overflow is hidden rather than wrapped —
+              the values at the end of the row are what is being read, and the
+              full title is on the row's own `title`.
+            */
+            <div key={`${group.title}:${index}`}
+              title={group.params ? `${group.title} ${group.params}` : group.title}
+              className="flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
+              <span className="shrink-[3] truncate font-semibold text-ink">{group.title}</span>
+              {group.params && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
               {group.plots.map((plot) => (
-                <span key={plot.id} className="inline-flex items-center gap-1 text-ink-muted">
+                <span key={plot.id} className="inline-flex shrink-0 items-center gap-1 text-ink-muted">
                   <span
                     aria-hidden="true"
                     className="inline-block h-1.5 w-1.5 rounded-full"
