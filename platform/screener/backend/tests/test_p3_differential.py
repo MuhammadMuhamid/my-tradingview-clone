@@ -62,7 +62,7 @@ def test_corpus_occurrences_obey_point_in_time_contract():
                 anchor["confirmed_at_index"] for anchor in pattern["anchors"]
             )
             if pattern["breakout"]:
-                assert pattern["breakout"]["index"] >= pattern["detected_at_index"]
+                assert pattern["breakout"]["first_known_at_index"] >= pattern["detected_at_index"]
             if pattern["target"] and pattern["target"]["reached"]:
                 assert pattern["target"]["reached"]["index"] > pattern["breakout"]["index"]
             if pattern["invalidation"]["triggered"]:
@@ -83,6 +83,21 @@ def test_prefixes_never_move_existing_anchors_or_detection_time():
                     pattern["detected_open_time"], pattern["quality"],
                 )
                 assert seen.setdefault(pattern["occurrence_id"], immutable) == immutable
+
+
+def test_every_prefix_retains_previously_emitted_occurrences_inside_horizon():
+    """Regression for R23 B1's concrete replacement/disappearance failure."""
+    corpus = json.loads(FIXTURE.read_text())
+    window = corpus["windows"][0]
+    frame = _frame(window["bars"])
+    seen: set[str] = set()
+    for end in range(100, len(frame) + 1):
+        current = {
+            item["occurrence_id"]
+            for item in classical.scan(frame.iloc[:end], window["settings"])["patterns"]
+        }
+        assert seen <= current, f"prefix {end} withdrew {sorted(seen - current)}"
+        seen |= current
 
 
 def test_full_corpus_runtime_is_bounded():

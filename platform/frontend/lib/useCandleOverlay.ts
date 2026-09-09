@@ -21,6 +21,8 @@ export function saveCandleOverlayEnabled(enabled: boolean): void {
   } catch { /* session state still works */ }
 }
 
+function paneKey(paneId: string): string { return `${CANDLE_OVERLAY_KEY}:${paneId}`; }
+
 export interface CandleOverlayState {
   enabled: boolean;
   setEnabled: (next: boolean) => void;
@@ -48,6 +50,64 @@ export function useCandleOverlay(): CandleOverlayState {
     enabled, catalog, direction, setDirection, selectedIds, setSelectedIds,
     setEnabled: (next) => { setEnabledState(next); saveCandleOverlayEnabled(next); },
   };
+}
+
+interface PaneCandleSettings {
+  enabled: boolean;
+  direction: "both" | "bull" | "bear";
+  selectedIds: readonly string[] | null;
+}
+
+const defaultPaneSettings = (): PaneCandleSettings => ({
+  enabled: false, direction: "both", selectedIds: null,
+});
+
+/** One independent candlestick study instance per chart pane. */
+export function usePaneCandleOverlays(paneIds: readonly string[]): Record<string, CandleOverlayState> {
+  const idsKey = paneIds.join("\u0000");
+  const [settings, setSettings] = useState<Record<string, PaneCandleSettings>>({});
+  const [catalog, setCatalog] = useState<PatternCatalog | null>(null);
+  useEffect(() => {
+    setSettings((current) => {
+      const next = { ...current };
+      for (const paneId of paneIds) {
+        if (next[paneId]) continue;
+        let enabled = false;
+        try { enabled = window.localStorage.getItem(paneKey(paneId)) === "1"; }
+        catch { /* use the safe disabled default */ }
+        next[paneId] = { ...defaultPaneSettings(), enabled };
+      }
+      return next;
+    });
+    // `idsKey` is the stable identity; callers naturally allocate a new array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+  const anyEnabled = paneIds.some((paneId) => settings[paneId]?.enabled);
+  useEffect(() => {
+    if (!anyEnabled || catalog) return;
+    let live = true;
+    void scannerApi.patternCatalog().then((value) => { if (live) setCatalog(value); }).catch(() => {});
+    return () => { live = false; };
+  }, [anyEnabled, catalog]);
+  return useMemo(() => Object.fromEntries(paneIds.map((paneId) => {
+    const value = settings[paneId] ?? defaultPaneSettings();
+    const update = (patch: Partial<PaneCandleSettings>) =>
+      setSettings((current) => ({
+        ...current, [paneId]: { ...(current[paneId] ?? defaultPaneSettings()), ...patch },
+      }));
+    return [paneId, {
+      ...value, catalog,
+      setEnabled: (enabled: boolean) => {
+        update({ enabled });
+        try {
+          if (enabled) window.localStorage.setItem(paneKey(paneId), "1");
+          else window.localStorage.removeItem(paneKey(paneId));
+        } catch { /* in-memory state remains authoritative */ }
+      },
+      setDirection: (direction: "both" | "bull" | "bear") => update({ direction }),
+      setSelectedIds: (selectedIds: readonly string[] | null) => update({ selectedIds }),
+    } satisfies CandleOverlayState];
+  })), [catalog, paneIds, settings]);
 }
 
 export interface PatternAnalysisState {

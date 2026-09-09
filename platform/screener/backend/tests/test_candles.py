@@ -14,8 +14,20 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import json
+from pathlib import Path
 
 from app.indicators import candles
+
+
+def test_product_default_profile_matches_screener_chart_and_alert_geometry():
+    configured = json.loads(
+        (Path(__file__).parents[1] / "config" / "default.json").read_text()
+    )["indicators"]["candles"]["params"]
+    normalized = candles.normalized_settings(configured)
+    assert normalized["min_body_atr"] == candles.DEFAULTS["min_body_atr"] == 0.1
+    for key, value in configured.items():
+        assert normalized[key] == value
 from app import ta
 from app.indicators.base import InsufficientData
 

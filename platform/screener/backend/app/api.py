@@ -38,6 +38,44 @@ def _analysis_duration_ms(value: str) -> int:
         raise ValueError("unsupported timeframe")
     return duration
 
+
+def _validated_pattern_rows(source: Any, step: int, as_of: int) -> tuple[list[dict], int]:
+    """Validate one exact, contiguous UTC grid shared by both pattern APIs."""
+    if not isinstance(source, list) or not 1 <= len(source) <= 2_000:
+        raise ValueError("candles must contain between 1 and 2000 bars")
+    rows: list[dict[str, float | int]] = []
+    previous: int | None = None
+    excluded = 0
+    for raw in source:
+        if not isinstance(raw, dict):
+            raise ValueError("each candle must be an object")
+        required = {"open_time", "open", "high", "low", "close", "close_time"}
+        if set(raw) != required:
+            raise ValueError("each candle requires exactly open_time, open, high, low, close, close_time")
+        opened = int(raw["open_time"])
+        closed = int(raw["close_time"])
+        if opened % step != 0:
+            raise ValueError("candle open_time is off the declared UTC timeframe grid")
+        if previous is not None and opened != previous + step:
+            raise ValueError("candle open_time values must be contiguous at the declared timeframe")
+        previous = opened
+        if closed != opened + step - 1:
+            raise ValueError("close_time does not match timeframe")
+        values = [float(raw[key]) for key in ("open", "high", "low", "close")]
+        if not all(math.isfinite(value) and value > 0 for value in values):
+            raise ValueError("OHLC values must be finite and positive")
+        opened_price, high, low, close = values
+        if high < max(opened_price, close) or low > min(opened_price, close) or high <= low:
+            raise ValueError("invalid OHLC geometry")
+        if closed > as_of:
+            excluded += 1
+            continue
+        rows.append({
+            "ts": opened, "open": opened_price, "high": high,
+            "low": low, "close": close,
+        })
+    return rows, excluded
+
 log = logging.getLogger(__name__)
 
 
@@ -163,36 +201,9 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
             as_of = int(payload.get("as_of"))
             if as_of <= 0:
                 raise ValueError("as_of must be a positive Unix time in milliseconds")
-            source = payload.get("candles")
-            if not isinstance(source, list) or not 1 <= len(source) <= 2_000:
-                raise ValueError("candles must contain between 1 and 2000 bars")
-
-            rows: list[dict[str, float | int]] = []
-            previous = -1
-            excluded = 0
-            for raw in source:
-                if not isinstance(raw, dict):
-                    raise ValueError("each candle must be an object")
-                required = {"open_time", "open", "high", "low", "close", "close_time"}
-                if set(raw) != required:
-                    raise ValueError("each candle requires exactly open_time, open, high, low, close, close_time")
-                opened = int(raw["open_time"])
-                closed = int(raw["close_time"])
-                if opened <= previous:
-                    raise ValueError("candle open_time values must be unique and strictly increasing")
-                previous = opened
-                if closed != opened + step - 1:
-                    raise ValueError("close_time does not match timeframe")
-                values = [float(raw[k]) for k in ("open", "high", "low", "close")]
-                if not all(math.isfinite(v) and v > 0 for v in values):
-                    raise ValueError("OHLC values must be finite and positive")
-                o, h, low, c = values
-                if h < max(o, c) or low > min(o, c) or h <= low:
-                    raise ValueError("invalid OHLC geometry")
-                if closed > as_of:
-                    excluded += 1
-                    continue
-                rows.append({"ts": opened, "open": o, "high": h, "low": low, "close": c})
+            rows, excluded = _validated_pattern_rows(
+                payload.get("candles"), step, as_of,
+            )
 
             settings = payload.get("settings")
             if settings is not None and not isinstance(settings, dict):
@@ -249,38 +260,9 @@ def create_app(service: ScreenerService | None = None, schedule: bool = True) ->
             as_of = int(payload.get("as_of"))
             if as_of <= 0:
                 raise ValueError("as_of must be a positive Unix time in milliseconds")
-            source = payload.get("candles")
-            if not isinstance(source, list) or not 1 <= len(source) <= 2_000:
-                raise ValueError("candles must contain between 1 and 2000 bars")
-            rows: list[dict[str, float | int]] = []
-            previous = -1
-            excluded = 0
-            for raw in source:
-                if not isinstance(raw, dict):
-                    raise ValueError("each candle must be an object")
-                required = {"open_time", "open", "high", "low", "close", "close_time"}
-                if set(raw) != required:
-                    raise ValueError("each candle requires exactly open_time, open, high, low, close, close_time")
-                opened = int(raw["open_time"])
-                closed = int(raw["close_time"])
-                if opened <= previous:
-                    raise ValueError("candle open_time values must be unique and strictly increasing")
-                previous = opened
-                if closed != opened + step - 1:
-                    raise ValueError("close_time does not match timeframe")
-                values = [float(raw[key]) for key in ("open", "high", "low", "close")]
-                if not all(math.isfinite(value) and value > 0 for value in values):
-                    raise ValueError("OHLC values must be finite and positive")
-                opened_price, high, low, close = values
-                if high < max(opened_price, close) or low > min(opened_price, close) or high <= low:
-                    raise ValueError("invalid OHLC geometry")
-                if closed > as_of:
-                    excluded += 1
-                    continue
-                rows.append({
-                    "ts": opened, "open": opened_price, "high": high,
-                    "low": low, "close": close,
-                })
+            rows, excluded = _validated_pattern_rows(
+                payload.get("candles"), step, as_of,
+            )
             settings = payload.get("settings")
             if settings is not None and not isinstance(settings, dict):
                 raise ValueError("settings must be an object")

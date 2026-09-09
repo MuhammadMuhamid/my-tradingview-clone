@@ -16,7 +16,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { alertPatchHandler } from "../src/api/routes/maAlerts";
+import { alertPatchHandler, patternSettingsSnapshot } from "../src/api/routes/maAlerts";
 import { AlertConflictError, type MaAlertPatch } from "../src/repositories/maAlerts";
 import {
   alertRequestFromRow, EDITABLE_CONDITION_FIELDS, mergeConditionRequest,
@@ -175,6 +175,14 @@ async function patch(
       if (opts.conflict) throw new AlertConflictError();
       return { ...(row as MaAlertRow), ...(p as Partial<MaAlertRow>) };
     },
+    resolvePatternProfile: async (patternId, timeframe) => {
+      assert.equal(patternId, "engulfing_bullish");
+      return patternSettingsSnapshot({
+        detector_id: "trading-scene-candlesticks",
+        detector_version: "2.0.0",
+        settings: { min_body_atr: 0.1, bar_duration_ms: 0 },
+      }, timeframe);
+    },
   }));
   const response = await app.inject({
     method: "PATCH", url: `/api/ma-alerts/${opts.id ?? ID}`, payload: body,
@@ -245,6 +253,24 @@ test("common fields are editable on every family", async () => {
     assert.equal(call!.patch.note, "revised");
     assert.equal(call!.patch.enabled, false);
   }
+});
+
+test("timeframe changes and explicit re-arming refresh pattern provenance", async () => {
+  const changed = await patch({ timeframe: "4h" }, ROWS.candlestick_pattern);
+  assert.equal(changed.status, 200);
+  assert.equal(changed.call!.patch.patternDetectorId, "trading-scene-candlesticks");
+  assert.equal(changed.call!.patch.patternDetectorVersion, "2.0.0");
+  assert.deepEqual(changed.call!.patch.patternSettings, {
+    min_body_atr: 0.1, bar_duration_ms: 14_400_000,
+  });
+  assert.equal(changed.call!.patch.patternSettingsHash, "601c2ec6b1405eb2");
+
+  const rearmed = await patch({ enabled: true }, ROWS.candlestick_pattern);
+  assert.equal(rearmed.status, 200);
+  assert.deepEqual(rearmed.call!.patch.patternSettings, {
+    min_body_atr: 0.1, bar_duration_ms: 3_600_000,
+  });
+  assert.equal(rearmed.call!.patch.patternSettingsHash, "1680ab2f356b1e62");
 });
 
 test("the alert's family cannot be changed", async () => {

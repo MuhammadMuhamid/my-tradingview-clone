@@ -47,12 +47,13 @@ def test_catalog_matches_current_tradingview_all_patterns_surface():
     assert all(item["predictive_claim"] is False for item in classical.catalog())
 
 
-def test_double_top_is_developing_until_a_later_close_breaks_the_neckline():
-    developing = _series([(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5)], 49)
-    result = classical.scan(developing, {"bar_duration_ms": HOUR})
+def test_confirmed_double_top_is_formed_and_awaiting_until_breakout():
+    awaiting = _series([(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5)], 49)
+    result = classical.scan(awaiting, {"bar_duration_ms": HOUR})
     top = _one(result, "double_top")
-    assert top["state"] == "developing"
-    assert top["status"] == "developing"
+    assert top["formation"] == "formed"
+    assert top["state"] == "formed"
+    assert top["status"] == "awaiting"
     assert top["breakout"] is None
     assert (
         top["boundaries"]["lower"]["start"]["open_time"]
@@ -65,9 +66,9 @@ def test_double_top_is_developing_until_a_later_close_breaks_the_neckline():
         [(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5), (50, 99)], 55,
     )
     top = _one(classical.scan(completed, {"bar_duration_ms": HOUR}), "double_top")
-    assert top["state"] == "completed"
+    assert top["formation"] == "formed"
     assert top["breakout"]["direction"] == "bear"
-    assert top["breakout"]["index"] >= top["detected_at_index"]
+    assert top["breakout"]["first_known_at_index"] >= top["detected_at_index"]
     assert top["target"]["price"] < top["breakout"]["price"]
 
 
@@ -81,8 +82,9 @@ def test_prefix_stability_preserves_occurrence_identity_anchors_and_knowable_tim
     after = next(item for item in full["patterns"] if item["occurrence_id"] == before["occurrence_id"])
     for field in ("anchors", "detected_at_index", "detected_at", "occurrence_id", "quality"):
         assert after[field] == before[field]
-    assert before["state"] == "developing"
-    assert after["state"] == "completed"
+    assert before["formation"] == "formed"
+    assert before["status"] == "awaiting"
+    assert after["status"] in {"awaiting", "reached", "failed", "indefinable"}
 
 
 def test_occurrence_identity_survives_a_rolling_window():
@@ -115,6 +117,38 @@ def test_breakout_bar_cannot_retroactively_reach_target_or_invalidate():
     assert item["invalidation"]["triggered"] is None
 
 
+def test_breakout_during_final_pivot_confirmation_keeps_event_and_known_times():
+    frame = _series([(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5)], 49)
+    frame.loc[44, ["open", "high", "low", "close"]] = [100.0, 100.2, 98.8, 99.0]
+    item = _one(classical.scan(frame, {"bar_duration_ms": HOUR}), "double_top")
+    assert item["breakout"]["index"] == 44
+    assert item["breakout"]["confirmed_at"] == 45 * HOUR
+    assert item["breakout"]["index"] < item["detected_at_index"]
+    assert item["breakout"]["first_known_at_index"] == item["detected_at_index"]
+    assert item["breakout"]["first_known_at"] == item["detected_at"]
+
+
+def test_same_bar_target_and_invalidation_is_indefinable_for_ohlc():
+    frame = _series(
+        [(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5), (50, 99)], 52,
+    )
+    frame.loc[51, ["open", "high", "low", "close"]] = [99.0, 115.0, 80.0, 98.0]
+    item = _one(classical.scan(frame, {"bar_duration_ms": HOUR}), "double_top")
+    assert item["status"] == "indefinable"
+    assert item["ambiguity"]["index"] == 51
+    assert item["target"]["reached"] is None
+    assert item["invalidation"]["triggered"] is None
+
+
+def test_reversal_invalidation_is_last_opposite_pivot_not_midpoint_or_old_extreme():
+    frame = _series(
+        [(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5), (50, 99)], 51,
+    )
+    item = _one(classical.scan(frame, {"bar_duration_ms": HOUR}), "double_top")
+    assert item["invalidation"]["basis"] == "last_opposite_pivot"
+    assert item["invalidation"]["price"] == item["anchors"][-1]["price"]
+
+
 @pytest.mark.parametrize(
     ("pattern_id", "points"),
     [
@@ -132,13 +166,13 @@ def test_five_pivot_reversal_families(pattern_id: str, points: list[tuple[int, f
     ("pattern_id", "points"),
     [
         ("triangle", [(0, 100), (10, 92), (20, 112), (30, 96), (40, 108), (50, 99), (60, 105)]),
-        ("rectangle", [(0, 100), (10, 94), (20, 112), (30, 100), (40, 112), (50, 100), (60, 112)]),
+        ("rectangle", [(0, 100), (10, 94), (20, 112), (30, 100), (40, 110), (50, 100), (60, 112)]),
         ("rising_wedge", [(0, 90), (10, 96), (20, 104), (30, 99), (40, 108), (50, 103), (60, 111)]),
         ("falling_wedge", [(0, 125), (10, 118), (20, 110), (30, 115), (40, 107), (50, 111), (60, 104)]),
     ],
 )
 def test_boundary_families(pattern_id: str, points: list[tuple[int, float]]):
-    result = classical.scan(_series(points, 68))
+    result = classical.scan(_series(points, 68), {"flagpole_min_atr": 100})
     assert pattern_id in _ids(result)
     item = _one(result, pattern_id)
     assert item["boundaries"]["upper"] is not None
@@ -187,9 +221,38 @@ def test_settings_are_closed_bounded_and_part_of_provenance():
     assert classical.settings_hash(first) != classical.settings_hash(second)
 
 
+def test_custom_pivot_provenance_names_the_normalized_basis():
+    frame = _series([(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5)], 47)
+    item = _one(classical.scan(frame, {"pivot_left": 3, "pivot_right": 3}), "double_top")
+    assert item["pivot_basis"] == "confirmed_3_3"
+
+
+def test_same_anchor_interpretations_have_one_deterministic_primary():
+    frame = _series(
+        [(0, 80), (20, 120), (30, 108), (40, 117), (50, 111), (60, 115), (72, 112)], 78,
+    )
+    patterns = classical.scan(frame)["patterns"]
+    anchor_groups: dict[tuple[int, ...], list[str]] = {}
+    for item in patterns:
+        key = tuple(anchor["open_time"] for anchor in item["anchors"])
+        anchor_groups.setdefault(key, []).append(item["id"])
+    assert all(len(ids) == 1 for ids in anchor_groups.values())
+    assert "bullish_pennant" in _ids({"patterns": patterns})
+
+
+def test_bidirectional_formed_pattern_has_two_prospective_targets():
+    frame = _series(
+        [(0, 100), (10, 92), (20, 112), (30, 96), (40, 108), (50, 99), (60, 105)], 68,
+    )
+    item = _one(classical.scan(frame.iloc[:60], {"flagpole_min_atr": 100}), "triangle")
+    assert item["status"] == "awaiting"
+    assert item["target"] is None
+    assert {target["direction"] for target in item["prospective_targets"]} == {"bull", "bear"}
+
+
 def test_status_and_family_filters_do_not_change_detection_identity():
     frame = _series([(0, 92), (12, 100), (22, 112), (32, 101), (42, 111.5)], 49)
     all_result = classical.scan(frame)
-    only = classical.scan(frame, {"status_filter": "developing", "family_filter": ["double"]})
+    only = classical.scan(frame, {"status_filter": "formed", "family_filter": ["double"]})
     assert _one(all_result, "double_top")["occurrence_id"] == _one(only, "double_top")["occurrence_id"]
-    assert classical.scan(frame, {"include_developing": False})["patterns"] == []
+    assert _one(classical.scan(frame, {"include_developing": False}), "double_top")["status"] == "awaiting"

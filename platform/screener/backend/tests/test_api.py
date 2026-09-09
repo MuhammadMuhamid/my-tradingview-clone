@@ -140,7 +140,7 @@ def test_pattern_catalog_is_versioned_causal_and_complete(client):
 def test_classical_catalog_is_versioned_causal_and_matches_current_official_surface(client):
     body = client.get("/api/classical-patterns/catalog").json()
     assert body["detector_id"] == "trading-scene-classical-patterns"
-    assert body["detector_version"] == "1.0.0"
+    assert body["detector_version"] == "1.1.0"
     assert body["search_horizon_bars"] == 600
     assert body["pivot_confirmation"] == {"left_bars": 5, "right_bars": 5}
     assert body["causal"] is True
@@ -202,6 +202,27 @@ def test_pattern_analysis_rejects_bad_ohlc_duplicate_time_and_bad_close_time(cli
             request["candles"][10]["close_time"] += 1
         response = client.post("/api/patterns/analyze", json=request)
         assert response.status_code == 422, mutate
+
+
+@pytest.mark.parametrize("endpoint", [
+    "/api/patterns/analyze", "/api/classical-patterns/analyze",
+])
+@pytest.mark.parametrize("mutation", ["off_grid", "gap"])
+def test_pattern_analysis_rejects_off_grid_and_gapped_series(client, endpoint, mutation):
+    request = _pattern_request(client)
+    if mutation == "off_grid":
+        for candle in request["candles"]:
+            candle["open_time"] += 1_000
+            candle["close_time"] += 1_000
+        request["as_of"] += 1_000
+    else:
+        for candle in request["candles"][10:]:
+            candle["open_time"] += 3_600_000
+            candle["close_time"] += 3_600_000
+        request["as_of"] += 3_600_000
+    response = client.post(endpoint, json=request)
+    assert response.status_code == 422
+    assert "grid" in response.json()["detail"] or "contiguous" in response.json()["detail"]
 
 
 def test_pattern_analysis_rejects_settings_that_are_not_canonical(client):

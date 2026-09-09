@@ -4,8 +4,9 @@ import type { ChartOverlay } from "@/lib/chartSeries";
 import type { Candle } from "@/lib/types";
 
 export type ClassicalDirection = "bull" | "bear" | "both";
-export type ClassicalState = "developing" | "completed";
-export type ClassicalStatus = "developing" | "awaiting" | "reached" | "failed";
+export type ClassicalFormation = "emerging" | "formed";
+export type ClassicalState = ClassicalFormation;
+export type ClassicalStatus = "awaiting" | "reached" | "failed" | "indefinable";
 
 export interface ClassicalCatalogItem {
   id: string;
@@ -13,7 +14,7 @@ export interface ClassicalCatalogItem {
   family: string;
   direction: ClassicalDirection;
   confirmation: "close";
-  pivot_basis: "confirmed_5_5";
+  pivot_basis: `confirmed_${number}_${number}`;
   target_basis: "measured_move";
   predictive_claim: false;
 }
@@ -42,10 +43,18 @@ export interface ClassicalOccurrence extends ClassicalCatalogItem {
   detected_open_time: number;
   detected_at: number;
   state: ClassicalState;
+  formation: ClassicalFormation;
   status: ClassicalStatus;
-  breakout: (ClassicalEvent & { direction: "bull" | "bear"; price: number }) | null;
-  invalidation: { price: number; basis: string; triggered: ClassicalEvent | null };
+  breakout: (ClassicalEvent & {
+    direction: "bull" | "bear"; price: number;
+    first_known_at_index: number; first_known_at: number;
+  }) | null;
+  invalidation: { price: number | null; basis: string; triggered: ClassicalEvent | null };
   target: ({ price: number; direction: "bull" | "bear"; basis: string; reached: ClassicalEvent | null }) | null;
+  prospective_targets: Array<{ price: number; direction: "bull" | "bear"; basis: string }>;
+  ambiguity: (ClassicalEvent & {
+    basis: string; target_price: number; invalidation_price: number;
+  }) | null;
   boundaries: { upper: ClassicalBoundary | null; lower: ClassicalBoundary | null };
   quality: Record<string, number> & { score: number };
   detector_id: string;
@@ -78,7 +87,7 @@ export interface ClassicalAnalysis extends Omit<ClassicalCatalog, "patterns"> {
 }
 
 const STATUS_COLOR: Record<ClassicalStatus, string> = {
-  developing: "#9aa4b6", awaiting: "#4f8cff", reached: "#2ebd85", failed: "#f6465d",
+  awaiting: "#38bdf8", reached: "#34d399", failed: "#fb7185", indefinable: "#fbbf24",
 };
 
 function exactTimes(candles: readonly Candle[]): Set<number> {
@@ -120,7 +129,7 @@ export function classicalOverlays(
       if (data.length === 2) overlays.push({
         id: `classical:${pattern.occurrence_id}:${side}`,
         title: `${pattern.name} ${side}`,
-        color, width: 1, lineStyle: pattern.state === "developing" ? "dotted" : "solid",
+        color, width: 1, lineStyle: pattern.formation === "emerging" ? "dotted" : "solid",
         paneId: "price", data,
       });
     }
@@ -128,13 +137,27 @@ export function classicalOverlays(
       && known.has(pattern.breakout.open_time) && pattern.breakout.open_time < last) {
       overlays.push({
         id: `classical:${pattern.occurrence_id}:target`,
-        title: `${pattern.name} target · ${pattern.status}`,
+        title: `Target ${pattern.target.direction === "bull" ? "↑" : "↓"} · ${pattern.name} · ${pattern.status}`,
         color, width: 1, lineStyle: "dashed", paneId: "price",
         data: [
           { time: Math.floor(pattern.breakout.open_time / 1000), value: pattern.target.price },
           { time: Math.floor(last / 1000), value: pattern.target.price },
         ],
       });
+    }
+    if (showTargets && !pattern.breakout) {
+      for (const target of pattern.prospective_targets) {
+        if (pattern.detected_open_time >= last || !known.has(pattern.detected_open_time)) continue;
+        overlays.push({
+          id: `classical:${pattern.occurrence_id}:target-${target.direction}`,
+          title: `Prospective target ${target.direction === "bull" ? "↑" : "↓"} · ${pattern.name}`,
+          color, width: 1, lineStyle: "dashed", paneId: "price",
+          data: [
+            { time: Math.floor(pattern.detected_open_time / 1000), value: target.price },
+            { time: Math.floor(last / 1000), value: target.price },
+          ],
+        });
+      }
     }
   }
   return overlays;
@@ -150,7 +173,8 @@ export function classicalMarkers(
     return [{
       id: `classical:${pattern.occurrence_id}`,
       time: Math.floor(event.open_time / 1000),
-      position: pattern.direction === "bear" ? "aboveBar" as const : "belowBar" as const,
+      position: (pattern.breakout?.direction ?? pattern.direction) === "bear"
+        ? "aboveBar" as const : "belowBar" as const,
       color: STATUS_COLOR[pattern.status],
       text: `${pattern.name} · ${pattern.status} · ${(pattern.quality.score * 100).toFixed(0)}% geometry`,
       shape: pattern.breakout
@@ -167,8 +191,8 @@ export function classicalNotice(
   if (error) return `Classical pattern analysis unavailable: ${error}`;
   if (!analysis) return "Classical pattern analysis has not run.";
   if (!analysis.patterns.length) return `No qualifying classical pattern in the loaded completed ${symbol} bars.`;
-  const developing = analysis.patterns.filter((item) => item.state === "developing").length;
-  return `${analysis.patterns.length} classical patterns; ${developing} developing. Targets are measured geometry, not forecasts.`;
+  const awaiting = analysis.patterns.filter((item) => item.status === "awaiting").length;
+  return `${analysis.patterns.length} formed classical patterns; ${awaiting} awaiting resolution. Targets are measured geometry, not forecasts.`;
 }
 
 export const classicalExportJson = (analysis: ClassicalAnalysis): string =>
@@ -182,19 +206,24 @@ function csv(value: unknown): string {
 export function classicalExportCsv(analysis: ClassicalAnalysis): string {
   const header = [
     "venue", "market_type", "symbol", "timeframe", "occurrence_id", "pattern_id",
-    "pattern_name", "family", "direction", "state", "status", "detected_at",
-    "breakout_open_time", "breakout_direction", "target_price", "target_reached_at",
-    "invalidation_price", "invalidated_at", "quality_score", "quality_json", "anchors_json",
+    "pattern_name", "family", "direction", "formation", "status", "detected_at",
+    "breakout_bar_open_time", "breakout_event_confirmed_at", "breakout_first_known_at",
+    "breakout_direction", "target_price", "target_reached_bar_open_time",
+    "target_reached_confirmed_at", "invalidation_price", "invalidated_bar_open_time",
+    "invalidated_confirmed_at", "ambiguity_bar_open_time", "ambiguity_confirmed_at",
+    "quality_score", "quality_json", "anchors_json",
     "detector_id", "detector_version", "settings_hash", "settings_json", "ohlc_provenance",
     "predictive_claim",
   ];
   const rows = analysis.patterns.map((pattern) => [
     analysis.source.venue, analysis.source.market_type, analysis.source.symbol,
     analysis.source.timeframe, pattern.occurrence_id, pattern.id, pattern.name, pattern.family,
-    pattern.direction, pattern.state, pattern.status, pattern.detected_at,
-    pattern.breakout?.open_time, pattern.breakout?.direction, pattern.target?.price,
-    pattern.target?.reached?.open_time, pattern.invalidation.price,
-    pattern.invalidation.triggered?.open_time, pattern.quality.score,
+    pattern.direction, pattern.formation, pattern.status, pattern.detected_at,
+    pattern.breakout?.open_time, pattern.breakout?.confirmed_at, pattern.breakout?.first_known_at,
+    pattern.breakout?.direction, pattern.target?.price, pattern.target?.reached?.open_time,
+    pattern.target?.reached?.confirmed_at, pattern.invalidation.price,
+    pattern.invalidation.triggered?.open_time, pattern.invalidation.triggered?.confirmed_at,
+    pattern.ambiguity?.open_time, pattern.ambiguity?.confirmed_at, pattern.quality.score,
     JSON.stringify(pattern.quality), JSON.stringify(pattern.anchors), pattern.detector_id,
     pattern.detector_version, pattern.settings_hash, JSON.stringify(analysis.settings),
     analysis.source.ohlc, false,

@@ -229,6 +229,11 @@ export interface MaAlertRow {
   priceDirection: PriceDirection | null;
   /** Stable canonical detector id, populated only for candlestick_pattern. */
   patternId?: string | null;
+  /** Immutable detector profile captured when a candlestick alert is armed. */
+  patternDetectorId?: string | null;
+  patternDetectorVersion?: string | null;
+  patternSettingsHash?: string | null;
+  patternSettings?: Record<string, unknown> | null;
 
   // ── sr_zone ──
   srSide: SrSide | null;
@@ -343,6 +348,11 @@ export interface MaAlertEventRow {
    */
   intrabar: boolean;
   frequency: AlertFrequency | null;
+  patternDetectorId: string | null;
+  patternDetectorVersion: string | null;
+  patternSettingsHash: string | null;
+  patternOccurrenceId: string | null;
+  patternOccurrence: Record<string, unknown> | null;
 }
 
 /** Human label for an armed line, e.g. "EMA 200". */

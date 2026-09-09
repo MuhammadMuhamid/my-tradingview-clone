@@ -12,10 +12,11 @@
  * changes meaning.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { createHash } from "node:crypto";
 import * as maAlertRepo from "../../repositories/maAlerts";
 import { AlertConflictError } from "../../repositories/maAlerts";
 import { assertSymbol } from "../../data/binanceRest";
-import { isAlertInterval, isInterval } from "../../types/market";
+import { INTERVAL_MS, isAlertInterval, isInterval, type Interval } from "../../types/market";
 import {
   CONDITION_KINDS, MA_ALERT_MODES, MA_LENGTHS, MA_TYPES, PRICE_DIRECTIONS,
   BULK_ALERT_ACTIONS, isBulkAlertAction, isConditionKind,
@@ -35,6 +36,48 @@ import { scannerRequest } from "../../scanner/client";
 
 export const MAX_BULK_ALERTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+interface PatternCatalogProfile {
+  detector_id: string;
+  detector_version: string;
+  settings: Record<string, unknown>;
+  patterns: Array<{ id: string }>;
+}
+
+type PatternProfileSnapshot = ReturnType<typeof patternSettingsSnapshot>;
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function patternProfile(patternId: string, timeframe: Interval) {
+  const catalog = await scannerRequest<PatternCatalogProfile>({
+    method: "GET", path: "/api/patterns/catalog",
+  });
+  if (!catalog.patterns.some((item) => item.id === patternId)) {
+    return null;
+  }
+  return patternSettingsSnapshot(catalog, timeframe);
+}
+
+export function patternSettingsSnapshot(
+  catalog: Pick<PatternCatalogProfile, "detector_id" | "detector_version" | "settings">,
+  timeframe: Interval,
+) {
+  const settings = { ...catalog.settings, bar_duration_ms: INTERVAL_MS[timeframe] };
+  return {
+    patternDetectorId: catalog.detector_id,
+    patternDetectorVersion: catalog.detector_version,
+    patternSettingsHash: createHash("sha256").update(canonicalJson(settings)).digest("hex").slice(0, 16),
+    patternSettings: settings,
+  };
+}
 
 type BulkExecutor = typeof maAlertRepo.bulkActAlerts;
 
@@ -79,6 +122,9 @@ export interface AlertPatchDeps {
   updateAlert: (
     id: string, patch: maAlertRepo.MaAlertPatch
   ) => Promise<MaAlertRow | null>;
+  resolvePatternProfile?: (
+    patternId: string, timeframe: Interval
+  ) => Promise<PatternProfileSnapshot | null>;
 }
 
 /**
@@ -105,6 +151,7 @@ export interface AlertPatchDeps {
 export function alertPatchHandler(deps: AlertPatchDeps = {
   getAlert: maAlertRepo.getAlert,
   updateAlert: maAlertRepo.updateAlert,
+  resolvePatternProfile: patternProfile,
 }) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
@@ -202,21 +249,34 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
       if ("error" in read) return reply.code(400).send(read);
       const invalid = validateCondition(read.condition);
       if (invalid) return reply.code(400).send(bad(invalid));
-      if (read.condition.kind === "candlestick_pattern") {
-        const patternId = read.condition.patternId;
-        const catalog = await scannerRequest<{ patterns: Array<{ id: string }> }>({
-          method: "GET", path: "/api/patterns/catalog",
-        });
-        if (!catalog.patterns.some((item) => item.id === patternId)) {
-          return reply.code(400).send(bad("patternId is not in the canonical catalog"));
-        }
-      }
       columns = toColumns(read.condition);
       // Everything the condition owns is written together, including the
       // columns the edit did not name — they came out of the row itself, so
       // this restates them rather than resetting them.
       const { conditionKind: _kind, ...conditionColumns } = columns;
       Object.assign(patch, conditionColumns);
+    }
+
+    // Pattern meaning includes its complete detector profile and timeframe.
+    // Refresh the immutable snapshot whenever either can change, and when an
+    // operator explicitly re-arms an older row that predates provenance.
+    if (row.conditionKind === "candlestick_pattern" && (
+      merged !== null ||
+      (patch.timeframe !== undefined && patch.timeframe !== row.timeframe) ||
+      b.enabled === true
+    )) {
+      const patternId = (columns?.patternId ?? row.patternId) as string | null;
+      if (!patternId) {
+        return reply.code(400).send(bad("patternId is required to arm this alert"));
+      }
+      const resolveProfile = deps.resolvePatternProfile ?? patternProfile;
+      const profile = await resolveProfile(
+        patternId, (patch.timeframe ?? row.timeframe) as Interval,
+      );
+      if (!profile) {
+        return reply.code(400).send(bad("patternId is not in the canonical catalog"));
+      }
+      Object.assign(patch, profile);
     }
 
     // The cross memory is only cleared when the thing it was recorded against
@@ -369,12 +429,11 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     if (invalid) return reply.code(400).send(bad(invalid));
     if (read.condition.kind === "candlestick_pattern") {
       const patternId = read.condition.patternId;
-      const catalog = await scannerRequest<{ patterns: Array<{ id: string }> }>({
-        method: "GET", path: "/api/patterns/catalog",
-      });
-      if (!catalog.patterns.some((item) => item.id === patternId)) {
+      const profile = await patternProfile(patternId, timeframe);
+      if (!profile) {
         return reply.code(400).send(bad("patternId is not in the canonical catalog"));
       }
+      Object.assign(b, profile);
     }
 
     const cooldownMin = b.cooldownMin === undefined ? 60 : Number(b.cooldownMin);
@@ -388,6 +447,10 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     const row = await maAlertRepo.upsertAlert({
       symbol, timeframe, frequency, cooldownMin,
       ...toColumns(read.condition),
+      patternDetectorId: b.patternDetectorId as string | undefined,
+      patternDetectorVersion: b.patternDetectorVersion as string | undefined,
+      patternSettingsHash: b.patternSettingsHash as string | undefined,
+      patternSettings: b.patternSettings as Record<string, unknown> | undefined,
       enabled: b.enabled === undefined ? true : Boolean(b.enabled),
       note: note.value,
     });

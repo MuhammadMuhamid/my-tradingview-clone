@@ -19,6 +19,10 @@ interface DbAlert {
   target_price: string | number | null;
   price_direction: PriceDirection | null;
   pattern_id: string | null;
+  pattern_detector_id: string | null;
+  pattern_detector_version: string | null;
+  pattern_settings_hash: string | null;
+  pattern_settings: Record<string, unknown> | null;
   sr_side: SrSide | null;
   sr_pivot_length: number | null;
   sr_invalidation: string | null;
@@ -90,6 +94,10 @@ function toRow(r: DbAlert): MaAlertRow {
     targetPrice: r.target_price === null ? null : num(r.target_price),
     priceDirection: r.price_direction,
     patternId: r.pattern_id,
+    patternDetectorId: r.pattern_detector_id,
+    patternDetectorVersion: r.pattern_detector_version,
+    patternSettingsHash: r.pattern_settings_hash,
+    patternSettings: r.pattern_settings,
     rsiLength: r.rsi_length,
     rsiLevel: r.rsi_level === null ? null : num(r.rsi_level),
     rsiMaLength: r.rsi_ma_length,
@@ -156,6 +164,10 @@ export interface MaAlertInput {
   targetPrice?: number | null;
   priceDirection?: PriceDirection | null;
   patternId?: string | null;
+  patternDetectorId?: string | null;
+  patternDetectorVersion?: string | null;
+  patternSettingsHash?: string | null;
+  patternSettings?: Record<string, unknown> | null;
   nearMinPct?: number;
   nearMaxPct?: number;
   enabled?: boolean;
@@ -266,11 +278,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         filter_rsi_length, filter_rsi_level, filter_rsi_side,
         filter_ma_type, filter_ma_length, filter_ma_side,
         filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side,
-        pattern_id)
+        pattern_id, pattern_detector_id, pattern_detector_version,
+        pattern_settings_hash, pattern_settings)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
-             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54)
+             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -318,6 +331,10 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        filter_st_atr_method = EXCLUDED.filter_st_atr_method,
        filter_st_side      = EXCLUDED.filter_st_side,
        pattern_id          = EXCLUDED.pattern_id,
+       pattern_detector_id = EXCLUDED.pattern_detector_id,
+       pattern_detector_version = EXCLUDED.pattern_detector_version,
+       pattern_settings_hash = EXCLUDED.pattern_settings_hash,
+       pattern_settings    = EXCLUDED.pattern_settings,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -349,6 +366,8 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.filterStPeriod ?? null, input.filterStMultiplier ?? null,
       input.filterStAtrMethod ?? null, input.filterStSide ?? null,
       input.patternId ?? null,
+      input.patternDetectorId ?? null, input.patternDetectorVersion ?? null,
+      input.patternSettingsHash ?? null, input.patternSettings ?? null,
     ]
   );
   return toRow(rows[0]!);
@@ -408,6 +427,10 @@ const PATCH_COLUMNS: Record<string, string> = {
   frequency: "frequency",
   cooldownMin: "cooldown_min",
   note: "note",
+  patternDetectorId: "pattern_detector_id",
+  patternDetectorVersion: "pattern_detector_version",
+  patternSettingsHash: "pattern_settings_hash",
+  patternSettings: "pattern_settings",
   nearMinPct: "near_min_pct",
   nearMaxPct: "near_max_pct",
   maType: "ma_type",
@@ -603,17 +626,27 @@ export async function createEvent(input: {
   deliveryStatus: MaAlertEventRow["deliveryStatus"];
   intrabar: boolean;
   frequency: AlertFrequency;
+  patternDetectorId?: string | null;
+  patternDetectorVersion?: string | null;
+  patternSettingsHash?: string | null;
+  patternOccurrenceId?: string | null;
+  patternOccurrence?: Record<string, unknown> | null;
 }): Promise<void> {
   await query(
     `INSERT INTO ma_alert_events
        (alert_id, bar_time, price, ma_value, distance_pct, title, body,
-        pushed_to, push_failed, push_pruned, delivery_status, intrabar, frequency)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        pushed_to, push_failed, push_pruned, delivery_status, intrabar, frequency,
+        pattern_detector_id, pattern_detector_version, pattern_settings_hash,
+        pattern_occurrence_id, pattern_occurrence)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
     [
       input.alertId, new Date(input.barTime), input.price, input.maValue,
       input.distancePct, input.title, input.body, input.pushedTo,
       input.pushFailed, input.pushPruned, input.deliveryStatus,
       input.intrabar, input.frequency,
+      input.patternDetectorId ?? null, input.patternDetectorVersion ?? null,
+      input.patternSettingsHash ?? null, input.patternOccurrenceId ?? null,
+      input.patternOccurrence ?? null,
     ]
   );
 }
@@ -625,6 +658,9 @@ interface DbEvent {
   push_failed: number; push_pruned: number;
   delivery_status: MaAlertEventRow["deliveryStatus"];
   intrabar: boolean; frequency: AlertFrequency | null;
+  pattern_detector_id: string | null; pattern_detector_version: string | null;
+  pattern_settings_hash: string | null; pattern_occurrence_id: string | null;
+  pattern_occurrence: Record<string, unknown> | null;
 }
 
 /**
@@ -678,5 +714,10 @@ function toEventRow(r: DbEvent): MaAlertEventRow {
     deliveryStatus: r.delivery_status,
     intrabar: r.intrabar,
     frequency: r.frequency,
+    patternDetectorId: r.pattern_detector_id,
+    patternDetectorVersion: r.pattern_detector_version,
+    patternSettingsHash: r.pattern_settings_hash,
+    patternOccurrenceId: r.pattern_occurrence_id,
+    patternOccurrence: r.pattern_occurrence,
   };
 }

@@ -153,9 +153,9 @@ export interface ChartPaneProps {
    */
   maAlerts?: readonly MaAlert[];
 
-  /** The workspace-wide candlestick-pattern overlay, off by default. */
+  /** This pane's candlestick-pattern study instance, off by default. */
   candleOverlay?: CandleOverlayState;
-  /** Workspace-wide causal classical-pattern geometry, off by default. */
+  /** This pane's causal classical-pattern study instance, off by default. */
   classicalOverlay?: ClassicalOverlayState;
 
   /** Pine run window, which follows the workspace replay horizon. */
@@ -527,7 +527,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const classicalAnalysis = useClassicalAnalysis({
     enabled: !replayActive && props.classicalOverlay?.enabled === true && holdingRequested,
     symbol: pane.symbol, timeframe: pane.interval, candles: visibleCandles,
-    includeDeveloping: props.classicalOverlay?.includeDeveloping ?? true,
+    includeDeveloping: props.classicalOverlay?.includeDeveloping ?? false,
     status: props.classicalOverlay?.status ?? "all",
   });
   const selectedClassicalIds = useMemo(() => {

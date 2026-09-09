@@ -60,7 +60,7 @@
         "long_wick_ratio": 2.0,
         "opposite_wick_max": 0.3,
         "marubozu_wick_max": 0.05,
-        "min_body_atr": 0.3,
+        "min_body_atr": 0.1,
         "lookback": 5,
         "atr_length": 14
       }

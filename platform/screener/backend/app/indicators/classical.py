@@ -25,7 +25,7 @@ from .base import clean, require_bars
 from .. import ta
 
 DETECTOR_ID = "trading-scene-classical-patterns"
-DETECTOR_VERSION = "1.0.0"
+DETECTOR_VERSION = "1.1.0"
 CATALOG_OBSERVED_AT = "2026-09-08"
 SEARCH_BARS = 600
 
@@ -139,7 +139,10 @@ def normalized_settings(params: dict | None = None) -> dict[str, Any]:
         raise ValueError("price and line tolerances must not exceed 0.5")
     if not isinstance(out["include_developing"], bool):
         raise ValueError("include_developing must be a boolean")
-    if out["status_filter"] not in {"all", "developing", "completed", "awaiting", "reached", "failed"}:
+    if out["status_filter"] not in {
+        "all", "developing", "emerging", "completed", "formed",
+        "awaiting", "reached", "failed", "indefinable",
+    }:
         raise ValueError("unsupported status_filter")
     families = out["family_filter"]
     if not isinstance(families, list) or not all(isinstance(v, str) for v in families):
@@ -187,7 +190,40 @@ def _quality(**parts: float) -> dict[str, float]:
     return bounded
 
 
-def _pivots(df: pd.DataFrame, left: int, right: int, start: int) -> list[Pivot]:
+def _pivot_histories(df: pd.DataFrame, left: int, right: int,
+                     start: int) -> list[tuple[Pivot, ...]]:
+    """Return every causal zig-zag state after a confirmation-bar batch.
+
+    A later same-side pivot may replace the last pivot in the *current* zig-zag,
+    but it must not erase candidates that were visible while the earlier pivot
+    was the confirmed extreme.  Replaying the small (at most 600-bar) horizon
+    makes that history deterministic without relying on process or UI state.
+    """
+    raw = sorted(
+        _raw_pivots(df, left, right, start),
+        key=lambda pivot: (pivot.confirmed_index, pivot.index,
+                           0 if pivot.kind == "high" else 1),
+    )
+    histories: list[tuple[Pivot, ...]] = []
+    current: list[Pivot] = []
+    offset = 0
+    while offset < len(raw):
+        confirmed = raw[offset].confirmed_index
+        while offset < len(raw) and raw[offset].confirmed_index == confirmed:
+            pivot = raw[offset]
+            if current and current[-1].kind == pivot.kind:
+                old = current[-1]
+                stronger = pivot.price > old.price if pivot.kind == "high" else pivot.price < old.price
+                if stronger:
+                    current[-1] = pivot
+            else:
+                current.append(pivot)
+            offset += 1
+        histories.append(tuple(current))
+    return histories
+
+
+def _raw_pivots(df: pd.DataFrame, left: int, right: int, start: int) -> list[Pivot]:
     highs = df["high"].to_numpy(dtype=float)
     lows = df["low"].to_numpy(dtype=float)
     raw: list[Pivot] = []
@@ -198,19 +234,7 @@ def _pivots(df: pd.DataFrame, left: int, right: int, start: int) -> list[Pivot]:
             raw.append(Pivot(i, float(highs[i]), "high", i + right))
         if lows[i] == np.min(low_window) and int(np.argmin(low_window)) == left:
             raw.append(Pivot(i, float(lows[i]), "low", i + right))
-    raw.sort(key=lambda p: (p.index, 0 if p.kind == "high" else 1))
-    # Zig-zag normalization: consecutive same-side pivots collapse to the more
-    # extreme one.  This uses only pivots already confirmed by that point.
-    out: list[Pivot] = []
-    for pivot in raw:
-        if out and out[-1].kind == pivot.kind:
-            old = out[-1]
-            stronger = pivot.price > old.price if pivot.kind == "high" else pivot.price < old.price
-            if stronger:
-                out[-1] = pivot
-        else:
-            out.append(pivot)
-    return out
+    return raw
 
 
 def _valid_span(anchors: tuple[Pivot, ...], settings: dict[str, Any]) -> bool:
@@ -438,6 +462,46 @@ def _boundary_payload(line: tuple[tuple[int, float], tuple[int, float]] | None,
     }
 
 
+def _invalidation(candidate: Candidate, direction: str, index: int,
+                  df: pd.DataFrame) -> tuple[float, str]:
+    """Resolve the documented opposite structure for one event bar."""
+    if candidate.pattern_id in {
+        "bullish_flag", "bearish_flag", "bullish_pennant", "bearish_pennant",
+    }:
+        formed = df.iloc[candidate.anchors[0].index:candidate.anchors[-1].index + 1]
+        if direction == BULL:
+            return float(formed["low"].min()), "formation_channel_extreme"
+        return float(formed["high"].max()), "formation_channel_extreme"
+    if candidate.pattern_id in {"rising_wedge", "falling_wedge"}:
+        line = candidate.lower if direction == BULL else candidate.upper
+        if line is not None:
+            return _line_value(line, index), "dynamic_opposite_structure_boundary"
+    opposite = "low" if direction == BULL else "high"
+    pivot = next((anchor for anchor in reversed(candidate.anchors)
+                  if anchor.kind == opposite), None)
+    if pivot is not None:
+        return pivot.price, "last_opposite_pivot"
+    return candidate.invalidation_price, "family_structural_rollback"
+
+
+def _prospective_targets(candidate: Candidate, index: int) -> list[dict[str, Any]]:
+    """Targets visible while a formed bidirectional structure awaits breakout."""
+    if candidate.target_direction != BOTH or candidate.upper is None or candidate.lower is None:
+        return []
+    return [
+        {
+            "direction": BULL,
+            "price": _line_value(candidate.upper, index) + candidate.height,
+            "basis": "pattern height projected from prospective close breakout",
+        },
+        {
+            "direction": BEAR,
+            "price": _line_value(candidate.lower, index) - candidate.height,
+            "basis": "pattern height projected from prospective close breakout",
+        },
+    ]
+
+
 def _materialize(candidate: Candidate, df: pd.DataFrame, settings: dict[str, Any],
                  signature: str) -> dict[str, Any]:
     duration = int(settings["bar_duration_ms"])
@@ -448,7 +512,10 @@ def _materialize(candidate: Candidate, df: pd.DataFrame, settings: dict[str, Any
     breakout_index: int | None = None
     breakout_direction: str | None = None
     breakout_boundary: float | None = None
-    for index in range(detected_index, len(df)):
+    # A crossing during right-side pivot confirmation is already an observed
+    # event when the formation becomes knowable. Keep its event bar distinct
+    # from the later first-known time instead of discarding it.
+    for index in range(candidate.anchors[-1].index + 1, len(df)):
         upper = _line_value(candidate.upper, index) if candidate.upper else math.inf
         lower = _line_value(candidate.lower, index) if candidate.lower else -math.inf
         allowed = candidate.target_direction
@@ -459,33 +526,51 @@ def _materialize(candidate: Candidate, df: pd.DataFrame, settings: dict[str, Any
             breakout_index, breakout_direction, breakout_boundary = index, BEAR, lower
             break
 
-    state = "developing" if breakout_index is None else "completed"
-    status = "developing" if breakout_index is None else "awaiting"
+    formation = "formed"
+    status = "awaiting"
     target_price: float | None = None
     reached_index: int | None = None
     failed_index: int | None = None
+    ambiguous_index: int | None = None
+    invalidation_price: float | None = None
+    invalidation_basis = "direction_specific_opposite_structure"
     if breakout_index is not None and breakout_boundary is not None and breakout_direction is not None:
         target_price = breakout_boundary + candidate.height * (1 if breakout_direction == BULL else -1)
+        invalidation_price, invalidation_basis = _invalidation(
+            candidate, breakout_direction, breakout_index, df,
+        )
         # The breakout is knowable only at this bar's close.  Its earlier
         # intrabar high/low cannot truthfully count as a post-confirmation
         # target or invalidation event, so lifecycle evaluation starts with
         # the next completed bar.
         for index in range(breakout_index + 1, len(df)):
-            if (breakout_direction == BULL and highs[index] >= target_price) or (
+            target_touched = (breakout_direction == BULL and highs[index] >= target_price) or (
                 breakout_direction == BEAR and lows[index] <= target_price
-            ):
+            )
+            event_invalidation, _ = _invalidation(candidate, breakout_direction, index, df)
+            invalidated = (
+                breakout_direction == BULL and lows[index] <= event_invalidation
+            ) or (
+                breakout_direction == BEAR and highs[index] >= event_invalidation
+            )
+            if target_touched and invalidated:
+                ambiguous_index = index
+                status = "indefinable"
+                invalidation_price = event_invalidation
+                break
+            if target_touched:
                 reached_index = index
                 status = "reached"
                 break
-            invalidated = (
-                breakout_direction == BULL and lows[index] <= candidate.invalidation_price
-            ) or (
-                breakout_direction == BEAR and highs[index] >= candidate.invalidation_price
-            )
             if invalidated:
                 failed_index = index
                 status = "failed"
+                invalidation_price = event_invalidation
                 break
+    elif candidate.target_direction in {BULL, BEAR}:
+        invalidation_price, invalidation_basis = _invalidation(
+            candidate, candidate.target_direction, detected_index, df,
+        )
 
     def event(index: int | None, price: float | None = None) -> dict[str, Any] | None:
         if index is None:
@@ -508,8 +593,13 @@ def _materialize(candidate: Candidate, df: pd.DataFrame, settings: dict[str, Any
     )
     stable_key = f"{candidate.pattern_id}:" + ":".join(map(str, anchor_identities))
     detected_open = int(df["ts"].iloc[detected_index]) if "ts" in df else detected_index
+    breakout_first_known_index = (
+        max(detected_index, breakout_index) if breakout_index is not None else None
+    )
+    breakout_first_known = event(breakout_first_known_index)
     result = {
         **meta,
+        "pivot_basis": f"confirmed_{settings['pivot_left']}_{settings['pivot_right']}",
         "occurrence_id": hashlib.sha256(stable_key.encode()).hexdigest()[:20],
         "anchors": [_anchor_payload(p, df, duration) for p in candidate.anchors],
         "start_index": first,
@@ -517,21 +607,32 @@ def _materialize(candidate: Candidate, df: pd.DataFrame, settings: dict[str, Any
         "detected_at_index": detected_index,
         "detected_open_time": detected_open,
         "detected_at": detected_open + duration if duration else None,
-        "state": state,
+        "formation": formation,
+        "state": formation,
         "status": status,
         "breakout": None if breakout_index is None else {
             **event(breakout_index, breakout_boundary), "direction": breakout_direction,
+            "first_known_at_index": breakout_first_known_index,
+            "first_known_at": breakout_first_known["confirmed_at"] if breakout_first_known else None,
         },
         "invalidation": {
-            "price": candidate.invalidation_price,
-            "basis": "opposite structure boundary",
-            "triggered": event(failed_index, candidate.invalidation_price),
+            "price": invalidation_price,
+            "basis": invalidation_basis,
+            "triggered": event(failed_index, invalidation_price),
         },
         "target": None if target_price is None else {
             "price": target_price,
             "direction": breakout_direction,
             "basis": "pattern height projected from close-confirmed breakout",
             "reached": event(reached_index, target_price),
+        },
+        "prospective_targets": _prospective_targets(candidate, detected_index)
+        if breakout_index is None else [],
+        "ambiguity": None if ambiguous_index is None else {
+            **event(ambiguous_index),
+            "basis": "target_and_invalidation_touched_on_same_ohlc_bar",
+            "target_price": target_price,
+            "invalidation_price": invalidation_price,
         },
         "boundaries": {
             "upper": _boundary_payload(candidate.upper, df, candidate.anchors[-1].index),
@@ -546,7 +647,7 @@ def _materialize(candidate: Candidate, df: pd.DataFrame, settings: dict[str, Any
 
 
 def _matches_filters(item: dict[str, Any], settings: dict[str, Any]) -> bool:
-    if item["state"] == "developing" and not settings["include_developing"]:
+    if item["formation"] == "emerging" and not settings["include_developing"]:
         return False
     selected = settings["family_filter"]
     if selected and item["id"] not in selected and item["family"] not in selected:
@@ -554,9 +655,55 @@ def _matches_filters(item: dict[str, Any], settings: dict[str, Any]) -> bool:
     status = settings["status_filter"]
     if status == "all":
         return True
-    if status in {"developing", "completed"}:
-        return item["state"] == status
+    if status in {"developing", "emerging"}:
+        return item["formation"] == "emerging"
+    if status in {"completed", "formed"}:
+        return item["formation"] == "formed"
     return item["status"] == status
+
+
+_FAMILY_PRIORITY = {
+    "head_and_shoulders": 9, "cup_and_handle": 9, "triple": 8,
+    "flag": 5, "pennant": 5, "double": 4, "wedge": 3,
+    "rectangle": 2, "triangle": 1,
+}
+
+
+def _overlaps(left: Candidate, right: Candidate) -> bool:
+    left_ids = {pivot.index for pivot in left.anchors}
+    right_ids = {pivot.index for pivot in right.anchors}
+    if left_ids == right_ids:
+        return True
+    channel_families = {"flag", "pennant", "wedge", "triangle", "rectangle"}
+    if CATALOG_BY_ID[left.pattern_id]["family"] not in channel_families or (
+        CATALOG_BY_ID[right.pattern_id]["family"] not in channel_families
+    ):
+        return False
+    shared = len(left_ids & right_ids)
+    if (shared < 2 or left.anchors[0].index != right.anchors[0].index
+            or left.anchors[-1].index != right.anchors[-1].index):
+        return False
+    start = max(left.anchors[0].index, right.anchors[0].index)
+    end = min(left.anchors[-1].index, right.anchors[-1].index)
+    union_start = min(left.anchors[0].index, right.anchors[0].index)
+    union_end = max(left.anchors[-1].index, right.anchors[-1].index)
+    return max(0, end - start) / max(1, union_end - union_start) >= 0.6
+
+
+def _suppress_overlaps(candidates: Iterable[Candidate]) -> list[Candidate]:
+    """Keep one deterministic primary for contradictory intersecting geometry."""
+    ranked = sorted(candidates, key=lambda candidate: (
+        max(p.confirmed_index for p in candidate.anchors),
+        -_FAMILY_PRIORITY.get(CATALOG_BY_ID[candidate.pattern_id]["family"], 0),
+        -candidate.quality["score"], candidate.pattern_id,
+        tuple(p.index for p in candidate.anchors),
+    ))
+    kept: list[Candidate] = []
+    for candidate in ranked:
+        if any(_overlaps(candidate, primary) for primary in kept):
+            continue
+        kept.append(candidate)
+    return kept
 
 
 def scan(df: pd.DataFrame, params: dict | None = None) -> dict[str, Any]:
@@ -572,17 +719,21 @@ def scan(df: pd.DataFrame, params: dict | None = None) -> dict[str, Any]:
         })
     start = max(0, len(df) - int(settings["search_bars"]))
     atr = ta.atr(df, 14).to_numpy(dtype=float)
-    pivots = _pivots(df, settings["pivot_left"], settings["pivot_right"], start)
-    candidates = [
-        *_reversals(pivots, atr, settings),
-        *_channels(pivots, df, atr, settings),
-        *_cups(pivots, atr, settings),
-    ]
+    histories = _pivot_histories(
+        df, settings["pivot_left"], settings["pivot_right"], start,
+    )
+    candidates: list[Candidate] = []
+    for history in histories:
+        pivots = list(history)
+        candidates.extend(_reversals(pivots, atr, settings))
+        candidates.extend(_channels(pivots, df, atr, settings))
+        candidates.extend(_cups(pivots, atr, settings))
     unique: dict[tuple[str, tuple[int, ...]], Candidate] = {}
     for candidate in candidates:
         key = (candidate.pattern_id, tuple(p.index for p in candidate.anchors))
         unique[key] = candidate
-    patterns = [_materialize(candidate, df, settings, signature) for candidate in unique.values()]
+    primary = _suppress_overlaps(unique.values())
+    patterns = [_materialize(candidate, df, settings, signature) for candidate in primary]
     patterns = [item for item in patterns if _matches_filters(item, settings)]
     patterns.sort(key=lambda item: (
         item["detected_at_index"], item["quality"]["score"], item["id"]

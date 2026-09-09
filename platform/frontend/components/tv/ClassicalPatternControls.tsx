@@ -1,7 +1,7 @@
 "use client";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
-  classicalExportCsv, classicalExportJson, type ClassicalStatus,
+  classicalExportCsv, classicalExportJson, type ClassicalFormation, type ClassicalStatus,
 } from "@/lib/classicalPatterns";
 import type {
   ClassicalAnalysisState, ClassicalOverlayState,
@@ -21,6 +21,7 @@ export function ClassicalPatternControls(props: {
   timeframe: string;
 }) {
   const [query, setQuery] = useState("");
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   const searchId = useId();
   const catalog = useMemo(() => props.overlay.catalog?.patterns ?? [], [props.overlay.catalog]);
   const shown = useMemo(() => {
@@ -34,37 +35,41 @@ export function ClassicalPatternControls(props: {
     const patterns = props.result.analysis?.patterns ?? [];
     return {
       total: patterns.length,
-      developing: patterns.filter((item) => item.state === "developing").length,
-      completed: patterns.filter((item) => item.state === "completed").length,
+      awaiting: patterns.filter((item) => item.status === "awaiting").length,
+      resolved: patterns.filter((item) => item.status !== "awaiting").length,
     };
   }, [props.result.analysis]);
   const safe = `${props.symbol.replace(/[^A-Za-z0-9]/g, "")}-${props.timeframe}-classical-patterns`;
   return (
-    <details name="chart-pattern-controls"
-      className="w-80 max-w-full overflow-auto rounded border border-border bg-surface/95 text-xs text-ink shadow-xl">
+    <details ref={detailsRef} name="chart-pattern-controls"
+      className="fixed inset-x-2 bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] z-50 max-h-[60dvh]
+        overflow-auto rounded-lg border border-border bg-surface text-base text-ink shadow-2xl
+        sm:static sm:w-80 sm:max-w-full sm:rounded sm:bg-surface/95 sm:text-xs sm:shadow-xl">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 font-medium">
         <span>Chart patterns · {counts.total}</span>
         <span className="text-[10px] font-normal text-ink-muted">
-          {props.result.loading ? "scanning…" : `${counts.developing} live · ${counts.completed} formed`}
+          {props.result.loading ? "scanning…" : `${counts.awaiting} awaiting · ${counts.resolved} resolved`}
         </span>
       </summary>
       <div className="space-y-2 border-t border-border p-2">
         <p className="text-[11px] leading-4 text-ink-muted">
-          Confirmed 5/5 pivots and close breakouts. Targets are measured geometry, not return forecasts.
+          Confirmed {props.overlay.catalog?.pivot_confirmation.left_bars ?? 5}/
+          {props.overlay.catalog?.pivot_confirmation.right_bars ?? 5} pivots. Formed structures await a close breakout;
+          targets are measured geometry, not return forecasts.
         </p>
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1">
             <span className="text-ink-muted">Pattern status</span>
             <select aria-label="Classical pattern status" value={props.overlay.status}
               onChange={(event) => props.overlay.setStatus(
-                event.target.value as "all" | ClassicalStatus | "completed")}
+                event.target.value as "all" | ClassicalStatus | ClassicalFormation)}
               className="h-11 w-full rounded border border-border bg-bg px-2">
               <option value="all">All</option>
-              <option value="developing">Developing</option>
-              <option value="completed">Completed</option>
+              <option value="formed">Formed</option>
               <option value="awaiting">Awaiting target</option>
               <option value="reached">Target reached</option>
               <option value="failed">Failed</option>
+              <option value="indefinable">Indefinable</option>
             </select>
           </label>
           <div className="space-y-1 text-ink-muted">
@@ -79,7 +84,7 @@ export function ClassicalPatternControls(props: {
         <label className="flex min-h-11 items-center gap-2">
           <input type="checkbox" checked={props.overlay.includeDeveloping}
             onChange={(event) => props.overlay.setIncludeDeveloping(event.target.checked)} />
-          Include developing patterns
+          Include emerging anchors (when available)
         </label>
         <label htmlFor={searchId} className="sr-only">Search classical chart patterns</label>
         <input id={searchId} type="search" value={query}
@@ -87,13 +92,13 @@ export function ClassicalPatternControls(props: {
           className="h-11 w-full rounded border border-border bg-bg px-2" />
         <div className="max-h-44 space-y-1 overflow-auto" role="group"
           aria-label="Visible classical chart patterns">
-          <label className="flex min-h-7 items-center gap-2">
+          <label className="flex min-h-11 items-center gap-2 sm:min-h-7">
             <input type="checkbox" checked={all}
               onChange={(event) => props.overlay.setSelectedIds(event.target.checked ? null : [])} />
             All 16 catalog patterns
           </label>
           {shown.map((pattern) => (
-            <label key={pattern.id} className="flex min-h-7 items-center gap-2">
+            <label key={pattern.id} className="flex min-h-11 items-center gap-2 sm:min-h-7">
               <input type="checkbox" checked={all || selected.has(pattern.id)}
                 onChange={(event) => {
                   const base = all ? catalog.map((item) => item.id) : [...selected];
@@ -110,7 +115,7 @@ export function ClassicalPatternControls(props: {
         {!props.result.loading && !props.result.error && counts.total === 0 && (
           <p role="status" className="text-ink-muted">No qualifying pattern in these completed bars.</p>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="button" disabled={!props.result.analysis}
             className="min-h-11 rounded border border-border px-2 disabled:opacity-40"
             onClick={() => props.result.analysis && download(
@@ -119,6 +124,8 @@ export function ClassicalPatternControls(props: {
             className="min-h-11 rounded border border-border px-2 disabled:opacity-40"
             onClick={() => props.result.analysis && download(
               `${safe}.csv`, classicalExportCsv(props.result.analysis), "text/csv")}>Export CSV</button>
+          <button type="button" className="ml-auto min-h-11 rounded bg-accent px-4 font-medium text-white sm:hidden"
+            onClick={() => detailsRef.current?.removeAttribute("open")}>Done</button>
         </div>
       </div>
     </details>

@@ -98,8 +98,8 @@ import {
 import { MAX_PANES } from "@/lib/layoutPresets";
 import { isMacPlatform } from "@/lib/shortcuts";
 import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
-import { useCandleOverlay } from "@/lib/useCandleOverlay";
-import { useClassicalOverlay } from "@/lib/useClassicalPatterns";
+import { usePaneCandleOverlays } from "@/lib/useCandleOverlay";
+import { usePaneClassicalOverlays } from "@/lib/useClassicalPatterns";
 import {
   activeReplayQuote, liveActionsDisabled, reconcileReplay, replayCandles, replayDelayMs,
   replayTick, startReplay, stepReplay,
@@ -1080,10 +1080,10 @@ export default function TvWorkspace() {
    * chart is not a level the 5m chart is watching, and drawing it there would
    * imply a line that will fire from what is on screen.
    */
-  /** The candlestick-pattern overlay: off by default, remembered per browser. */
-  const candleOverlay = useCandleOverlay();
-  /** Automatic classical patterns share one server detector across product surfaces. */
-  const classicalOverlay = useClassicalOverlay();
+  const patternPaneIds = useMemo(() => workspace.panes.map((pane) => pane.id), [workspace.panes]);
+  /** Each chart owns an independent study instance; detector truth remains shared. */
+  const candleOverlays = usePaneCandleOverlays(patternPaneIds);
+  const classicalOverlays = usePaneClassicalOverlays(patternPaneIds);
 
   const alertLinesFor = useCallback((paneInterval: Resolution): ChartPriceLine[] =>
     maAlerts
@@ -1332,12 +1332,12 @@ export default function TvWorkspace() {
         // Offering "prepare an order" where manual trading is switched off
         // stages a ticket the installation will not accept.
         tradingEnabled: manualState?.enabled === true,
-        candlePatterns: candleOverlay.enabled,
-        classicalPatterns: classicalOverlay.enabled,
+        candlePatterns: candleOverlays[paneId]?.enabled === true,
+        classicalPatterns: classicalOverlays[paneId]?.enabled === true,
       }),
     });
   }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
-    paneScale, manualState, candleOverlay.enabled, classicalOverlay.enabled]);
+    paneScale, manualState, candleOverlays, classicalOverlays]);
 
   /*
    * One handler per menu, keyed by the menu's own namespace.
@@ -1371,10 +1371,10 @@ export default function TvWorkspace() {
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
       case "chart:toggle-candle-patterns":
-        candleOverlay.setEnabled(!candleOverlay.enabled);
+        candleOverlays[paneId]?.setEnabled(!candleOverlays[paneId]?.enabled);
         return;
       case "chart:toggle-classical-patterns":
-        classicalOverlay.setEnabled(!classicalOverlay.enabled);
+        classicalOverlays[paneId]?.setEnabled(!classicalOverlays[paneId]?.enabled);
         return;
       case "chart:reset-view":
       case "axis:reset":
@@ -1446,7 +1446,7 @@ export default function TvWorkspace() {
       default: return;
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
-    copyPrice, candleOverlay, classicalOverlay]);
+    copyPrice, candleOverlays, classicalOverlays]);
 
   const shortcuts = useShortcuts({
     onAction: (action) => {
@@ -1594,8 +1594,8 @@ export default function TvWorkspace() {
         // timeframe, and places them against its own bars. It needs only the
         // armed alerts from here, to attribute an event to one.
         maAlerts={maAlerts}
-        candleOverlay={candleOverlay}
-        classicalOverlay={classicalOverlay}
+        candleOverlay={candleOverlays[pane.id]}
+        classicalOverlay={classicalOverlays[pane.id]}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         compact={isMobile}
@@ -1608,7 +1608,7 @@ export default function TvWorkspace() {
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare,
-    maAlerts, candleOverlay, classicalOverlay, resolutions]);
+    maAlerts, candleOverlays, classicalOverlays, resolutions]);
 
   return (
     <div ref={fullscreen.ref} className="flex h-full bg-bg pb-[52px] md:pb-0">

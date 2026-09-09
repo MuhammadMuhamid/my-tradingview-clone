@@ -13,7 +13,7 @@ const candles: Candle[] = Array.from({ length: 8 }, (_, index) => ({
 }));
 
 const analysis: ClassicalAnalysis = {
-  detector_id: "trading-scene-classical-patterns", detector_version: "1.0.0",
+  detector_id: "trading-scene-classical-patterns", detector_version: "1.1.0",
   catalog_observed_at: "2026-09-08", catalog_size: 16, search_horizon_bars: 600,
   confirmation: "close", pivot_confirmation: { left_bars: 5, right_bars: 5 },
   causal: true, predictive_claim: false, settings: { bar_duration_ms: HOUR }, settings_hash: "abc",
@@ -26,22 +26,24 @@ const analysis: ClassicalAnalysis = {
     confirmation: "close", pivot_basis: "confirmed_5_5", target_basis: "measured_move",
     predictive_claim: false, occurrence_id: "double-1", start_index: 1, end_index: 5,
     detected_at_index: 5, detected_open_time: 5 * HOUR, detected_at: 6 * HOUR,
-    state: "completed", status: "awaiting",
+    state: "formed", formation: "formed", status: "awaiting",
     anchors: [
       { index: 1, open_time: HOUR, price: 110, kind: "high", confirmed_at_index: 2, confirmed_at: 3 * HOUR },
       { index: 3, open_time: 3 * HOUR, price: 100, kind: "low", confirmed_at_index: 4, confirmed_at: 5 * HOUR },
       { index: 5, open_time: 5 * HOUR, price: 110, kind: "high", confirmed_at_index: 5, confirmed_at: 6 * HOUR },
     ],
-    breakout: { index: 6, open_time: 6 * HOUR, confirmed_at: 7 * HOUR, price: 100, direction: "bear" },
-    invalidation: { price: 110, basis: "opposite structure boundary", triggered: null },
+    breakout: { index: 6, open_time: 6 * HOUR, confirmed_at: 7 * HOUR, price: 100,
+      direction: "bear", first_known_at_index: 6, first_known_at: 7 * HOUR },
+    invalidation: { price: 110, basis: "last_opposite_pivot", triggered: null },
     target: { price: 90, direction: "bear", basis: "measured", reached: null },
+    prospective_targets: [], ambiguity: null,
     boundaries: {
       upper: null,
       lower: { start: { index: 3, open_time: 3 * HOUR, price: 100 },
         end: { index: 5, open_time: 5 * HOUR, price: 100 } },
     },
     quality: { symmetry: 1, score: 0.9 }, detector_id: "trading-scene-classical-patterns",
-    detector_version: "1.0.0", settings_hash: "abc",
+    detector_version: "1.1.0", settings_hash: "abc",
   }],
 };
 
@@ -70,6 +72,28 @@ test("selection filters geometry and markers from the same occurrence", () => {
   assert.match(markers[0]!.text, /Double Top · awaiting · 90% geometry/);
 });
 
+test("bidirectional bearish breakouts place their down marker above the bar", () => {
+  const bidirectional = structuredClone(analysis);
+  bidirectional.patterns[0]!.direction = "both";
+  const [marker] = classicalMarkers(bidirectional, null);
+  assert.equal(marker!.shape, "arrowDown");
+  assert.equal(marker!.position, "aboveBar");
+});
+
+test("formed bidirectional patterns draw both prospective targets", () => {
+  const formed = structuredClone(analysis);
+  formed.patterns[0]!.direction = "both";
+  formed.patterns[0]!.breakout = null;
+  formed.patterns[0]!.target = null;
+  formed.patterns[0]!.prospective_targets = [
+    { direction: "bull", price: 120, basis: "prospective" },
+    { direction: "bear", price: 80, basis: "prospective" },
+  ];
+  const ids = classicalOverlays(formed, candles, null, true).map((item) => item.id);
+  assert.ok(ids.includes("classical:double-1:target-bull"));
+  assert.ok(ids.includes("classical:double-1:target-bear"));
+});
+
 test("a target breaking on the latest bar does not emit duplicate chart times", () => {
   const latest = structuredClone(analysis);
   latest.patterns[0]!.breakout!.open_time = 7 * HOUR;
@@ -92,7 +116,10 @@ test("duplicate boundary timestamps are refused instead of crashing the chart", 
 test("Research CSV repeats causal provenance and lifecycle fields", () => {
   const csv = classicalExportCsv(analysis);
   assert.match(csv, /"occurrence_id","pattern_id"/);
-  assert.match(csv, /"double-1","double_top","Double Top","double","bear","completed","awaiting"/);
-  assert.match(csv, /"trading-scene-classical-patterns","1.0.0","abc"/);
+  assert.match(csv, /"breakout_bar_open_time","breakout_event_confirmed_at","breakout_first_known_at"/);
+  assert.match(csv, /"target_reached_bar_open_time","target_reached_confirmed_at"/);
+  assert.match(csv, /"invalidated_bar_open_time","invalidated_confirmed_at"/);
+  assert.match(csv, /"double-1","double_top","Double Top","double","bear","formed","awaiting"/);
+  assert.match(csv, /"trading-scene-classical-patterns","1.1.0","abc"/);
   assert.match(csv, /"predictive_claim"/);
 });

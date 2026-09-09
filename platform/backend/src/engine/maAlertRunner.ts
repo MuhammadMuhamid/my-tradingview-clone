@@ -81,7 +81,11 @@ export interface MaAlertRunnerDependencies {
   now: () => number;
   analyzePatterns: (input: {
     symbol: string; interval: Interval; bars: Candle[]; asOf: number;
-  }) => Promise<{ patterns: Array<{ id: string; name: string; open_time: number }> }>;
+    settings: Record<string, unknown>;
+  }) => Promise<{
+    detector_id: string; detector_version: string; settings_hash: string;
+    patterns: Array<{ id: string; name: string; open_time: number; occurrence_id?: string } & Record<string, unknown>>;
+  }>;
 }
 
 const DEFAULT_DEPENDENCIES: MaAlertRunnerDependencies = {
@@ -90,7 +94,7 @@ const DEFAULT_DEPENDENCIES: MaAlertRunnerDependencies = {
   createEvent: maAlertRepo.createEvent,
   sendPush,
   now: Date.now,
-  analyzePatterns: ({ symbol, interval, bars, asOf }) => scannerRequest({
+  analyzePatterns: ({ symbol, interval, bars, asOf, settings }) => scannerRequest({
     method: "POST", path: "/api/patterns/analyze",
     body: {
       venue: "BINANCE", market_type: "spot", symbol, timeframe: interval, as_of: asOf,
@@ -98,6 +102,7 @@ const DEFAULT_DEPENDENCIES: MaAlertRunnerDependencies = {
         open_time: bar.openTime, open: bar.open, high: bar.high, low: bar.low,
         close: bar.close, close_time: bar.closeTime,
       })),
+      settings,
     },
   }),
 };
@@ -360,21 +365,56 @@ export class MaAlertRunner {
       : alerts.filter((a) => acceptsIntrabarSample(a.frequency));
     if (relevant.length === 0) return;
 
-    let canonicalPatterns: { ids: readonly string[]; nameFor: (id: string) => string | undefined } | null = null;
-    if (isClosedBar && relevant.some((alert) => alert.conditionKind === "candlestick_pattern")) {
-      try {
-        const result = await this.dependencies.analyzePatterns({
-          symbol, interval, bars, asOf: sampleBar.closeTime,
-        });
-        const exact = result.patterns.filter((hit) => hit.open_time === sampleBar.openTime);
-        const names = new Map(exact.map((hit) => [hit.id, hit.name]));
-        canonicalPatterns = { ids: [...names.keys()], nameFor: (id) => names.get(id) };
-      } catch (err) {
-        // Do not advance pattern-alert state when canonical truth is
-        // unavailable. The next closed-bar pass can recover; guessing false
-        // here would permanently consume the bar.
-        this.log.error({ symbol, interval, err: (err as Error).message },
-          "canonical candlestick analysis unavailable");
+    type PatternHit = {
+      id: string; name: string; open_time: number; occurrence_id?: string;
+    } & Record<string, unknown>;
+    type CanonicalProfile = {
+      ids: readonly string[];
+      nameFor: (id: string) => string | undefined;
+      occurrenceFor: (id: string) => PatternHit | undefined;
+    };
+    const patternProfileKey = (alert: MaAlertRow): string =>
+      `${alert.patternDetectorId ?? ""}\u0000${alert.patternDetectorVersion ?? ""}` +
+      `\u0000${alert.patternSettingsHash ?? ""}`;
+    const canonicalPatterns = new Map<string, CanonicalProfile>();
+    if (isClosedBar) {
+      const profiles = new Map<string, MaAlertRow>();
+      for (const alert of relevant) {
+        if (alert.conditionKind !== "candlestick_pattern") continue;
+        if (!alert.patternDetectorId || !alert.patternDetectorVersion
+            || !alert.patternSettingsHash || !alert.patternSettings) {
+          this.log.warn({ alertId: alert.id }, "candlestick alert requires re-arm for provenance");
+          continue;
+        }
+        profiles.set(patternProfileKey(alert), alert);
+      }
+      for (const [profileKey, profile] of profiles) {
+        const profileHash = profile.patternSettingsHash!;
+        try {
+          const result = await this.dependencies.analyzePatterns({
+            symbol, interval, bars, asOf: sampleBar.closeTime,
+            settings: profile.patternSettings!,
+          });
+          if (result.detector_id !== profile.patternDetectorId
+              || result.detector_version !== profile.patternDetectorVersion
+              || result.settings_hash !== profileHash) {
+            this.log.error({ alertId: profile.id, profileHash },
+              "candlestick detector profile changed; re-arm required");
+            continue;
+          }
+          const exact = result.patterns.filter((hit) => hit.open_time === sampleBar.openTime);
+          const hits = new Map(exact.map((hit) => [hit.id, hit]));
+          canonicalPatterns.set(profileKey, {
+            ids: [...hits.keys()],
+            nameFor: (id) => hits.get(id)?.name,
+            occurrenceFor: (id) => hits.get(id),
+          });
+        } catch (err) {
+          // Do not advance pattern-alert state when canonical truth is
+          // unavailable. The next closed-bar pass can recover.
+          this.log.error({ symbol, interval, profileHash, err: (err as Error).message },
+            "canonical candlestick analysis unavailable");
+        }
       }
     }
 
@@ -597,26 +637,30 @@ export class MaAlertRunner {
       bollinger: bbFor,
       stochastic: stochFor,
       adx: adxFor,
-      ...(canonicalPatterns ? { patterns: canonicalPatterns } : {}),
     };
     const now = replayNow ?? this.dependencies.now();
 
     for (const alert of relevant) {
-      if (alert.conditionKind === "candlestick_pattern" && canonicalPatterns === null) continue;
+      const canonical = alert.conditionKind === "candlestick_pattern"
+        ? canonicalPatterns.get(patternProfileKey(alert)) : undefined;
+      if (alert.conditionKind === "candlestick_pattern" && !canonical) continue;
+      const evaluationSample = canonical ? { ...sample, patterns: canonical } : sample;
       const condition = conditionFromRow(alert);
       if (!condition) {
         this.log.warn({ alertId: alert.id, kind: alert.conditionKind }, "alert row is not evaluable");
         continue;
       }
       const spec = toSpec(alert, condition);
-      const plan = planAlert(spec, sample, now);
+      const plan = planAlert(spec, evaluationSample, now);
       if (!plan.act) continue;
 
       let delivered = false;
       if (plan.fire) {
         delivered = await this.fire(
           alert, condition, sampleBar, plan.reference, plan.distancePct,
-          !isClosedBar, plan.label
+          !isClosedBar, plan.label,
+          condition.kind === "candlestick_pattern"
+            ? canonical?.occurrenceFor(condition.patternId) : undefined,
         );
       }
       const next = stateAfterPlan(spec, plan, {
@@ -656,7 +700,8 @@ export class MaAlertRunner {
     alert: MaAlertRow, condition: AlertCondition, bar: Candle,
     reference: number, distancePct: number, intrabar: boolean,
     /** What the reference resolved to — the zone's side, or the pivot level. */
-    label: string | null
+    label: string | null,
+    patternOccurrence?: Record<string, unknown>,
   ): Promise<boolean> {
     const { title, body, tag, url } = formatAlertPush(
       alert, condition, bar, reference, distancePct, intrabar, label ?? undefined
@@ -696,6 +741,17 @@ export class MaAlertRunner {
       deliveryStatus,
       intrabar,
       frequency: alert.frequency,
+      patternDetectorId: alert.conditionKind === "candlestick_pattern"
+        ? alert.patternDetectorId : null,
+      patternDetectorVersion: alert.conditionKind === "candlestick_pattern"
+        ? alert.patternDetectorVersion : null,
+      patternSettingsHash: alert.conditionKind === "candlestick_pattern"
+        ? alert.patternSettingsHash : null,
+      patternOccurrenceId: alert.conditionKind === "candlestick_pattern" && patternOccurrence
+        ? String(patternOccurrence.occurrence_id ?? `${patternOccurrence.id}:${patternOccurrence.open_time}`)
+        : null,
+      patternOccurrence: alert.conditionKind === "candlestick_pattern"
+        ? patternOccurrence ?? null : null,
     });
     this.log.info(
       {
