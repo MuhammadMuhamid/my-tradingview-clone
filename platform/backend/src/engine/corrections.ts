@@ -1,6 +1,6 @@
 /**
  * ════════════════════════════════════════════════════════════════════════════
- *  ENGINE CORRECTIONS — EXPLICIT, VERSIONED, AND OFF BY DEFAULT
+ *  ENGINE CORRECTIONS — EXPLICIT, VERSIONED, AND CORRECT BY DEFAULT
  * ════════════════════════════════════════════════════════════════════════════
  *
  * Several audit findings are corrections to the BACKTEST engine, and every one
@@ -9,30 +9,38 @@
  * — and half-corrected leaderboards are worse than uncorrected ones, because
  * the two cannot be told apart.
  *
- * So each correction is a named flag, default OFF, with the pre-existing
- * behaviour preserved bit-for-bit when it is off. Turning one on is a
- * deliberate decision that must be followed by a re-run of every affected tree,
- * and the flag set is recorded on each backtest row so a stored result always
- * says which engine produced it.
+ * Each correction is named and fingerprinted. New work always defaults to the
+ * complete corrected set. The pre-FC1 baseline remains available only through
+ * the explicit `legacy-baseline` selector so historical results can be
+ * reproduced without ever being mistaken for acceptable new evidence.
  *
- * ── Why not just fix them ─────────────────────────────────────────────────
+ * ── Why retain a legacy selector ──────────────────────────────────────────
  *
- * Because the fix and the re-run have to happen together, and the re-run is
- * expensive, explicitly out of scope for this programme, and gated on `BE-08`
- * for the subset that depends on the multi-timeframe convention. A silent
- * change here would mean every stored number was produced by an unknown engine.
+ * Correcting defaults must not silently relabel stored numbers. The explicit
+ * selector can reproduce an old result for diagnosis; the production runner
+ * rejects it, and a corrected result must be recomputed into a clean window.
  *
- * ── How to turn one on ────────────────────────────────────────────────────
+ * ── Selection ─────────────────────────────────────────────────────────────
  *
  *   ENGINE_CORRECTIONS=netAvgTrade,exchangeFilters,leanWarmupFloor
  *
- * or `ENGINE_CORRECTIONS=all`. `describeCorrections()` renders the active set
+ * or `ENGINE_CORRECTIONS=all`. `ENGINE_CORRECTIONS=legacy-baseline` is for
+ * quarantined reproduction only. `describeCorrections()` renders the active set
  * for a report header, and `correctionsFingerprint()` is what gets stored
  * alongside a result.
  */
 
 /** Every correction, with what it changes and what it invalidates. */
 export const CORRECTION_KEYS = [
+  /**
+   * FC1-B1 — the executable live architecture observes protective touches only
+   * after a candle closes and then submits a Spot MARKET sell. It cannot fill
+   * historically at the earlier stop/target trigger. With this correction,
+   * bracket touches retain their reason/trigger but fill at that candle's close
+   * (plus configured adverse slippage), which is the executable non-native
+   * protection model. Native Binance protection remains disabled and unverified.
+   */
+  "executableCloseFills",
   /**
    * `BE-05` — `avgTradePct` is the mean of `pnlPct`, and `pnlPct` is computed
    * from raw price change while every neighbouring metric is net of commission.
@@ -147,7 +155,8 @@ export const allCorrections = (): CorrectionSet => ALL;
  */
 export function parseCorrections(raw: string | undefined | null): CorrectionSet {
   const value = (raw ?? "").trim();
-  if (!value || value.toLowerCase() === "none") return NONE;
+  if (!value) return ALL;
+  if (value.toLowerCase() === "none" || value.toLowerCase() === "legacy-baseline") return NONE;
   if (value.toLowerCase() === "all") return ALL;
 
   const requested = value.split(",").map((s) => s.trim()).filter(Boolean);
@@ -164,7 +173,7 @@ export function parseCorrections(raw: string | undefined | null): CorrectionSet 
   return Object.freeze(set);
 }
 
-/** The process-wide set, read once at import. Default: none. */
+/** The process-wide set, read once at import. Default: all corrected semantics. */
 export const ACTIVE_CORRECTIONS: CorrectionSet = parseCorrections(process.env.ENGINE_CORRECTIONS);
 
 /** Stable, sorted list of what is on. `"none"` when nothing is. */
@@ -180,16 +189,27 @@ export function activeCorrectionKeys(set: CorrectionSet = ACTIVE_CORRECTIONS): C
  */
 export function correctionsFingerprint(set: CorrectionSet = ACTIVE_CORRECTIONS): string {
   const active = activeCorrectionKeys(set);
-  return active.length === 0 ? "engine:baseline" : `engine:${active.join("+")}`;
+  return active.length === 0 ? "engine:legacy-baseline:quarantined" : `engine:v2-corrected:${active.join("+")}`;
 }
 
 /** Human-readable, for a report header or a log line at boot. */
 export function describeCorrections(set: CorrectionSet = ACTIVE_CORRECTIONS): string {
   const active = activeCorrectionKeys(set);
   if (active.length === 0) {
-    return "engine corrections: NONE (baseline behaviour, matching the stored histories)";
+    return "engine corrections: LEGACY BASELINE (QUARANTINED; reproduction only; not acceptable for new results)";
   }
-  return `engine corrections ACTIVE: ${active.join(", ")} — results are NOT comparable with the stored histories`;
+  return `engine v2 corrected semantics: ${active.join(", ")} — legacy histories require explicit recomputation`;
+}
+
+/** Legacy results may be inspected/reproduced, never accepted as new evidence. */
+export function assertCorrectedEngine(set: CorrectionSet = ACTIVE_CORRECTIONS): void {
+  const missing = CORRECTION_KEYS.filter((key) => !set[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `legacy/partial engine semantics are quarantined and cannot produce new accepted work; ` +
+      `missing corrections: ${missing.join(", ")}. Recompute with ENGINE_CORRECTIONS=all.`
+    );
+  }
 }
 
 /**

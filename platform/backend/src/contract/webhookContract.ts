@@ -1,6 +1,6 @@
 /**
  * ════════════════════════════════════════════════════════════════════════════
- *  SHARED CROSS-REPOSITORY WEBHOOK CONTRACT — v5
+ *  SHARED CROSS-REPOSITORY WEBHOOK CONTRACT — v6
  * ════════════════════════════════════════════════════════════════════════════
  *
  * This file is VENDORED, byte-for-byte, into both repositories:
@@ -28,6 +28,16 @@
  *     validator.
  *
  * ── Changelog ──────────────────────────────────────────────────────────────
+ *
+ *  v6  Makes paired Platform correlation mandatory for every public BUY.
+ *
+ *      A webhook secret authenticates a bot configuration, not a canonical
+ *      strategy decision. The receiver now rejects every exposure-increasing
+ *      action without both Platform deployment and durable order-intent
+ *      headers. The detached signed, single-use evidence from v5 remains the
+ *      cryptographic authority and replay boundary. Direct TradingView remains
+ *      usable only for SELL/exit instructions, which stay fail-open so
+ *      exposure reduction cannot be trapped by an authority outage.
  *
  *  v5  Makes the authenticated Shariah evidence SINGLE-USE.
  *
@@ -141,7 +151,7 @@
  */
 
 /** Bumped on any change to what is accepted or emitted. */
-export const CONTRACT_VERSION = 5;
+export const CONTRACT_VERSION = 6;
 
 /**
  * SHA-256 of this file's canonical content, computed by
@@ -152,13 +162,13 @@ export const CONTRACT_VERSION = 5;
  * hash it prints, and paste it here in BOTH repositories.
  */
 export const CONTRACT_FINGERPRINT =
-  "sha256:v5:ca4d29365fee945384d9b60994813817a3a1e1ba28b167cd90b91815cd32f031";
+  "sha256:v6:38b8519eaec2b1e99539d553e3f49d56cf1cc8ac2bc793af41e786d1cc9beaea";
 
 // ── Payload shapes ──────────────────────────────────────────────────────────
 
 export type ContractAction = "buy" | "sell";
 
-/** Optional HTTP metadata; deliberately outside the strict legacy JSON body. */
+/** Paired HTTP authority metadata: mandatory for BUY, optional for safe SELL. */
 export const PLATFORM_DEPLOYMENT_ID_HEADER = "x-platform-deployment-id";
 export const PLATFORM_ORDER_INTENT_ID_HEADER = "x-platform-order-intent-id";
 

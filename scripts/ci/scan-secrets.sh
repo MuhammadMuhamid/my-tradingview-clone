@@ -14,6 +14,7 @@ report() { echo "::error file=$1,line=$2::$3"; fail=1; }
 # Paths whose long hex strings are verification digests or generated hashes,
 # not secrets. Each entry is justified in 02_FINDINGS_REGISTER.md §X-13.
 is_allowed() {
+  local file="$1" message="$2" content="$3" cleaned
   case "$1" in
     */package-lock.json|package-lock.json) return 0 ;;
     platform/deployment/aws/security_audit_*.mjs) return 0 ;;   # sha256 of the EXPECTED secret
@@ -23,7 +24,25 @@ is_allowed() {
     # detect drift between the two repositories' vendored copies. The module is
     # import-free and holds no configuration, so a credential there would be
     # both pointless and obvious in review.
-    */contract/webhookContract.ts) return 0 ;;
+    */contract/webhookContract.ts)
+      [ "$message" = "credential-shaped hex literal in tracked source" ] || return 1
+      cleaned="$(printf '%s' "$content" | sed -E \
+        's/sha256:v[0-9]+:[0-9a-f]{64}/sha256:<verified-contract-digest>/g')"
+      ! grep -Eq '[0-9a-f]{40,}' <<<"$cleaned"
+      return
+      ;;
+    platform/frontend/tests/fixtures/p2_btcusdt_15m_exact_bar.json|\
+    platform/screener/backend/tests/fixtures/p2_differential_corpus.json|\
+    platform/screener/backend/tests/fixtures/p3_classical_differential_corpus.json)
+      [ "$message" = "credential-shaped hex literal in tracked source" ] || return 1
+      # These immutable public-OHLC corpora carry only named SHA-256 fields.
+      # Remove those exact JSON fields, then fail closed if any other long hex
+      # token remains on the same (sometimes minified) line.
+      cleaned="$(printf '%s' "$content" | sed -E \
+        's/"(window_ohlc_sha256|ohlc_sha256)"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"/"<verified-public-ohlc-digest>"/g')"
+      ! grep -Eq '[0-9a-f]{40,}' <<<"$cleaned"
+      return
+      ;;
     *.png|*.jpg|*.jpeg|*.pdf|*.zip|*.gz) return 0 ;;
   esac
   return 1
@@ -31,9 +50,9 @@ is_allowed() {
 
 scan() {
   local pattern="$1" message="$2"
-  while IFS=: read -r file line _; do
-    [ -z "${file:-}" ] && continue
-    is_allowed "$file" && continue
+  while IFS=: read -r file line content; do
+    [ -z "$file" ] && continue
+    is_allowed "$file" "$message" "$content" && continue
     report "$file" "$line" "$message"
   done < <(git grep -InE "$pattern" -- \
       ':!*.png' ':!*.jpg' ':!*.jpeg' ':!*.pdf' ':!*.zip' 2>/dev/null || true)

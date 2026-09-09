@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "Trading Scene",
@@ -23,17 +25,22 @@ export const viewport: Viewport = {
   maximumScale: 5,
   // Must match `bg` in tailwind.config.ts, or mobile Safari paints its chrome
   // a different near-black and the page appears to start with a seam.
-  themeColor: "#0b0e14",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8f9fd" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0e14" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
+        <Script src="/theme-init.js" strategy="beforeInteractive" />
         <div className="flex h-[100dvh] flex-col">
           {/* Visible only when focused; see .skip-link in globals.css. */}
           <a href="#main" className="skip-link">Skip to content</a>
           <Nav />
+          <ThemeToggle />
           <main id="main" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none">
             {children}
           </main>

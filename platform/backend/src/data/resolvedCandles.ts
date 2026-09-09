@@ -65,7 +65,7 @@ export const MAX_SOURCE_ROWS = 200_000;
 export async function readResolvedCandles(
   symbol: string,
   plan: ResolutionPlan,
-  opts: { from?: number; to?: number; limit?: number } = {}
+  opts: { from?: number; to?: number; limit?: number; asOfMs?: number } = {}
 ): Promise<FoldableBar[]> {
   const source = sourceInterval(plan);
   const limit = opts.limit;
@@ -78,7 +78,17 @@ export async function readResolvedCandles(
     to: opts.to,
     limit: sourceLimit,
   });
-  return resolveWindow(rows, plan, limit);
+  return resolveWindow(rows, plan, limit, opts.asOfMs ?? Date.now());
+}
+
+export class IncompleteDerivedCandleError extends Error {
+  constructor(readonly bar: FoldableBar) {
+    super(
+      `closed ${bar.interval} candle at ${bar.openTime} is incomplete: ` +
+      `${bar.sourceBarCount ?? 0}/${bar.expectedSourceBarCount ?? 0} source bars`
+    );
+    this.name = "IncompleteDerivedCandleError";
+  }
 }
 
 /**
@@ -90,7 +100,8 @@ export async function readResolvedCandles(
  * to be wrong.
  */
 export function resolveWindow(
-  rows: readonly FoldableBar[], plan: ResolutionPlan, limit?: number
+  rows: readonly FoldableBar[], plan: ResolutionPlan, limit?: number,
+  asOfMs = Date.now()
 ): FoldableBar[] {
   if (plan.factor === 1) {
     return rows.map((bar) => ({ ...bar, interval: plan.id }));
@@ -110,6 +121,8 @@ export function resolveWindow(
     const first = folded[0]!;
     if (rows[0]!.openTime !== first.openTime) folded.shift();
   }
+  const incompleteClosed = folded.find((bar) => bar.complete === false && bar.closeTime < asOfMs);
+  if (incompleteClosed) throw new IncompleteDerivedCandleError(incompleteClosed);
   return limit !== undefined && folded.length > limit ? folded.slice(-limit) : folded;
 }
 

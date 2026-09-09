@@ -33,7 +33,9 @@ function themeTokens(): Set<string> {
   const config = fs.readFileSync(path.join(ROOT, "tailwind.config.ts"), "utf8");
   const block = config.slice(config.indexOf("colors: {"), config.indexOf("fontFamily"));
   const tokens = new Set<string>();
-  for (const m of block.matchAll(/^\s*"?([a-z][a-z0-9-]*)"?:\s*"#/gm)) tokens.add(m[1]!);
+  for (const m of block.matchAll(
+    /^\s*"?([a-z][a-z0-9-]*)"?:\s*(?:token\("[a-z0-9-]+"\)|"(?:#|rgb\())/gm
+  )) tokens.add(m[1]!);
   return tokens;
 }
 
@@ -85,12 +87,16 @@ test("EVERY COLOUR TOKEN A COMPONENT USES IS DEFINED IN THE THEME", () => {
 test("the manifest theme colour matches the page background", () => {
   // A mismatch paints mobile Safari's chrome a different near-black, so the
   // page appears to begin with a seam.
-  const config = fs.readFileSync(path.join(ROOT, "tailwind.config.ts"), "utf8");
-  const bg = config.match(/\bbg:\s*"(#[0-9a-f]{6})"/i);
+  const css = fs.readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
+  const dark = css.match(/:root\s*\{[\s\S]*?--ts-bg:\s*(#[0-9a-f]{6})/i);
+  const light = css.match(/:root\[data-theme="light"\]\s*\{[\s\S]*?--ts-bg:\s*(#[0-9a-f]{6})/i);
   const layout = fs.readFileSync(path.join(ROOT, "app", "layout.tsx"), "utf8");
-  const theme = layout.match(/themeColor:\s*"(#[0-9a-f]{6})"/i);
-  assert.ok(bg && theme, "could not read both colours");
-  assert.equal(theme![1]!.toLowerCase(), bg![1]!.toLowerCase());
+  const manifest = [...layout.matchAll(/color:\s*"(#[0-9a-f]{6})"/gi)]
+    .map((match) => match[1]!.toLowerCase());
+  assert.ok(dark && light && manifest.length >= 2, "could not read both theme colours");
+  assert.deepEqual(new Set(manifest), new Set([
+    light![1]!.toLowerCase(), dark![1]!.toLowerCase(),
+  ]));
 });
 
 test("warn is defined, and is neither the profit nor the loss colour", () => {
@@ -98,7 +104,7 @@ test("warn is defined, and is neither the profit nor the loss colour", () => {
   // hue would state an outcome that is not known yet.
   const config = fs.readFileSync(path.join(ROOT, "tailwind.config.ts"), "utf8");
   const read = (name: string): string =>
-    config.match(new RegExp(`\\b${name}:\\s*"(#[0-9a-f]{6})"`, "i"))![1]!.toLowerCase();
+    config.match(new RegExp(`\\b${name}:\\s*token\\("([^"]+)"\\)`, "i"))![1]!.toLowerCase();
   const warn = read("warn");
   assert.notEqual(warn, read("up"));
   assert.notEqual(warn, read("down"));

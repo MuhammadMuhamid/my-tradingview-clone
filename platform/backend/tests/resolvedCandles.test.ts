@@ -83,7 +83,7 @@ test("a leading bucket the read began inside is dropped, not served half-built",
 
 test("the newest bucket is returned incomplete — that one is the forming bar", () => {
   const plan = parseResolution("45m")!;
-  const out = resolveWindow(source(4), plan);
+  const out = resolveWindow(source(4), plan, undefined, 45 * 60_000 + 1);
   assert.equal(out.length, 2);
   const forming = out[1]!;
   assert.equal(forming.openTime, 45 * 60_000);
@@ -91,6 +91,36 @@ test("the newest bucket is returned incomplete — that one is the forming bar",
   // Its close time is the grid's, so `now > closeTime` stays the single
   // definition of "closed" for a derived bar and a native one alike.
   assert.equal(forming.closeTime, 90 * 60_000 - 1);
+});
+
+test("FC1-H2 rejects a missing constituent in every closed bucket position", () => {
+  const plan = parseResolution("45m")!;
+  for (const missing of [3, 4, 5]) {
+    const rows = source(9).filter((_, index) => index !== missing);
+    assert.throws(
+      () => resolveWindow(rows, plan, undefined, 3 * plan.ms),
+      /closed 45m candle.*incomplete/,
+      `missing constituent ${missing}`
+    );
+  }
+});
+
+test("FC1-H2 newest incomplete bucket is marked only while genuinely forming", () => {
+  const plan = parseResolution("45m")!;
+  const rows = source(4);
+  const forming = resolveWindow(rows, plan, undefined, plan.ms + 1).at(-1)!;
+  assert.equal(forming.complete, false);
+  assert.equal(forming.sourceBarCount, 1);
+  assert.equal(forming.expectedSourceBarCount, 3);
+  assert.throws(() => resolveWindow(rows, plan, undefined, 2 * plan.ms + 1), /incomplete/);
+});
+
+test("FC1-H2 rejects duplicate, out-of-order, and off-grid source rows", () => {
+  const plan = parseResolution("45m")!;
+  const rows = source(3);
+  assert.throws(() => resolveWindow([rows[0]!, rows[0]!], plan), /duplicate or out-of-order/);
+  assert.throws(() => resolveWindow([rows[1]!, rows[0]!], plan), /out-of-order/);
+  assert.throws(() => resolveWindow([{ ...rows[0]!, openTime: 1 }], plan), /off-grid/);
 });
 
 test("the limit counts BARS OF THE RESOLUTION, not source rows", () => {

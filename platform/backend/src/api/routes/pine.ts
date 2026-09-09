@@ -195,7 +195,9 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(502).send({ error: `market data unavailable: ${(err as Error).message}` });
     }
     const candles = completedAtOrBefore(
-      await readResolvedCandles(symbol, plan, { from: warmupFrom, to: endMs }), endMs
+      await readResolvedCandles(symbol, plan, {
+        from: warmupFrom, to: endMs, asOfMs: endMs + 1,
+      }), endMs
     );
     if (candles.length === 0) {
       return reply.code(404).send({ error: `no ${interval} data for ${symbol}` });

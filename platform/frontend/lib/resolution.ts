@@ -284,6 +284,10 @@ export interface FoldableBar {
   quoteVolume?: number;
   tradeCount?: number;
   closeTime: number;
+  /** Derived-candle constituent provenance. Native bars are always complete. */
+  complete?: boolean;
+  sourceBarCount?: number;
+  expectedSourceBarCount?: number;
 }
 
 /**
@@ -319,10 +323,23 @@ export interface FoldableBar {
 export function foldBars<T extends FoldableBar>(
   source: readonly T[], plan: ResolutionPlan
 ): FoldableBar[] {
-  if (plan.factor === 1) return source.map((bar) => ({ ...bar, interval: plan.id }));
+  if (plan.factor === 1) return source.map((bar) => ({
+    ...bar, interval: plan.id, complete: true,
+    sourceBarCount: 1, expectedSourceBarCount: 1,
+  }));
   const out: FoldableBar[] = [];
+  const spans = new Map<number, { first: number; last: number }>();
   let current: FoldableBar | null = null;
+  const sourceStep = NATIVE_RESOLUTION_MS[plan.source]!;
+  let previousOpen: number | null = null;
   for (const bar of source) {
+    if (bar.openTime % sourceStep !== 0) {
+      throw new Error(`off-grid ${plan.source} source bar at ${bar.openTime}`);
+    }
+    if (previousOpen !== null && bar.openTime <= previousOpen) {
+      throw new Error(`duplicate or out-of-order ${plan.source} source bar at ${bar.openTime}`);
+    }
+    previousOpen = bar.openTime;
     const openTime = bucketOpenTime(bar.openTime, plan.ms);
     if (current === null || current.openTime !== openTime) {
       current = {
@@ -335,22 +352,34 @@ export function foldBars<T extends FoldableBar>(
         close: bar.close,
         volume: bar.volume,
         closeTime: openTime + plan.ms - 1,
+        complete: false,
+        sourceBarCount: 1,
+        expectedSourceBarCount: plan.factor,
       };
       if (bar.quoteVolume !== undefined) current.quoteVolume = bar.quoteVolume;
       if (bar.tradeCount !== undefined) current.tradeCount = bar.tradeCount;
       out.push(current);
+      spans.set(openTime, { first: bar.openTime, last: bar.openTime });
       continue;
     }
     if (bar.high > current.high) current.high = bar.high;
     if (bar.low < current.low) current.low = bar.low;
     current.close = bar.close;
     current.volume += bar.volume;
+    current.sourceBarCount = (current.sourceBarCount ?? 0) + 1;
+    spans.get(openTime)!.last = bar.openTime;
     if (bar.quoteVolume !== undefined) {
       current.quoteVolume = (current.quoteVolume ?? 0) + bar.quoteVolume;
     }
     if (bar.tradeCount !== undefined) {
       current.tradeCount = (current.tradeCount ?? 0) + bar.tradeCount;
     }
+  }
+  for (const bar of out) {
+    const count = bar.sourceBarCount ?? 0;
+    const span = spans.get(bar.openTime)!;
+    bar.complete = count === plan.factor && span.first === bar.openTime &&
+      span.last === bar.openTime + (plan.factor - 1) * sourceStep;
   }
   return out;
 }

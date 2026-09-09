@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import * as symbols from "../../repositories/symbols";
 import { parseResolution } from "../../data/resolution";
-import { readResolvedCandles } from "../../data/resolvedCandles";
+import { IncompleteDerivedCandleError, readResolvedCandles } from "../../data/resolvedCandles";
 import { toCompact } from "../../data/candleWire";
 import { fetch24hTickers, listExchangeSymbols, TICKER_BATCH_LIMIT, type Ticker24h } from "../../data/binanceRest";
 import { InstrumentIdError, storedSymbol } from "../../types/instrument";
@@ -204,11 +204,26 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
       if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
       throw err;
     }
-    const rows = await readResolvedCandles(ticker, plan, {
-      from: q.from !== undefined ? Number(q.from) : undefined,
-      to: q.to !== undefined ? Number(q.to) : undefined,
-      limit,
-    });
+    let rows;
+    try {
+      rows = await readResolvedCandles(ticker, plan, {
+        from: q.from !== undefined ? Number(q.from) : undefined,
+        to: q.to !== undefined ? Number(q.to) : undefined,
+        limit,
+        asOfMs: ctx.now(),
+      });
+    } catch (error) {
+      if (error instanceof IncompleteDerivedCandleError) {
+        return reply.code(409).send({
+          error: "incomplete_closed_derived_candle",
+          interval: plan.id,
+          openTime: error.bar.openTime,
+          sourceBarCount: error.bar.sourceBarCount,
+          expectedSourceBarCount: error.bar.expectedSourceBarCount,
+        });
+      }
+      throw error;
+    }
     return q.format === "compact" ? toCompact(rows, ticker, plan.id) : rows;
   });
 }

@@ -1,6 +1,6 @@
 # Cross-repository webhook contract
 
-**Status:** current, **`v5`**. The contract is now a real artifact rather than a
+**Status:** current, **`v6`**. The contract is now a real artifact rather than a
 description: `platform/backend/src/contract/webhookContract.ts` is vendored
 byte-for-byte into both repositories, carries a `CONTRACT_FINGERPRINT`, and both
 test suites hash their own copy against it. Editing one side turns both builds
@@ -11,18 +11,19 @@ hand-duplicated with no shared artifact and no test, which is what produced
 `X-01`, `X-02` and `X-12` — three defects that all reduce to "the two sides
 disagreed and nothing noticed".
 
-Two senders, one receiver:
+One decision authority, two permitted transport roles:
 
 | Sender | Path |
 |---|---|
 | This platform | `platform/backend/src/alerts/dispatcher.ts` → `deliver()` |
-| TradingView | a Pine `alert()` call built by `bot:deploy/SR-Trend-v5-custom-webhook-ALERTS.pine` in the bot repository |
+| TradingView | exposure-reducing SELL/exit only; it has no BUY authority |
 
 Receiver: `POST https://<bot-host>/api/webhooks/signal_bots`, validated by
 `bot:backend/src/routes/webhookSchema.ts` and processed by
 `bot:backend/src/services/webhook.ts` in the bot repository.
 
-Both senders may be active simultaneously. They do **not** share dedupe state.
+Both transports may be active simultaneously, but only Platform may authorize
+new exposure.
 
 ## Transport
 
@@ -31,8 +32,10 @@ Both senders may be active simultaneously. They do **not** share dedupe state.
 - `content-type: application/json`.
 - The platform retries up to 4 times with exponential backoff and an 8-second
   per-attempt timeout. A 4xx other than 429 is terminal and is not retried.
-- Authentication is the per-bot `secret` field. There is no signature, no
-  timestamp binding and no replay window beyond the dedupe keys below.
+- The per-bot `secret` authenticates the Bot configuration. A BUY additionally
+  requires paired Platform correlation headers and detached HMAC evidence with
+  a fresh, durably single-use nonce. The webhook secret alone is never entry
+  authority.
 
 ## Request — custom bot payload
 
@@ -68,12 +71,11 @@ Both senders may be active simultaneously. They do **not** share dedupe state.
 
 ### Detached Shariah evidence
 
-This body is authenticated only by the per-bot `secret` it carries, which
+The base body is authenticated only by the per-bot `secret` it carries, which
 authorises **placing** an order and proves nothing about who **screened** the
-asset. So under `enforce` the decision travels with its own signature, keyed by
-the installation's Platform HMAC secret — which a direct TradingView alert does
-not have. That asymmetry is the mechanism: a signal source can ask for a BUY, it
-cannot certify one.
+asset or an order. Every BUY, including truthful mode-off policy, therefore
+travels with its own signature, keyed by the installation's Platform HMAC
+secret — which a direct TradingView alert does not have.
 
 The signed bytes are built by `shariahEvidenceCanonical`, newline-joined:
 
@@ -103,12 +105,11 @@ platform never sends a price — every order the receiver places is a
 `type: "MARKET"` order at the then-current price.
 
 Platform's live runner adds paired `X-Platform-Deployment-Id` and
-`X-Platform-Order-Intent-Id` HTTP headers. An old Bot ignores them, so Platform
-may roll first without changing the strict JSON body. A new Bot stores this
-provenance solely to publish accounting evidence; it never affects order
-decisions. If Bot rolls first, it still persists an event with the dedupe key
-and a one-way identity of the high-entropy webhook credential; upgraded
-Platform resolves that pair uniquely or rejects it rather than approximating.
+`X-Platform-Order-Intent-Id` HTTP headers. As of v6, the Bot rejects every BUY
+without both valid headers before order processing. The referenced intent is
+claimed with the signed one-shot nonce, so a replay under a different dedupe key
+is refused. SELL keeps the headers optional and remains available for exposure
+reduction.
 
 ### Normalisation applied by the receiver
 

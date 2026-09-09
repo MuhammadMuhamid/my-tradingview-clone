@@ -13,11 +13,9 @@
  * can run on fixtures, in a test, or against real data — the harness that
  * fetches the data is a separate concern (`scripts/parity_harness.ts`).
  *
- * It compares SIGNALS, not fills. The live side has no fill price: the payload
- * carries no price at all and the receiver places a market order (`BE-02`), so
- * a price comparison would be comparing a decision against an outcome. What is
- * comparable is: did both sides act, on the same bar, in the same direction,
- * for the same reason.
+ * It compares executable DECISIONS, not exchange fills. Corrected historical
+ * protection and live evaluation both decide at the completed candle close;
+ * the later exchange fill remains separate outcome evidence in Bot.
  */
 
 export interface ParitySignal {
@@ -40,7 +38,9 @@ export type DivergenceKind =
   /** Both acted on the bar, in opposite directions. */
   | "action_mismatch"
   /** Both acted the same way, for different stated reasons. */
-  | "reason_mismatch";
+  | "reason_mismatch"
+  /** Both acted for the same reason but modelled a different executable price. */
+  | "execution_price_mismatch";
 
 export interface Divergence {
   kind: DivergenceKind;
@@ -116,6 +116,14 @@ export function compareParity(
       });
       continue;
     }
+    if (b.price != null && l.price != null && Math.abs(b.price - l.price) > 1e-9) {
+      divergences.push({
+        kind: "execution_price_mismatch", barTime: b.barTime, backtest: b, live: l,
+        detail: `both ${b.action} for the same reason, but corrected historical decision price ` +
+          `${b.price} differs from live close-model price ${l.price}`,
+      });
+      continue;
+    }
     matched += 1;
   }
 
@@ -158,6 +166,7 @@ function summariseKinds(divergences: readonly Divergence[]): string {
     extra_live: "taken live only",
     action_mismatch: "opposite directions",
     reason_mismatch: "same trade, different reason",
+    execution_price_mismatch: "same decision, different executable price",
   };
   return [...counts.entries()].map(([k, n]) => `${n} ${label[k]}`).join(", ") + ".";
 }

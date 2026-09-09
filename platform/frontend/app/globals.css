@@ -11,7 +11,8 @@
    * what components use; these exist for the places a class cannot reach
    * (scrollbars, the Scanner's own stylesheet, third-party canvases read
    * `lib/chartTheme` instead) so a surface, line or status colour is never
-   * typed as a literal twice. One dark theme; a switcher is post-V1.
+   * typed as a literal twice. Dark is the preserved default; the light block
+   * below overrides the same semantic roles rather than recolouring components.
    */
   --ts-bg: #0b0e14;
   --ts-surface: #121722;
@@ -26,6 +27,51 @@
   --ts-positive: #2ebd85;
   --ts-negative: #f6465d;
   --ts-caution: #f0b90b;
+  --ts-bg-rgb: 11 14 20;
+  --ts-surface-rgb: 18 23 34;
+  --ts-surface-2-rgb: 26 32 48;
+  --ts-line-rgb: 35 43 58;
+  --ts-ink-rgb: 230 233 239;
+  --ts-ink-muted-rgb: 154 164 182;
+  --ts-ink-faint-rgb: 107 116 134;
+  --ts-accent-rgb: 79 140 255;
+  --ts-positive-rgb: 46 189 133;
+  --ts-negative-rgb: 246 70 93;
+  --ts-caution-rgb: 240 185 11;
+  --ts-chart-grid: #161c28;
+  --ts-chart-crosshair: #4b556b;
+  --ts-chart-label: #2c3548;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ts-bg: #f8f9fd;
+  --ts-surface: #ffffff;
+  --ts-surface-2: #f0f3fa;
+  --ts-surface-3: #e6e9f0;
+  --ts-line: #e0e3eb;
+  --ts-line-strong: #b2b5be;
+  --ts-ink: #131722;
+  --ts-ink-muted: #5d606b;
+  --ts-ink-faint: #787b86;
+  --ts-accent: #2962ff;
+  --ts-positive: #089981;
+  --ts-negative: #f23645;
+  --ts-caution: #946200;
+  --ts-bg-rgb: 248 249 253;
+  --ts-surface-rgb: 255 255 255;
+  --ts-surface-2-rgb: 240 243 250;
+  --ts-line-rgb: 224 227 235;
+  --ts-ink-rgb: 19 23 34;
+  --ts-ink-muted-rgb: 93 96 107;
+  --ts-ink-faint-rgb: 120 123 134;
+  --ts-accent-rgb: 41 98 255;
+  --ts-positive-rgb: 8 153 129;
+  --ts-negative-rgb: 242 54 69;
+  --ts-caution-rgb: 148 98 0;
+  --ts-chart-grid: #eef0f3;
+  --ts-chart-crosshair: #9598a1;
+  --ts-chart-label: #5d606b;
 }
 
 html {
@@ -55,6 +101,18 @@ body {
  * Safari does not zoom for them.
  */
 @media (max-width: 640px) {
+  button,
+  select,
+  summary,
+  [role="button"],
+  a[href] {
+    min-width: 44px;
+    min-height: 44px !important;
+    touch-action: manipulation;
+  }
+  input:not([type="checkbox"]):not([type="radio"]) {
+    min-height: 44px !important;
+  }
   input:not([type="checkbox"]):not([type="radio"]),
   select:not([multiple]):not([size]),
   textarea:not([readonly]):not([disabled]) {
@@ -62,6 +120,27 @@ body {
   }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
 }
+
+.theme-toggle {
+  position: fixed;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 80;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ts-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ts-surface) 94%, transparent);
+  color: var(--ts-ink-muted);
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--ts-ink) 12%, transparent);
+  backdrop-filter: blur(8px);
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.theme-toggle:hover { background: var(--ts-surface-2); color: var(--ts-ink); }
+@media (max-width: 640px) { .theme-toggle { width: 44px; height: 44px; } }
 
 /* Recessive scrollbars for the dark surfaces */
 ::-webkit-scrollbar { width: 10px; height: 10px; }

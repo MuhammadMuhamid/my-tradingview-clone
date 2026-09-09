@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Broker } from "../src/engine/broker";
 import type { Bars } from "../src/engine/mtf";
+import { allCorrections, noCorrections } from "../src/engine/corrections";
 
 const approx = (a: number, b: number, eps = 1e-9): void => {
   assert.ok(Math.abs(a - b) < eps, `expected ${a} ≈ ${b}`);
@@ -29,6 +30,7 @@ const OPTS = {
   slippageTicks: 2,
   tickSize: 0.01,
   qtyCash: 930,
+  corrections: noCorrections(),
 };
 const REASONS = { tp: { RR1: "TP1", RR2: "TP2", RR3: "TP", "RR X": "TP" }, sl: "SL" };
 
@@ -172,4 +174,43 @@ test("per-leg pnl is net of exit commission + pro-rata entry commission", () => 
   approx(t.pnl!, (110 - entryPx) * qty - exitComm - entryComm);
   // realizedNet must equal the sum of trade pnls when fully closed
   approx(b.realizedNet, t.pnl!);
+});
+
+test("FC1-B1 corrected protection executes after candle close and keeps trigger provenance", () => {
+  const bars = makeBars([
+    [100, 100, 100, 100],
+    [100, 100, 100, 100],
+    [100, 105, 89, 95],
+  ]);
+  const b = new Broker({ ...OPTS, corrections: allCorrections() });
+  b.queueEntry("entry");
+  b.processOpen(bars, 1);
+  b.setExitLeg("RR X", null, 110, 90, 1);
+  b.processIntrabar(bars, 2, REASONS);
+  assert.equal(b.closed[0]?.exitReason, "SL");
+  approx(b.closed[0]!.intendedTriggerPrice!, 90);
+  approx(b.closed[0]!.exitPrice!, 95 - 0.02);
+  assert.equal(b.closed[0]!.exitTime, bars.closeTime[2]! + 1);
+});
+
+test("FC1-M1 close-fill excursion starts at fill; open-fill still observes its fill candle", () => {
+  const bars = makeBars([
+    [100, 200, 50, 100],
+    [100, 100, 100, 100],
+  ]);
+  const closeFill = new Broker({ ...OPTS, fillOnBarClose: true });
+  closeFill.queueEntry("entry");
+  closeFill.processClose(bars, 0);
+  closeFill.queueClose("done");
+  closeFill.processClose(bars, 1);
+  approx(closeFill.closed[0]!.runUpPct!, 0);
+  approx(closeFill.closed[0]!.drawdownPct!, 0);
+
+  const openFill = new Broker(OPTS);
+  openFill.queueEntry("entry");
+  openFill.processOpen(bars, 0);
+  openFill.queueClose("done");
+  openFill.processOpen(bars, 1);
+  assert.ok(openFill.closed[0]!.runUpPct! > 90);
+  assert.ok(openFill.closed[0]!.drawdownPct! > 40);
 });

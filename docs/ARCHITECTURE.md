@@ -45,10 +45,10 @@ bot:backend/src/services/webhook.ts                ── dedupe, sizing, guards
 bot:backend/src/services/binance.ts                ── MARKET order on Binance Spot
 ```
 
-A second, independent path exists: TradingView can POST the same payload shape
-to the same bot endpoint directly, from a Pine `alert()` call. Both paths can be
-active at once, and they do **not** share dedupe state
-(see `X-02` in the remediation ledger).
+A second, deliberately narrower path exists: TradingView can POST a SELL/exit
+to the same bot endpoint directly. The Bot rejects every exposure-increasing
+action without paired Platform deployment/order-intent correlation and signed,
+single-use durable Platform authority.
 
 Position state flows the other way on a 30-second poll: the platform asks
 `POST /api/webhooks/signal_bots/status` which symbols the bot currently holds.
@@ -66,10 +66,9 @@ a flat → long → TP1 → TP2 → flat sequence, including carried trail/parti
 state. It deliberately does not claim that downstream halt, risk, delivery or
 exchange behavior is historical strategy parity. Two production input gaps are
 still explicit rather than normalized away: Research workers load fixed deep
-warm-up windows while LiveRunner reloads rolling per-feed windows, and baseline
-`ma_rr_v9`/`srtrend_v10` histories leave `entryBarBrackets` off while the live
-wrappers protect the next bar. Choosing either historical meaning requires a
-methodology decision and a historical rerun, not a silent live-parity edit.
+warm-up windows while LiveRunner reloads rolling per-feed windows. New
+historical runs use the complete corrected fingerprint; legacy histories remain
+quarantined until recomputed rather than being silently relabelled.
 
 ## Platform components
 
@@ -435,9 +434,10 @@ than described here as if they were resolved:
 - **The webhook contract is hand-duplicated across the two repositories.** Each
   side vendors a copy with a fingerprint of its own source, and a test on each
   side fails when they diverge — but nothing makes them one artifact.
-- **The backtest fills a stop intrabar at the trigger price; the live path
-  cannot** (`BE-02`). Blocked on Binance testnet credentials for the
-  exchange-side stop, and on `BE-08` for the backtest-side correction.
+- **Binance-native protection is disabled and externally unverified.** The
+  canonical corrected backtest/live model therefore decides after a completed
+  candle and executes a later MARKET exit, retaining the intended stop/target
+  only as provenance. No trigger-price or downtime-protection parity is claimed.
 - **The multi-timeframe merge convention is resolved** (`BE-08`). Official Pine
   v6 documentation places new historical `lookahead_off` values at the end of
   each HTF period. Both built-in MTF and the Pine interpreter now use that

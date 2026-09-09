@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import {
   createChart, IChartApi, ISeriesApi, UTCTimestamp, LineStyle,
 } from "lightweight-charts";
-import { baseChartOptions } from "@/lib/chartTheme";
+import { baseChartOptions, subscribeChartTheme } from "@/lib/chartTheme";
 import type { EquityPoint } from "@/lib/types";
 
 /**
@@ -21,6 +21,7 @@ export function EquityCurve({ points, initialCapital, className = "h-[260px]" }:
   useEffect(() => {
     if (!ref.current) return;
     const chart = createChart(ref.current, baseChartOptions());
+    const unsubscribeTheme = subscribeChartTheme(chart);
     areaRef.current = chart.addAreaSeries({
       lineColor: "#4f8cff", topColor: "rgba(79,140,255,0.25)", bottomColor: "rgba(79,140,255,0.02)",
       lineWidth: 2,
@@ -29,7 +30,7 @@ export function EquityCurve({ points, initialCapital, className = "h-[260px]" }:
       color: "#6b7486", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false,
     });
     chartRef.current = chart;
-    return () => { chart.remove(); chartRef.current = null; areaRef.current = null; baseRef.current = null; };
+    return () => { unsubscribeTheme(); chart.remove(); chartRef.current = null; areaRef.current = null; baseRef.current = null; };
   }, []);
 
   useEffect(() => {

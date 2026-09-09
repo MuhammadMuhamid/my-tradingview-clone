@@ -208,9 +208,10 @@ Turning it on is `BINANCE_TESTNET=true` in the bot's `.env`. On the bot side,
 overwriting it (`BOT-030`).
 
 **No credentialed testnet operation has ever been performed from this
-workspace**, and two findings are blocked on that: the exchange-native stop
-adapter (`BOT-017`, disabled by default) and replacing the order-signing library
-(`BOT-039`).
+workspace.** The exchange-native stop adapter (`BOT-017`) therefore remains
+disabled and unverified. Canonical historical/live reporting uses the truthful
+non-native completed-candle MARKET-exit model and makes no claim of resting
+protection during process/network downtime.
 
 ---
 

@@ -78,13 +78,19 @@ function row(id: string, over: Partial<MaAlertRow>): MaAlertRow {
   };
 }
 
-function localRunner(initialRows: MaAlertRow[], transport?: (message: PushMessage) => Promise<PushResult>) {
+function localRunner(
+  initialRows: MaAlertRow[],
+  transport?: (message: PushMessage) => Promise<PushResult>,
+  outbox?: { failCompletionOnce?: boolean },
+) {
   const rows = initialRows.map((item) => ({ ...item }));
   const evaluations: EvaluationWrite[] = [];
   const events: EventWrite[] = [];
   const pushes: PushMessage[] = [];
   const trace: string[] = [];
   let now = T0;
+  const claims = new Set<string>();
+  let failCompletion = outbox?.failCompletionOnce === true;
 
   const runner = new MaAlertRunner(log, {
     listAlerts: async (opts = {}) => rows.filter((item) =>
@@ -108,6 +114,27 @@ function localRunner(initialRows: MaAlertRow[], transport?: (message: PushMessag
       trace.push(`event:${input.alertId}`);
       events.push({ ...input });
     },
+    claimDelivery: async (input: {
+      occurrenceKey: string; id: string; side: "above" | "below" | null; barTime: number;
+    }) => {
+      trace.push(`claim:${input.id}`);
+      if (claims.has(input.occurrenceKey)) return false;
+      claims.add(input.occurrenceKey);
+      const item = rows.find((candidate) => candidate.id === input.id)!;
+      item.lastSide = input.side;
+      item.lastBarTime = new Date(input.barTime).toISOString();
+      item.lastFiredAt = new Date(now).toISOString();
+      item.lastFiredBarTime = new Date(input.barTime).toISOString();
+      return true;
+    },
+    completeDelivery: async (_key: string, input: EventWrite) => {
+      trace.push(`complete:${input.alertId}`);
+      if (failCompletion) {
+        failCompletion = false;
+        throw new Error("injected completion failure after provider submission");
+      }
+      events.push({ ...input });
+    },
     sendPush: async (message) => {
       trace.push(`push:${message.tag?.replace(/^ma-/, "")}`);
       pushes.push({ ...message });
@@ -121,6 +148,29 @@ function localRunner(initialRows: MaAlertRow[], transport?: (message: PushMessag
     setNow(value: number) { now = value; },
   };
 }
+
+test("FC1-H1 crash after push cannot resubmit an occurrence after restart", async () => {
+  const fake = localRunner([
+    row("crash", { frequency: "once_per_bar_close", lastSide: "below" }),
+  ], undefined, { failCompletionOnce: true });
+  const bars = history();
+  await assert.rejects(
+    () => fake.runner.replay({
+      symbol: "BTCUSDT", interval: "1m", bars,
+      sampleBar: bars.at(-1)!, isClosedBar: true, now: T0,
+    }),
+    /injected completion failure/
+  );
+  assert.equal(fake.pushes.length, 1, "the provider was submitted once before the crash");
+
+  // A restarted worker re-reads the durable fired identity. The provider does
+  // not expose an idempotency API, so dispatching/unknown is never retried.
+  await fake.runner.replay({
+    symbol: "BTCUSDT", interval: "1m", bars,
+    sampleBar: bars.at(-1)!, isClosedBar: true, now: T0 + 1,
+  });
+  assert.equal(fake.pushes.length, 1, "restart must not duplicate the external submission");
+});
 
 test("all eight families run bar → condition → cadence → event → payload → fake push", async () => {
   const frequencies: AlertFrequency[] = [
@@ -188,10 +238,14 @@ test("all eight families run bar → condition → cadence → event → payload
   assert.ok(fake.pushes.every((message) => message.tag?.startsWith("ma-")));
   assert.ok(fake.pushes.every((message) => message.url === "/chart?symbol=BTCUSDT&interval=1m"));
   for (const alert of alerts) {
+    const claim = fake.trace.indexOf(`claim:${alert.id}`);
     const push = fake.trace.indexOf(`push:${alert.id}`);
-    const event = fake.trace.indexOf(`event:${alert.id}`);
+    const complete = fake.trace.indexOf(`complete:${alert.id}`);
     const persist = fake.trace.indexOf(`persist:${alert.id}`);
-    assert.ok(push >= 0 && push < event && event < persist, `${alert.id}: ${fake.trace.join(", ")}`);
+    assert.ok(
+      claim >= 0 && claim < push && push < complete && complete < persist,
+      `${alert.id}: ${fake.trace.join(", ")}`
+    );
   }
   assert.equal(fake.rows.find((item) => item.id === "price")!.completedAt !== null, true,
     "delivered once_only must persist retirement");

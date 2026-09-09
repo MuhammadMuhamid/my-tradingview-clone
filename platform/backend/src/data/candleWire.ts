@@ -50,6 +50,8 @@ export interface CompactCandles {
   stepMs: number;
   count: number;
   bars: CompactBar[];
+  /** Present only when the newest derived candle is genuinely still forming. */
+  forming?: { openTime: number; sourceBarCount: number; expectedSourceBarCount: number };
 }
 
 /** Binance quotes at most 8 decimal places; anything beyond is float noise. */
@@ -62,6 +64,7 @@ export function toCompact(
   symbol: string,
   interval: Resolution
 ): CompactCandles {
+  const newest = candles[candles.length - 1];
   return {
     format: "compact-v1",
     symbol,
@@ -76,6 +79,11 @@ export function toCompact(
       round(c.close),
       round(c.volume),
     ]),
+    ...(newest?.complete === false ? { forming: {
+      openTime: newest.openTime,
+      sourceBarCount: newest.sourceBarCount ?? 0,
+      expectedSourceBarCount: newest.expectedSourceBarCount ?? 0,
+    } } : {}),
   };
 }
 

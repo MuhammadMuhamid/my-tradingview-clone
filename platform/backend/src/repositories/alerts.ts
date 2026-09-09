@@ -11,6 +11,8 @@ interface DbAlert {
   market_position: string;
   position_size: number;
   trigger_price: number;
+  intended_trigger_price: number | null;
+  decision_time: Date;
   reason: string | null;
   payload: AlertPayload;
   dedupe_key: string | null;
@@ -31,6 +33,8 @@ function toRow(r: DbAlert): AlertRow {
     marketPosition: r.market_position,
     positionSize: r.position_size,
     triggerPrice: r.trigger_price,
+    intendedTriggerPrice: r.intended_trigger_price,
+    decisionTime: r.decision_time.toISOString(),
     reason: r.reason,
     payload: r.payload,
     dedupeKey: r.dedupe_key,
@@ -49,6 +53,8 @@ export async function createAlert(input: {
   marketPosition: string;
   positionSize: number;
   triggerPrice: number;
+  intendedTriggerPrice?: number | null;
+  decisionTime?: number;
   reason: string;
   payload: AlertPayload;
   dedupeKey: string | null;
@@ -57,12 +63,15 @@ export async function createAlert(input: {
   const { rows } = await query<DbAlert>(
     `INSERT INTO alerts
        (deployment_id, bar_time, action, market_position, position_size,
-        trigger_price, reason, payload, dedupe_key, delivery_status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        trigger_price, intended_trigger_price, decision_time, reason, payload,
+        dedupe_key, delivery_status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      RETURNING *`,
     [
       input.deploymentId, new Date(input.barTime), input.action,
       input.marketPosition, input.positionSize, input.triggerPrice,
+      input.intendedTriggerPrice ?? null,
+      new Date(input.decisionTime ?? input.barTime),
       input.reason, JSON.stringify(redactPayload(input.payload as unknown as Record<string, unknown>)), input.dedupeKey,
       input.deliveryStatus,
     ]

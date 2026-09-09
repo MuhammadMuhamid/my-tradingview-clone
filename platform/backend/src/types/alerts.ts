@@ -87,7 +87,11 @@ export interface AlertRow {
   action: "buy" | "sell";
   marketPosition: string;
   positionSize: number;
+  /** Executable price known when the completed-candle decision was made. */
   triggerPrice: number;
+  /** Earlier bracket threshold that caused the decision; never a fill claim. */
+  intendedTriggerPrice: number | null;
+  decisionTime: string;
   reason: string | null;
   payload: AlertPayload;
   dedupeKey: string | null;

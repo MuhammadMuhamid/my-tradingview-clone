@@ -13,7 +13,7 @@
  * as literals because lightweight-charts renders to a canvas and cannot read a
  * CSS custom property.
  */
-import { ColorType, CrosshairMode, LineStyle, type DeepPartial, type ChartOptions } from "lightweight-charts";
+import { ColorType, CrosshairMode, LineStyle, type DeepPartial, type ChartOptions, type IChartApi } from "lightweight-charts";
 
 export const CHART_SURFACE = "#121722";
 export const CHART_GRID = "#161c28";
@@ -39,6 +39,11 @@ export const CHART_VOLUME_DOWN = "#3a1c24";
 export const CHART_MUTED = "#2a3346";
 export const CHART_CROSSHAIR = "#4b556b";
 export const CHART_LABEL_BG = "#2c3548";
+
+function cssToken(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
 
 /** The volume histogram's colour for one bar. */
 export function volumeColor(open: number, close: number): string {
@@ -67,38 +72,50 @@ export const PRICE_AXIS_WIDTH = 76;
  * on one page.
  */
 export function baseChartOptions(): DeepPartial<ChartOptions> {
+  const text = cssToken("--ts-ink-muted", CHART_TEXT);
+  const grid = cssToken("--ts-chart-grid", CHART_GRID);
+  const border = cssToken("--ts-line", CHART_BORDER);
+  const crosshair = cssToken("--ts-chart-crosshair", CHART_CROSSHAIR);
+  const label = cssToken("--ts-chart-label", CHART_LABEL_BG);
   return {
     layout: {
       background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" },
-      textColor: CHART_TEXT,
+      textColor: text,
       fontFamily: CHART_FONT,
       fontSize: 11,
       attributionLogo: false,
     },
     grid: {
-      vertLines: { color: CHART_GRID },
-      horzLines: { color: CHART_GRID },
+      vertLines: { color: grid },
+      horzLines: { color: grid },
     },
     crosshair: {
       mode: CrosshairMode.Normal,
       vertLine: {
-        color: CHART_CROSSHAIR, width: 1, style: LineStyle.LargeDashed,
-        labelBackgroundColor: CHART_LABEL_BG,
+        color: crosshair, width: 1, style: LineStyle.LargeDashed,
+        labelBackgroundColor: label,
       },
       horzLine: {
-        color: CHART_CROSSHAIR, width: 1, style: LineStyle.LargeDashed,
-        labelBackgroundColor: CHART_LABEL_BG,
+        color: crosshair, width: 1, style: LineStyle.LargeDashed,
+        labelBackgroundColor: label,
       },
     },
     rightPriceScale: {
-      borderColor: CHART_BORDER,
+      borderColor: border,
       minimumWidth: PRICE_AXIS_WIDTH,
     },
     timeScale: {
-      borderColor: CHART_BORDER,
+      borderColor: border,
       timeVisible: true,
       secondsVisible: false,
     },
     autoSize: true,
   };
+}
+
+/** Apply semantic canvas tokens immediately whenever the root theme changes. */
+export function subscribeChartTheme(chart: IChartApi): () => void {
+  const apply = (): void => chart.applyOptions(baseChartOptions());
+  window.addEventListener("trading-scene-theme", apply);
+  return () => window.removeEventListener("trading-scene-theme", apply);
 }

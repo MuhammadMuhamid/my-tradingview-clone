@@ -612,6 +612,94 @@ export async function recordEvaluation(input: {
   );
 }
 
+/**
+ * Atomically claim one externally visible notification occurrence and persist
+ * the alert's fired identity before Web Push can be called. A duplicate or a
+ * crash-left `dispatching` row is never resubmitted automatically: its provider
+ * outcome is unknown, which is the only honest at-most-once boundary without a
+ * provider idempotency API.
+ */
+export async function claimDelivery(input: {
+  occurrenceKey: string;
+  id: string;
+  side: "above" | "below" | null;
+  barTime: number;
+  payload: Record<string, unknown>;
+}): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const claim = await client.query(
+      `INSERT INTO ma_alert_delivery_outbox
+         (occurrence_key, alert_id, bar_time, payload, status)
+       VALUES ($1,$2,$3,$4,'dispatching')
+       ON CONFLICT (occurrence_key) DO NOTHING
+       RETURNING occurrence_key`,
+      [input.occurrenceKey, input.id, new Date(input.barTime), input.payload]
+    );
+    if ((claim.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query(
+      `UPDATE ma_alerts
+         SET last_side = $2, last_bar_time = $3,
+             last_fired_at = now(), last_fired_bar_time = $3
+       WHERE id = $1`,
+      [input.id, input.side, new Date(input.barTime)]
+    );
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function completeDelivery(
+  occurrenceKey: string,
+  input: Parameters<typeof createEvent>[0]
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const completed = await client.query(
+      `UPDATE ma_alert_delivery_outbox
+         SET status = $2, completed_at = now()
+       WHERE occurrence_key = $1 AND status = 'dispatching'`,
+      [occurrenceKey, input.deliveryStatus]
+    );
+    if ((completed.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    await client.query(
+      `INSERT INTO ma_alert_events
+         (alert_id, bar_time, price, ma_value, distance_pct, title, body,
+          pushed_to, push_failed, push_pruned, delivery_status, intrabar, frequency,
+          pattern_detector_id, pattern_detector_version, pattern_settings_hash,
+          pattern_occurrence_id, pattern_occurrence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [
+        input.alertId, new Date(input.barTime), input.price, input.maValue,
+        input.distancePct, input.title, input.body, input.pushedTo,
+        input.pushFailed, input.pushPruned, input.deliveryStatus,
+        input.intrabar, input.frequency, input.patternDetectorId ?? null,
+        input.patternDetectorVersion ?? null, input.patternSettingsHash ?? null,
+        input.patternOccurrenceId ?? null, input.patternOccurrence ?? null,
+      ]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function createEvent(input: {
   alertId: string;
   barTime: number;

@@ -101,5 +101,8 @@ test("strategy order prices use the same tick normalization as Backtester", () =
     0.01,
   );
   assert.equal(result.steps[0]?.decision.reason, "TP");
-  assert.equal(result.steps[0]?.decision.price, 130);
+  assert.equal(result.steps[0]?.decision.price, 102.5,
+    "the executable decision price is the completed candle close");
+  assert.equal(result.steps[0]?.decision.intendedTriggerPrice, 130,
+    "the rounded protective trigger remains separate provenance");
 });

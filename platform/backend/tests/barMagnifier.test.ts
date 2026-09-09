@@ -163,9 +163,11 @@ test("the magnifier is asked for the bar being walked, not some other bar", () =
   assert.deepEqual(seen, [1]);
 });
 
-test("a gap through the stop at the open still fills at the open, magnifier or not", () => {
-  // The gap branch runs before any intrabar walk: an open beyond the trigger
-  // is not an ambiguity, it is a fill at a worse price.
+test("a gap keeps legacy open-fill identity but corrected execution waits for the completed close", () => {
+  // The gap branch runs before any intrabar walk. Legacy reproduction fills
+  // at that open; corrected executable semantics can only decide from the
+  // completed candle and therefore fill at its close while retaining 95 as
+  // the intended stop trigger.
   const gapped = bars({ open: 90, high: 106, low: 89, close: 103 });
   for (const on of [false, true]) {
     const broker = new Broker({
@@ -178,7 +180,9 @@ test("a gap through the stop at the open still fills at the open, magnifier or n
     broker.setExitLeg("RR1", null, 105, 95, 0);
     broker.processIntrabar(gapped, 1, { tp: { RR1: "TP" }, sl: "SL" });
     assert.equal(broker.closed[0]?.exitReason, "SL", `on=${on}`);
-    assert.equal(broker.closed[0]?.exitPrice, 90, "filled at the open, not the trigger");
+    assert.equal(broker.closed[0]?.exitPrice, on ? 103 : 90, `on=${on}`);
+    assert.equal(broker.closed[0]?.intendedTriggerPrice, on ? 95 : null, `on=${on}`);
+    assert.equal(broker.closed[0]?.exitTime, on ? gapped.closeTime[1]! + 1 : gapped.time[1]!, `on=${on}`);
   }
 });
 

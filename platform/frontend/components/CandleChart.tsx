@@ -14,6 +14,7 @@ import { describeStreamState } from "@/lib/marketStream";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import {
   baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_MUTED, CHART_UP, volumeColor,
+  subscribeChartTheme,
 } from "@/lib/chartTheme";
 import {
   createDisposalGuard, useChartMeasuring, useDetachChartObserver,
@@ -911,6 +912,7 @@ export function CandleChart({
     const guard = createDisposalGuard();
     disposalRef.current = guard;
     const chart = createChart(containerRef.current, baseChartOptions());
+    const unsubscribeTheme = subscribeChartTheme(chart);
     const vol = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "vol",
@@ -1006,6 +1008,7 @@ export function CandleChart({
       rangeReleaseRef.current = [];
       applyingRangeRef.current = false;
       publishedRangeRef.current = null;
+      unsubscribeTheme();
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;

@@ -30,6 +30,8 @@ export interface TradeRecord {
   runUpPct: number | null;
   drawdownPct: number | null;
   cumProfit: number | null;
+  /** Protective trigger that caused a close-time market exit; not a fill price. */
+  intendedTriggerPrice?: number | null;
 }
 
 export interface EquityPoint {

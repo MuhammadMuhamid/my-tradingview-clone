@@ -180,6 +180,9 @@ test("FOLDING IS EXACT: open first, close last, high highest, low lowest, volume
     close: 90,          // the last source bar's close
     volume: 7,          // the sum
     closeTime: 45 * 60_000 - 1,
+    complete: true,
+    sourceBarCount: 3,
+    expectedSourceBarCount: 3,
   });
 });
 
@@ -228,11 +231,13 @@ test("quote volume and trade count are summed when present, and absent when not"
   assert.equal(plain!.tradeCount, undefined);
 });
 
-test("a native plan relabels and copies rather than aggregating", () => {
+test("a native plan relabels, copies, and marks its single source complete", () => {
   const plan = parseResolution("15m")!;
   const source = [bar(0, 1, 2, 0.5, 1.5, 9)];
   const folded = foldBars(source, plan);
-  assert.deepEqual(folded, source, "a native resolution is its own source");
+  assert.deepEqual(folded, source.map((item) => ({
+    ...item, complete: true, sourceBarCount: 1, expectedSourceBarCount: 1,
+  })), "a native resolution is one complete source row");
   assert.notEqual(folded[0], source[0], "and never hands back the caller's object");
 });
 

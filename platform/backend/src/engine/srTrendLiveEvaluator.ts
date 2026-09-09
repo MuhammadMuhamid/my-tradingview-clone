@@ -79,10 +79,16 @@ export function evaluateSrTrendBar(feeds: FeedStore, symbol: string, chartTf: In
   }
   if (!reason) return { next, decision: null };
   // BE-15: net of both commissions, matching the backtest's `pnl > 0`.
-  const win = isNetWin(entry, exitPx);
+  // Protective touches are observed at completed-candle time; the current Bot
+  // can submit only a later MARKET sell. Account live state at the close-model
+  // decision price and retain the stop/target separately as provenance.
+  const win = isNetWin(entry, c);
   next.consecLosses = win ? 0 : next.consecLosses + 1;
   if (!win && next.consecLosses >= p.maxConsecLoss) { next.choppyUntilBarTime = barTime + p.choppyPauseBars * barMs; next.consecLosses = 0; }
   next.position = "flat"; next.entryPrice = null; next.entryBarTime = null; next.savedLongStop = null;
   next.savedLongTp = null; next.trailAnchor = null; next.trailArmed = false; next.lastExitBarTime = barTime;
-  return { next, decision: { action: "sell", reason, price: c, barTime, barIndex: i } };
+  return { next, decision: {
+    action: "sell", reason, price: c, barTime, barIndex: i,
+    ...(exitPx !== c ? { intendedTriggerPrice: exitPx } : {}),
+  } };
 }

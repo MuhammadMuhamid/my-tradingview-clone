@@ -9,7 +9,7 @@ import {
 import {
   planSeriesMutation, plotValueAt, type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
-import { baseChartOptions } from "@/lib/chartTheme";
+import { baseChartOptions, subscribeChartTheme } from "@/lib/chartTheme";
 import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
 import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicatorPaneLayout";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
@@ -217,6 +217,7 @@ export function IndicatorPane({
       rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top: 0.12, bottom: 0.12 } },
       timeScale: { ...base.timeScale, visible: showTimeAxisRef.current },
     });
+    const unsubscribeTheme = subscribeChartTheme(chart);
     const guard = createDisposalGuard();
     const crosshair = (param: { time?: Time }): void => {
       if (guard.disposed) return;
@@ -257,6 +258,7 @@ export function IndicatorPane({
       onReady(id, null);
       chart.unsubscribeCrosshairMove(crosshair);
       chart.timeScale().unsubscribeVisibleTimeRangeChange(range);
+      unsubscribeTheme();
       chart.remove();
       chartRef.current = null;
       seriesEntries.clear();

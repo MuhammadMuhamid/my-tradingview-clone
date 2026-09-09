@@ -116,12 +116,12 @@ export function evaluateMtfLeanBar(
   }
   activeStop = roundStrategyPrice(activeStop, priceTick);
 
-  const finish = (reason: string, leg: "runner" | "stop" | "signal", price: number): void => {
+  const finish = (reason: string, leg: "runner" | "stop" | "signal", triggerPrice: number): void => {
     // BE-15: net of both commissions, matching the backtest's `pnl > 0` on
     // `broker.closed`. Gross comparison made a +0.03 % exit a win here and a
     // loss there, which flipped consecLosses and desynchronised the choppy
     // pause — so the two took different trade sets from the same data.
-    const win = isNetWin(entry, price);
+    const win = isNetWin(entry, close);
     if (win) {
       next.consecLosses = 0;
     } else {
@@ -134,7 +134,10 @@ export function evaluateMtfLeanBar(
       }
     }
     resetPosition(next, barTime);
-    emit({ action: "sell", reason, price, barTime, barIndex: i, exitLeg: leg });
+    emit({
+      action: "sell", reason, price: close, barTime, barIndex: i, exitLeg: leg,
+      ...(triggerPrice !== close ? { intendedTriggerPrice: triggerPrice } : {}),
+    });
   };
 
   /** Returns true when this tier closed the whole remaining position. */
@@ -151,7 +154,8 @@ export function evaluateMtfLeanBar(
     emit({
       action: "sell",
       reason: tier.toUpperCase(),
-      price: tier === "tp1" ? tp1 : tp2,
+      price: close,
+      intendedTriggerPrice: tier === "tp1" ? tp1 : tp2,
       barTime,
       barIndex: i,
       ...(isFullClose ? {} : { sellPercent: currentPct }),

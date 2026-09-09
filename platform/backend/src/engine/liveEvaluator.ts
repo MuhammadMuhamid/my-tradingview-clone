@@ -26,7 +26,10 @@ import type { MaRrParams } from "./strategies/ma_rr_v9/params";
 export interface LiveDecision {
   action: "buy" | "sell";
   reason: string;
-  price: number;   // close of the evaluated bar (trigger_price)
+  /** Executable decision price: close of the fully evaluated candle. */
+  price: number;
+  /** Stop/target whose touch caused the decision; never represented as a fill. */
+  intendedTriggerPrice?: number;
   barTime: number; // open time of the evaluated bar
   barIndex: number;
 }
@@ -190,8 +193,11 @@ export function evaluateBar(
     // BE-15: net of both commissions, matching the backtest's `pnl > 0` on
     // `broker.closed`. A gross comparison made a +0.03 % exit a win here and a
     // loss there, desynchronising the circuit breaker.
-    const win = isNetWin(entryPx, exitPx);
-    const pnlPct = netPnlPct(entryPx, exitPx);
+    // The touch is knowable only after the completed candle. The executable
+    // architecture then submits a MARKET sell, so close is the deterministic
+    // historical/live decision-price oracle; exitPx remains provenance only.
+    const win = isNetWin(entryPx, close);
+    const pnlPct = netPnlPct(entryPx, close);
     const barMs = chart.closeTime[i]! - chart.time[i]! + 1;
     if (win) {
       next.consecLosses = 0;
@@ -221,7 +227,10 @@ export function evaluateBar(
     next.tp1Done = false;
     next.tp2Done = false;
     next.lastExitBarTime = barTime;
-    decision = { action: "sell", reason: exitReason, price: close, barTime, barIndex: i };
+    decision = {
+      action: "sell", reason: exitReason, price: close, barTime, barIndex: i,
+      ...(exitPx !== close ? { intendedTriggerPrice: exitPx } : {}),
+    };
   }
 
   return { next, decision };

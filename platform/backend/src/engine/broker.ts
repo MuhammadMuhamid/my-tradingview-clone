@@ -85,6 +85,8 @@ export interface ClosedLeg extends TradeRecord {
   /** Total commission attributable to this leg (its exit fee plus its pro-rata
    *  share of the entry fee). Lets a sub-window report its own fee total. */
   commission: number;
+  /** Stop/target that caused a close-time MARKET decision, distinct from fill. */
+  intendedTriggerPrice?: number | null;
 }
 
 export class Broker {
@@ -234,8 +236,10 @@ export class Broker {
       this.entryCommission = commission;
       this.commissionPaid += commission;
       this.realizedNet -= commission;
-      this.maxHighSinceEntry = bars.high[i]!;
-      this.minLowSinceEntry = bars.low[i]!;
+      // A close-time entry was not exposed to the candle's earlier extremes.
+      // Open fills were, so they continue to seed from the whole bar.
+      this.maxHighSinceEntry = this.opts.fillOnBarClose ? fillPx : bars.high[i]!;
+      this.minLowSinceEntry = this.opts.fillOnBarClose ? fillPx : bars.low[i]!;
     } else if (order.action === "close" && this.positionQty > 0) {
       this.fillExit(this.positionQty, px - this.slip, bars.time[i]!, i, order.reason);
       this.legs = [];
@@ -257,10 +261,19 @@ export class Broker {
     const high = bars.high[i]!;
     const low = bars.low[i]!;
     const close = bars.close[i]!;
-    const t = bars.time[i]!;
+    // Under the executable non-native protection model, a touch is knowable
+    // only once the candle is complete. Legacy reproduction keeps its original
+    // intrabar timestamp identity; corrected results use the same decision
+    // boundary as LiveRunner (`bar open + interval`, i.e. closeTime + 1 ms).
+    const t = this.corrections.executableCloseFills
+      ? bars.closeTime[i]! + 1
+      : bars.time[i]!;
     const green = close >= open;
 
-    const fillLeg = (leg: ExitLeg, px: number, reason: string): void => {
+    const fillLeg = (
+      leg: ExitLeg, legacyFillPx: number, reason: string,
+      intendedTriggerPx = legacyFillPx
+    ): void => {
       if (this.positionQty <= 0) return;
       const requested = Math.min(leg.qty ?? this.positionQty, this.positionQty);
       if (requested <= 0) return;
@@ -274,20 +287,24 @@ export class Broker {
        * `rejectedLegs` so a report can say how often this happens rather than
        * leaving the difference unexplained.
        */
-      const qty = this.applyExchangeFilters(requested, px, i, leg.id);
+      const executablePx = this.corrections.executableCloseFills
+        ? close - this.slip
+        : legacyFillPx;
+      const qty = this.applyExchangeFilters(requested, executablePx, i, leg.id);
       if (qty === null) {
         this.legs = this.legs.filter((l) => l.id !== leg.id);
         return;
       }
-      this.fillExit(qty, px, t, i, reason);
+      this.fillExit(qty, executablePx, t, i, reason,
+        this.corrections.executableCloseFills ? intendedTriggerPx : null);
       this.legs = this.legs.filter((l) => l.id !== leg.id);
     };
 
     // 1. Gap fills at the open (open beyond the trigger fills at open).
     for (const leg of [...active]) {
       if (this.positionQty <= 0) break;
-      if (open <= leg.stop) fillLeg(leg, open - this.slip, exitReasons.sl);
-      else if (open >= leg.limit) fillLeg(leg, open, exitReasons.tp[leg.id] ?? "TP");
+      if (open <= leg.stop) fillLeg(leg, open - this.slip, exitReasons.sl, leg.stop);
+      else if (open >= leg.limit) fillLeg(leg, open, exitReasons.tp[leg.id] ?? "TP", leg.limit);
     }
 
     // 2. Intrabar path.
@@ -296,7 +313,7 @@ export class Broker {
     const runStops = (): void => {
       for (const leg of remaining()) {
         if (this.positionQty <= 0) break;
-        if (low <= leg.stop) fillLeg(leg, leg.stop - this.slip, exitReasons.sl);
+        if (low <= leg.stop) fillLeg(leg, leg.stop - this.slip, exitReasons.sl, leg.stop);
       }
     };
     const runLimits = (): void => {
@@ -304,7 +321,8 @@ export class Broker {
       const legsAsc = remaining().sort((a, b) => a.limit - b.limit);
       for (const leg of legsAsc) {
         if (this.positionQty <= 0) break;
-        if (high >= leg.limit) fillLeg(leg, leg.limit, exitReasons.tp[leg.id] ?? "TP");
+        if (high >= leg.limit) fillLeg(
+          leg, leg.limit, exitReasons.tp[leg.id] ?? "TP", leg.limit);
       }
     };
     /*
@@ -324,14 +342,15 @@ export class Broker {
       const stops = (): void => {
         for (const leg of remaining()) {
           if (this.positionQty <= 0) break;
-          if (l <= leg.stop) fillLeg(leg, leg.stop - this.slip, exitReasons.sl);
+          if (l <= leg.stop) fillLeg(leg, leg.stop - this.slip, exitReasons.sl, leg.stop);
         }
       };
       const limits = (): void => {
         const legsAsc = remaining().sort((a, b) => a.limit - b.limit);
         for (const leg of legsAsc) {
           if (this.positionQty <= 0) break;
-          if (h >= leg.limit) fillLeg(leg, leg.limit, exitReasons.tp[leg.id] ?? "TP");
+          if (h >= leg.limit) fillLeg(
+            leg, leg.limit, exitReasons.tp[leg.id] ?? "TP", leg.limit);
         }
       };
       if (rising) { stops(); limits(); } else { limits(); stops(); }
@@ -365,7 +384,10 @@ export class Broker {
     if (Number.isNaN(this.minLowSinceEntry) || l < this.minLowSinceEntry) this.minLowSinceEntry = l;
   }
 
-  private fillExit(qty: number, px: number, time: number, bar: number, reason: string): void {
+  private fillExit(
+    qty: number, px: number, time: number, bar: number, reason: string,
+    intendedTriggerPrice: number | null = null
+  ): void {
     const exitCommission = px * qty * (this.opts.commissionPct / 100);
     const entryCommShare = this.entryQty > 0 ? this.entryCommission * (qty / this.entryQty) : 0;
     const pnl = (px - this.avgPrice) * qty - exitCommission - entryCommShare;
@@ -392,6 +414,7 @@ export class Broker {
       entryBar: this.entryBar,
       exitBar: bar,
       commission: exitCommission + entryCommShare,
+      intendedTriggerPrice,
     });
     this.positionQty -= qty;
     if (this.positionQty < 1e-12) {

@@ -84,6 +84,8 @@ test("runner asks canonical service once and records the exact server bar", asyn
     listAlerts: (async () => [alert]) as never,
     recordEvaluation: (async (value: Record<string, unknown>) => { evaluated.push(value); }) as never,
     createEvent: (async (value: Record<string, unknown>) => { events.push(value); return value; }) as never,
+    claimDelivery: (async () => true) as never,
+    completeDelivery: (async (_key: string, value: Record<string, unknown>) => { events.push(value); }) as never,
     sendPush: async () => ({ sent: 1, failed: 0, pruned: 0 }),
     now: () => T0 + 3_600_000,
     analyzePatterns: async ({ asOf, settings }) => {

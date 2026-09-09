@@ -383,9 +383,11 @@ test("every authorisation gets its own nonce, and the nonce is unpredictable", (
     assert.ok(nonce.length >= SHARIAH_LIMITS.nonceMin, "nonce is below the contract floor");
     assert.equal(nonce.length, 32);
   }
-  // And nothing about the order is recoverable from it.
+  // The encoding must round-trip to the intended 24 random bytes. Testing
+  // that a random token never happens to contain an order substring is itself
+  // probabilistic (and produced a legitimate false failure).
   for (const nonce of minted) {
-    assert.equal(nonce.includes("APT"), false);
+    assert.equal(Buffer.from(nonce, "base64url").length, 24);
     assert.equal(/^[0-9]{10,17}$/.test(nonce), false);
   }
 });

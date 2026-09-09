@@ -1,22 +1,23 @@
 import type { Config } from "tailwindcss";
 
-// Dark trading-desk theme. Categorical/status hues come from the dataviz
-// reference palette (validated), used only for data marks — text stays on ink tokens.
+const token = (name: string): string => `rgb(var(--ts-${name}-rgb) / <alpha-value>)`;
+
+// Semantic tokens resolve through the root theme, including opacity utilities.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        bg: "#0b0e14",
-        surface: "#121722",
-        "surface-2": "#1a2030",
-        border: "#232b3a",
-        ink: "#e6e9ef",
-        "ink-muted": "#9aa4b6",
-        "ink-faint": "#6b7486",
-        accent: "#4f8cff",
-        up: "#2ebd85",     // long / profit (status good)
-        down: "#f6465d",   // loss (status critical)
+        bg: token("bg"),
+        surface: token("surface"),
+        "surface-2": token("surface-2"),
+        border: token("line"),
+        ink: token("ink"),
+        "ink-muted": token("ink-muted"),
+        "ink-faint": token("ink-faint"),
+        accent: token("accent"),
+        up: token("positive"),
+        down: token("negative"),
         /*
          * FE-11: `warn` was used in three components — the OPEN TRADE banner on
          * a backtest, the same banner in the strategy tester, and the OPEN row
@@ -29,7 +30,7 @@ const config: Config = {
          * whose outcome is not known yet. 9.7:1 against the surface, so it
          * carries small text.
          */
-        warn: "#f0b90b",   // unresolved / still at risk (status caution)
+        warn: token("caution"),
       },
       fontFamily: {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],

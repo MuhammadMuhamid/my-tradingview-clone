@@ -11,7 +11,7 @@ import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
 import { assertNoInternalCandleGaps } from "../data/candleSeries";
 import { FeedStore, subBarsFor, toBars, type Bars } from "./mtf";
 import { computeMetrics, downsampleEquity, toTradeRecords } from "./metrics";
-import { ACTIVE_CORRECTIONS, correctionsFingerprint, describeCorrections } from "./corrections";
+import { ACTIVE_CORRECTIONS, assertCorrectedEngine, correctionsFingerprint, describeCorrections } from "./corrections";
 import { maRrV9Module } from "./strategies/ma_rr_v9";
 import { srTrendV10Module } from "./strategies/srtrend_v10";
 import { mtfLeanModule } from "./strategies/mtf_lean";
@@ -72,6 +72,10 @@ export async function executeBacktest(
   row: BacktestRow,
   log: (msg: string) => void = () => {}
 ): Promise<BacktestOutput> {
+  // Legacy and partially corrected variants remain reproducible in focused
+  // pure tests, but production backtests/optimizers may only create corrected
+  // results. Existing rows retain their original fingerprint unchanged.
+  assertCorrectedEngine(ACTIVE_CORRECTIONS);
   const strategy = await strategyRepo.getStrategyById(row.strategyId);
   if (!strategy) throw new Error(`strategy id ${row.strategyId} not found`);
   // Strategy modules share the same runtime contract but have distinct resolved

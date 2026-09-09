@@ -77,6 +77,8 @@ export interface MaAlertRunnerDependencies {
   listAlerts: typeof maAlertRepo.listAlerts;
   recordEvaluation: typeof maAlertRepo.recordEvaluation;
   createEvent: typeof maAlertRepo.createEvent;
+  claimDelivery?: typeof maAlertRepo.claimDelivery;
+  completeDelivery?: typeof maAlertRepo.completeDelivery;
   sendPush: typeof sendPush;
   now: () => number;
   analyzePatterns: (input: {
@@ -92,6 +94,8 @@ const DEFAULT_DEPENDENCIES: MaAlertRunnerDependencies = {
   listAlerts: maAlertRepo.listAlerts,
   recordEvaluation: maAlertRepo.recordEvaluation,
   createEvent: maAlertRepo.createEvent,
+  claimDelivery: maAlertRepo.claimDelivery,
+  completeDelivery: maAlertRepo.completeDelivery,
   sendPush,
   now: Date.now,
   analyzePatterns: ({ symbol, interval, bars, asOf, settings }) => scannerRequest({
@@ -655,14 +659,21 @@ export class MaAlertRunner {
       if (!plan.act) continue;
 
       let delivered = false;
+      let claimed = true;
       if (plan.fire) {
-        delivered = await this.fire(
+        const preDeliveryState = stateAfterPlan(spec, plan, {
+          barTime: sampleBar.openTime, now, delivered: false,
+        });
+        const delivery = await this.fire(
           alert, condition, sampleBar, plan.reference, plan.distancePct,
-          !isClosedBar, plan.label,
+          !isClosedBar, plan.label, preDeliveryState.lastSide,
           condition.kind === "candlestick_pattern"
             ? canonical?.occurrenceFor(condition.patternId) : undefined,
         );
+        delivered = delivery.delivered;
+        claimed = delivery.claimed;
       }
+      if (!claimed) continue;
       const next = stateAfterPlan(spec, plan, {
         barTime: sampleBar.openTime, now, delivered,
       });
@@ -700,12 +711,34 @@ export class MaAlertRunner {
     alert: MaAlertRow, condition: AlertCondition, bar: Candle,
     reference: number, distancePct: number, intrabar: boolean,
     /** What the reference resolved to — the zone's side, or the pivot level. */
-    label: string | null,
+    label: string | null, nextSide: Side | null,
     patternOccurrence?: Record<string, unknown>,
-  ): Promise<boolean> {
+  ): Promise<{ delivered: boolean; claimed: boolean }> {
     const { title, body, tag, url } = formatAlertPush(
       alert, condition, bar, reference, distancePct, intrabar, label ?? undefined
     );
+    const occurrenceKey = [
+      alert.id,
+      bar.openTime,
+      intrabar ? "intrabar" : "closed",
+      alert.frequency === "once_per_minute"
+        ? Math.floor(this.dependencies.now() / 60_000)
+        : "bar",
+    ].join(":");
+    if (this.dependencies.claimDelivery) {
+      const claimed = await this.dependencies.claimDelivery({
+        occurrenceKey,
+        id: alert.id,
+        side: nextSide,
+        barTime: bar.openTime,
+        payload: { title, body, tag, url },
+      });
+      if (!claimed) {
+        this.log.warn({ alertId: alert.id, occurrenceKey },
+          "alert occurrence already claimed; external push not repeated");
+        return { delivered: false, claimed: false };
+      }
+    }
 
     let delivery: PushResult = { sent: 0, pruned: 0, failed: 0 };
     try {
@@ -727,7 +760,7 @@ export class MaAlertRunner {
 
     // The event row is written whether or not a device was reachable, so the
     // in-app feed still shows what fired when the phone was offline.
-    await this.dependencies.createEvent({
+    const event = {
       alertId: alert.id,
       barTime: bar.openTime,
       price: bar.close,
@@ -752,7 +785,12 @@ export class MaAlertRunner {
         : null,
       patternOccurrence: alert.conditionKind === "candlestick_pattern"
         ? patternOccurrence ?? null : null,
-    });
+    };
+    if (this.dependencies.completeDelivery) {
+      await this.dependencies.completeDelivery(occurrenceKey, event);
+    } else {
+      await this.dependencies.createEvent(event);
+    }
     this.log.info(
       {
         alertId: alert.id, symbol: alert.symbol, kind: alert.conditionKind,
@@ -761,6 +799,6 @@ export class MaAlertRunner {
       },
       "alert fired"
     );
-    return delivery.sent > 0;
+    return { delivered: delivery.sent > 0, claimed: true };
   }
 }

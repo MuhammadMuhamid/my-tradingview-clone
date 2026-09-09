@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import {
   ACTIVE_CORRECTIONS, activeCorrectionKeys, allCorrections, assertNotBe08Dependent,
   BE08_DEPENDENT, CORRECTION_KEYS, correctionsFingerprint, describeCorrections,
-  noCorrections, parseCorrections,
+  assertCorrectedEngine, noCorrections, parseCorrections,
 } from "../src/engine/corrections";
 import { computeMetrics, computeSegmentMetrics } from "../src/engine/metrics";
 import type { ClosedLeg } from "../src/engine/broker";
@@ -22,12 +22,11 @@ import type { EquityPoint } from "../src/types/backtest";
 
 // ── The baseline invariant ──────────────────────────────────────────────────
 
-test("the process default is BASELINE — no correction is on unless asked for", () => {
-  // Anything else would mean a stored result was produced by an engine nobody
-  // chose. `tests/test.env` sets no ENGINE_CORRECTIONS.
-  assert.deepEqual(activeCorrectionKeys(ACTIVE_CORRECTIONS), []);
-  assert.equal(correctionsFingerprint(ACTIVE_CORRECTIONS), "engine:baseline");
-  assert.match(describeCorrections(ACTIVE_CORRECTIONS), /NONE \(baseline behaviour/);
+test("FC1-B2: missing environment defaults to the complete corrected engine", () => {
+  assert.deepEqual(activeCorrectionKeys(ACTIVE_CORRECTIONS), [...CORRECTION_KEYS]);
+  assert.match(correctionsFingerprint(ACTIVE_CORRECTIONS), /^engine:v2-corrected:/);
+  assert.match(describeCorrections(ACTIVE_CORRECTIONS), /v2 corrected semantics/);
+  assert.doesNotThrow(() => assertCorrectedEngine(ACTIVE_CORRECTIONS));
 });
 
 test("every declared key is off in the baseline set and on in the full set", () => {
@@ -51,8 +50,9 @@ test("the flag list parses names, `all` and `none`", () => {
   );
   assert.deepEqual(activeCorrectionKeys(parseCorrections("all")), [...CORRECTION_KEYS]);
   assert.deepEqual(activeCorrectionKeys(parseCorrections("none")), []);
-  assert.deepEqual(activeCorrectionKeys(parseCorrections("")), []);
-  assert.deepEqual(activeCorrectionKeys(parseCorrections(undefined)), []);
+  assert.deepEqual(activeCorrectionKeys(parseCorrections("")), [...CORRECTION_KEYS]);
+  assert.deepEqual(activeCorrectionKeys(parseCorrections(undefined)), [...CORRECTION_KEYS]);
+  assert.deepEqual(activeCorrectionKeys(parseCorrections("legacy-baseline")), []);
 });
 
 test("an unrecognised name THROWS rather than being ignored", () => {
@@ -68,10 +68,10 @@ test("an unrecognised name THROWS rather than being ignored", () => {
 });
 
 test("the fingerprint is stable and names what is on", () => {
-  assert.equal(correctionsFingerprint(noCorrections()), "engine:baseline");
+  assert.equal(correctionsFingerprint(noCorrections()), "engine:legacy-baseline:quarantined");
   assert.equal(
     correctionsFingerprint(parseCorrections("netAvgTrade,zeroPnlIsScratch")),
-    "engine:netAvgTrade+zeroPnlIsScratch"
+    "engine:v2-corrected:netAvgTrade+zeroPnlIsScratch"
   );
   // Same set, different input order — same fingerprint, so a stored result can
   // be compared by string.
@@ -79,6 +79,11 @@ test("the fingerprint is stable and names what is on", () => {
     correctionsFingerprint(parseCorrections("zeroPnlIsScratch,netAvgTrade")),
     correctionsFingerprint(parseCorrections("netAvgTrade,zeroPnlIsScratch"))
   );
+});
+
+test("legacy and partial variants are quarantined from new production work", () => {
+  assert.throws(() => assertCorrectedEngine(noCorrections()), /quarantined/);
+  assert.throws(() => assertCorrectedEngine(parseCorrections("netAvgTrade")), /missing corrections/);
 });
 
 test("no currently-implemented correction depends on resolving BE-08", () => {
