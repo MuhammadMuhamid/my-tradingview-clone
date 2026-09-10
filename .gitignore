@@ -12,6 +12,8 @@
 # ── dependencies / build output ──
 node_modules/
 .next/
+# Next.js 16 owns and rewrites this declaration for dev/build-specific types.
+platform/frontend/next-env.d.ts
 dist/
 *.tsbuildinfo
 __pycache__/
