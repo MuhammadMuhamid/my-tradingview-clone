@@ -6,6 +6,10 @@ import {
   ShariahExposureBlockedError, assertShariahExposureAllowed,
   normalizeSpotSide, type ShariahGateDeps, type SpotSide,
 } from "../../shariah/gate";
+import {
+  assertExecutionSupported, defaultExecutionTarget, UnsupportedExecutionError,
+  type ExecutionTarget,
+} from "../../market/execution";
 
 function bodyRecord(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new ManualBotError("invalid request body", 400);
@@ -27,6 +31,9 @@ async function send<T>(reply: FastifyReply, action: () => Promise<T>) {
     if (error instanceof ShariahExposureBlockedError) {
       return reply.code(error.status).send({ error: error.message, shariah: error.context });
     }
+    if (error instanceof UnsupportedExecutionError) {
+      return reply.code(error.status).send({ error: error.message, code: "unsupported_execution" });
+    }
     if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message });
     throw error;
   }
@@ -47,9 +54,15 @@ function gatedSide(command: Record<string, unknown>): SpotSide {
 
 export async function manualTradingRoutes(
   app: FastifyInstance,
-  dependencies: { shariah?: ShariahGateDeps } = {}
+  dependencies: {
+    shariah?: ShariahGateDeps;
+    executionTarget?: (instrument: string) => ExecutionTarget;
+    botRequest?: typeof manualBotRequest;
+  } = {}
 ): Promise<void> {
   const shariahDeps = dependencies.shariah ?? {};
+  const resolveExecutionTarget = dependencies.executionTarget ?? defaultExecutionTarget;
+  const sendBotRequest = dependencies.botRequest ?? manualBotRequest;
 
   /**
    * Advisory account context for the ticket: free and locked for the two assets
@@ -67,7 +80,7 @@ export async function manualTradingRoutes(
     const symbol = typeof query.symbol === "string" ? query.symbol : "";
     const accountId = typeof query.accountId === "string" ? query.accountId : "";
     if (!symbol || !accountId) throw new ManualBotError("symbol and accountId are required", 400);
-    return manualBotRequest({ method: "GET",
+    return sendBotRequest({ method: "GET",
       path: `/api/manual-trading/account-state?accountId=${encodeURIComponent(accountId)}`
         + `&symbol=${encodeURIComponent(symbol)}` });
   }));
@@ -94,7 +107,7 @@ export async function manualTradingRoutes(
     }
     const symbol = (req.query as { symbol?: unknown }).symbol;
     const query = typeof symbol === "string" ? `?symbol=${encodeURIComponent(symbol)}` : "";
-    return manualBotRequest({ method: "GET", path: `/api/manual-trading/state${query}` });
+    return sendBotRequest({ method: "GET", path: `/api/manual-trading/state${query}` });
   }));
 
   /**
@@ -106,6 +119,9 @@ export async function manualTradingRoutes(
   app.post("/api/manual-trading/orders", async (req, reply) => send(reply, async () => {
     const body = bodyRecord(req.body); const requestId = requestIdentity(body);
     const { requestId: _browserOnly, shariah: _neverTrustedFromClient, ...command } = body;
+
+    const target = resolveExecutionTarget(String(command.symbol ?? ""));
+    assertExecutionSupported(target, command);
 
     const context = await assertShariahExposureAllowed(
       { symbol: String(command.symbol ?? ""), side: gatedSide(command) },
@@ -120,7 +136,7 @@ export async function manualTradingRoutes(
      * Mode on must not depend on a second, hidden switch to actually send the
      * evidence that lets the Bot enforce it.
      */
-    return manualBotRequest({ method: "POST", path: "/api/manual-trading/orders",
+    return sendBotRequest({ method: "POST", path: "/api/manual-trading/orders",
       body: { ...command, shariah: context }, requestId });
   }));
 
@@ -130,7 +146,7 @@ export async function manualTradingRoutes(
   app.post<{ Params: { id: string } }>("/api/manual-trading/orders/:id/cancel", async (req, reply) =>
     send(reply, async () => { const body = bodyRecord(req.body); const requestId = requestIdentity(body);
       const { requestId: _browserOnly, ...command } = body;
-      return manualBotRequest({ method: "POST",
+      return sendBotRequest({ method: "POST",
         path: `/api/manual-trading/orders/${encodeURIComponent(req.params.id)}/cancel`,
         body: command, requestId });
     }));
@@ -138,7 +154,7 @@ export async function manualTradingRoutes(
   app.patch<{ Params: { id: string } }>("/api/manual-trading/positions/:id/protection", async (req, reply) =>
     send(reply, async () => { const body = bodyRecord(req.body); const requestId = requestIdentity(body);
       const { requestId: _browserOnly, ...command } = body;
-      return manualBotRequest({ method: "PATCH",
+      return sendBotRequest({ method: "PATCH",
         path: `/api/manual-trading/positions/${encodeURIComponent(req.params.id)}/protection`,
         body: command, requestId });
     }));

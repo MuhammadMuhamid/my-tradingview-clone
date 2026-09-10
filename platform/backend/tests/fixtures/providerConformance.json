@@ -1,0 +1,21 @@
+{
+  "alpha": {
+    "providerId": "fake-alpha",
+    "venueId": "ALPHA",
+    "providerSymbol": "COLLIDE",
+    "baseAsset": "BTC",
+    "quoteAsset": "USD",
+    "instrumentType": "spot",
+    "session": "continuous"
+  },
+  "beta": {
+    "providerId": "fake-beta",
+    "venueId": "BETA",
+    "providerSymbol": "COLLIDE",
+    "baseAsset": "BTC",
+    "quoteAsset": "USD",
+    "instrumentType": "future",
+    "expiry": "2026-12-18",
+    "session": "calendar"
+  }
+}

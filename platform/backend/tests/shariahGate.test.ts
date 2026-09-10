@@ -165,7 +165,9 @@ test("the exposure rule is one pure function that every path shares", () => {
 
 test("every Platform path that can create Spot exposure calls the gate first", () => {
   const manual = read("api/routes/manualTrading.ts");
-  assert.ok(manual.indexOf("assertShariahExposureAllowed") < manual.indexOf("manualBotRequest({ method: \"POST\", path: \"/api/manual-trading/orders\""),
+  const botCall = manual.indexOf("sendBotRequest({ method: \"POST\", path: \"/api/manual-trading/orders\"");
+  assert.ok(botCall > 0, "the manual order route has no identifiable Bot boundary");
+  assert.ok(manual.indexOf("assertShariahExposureAllowed") < botCall,
     "the manual order route contacts the Bot before gating");
 
   const deployments = read("api/routes/deployments.ts");

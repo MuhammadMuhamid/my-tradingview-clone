@@ -1,6 +1,10 @@
 /**
- * What names an instrument, once, so a second venue is an entry rather than a
- * rewrite.
+ * Legacy Binance Spot symbol compatibility.
+ *
+ * X0's provider-neutral economic identity and full market vocabulary live in
+ * `market/model.ts`. This module intentionally remains the FC3 compatibility
+ * resolver for bare Binance provider symbols and old `BINANCE:SYMBOL` links.
+ * Neither form is the canonical X0 instrument id; `instrument:v1:...` is.
  *
  * ── What this is, and firmly is not ────────────────────────────────────────
  *
@@ -14,7 +18,7 @@
  *
  * ── Bare stays canonical on the wire ───────────────────────────────────────
  *
- * `BTCUSDT` is the stored form and the contract form. It resolves, by the only
+ * `BTCUSDT` is the legacy stored form and Bot contract form. It resolves, by the only
  * default this installation has, to BINANCE / crypto_spot.
  *
  * `BINANCE:BTCUSDT` is the qualified form. It is reduced back to the bare
@@ -135,7 +139,7 @@ export function tryResolveInstrument(raw: string): InstrumentId | null {
   catch { return null; }
 }
 
-/** `BINANCE:BTCUSDT` — the qualified form, for display and for links. */
+/** `BINANCE:BTCUSDT` — the legacy qualified form, for display and links. */
 export function formatInstrumentId(id: InstrumentId): string {
   return `${id.venue}:${id.ticker}`;
 }
