@@ -7,6 +7,8 @@ import { observationFreshness } from "../../market/provider";
 import type { ProviderRegistry } from "../../market/registry";
 import { foldBars, parseResolution, type ResolutionPlan } from "../../data/resolution";
 import { resolveSpotStreamRequest, type SpotStreamKind } from "../../market/spotStreams";
+import { assertEquityPricePurpose, EquitySemanticError } from "../../market/usEquities";
+import type { EquityAdjustmentMode, EquitySessionMode } from "../../market/provider";
 
 function safeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message.slice(0, 200) : "provider unavailable";
@@ -152,7 +154,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
     const type = (query.type ?? "all").trim().toLowerCase();
     const expiry = (query.expiry ?? "live").trim().toLowerCase();
     const underlying = (query.underlying ?? "").trim().toUpperCase();
-    const allowedTypes = new Set(["all", "spot", "perpetual", "future"]);
+    const allowedTypes = new Set(["all", "spot", "perpetual", "future", "stock", "etf"]);
     const allowedExpiries = new Set(["all", "live", "30d", "90d", "expired"]);
     if (!allowedTypes.has(type) || !allowedExpiries.has(expiry)) {
       return { contractVersion: MARKET_CONTRACT_VERSION, total: 0, venues: [], quotes: [], results: [],
@@ -204,7 +206,10 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         baseAsset: item.identity.baseAsset, quoteAsset: item.identity.quoteAsset,
         settlementAsset: item.identity.settlementAsset, instrumentType: item.identity.instrumentType,
         series: item.identity.series, status: effectiveListingStatus(item, now), tracked: true,
+        currency: item.currency, sessions: item.sessions, equity: item.equity,
         derivative: item.derivative, prices: item.prices, events: item.events, execution: item.execution,
+        screener: item.equity ? { category: item.equity.securityType,
+          fields: ["last", "volume", "listing_status", "session", "feed_delay", "adjustment"] } : undefined,
       })),
       errors: settled.filter((item) => item.unavailable).map((item) =>
         ({ providerId: item.providerId, error: item.unavailable })),
@@ -213,7 +218,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
 
   app.get("/api/market/v1/candles/:canonicalId", async (req, reply) => {
     const { canonicalId } = req.params as { canonicalId: string };
-    const query = req.query as { interval?: string; from?: string; to?: string; limit?: string; format?: string };
+    const query = req.query as { interval?: string; from?: string; to?: string; limit?: string; format?: string;
+      adjustment?: string; session?: string; feed?: string; purpose?: string };
     const requestedInterval = query.interval ?? "";
     if (!parseResolution(requestedInterval)) return reply.code(400).send({ error: "a canonical interval is required" });
     const limit = Math.min(Math.max(Number(query.limit ?? 1000) || 1000, 1), 200_000);
@@ -243,6 +249,37 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
     const abort = () => controller.abort();
     req.raw.once("aborted", abort);
     try {
+      if (mapping.instrument.equity) {
+        if (!provider.equities) return reply.code(422).send({ error: "equity semantics are unavailable" });
+        const adjustment = (query.adjustment ?? provider.equities.defaultAdjustment) as EquityAdjustmentMode;
+        const session = (query.session ?? provider.equities.defaultSession) as EquitySessionMode;
+        const purpose = query.purpose ?? "chart";
+        if (!provider.equities.adjustmentModes.includes(adjustment) || !provider.equities.sessionModes.includes(session)) {
+          return reply.code(400).send({ error: "invalid equity adjustment/session mode" });
+        }
+        if (purpose !== "chart" && purpose !== "study" && purpose !== "alert" && purpose !== "execution") {
+          return reply.code(400).send({ error: "purpose must be chart, study, alert or execution" });
+        }
+        try { assertEquityPricePurpose(adjustment, purpose, session); }
+        catch (error) {
+          if (error instanceof EquitySemanticError) return reply.code(error.status).send({ error: error.message });
+          throw error;
+        }
+        const dataset = await registry.call(provider.id, (registered) => registered.equities!.fetchCandles({
+          instrument: mapping.instrument, interval: plan.source, startMs, endMs, adjustment, session,
+          feed: query.feed ?? "iex", signal: controller.signal,
+        }));
+        const folded = foldBars(dataset.bars, plan).filter((row) => row.openTime >= requestedStartMs && row.openTime <= endMs);
+        const named = folded.slice(-limit).map((row) => ({ ...row, symbol: canonicalId })) as Candle[];
+        const semantics = { adjustmentMode: dataset.adjustmentMode, sessionMode: dataset.sessionMode,
+          phasesIncluded: dataset.phasesIncluded, feed: dataset.feed,
+          executionCompatible: dataset.executionCompatible, studies: dataset.studies,
+          corporateActionIds: dataset.corporateActionIds,
+          completeness: dataset.completeness };
+        return query.format === "compact"
+          ? { ...compact(named, canonicalId, requestedInterval), marketData: semantics }
+          : { symbol: canonicalId, interval: requestedInterval, bars: named, marketData: semantics };
+      }
       const rows = await registry.call(provider.id, (registered) =>
         registered.candles.fetch(mapping!.providerSymbol, plan.source, startMs, endMs, controller.signal));
       const folded = foldBars(rows, plan).filter((row) => row.openTime >= requestedStartMs && row.openTime <= endMs);
@@ -256,6 +293,75 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       return reply.code(502).send({ error: safeError(error), providerId: provider.id,
         health: registry.health(provider.id) });
     } finally { req.raw.off("aborted", abort); }
+  });
+
+  app.get("/api/market/v1/instrument/:canonicalId", async (req, reply) => {
+    const { canonicalId } = req.params as { canonicalId: string };
+    try {
+      const mapping = await resolveCanonical(registry, canonicalId);
+      if (!mapping) return reply.code(404).send({ error: "canonical instrument is not available" });
+      return { contractVersion: MARKET_CONTRACT_VERSION, providerId: mapping.providerId,
+        providerSymbol: mapping.providerSymbol, instrument: mapping.instrument };
+    } catch (error) { return reply.code(502).send({ error: safeError(error) }); }
+  });
+
+  app.get("/api/market/v1/corporate-actions/:canonicalId", async (req, reply) => {
+    const { canonicalId } = req.params as { canonicalId: string };
+    const query = req.query as { start?: string; end?: string };
+    let mapping;
+    try { mapping = await resolveCanonical(registry, canonicalId); }
+    catch (error) { return reply.code(502).send({ error: safeError(error) }); }
+    if (!mapping) return reply.code(404).send({ error: "canonical instrument is not available" });
+    const provider = registry.get(mapping.providerId)!;
+    if (!mapping.instrument.equity || !provider.equities) {
+      return reply.code(422).send({ error: "instrument has no corporate-action contract" });
+    }
+    const startDate = query.start ?? new Date(Date.now() - 366 * 86_400_000).toISOString().slice(0, 10);
+    const endDate = query.end ?? new Date().toISOString().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+      return reply.code(400).send({ error: "start/end must be ascending YYYY-MM-DD dates" });
+    }
+    try {
+      const actions = await registry.call(provider.id, (registered) => registered.equities!.corporateActions({
+        instrument: mapping.instrument, startDate, endDate,
+      }));
+      return { contractVersion: MARKET_CONTRACT_VERSION, canonicalId, providerId: provider.id,
+        dataQuality: "complete", actions };
+    } catch (error) { return reply.code(502).send({ error: safeError(error), providerId: provider.id }); }
+  });
+
+  app.get("/api/market/v1/screener", async (req, reply) => {
+    const query = req.query as { type?: string; session?: string; adjustment?: string };
+    const type = query.type ?? "stock";
+    const session = query.session ?? "regular";
+    const adjustment = query.adjustment ?? "raw";
+    if (type !== "stock" && type !== "etf") return reply.code(400).send({ error: "type must be stock or etf" });
+    if (session !== "regular" || adjustment !== "raw") {
+      return reply.code(422).send({ error: "equity screener studies are regular-session/raw-only in X4" });
+    }
+    const providers = registry.all().filter((provider) => provider.equities);
+    const settled = await Promise.all(providers.map(async (provider) => {
+      try {
+        const instruments = (await registry.call(provider.id, (item) => item.catalog.list()))
+          .filter((item) => item.identity.instrumentType === type);
+        const observations = instruments.length > 0
+          ? await registry.call(provider.id, (item) => item.ticker.fetch(instruments.map((instrument) => instrument.listing.providerSymbol)))
+          : [];
+        const byId = new Map(observations.map((item) => [item.canonicalInstrumentId, item]));
+        return { providerId: provider.id, rows: instruments.map((instrument) => ({
+          canonicalId: instrument.identity.canonicalId, symbol: instrument.listing.providerSymbol,
+          venueId: instrument.identity.venueId, instrumentType: instrument.identity.instrumentType,
+          last: byId.get(instrument.identity.canonicalId)?.values.last ?? null,
+          listingStatus: effectiveListingStatus(instrument), session: "regular", adjustment: "raw",
+          feed: instrument.equity!.marketData.defaultFeed,
+          feedDelaySeconds: instrument.equity!.marketData.feedDelaySeconds,
+        })) };
+      } catch (error) { return { providerId: provider.id, error: safeError(error) }; }
+    }));
+    return { contractVersion: MARKET_CONTRACT_VERSION, category: type, session: "regular", adjustment: "raw",
+      columns: ["symbol", "venue", "last", "listing_status", "feed_delay"],
+      rows: settled.flatMap((item) => "rows" in item ? item.rows : []),
+      errors: settled.filter((item) => "error" in item) };
   });
 
   app.get("/api/market/v1/stream/:canonicalId", async (req, reply) => {

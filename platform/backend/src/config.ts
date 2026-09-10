@@ -34,6 +34,8 @@ export interface AppConfig {
   spotExecutionEnabled: boolean;
   /** X3B paper/testnet/demo derivatives channel. No production mode exists. */
   derivativeExecutionEnabled: boolean;
+  /** X4 Alpaca paper equities channel. Production brokerage is unrepresentable. */
+  equityPaperExecutionEnabled: boolean;
   /** Paired-release switch for the signed Platform->Bot `shariah` context block. */
   realizationIngestionEnabled: boolean;
   realizationHmacSecret: string;
@@ -45,6 +47,11 @@ export interface AppConfig {
    * to it and no account/order endpoint is reachable through it.
    */
   binanceMarketDataBaseUrl: string;
+  /** Optional Alpaca paper/data credentials; never used for live brokerage. */
+  alpacaPaperApiKey: string;
+  alpacaPaperApiSecret: string;
+  /** Required alongside credentials because Alpaca Assets does not classify ETFs. */
+  alpacaEquityClassificationFile: string;
 }
 
 /**
@@ -175,6 +182,7 @@ export const config: AppConfig = {
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
   spotExecutionEnabled: process.env.SPOT_EXECUTION_ENABLED === "true",
   derivativeExecutionEnabled: process.env.DERIVATIVE_EXECUTION_ENABLED === "true",
+  equityPaperExecutionEnabled: process.env.EQUITY_PAPER_EXECUTION_ENABLED === "true",
   /*
    * SHARIAH_BOT_CONTEXT_ENABLED is gone, deliberately.
    *
@@ -194,6 +202,9 @@ export const config: AppConfig = {
     (process.env.NODE_ENV ?? "").toLowerCase() === "production" ? "" : "http://127.0.0.1:8000"
   )).replace(/\/$/, ""),
   binanceMarketDataBaseUrl: resolveBinanceMarketDataBaseUrl(process.env.BINANCE_MARKET_DATA_BASE_URL),
+  alpacaPaperApiKey: process.env.ALPACA_PAPER_API_KEY ?? "",
+  alpacaPaperApiSecret: process.env.ALPACA_PAPER_API_SECRET ?? "",
+  alpacaEquityClassificationFile: process.env.ALPACA_EQUITY_CLASSIFICATION_FILE ?? "",
 };
 
 // ── Fail closed ───────────────────────────────────────────────────────────────
@@ -219,6 +230,13 @@ if (config.authEnabled && isPublishedPlaceholder(config.sessionSecret)) {
 
 if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) {
   throw new Error(`Invalid PORT: ${JSON.stringify(process.env.PORT)}`);
+}
+
+const alpacaDataParts = [config.alpacaPaperApiKey, config.alpacaPaperApiSecret, config.alpacaEquityClassificationFile];
+if (alpacaDataParts.some(Boolean) && !alpacaDataParts.every(Boolean)) {
+  throw new Error(
+    "ALPACA_PAPER_API_KEY, ALPACA_PAPER_API_SECRET and ALPACA_EQUITY_CLASSIFICATION_FILE must be set together"
+  );
 }
 
 if (config.alertEncryptionKey.length < 32) {
@@ -257,13 +275,20 @@ if (config.spotExecutionEnabled && config.manualTradingHmacSecret.length === 0) 
 if (config.derivativeExecutionEnabled && config.manualTradingHmacSecret.length === 0) {
   throw new Error("MANUAL_TRADING_HMAC_SECRET must be set when derivatives execution is enabled");
 }
+if (config.equityPaperExecutionEnabled && config.manualTradingHmacSecret.length === 0) {
+  throw new Error("MANUAL_TRADING_HMAC_SECRET must be set when equity paper execution is enabled");
+}
+if (config.equityPaperExecutionEnabled && !alpacaDataParts.every(Boolean)) {
+  throw new Error("Alpaca paper/data credentials and classification provenance are required when equity paper execution is enabled");
+}
 if (config.realizationIngestionEnabled && config.realizationHmacSecret.length < 32) {
   throw new Error("REALIZATION_HMAC_SECRET must be at least 32 characters when realization ingestion is enabled");
 }
 if (config.realizationIngestionEnabled && isPublishedPlaceholder(config.realizationHmacSecret)) {
   throw new Error("REALIZATION_HMAC_SECRET is a published placeholder value — generate a real one");
 }
-if (config.manualTradingEnabled || config.spotExecutionEnabled || config.derivativeExecutionEnabled) {
+if (config.manualTradingEnabled || config.spotExecutionEnabled || config.derivativeExecutionEnabled
+    || config.equityPaperExecutionEnabled) {
   const manualBotUrl = new URL(config.manualTradingBotUrl);
   if (!/^https?:$/.test(manualBotUrl.protocol) || manualBotUrl.username || manualBotUrl.password) {
     throw new Error("MANUAL_TRADING_BOT_URL must be an http(s) URL without embedded credentials");

@@ -48,12 +48,40 @@ export interface SymbolSearchResult {
   baseAsset: string;
   quoteAsset: string;
   settlementAsset?: string;
-  instrumentType?: "spot" | "perpetual" | "future";
-  series?: { kind: "spot" | "perpetual" } | { kind: "dated"; expiry: string; delivery: string };
+  instrumentType?: "spot" | "perpetual" | "future" | "stock" | "etf";
+  series?: { kind: "spot" | "cash" | "perpetual" } | { kind: "dated"; expiry: string; delivery: string };
   status?: "active" | "halted" | "delisted" | "unknown";
   derivative?: DerivativeTerms;
+  currency?: string;
+  equity?: EquitySemantics;
   /** already in the local symbols table (has candles / can be charted at once) */
   tracked: boolean;
+}
+
+export interface EquitySemantics {
+  securityType: "stock" | "etf";
+  classificationSource: string;
+  primaryListing: { venueId: string; mic: string | null };
+  fractional: { support: "supported" } | { support: "unsupported"; reason: string };
+  marketData: { defaultFeed: string; feedEntitlement: string; feedCoverage: "single_venue" | "consolidated";
+    feedDelaySeconds: number; historicalEmbargoSeconds: number; defaultAdjustment: "raw";
+    executionPriceAdjustment: "raw"; defaultSession: "regular";
+    extendedHours: { support: "supported" } | { support: "unsupported"; reason: string };
+    overnight: { support: "supported" } | { support: "unsupported"; reason: string } };
+  borrow: { shortable: "yes" | "no" | "unknown"; status: "easy_to_borrow" | "hard_to_borrow" | "unknown";
+    availabilityCheckRequired: true; source: string };
+}
+
+export interface EquityInstrumentResponse {
+  contractVersion: "market.v1";
+  providerId: string;
+  providerSymbol: string;
+  instrument: { identity: { canonicalId: string; venueId: string; instrumentType: "stock" | "etf";
+      baseAsset: string; quoteAsset: "USD"; settlementAsset: "USD" };
+    listing: { status: "active" | "halted" | "delisted" | "unknown" };
+    currency: "USD"; equity: EquitySemantics;
+    events: { corporateActions: { support: string; eventTypes?: string[] } };
+    execution: { availability: { paper: boolean; testnet: boolean; live: boolean }; directions: { long: boolean; short: boolean } } };
 }
 
 export interface SymbolSearchResponse {
@@ -1117,13 +1145,15 @@ export const api = {
       `/api/symbols/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}&limit=${limit}`
     ),
   searchMarket: (q: string, quote = "", venue = "", limit = 60,
-    type: "all" | "spot" | "perpetual" | "future" = "all",
+    type: "all" | "spot" | "perpetual" | "future" | "stock" | "etf" = "all",
     expiry: "all" | "live" | "30d" | "90d" | "expired" = "live", underlying = "") =>
     req<SymbolSearchResponse>(
       `/api/market/v1/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}` +
       `&venue=${encodeURIComponent(venue)}&type=${type}&expiry=${expiry}` +
       `&underlying=${encodeURIComponent(underlying)}&limit=${limit}`
     ),
+  equityInstrument: (instrument: string, signal?: AbortSignal) => req<EquityInstrumentResponse>(
+    `/api/market/v1/instrument/${encodeURIComponent(instrument)}`, signal ? { signal } : undefined),
   derivative: (instrument: string, signal?: AbortSignal) => req<DerivativeSnapshotResponse>(
     `/api/market/v1/derivatives/${encodeURIComponent(instrument)}`, signal ? { signal } : undefined),
   derivativeFunding: (instrument: string, from: number, to: number, signal?: AbortSignal) => req<{
@@ -1145,7 +1175,7 @@ export const api = {
   candles: (symbol: string, interval: Resolution, limit = 1000, signal?: AbortSignal) =>
     req<CompactCandles>(
       symbol.toLowerCase().startsWith("instrument:v1:")
-        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=${limit}&format=compact`
+        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=${limit}&format=compact&session=regular&adjustment=raw&purpose=chart`
         : `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
     ).then(expandCompact),
@@ -1184,7 +1214,7 @@ export const api = {
   ) =>
     req<CompactCandles>(
       symbol.toLowerCase().startsWith("instrument:v1:")
-        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`
+        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact&session=regular&adjustment=raw&purpose=chart`
         : `/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
     ).then(expandCompact),

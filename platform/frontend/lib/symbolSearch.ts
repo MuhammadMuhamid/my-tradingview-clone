@@ -11,32 +11,30 @@
  * `undefined` and Enter was a no-op — but the rule is easy to get wrong again
  * and impossible to see in review.
  *
- * The market context: this installation trades Binance SPOT and nothing else.
- * There is no futures feed, no equities feed and no FX feed, so a filter chip
- * for any of them would be a control that cannot work. The venue and market
- * are stated here as constants so the dialog says them out loud rather than
- * leaving the user to infer what they are searching.
+ * The market context is explicit because one catalog now spans crypto, U.S.
+ * stocks and ETFs. Product and venue filters preserve the canonical identity;
+ * options and FX remain absent because no provider contract supports them.
  */
 import type { SymbolSearchResult } from "./api";
 
-/** The only venue this installation has a feed for. */
+/** Search is provider-aggregated and can return several canonical venues. */
 export const SEARCH_VENUE = "All venues";
 /** The supported read-only market catalog. Options remain intentionally absent. */
-export const SEARCH_MARKET = "Spot, perpetuals & futures";
+export const SEARCH_MARKET = "Crypto, U.S. stocks & ETFs";
 
 /** The chip that means "do not filter by quote asset". */
 export const ALL_QUOTES = "ALL";
 export const ALL_VENUES = "ALL";
 export const ALL_TYPES = "all";
 export const LIVE_EXPIRIES = "live";
-export type SearchInstrumentType = "all" | "spot" | "perpetual" | "future";
+export type SearchInstrumentType = "all" | "spot" | "perpetual" | "future" | "stock" | "etf";
 export type SearchExpiry = "all" | "live" | "30d" | "90d" | "expired";
 
 /**
  * The quote-asset chips, from whatever the server reported.
  *
- * Quote asset is the only filter axis that exists here — every result is a
- * Binance spot pair, so an asset-class filter would have exactly one value.
+ * Quote/currency is one of several explicit filter axes; product type and
+ * venue remain separate so identical tickers cannot collapse together.
  */
 export function quoteFilters(quotes: readonly string[] | null | undefined): string[] {
   const seen = new Set<string>();
@@ -194,7 +192,8 @@ export function describeResult(row: SymbolSearchResult): {
     pair: `${row.baseAsset} / ${row.quoteAsset}`,
     venue: row.venueId ?? SEARCH_VENUE,
     market: row.instrumentType === "perpetual" ? "PERP"
-      : row.instrumentType === "future" ? `FUTURE${row.series?.kind === "dated" ? ` ${row.series.expiry}` : ""}` : "SPOT",
+      : row.instrumentType === "future" ? `FUTURE${row.series?.kind === "dated" ? ` ${row.series.expiry}` : ""}`
+      : row.instrumentType === "stock" ? "STOCK" : row.instrumentType === "etf" ? "ETF" : "SPOT",
     needsAdding: !row.tracked,
   };
 }

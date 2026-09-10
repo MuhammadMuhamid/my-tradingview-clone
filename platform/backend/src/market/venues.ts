@@ -34,3 +34,8 @@ venueRegistry.register({ id: "KUCOIN", label: "KuCoin", timezone: "UTC", calenda
 venueRegistry.register({ id: "GATEIO", label: "Gate.io", timezone: "UTC", calendarIds: ["24x7"] });
 venueRegistry.register({ id: "ROBINHOOD", label: "Robinhood Crypto", timezone: "UTC", calendarIds: ["24x7"] });
 venueRegistry.register({ id: "HYPERLIQUID", label: "Hyperliquid", timezone: "UTC", calendarIds: ["24x7"] });
+venueRegistry.register({ id: "NASDAQ", label: "Nasdaq", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });
+venueRegistry.register({ id: "NYSE", label: "NYSE", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });
+venueRegistry.register({ id: "ARCA", label: "NYSE Arca", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });
+venueRegistry.register({ id: "AMEX", label: "NYSE American", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });
+venueRegistry.register({ id: "BATS", label: "Cboe BZX", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });

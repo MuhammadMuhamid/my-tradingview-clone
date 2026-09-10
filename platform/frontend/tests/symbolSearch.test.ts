@@ -39,14 +39,13 @@ const row = (over: Partial<SymbolSearchResult> = {}): SymbolSearchResult => ({
 
 // ── market identity ────────────────────────────────────────────────────────
 
-test("the dialog offers spot, perpetual and future identity while options and unrelated markets remain absent", () => {
+test("the dialog offers crypto, stock and ETF identity while unsupported markets remain absent", () => {
   const source = readCode(DIALOG);
-  for (const supported of [/\bSPOT\b/, /\bPERP\b/, /\bFUTURE\b/, /Filter by instrument type/]) {
+  for (const supported of [/\bSPOT\b/, /\bPERP\b/, /\bFUTURE\b/, /\bSTOCK\b/, /\bETF\b/, /Filter by instrument type/]) {
     assert.match(source, supported);
   }
   for (const forbidden of [
-    /\bforex\b/i, /\bstocks?\b/i,
-    /\bequit(y|ies)\b/i, /\bindices\b/i, /\bCUSIP\b/i, /\bISIN\b/i,
+    /\bforex\b/i, /\bindices\b/i, /\bCUSIP\b/i, /\bISIN\b/i,
   ]) {
     assert.doesNotMatch(source, forbidden,
       `${forbidden} names a market with no feed — a filter for it would return nothing`);
@@ -57,7 +56,7 @@ test("the dialog offers spot, perpetual and future identity while options and un
 
 test("the venue and market are stated rather than left to be inferred", () => {
   assert.equal(SEARCH_VENUE, "All venues");
-  assert.equal(SEARCH_MARKET, "Spot, perpetuals & futures");
+  assert.equal(SEARCH_MARKET, "Crypto, U.S. stocks & ETFs");
   const source = read(DIALOG);
   assert.match(source, /SEARCH_VENUE/);
   assert.match(source, /SEARCH_MARKET/);
@@ -91,6 +90,8 @@ test("a result describes its exact product type, and says when choosing it regis
   assert.equal(describeResult(row({ instrumentType: "perpetual" })).market, "PERP");
   assert.equal(describeResult(row({ instrumentType: "future", series: { kind: "dated", expiry: "2026-12-18", delivery: "cash" } })).market,
     "FUTURE 2026-12-18");
+  assert.equal(describeResult(row({ instrumentType: "stock" })).market, "STOCK");
+  assert.equal(describeResult(row({ instrumentType: "etf" })).market, "ETF");
   assert.equal(describeResult(row({ tracked: false })).needsAdding, true);
 });
 
@@ -158,7 +159,7 @@ test("a failed search clears the rows rather than leaving a stale answer under a
 test("an empty search is distinguished from a search that matched nothing", () => {
   const source = read(DIALOG);
   assert.match(source, /term\.trim\(\)\.length === 0/);
-  assert.match(source, /Type to search every/);
+  assert.match(source, /Type to search crypto, U\.S\. stocks and ETFs/);
 });
 
 // ── which chart it changes ─────────────────────────────────────────────────

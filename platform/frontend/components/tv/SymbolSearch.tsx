@@ -11,7 +11,7 @@ import { canonicalDisplayParts, displaySymbol, instrumentTypeLabel, storedSymbol
 /**
  * The symbol dialog.
  *
- * Spot, perpetuals and dated futures share search, but never identity. Every
+ * Crypto, U.S. stocks and ETFs share search, but never identity. Every
  * row names its product type, venue and (for futures) expiry; options remain
  * outside this catalog.
  *
@@ -377,7 +377,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         </div>
         <div className="flex items-center gap-2 overflow-x-auto border-t border-border/60 px-6 py-2">
           <div role="group" aria-label="Filter by instrument type" className="flex shrink-0 gap-1">
-            {([ ["all", "All"], ["spot", "SPOT"], ["perpetual", "PERP"], ["future", "FUTURE"] ] as const).map(([value, label]) => (
+            {([ ["all", "All"], ["spot", "SPOT"], ["perpetual", "PERP"], ["future", "FUTURE"],
+              ["stock", "STOCK"], ["etf", "ETF"] ] as const).map(([value, label]) => (
               <button key={value} onClick={() => setType(value)} aria-pressed={type === value}
                 className={`rounded px-2 py-1 text-[11px] font-semibold ${type === value
                   ? "bg-accent/15 text-accent" : "text-ink-faint hover:bg-surface-2 hover:text-ink"}`}>
@@ -414,7 +415,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           {!err && rows.length === 0 && !busy && (
             <div className="px-6 py-12 text-center text-sm text-ink-faint">
               {term.trim().length === 0
-                ? `Type to search every supported spot, perpetual and dated future.`
+                ? `Type to search crypto, U.S. stocks and ETFs across supported venues.`
                 : <>No market instrument matches “{term}”{quote === ALL_QUOTES ? "" : ` in ${quote}`}.</>}
             </div>
           )}
@@ -457,6 +458,9 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                 {expiryLabel && <span className="hidden shrink-0 text-[11px] tabular text-ink-muted sm:inline">{expiryLabel}</span>}
                 {r.derivative?.kind === "contract" && <span className="hidden shrink-0 text-[10px] uppercase text-ink-faint lg:inline">
                   {r.derivative.settlement} · settle {r.settlementAsset}
+                </span>}
+                {r.equity && <span className="hidden shrink-0 text-[10px] text-ink-faint lg:inline">
+                  REG · RAW · {r.equity.marketData.defaultFeed.toUpperCase()} {r.equity.marketData.feedDelaySeconds}s delay
                 </span>}
                 <span className="shrink-0 text-sm font-medium text-ink-muted">{r.venueId ?? SEARCH_VENUE}</span>
               </button>

@@ -88,7 +88,7 @@ import { datasetKey } from "@/lib/liveDataset";
 import { useCandleHistory } from "@/lib/useCandleHistory";
 import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
-import { isCanonicalInstrumentId } from "@/lib/instrument";
+import { isCanonicalInstrumentId, isEquityInstrumentId } from "@/lib/instrument";
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
@@ -655,6 +655,7 @@ export default function TvWorkspace() {
    * exactly as before at every other moment.
    */
   const [priceAlertOpen, setPriceAlertOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   /** Which level family the dialog is open on, or null when it is closed. */
   const [levelKind, setLevelKind] = useState<"sr_zone" | "pivot_level" | null>(null);
   /** Which oscillator family the dialog is open on, or null when closed. */
@@ -684,9 +685,21 @@ export default function TvWorkspace() {
 
   /** Open the dialog with no level picked; it falls back to the last price. */
   const openPriceAlert = useCallback(() => {
+    if (isEquityInstrumentId(symbol)) {
+      setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.");
+      return;
+    }
     setPriceAlertLevel(null);
     setPriceAlertOpen(true);
-  }, []);
+  }, [symbol]);
+
+  const openAutomation = useCallback(() => {
+    if (isEquityInstrumentId(symbol)) {
+      setToast("U.S. equity automation stays off until alerts and paper execution share an explicit market calendar.");
+      return;
+    }
+    setAlertOpen(true);
+  }, [symbol]);
 
   const toggleMa = useCallback((type: MaType, length: number) => {
     setWorkspace((ws) => togglePaneMa(ws, ws.activePaneId, type, length));
@@ -756,8 +769,6 @@ export default function TvWorkspace() {
     drawingStore.setReplay(symbol, next, gesture);
     setReplayDrawings(next);
   }, [symbol]);
-  const [toast, setToast] = useState<string | null>(null);
-
   /*
    * The browser's favourite / recent / custom resolutions, read once here.
    *
@@ -1678,7 +1689,7 @@ export default function TvWorkspace() {
           overlayItems={overlays.items}
           onSelectOverlay={overlays.select}
           onOpenPriceAlert={openPriceAlert}
-          onOpenAutomation={() => setAlertOpen(true)}
+          onOpenAutomation={openAutomation}
           onOpenManual={() => setPanel((p) => p === "manual" ? null : "manual")}
           /* Exactly the condition under which ChartSidePanel renders the
              ticket, and therefore under which the toolbar's row is 341px
@@ -1836,11 +1847,15 @@ export default function TvWorkspace() {
         }}
         onAddSymbolAlert={(s) => {
           changePaneSymbol(active.id, s);
-          setPriceAlertOpen(true);
+          if (isEquityInstrumentId(s)) {
+            setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.");
+          } else {
+            setPriceAlertOpen(true);
+          }
         }}
         onSymbolsChanged={refreshSymbols}
         replayQuote={activeReplayQuote(candles, replay)}
-        onOpenAutomation={() => setAlertOpen(true)}
+        onOpenAutomation={openAutomation}
         indicators={activeIndicators}
         nativeStudies={activeNativeStudies}
         onEditNative={setEditingNativeKey}
@@ -1858,10 +1873,16 @@ export default function TvWorkspace() {
         maAlerts={maAlerts}
         onToggleMa={toggleMa}
         onToggleAllMa={toggleAllMa}
-        onArmMa={(type, length) => setArmLine({ type, length })}
+        onArmMa={(type, length) => isEquityInstrumentId(symbol)
+          ? setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.")
+          : setArmLine({ type, length })}
         onArmPrice={openPriceAlert}
-        onArmLevel={setLevelKind}
-        onArmOscillator={setOscillatorKind}
+        onArmLevel={(kind) => isEquityInstrumentId(symbol)
+          ? setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.")
+          : setLevelKind(kind)}
+        onArmOscillator={(kind) => isEquityInstrumentId(symbol)
+          ? setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.")
+          : setOscillatorKind(kind)}
         onOpenAlert={setEditingAlert}
         onToast={setToast}
         toolsOpen={toolsOpen}

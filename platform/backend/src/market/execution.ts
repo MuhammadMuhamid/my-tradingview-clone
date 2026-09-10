@@ -10,6 +10,9 @@ export interface ExecutionIntent {
   marginMode?: unknown;
   reduceOnly?: unknown;
   positionMode?: unknown;
+  orderType?: unknown;
+  timeInForce?: unknown;
+  extendedHours?: unknown;
 }
 
 export interface ExecutionTarget {
@@ -17,6 +20,12 @@ export interface ExecutionTarget {
   venueId: string;
   instrumentType: string;
   capabilities: ExecutionCapabilities;
+  marketState?: {
+    kind: "calendar";
+    phase: "pre" | "regular" | "after" | "closed";
+    listingStatus: "active" | "halted" | "delisted" | "unknown";
+    observedAt: string;
+  };
 }
 
 export class UnsupportedExecutionError extends Error {
@@ -47,6 +56,24 @@ export function assertExecutionSupported(target: ExecutionTarget, intent: Execut
   }
   if (!cap.availability[environment]) {
     throw new UnsupportedExecutionError(`${target.providerId} does not support ${environment} execution`);
+  }
+  if (target.marketState) {
+    if (target.marketState.listingStatus !== "active") {
+      throw new UnsupportedExecutionError(`listing is ${target.marketState.listingStatus}; order was not sent to Bot`);
+    }
+    if (target.marketState.phase === "closed") {
+      throw new UnsupportedExecutionError("US equity session is closed; queuing is disabled and order was not sent to Bot");
+    }
+    if (target.marketState.phase !== "regular") {
+      if (!requestedBoolean(intent.extendedHours)) {
+        throw new UnsupportedExecutionError(`${target.marketState.phase}-market order requires explicit extendedHours=true`);
+      }
+      const type = String(intent.orderType ?? "").toUpperCase();
+      const tif = String(intent.timeInForce ?? "DAY").toUpperCase();
+      if (type !== "LIMIT" || (tif !== "DAY" && tif !== "GTC")) {
+        throw new UnsupportedExecutionError("extended-hours equities require a LIMIT order with DAY or GTC time in force");
+      }
+    }
   }
   const direction = intent.positionDirection ?? "long";
   if (direction !== "long" && direction !== "short") {

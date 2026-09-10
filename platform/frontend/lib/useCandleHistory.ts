@@ -26,7 +26,7 @@ import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import type { Candle } from "./types";
 import { resolutionMs, type Resolution } from "./resolution";
-import { isCanonicalInstrumentId } from "./instrument";
+import { isCanonicalInstrumentId, isEquityInstrumentId } from "./instrument";
 import { subscribeCanonicalMarket } from "./canonicalMarketStream";
 
 /**
@@ -101,6 +101,9 @@ export async function repairStaleTail(
   request: HistoryRequest, data: Candle[], signal: AbortSignal
 ): Promise<Candle[]> {
   const { symbol, interval, bars } = request;
+  // A stock/ETF night's empty UTC buckets are a market closure, not a broken
+  // 24/7 stream. Server-side calendar completeness remains the authority.
+  if (isEquityInstrumentId(symbol)) return data;
   const now = Date.now();
   if (!isTailStale(data, interval, now)) return data;
   if (!claimTailRepair(historyKey(request), now)) return data;
@@ -174,7 +177,8 @@ export interface HeldWindow {
 export function heldWindow(
   candles: Candle[], dataset: HistoryRequest, now = Date.now()
 ): HeldWindow {
-  return { candles, dataset, stale: isTailStale(candles, dataset.interval, now) };
+  return { candles, dataset, stale: isEquityInstrumentId(dataset.symbol)
+    ? false : isTailStale(candles, dataset.interval, now) };
 }
 
 /**

@@ -33,9 +33,18 @@ import {
 } from "../../alerts/alertFrequency";
 import { validateCondition } from "../../alerts/alertConditions";
 import { scannerRequest } from "../../scanner/client";
+import { normalizeCanonicalInstrumentId } from "../../market/model";
 
 export const MAX_BULK_ALERTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const EQUITY_ALERT_UNAVAILABLE =
+  "U.S. equity alerts are not armed by this Binance 24/7 runner; a future equity runner must persist RAW adjustment and REGULAR session semantics";
+
+export function isCanonicalEquityAlertSymbol(raw: string): boolean {
+  const canonical = normalizeCanonicalInstrumentId(raw);
+  const type = canonical?.split(":")[3];
+  return type === "stock" || type === "etf";
+}
 
 interface PatternCatalogProfile {
   detector_id: string;
@@ -200,6 +209,9 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
     const patch: maAlertRepo.MaAlertPatch = {};
 
     if (b.symbol !== undefined) {
+      if (isCanonicalEquityAlertSymbol(String(b.symbol))) {
+        return reply.code(422).send(bad(EQUITY_ALERT_UNAVAILABLE));
+      }
       // Same choke point every market-data call uses: the symbol is
       // interpolated into a Binance stream name.
       try {
@@ -354,6 +366,8 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/ma-alerts", async (req) => {
     const q = req.query as { symbol?: string; timeframe?: string; enabled?: string };
+    // Do not imply the Binance websocket runner monitors an equity calendar.
+    if (q.symbol && isCanonicalEquityAlertSymbol(q.symbol)) return [];
     return maAlertRepo.listAlerts({
       symbol: q.symbol ? assertSymbol(q.symbol) : undefined,
       timeframe: q.timeframe && isInterval(q.timeframe) ? q.timeframe : undefined,
@@ -383,6 +397,9 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/ma-alerts", async (req, reply) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
+    if (isCanonicalEquityAlertSymbol(String(b.symbol ?? ""))) {
+      return reply.code(422).send(bad(EQUITY_ALERT_UNAVAILABLE));
+    }
     // An armed alert's symbol is interpolated straight into the Binance
     // websocket stream name, where a `/` would inject extra streams. This is
     // the same choke point every market-data call already uses.

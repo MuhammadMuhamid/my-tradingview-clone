@@ -38,14 +38,14 @@ export function DerivativeIdentity({ symbol, dense }: { symbol: string; dense: b
   }, [symbol]);
 
   useEffect(() => {
-    if (!open || !identity || identity.type === "spot") return;
+    if (!open || !identity || (identity.type !== "perpetual" && identity.type !== "future")) return;
     const controller = new AbortController();
     void api.compareDerivatives(identity.base, identity.type, controller.signal)
       .then(setComparison).catch(() => setComparison(null));
     return () => controller.abort();
   }, [open, identity]);
 
-  if (!identity || identity.type === "spot") return null;
+  if (!identity || (identity.type !== "perpetual" && identity.type !== "future")) return null;
   const observation = snapshot?.observation;
   const terms = snapshot?.instrument.derivative;
   const badge = instrumentTypeLabel(identity.type);

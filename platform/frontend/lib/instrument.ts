@@ -24,8 +24,9 @@ export const DEFAULT_VENUE = "BINANCE";
 /** Browser routing classes; execution remains separately capability-gated. */
 export const CRYPTO_SPOT = "crypto_spot";
 export const CRYPTO_DERIVATIVE = "crypto_derivative";
+export const US_EQUITY = "us_equity";
 
-export type AssetClass = typeof CRYPTO_SPOT | typeof CRYPTO_DERIVATIVE;
+export type AssetClass = typeof CRYPTO_SPOT | typeof CRYPTO_DERIVATIVE | typeof US_EQUITY;
 
 export const DEFAULT_ASSET_CLASS: AssetClass = CRYPTO_SPOT;
 
@@ -52,13 +53,13 @@ export interface InstrumentId {
 
 const VENUE_RE = /^[A-Z][A-Z0-9_]{1,23}$/;
 const TICKER_RE = /^[A-Z0-9]{2,24}$/;
-const CANONICAL_RE = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|perpetual|dated-(\d{8}))$/i;
+const CANONICAL_RE = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future|stock|etf):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|cash|perpetual|dated-(\d{8}))$/i;
 
-export type CryptoInstrumentType = "spot" | "perpetual" | "future";
+export type CanonicalInstrumentType = "spot" | "perpetual" | "future" | "stock" | "etf";
 
 export interface CanonicalDisplayParts {
   venue: string;
-  type: CryptoInstrumentType;
+  type: CanonicalInstrumentType;
   base: string;
   quote: string;
   settlement: string;
@@ -73,10 +74,11 @@ export function isCanonicalInstrumentId(raw: string): boolean {
 export function canonicalDisplayParts(raw: string): CanonicalDisplayParts | null {
   const match = CANONICAL_RE.exec(String(raw ?? "").trim());
   if (!match) return null;
-  const type = match[2]!.toLowerCase() as CryptoInstrumentType;
+  const type = match[2]!.toLowerCase() as CanonicalInstrumentType;
   const series = match[6]!.toLowerCase();
   if ((type === "spot" && series !== "spot") || (type === "perpetual" && series !== "perpetual") ||
-    (type === "future" && !series.startsWith("dated-"))) return null;
+    (type === "future" && !series.startsWith("dated-")) ||
+    ((type === "stock" || type === "etf") && series !== "cash")) return null;
   const compact = match[7];
   const expiry = compact ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}` : null;
   if (expiry) {
@@ -87,12 +89,17 @@ export function canonicalDisplayParts(raw: string): CanonicalDisplayParts | null
     settlement: match[5]!.toUpperCase(), series, expiry };
 }
 
-export function instrumentTypeLabel(type: CryptoInstrumentType): "SPOT" | "PERP" | "FUTURE" {
-  return type === "spot" ? "SPOT" : type === "perpetual" ? "PERP" : "FUTURE";
+export function instrumentTypeLabel(type: CanonicalInstrumentType): "SPOT" | "PERP" | "FUTURE" | "STOCK" | "ETF" {
+  return type === "spot" ? "SPOT" : type === "perpetual" ? "PERP" : type === "future" ? "FUTURE"
+    : type === "stock" ? "STOCK" : "ETF";
 }
 
 export function isDerivativeInstrumentId(raw: string): boolean {
   const parts = canonicalDisplayParts(raw); return parts?.type === "perpetual" || parts?.type === "future";
+}
+
+export function isEquityInstrumentId(raw: string): boolean {
+  const parts = canonicalDisplayParts(raw); return parts?.type === "stock" || parts?.type === "etf";
 }
 
 export class InstrumentIdError extends Error {}

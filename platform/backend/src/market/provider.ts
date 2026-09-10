@@ -20,7 +20,8 @@ export interface ProviderDocumentationSource {
   url: string;
   accessedOn: string;
   covers: readonly ("catalog" | "metadata" | "ticker" | "candles" | "ticker_stream" | "candle_stream" |
-    "funding" | "open_interest" | "contract_terms")[];
+    "funding" | "open_interest" | "contract_terms" | "calendar" | "corporate_actions" |
+    "paper_orders")[];
   access: "public" | "authentication_required";
   limits: readonly string[];
 }
@@ -159,8 +160,90 @@ export interface MarketDataProviderAdapter {
   readonly orderBook: OptionalOrderBook;
   readonly derivativeMetadata: OptionalDerivativeMetadata;
   readonly derivatives: OptionalDerivativeMarketData;
+  /** Cash-equity semantics. Absent on every non-equity adapter. */
+  readonly equities?: EquityMarketData;
   /** Declaration only. All credentialed mutation remains behind the Bot boundary. */
   readonly execution: ExecutionCapabilities;
+}
+
+export type EquityAdjustmentMode = "raw" | "split" | "dividend" | "all";
+export type EquitySessionMode = "regular" | "extended" | "all";
+export type EquitySessionPhase = "pre" | "regular" | "after" | "closed";
+
+export interface MarketCalendarDay {
+  /** Exchange-local YYYY-MM-DD. */
+  date: string;
+  /** Exact instants returned by the official provider calendar. */
+  open: string;
+  close: string;
+}
+
+export interface EquityCorporateAction {
+  id: string;
+  canonicalInstrumentId: string;
+  providerSymbol: string;
+  type: "split" | "dividend" | "symbol_change" | "merger";
+  exDate: string;
+  processDate: string;
+  dataQuality: "complete" | "incomplete";
+  splitRatio?: number;
+  cashAmount?: number;
+  currency?: string;
+  oldSymbol?: string;
+  newSymbol?: string;
+}
+
+export interface EquityBarSet {
+  bars: Candle[];
+  adjustmentMode: EquityAdjustmentMode;
+  sessionMode: EquitySessionMode;
+  phasesIncluded: readonly Exclude<EquitySessionPhase, "closed">[];
+  feed: {
+    id: string;
+    entitlement: string;
+    coverage: "single_venue" | "consolidated";
+    delaySeconds: number;
+    historicalEmbargoSeconds: number;
+  };
+  executionCompatible: boolean;
+  studies: { regularSessionOnly: boolean; extendedHoursIncluded: boolean };
+  completeness: {
+    complete: boolean;
+    expectedBars: number;
+    presentBars: number;
+    missingBars: number;
+    closedSessionGapsIgnored: true;
+  };
+  corporateActionIds: readonly string[];
+}
+
+export interface EquityMarketData {
+  readonly adjustmentModes: readonly EquityAdjustmentMode[];
+  readonly sessionModes: readonly EquitySessionMode[];
+  readonly defaultAdjustment: "raw";
+  readonly defaultSession: "regular";
+  readonly executionPriceAdjustment: "raw";
+  readonly calendar: {
+    timezone: "America/New_York";
+    source: string;
+    days(startDate: string, endDate: string): Promise<MarketCalendarDay[]>;
+  };
+  fetchCandles(input: {
+    instrument: CanonicalInstrument;
+    interval: Interval;
+    startMs: number;
+    endMs: number;
+    adjustment: EquityAdjustmentMode;
+    session: EquitySessionMode;
+    feed: string;
+    signal?: AbortSignal;
+  }): Promise<EquityBarSet>;
+  corporateActions(input: {
+    instrument: CanonicalInstrument;
+    startDate: string;
+    endDate: string;
+    signal?: AbortSignal;
+  }): Promise<EquityCorporateAction[]>;
 }
 
 export type ProviderHealthState = "unknown" | "healthy" | "degraded" | "rate_limited" | "unavailable";

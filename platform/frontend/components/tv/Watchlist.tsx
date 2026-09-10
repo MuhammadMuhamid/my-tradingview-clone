@@ -159,7 +159,8 @@ export function Watchlist({
       return parts ? {
         symbol: s, baseAsset: parts.base, quoteAsset: parts.quote,
         priceTick: null, qtyStep: null, minNotional: null, isActive: true,
-        venue: parts.venue, assetClass: parts.type === "spot" ? "crypto_spot" as const : "crypto_derivative" as const,
+        venue: parts.venue, assetClass: parts.type === "spot" ? "crypto_spot" as const
+          : parts.type === "stock" || parts.type === "etf" ? "us_equity" as const : "crypto_derivative" as const,
       } : null;
     }).filter((s): s is SymbolInfo => Boolean(s));
   }, [active, symbols]);

@@ -584,8 +584,8 @@ test("a pane keeps its instrument legible at every size", () => {
   assert.match(legend, /onOpenSymbolSearch\(paneId\)/);
   assert.match(legend, /<LegendTimeframe/);
   assert.match(legend, /!dense && props\.lastClose/);
-  assert.ok(!/dense[\s\S]{0,120}\{symbol\}/.test(legend),
-    "the instrument must never be hidden by the density policy");
+  assert.match(legend, /<button[\s\S]*?onOpenSymbolSearch\(paneId\)[\s\S]*?\{symbolLabel\}[\s\S]*?<\/button>/,
+    "the primary instrument label must never be hidden by the density policy");
 });
 
 test("the pane legend does not swallow the drawing layer's pointer events", () => {

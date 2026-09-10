@@ -109,6 +109,16 @@ export async function derivativeBotRequest<T>(
   return sendManualBotRequest<T>(input, fetchImpl);
 }
 
+/** X4 order traffic. The wire schema contains only environment=paper. */
+export async function equityBotRequest<T>(
+  input: ManualBotRequestInput, fetchImpl: typeof fetch = fetch
+): Promise<T> {
+  if (!config.equityPaperExecutionEnabled) {
+    throw new ManualBotError("Alpaca paper equity execution is disabled", 404);
+  }
+  return sendManualBotRequest<T>(input, fetchImpl);
+}
+
 async function sendManualBotRequest<T>(
   input: ManualBotRequestInput, fetchImpl: typeof fetch
 ): Promise<T> {

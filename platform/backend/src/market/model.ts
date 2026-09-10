@@ -133,6 +133,31 @@ export interface CanonicalInstrument {
   events: EventCapabilities;
   execution: ExecutionCapabilities;
   compliance: ComplianceMetadata;
+  /** Required and exhaustive for stock/ETF instruments; absent elsewhere. */
+  equity?: {
+    securityType: "stock" | "etf";
+    classificationSource: string;
+    primaryListing: { venueId: string; mic: string | null };
+    fractional: Support;
+    marketData: {
+      defaultFeed: string;
+      feedEntitlement: string;
+      feedCoverage: "single_venue" | "consolidated";
+      feedDelaySeconds: number;
+      historicalEmbargoSeconds: number;
+      defaultAdjustment: "raw";
+      executionPriceAdjustment: "raw";
+      defaultSession: "regular";
+      extendedHours: Support;
+      overnight: Support;
+    };
+    borrow: {
+      shortable: "yes" | "no" | "unknown";
+      status: "easy_to_borrow" | "hard_to_borrow" | "unknown";
+      availabilityCheckRequired: true;
+      source: string;
+    };
+  };
 }
 
 const TOKEN = /^[A-Z0-9][A-Z0-9._-]{0,31}$/;

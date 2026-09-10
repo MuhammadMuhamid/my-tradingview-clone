@@ -1,0 +1,53 @@
+{
+  "assets": [
+    {
+      "symbol": "AAPL",
+      "name": "Apple Inc. Common Stock",
+      "exchange": "NASDAQ",
+      "securityType": "stock",
+      "classificationSource": "deterministic licensed-classification fixture",
+      "status": "active",
+      "tradable": true,
+      "fractionable": true,
+      "shortable": true,
+      "borrowStatus": "easy_to_borrow",
+      "mic": "XNAS"
+    },
+    {
+      "symbol": "SPY",
+      "name": "SPDR S&P 500 ETF Trust",
+      "exchange": "ARCA",
+      "securityType": "etf",
+      "classificationSource": "deterministic licensed-classification fixture",
+      "status": "active",
+      "tradable": true,
+      "fractionable": true,
+      "shortable": false,
+      "mic": "ARCX"
+    }
+  ],
+  "calendar": [
+    { "date": "2026-03-06", "open": "2026-03-06T14:30:00Z", "close": "2026-03-06T21:00:00Z" },
+    { "date": "2026-03-09", "open": "2026-03-09T13:30:00Z", "close": "2026-03-09T20:00:00Z" },
+    { "date": "2026-11-27", "open": "2026-11-27T14:30:00Z", "close": "2026-11-27T18:00:00Z" }
+  ],
+  "bars": [
+    { "openTime": 1772830740000, "open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1000 },
+    { "openTime": 1773057600000, "open": 101, "high": 101.5, "low": 100.5, "close": 101.25, "volume": 200 },
+    { "openTime": 1773063000000, "open": 102, "high": 103, "low": 101, "close": 102.5, "volume": 1200 },
+    { "openTime": 1773086400000, "open": 103, "high": 103.5, "low": 102.5, "close": 103.25, "volume": 250 },
+    { "openTime": 1795802340000, "open": 110, "high": 111, "low": 109, "close": 110.5, "volume": 1400 },
+    { "openTime": 1795802400000, "open": 111, "high": 112, "low": 110, "close": 111.5, "volume": 300 }
+  ],
+  "actions": [
+    {
+      "id": "alpaca-ca-aapl-20260309-split",
+      "providerSymbol": "AAPL",
+      "type": "split",
+      "exDate": "2026-03-09",
+      "processDate": "2026-03-08",
+      "dataQuality": "complete",
+      "splitRatio": 2
+    }
+  ]
+}
