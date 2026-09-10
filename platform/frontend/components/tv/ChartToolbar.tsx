@@ -105,6 +105,7 @@ import { ProductMenu } from "@/components/tv/ProductMenu";
 import { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H } from "@/components/tv/toolbarChrome";
 import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
+import { displaySymbol } from "@/lib/instrument";
 import type {
   TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse,
 } from "@/lib/tradingOverlays";
@@ -413,6 +414,7 @@ function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
 
 export function ChartToolbar(props: ChartToolbarProps) {
   const { symbol, interval, replayActive } = props;
+  const symbolLabel = displaySymbol(symbol);
   const { moreOpen, onMoreOpen } = props;
   const density = toolbarDensityClasses(props.ticketOpen);
 
@@ -462,10 +464,10 @@ export function ChartToolbar(props: ChartToolbarProps) {
           {...ctl("symbol")}
           onClick={props.onOpenSearch}
           title="Change symbol (/)"
-          aria-label={`Change symbol — currently ${symbol}`}
+          aria-label={`Change symbol — currently ${symbolLabel}`}
           className="mx-0.5 flex h-7 min-w-[44px] shrink items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-sm font-semibold text-ink hover:bg-surface-3 sm:mx-1 sm:shrink-0"
         >
-          <span className="min-w-0 truncate">{symbol}</span>
+          <span className="min-w-0 truncate">{symbolLabel}</span>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0 text-ink-faint">
             <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
           </svg>

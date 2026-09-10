@@ -55,6 +55,15 @@ export async function runProviderConformance(
     check(candles.every((bar) => bar.symbol === fixture.providerSymbol), "candles", "candle provider symbols drifted");
     check(candles.every((bar) => bar.openTime >= fixture.startMs && bar.openTime <= fixture.endMs),
       "candle-bounds", "candles escaped requested bounds");
+    check(candles.every((bar, index) => index === 0 || bar.openTime > candles[index - 1]!.openTime),
+      "candle-order-and-dedupe", "candles are not strictly increasing and unique");
+    check(candles.every((bar) => Number.isFinite(bar.open) && Number.isFinite(bar.high) &&
+      Number.isFinite(bar.low) && Number.isFinite(bar.close) && Number.isFinite(bar.volume) &&
+      bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close)),
+    "candle-precision-and-ohlc", "candles contain invalid numeric or OHLC values");
+    check(provider.candles.pagination.maxPageSize > 0, "pagination", "page size must be positive");
+    check(provider.candles.stream.support === "supported" || Boolean(provider.candles.stream.reason),
+      "candle-stream-truth", "unsupported candle stream has no reason");
 
     const tickers = await provider.ticker.fetch([fixture.providerSymbol]);
     check(tickers.length === 1, "ticker", "ticker did not return exactly one fixture observation");
@@ -64,6 +73,9 @@ export async function runProviderConformance(
     }
     check(provider.healthPolicy.staleAfterMs > 0, "staleness-policy", "staleAfterMs must be positive");
     check(provider.rateLimits.retry.maxAttempts > 0, "retry-policy", "retry attempts must be bounded and positive");
+    check(provider.documentation.length > 0 && provider.documentation.every((source) =>
+      /^https:\/\//.test(source.url) && /^\d{4}-\d{2}-\d{2}$/.test(source.accessedOn)),
+    "official-sources", "official documentation source/date is absent");
     check(provider.trades.support === "supported" || provider.trades.support === "unsupported",
       "trades-capability", "trades capability is absent");
     check(provider.orderBook.support === "supported" || provider.orderBook.support === "unsupported",

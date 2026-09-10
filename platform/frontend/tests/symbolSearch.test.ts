@@ -15,7 +15,7 @@ import path from "node:path";
 import {
   ALL_QUOTES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, describeResult, dialogClosed,
   moveCursor, pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor,
-  searchKey, searchSummary,
+  searchKey, searchSummary, venueFilters,
 } from "../lib/symbolSearch";
 import type { SymbolSearchResult } from "../lib/api";
 import { resolveTradingTarget, tradingTargetNotice } from "../lib/tradingTarget";
@@ -51,7 +51,7 @@ test("the dialog offers no asset class this installation cannot trade", () => {
 });
 
 test("the venue and market are stated rather than left to be inferred", () => {
-  assert.equal(SEARCH_VENUE, "Binance");
+  assert.equal(SEARCH_VENUE, "All venues");
   assert.equal(SEARCH_MARKET, "Spot");
   const source = read(DIALOG);
   assert.match(source, /SEARCH_VENUE/);
@@ -68,9 +68,20 @@ test("quote asset is the only filter axis, deduplicated and normalised", () => {
   assert.deepEqual(quoteFilters([1, "USDT"] as unknown as string[]), [ALL_QUOTES, "USDT"]);
 });
 
+test("venue filters are explicit and deduplicated for collision disambiguation", () => {
+  assert.deepEqual(venueFilters([
+    { id: "coinbase", label: "Coinbase" }, { id: "COINBASE", label: "Duplicate" },
+    { id: "kraken", label: "Kraken" },
+  ]), [
+    { id: "ALL", label: "All venues" },
+    { id: "COINBASE", label: "Coinbase" },
+    { id: "KRAKEN", label: "Kraken" },
+  ]);
+});
+
 test("a result describes itself as spot, and says when choosing it registers a pair", () => {
   assert.deepEqual(describeResult(row()), {
-    pair: "SOL / USDT", venue: "Binance", market: "Spot", needsAdding: false,
+    pair: "SOL / USDT", venue: "All venues", market: "Spot", needsAdding: false,
   });
   assert.equal(describeResult(row({ tracked: false })).needsAdding, true);
 });
@@ -120,10 +131,10 @@ test("the dialog implements the keyboard contract it advertises", () => {
 test("the footer says what it is counting, and never a bare number", () => {
   assert.equal(searchSummary({ busy: true, shown: 0, total: 0 }), "Searching…");
   assert.equal(searchSummary({ busy: false, shown: 0, total: 0 }),
-    "No Binance Spot pair matches");
-  assert.equal(searchSummary({ busy: false, shown: 1, total: 1 }), "1 Binance Spot pair");
+    "No spot pair matches");
+  assert.equal(searchSummary({ busy: false, shown: 1, total: 1 }), "1 All venues Spot pair");
   assert.equal(searchSummary({ busy: false, shown: 60, total: 240 }),
-    "60 of 240 Binance Spot pairs");
+    "60 of 240 All venues Spot pairs");
 });
 
 test("a failed search clears the rows rather than leaving a stale answer under an error", () => {
@@ -312,8 +323,8 @@ test("mouse, focus and Escape behaviour is untouched by the Enter fix", () => {
     "preventDefault must follow the decision, not precede it");
 });
 
-test("a chosen symbol leaves the dialog as a bare stored ticker", () => {
+test("a chosen symbol persists canonical identity with a Binance compatibility fallback", () => {
   const source = readCode(DIALOG);
-  assert.match(source, /onSelect\(storedSymbol\(row\.symbol\)\)/,
-    "the one place a symbol leaves this dialog reduces it through the resolver");
+  assert.match(source, /onSelect\(row\.canonicalId \?\? storedSymbol\(row\.symbol\)\)/,
+    "canonical results keep identity while legacy Binance rows reduce through the resolver");
 });

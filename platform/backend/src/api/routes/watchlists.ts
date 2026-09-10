@@ -1,10 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import * as watchlists from "../../repositories/watchlists";
 
-const cleanSymbols = (v: unknown): string[] =>
-  Array.isArray(v)
-    ? [...new Set(v.map((s) => String(s).trim().toUpperCase()).filter(Boolean))]
-    : [];
+const cleanInstrument = (raw: unknown): string => {
+  const value = String(raw).trim();
+  const canonical = /^instrument:v1:([^:]+):spot:([^:]+):([^:]+):([^:]+):spot$/i.exec(value);
+  return canonical
+    ? `instrument:v1:${canonical[1]!.toUpperCase()}:spot:${canonical[2]!.toUpperCase()}:${canonical[3]!.toUpperCase()}:${canonical[4]!.toUpperCase()}:spot`
+    : value.toUpperCase();
+};
+
+const cleanSymbols = (v: unknown): string[] => Array.isArray(v)
+  ? [...new Set(v.map(cleanInstrument).filter(Boolean))] : [];
 
 export async function watchlistRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/watchlists", async () => watchlists.listWatchlists());

@@ -29,6 +29,7 @@ import type { MaType } from "@/lib/movingAverages";
 import type { ReplayQuote } from "@/lib/replay";
 import type { SymbolInfo } from "@/lib/types";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
+import { isCanonicalInstrumentId } from "@/lib/instrument";
 
 export type ChartPanel =
   | "watchlist" | "alerts" | "indicators" | "ma" | "manual" | "correlation" | null;
@@ -164,12 +165,19 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
               </aside>
             )
           )}
-          {props.panel === "manual" && !props.replayActive && <ManualTradingPanel symbol={props.tradingSymbol}
-            lastPrice={props.tradingLastPrice}
-            targetNotice={props.tradingNotice}
-            onStagedChange={props.onTicketStagedChange}
-            onClose={props.onClosePanel}
-            onStateChange={props.onManualState} />}
+          {props.panel === "manual" && !props.replayActive && (isCanonicalInstrumentId(props.tradingSymbol)
+            ? <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface p-4 md:w-[294px]">
+                <h2 className="text-sm font-semibold text-ink">Read-only spot venue</h2>
+                <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+                  This canonical instrument is available for market data only. Orders, margin, leverage, and account access are disabled.
+                </p>
+              </aside>
+            : <ManualTradingPanel symbol={props.tradingSymbol}
+                lastPrice={props.tradingLastPrice}
+                targetNotice={props.tradingNotice}
+                onStagedChange={props.onTicketStagedChange}
+                onClose={props.onClosePanel}
+                onStateChange={props.onManualState} />)}
           {props.panel === "ma" && (
             <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[294px]">
               <MaPanel

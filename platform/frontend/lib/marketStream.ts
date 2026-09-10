@@ -98,6 +98,7 @@ export interface StreamListener {
 
 export interface StreamSocket {
   close: () => void;
+  send?: (data: string) => void;
 }
 
 /**
@@ -130,6 +131,7 @@ export const browserStreamTransport: StreamTransport = {
     ws.onclose = () => handlers.onClose();
     ws.onerror = () => handlers.onError();
     return {
+      send: (data) => ws.send(data),
       close: () => {
         // Detach first: a close we asked for must not re-enter the ladder.
         ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null;
@@ -181,6 +183,9 @@ export function reconnectDelayMs(attempt: number): number {
 interface StreamEntry {
   key: string;
   path: string;
+  origins: readonly string[];
+  subscribeMessage: string | null;
+  usesDefaultOrigins: boolean;
   listeners: Set<StreamListener>;
   socket: StreamSocket | null;
   status: StreamStatus;
@@ -203,6 +208,11 @@ export interface MarketStreamRegistryOptions {
   transport?: StreamTransport;
   scheduler?: StreamScheduler;
   origins?: readonly string[];
+}
+
+export interface StreamConnection {
+  origins?: readonly string[];
+  subscribeMessage?: string | null;
 }
 
 export class MarketStreamRegistry {
@@ -280,12 +290,20 @@ export class MarketStreamRegistry {
    * closed. Calling it twice is harmless, so a React effect that runs its
    * cleanup twice cannot close a stream another consumer is still using.
    */
-  subscribe(key: string, path: string, listener: StreamListener): () => void {
+  subscribe(key: string, path: string, listener: StreamListener,
+    connection: StreamConnection = {}): () => void {
     let entry = this.entries.get(key);
     if (!entry) {
+      const origins = connection.origins ?? this.origins;
+      if (origins.length === 0 || origins.some((origin) => !/^wss:\/\//.test(origin))) {
+        throw new Error("market stream origins must be non-empty wss URLs");
+      }
       entry = {
-        key, path, listeners: new Set(), socket: null, status: "idle", origin: null,
-        originIndex: this.preferredIndex, attempt: 0, everLive: false, refused: [],
+        key, path, origins, subscribeMessage: connection.subscribeMessage ?? null,
+        usesDefaultOrigins: connection.origins === undefined,
+        listeners: new Set(), socket: null, status: "idle", origin: null,
+        originIndex: connection.origins === undefined ? this.preferredIndex : 0,
+        attempt: 0, everLive: false, refused: [],
         opened: false, lastMessageAt: 0, reconnectTimer: null, watchdog: null,
         releaseTimer: null, closed: false,
       };
@@ -357,7 +375,7 @@ export class MarketStreamRegistry {
     // flight is not judged by how long ago the previous socket last spoke.
     // (Zero means "never opened", which keeps the watchdog off until then.)
     if (entry.lastMessageAt !== 0) entry.lastMessageAt = this.schedule.now();
-    entry.origin = this.origins[entry.originIndex % this.origins.length]!;
+    entry.origin = entry.origins[entry.originIndex % entry.origins.length]!;
     entry.opened = false;
     entry.status = entry.attempt === 0 ? "connecting" : "reconnecting";
     this.publish(entry);
@@ -367,6 +385,10 @@ export class MarketStreamRegistry {
         if (entry.closed || entry.socket !== socket) return;
         entry.opened = true;
         entry.lastMessageAt = this.schedule.now();
+        if (entry.subscribeMessage) {
+          try { socket.send?.(entry.subscribeMessage); }
+          catch { this.scheduleReconnect(entry, "closed"); return; }
+        }
         // Open is not live: nothing has been received yet.
         this.setStatus(entry, "open");
       },
@@ -386,7 +408,7 @@ export class MarketStreamRegistry {
       entry.attempt = 0;
       entry.everLive = true;
       entry.refused = [];
-      this.preferredIndex = entry.originIndex % this.origins.length;
+      if (entry.usesDefaultOrigins) this.preferredIndex = entry.originIndex % entry.origins.length;
       this.setStatus(entry, "live");
     }
     for (const listener of entry.listeners) {
@@ -418,7 +440,7 @@ export class MarketStreamRegistry {
     // exchange recycles connections daily — retries its own origin first, and
     // rotates only when that fails again.
     if (refusedHandshake || entry.attempt > 1) entry.originIndex += 1;
-    const untriedRemain = entry.attempt < this.origins.length;
+    const untriedRemain = entry.attempt < entry.origins.length;
     const delay = refusedHandshake && untriedRemain
       ? REFUSED_ROTATE_DELAY_MS
       : reconnectDelayMs(entry.attempt);

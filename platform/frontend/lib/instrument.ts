@@ -40,7 +40,7 @@ export interface VenueProfile {
   assetClass: AssetClass;
 }
 
-/** Every venue that is actually implemented. Exactly one. */
+/** Legacy venue-qualified shorthand remains Binance-only; X1 venues use full canonical ids. */
 export const VENUES: Readonly<Record<string, VenueProfile>> = Object.freeze({
   [DEFAULT_VENUE]: { id: DEFAULT_VENUE, label: "Binance", assetClass: CRYPTO_SPOT },
 });
@@ -57,12 +57,25 @@ export interface InstrumentId {
 
 const VENUE_RE = /^[A-Z][A-Z0-9_]{1,23}$/;
 const TICKER_RE = /^[A-Z0-9]{2,24}$/;
+const CANONICAL_RE = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):spot:([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):spot$/i;
+
+export function isCanonicalInstrumentId(raw: string): boolean {
+  return CANONICAL_RE.test(String(raw ?? "").trim());
+}
+
+export function canonicalDisplayParts(raw: string): { venue: string; base: string; quote: string } | null {
+  const match = CANONICAL_RE.exec(String(raw ?? "").trim());
+  return match ? { venue: match[1]!.toUpperCase(), base: match[2]!.toUpperCase(), quote: match[3]!.toUpperCase() } : null;
+}
 
 export class InstrumentIdError extends Error {}
 
 /** Split into venue and ticker without judging whether either is supported. */
 export function splitInstrumentId(raw: string): { venue: string; ticker: string } {
-  const value = String(raw ?? "").trim().toUpperCase();
+  const original = String(raw ?? "").trim();
+  const canonical = CANONICAL_RE.exec(original);
+  if (canonical) return { venue: canonical[1]!.toUpperCase(), ticker: `${canonical[2]}-${canonical[3]}`.toUpperCase() };
+  const value = original.toUpperCase();
   const colon = value.indexOf(":");
   if (colon < 0) return { venue: DEFAULT_VENUE, ticker: value };
   return { venue: value.slice(0, colon), ticker: value.slice(colon + 1) };
@@ -109,16 +122,21 @@ export function formatInstrumentId(id: InstrumentId): string {
  * ever reaching a column or a Bot payload.
  */
 export function storedSymbol(raw: string): string {
+  if (isCanonicalInstrumentId(raw)) return String(raw).trim();
   return resolveInstrument(raw).ticker;
 }
 
 /** The same, without the throw: unresolvable input yields null. */
 export function tryStoredSymbol(raw: string): string | null {
+  if (isCanonicalInstrumentId(raw)) return String(raw).trim();
   return tryResolveInstrument(raw)?.ticker ?? null;
 }
 
 /** True when two symbol strings name the same instrument, however written. */
 export function sameInstrument(a: string, b: string): boolean {
+  if (isCanonicalInstrumentId(a) || isCanonicalInstrumentId(b)) {
+    return a.toLowerCase() === b.toLowerCase();
+  }
   const left = tryResolveInstrument(a);
   const right = tryResolveInstrument(b);
   if (!left || !right) return false;
@@ -135,6 +153,8 @@ export function sameInstrument(a: string, b: string): boolean {
  * that each grew their own rule.
  */
 export function displaySymbol(raw: string): string {
+  const canonical = CANONICAL_RE.exec(String(raw ?? "").trim());
+  if (canonical) return `${canonical[1]!.toUpperCase()}:${canonical[2]!.toUpperCase()}/${canonical[3]!.toUpperCase()}`;
   const id = tryResolveInstrument(raw);
   if (!id) return String(raw ?? "").toUpperCase();
   return Object.keys(VENUES).length > 1 ? formatInstrumentId(id) : id.ticker;

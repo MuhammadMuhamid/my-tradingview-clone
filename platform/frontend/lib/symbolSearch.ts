@@ -20,12 +20,13 @@
 import type { SymbolSearchResult } from "./api";
 
 /** The only venue this installation has a feed for. */
-export const SEARCH_VENUE = "Binance";
+export const SEARCH_VENUE = "All venues";
 /** The only market. Spot: no futures, no margin, no shorting. */
 export const SEARCH_MARKET = "Spot";
 
 /** The chip that means "do not filter by quote asset". */
 export const ALL_QUOTES = "ALL";
+export const ALL_VENUES = "ALL";
 
 /**
  * The quote-asset chips, from whatever the server reported.
@@ -46,6 +47,16 @@ export function quoteFilters(quotes: readonly string[] | null | undefined): stri
   return out;
 }
 
+export function venueFilters(venues: readonly { id: string; label: string }[] | null | undefined):
+  { id: string; label: string }[] {
+  const seen = new Set<string>();
+  return [{ id: ALL_VENUES, label: "All venues" }, ...(venues ?? []).filter((venue) => {
+    const id = venue.id.trim().toUpperCase();
+    if (!id || id === ALL_VENUES || seen.has(id)) return false;
+    seen.add(id); return true;
+  }).map((venue) => ({ id: venue.id.trim().toUpperCase(), label: venue.label.trim() || venue.id }))];
+}
+
 /**
  * The identity of one search: what was typed, and which quote chip is on.
  *
@@ -59,8 +70,8 @@ export function quoteFilters(quotes: readonly string[] | null | undefined): stri
  * two inputs the search cannot distinguish must not count as different
  * queries, or Enter would stall waiting for an answer that already arrived.
  */
-export function searchKey(term: string, quote: string): string {
-  return `${term.trim().toUpperCase()}|${quote.trim().toUpperCase()}`;
+export function searchKey(term: string, quote: string, venue = ALL_VENUES): string {
+  return `${term.trim().toUpperCase()}|${quote.trim().toUpperCase()}|${venue.trim().toUpperCase()}`;
 }
 
 /* ── Enter, the debounce, and which results may answer it ──────────────────
@@ -157,7 +168,7 @@ export function searchSummary(input: {
   busy: boolean; shown: number; total: number;
 }): string {
   if (input.busy) return "Searching…";
-  if (input.total === 0) return `No ${SEARCH_VENUE} ${SEARCH_MARKET} pair matches`;
+  if (input.total === 0) return `No ${SEARCH_MARKET.toLowerCase()} pair matches`;
   if (input.shown >= input.total) {
     return `${input.total} ${SEARCH_VENUE} ${SEARCH_MARKET} pair${input.total === 1 ? "" : "s"}`;
   }
@@ -176,7 +187,7 @@ export function describeResult(row: SymbolSearchResult): {
 } {
   return {
     pair: `${row.baseAsset} / ${row.quoteAsset}`,
-    venue: SEARCH_VENUE,
+    venue: row.venueId ?? SEARCH_VENUE,
     market: SEARCH_MARKET,
     needsAdding: !row.tracked,
   };

@@ -5,6 +5,7 @@ import * as strategies from "../../repositories/strategies";
 import { isInterval } from "../../types/market";
 import type { StrategyParams } from "../../types/strategy";
 import type { LayoutMaLine, LayoutProperties } from "../../repositories/layouts";
+import { normalizeCanonicalInstrumentId } from "../../market/model";
 
 interface LayoutBody {
   name?: string;
@@ -16,6 +17,9 @@ interface LayoutBody {
   properties?: LayoutProperties;
   movingAverages?: LayoutMaLine[];
 }
+
+const storedLayoutSymbol = (value: string): string =>
+  normalizeCanonicalInstrumentId(value) ?? value.toUpperCase();
 
 export async function layoutRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/layouts", async () => layouts.listLayouts());
@@ -37,7 +41,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
     }
     if (!body.strategyKey) return reply.code(400).send({ error: "strategyKey is required" });
     const saved = await layouts.upsertLayoutByName(body.name, {
-      symbol: body.symbol.toUpperCase(),
+      symbol: storedLayoutSymbol(body.symbol),
       timeframe: body.timeframe,
       bars: body.bars ?? 10000,
       strategyKey: body.strategyKey,
@@ -56,7 +60,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
     }
     const updated = await layouts.updateLayout(id, {
       name: body.name,
-      symbol: body.symbol?.toUpperCase(),
+      symbol: body.symbol === undefined ? undefined : storedLayoutSymbol(body.symbol),
       timeframe: body.timeframe,
       bars: body.bars,
       strategyKey: body.strategyKey,

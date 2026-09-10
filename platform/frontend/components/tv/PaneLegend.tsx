@@ -41,6 +41,7 @@ import { CompareControl } from "@/components/tv/CompareControl";
 import { LegendTimeframe, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { Resolution } from "@/lib/resolution";
 import type { PaneCompare } from "@/lib/workspace";
+import { displaySymbol } from "@/lib/instrument";
 
 export interface PaneLegendProps {
   paneId: string;
@@ -79,6 +80,7 @@ const HIT = "pointer-events-auto";
 
 export function PaneLegend(props: PaneLegendProps) {
   const { paneId, symbol, interval, compare, dense } = props;
+  const symbolLabel = displaySymbol(symbol);
   const [compareOpen, setCompareOpen] = useState(false);
 
   const pickInterval = useCallback((next: Resolution) => {
@@ -109,10 +111,10 @@ export function PaneLegend(props: PaneLegendProps) {
         <button
           {...{ className: `${HIT} flex h-5 shrink-0 items-center rounded px-1 text-xs font-semibold text-ink hover:bg-surface-2/80` }}
           onClick={() => props.onOpenSymbolSearch(paneId)}
-          title={`Change this pane's symbol — currently ${symbol} · ${props.bars.toLocaleString()} bars loaded`}
-          aria-label={`Change symbol for the ${symbol} pane`}
+          title={`Change this pane's symbol — currently ${symbolLabel} · ${props.bars.toLocaleString()} bars loaded`}
+          aria-label={`Change symbol for the ${symbolLabel} pane`}
         >
-          {symbol}
+          {symbolLabel}
         </button>
 
         {/*

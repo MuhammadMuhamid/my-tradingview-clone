@@ -2,23 +2,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type SymbolSearchResult } from "@/lib/api";
 import {
-  ALL_QUOTES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, dialogClosed, moveCursor,
+  ALL_QUOTES, ALL_VENUES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, dialogClosed, moveCursor,
   pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor, searchKey,
-  searchSummary, type SearchIntent,
+  searchSummary, venueFilters, type SearchIntent,
 } from "@/lib/symbolSearch";
-import { storedSymbol } from "@/lib/instrument";
+import { canonicalDisplayParts, displaySymbol, storedSymbol } from "@/lib/instrument";
 
 /**
  * The symbol dialog.
  *
  * ── Spot, and only spot ────────────────────────────────────────────────────
  *
- * Every row here is a Binance SPOT pair, because that is the only feed this
- * installation has. There are no stocks, no futures, no forex and no options,
- * so there are no filter chips for them: a chip that returns nothing is not a
- * filter, it is a claim about what the product trades. The only axis that
- * exists is the quote asset, and the venue and market are stated in the header
- * rather than left to be inferred from the tickers.
+ * Every row here is a supported venue's SPOT pair. There are no stocks,
+ * futures, forex or options, so there are no filter chips for them: a chip
+ * that returns nothing is not a filter, it is a claim about what the product
+ * trades. Quote and venue are the real filter axes, and every result carries
+ * its venue so colliding pairs cannot be mistaken for each other.
  *
  * ── Which chart it changes ─────────────────────────────────────────────────
  *
@@ -69,12 +68,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
 }) {
   const [term, setTerm] = useState("");
   const [quote, setQuote] = useState(ALL_QUOTES);
+  const [venue, setVenue] = useState(ALL_VENUES);
+  const [venues, setVenues] = useState<{ id: string; label: string }[]>([]);
   const [quotes, setQuotes] = useState<string[]>([]);
   const [rows, setRows] = useState<SymbolSearchResult[]>([]);
   const [total, setTotal] = useState(0);
   const [cursor, setCursor] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -100,8 +102,9 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   // Enter re-selects it and typing replaces it (the selection is highlighted).
   useEffect(() => {
     if (!open) return;
-    setTerm(current);
+    setTerm(canonicalDisplayParts(current)?.base ?? current);
     setQuote(ALL_QUOTES);
+    setVenue(ALL_VENUES);
     setCursor(0);
     setErr(null);
     // A dialog that has just opened answers nothing yet; its rows are last
@@ -144,7 +147,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   // Debounced search; out-of-order responses are dropped by request id.
   useEffect(() => {
     if (!open) return;
-    const key = searchKey(term, quote);
+    const key = searchKey(term, quote, venue);
     // This effect re-runs exactly when the query changed, which is exactly
     // when a waiting Enter stops being about what the user typed.
     intent.current = queryChanged(intent.current);
@@ -153,13 +156,17 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     let timer: ReturnType<typeof setTimeout> | null = null;
     const run = () => {
       timer = null;
-      api.searchSymbols(term, quote === ALL_QUOTES ? "" : quote, 60)
+      api.searchMarket(term, quote === ALL_QUOTES ? "" : quote, venue === ALL_VENUES ? "" : venue, 60)
         .then((res) => {
           if (reqId.current !== id) return;
           setRows(res.results);
           setTotal(res.total);
           setQuotes(res.quotes);
+          setVenues(res.venues ?? []);
           setCursor(res.results.length > 0 ? 0 : -1);
+          setWarning(res.errors && res.errors.length > 0
+            ? `${res.errors.map((item) => item.providerId).join(", ")} unavailable; other venues remain searchable.`
+            : null);
           setErr(null);
           // Enter was pressed while this query was still in flight. It meant
           // "take the best match for what I typed" — honoured only if the
@@ -196,18 +203,18 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       if (timer !== null) clearTimeout(timer);
       flushSearch.current = null;
     };
-  }, [open, term, quote, bumpIntent]);
+  }, [open, term, quote, venue, bumpIntent]);
 
   const choose = useCallback(async (row: SymbolSearchResult) => {
     try {
-      if (!row.tracked) {
+      if (!row.canonicalId && !row.tracked) {
         await api.addSymbol(row.symbol, row.baseAsset, row.quoteAsset);
         onSymbolAdded?.();
       }
       // The one place a chosen symbol leaves this dialog. Reduced through the
       // canonical resolver so the pane, the workspace and every request that
       // follows receive the bare stored ticker — see `lib/instrument`.
-      onSelect(storedSymbol(row.symbol));
+      onSelect(row.canonicalId ?? storedSymbol(row.symbol));
       onClose();
     } catch (e) {
       setErr((e as Error).message);
@@ -240,7 +247,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       if (e.key === "Enter") {
         // Results that answer a previous query are not an answer to this one.
         // Selecting from them is exactly the defect: see the module header.
-        const decision = pressEnter(intent.current, searchKey(term, quote));
+        const decision = pressEnter(intent.current, searchKey(term, quote, venue));
         intent.current = decision.intent;
         if (decision.action === "flush") {
           // Only now is Enter this dialog's key. Left un-prevented above, a
@@ -276,7 +283,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // `intentVersion` is a deliberate re-subscribe trigger, not a value read.
-  }, [open, rows, intentVersion, term, quote, cursor, choose, onClose, bumpIntent]);
+  }, [open, rows, intentVersion, term, quote, venue, cursor, choose, onClose, bumpIntent]);
 
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {
@@ -288,6 +295,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   if (!open) return null;
 
   const chips = quoteFilters(quotes);
+  const venueChips = venueFilters(venues);
+  const currentLabel = displaySymbol(current);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 p-4 pt-[6vh]">
@@ -303,8 +312,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           <div className="min-w-0">
             <h2 className="text-xl font-semibold text-ink">Symbol search</h2>
             <p className="mt-0.5 text-xs text-ink-muted">
-              {SEARCH_VENUE} {SEARCH_MARKET} pairs. Choosing one replaces the symbol on the chart
-              currently showing <span className="font-semibold text-ink">{current}</span>.
+              {SEARCH_VENUE} · {SEARCH_MARKET}. Venue labels disambiguate identical pairs. Choosing one replaces the symbol on the chart
+              currently showing <span className="font-semibold text-ink">{currentLabel}</span>.
             </p>
           </div>
           <button onClick={onClose} className="shrink-0 rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink" title="Close" aria-label="Close">
@@ -357,6 +366,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
             </button>
           ))}
         </div>
+        <div role="group" aria-label="Filter by venue" className="flex gap-1 overflow-x-auto px-6 pb-3">
+          {venueChips.map((item) => (
+            <button key={item.id} onClick={() => setVenue(item.id)} aria-pressed={venue === item.id}
+              className={`shrink-0 rounded px-2 py-1 text-xs ${venue === item.id
+                ? "bg-accent/15 font-medium text-accent" : "text-ink-faint hover:bg-surface-2 hover:text-ink"}`}>
+              {item.label}
+            </button>
+          ))}
+        </div>
 
         {/* results */}
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto border-t border-border">
@@ -369,6 +387,11 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
               </p>
             </div>
           )}
+          {warning && !err && (
+            <div role="status" className="mx-4 mt-3 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+              {warning}
+            </div>
+          )}
           {!err && rows.length === 0 && !busy && (
             <div className="px-6 py-12 text-center text-sm text-ink-faint">
               {term.trim().length === 0
@@ -377,23 +400,23 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
             </div>
           )}
           {rows.map((r, i) => {
-            const isCurrent = r.symbol === current;
+            const isCurrent = (r.canonicalId ?? r.symbol) === current;
             return (
               <button
-                key={r.symbol}
+                key={r.canonicalId ?? `${r.venueId ?? "BINANCE"}:${r.symbol}`}
                 data-idx={i}
                 onMouseEnter={() => setCursor(i)}
                 onClick={() => void choose(r)}
                 aria-current={isCurrent ? "true" : undefined}
-                className={`flex w-full items-center gap-4 border-b border-border/60 px-6 py-3 text-left ${
+                className={`flex w-full items-center gap-2 border-b border-border/60 px-3 py-3 text-left sm:gap-4 sm:px-6 ${
                   i === cursor ? "bg-surface-2" : "hover:bg-surface-2/50"
                 } ${isCurrent ? "border-l-2 border-l-accent" : "border-l-2 border-l-transparent"}`}
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-bold text-ink-muted">
                   {r.baseAsset.slice(0, 3)}
                 </span>
-                <span className="w-[150px] shrink-0 truncate font-semibold text-accent">{r.symbol}</span>
-                <span className="min-w-0 flex-1 truncate text-sm text-ink-muted">
+                <span className="w-[90px] shrink-0 truncate font-semibold text-accent sm:w-[150px]">{r.symbol}</span>
+                <span className="hidden min-w-0 flex-1 truncate text-sm text-ink-muted sm:block">
                   {r.baseAsset} / {r.quoteAsset}
                 </span>
                 {isCurrent && (
@@ -401,14 +424,14 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                     on this chart
                   </span>
                 )}
-                {!r.tracked && (
+                {!r.canonicalId && !r.tracked && (
                   <span className="shrink-0 rounded bg-surface-2 px-2 py-0.5 text-[11px] text-ink-faint"
                     title="Not tracked here yet — choosing it registers the pair first">
                     add
                   </span>
                 )}
-                <span className="shrink-0 text-xs text-ink-faint">{SEARCH_MARKET}</span>
-                <span className="shrink-0 text-sm font-medium text-ink-muted">{SEARCH_VENUE}</span>
+                <span className="hidden shrink-0 text-xs text-ink-faint md:inline">{SEARCH_MARKET}</span>
+                <span className="shrink-0 text-sm font-medium text-ink-muted">{r.venueId ?? SEARCH_VENUE}</span>
               </button>
             );
           })}

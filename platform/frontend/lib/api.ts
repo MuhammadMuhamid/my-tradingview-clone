@@ -41,6 +41,10 @@ export interface OptimizerBest {
 
 export interface SymbolSearchResult {
   symbol: string;
+  canonicalId?: string;
+  providerId?: string;
+  providerSymbol?: string;
+  venueId?: string;
   baseAsset: string;
   quoteAsset: string;
   /** already in the local symbols table (has candles / can be charted at once) */
@@ -51,6 +55,8 @@ export interface SymbolSearchResponse {
   total: number;
   quotes: string[];
   results: SymbolSearchResult[];
+  venues?: { id: string; label: string }[];
+  errors?: { providerId: string; error: string }[];
 }
 
 // ── Pine editor ──
@@ -293,12 +299,32 @@ export interface Ticker24h {
   at: number;
 }
 
+export interface MarketTickerResponse {
+  providers: Array<{ providerId: string; observations: Array<{
+    canonicalInstrumentId: string; providerSymbol: string; observedAt: number;
+    values: { last?: number; bid?: number; ask?: number; mid?: number };
+    freshness: { state: "fresh" | "stale"; ageMs: number };
+  }> }>;
+  errors: { providerId: string; error: string }[];
+  missing: string[];
+}
+
+export interface MarketStreamConfig {
+  contractVersion: "market.v1";
+  canonicalId: string;
+  providerId: string;
+  providerSymbol: string;
+  interval: string;
+  request: { origins: string[]; path: string; subscribeMessage: string | null; requiresBootstrapToken: false };
+}
+
 export interface CompactCandles {
   format: "compact-v1";
   symbol: string;
   interval: Resolution;
   stepMs: number;
   count: number;
+  completeness?: { complete: boolean; missingBars: number; truncated: boolean; limitation?: string };
   bars: CompactBar[];
 }
 
@@ -1038,6 +1064,11 @@ export const api = {
     req<SymbolSearchResponse>(
       `/api/symbols/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}&limit=${limit}`
     ),
+  searchMarket: (q: string, quote = "", venue = "", limit = 60) =>
+    req<SymbolSearchResponse>(
+      `/api/market/v1/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}` +
+      `&venue=${encodeURIComponent(venue)}&limit=${limit}`
+    ),
   /**
    * Candles in the COMPACT wire format.
    *
@@ -1049,7 +1080,9 @@ export const api = {
    */
   candles: (symbol: string, interval: Resolution, limit = 1000, signal?: AbortSignal) =>
     req<CompactCandles>(
-      `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}&format=compact`,
+      symbol.toLowerCase().startsWith("instrument:v1:")
+        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=${limit}&format=compact`
+        : `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
     ).then(expandCompact),
 
@@ -1064,6 +1097,16 @@ export const api = {
       `/api/symbols/tickers?symbols=${encodeURIComponent(symbols.join(","))}`,
       signal ? { signal } : undefined
     ),
+  marketTickers: (instruments: readonly string[], signal?: AbortSignal) =>
+    req<MarketTickerResponse>(
+      `/api/market/v1/tickers?instruments=${encodeURIComponent(instruments.join(","))}`,
+      signal ? { signal } : undefined
+    ),
+  marketStream: (instrument: string, kind: "ticker" | "candle", interval = "1m", signal?: AbortSignal) =>
+    req<MarketStreamConfig>(
+      `/api/market/v1/stream/${encodeURIComponent(instrument)}?kind=${kind}&interval=${encodeURIComponent(interval)}`,
+      signal ? { signal } : undefined
+    ),
   /** The verbose shape, for consumers that need quoteVolume or tradeCount. */
   candlesVerbose: (symbol: string, interval: Resolution, limit = 1000, signal?: AbortSignal) =>
     req<Candle[]>(
@@ -1076,7 +1119,9 @@ export const api = {
     limit = 200000, signal?: AbortSignal
   ) =>
     req<CompactCandles>(
-      `/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`,
+      symbol.toLowerCase().startsWith("instrument:v1:")
+        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`
+        : `/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
     ).then(expandCompact),
   /**

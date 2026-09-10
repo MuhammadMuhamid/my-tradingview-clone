@@ -11,8 +11,9 @@ import {
   MANUAL_SORT, canReorder, nextSort, reorderRefusal, reorderSymbols, sortSymbols,
   type SortColumn, type WatchlistSort,
 } from "@/lib/watchlistOrder";
+import { canonicalDisplayParts, displaySymbol, isCanonicalInstrumentId } from "@/lib/instrument";
 
-interface Ticker { last: number; chg: number; chgPct: number }
+interface Ticker { last: number; chg: number; chgPct: number; stale?: boolean; changeKnown?: boolean }
 type NamedWatchlist = ServerWatchlist;
 
 /**
@@ -151,7 +152,16 @@ export function Watchlist({
   const manualSymbols = useMemo(() => {
     if (!active) return [];
     const bySymbol = new Map(symbols.map((s) => [s.symbol, s]));
-    return active.symbols.map((s) => bySymbol.get(s)).filter((s): s is SymbolInfo => Boolean(s));
+    return active.symbols.map((s) => {
+      const existing = bySymbol.get(s);
+      if (existing) return existing;
+      const parts = canonicalDisplayParts(s);
+      return parts ? {
+        symbol: s, baseAsset: parts.base, quoteAsset: parts.quote,
+        priceTick: null, qtyStep: null, minNotional: null, isActive: true,
+        venue: parts.venue, assetClass: "crypto_spot" as const,
+      } : null;
+    }).filter((s): s is SymbolInfo => Boolean(s));
   }, [active, symbols]);
 
   /*
@@ -160,7 +170,7 @@ export function Watchlist({
    * `lib/useWatchlistTickers`. The rows are never `—` for want of a socket.
    */
   const visibleSymbolNames = useMemo(() => manualSymbols.map((s) => s.symbol), [manualSymbols]);
-  const { tickers, stream } = useWatchlistTickers(visibleSymbolNames);
+  const { tickers, stream, issues } = useWatchlistTickers(visibleSymbolNames);
 
   const updateActive = (fn: (list: NamedWatchlist) => NamedWatchlist) => {
     if (!active) return;
@@ -218,12 +228,15 @@ export function Watchlist({
    */
   const priceState: { label: string; tone: string; detail: string } | null =
     visibleSymbols.length === 0 ? null
+    : issues.length > 0 ? { label: "partial outage", tone: "text-down", detail: issues.join(" ") }
+    : visibleSymbolNames.some((name) => tickers[name]?.stale)
+      ? { label: "stale", tone: "text-warn", detail: "One or more provider quotes are older than the venue freshness limit." }
     : stream.status === "live" ? { label: "live", tone: "text-up", detail: streamWords.detail }
     : stream.status === "connecting" || stream.status === "open"
       ? { label: stream.status === "open" ? "connected — waiting for data" : "connecting…", tone: "text-ink-faint", detail: streamWords.detail }
     : stream.status === "stale"
       ? { label: "stalled", tone: "text-down", detail: streamWords.detail }
-    : { label: "not streaming", tone: "text-warn", detail: `${streamWords.detail} Prices shown are the exchange's last quotes, refreshed when the list changes.` };
+    : { label: "not streaming", tone: "text-warn", detail: `${streamWords.detail} Prices shown are retained REST quotes and refresh every 15 seconds.` };
 
   /**
    * Optimistic local edit, then persist. The list re-renders immediately and
@@ -239,20 +252,30 @@ export function Watchlist({
    * starter list is not a second, looser admission path.
    */
   const addSymbols = async (wanted: readonly string[]) => {
-    const clean = wanted.map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const clean = wanted.map((s) => s.trim()).filter(Boolean);
     if (clean.length === 0) return;
-    if (!clean.every((s) => s.endsWith("USDT"))) {
-      setErr("Only *USDT Binance spot pairs");
-      return;
-    }
     setErr(null);
     try {
-      const missing = clean.filter((s) => !symbols.some((x) => x.symbol === s));
-      for (const s of missing) await api.addSymbol(s, s.replace(/USDT$/, ""), "USDT");
+      const resolved: string[] = [];
+      for (const raw of clean) {
+        const s = isCanonicalInstrumentId(raw) ? raw : raw.toUpperCase();
+        if (isCanonicalInstrumentId(s)) { resolved.push(s); continue; }
+        if (s.endsWith("USDT")) {
+          if (!symbols.some((x) => x.symbol === s)) await api.addSymbol(s, s.replace(/USDT$/, ""), "USDT");
+          resolved.push(s); continue;
+        }
+        const found = await api.searchMarket(s, "", "", 20);
+        const exact = found.results.filter((row) => row.providerSymbol?.toUpperCase() === s || row.symbol.toUpperCase() === s);
+        if (exact.length !== 1 || !exact[0]?.canonicalId) {
+          throw new Error(exact.length > 1 ? `“${s}” exists on multiple venues; choose it from Symbol search.` : `No exact spot instrument matches “${s}”.`);
+        }
+        resolved.push(exact[0].canonicalId);
+      }
+      const missing = resolved.filter((s) => !symbols.some((x) => x.symbol === s));
       if (missing.length > 0) onSymbolsChanged();
       updateActive((l) => ({
         ...l,
-        symbols: [...l.symbols, ...clean.filter((s) => !l.symbols.includes(s))],
+        symbols: [...l.symbols, ...resolved.filter((s) => !l.symbols.includes(s))],
       }));
       setAdding("");
     } catch (e) { setErr((e as Error).message); }
@@ -415,7 +438,7 @@ export function Watchlist({
           <div className="px-4 py-6">
             <p className="text-xs font-medium text-ink">Nothing on this list yet</p>
             <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-              Type a Binance Spot USDT pair in the field above, or start from the
+              Type an exact spot symbol in the field above, or start from the Binance
               most liquid ones.
             </p>
             <div className="mt-3 flex flex-wrap gap-1">
@@ -484,12 +507,15 @@ export function Watchlist({
             */
             className={`group grid h-[29px] grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 border-b border-border px-3 text-sm tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-surface-2"}`}>
             <button onClick={() => onSelect(s.symbol)} className="contents text-left">
-              <span className="truncate font-medium text-ink">{s.baseAsset}<span className="text-ink-faint">USDT</span></span>
-              <span className={`text-right ${t ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}
+              <span className="truncate font-medium text-ink" title={displaySymbol(s.symbol)}>
+                {s.baseAsset}<span className="text-ink-faint">/{s.quoteAsset}</span>
+                {isCanonicalInstrumentId(s.symbol) && <span className="ml-1 text-[9px] font-normal text-ink-faint">· {s.venue}</span>}
+              </span>
+              <span className={`text-right ${t ? (t.stale ? "text-warn" : up ? "text-up" : "text-down") : "text-ink-faint"}`}
                 title={selectedRow && replayQuote ? "Replay price at the current historical horizon" : undefined}>
                 {t ? px(t.last) : "—"}
               </span>
-              <span className={`w-[64px] text-right ${t ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t ? `${up ? "+" : ""}${t.chgPct.toFixed(2)}%` : "—"}</span>
+              <span className={`w-[64px] text-right ${t && t.changeKnown !== false ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t && t.changeKnown !== false ? `${up ? "+" : ""}${t.chgPct.toFixed(2)}%` : "—"}</span>
             </button>
             <button title="Remove from watchlist" onClick={() => updateActive((l) => ({ ...l, symbols: l.symbols.filter((x) => x !== s.symbol) }))} className="invisible text-ink-faint hover:text-down group-hover:visible">×</button>
           </div>;

@@ -22,13 +22,18 @@ import { api } from "./api";
 import {
   combinedStreamPath, marketStreams, miniTickerStreamName, type StreamState,
 } from "./marketStream";
+import { isCanonicalInstrumentId } from "./instrument";
+import { subscribeCanonicalMarket } from "./canonicalMarketStream";
 
 export interface WatchlistTicker {
   last: number;
   chg: number;
   chgPct: number;
   /** `stream` once a frame has arrived for this symbol; `seed` before then. */
-  source: "seed" | "stream";
+  source: "seed" | "stream" | "poll";
+  stale?: boolean;
+  changeKnown?: boolean;
+  providerId?: string;
 }
 
 interface RawMiniTicker {
@@ -40,7 +45,8 @@ export function watchlistStreamKey(symbols: readonly string[]): string {
 }
 
 export function tickerFrom(last: number, open: number, source: WatchlistTicker["source"]): WatchlistTicker {
-  return { last, chg: last - open, chgPct: open ? ((last - open) / open) * 100 : 0, source };
+  return { last, chg: last - open, chgPct: open ? ((last - open) / open) * 100 : 0,
+    source, changeKnown: true };
 }
 
 const IDLE: StreamState = { status: "idle", origin: null, attempt: 0, everLive: false, refused: [] };
@@ -55,7 +61,7 @@ const IDLE: StreamState = { status: "idle", origin: null, attempt: 0, everLive: 
 export function retainTickers(
   current: Record<string, WatchlistTicker>, symbols: readonly string[],
 ): Record<string, WatchlistTicker> {
-  const keep = new Set(symbols.map((s) => s.toUpperCase()));
+  const keep = new Set(symbols.map((s) => isCanonicalInstrumentId(s) ? s : s.toUpperCase()));
   const next: Record<string, WatchlistTicker> = {};
   for (const [symbol, ticker] of Object.entries(current)) if (keep.has(symbol)) next[symbol] = ticker;
   return next;
@@ -64,13 +70,18 @@ export function retainTickers(
 export function useWatchlistTickers(symbols: readonly string[]): {
   tickers: Record<string, WatchlistTicker>;
   stream: StreamState;
+  issues: string[];
 } {
   const [tickers, setTickers] = useState<Record<string, WatchlistTicker>>({});
   const [stream, setStream] = useState<StreamState>(IDLE);
+  const [canonicalStates, setCanonicalStates] = useState<Record<string, StreamState>>({});
+  const [issues, setIssues] = useState<string[]>([]);
   // Identity by content, so a re-rendered parent with the same list does not
   // re-open the socket.
   const key = useMemo(() => watchlistStreamKey(symbols), [symbols]);
-  const list = useMemo(() => symbols.map((s) => s.toUpperCase()), [symbols]);
+  const list = useMemo(() => symbols.map((s) => isCanonicalInstrumentId(s) ? s : s.toUpperCase()), [symbols]);
+  const canonical = useMemo(() => list.filter((s) => s.toLowerCase().startsWith("instrument:v1:")), [list]);
+  const legacy = useMemo(() => list.filter((s) => !s.toLowerCase().startsWith("instrument:v1:")), [list]);
 
   // Seed: one same-origin request per symbol-set change. A stream tick that
   // arrives first is never overwritten by the slower seed.
@@ -78,23 +89,40 @@ export function useWatchlistTickers(symbols: readonly string[]): {
     setTickers((current) => retainTickers(current, list));
     if (list.length === 0) return;
     const controller = new AbortController();
-    void api.tickers(list, controller.signal).then((rows) => {
+    const legacyRead = (legacy.length > 0 ? api.tickers(legacy, controller.signal) : Promise.resolve([]))
+      .then((rows) => ({ rows, error: null as string | null }))
+      .catch((cause) => ({ rows: [], error: `Binance ticker refresh failed: ${(cause as Error).message}` }));
+    const canonicalRead = (canonical.length > 0 ? api.marketTickers(canonical, controller.signal) : Promise.resolve(null))
+      .then((market) => ({ market, error: null as string | null }))
+      .catch((cause) => ({ market: null, error: `Provider ticker refresh failed: ${(cause as Error).message}` }));
+    void Promise.all([legacyRead, canonicalRead]).then(([legacyResult, canonicalResult]) => {
       if (controller.signal.aborted) return;
+      const rows = legacyResult.rows;
+      const market = canonicalResult.market;
+      setIssues([...(market?.errors ?? []).map((item) => `${item.providerId}: ${item.error}`),
+        ...((market?.missing ?? []).length ? [`${market!.missing.length} saved instrument(s) unavailable`] : []),
+        ...[legacyResult.error, canonicalResult.error].filter((item): item is string => item !== null)]);
       setTickers((current) => {
         const next = { ...current };
         for (const row of rows) {
           if (next[row.symbol]?.source === "stream") continue;
           next[row.symbol] = tickerFrom(row.last, row.open, "seed");
         }
+        for (const group of market?.providers ?? []) for (const row of group.observations) {
+          const last = row.values.last;
+          if (last === undefined || !Number.isFinite(last)) continue;
+          next[row.canonicalInstrumentId] = { ...tickerFrom(last, last, "seed"),
+            changeKnown: false, stale: row.freshness.state === "stale", providerId: group.providerId };
+        }
         return next;
       });
-    }).catch(() => { /* the stream, or the next seed, fills the rows */ });
+    });
     return () => controller.abort();
-  }, [list]);
+  }, [list, legacy, canonical]);
 
   useEffect(() => {
-    if (list.length === 0) { setStream(IDLE); return; }
-    const path = combinedStreamPath(list.map(miniTickerStreamName));
+    if (legacy.length === 0) { setStream(IDLE); return; }
+    const path = combinedStreamPath(legacy.map(miniTickerStreamName));
     const release = marketStreams.subscribe(key, path, {
       onState: setStream,
       onMessage: (data) => {
@@ -109,7 +137,64 @@ export function useWatchlistTickers(symbols: readonly string[]): {
       },
     });
     return release;
-  }, [key, list]);
+  }, [key, legacy]);
 
-  return { tickers, stream };
+  useEffect(() => {
+    if (canonical.length === 0) return;
+    const controller = new AbortController();
+    const releases: Array<() => void> = [];
+    let stopped = false;
+    for (const instrument of canonical) {
+      void api.marketStream(instrument, "ticker", "1m", controller.signal).then((config) => {
+        if (stopped) return;
+        releases.push(subscribeCanonicalMarket(config, "ticker", "1m", {
+          onState: (state) => setCanonicalStates((current) => ({ ...current, [instrument]: state })),
+          onEvent: (event) => {
+            if (event.kind !== "ticker") return;
+            setTickers((current) => {
+              const previous = current[instrument];
+              const reference = previous && previous.changeKnown !== false ? previous.last - previous.chg : event.last;
+              return { ...current, [instrument]: { ...tickerFrom(event.last, reference, "stream"),
+                changeKnown: previous?.changeKnown ?? false, stale: false, providerId: config.providerId } };
+            });
+          },
+        }));
+      }).catch((cause) => {
+        if (!controller.signal.aborted) setIssues((current) => [...new Set([...current,
+          `Stream unavailable for ${instrument}: ${(cause as Error).message}`])]);
+      });
+    }
+    const poll = () => void api.marketTickers(canonical, controller.signal).then((market) => {
+      setIssues([...market.errors.map((item) => `${item.providerId}: ${item.error}`),
+        ...(market.missing.length ? [`${market.missing.length} saved instrument(s) unavailable`] : [])]);
+      setTickers((current) => {
+        const next = { ...current };
+        for (const group of market.providers) for (const row of group.observations) {
+          const last = row.values.last;
+          if (last !== undefined && Number.isFinite(last)) {
+            const previous = next[row.canonicalInstrumentId];
+            const reference = previous && previous.changeKnown !== false ? previous.last - previous.chg : last;
+            next[row.canonicalInstrumentId] = { ...tickerFrom(last, reference, "poll"),
+              changeKnown: previous?.changeKnown ?? false, stale: row.freshness.state === "stale",
+              providerId: group.providerId };
+          }
+        }
+        return next;
+      });
+    }).catch((cause) => setIssues([`Ticker refresh failed: ${(cause as Error).message}`]));
+    const timer = window.setInterval(poll, 15_000);
+    return () => { stopped = true; controller.abort(); for (const release of releases) release();
+      setCanonicalStates({}); window.clearInterval(timer); };
+  }, [canonical]);
+
+  const states = Object.values(canonicalStates);
+  const canonicalStream = states.some((state) => state.status === "stale")
+    ? states.find((state) => state.status === "stale")!
+    : states.some((state) => state.status === "reconnecting")
+      ? states.find((state) => state.status === "reconnecting")!
+      : states.some((state) => state.status === "connecting" || state.status === "open")
+        ? states.find((state) => state.status === "connecting" || state.status === "open")!
+        : states.some((state) => state.status === "live") ? states.find((state) => state.status === "live")! : IDLE;
+  const combined = legacy.length > 0 && stream.status !== "idle" ? stream : canonicalStream;
+  return { tickers, stream: combined, issues };
 }

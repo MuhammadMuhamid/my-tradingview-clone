@@ -15,6 +15,37 @@ export interface ProviderRateLimitPolicy {
   retry: { maxAttempts: number; baseDelayMs: number; maximumDelayMs: number; retryableStatuses: readonly number[] };
 }
 
+export interface ProviderDocumentationSource {
+  title: string;
+  url: string;
+  accessedOn: string;
+  covers: readonly ("catalog" | "metadata" | "ticker" | "candles" | "ticker_stream" | "candle_stream")[];
+  access: "public" | "authentication_required";
+  limits: readonly string[];
+}
+
+export type ProviderAccess =
+  | { mode: "public"; proof: "official_contract" | "live_public" }
+  | { mode: "authentication_required"; reason: string; proof: "official_contract_only" }
+  | { mode: "unavailable"; reason: string; proof: "official_contract_only" };
+
+export interface StreamContract {
+  support: "supported" | "unsupported";
+  reason?: string;
+  origins?: readonly string[];
+  protocol?: "url_subscription" | "json_subscription" | "tokenized_json_subscription";
+  /** Provider topic template; `{symbol}` and `{interval}` are substituted by clients. */
+  topic?: string;
+  resolutions?: readonly Interval[];
+}
+
+export interface CandlePaginationPolicy {
+  maxPageSize: number;
+  direction: "forward" | "backward" | "latest_window_only";
+  maximumBars?: number;
+  limitation?: string;
+}
+
 export interface TickerObservation {
   canonicalInstrumentId: string;
   providerSymbol: string;
@@ -55,19 +86,27 @@ export interface MarketDataProviderAdapter {
   readonly venueIds: readonly string[];
   readonly healthPolicy: ProviderHealthPolicy;
   readonly rateLimits: ProviderRateLimitPolicy;
+  readonly access: ProviderAccess;
+  readonly documentation: readonly ProviderDocumentationSource[];
 
   readonly catalog: {
+    availability: Support;
     list(): Promise<CanonicalInstrument[]>;
     metadata(providerSymbols: readonly string[]): Promise<CanonicalInstrument[]>;
   };
   readonly candles: {
+    availability: Support;
     resolutions: readonly Interval[];
-    fetch(providerSymbol: string, interval: Interval, startMs: number, endMs: number): Promise<Candle[]>;
+    pagination: CandlePaginationPolicy;
+    stream: StreamContract;
+    fetch(providerSymbol: string, interval: Interval, startMs: number, endMs: number,
+      signal?: AbortSignal): Promise<Candle[]>;
   };
   readonly ticker: {
+    availability: Support;
     prices: PriceRoleCapabilities;
     fetch(providerSymbols: readonly string[]): Promise<TickerObservation[]>;
-    stream: Support & { origins?: readonly string[] };
+    stream: StreamContract;
   };
   readonly trades: OptionalTrades;
   readonly orderBook: OptionalOrderBook;

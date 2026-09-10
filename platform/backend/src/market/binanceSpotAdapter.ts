@@ -89,6 +89,20 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
     id: BINANCE_SPOT_PROFILE.id,
     label: "Binance Spot",
     venueIds: Object.freeze(["BINANCE"]),
+    access: { mode: "public", proof: "official_contract" },
+    documentation: Object.freeze([
+      {
+        title: "Binance Spot REST API", url: "https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md",
+        accessedOn: "2026-09-09", covers: ["catalog", "metadata", "ticker", "candles"] as const,
+        access: "public" as const,
+        limits: ["Klines return at most 1000 bars per request", "429/418 responses require Retry-After backoff"],
+      },
+      {
+        title: "Binance Spot WebSocket Streams", url: "https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md",
+        accessedOn: "2026-09-09", covers: ["ticker_stream", "candle_stream"] as const,
+        access: "public" as const, limits: ["Connections are recycled after 24 hours"],
+      },
+    ]),
     healthPolicy: { staleAfterMs: 60_000, unavailableAfterFailures: 3 },
     rateLimits: {
       buckets: Object.freeze([{
@@ -102,6 +116,7 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
       },
     },
     catalog: {
+      availability: supported(),
       list: async () => (await deps.listSymbols()).map((row) => canonical(row)),
       metadata: async (symbols) => (await deps.metadata([...symbols])).map((row) => canonical(row, {
         priceTick: knownNumber(row.priceTick, "PRICE_FILTER missing"),
@@ -117,10 +132,15 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
       })),
     },
     candles: {
+      availability: supported(),
       resolutions: Object.freeze([...INTERVALS]),
+      pagination: { maxPageSize: 1000, direction: "forward" },
+      stream: { support: "supported", origins: BINANCE_SPOT_PROFILE.streamOrigins,
+        protocol: "url_subscription", topic: "{symbol}@kline_{interval}" },
       fetch: (symbol, interval, startMs, endMs) => deps.candles(symbol, interval, startMs, endMs),
     },
     ticker: {
+      availability: supported(),
       prices: canonical({ symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", status: "TRADING" }).prices,
       fetch: async (symbols): Promise<TickerObservation[]> => {
         const [rows, metadata] = await Promise.all([deps.tickers(symbols), deps.metadata([...symbols])]);
@@ -131,7 +151,8 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
             observedAt: row.at, values: { last: row.last } }] : [];
         });
       },
-      stream: { support: "supported", origins: BINANCE_SPOT_PROFILE.streamOrigins },
+      stream: { support: "supported", origins: BINANCE_SPOT_PROFILE.streamOrigins,
+        protocol: "url_subscription", topic: "{symbol}@miniTicker" },
     },
     trades: { support: "unsupported", reason: "trade history is outside the current Binance Spot seam" },
     orderBook: { support: "unsupported", reason: "order book is outside the current Binance Spot seam" },

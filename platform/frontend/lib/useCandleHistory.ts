@@ -26,6 +26,8 @@ import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import type { Candle } from "./types";
 import { resolutionMs, type Resolution } from "./resolution";
+import { isCanonicalInstrumentId } from "./instrument";
+import { subscribeCanonicalMarket } from "./canonicalMarketStream";
 
 /**
  * Fetch a window, repairing thin history once and a stale tail once.
@@ -56,7 +58,7 @@ export async function loadCandleWindow(
   let data = await api.candles(symbol, interval, bars, signal);
 
   let backfilled = false;
-  if (data.length < Math.min(bars, 500) * 0.98) {
+  if (!isCanonicalInstrumentId(symbol) && data.length < Math.min(bars, 500) * 0.98) {
     backfilled = true;
     // Not enough history stored: backfill, then fetch only what is missing
     // rather than the whole window again.
@@ -106,10 +108,12 @@ export async function repairStaleTail(
   const last = data.length > 0 ? data[data.length - 1]!.openTime : null;
   const range = tailRepairRange(last, interval, now, bars);
   try {
-    await api.backfill(
-      symbol, interval,
-      new Date(range.from).toISOString(), new Date(range.to).toISOString()
-    );
+    if (!isCanonicalInstrumentId(symbol)) {
+      await api.backfill(
+        symbol, interval,
+        new Date(range.from).toISOString(), new Date(range.to).toISOString()
+      );
+    }
     const tail = await api.candlesRange(
       symbol, interval, range.from, range.to, bars, signal
     );
@@ -225,6 +229,7 @@ export function useCandleHistory(
     () => heldWindow(candleHistory.peek(request) ?? [], { symbol, interval, bars }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streamWarning, setStreamWarning] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
   const requestSeq = useRef(new LatestRequest());
@@ -308,7 +313,7 @@ export function useCandleHistory(
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
+    if (!enabled || typeof window === "undefined" || isCanonicalInstrumentId(symbol)) return;
     let seenFirst = false;
     let wasLive = false;
     return marketFeed.subscribe(symbol, interval, {
@@ -324,12 +329,52 @@ export function useCandleHistory(
     });
   }, [symbol, interval, enabled]);
 
+  /* Canonical instruments stream through the provider contract. A slow REST
+   * tail poll remains as an explicit degraded-mode fallback. */
+  useEffect(() => {
+    if (!enabled || !isCanonicalInstrumentId(symbol)) return;
+    let stopped = false;
+    let release: (() => void) | null = null;
+    const controller = new AbortController();
+    const refresh = async () => {
+      const now = Date.now();
+      try {
+        const tail = await api.candlesRange(symbol, interval,
+          now - resolutionMs(interval) * 2, now, 3, controller.signal);
+        if (stopped || tail.length === 0) return;
+        const current = tail[tail.length - 1]!;
+        mergeLiveBars(tail.length > 1 ? tail[tail.length - 2]! : null, current);
+      } catch (cause) { if (!isAbortError(cause)) setStreamWarning(`Live tail unavailable: ${(cause as Error).message}`); }
+    };
+    void api.marketStream(symbol, "candle", interval, controller.signal).then((config) => {
+      if (stopped) return;
+      release = subscribeCanonicalMarket(config, "candle", interval, {
+        onEvent: (event) => {
+          if (event.kind !== "candle") return;
+          setStreamWarning(null);
+          mergeLiveBars(null, event.candle);
+        },
+        onState: (state) => {
+          if (state.status === "live") setStreamWarning(null);
+          else if (state.status === "stale" || (state.status === "reconnecting" && state.everLive)) {
+            setStreamWarning("Provider stream is stale; REST tail refresh remains active.");
+          }
+        },
+      });
+    }).catch((cause) => {
+      if (!isAbortError(cause)) setStreamWarning(`Streaming unavailable; using REST refresh. ${(cause as Error).message}`);
+    });
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 15_000);
+    return () => { stopped = true; controller.abort(); release?.(); window.clearInterval(timer); };
+  }, [enabled, symbol, interval, mergeLiveBars]);
+
   return useMemo(
     () => ({
       candles: held.candles, dataset: held.dataset, stale: held.stale,
-      loading, error, mergeLiveBars, reload,
+      loading, error: error ?? streamWarning, mergeLiveBars, reload,
     }),
-    [held, loading, error, mergeLiveBars, reload]
+    [held, loading, error, streamWarning, mergeLiveBars, reload]
   );
 }
 

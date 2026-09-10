@@ -132,6 +132,14 @@ export interface CanonicalInstrument {
 
 const TOKEN = /^[A-Z0-9][A-Z0-9._-]{0,31}$/;
 const VENUE = /^[A-Z][A-Z0-9_]{1,23}$/;
+const CANONICAL_SPOT = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):spot:([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):spot$/i;
+
+/** Validate and normalize the canonical spot ids that cross persistence seams. */
+export function normalizeCanonicalInstrumentId(raw: string): string | null {
+  const match = CANONICAL_SPOT.exec(String(raw ?? "").trim());
+  return match ? `instrument:v1:${match[1]!.toUpperCase()}:spot:${match[2]!.toUpperCase()}:` +
+    `${match[3]!.toUpperCase()}:${match[4]!.toUpperCase()}:spot` : null;
+}
 
 function token(value: string, label: string, pattern = TOKEN): string {
   const normalized = String(value).trim().toUpperCase();

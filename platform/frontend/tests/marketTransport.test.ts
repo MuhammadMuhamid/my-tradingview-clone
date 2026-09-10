@@ -32,6 +32,7 @@ interface FakeSocket extends StreamSocket {
   handlers: {
     onOpen: () => void; onMessage: (data: string) => void; onClose: () => void; onError: () => void;
   };
+  sent: string[];
 }
 
 function fakeTransport(): StreamTransport & { sockets: FakeSocket[]; live: () => FakeSocket[] } {
@@ -40,7 +41,8 @@ function fakeTransport(): StreamTransport & { sockets: FakeSocket[]; live: () =>
     sockets,
     live: () => sockets.filter((s) => s.open),
     open(url, handlers) {
-      const socket: FakeSocket = { url, open: true, handlers, close: () => { socket.open = false; } };
+      const socket: FakeSocket = { url, open: true, handlers, sent: [],
+        send: (data) => socket.sent.push(data), close: () => { socket.open = false; } };
       sockets.push(socket);
       return socket;
     },
@@ -85,6 +87,19 @@ function registry() {
 const MIRROR = "wss://data-stream.binance.vision";
 const NORMAL = "wss://stream.binance.com:9443";
 
+test("configured provider streams use only their trusted origins and subscribe after open", () => {
+  const { transport, streams } = registry();
+  const release = streams.subscribe("coinbase|BTC-USD", "", {}, {
+    origins: ["wss://ws-feed.exchange.coinbase.com"], subscribeMessage: "fixture-subscribe",
+  });
+  const socket = transport.sockets[0]!;
+  assert.equal(socket.url, "wss://ws-feed.exchange.coinbase.com");
+  assert.deepEqual(socket.sent, []);
+  socket.handlers.onOpen();
+  assert.deepEqual(socket.sent, ["fixture-subscribe"]);
+  release();
+});
+
 /** A handshake refused by the edge: the socket errors and closes, never opens. */
 function refuse(socket: FakeSocket): void {
   socket.handlers.onError();
@@ -103,6 +118,7 @@ test("the origin list is the market-data endpoint first, the normal host second"
 test("THE CONTENT-SECURITY-POLICY PERMITS EVERY ORIGIN THE REGISTRY MAY OPEN", async () => {
   const config = await import("../next.config.mjs") as {
     MARKET_STREAM_ORIGINS: string[];
+    PROVIDER_STREAM_ORIGINS: string[];
     default: { headers: () => Promise<Array<{ source: string; headers: Array<{ key: string; value: string }> }>> };
   };
   assert.deepEqual(config.MARKET_STREAM_ORIGINS, [...MARKET_STREAM_ORIGINS],
@@ -113,12 +129,12 @@ test("THE CONTENT-SECURITY-POLICY PERMITS EVERY ORIGIN THE REGISTRY MAY OPEN", a
   assert.ok(csp, "no CSP header on every path");
   const connect = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("connect-src"));
   assert.ok(connect, "no connect-src directive");
-  for (const origin of MARKET_STREAM_ORIGINS) {
+  for (const origin of [...MARKET_STREAM_ORIGINS, ...config.PROVIDER_STREAM_ORIGINS]) {
     assert.ok(connect.split(/\s+/).includes(origin), `${origin} is not permitted by connect-src`);
   }
-  // …and nothing else: the browser makes no Binance REST call, so no REST
-  // origin belongs here. A policy is only as tight as the widest thing in it.
-  assert.deepEqual(connect.split(/\s+/).slice(1), ["'self'", ...MARKET_STREAM_ORIGINS],
+  // …and nothing else: all REST stays same-origin; only official market-data
+  // websocket origins belong here.
+  assert.deepEqual(connect.split(/\s+/).slice(1), ["'self'", ...MARKET_STREAM_ORIGINS, ...config.PROVIDER_STREAM_ORIGINS],
     "connect-src must permit exactly 'self' and the stream origins");
 });
 

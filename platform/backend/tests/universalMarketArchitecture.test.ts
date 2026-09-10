@@ -91,18 +91,25 @@ function fakeProvider(spec: FakeSpec, fail = false): MarketDataProviderAdapter {
   };
   return {
     id: spec.providerId, label: spec.providerId, venueIds: [spec.venueId],
+    access: { mode: "public", proof: "official_contract" },
+    documentation: [{ title: "Fixture official contract", url: "https://example.test/official",
+      accessedOn: "2026-09-09", covers: ["catalog", "metadata", "ticker", "candles"],
+      access: "public", limits: ["deterministic fixture"] }],
     healthPolicy: { staleAfterMs: 1000, unavailableAfterFailures: 2 },
     rateLimits: { buckets: [{ id: "fixture", limit: { kind: "fixed", requests: 10 }, windowMs: 1000 }],
       retry: { maxAttempts: 2, baseDelayMs: 1, maximumDelayMs: 2, retryableStatuses: [429, 503] } },
-    catalog: { list: () => maybeFail([instrument]), metadata: () => maybeFail([instrument]) },
-    candles: { resolutions: ["1m"], fetch: async (symbol, interval, startMs) => maybeFail([{
+    catalog: { availability: supported(), list: () => maybeFail([instrument]), metadata: () => maybeFail([instrument]) },
+    candles: { availability: supported(), resolutions: ["1m"],
+      pagination: { maxPageSize: 10, direction: "forward" },
+      stream: { support: "unsupported", reason: "fixture stream disabled" },
+      fetch: async (symbol, interval, startMs) => maybeFail([{
       symbol, interval, openTime: startMs, open: 1, high: 2, low: 1, close: 2, volume: 3,
       closeTime: startMs + 59_999,
     }]) },
-    ticker: { prices: instrument.prices, fetch: async () => maybeFail([{
+    ticker: { availability: supported(), prices: instrument.prices, fetch: async () => maybeFail([{
       canonicalInstrumentId: instrument.identity.canonicalId, providerSymbol: spec.providerSymbol,
       observedAt: 1000, values: { last: 2 },
-    }]), stream: unsupported("fixture stream disabled") },
+    }]), stream: { support: "unsupported", reason: "fixture stream disabled" } },
     trades: { support: "unsupported", reason: "fixture" },
     orderBook: { support: "unsupported", reason: "fixture" },
     derivativeMetadata: spec.instrumentType === "future"

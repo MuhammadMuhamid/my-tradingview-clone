@@ -11,6 +11,7 @@ import { INTERVAL_MS, type Candle, type Trade } from "@/lib/types";
 import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
+import { isCanonicalInstrumentId } from "@/lib/instrument";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import {
   baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_MUTED, CHART_UP, volumeColor,
@@ -1499,6 +1500,10 @@ export function CandleChart({
    */
   useEffect(() => {
     if (!live) { setFeedState(IDLE_FEED); return; }
+    // Canonical instruments are updated by useCandleHistory's provider-aware
+    // stream. Opening this legacy Binance-only feed as well can both waste a
+    // socket and report/apply Binance data on a different venue's chart.
+    if (isCanonicalInstrumentId(symbol)) { setFeedState(IDLE_FEED); return; }
 
     // One tick handler per pane, attached to a feed that is shared by every
     // pane on this instrument and resolution. The parse, the reconnect ladder

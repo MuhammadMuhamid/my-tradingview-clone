@@ -26,6 +26,7 @@
  */
 import { query } from "../db/pool";
 import { DEFAULT_VENUE, resolveInstrument } from "../types/instrument";
+import { normalizeCanonicalInstrumentId } from "../market/model";
 
 export interface DrawingState {
   venue: string;
@@ -86,6 +87,12 @@ const toDrawingState = (r: DrawingRow): DrawingState => ({
   updatedAt: r.updated_at.toISOString(),
 });
 
+function drawingIdentity(rawSymbol: string): { venue: string; ticker: string } {
+  const canonical = normalizeCanonicalInstrumentId(rawSymbol);
+  if (canonical) return { venue: canonical.split(":")[2]!, ticker: canonical };
+  return resolveInstrument(rawSymbol);
+}
+
 /**
  * One instrument's drawings.
  *
@@ -94,7 +101,7 @@ const toDrawingState = (r: DrawingRow): DrawingState => ({
  * caller distinguish them would put that decision in three places.
  */
 export async function getDrawings(rawSymbol: string): Promise<DrawingState> {
-  const id = resolveInstrument(rawSymbol);
+  const id = drawingIdentity(rawSymbol);
   const { rows } = await query<DrawingRow>(
     "SELECT * FROM chart_drawings WHERE venue = $1 AND symbol = $2",
     [id.venue, id.ticker]
@@ -120,7 +127,7 @@ export async function getDrawings(rawSymbol: string): Promise<DrawingState> {
 export async function putDrawings(
   rawSymbol: string, drawings: unknown[], baseVersion: number
 ): Promise<DrawingState | VersionConflict<DrawingState>> {
-  const id = resolveInstrument(rawSymbol);
+  const id = drawingIdentity(rawSymbol);
   if (!Array.isArray(drawings)) throw new Error("drawings must be a list");
   if (drawings.length > MAX_ITEMS) {
     throw new Error(`a chart may hold at most ${MAX_ITEMS} drawings`);
