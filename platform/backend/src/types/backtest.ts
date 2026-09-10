@@ -131,6 +131,10 @@ export interface BacktestRow {
   equityCurve: EquityPoint[] | null;
   /** Engine/correction-set identity that produced the stored result. */
   engineFingerprint: string | null;
+  /** Complete X6+ semantic envelope. Historical rows deliberately remain null. */
+  resultProvenance: Record<string, unknown> | null;
+  /** Read-time label; it never mutates or guesses historical meaning. */
+  semanticsStatus: "historical_unversioned" | "engine_only_legacy" | "reproducible";
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;

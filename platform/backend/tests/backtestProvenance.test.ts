@@ -52,6 +52,7 @@ function dbRow(engineFingerprint: string | null): DbBacktest {
     metrics,
     equity_curve: [],
     engine_fingerprint: engineFingerprint,
+    result_provenance: null,
     started_at: now,
     finished_at: now,
     created_at: now,
@@ -60,7 +61,9 @@ function dbRow(engineFingerprint: string | null): DbBacktest {
 
 test("backtest rows round-trip current provenance and keep historical NULL readable", () => {
   assert.equal(toBacktestRow(dbRow("engine:netAvgTrade")).engineFingerprint, "engine:netAvgTrade");
+  assert.equal(toBacktestRow(dbRow("engine:netAvgTrade")).semanticsStatus, "engine_only_legacy");
   assert.equal(toBacktestRow(dbRow(null)).engineFingerprint, null);
+  assert.equal(toBacktestRow(dbRow(null)).semanticsStatus, "historical_unversioned");
 });
 
 test("finishing a backtest durably writes the engine fingerprint", async () => {
@@ -77,4 +80,29 @@ test("finishing a backtest durably writes the engine fingerprint", async () => {
   assert.equal(calls.length, 1);
   assert.match(calls[0]!.sql, /engine_fingerprint = \$4/);
   assert.equal(calls[0]!.params[3], "engine:baseline");
+  assert.equal(calls[0]!.params[4], null);
+});
+
+test("038 adds nullable complete provenance without relabeling saved results", () => {
+  const sql = fs.readFileSync(path.join(process.cwd(), "src", "db", "migrations", "038_backtest_semantics_provenance.sql"), "utf8");
+  assert.match(sql, /ADD COLUMN result_provenance jsonb/);
+  assert.doesNotMatch(sql, /NOT NULL|DEFAULT|UPDATE backtests|DELETE|TRUNCATE/i);
+});
+
+test("X6 provenance round-trips as reproducible meaning", () => {
+  const row = dbRow("engine:canonical-multiasset.v1:test");
+  row.result_provenance = { schemaVersion: "canonical-backtest-result.v1", providerId: "fixture" };
+  const mapped = toBacktestRow(row);
+  assert.deepEqual(mapped.resultProvenance, row.result_provenance);
+  assert.equal(mapped.semanticsStatus, "reproducible");
+});
+
+test("finishing an X6 result durably writes its complete provenance envelope", async () => {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const provenance = { schemaVersion: "canonical-backtest-result.v1", canonicalInstrument: "instrument:v1:FIXTURE" };
+  await finishBacktest("00000000-0000-4000-8000-000000000002",
+    { metrics, equityCurve: [], trades: [], engine: "engine:canonical-multiasset.v1:test", provenance },
+    async (sql, params = []) => { calls.push({ sql, params }); return { rows: [] }; });
+  assert.match(calls[0]!.sql, /result_provenance = \$5/);
+  assert.deepEqual(JSON.parse(String(calls[0]!.params[4])), provenance);
 });

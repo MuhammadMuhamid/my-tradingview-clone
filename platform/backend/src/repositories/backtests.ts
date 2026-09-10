@@ -27,6 +27,7 @@ export interface DbBacktest {
   metrics: BacktestMetrics | null;
   equity_curve: EquityPoint[] | null;
   engine_fingerprint: string | null;
+  result_provenance: Record<string, unknown> | null;
   started_at: Date | null;
   finished_at: Date | null;
   created_at: Date;
@@ -50,6 +51,9 @@ export function toBacktestRow(r: DbBacktest): BacktestRow {
     metrics: r.metrics,
     equityCurve: r.equity_curve,
     engineFingerprint: r.engine_fingerprint,
+    resultProvenance: r.result_provenance ?? null,
+    semanticsStatus: r.result_provenance ? "reproducible"
+      : r.engine_fingerprint ? "engine_only_legacy" : "historical_unversioned",
     startedAt: r.started_at ? r.started_at.toISOString() : null,
     finishedAt: r.finished_at ? r.finished_at.toISOString() : null,
     createdAt: r.created_at.toISOString(),
@@ -128,15 +132,17 @@ export async function finishBacktest(
     equityCurve: EquityPoint[];
     trades: TradeRecord[];
     engine: string;
+    provenance?: Record<string, unknown>;
   },
   runQuery: WriteQuery = query
 ): Promise<void> {
   await runQuery(
     `UPDATE backtests
      SET status = 'done', metrics = $2, equity_curve = $3,
-         engine_fingerprint = $4, finished_at = now()
+         engine_fingerprint = $4, result_provenance = $5, finished_at = now()
      WHERE id = $1`,
-    [id, JSON.stringify(result.metrics), JSON.stringify(result.equityCurve), result.engine]
+    [id, JSON.stringify(result.metrics), JSON.stringify(result.equityCurve), result.engine,
+      result.provenance ? JSON.stringify(result.provenance) : null]
   );
   if (result.trades.length > 0) {
     const COLS = 13;

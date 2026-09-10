@@ -18,6 +18,7 @@ import { mtfLeanModule } from "./strategies/mtf_lean";
 import type { TradeRecord, BacktestMetrics, EquityPoint, OpenTrade } from "../types/backtest";
 import { resolutionMs } from "../data/resolution";
 import { INTERVAL_MS, type Interval } from "../types/market";
+import { canonicalInstrumentId } from "../market/model";
 
 /*
  * BE-19: `mtf_lean` was absent from this registry, so the strategy actually
@@ -45,6 +46,8 @@ export interface BacktestOutput {
    * carries its correction set.
    */
   engine: string;
+  /** Full market/data/methodology meaning for every new corrected result. */
+  provenance: Record<string, unknown>;
   /** Exit legs the exchange filters refused, when `exchangeFilters` is on. */
   rejectedLegs: { bar: number; id: string; qty: number; reason: string }[];
 }
@@ -99,6 +102,8 @@ export async function executeBacktest(
   if (!tickSize || tickSize <= 0) {
     throw new Error(`no tick size available for ${row.symbol}`);
   }
+  if (!symbolInfo) throw new Error(`symbol ${row.symbol} disappeared while syncing filters`);
+  const resolvedSymbolInfo = symbolInfo;
 
   // Data: every required (symbol, interval) feed, warmup included.
   const needs = module.requiredFeeds(params, row.timeframe);
@@ -240,6 +245,27 @@ export async function executeBacktest(
     trades,
     openTrade,
     engine: correctionsFingerprint(ACTIVE_CORRECTIONS),
+    provenance: {
+      schemaVersion: "backtest-provenance.v1",
+      engineVersion: "v2-corrected",
+      engineFingerprint: correctionsFingerprint(ACTIVE_CORRECTIONS),
+      canonicalInstrument: canonicalInstrumentId({
+        venueId: "BINANCE", instrumentType: "spot", baseAsset: resolvedSymbolInfo.baseAsset,
+        quoteAsset: resolvedSymbolInfo.quoteAsset, settlementAsset: resolvedSymbolInfo.quoteAsset, series: { kind: "spot" },
+      }),
+      assetClass: "crypto",
+      providerId: "binance-spot",
+      feedId: "binance-public-klines",
+      priceBasis: { execution: "last", valuation: "last" },
+      sessionMode: "continuous-24x7",
+      adjustmentMode: "not_applicable",
+      costs: { commissionPct: row.commissionPct, slippageTicks: row.slippageTicks, tickSize },
+      fundingMethodology: "not_applicable",
+      rolloverMethodology: "not_applicable",
+      rollMethodology: "not_applicable",
+      margin: { model: "cash", leverage: 1, position: "long_only" },
+      dataCompleteness: "internal_gaps_rejected; incomplete_live_bars_not_persisted",
+    },
     rejectedLegs,
   };
 }

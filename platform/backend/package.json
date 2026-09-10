@@ -14,7 +14,8 @@
     "hash-password": "tsx src/security/session.ts",
     "lint": "eslint src tests scripts --max-warnings=0",
     "verify": "npm run lint && npm run typecheck && npm test && npm run build",
-    "bench:candles": "node --env-file=tests/test.env --import tsx scripts/bench_candles.ts"
+    "bench:candles": "node --env-file=tests/test.env --import tsx scripts/bench_candles.ts",
+    "bench:multiasset": "node --env-file=tests/test.env --import tsx scripts/bench_canonical_backtest.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",
