@@ -11,7 +11,7 @@ import {
   MANUAL_SORT, canReorder, nextSort, reorderRefusal, reorderSymbols, sortSymbols,
   type SortColumn, type WatchlistSort,
 } from "@/lib/watchlistOrder";
-import { canonicalDisplayParts, displaySymbol, isCanonicalInstrumentId } from "@/lib/instrument";
+import { canonicalDisplayParts, displaySymbol, instrumentTypeLabel, isCanonicalInstrumentId } from "@/lib/instrument";
 
 interface Ticker { last: number; chg: number; chgPct: number; stale?: boolean; changeKnown?: boolean }
 type NamedWatchlist = ServerWatchlist;
@@ -159,7 +159,7 @@ export function Watchlist({
       return parts ? {
         symbol: s, baseAsset: parts.base, quoteAsset: parts.quote,
         priceTick: null, qtyStep: null, minNotional: null, isActive: true,
-        venue: parts.venue, assetClass: "crypto_spot" as const,
+        venue: parts.venue, assetClass: parts.type === "spot" ? "crypto_spot" as const : "crypto_derivative" as const,
       } : null;
     }).filter((s): s is SymbolInfo => Boolean(s));
   }, [active, symbols]);
@@ -267,7 +267,7 @@ export function Watchlist({
         const found = await api.searchMarket(s, "", "", 20);
         const exact = found.results.filter((row) => row.providerSymbol?.toUpperCase() === s || row.symbol.toUpperCase() === s);
         if (exact.length !== 1 || !exact[0]?.canonicalId) {
-          throw new Error(exact.length > 1 ? `“${s}” exists on multiple venues; choose it from Symbol search.` : `No exact spot instrument matches “${s}”.`);
+          throw new Error(exact.length > 1 ? `“${s}” exists on multiple venues or contract series; choose it from Symbol search.` : `No exact market instrument matches “${s}”.`);
         }
         resolved.push(exact[0].canonicalId);
       }
@@ -438,7 +438,7 @@ export function Watchlist({
           <div className="px-4 py-6">
             <p className="text-xs font-medium text-ink">Nothing on this list yet</p>
             <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-              Type an exact spot symbol in the field above, or start from the Binance
+              Type an exact market symbol in the field above, or start from the Binance spot
               most liquid ones.
             </p>
             <div className="mt-3 flex flex-wrap gap-1">
@@ -466,6 +466,7 @@ export function Watchlist({
           </div>
         )}
         {visibleSymbols.map((s) => {
+          const identity = canonicalDisplayParts(s.symbol);
           const selectedRow = s.symbol === selected;
           const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
           const up = t ? t.chgPct >= 0 : true;
@@ -507,9 +508,11 @@ export function Watchlist({
             */
             className={`group grid h-[29px] grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 border-b border-border px-3 text-sm tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-surface-2"}`}>
             <button onClick={() => onSelect(s.symbol)} className="contents text-left">
-              <span className="truncate font-medium text-ink" title={displaySymbol(s.symbol)}>
-                {s.baseAsset}<span className="text-ink-faint">/{s.quoteAsset}</span>
-                {isCanonicalInstrumentId(s.symbol) && <span className="ml-1 text-[9px] font-normal text-ink-faint">· {s.venue}</span>}
+              <span className="flex min-w-0 items-center font-medium text-ink" title={displaySymbol(s.symbol)}>
+                <span className="truncate">{s.baseAsset}<span className="text-ink-faint">/{s.quoteAsset}</span></span>
+                {identity && <span className={`ml-1 shrink-0 text-[9px] font-bold ${identity.type === "spot" ? "text-ink-faint" : "text-accent"}`}>
+                  · {instrumentTypeLabel(identity.type)}{identity.expiry ? ` ${identity.expiry.slice(2)}` : ""} · {s.venue}
+                </span>}
               </span>
               <span className={`text-right ${t ? (t.stale ? "text-warn" : up ? "text-up" : "text-down") : "text-ink-faint"}`}
                 title={selectedRow && replayQuote ? "Replay price at the current historical horizon" : undefined}>

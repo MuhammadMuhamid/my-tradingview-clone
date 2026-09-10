@@ -44,7 +44,7 @@ export const MARKET_STREAM_ORIGINS = [
   "wss://stream.binance.com:9443",
 ];
 
-/** Official public X1 market-data websocket origins. No account channels. */
+/** Official public X1/X2 market-data websocket origins. No account channels. */
 export const PROVIDER_STREAM_ORIGINS = [
   "wss://ws-feed.exchange.coinbase.com",
   "wss://stream.bybit.com",
@@ -53,6 +53,11 @@ export const PROVIDER_STREAM_ORIGINS = [
   "wss://ws-api-spot.kucoin.com",
   "wss://api.gateio.ws",
   "wss://api.hyperliquid.xyz",
+  "wss://fstream.binance.com",
+  "wss://dstream.binance.com",
+  "wss://ws-api-futures.kucoin.com",
+  "wss://fx-ws.gateio.ws",
+  "wss://futures.kraken.com",
 ];
 
 const CSP = [

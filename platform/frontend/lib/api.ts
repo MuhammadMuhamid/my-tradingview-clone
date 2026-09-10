@@ -47,6 +47,11 @@ export interface SymbolSearchResult {
   venueId?: string;
   baseAsset: string;
   quoteAsset: string;
+  settlementAsset?: string;
+  instrumentType?: "spot" | "perpetual" | "future";
+  series?: { kind: "spot" | "perpetual" } | { kind: "dated"; expiry: string; delivery: string };
+  status?: "active" | "halted" | "delisted" | "unknown";
+  derivative?: DerivativeTerms;
   /** already in the local symbols table (has candles / can be charted at once) */
   tracked: boolean;
 }
@@ -302,11 +307,58 @@ export interface Ticker24h {
 export interface MarketTickerResponse {
   providers: Array<{ providerId: string; observations: Array<{
     canonicalInstrumentId: string; providerSymbol: string; observedAt: number;
-    values: { last?: number; bid?: number; ask?: number; mid?: number };
+    values: { last?: number; bid?: number; ask?: number; mid?: number; mark?: number; index?: number };
     freshness: { state: "fresh" | "stale"; ageMs: number };
   }> }>;
   errors: { providerId: string; error: string }[];
   missing: string[];
+}
+
+export type QuantityUnit = "contracts" | "base" | "quote" | "usd";
+export type DerivativeTerms = { kind: "none" } | {
+  kind: "contract";
+  contractSize: { value: number; unit: "base" | "quote" };
+  multiplier: number;
+  quantityUnit: "contracts" | "base" | "quote";
+  settlement: "linear" | "inverse";
+  maturity: { kind: "perpetual" } | { kind: "dated"; expiry: string; expiresAt: string; delivery: string };
+};
+export interface DerivativeObservation {
+  canonicalInstrumentId: string;
+  providerSymbol: string;
+  observedAt: number;
+  prices: { last?: number; mark?: number; index?: number };
+  funding: null | { rate: number; intervalMs: number; nextFundingAt: number | null };
+  openInterest: null | { value: number; unit: QuantityUnit;
+    converted?: { value: number; unit: QuantityUnit; role: "provider_reported" } };
+  volume24h: null | { value: number; unit: QuantityUnit;
+    converted?: { value: number; unit: QuantityUnit; role: "provider_reported" } };
+  basis: null | { absolute: number; rate: number; mark: number; index: number };
+  liquidation: null | { maintenanceMarginRate?: number;
+    riskLimit?: { value: number; unit: QuantityUnit }; source: "provider_contract_metadata" };
+}
+export interface DerivativeInstrument {
+  identity: { canonicalId: string; venueId: string; instrumentType: "perpetual" | "future";
+    baseAsset: string; quoteAsset: string; settlementAsset: string;
+    series: { kind: "perpetual" } | { kind: "dated"; expiry: string; delivery: string } };
+  listing: { providerId: string; providerSymbol: string; status: string };
+  derivative: Exclude<DerivativeTerms, { kind: "none" }>;
+  execution: { mutationBoundary: "bot_only"; availability: { paper: boolean; testnet: boolean; live: boolean };
+    leverage: { support: "unsupported"; reason: string } | { support: "supported"; minimum: number; maximum: number };
+    marginModes: string[]; reduceOnly: boolean; positionModes: string[] };
+}
+export interface DerivativeSnapshotResponse {
+  contractVersion: "market.v1";
+  instrument: DerivativeInstrument;
+  observation: DerivativeObservation | null;
+  freshness: { state: "fresh" | "stale"; ageMs: number } | null;
+  health: { state: string; stale: boolean };
+}
+export interface DerivativeCompareResponse {
+  base: string;
+  type: "perpetual" | "future";
+  providers: Array<{ providerId: string; instruments: DerivativeInstrument[]; observations: DerivativeObservation[] }>;
+  errors: Array<{ providerId: string; error: string }>;
 }
 
 export interface MarketStreamConfig {
@@ -1064,11 +1116,23 @@ export const api = {
     req<SymbolSearchResponse>(
       `/api/symbols/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}&limit=${limit}`
     ),
-  searchMarket: (q: string, quote = "", venue = "", limit = 60) =>
+  searchMarket: (q: string, quote = "", venue = "", limit = 60,
+    type: "all" | "spot" | "perpetual" | "future" = "all",
+    expiry: "all" | "live" | "30d" | "90d" | "expired" = "live", underlying = "") =>
     req<SymbolSearchResponse>(
       `/api/market/v1/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}` +
-      `&venue=${encodeURIComponent(venue)}&limit=${limit}`
+      `&venue=${encodeURIComponent(venue)}&type=${type}&expiry=${expiry}` +
+      `&underlying=${encodeURIComponent(underlying)}&limit=${limit}`
     ),
+  derivative: (instrument: string, signal?: AbortSignal) => req<DerivativeSnapshotResponse>(
+    `/api/market/v1/derivatives/${encodeURIComponent(instrument)}`, signal ? { signal } : undefined),
+  derivativeFunding: (instrument: string, from: number, to: number, signal?: AbortSignal) => req<{
+    observations: Array<{ rate: number; intervalMs: number; fundingAt: number }> }>(
+    `/api/market/v1/funding/${encodeURIComponent(instrument)}?from=${from}&to=${to}`,
+    signal ? { signal } : undefined),
+  compareDerivatives: (base: string, type: "perpetual" | "future", signal?: AbortSignal) =>
+    req<DerivativeCompareResponse>(`/api/market/v1/compare?base=${encodeURIComponent(base)}&type=${type}`,
+      signal ? { signal } : undefined),
   /**
    * Candles in the COMPACT wire format.
    *

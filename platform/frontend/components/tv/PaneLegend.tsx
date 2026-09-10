@@ -42,6 +42,7 @@ import { LegendTimeframe, type ResolutionPreferences } from "@/components/tv/Tim
 import type { Resolution } from "@/lib/resolution";
 import type { PaneCompare } from "@/lib/workspace";
 import { displaySymbol } from "@/lib/instrument";
+import { DerivativeIdentity } from "@/components/tv/DerivativeIdentity";
 
 export interface PaneLegendProps {
   paneId: string;
@@ -116,6 +117,8 @@ export function PaneLegend(props: PaneLegendProps) {
         >
           {symbolLabel}
         </button>
+
+        <DerivativeIdentity symbol={symbol} dense={dense} />
 
         {/*
           The pane's own timeframe, as ONE control.

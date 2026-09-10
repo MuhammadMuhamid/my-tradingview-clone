@@ -21,12 +21,16 @@ import type { SymbolSearchResult } from "./api";
 
 /** The only venue this installation has a feed for. */
 export const SEARCH_VENUE = "All venues";
-/** The only market. Spot: no futures, no margin, no shorting. */
-export const SEARCH_MARKET = "Spot";
+/** The supported read-only market catalog. Options remain intentionally absent. */
+export const SEARCH_MARKET = "Spot, perpetuals & futures";
 
 /** The chip that means "do not filter by quote asset". */
 export const ALL_QUOTES = "ALL";
 export const ALL_VENUES = "ALL";
+export const ALL_TYPES = "all";
+export const LIVE_EXPIRIES = "live";
+export type SearchInstrumentType = "all" | "spot" | "perpetual" | "future";
+export type SearchExpiry = "all" | "live" | "30d" | "90d" | "expired";
 
 /**
  * The quote-asset chips, from whatever the server reported.
@@ -70,8 +74,9 @@ export function venueFilters(venues: readonly { id: string; label: string }[] | 
  * two inputs the search cannot distinguish must not count as different
  * queries, or Enter would stall waiting for an answer that already arrived.
  */
-export function searchKey(term: string, quote: string, venue = ALL_VENUES): string {
-  return `${term.trim().toUpperCase()}|${quote.trim().toUpperCase()}|${venue.trim().toUpperCase()}`;
+export function searchKey(term: string, quote: string, venue = ALL_VENUES,
+  type: SearchInstrumentType = ALL_TYPES, expiry: SearchExpiry = LIVE_EXPIRIES): string {
+  return `${term.trim().toUpperCase()}|${quote.trim().toUpperCase()}|${venue.trim().toUpperCase()}|${type}|${expiry}`;
 }
 
 /* ── Enter, the debounce, and which results may answer it ──────────────────
@@ -168,11 +173,11 @@ export function searchSummary(input: {
   busy: boolean; shown: number; total: number;
 }): string {
   if (input.busy) return "Searching…";
-  if (input.total === 0) return `No ${SEARCH_MARKET.toLowerCase()} pair matches`;
+  if (input.total === 0) return "No market instrument matches";
   if (input.shown >= input.total) {
-    return `${input.total} ${SEARCH_VENUE} ${SEARCH_MARKET} pair${input.total === 1 ? "" : "s"}`;
+    return `${input.total} market instrument${input.total === 1 ? "" : "s"}`;
   }
-  return `${input.shown} of ${input.total} ${SEARCH_VENUE} ${SEARCH_MARKET} pairs`;
+  return `${input.shown} of ${input.total} market instruments`;
 }
 
 /**
@@ -188,7 +193,8 @@ export function describeResult(row: SymbolSearchResult): {
   return {
     pair: `${row.baseAsset} / ${row.quoteAsset}`,
     venue: row.venueId ?? SEARCH_VENUE,
-    market: SEARCH_MARKET,
+    market: row.instrumentType === "perpetual" ? "PERP"
+      : row.instrumentType === "future" ? `FUTURE${row.series?.kind === "dated" ? ` ${row.series.expiry}` : ""}` : "SPOT",
     needsAdding: !row.tracked,
   };
 }

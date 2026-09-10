@@ -193,6 +193,7 @@ export function createOfficialSpotAdapter(definition: OfficialSpotDefinition,
     trades: { support: "unsupported", reason: "no current Trading Scene surface consumes spot trades" },
     orderBook: { support: "unsupported", reason: "no current Trading Scene surface consumes spot order books" },
     derivativeMetadata: { support: "unsupported", reason: "spot adapter does not expose derivative contracts" },
+    derivatives: { support: "unsupported", reason: "spot instruments have no funding or open interest" },
     execution: readOnlyExecution,
   };
   return Object.freeze(adapter);

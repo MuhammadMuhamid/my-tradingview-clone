@@ -88,6 +88,16 @@ export async function runProviderConformance(
       check(provider.derivativeMetadata.reason.length > 0, "derivative-metadata",
         "unsupported derivative metadata has no reason");
     }
+    if (metadata[0]?.derivative.kind === "contract") {
+      check(metadata[0].identity.instrumentType === "perpetual" || metadata[0].identity.instrumentType === "future",
+        "derivative-identity", "contract metadata is presented as a cash/spot instrument");
+      check(metadata[0].derivative.contractSize.value > 0 && metadata[0].derivative.multiplier > 0,
+        "contract-multiplier", "contract size/multiplier is not positive");
+      check(["contracts", "base", "quote"].includes(metadata[0].derivative.quantityUnit),
+        "contract-quantity-unit", "contract quantity unit is not explicit");
+      check(provider.derivatives.support === "supported", "derivative-observations",
+        "contract adapter has no derivative analytics seam");
+    }
   } catch (error) {
     failures.push({ check: "adapter-call", detail: error instanceof Error ? error.message : String(error) });
   }

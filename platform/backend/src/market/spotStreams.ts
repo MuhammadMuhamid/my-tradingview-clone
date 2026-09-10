@@ -36,7 +36,7 @@ const kucoinInterval: Partial<Record<Interval, string>> = {
 };
 
 export function spotStreamRequest(providerId: string, kind: SpotStreamKind,
-  symbol: string, interval: Interval = "1m"): SpotStreamRequest {
+  symbol: string, interval: Interval = "1m", instrumentType: "spot" | "perpetual" | "future" = "spot"): SpotStreamRequest {
   switch (providerId) {
     case "binance-spot": {
       const stream = kind === "ticker" ? `${symbol.toLowerCase()}@miniTicker`
@@ -75,6 +75,43 @@ export function spotStreamRequest(providerId: string, kind: SpotStreamKind,
       return { origins: ["wss://api.hyperliquid.xyz"], path: "/ws",
         subscribeMessage: JSON.stringify({ method: "subscribe", subscription: kind === "ticker"
           ? { type: "allMids" } : { type: "candle", coin: symbol, interval } }), requiresBootstrapToken: false };
+    case "binance-derivatives": {
+      const inverse = symbol.includes("_") || (/USD$/.test(symbol) && !/USDT$|USDC$/.test(symbol));
+      const stream = kind === "ticker" ? `${symbol.toLowerCase()}@ticker` : `${symbol.toLowerCase()}@kline_${interval}`;
+      return { origins: [inverse ? "wss://dstream.binance.com" : "wss://fstream.binance.com"], path: `/ws/${stream}`,
+        subscribeMessage: null, requiresBootstrapToken: false };
+    }
+    case "bybit-derivatives": {
+      const category = /USDT$|USDC$/.test(symbol) ? "linear" : "inverse";
+      return { origins: ["wss://stream.bybit.com"], path: `/v5/public/${category}`,
+        subscribeMessage: JSON.stringify({ op: "subscribe", args: [kind === "ticker"
+          ? `tickers.${symbol}` : `kline.${intervalCode[interval]}.${symbol}`] }), requiresBootstrapToken: false };
+    }
+    case "okx-derivatives":
+      return { origins: ["wss://ws.okx.com:8443"], path: kind === "ticker" ? "/ws/v5/public" : "/ws/v5/business",
+        subscribeMessage: JSON.stringify({ op: "subscribe", args: [{ channel: kind === "ticker"
+          ? "tickers" : `candle${okxInterval[interval] ?? interval}`, instId: symbol }] }), requiresBootstrapToken: false };
+    case "kucoin-derivatives":
+      if (kind === "candle") throw new Error("KuCoin Futures candle streaming is not supported; use bounded REST refresh");
+      return { origins: ["wss://ws-api-futures.kucoin.com"], path: "",
+        subscribeMessage: JSON.stringify({ id: "market-v1", type: "subscribe",
+          topic: `/contractMarket/tickerV2:${symbol}`, privateChannel: false, response: true }), requiresBootstrapToken: true };
+    case "gateio-derivatives": {
+      const product = instrumentType === "future" ? "delivery" : "futures";
+      const settlement = /_USD(?:_|$)/.test(symbol) && !/_USDT(?:_|$)/.test(symbol) ? "btc" : "usdt";
+      return { origins: ["wss://fx-ws.gateio.ws"], path: `/v4/ws/${settlement}`,
+        subscribeMessage: JSON.stringify({ time: 0, channel: kind === "ticker" ? `${product}.tickers` : `${product}.candlesticks`,
+          event: "subscribe", payload: kind === "ticker" ? [symbol] : [interval, symbol] }), requiresBootstrapToken: false };
+    }
+    case "kraken-derivatives":
+      if (kind === "candle") throw new Error("Kraken Futures candle streaming is not supported; use bounded REST refresh");
+      return { origins: ["wss://futures.kraken.com"], path: "/ws/v1",
+        subscribeMessage: JSON.stringify({ event: "subscribe", feed: "ticker", product_ids: [symbol] }), requiresBootstrapToken: false };
+    case "hyperliquid-perps":
+      if (kind === "ticker") throw new Error("Hyperliquid allMids is not a canonical last-trade ticker stream");
+      return { origins: ["wss://api.hyperliquid.xyz"], path: "/ws",
+        subscribeMessage: JSON.stringify({ method: "subscribe",
+          subscription: { type: "candle", coin: symbol, interval } }), requiresBootstrapToken: false };
     default:
       throw new Error(`streaming is not configured for ${providerId}`);
   }
@@ -87,11 +124,14 @@ const streamRetry = {
 
 /** Resolve KuCoin's short-lived public bullet token without exposing credentials. */
 export async function resolveSpotStreamRequest(providerId: string, kind: SpotStreamKind,
-  symbol: string, interval: Interval = "1m", fetcher: typeof fetch = fetch): Promise<SpotStreamRequest> {
-  const request = spotStreamRequest(providerId, kind, symbol, interval);
+  symbol: string, interval: Interval = "1m", fetcher: typeof fetch = fetch,
+  instrumentType: "spot" | "perpetual" | "future" = "spot"): Promise<SpotStreamRequest> {
+  const request = spotStreamRequest(providerId, kind, symbol, interval, instrumentType);
   if (!request.requiresBootstrapToken) return request;
   const response = await withProviderRetry(async () => {
-    const result = await fetcher("https://api.kucoin.com/api/v1/bullet-public", {
+    const bootstrap = providerId === "kucoin-derivatives"
+      ? "https://api-futures.kucoin.com/api/v1/bullet-public" : "https://api.kucoin.com/api/v1/bullet-public";
+    const result = await fetcher(bootstrap, {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
     });
     if (!result.ok) {
@@ -135,7 +175,7 @@ export function parseSpotStreamFrame(providerId: string, kind: SpotStreamKind, r
   let message: unknown;
   try { message = JSON.parse(raw); } catch { return null; }
   const root = record(message);
-  if (providerId === "binance-spot") {
+  if (providerId === "binance-spot" || providerId === "binance-derivatives") {
     const data = record(root.data ?? root);
     if (kind === "ticker") return validTicker({ symbol: text(data.s), observedAt: number(data.E),
       last: number(data.c) });
@@ -151,14 +191,14 @@ export function parseSpotStreamFrame(providerId: string, kind: SpotStreamKind, r
     return validCandle(symbol, interval, { t: openTime, l: item[1], h: item[2], o: item[3], c: item[4], v: item[5] },
       { time: "t", open: "o", high: "h", low: "l", close: "c", volume: "v" });
   }
-  if (providerId === "bybit-spot") {
+  if (providerId === "bybit-spot" || providerId === "bybit-derivatives") {
     const item = record(array(root.data)[0] ?? root.data);
     if (kind === "ticker") return validTicker({ symbol: text(item.symbol || symbol), observedAt: number(root.ts),
       last: number(item.lastPrice), bid: number(item.bid1Price), ask: number(item.ask1Price) });
     return validCandle(symbol, interval, item,
       { time: "start", open: "open", high: "high", low: "low", close: "close", volume: "volume", closed: "confirm" });
   }
-  if (providerId === "okx-spot") {
+  if (providerId === "okx-spot" || providerId === "okx-derivatives") {
     const item = array(array(root.data)[0]);
     if (kind === "ticker") {
       const row = record(array(root.data)[0]);
@@ -175,7 +215,7 @@ export function parseSpotStreamFrame(providerId: string, kind: SpotStreamKind, r
     return validCandle(symbol, interval, { ...item, t: Date.parse(text(item.interval_begin)) },
       { time: "t", open: "open", high: "high", low: "low", close: "close", volume: "volume" });
   }
-  if (providerId === "kucoin-spot") {
+  if (providerId === "kucoin-spot" || providerId === "kucoin-derivatives") {
     const data = record(root.data);
     if (kind === "ticker") return validTicker({ symbol, observedAt: number(data.time), last: number(data.price),
       bid: number(data.bestBid), ask: number(data.bestAsk) });
@@ -183,7 +223,7 @@ export function parseSpotStreamFrame(providerId: string, kind: SpotStreamKind, r
     return validCandle(symbol, interval, { t: item[0], o: item[1], c: item[2], h: item[3], l: item[4], v: item[5] },
       { time: "t", timeSeconds: true, open: "o", high: "h", low: "l", close: "c", volume: "v" });
   }
-  if (providerId === "gateio-spot") {
+  if (providerId === "gateio-spot" || providerId === "gateio-derivatives") {
     const item = record(root.result);
     if (kind === "ticker") return validTicker({ symbol: text(item.currency_pair || symbol),
       observedAt: number(root.time_ms || number(root.time) * 1000), last: number(item.last),
@@ -191,7 +231,13 @@ export function parseSpotStreamFrame(providerId: string, kind: SpotStreamKind, r
     return validCandle(symbol, interval, item,
       { time: "t", timeSeconds: true, open: "o", high: "h", low: "l", close: "c", volume: "v", closed: "w" });
   }
-  if (providerId === "hyperliquid-spot") {
+  if (providerId === "kraken-derivatives") {
+    if (kind !== "ticker") return null;
+    return validTicker({ symbol: text(root.product_id || symbol), observedAt: number(root.time) || Date.now(),
+      last: number(root.last), bid: number(root.bid), ask: number(root.ask) });
+  }
+  if (providerId === "hyperliquid-perps" && kind === "ticker") return null;
+  if (providerId === "hyperliquid-spot" || providerId === "hyperliquid-perps") {
     const data = record(root.data);
     if (kind === "ticker") {
       const mid = record(data.mids)[symbol];

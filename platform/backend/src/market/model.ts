@@ -83,12 +83,17 @@ export type DerivativeTerms =
   | { kind: "none" }
   | {
       kind: "contract";
-      contractSize: number;
+      /** Economic value represented by one provider contract/quantity unit. */
+      contractSize: { value: number; unit: "base" | "quote" };
+      /** Provider-published multiplier, retained separately from normalized size. */
       multiplier: number;
+      /** Unit accepted/reported by the venue's quantity fields. */
+      quantityUnit: "contracts" | "base" | "quote";
       settlement: "linear" | "inverse";
       maturity:
         | { kind: "perpetual" }
-        | { kind: "dated"; expiry: string; delivery: "cash" | "physical" | "provider_defined" };
+        | { kind: "dated"; expiry: string; expiresAt: string;
+            delivery: "cash" | "physical" | "provider_defined" };
     };
 
 export interface ExecutionCapabilities {
@@ -132,13 +137,35 @@ export interface CanonicalInstrument {
 
 const TOKEN = /^[A-Z0-9][A-Z0-9._-]{0,31}$/;
 const VENUE = /^[A-Z][A-Z0-9_]{1,23}$/;
-const CANONICAL_SPOT = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):spot:([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):spot$/i;
+const CANONICAL_INSTRUMENT = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future|stock|etf|fx_pair|commodity|index):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|cash|perpetual|dated-(\d{8}))$/i;
 
-/** Validate and normalize the canonical spot ids that cross persistence seams. */
+/** Validate and normalize canonical ids that cross persistence seams. */
 export function normalizeCanonicalInstrumentId(raw: string): string | null {
-  const match = CANONICAL_SPOT.exec(String(raw ?? "").trim());
-  return match ? `instrument:v1:${match[1]!.toUpperCase()}:spot:${match[2]!.toUpperCase()}:` +
-    `${match[3]!.toUpperCase()}:${match[4]!.toUpperCase()}:spot` : null;
+  const match = CANONICAL_INSTRUMENT.exec(String(raw ?? "").trim());
+  if (!match) return null;
+  const type = match[2]!.toLowerCase() as InstrumentType;
+  const series = match[6]!.toLowerCase();
+  const expected: Record<InstrumentType, string> = {
+    spot: "spot", perpetual: "perpetual", future: "dated-", stock: "cash", etf: "cash",
+    fx_pair: "cash", commodity: "cash", index: "cash",
+  };
+  if (expected[type].endsWith("-") ? !series.startsWith(expected[type]) : series !== expected[type]) return null;
+  if (series.startsWith("dated-")) {
+    const compact = match[7]!;
+    const expiry = `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+    const parsed = new Date(`${expiry}T00:00:00Z`);
+    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== expiry) return null;
+  }
+  return `instrument:v1:${match[1]!.toUpperCase()}:${type}:${match[3]!.toUpperCase()}:` +
+    `${match[4]!.toUpperCase()}:${match[5]!.toUpperCase()}:${series}`;
+}
+
+/** Expiry is economic state, not a provider status guess. */
+export function effectiveListingStatus(instrument: CanonicalInstrument, now = Date.now()): ProviderListing["status"] {
+  if (instrument.listing.status === "delisted") return "delisted";
+  const maturity = instrument.derivative.kind === "contract" ? instrument.derivative.maturity : null;
+  if (maturity?.kind === "dated" && Date.parse(maturity.expiresAt) <= now) return "delisted";
+  return instrument.listing.status;
 }
 
 function token(value: string, label: string, pattern = TOKEN): string {
@@ -167,8 +194,12 @@ export function canonicalInstrumentId(input: {
   if (input.series.kind !== expectedSeries[input.instrumentType]) {
     throw new Error(`${input.instrumentType} requires ${expectedSeries[input.instrumentType]} series semantics`);
   }
-  if (input.series.kind === "dated" && !/^\d{4}-\d{2}-\d{2}$/.test(input.series.expiry)) {
-    throw new Error(`dated instrument expiry must be YYYY-MM-DD: ${JSON.stringify(input.series.expiry)}`);
+  if (input.series.kind === "dated") {
+    const parsed = new Date(`${input.series.expiry}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.series.expiry) || !Number.isFinite(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== input.series.expiry) {
+      throw new Error(`dated instrument expiry must be a real YYYY-MM-DD date: ${JSON.stringify(input.series.expiry)}`);
+    }
   }
   const series = input.series.kind === "dated"
     ? `dated-${input.series.expiry.replace(/-/g, "")}`

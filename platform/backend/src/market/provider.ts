@@ -19,7 +19,8 @@ export interface ProviderDocumentationSource {
   title: string;
   url: string;
   accessedOn: string;
-  covers: readonly ("catalog" | "metadata" | "ticker" | "candles" | "ticker_stream" | "candle_stream")[];
+  covers: readonly ("catalog" | "metadata" | "ticker" | "candles" | "ticker_stream" | "candle_stream" |
+    "funding" | "open_interest" | "contract_terms")[];
   access: "public" | "authentication_required";
   limits: readonly string[];
 }
@@ -52,6 +53,52 @@ export interface TickerObservation {
   observedAt: number;
   values: Partial<Record<"last" | "bid" | "ask" | "mid" | "mark" | "index", number>>;
 }
+
+export type QuantityUnit = "contracts" | "base" | "quote" | "usd";
+
+export interface UnitValue {
+  value: number;
+  unit: QuantityUnit;
+  /** Present only when the provider publishes the conversion, never inferred from last price. */
+  converted?: { value: number; unit: QuantityUnit; role: "provider_reported" };
+}
+
+export interface FundingObservation {
+  canonicalInstrumentId: string;
+  providerSymbol: string;
+  /** Rate for one provider funding interval, as a decimal fraction. */
+  rate: number;
+  intervalMs: number;
+  fundingAt: number;
+  observedAt: number;
+}
+
+export interface DerivativeObservation {
+  canonicalInstrumentId: string;
+  providerSymbol: string;
+  observedAt: number;
+  prices: Partial<Record<"last" | "mark" | "index", number>>;
+  funding: null | { rate: number; intervalMs: number; nextFundingAt: number | null };
+  openInterest: UnitValue | null;
+  volume24h: UnitValue | null;
+  basis: null | { absolute: number; rate: number; mark: number; index: number };
+  liquidation: null | {
+    maintenanceMarginRate?: number;
+    riskLimit?: UnitValue;
+    source: "provider_contract_metadata";
+  };
+}
+
+export type OptionalDerivativeMarketData =
+  | { support: "unsupported"; reason: string }
+  | {
+      support: "supported";
+      snapshot(providerSymbols: readonly string[]): Promise<DerivativeObservation[]>;
+      fundingHistory:
+        | { support: "unsupported"; reason: string }
+        | { support: "supported"; fetch(providerSymbol: string, startMs: number, endMs: number): Promise<FundingObservation[]> };
+      stream: StreamContract;
+    };
 
 export interface TradeObservation {
   canonicalInstrumentId: string;
@@ -111,6 +158,7 @@ export interface MarketDataProviderAdapter {
   readonly trades: OptionalTrades;
   readonly orderBook: OptionalOrderBook;
   readonly derivativeMetadata: OptionalDerivativeMetadata;
+  readonly derivatives: OptionalDerivativeMarketData;
   /** Declaration only. All credentialed mutation remains behind the Bot boundary. */
   readonly execution: ExecutionCapabilities;
 }

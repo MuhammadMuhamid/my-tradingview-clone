@@ -46,7 +46,7 @@ export function parseCanonicalMarketFrame(config: MarketStreamConfig, kind: "tic
   try { decoded = JSON.parse(raw); } catch { return null; }
   const root = record(decoded);
   const id = config.providerId;
-  if (id === "binance-spot") {
+  if (id === "binance-spot" || id === "binance-derivatives") {
     const data = record(root.data ?? root);
     if (kind === "ticker") return ticker(number(data.E), data.c);
     return candle(config, interval, record(data.k),
@@ -58,13 +58,13 @@ export function parseCanonicalMarketFrame(config: MarketStreamConfig, kind: "tic
     return candle(config, interval, { t: number(item[0]) * 1000, l: item[1], h: item[2], o: item[3], c: item[4], v: item[5] },
       { time: "t", open: "o", high: "h", low: "l", close: "c", volume: "v" });
   }
-  if (id === "bybit-spot") {
+  if (id === "bybit-spot" || id === "bybit-derivatives") {
     const item = record(array(root.data)[0] ?? root.data);
     if (kind === "ticker") return ticker(number(root.ts), item.lastPrice, item.bid1Price, item.ask1Price);
     return candle(config, interval, item,
       { time: "start", open: "open", high: "high", low: "low", close: "close", volume: "volume", closed: "confirm" });
   }
-  if (id === "okx-spot") {
+  if (id === "okx-spot" || id === "okx-derivatives") {
     const item = array(array(root.data)[0]);
     if (kind === "ticker") { const row = record(array(root.data)[0]); return ticker(number(row.ts), row.last, row.bidPx, row.askPx); }
     return candle(config, interval, { t: item[0], o: item[1], h: item[2], l: item[3], c: item[4], v: item[5], x: item[8] },
@@ -76,20 +76,25 @@ export function parseCanonicalMarketFrame(config: MarketStreamConfig, kind: "tic
     return candle(config, interval, { ...item, t: Date.parse(text(item.interval_begin)) },
       { time: "t", open: "open", high: "high", low: "low", close: "close", volume: "volume" });
   }
-  if (id === "kucoin-spot") {
+  if (id === "kucoin-spot" || id === "kucoin-derivatives") {
     const data = record(root.data);
     if (kind === "ticker") return ticker(number(data.time), data.price, data.bestBid, data.bestAsk);
     const item = array(data.candles);
     return candle(config, interval, { t: item[0], o: item[1], c: item[2], h: item[3], l: item[4], v: item[5] },
       { time: "t", seconds: true, open: "o", high: "h", low: "l", close: "c", volume: "v" });
   }
-  if (id === "gateio-spot") {
+  if (id === "gateio-spot" || id === "gateio-derivatives") {
     const item = record(root.result);
     if (kind === "ticker") return ticker(number(root.time_ms || number(root.time) * 1000), item.last, item.highest_bid, item.lowest_ask);
     return candle(config, interval, item,
       { time: "t", seconds: true, open: "o", high: "h", low: "l", close: "c", volume: "v" });
   }
-  if (id === "hyperliquid-spot") {
+  if (id === "kraken-derivatives") {
+    if (kind === "ticker") return ticker(number(root.time) || Date.now(), root.last, root.bid, root.ask);
+    return null;
+  }
+  if (id === "hyperliquid-perps" && kind === "ticker") return null;
+  if (id === "hyperliquid-spot" || id === "hyperliquid-perps") {
     const data = record(root.data);
     if (kind === "ticker") return ticker(Date.now(), record(data.mids)[config.providerSymbol]);
     return candle(config, interval, data,

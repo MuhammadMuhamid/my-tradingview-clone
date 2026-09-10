@@ -167,9 +167,10 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           )}
           {props.panel === "manual" && !props.replayActive && (isCanonicalInstrumentId(props.tradingSymbol)
             ? <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface p-4 md:w-[294px]">
-                <h2 className="text-sm font-semibold text-ink">Read-only spot venue</h2>
+                <h2 className="text-sm font-semibold text-ink">Read-only market instrument</h2>
                 <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-                  This canonical instrument is available for market data only. Orders, margin, leverage, and account access are disabled.
+                  This canonical instrument is available for market data and analytics only. Orders and account mutations are disabled;
+                  derivative leverage and margin fields describe venue capability, not an enabled ticket.
                 </p>
               </aside>
             : <ManualTradingPanel symbol={props.tradingSymbol}

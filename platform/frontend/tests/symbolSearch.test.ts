@@ -1,5 +1,5 @@
 /**
- * The symbol dialog: spot-only, keyboard-driven, and unable to retarget a
+ * The symbol dialog: market-aware, keyboard-driven, and unable to retarget a
  * staged order.
  *
  * The last of those is the one that matters most and is the least visible. The
@@ -37,28 +37,33 @@ const row = (over: Partial<SymbolSearchResult> = {}): SymbolSearchResult => ({
   symbol: "SOLUSDT", baseAsset: "SOL", quoteAsset: "USDT", tracked: true, ...over,
 } as SymbolSearchResult);
 
-// ── spot only ──────────────────────────────────────────────────────────────
+// ── market identity ────────────────────────────────────────────────────────
 
-test("the dialog offers no asset class this installation cannot trade", () => {
+test("the dialog offers spot, perpetual and future identity while options and unrelated markets remain absent", () => {
   const source = readCode(DIALOG);
+  for (const supported of [/\bSPOT\b/, /\bPERP\b/, /\bFUTURE\b/, /Filter by instrument type/]) {
+    assert.match(source, supported);
+  }
   for (const forbidden of [
-    /\bfutures?\b/i, /\bmargin\b/i, /\bperpetual\b/i, /\bforex\b/i, /\bstocks?\b/i,
-    /\bequit(y|ies)\b/i, /\boptions?\b/i, /\bindices\b/i, /\bCUSIP\b/i, /\bISIN\b/i,
+    /\bforex\b/i, /\bstocks?\b/i,
+    /\bequit(y|ies)\b/i, /\bindices\b/i, /\bCUSIP\b/i, /\bISIN\b/i,
   ]) {
     assert.doesNotMatch(source, forbidden,
       `${forbidden} names a market with no feed — a filter for it would return nothing`);
   }
+  assert.doesNotMatch(source, /value="option"|instrumentType:\s*"option"/i,
+    "an HTML option element is not an options-market capability");
 });
 
 test("the venue and market are stated rather than left to be inferred", () => {
   assert.equal(SEARCH_VENUE, "All venues");
-  assert.equal(SEARCH_MARKET, "Spot");
+  assert.equal(SEARCH_MARKET, "Spot, perpetuals & futures");
   const source = read(DIALOG);
   assert.match(source, /SEARCH_VENUE/);
   assert.match(source, /SEARCH_MARKET/);
 });
 
-test("quote asset is the only filter axis, deduplicated and normalised", () => {
+test("quote assets are deduplicated and normalised alongside type and expiry filters", () => {
   assert.deepEqual(quoteFilters(["USDT", "BTC"]), [ALL_QUOTES, "USDT", "BTC"]);
   assert.deepEqual(quoteFilters(["usdt", "USDT", " btc "]), [ALL_QUOTES, "USDT", "BTC"]);
   // A malformed or empty payload must not produce a blank chip.
@@ -79,10 +84,13 @@ test("venue filters are explicit and deduplicated for collision disambiguation",
   ]);
 });
 
-test("a result describes itself as spot, and says when choosing it registers a pair", () => {
+test("a result describes its exact product type, and says when choosing it registers a pair", () => {
   assert.deepEqual(describeResult(row()), {
-    pair: "SOL / USDT", venue: "All venues", market: "Spot", needsAdding: false,
+    pair: "SOL / USDT", venue: "All venues", market: "SPOT", needsAdding: false,
   });
+  assert.equal(describeResult(row({ instrumentType: "perpetual" })).market, "PERP");
+  assert.equal(describeResult(row({ instrumentType: "future", series: { kind: "dated", expiry: "2026-12-18", delivery: "cash" } })).market,
+    "FUTURE 2026-12-18");
   assert.equal(describeResult(row({ tracked: false })).needsAdding, true);
 });
 
@@ -131,10 +139,10 @@ test("the dialog implements the keyboard contract it advertises", () => {
 test("the footer says what it is counting, and never a bare number", () => {
   assert.equal(searchSummary({ busy: true, shown: 0, total: 0 }), "Searching…");
   assert.equal(searchSummary({ busy: false, shown: 0, total: 0 }),
-    "No spot pair matches");
-  assert.equal(searchSummary({ busy: false, shown: 1, total: 1 }), "1 All venues Spot pair");
+    "No market instrument matches");
+  assert.equal(searchSummary({ busy: false, shown: 1, total: 1 }), "1 market instrument");
   assert.equal(searchSummary({ busy: false, shown: 60, total: 240 }),
-    "60 of 240 All venues Spot pairs");
+    "60 of 240 market instruments");
 });
 
 test("a failed search clears the rows rather than leaving a stale answer under an error", () => {

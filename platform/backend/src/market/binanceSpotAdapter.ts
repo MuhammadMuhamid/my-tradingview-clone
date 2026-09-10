@@ -160,6 +160,7 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
       support: "unsupported",
       reason: "Binance Spot does not expose derivative contracts",
     },
+    derivatives: { support: "unsupported", reason: "spot instruments have no funding or open interest" },
     execution,
   };
   return Object.freeze(adapter);

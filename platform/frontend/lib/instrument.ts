@@ -8,29 +8,24 @@
  *
  * ── The whole of what this adds ────────────────────────────────────────────
  *
- * The ability to WRITE a venue down. `BTCUSDT` is still the stored form, still
- * what a layout, a watchlist, an alert and a deep link carry, and still what
- * reaches the API. `BINANCE:BTCUSDT` resolves to the identical instrument and
- * is reduced back to the bare ticker before it leaves — on the two paths that
- * reduce today, the apply deep link and the symbol dialog's selection, and on
- * the four backend market-data routes listed in the backend's own copy.
- *
- * No second venue, no second asset class and no second feed is implemented —
- * this is the vocabulary, so that implementing one later is not a rewrite of
- * every screen that names a pair.
+ * Legacy bare/venue-qualified Binance spot names keep their established
+ * behavior. Multi-venue spot and derivative instruments use the full
+ * `instrument:v1` identity so venue, product type, settlement and dated series
+ * survive chart, watchlist, search, storage and API seams without collisions.
  *
  * BINANCE_US is a different exchange with a different listing set, not a host
  * variant of this one. It is not registered, and resolving it fails rather
  * than quietly returning Binance.
  */
 
-/** The one venue this installation has a feed for. */
+/** Default venue for legacy bare spot symbols. */
 export const DEFAULT_VENUE = "BINANCE";
 
-/** The one asset class. Spot: no futures, no margin, no leverage, no shorts. */
+/** Browser routing classes; execution remains separately capability-gated. */
 export const CRYPTO_SPOT = "crypto_spot";
+export const CRYPTO_DERIVATIVE = "crypto_derivative";
 
-export type AssetClass = typeof CRYPTO_SPOT;
+export type AssetClass = typeof CRYPTO_SPOT | typeof CRYPTO_DERIVATIVE;
 
 export const DEFAULT_ASSET_CLASS: AssetClass = CRYPTO_SPOT;
 
@@ -57,15 +52,47 @@ export interface InstrumentId {
 
 const VENUE_RE = /^[A-Z][A-Z0-9_]{1,23}$/;
 const TICKER_RE = /^[A-Z0-9]{2,24}$/;
-const CANONICAL_RE = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):spot:([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):spot$/i;
+const CANONICAL_RE = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|perpetual|dated-(\d{8}))$/i;
 
-export function isCanonicalInstrumentId(raw: string): boolean {
-  return CANONICAL_RE.test(String(raw ?? "").trim());
+export type CryptoInstrumentType = "spot" | "perpetual" | "future";
+
+export interface CanonicalDisplayParts {
+  venue: string;
+  type: CryptoInstrumentType;
+  base: string;
+  quote: string;
+  settlement: string;
+  series: string;
+  expiry: string | null;
 }
 
-export function canonicalDisplayParts(raw: string): { venue: string; base: string; quote: string } | null {
+export function isCanonicalInstrumentId(raw: string): boolean {
+  return canonicalDisplayParts(raw) !== null;
+}
+
+export function canonicalDisplayParts(raw: string): CanonicalDisplayParts | null {
   const match = CANONICAL_RE.exec(String(raw ?? "").trim());
-  return match ? { venue: match[1]!.toUpperCase(), base: match[2]!.toUpperCase(), quote: match[3]!.toUpperCase() } : null;
+  if (!match) return null;
+  const type = match[2]!.toLowerCase() as CryptoInstrumentType;
+  const series = match[6]!.toLowerCase();
+  if ((type === "spot" && series !== "spot") || (type === "perpetual" && series !== "perpetual") ||
+    (type === "future" && !series.startsWith("dated-"))) return null;
+  const compact = match[7];
+  const expiry = compact ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}` : null;
+  if (expiry) {
+    const parsed = new Date(`${expiry}T00:00:00Z`);
+    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== expiry) return null;
+  }
+  return { venue: match[1]!.toUpperCase(), type, base: match[3]!.toUpperCase(), quote: match[4]!.toUpperCase(),
+    settlement: match[5]!.toUpperCase(), series, expiry };
+}
+
+export function instrumentTypeLabel(type: CryptoInstrumentType): "SPOT" | "PERP" | "FUTURE" {
+  return type === "spot" ? "SPOT" : type === "perpetual" ? "PERP" : "FUTURE";
+}
+
+export function isDerivativeInstrumentId(raw: string): boolean {
+  const parts = canonicalDisplayParts(raw); return parts?.type === "perpetual" || parts?.type === "future";
 }
 
 export class InstrumentIdError extends Error {}
@@ -74,7 +101,7 @@ export class InstrumentIdError extends Error {}
 export function splitInstrumentId(raw: string): { venue: string; ticker: string } {
   const original = String(raw ?? "").trim();
   const canonical = CANONICAL_RE.exec(original);
-  if (canonical) return { venue: canonical[1]!.toUpperCase(), ticker: `${canonical[2]}-${canonical[3]}`.toUpperCase() };
+  if (canonical) return { venue: canonical[1]!.toUpperCase(), ticker: `${canonical[3]}-${canonical[4]}`.toUpperCase() };
   const value = original.toUpperCase();
   const colon = value.indexOf(":");
   if (colon < 0) return { venue: DEFAULT_VENUE, ticker: value };
@@ -153,8 +180,9 @@ export function sameInstrument(a: string, b: string): boolean {
  * that each grew their own rule.
  */
 export function displaySymbol(raw: string): string {
-  const canonical = CANONICAL_RE.exec(String(raw ?? "").trim());
-  if (canonical) return `${canonical[1]!.toUpperCase()}:${canonical[2]!.toUpperCase()}/${canonical[3]!.toUpperCase()}`;
+  const canonical = canonicalDisplayParts(raw);
+  if (canonical) return `${canonical.venue}:${canonical.base}/${canonical.quote} · ${instrumentTypeLabel(canonical.type)}` +
+    (canonical.expiry ? ` ${canonical.expiry}` : "");
   const id = tryResolveInstrument(raw);
   if (!id) return String(raw ?? "").toUpperCase();
   return Object.keys(VENUES).length > 1 ? formatInstrumentId(id) : id.ticker;

@@ -73,7 +73,8 @@ export interface SymbolInfo {
   /**
    * Which venue and asset class this ticker belongs to.
    *
-   * Always `BINANCE` / `crypto_spot` here — that is the only feed there is.
+   * Legacy database rows remain `BINANCE` / `crypto_spot`; canonical market
+   * rows can also be read-only crypto derivatives.
    * Optional because this is a mirror of a response shape rather than a shape
    * this side owns: a reader must not crash on a row that predates the field.
    * `lib/instrument` supplies the same defaults the backend does.

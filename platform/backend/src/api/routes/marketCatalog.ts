@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { MARKET_CONTRACT_VERSION } from "../../market/model";
+import { MARKET_CONTRACT_VERSION, effectiveListingStatus, type CanonicalInstrument } from "../../market/model";
 import { providerRegistry } from "../../market/providers";
 import { venueRegistry } from "../../market/venues";
 import { INTERVAL_MS, type Candle, type Interval } from "../../types/market";
@@ -18,16 +18,20 @@ function canonicalVenue(canonicalId: string): string | null {
 }
 
 async function resolveCanonical(registry: ProviderRegistry, canonicalId: string): Promise<{
-  providerId: string; providerSymbol: string;
+  providerId: string; providerSymbol: string; instrument: CanonicalInstrument;
 } | null> {
   const venue = canonicalVenue(canonicalId);
   if (!venue) return null;
+  const failures: string[] = [];
   for (const provider of registry.forVenue(venue)) {
     if (provider.catalog.availability.support !== "supported") continue;
-    const instruments = await registry.call(provider.id, (registered) => registered.catalog.list());
-    const found = instruments.find((item) => item.identity.canonicalId.toLowerCase() === canonicalId.toLowerCase());
-    if (found) return { providerId: provider.id, providerSymbol: found.listing.providerSymbol };
+    try {
+      const instruments = await registry.call(provider.id, (registered) => registered.catalog.list());
+      const found = instruments.find((item) => item.identity.canonicalId.toLowerCase() === canonicalId.toLowerCase());
+      if (found) return { providerId: provider.id, providerSymbol: found.listing.providerSymbol, instrument: found };
+    } catch (error) { failures.push(`${provider.id}: ${safeError(error)}`); }
   }
+  if (failures.length > 0) throw new Error(`canonical resolution provider failures: ${failures.join("; ")}`);
   return null;
 }
 
@@ -105,6 +109,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         orderBook: provider.orderBook.support === "supported" ? { support: "supported" } : provider.orderBook,
         derivativeMetadata: provider.derivativeMetadata.support === "supported"
           ? { support: "supported" } : provider.derivativeMetadata,
+        derivatives: provider.derivatives.support === "supported"
+          ? { support: "supported", stream: provider.derivatives.stream } : provider.derivatives,
         execution: provider.execution,
       },
     })),
@@ -138,10 +144,20 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
   });
 
   app.get("/api/market/v1/search", async (req) => {
-    const query = req.query as { q?: string; venue?: string; quote?: string; limit?: string };
+    const query = req.query as { q?: string; venue?: string; quote?: string; type?: string;
+      expiry?: string; underlying?: string; limit?: string };
     const term = (query.q ?? "").trim().toUpperCase();
     const venue = (query.venue ?? "").trim().toUpperCase();
     const quote = (query.quote ?? "").trim().toUpperCase();
+    const type = (query.type ?? "all").trim().toLowerCase();
+    const expiry = (query.expiry ?? "live").trim().toLowerCase();
+    const underlying = (query.underlying ?? "").trim().toUpperCase();
+    const allowedTypes = new Set(["all", "spot", "perpetual", "future"]);
+    const allowedExpiries = new Set(["all", "live", "30d", "90d", "expired"]);
+    if (!allowedTypes.has(type) || !allowedExpiries.has(expiry)) {
+      return { contractVersion: MARKET_CONTRACT_VERSION, total: 0, venues: [], quotes: [], results: [],
+        errors: [{ providerId: "query", error: "type/expiry filter is invalid" }] };
+    }
     const limit = Math.min(Math.max(Number(query.limit ?? 60) || 60, 1), 200);
     const candidates = venue ? registry.forVenue(venue) : registry.all();
     const settled = await Promise.all(candidates.map(async (provider) => {
@@ -155,8 +171,17 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         return { providerId: provider.id, instruments: [] as never[], unavailable: safeError(error) };
       }
     }));
+    const now = Date.now();
     const results = settled.flatMap((group) => group.instruments).filter((item) => {
-      if (item.listing.status !== "active") return false;
+      const status = effectiveListingStatus(item, now);
+      const maturity = item.derivative.kind === "contract" ? item.derivative.maturity : null;
+      const expiryAt = maturity?.kind === "dated" ? Date.parse(maturity.expiresAt) : null;
+      if (type !== "all" && item.identity.instrumentType !== type) return false;
+      if (underlying && item.identity.baseAsset !== underlying) return false;
+      if (expiry === "live" && status !== "active") return false;
+      if (expiry === "expired" && status !== "delisted") return false;
+      if (expiry === "30d" && (expiryAt === null || expiryAt < now || expiryAt > now + 30 * 86_400_000)) return false;
+      if (expiry === "90d" && (expiryAt === null || expiryAt < now || expiryAt > now + 90 * 86_400_000)) return false;
       if (quote && item.identity.quoteAsset !== quote) return false;
       if (!term) return true;
       return item.listing.providerSymbol.toUpperCase().includes(term) ||
@@ -177,7 +202,9 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         canonicalId: item.identity.canonicalId, providerId: item.listing.providerId,
         providerSymbol: item.listing.providerSymbol, venueId: item.identity.venueId,
         baseAsset: item.identity.baseAsset, quoteAsset: item.identity.quoteAsset,
-        status: item.listing.status, tracked: true,
+        settlementAsset: item.identity.settlementAsset, instrumentType: item.identity.instrumentType,
+        series: item.identity.series, status: effectiveListingStatus(item, now), tracked: true,
+        derivative: item.derivative, prices: item.prices, events: item.events, execution: item.execution,
       })),
       errors: settled.filter((item) => item.unavailable).map((item) =>
         ({ providerId: item.providerId, error: item.unavailable })),
@@ -254,7 +281,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       interval = requested as Interval;
     }
     try {
-      const request = await resolveSpotStreamRequest(provider.id, query.kind, mapping.providerSymbol, interval);
+      const request = await resolveSpotStreamRequest(provider.id, query.kind, mapping.providerSymbol, interval,
+        fetch, mapping.instrument.identity.instrumentType as "spot" | "perpetual" | "future");
       return { contractVersion: MARKET_CONTRACT_VERSION, canonicalId, providerId: provider.id,
         providerSymbol: mapping.providerSymbol, interval, request };
     } catch (error) {
@@ -294,5 +322,75 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
           error: item.error!,
         }))],
       missing: resolved.filter((item) => !item.mapping).map((item) => item.canonicalId) };
+  });
+
+  app.get("/api/market/v1/derivatives/:canonicalId", async (req, reply) => {
+    const { canonicalId } = req.params as { canonicalId: string };
+    let mapping;
+    try { mapping = await resolveCanonical(registry, canonicalId); }
+    catch (error) { return reply.code(502).send({ error: safeError(error) }); }
+    if (!mapping) return reply.code(404).send({ error: "canonical instrument is not available" });
+    if (mapping.instrument.derivative.kind !== "contract") {
+      return reply.code(422).send({ error: "instrument is not a derivative contract" });
+    }
+    const provider = registry.get(mapping.providerId)!;
+    if (provider.derivatives.support !== "supported") return reply.code(422).send({ error: provider.derivatives.reason });
+    try {
+      const observations = await registry.call(provider.id, () => provider.derivatives.support === "supported"
+        ? provider.derivatives.snapshot([mapping!.providerSymbol]) : Promise.resolve([]));
+      const observation = observations[0] ?? null;
+      return { contractVersion: MARKET_CONTRACT_VERSION, instrument: mapping.instrument,
+        observation, freshness: observation
+          ? observationFreshness(observation.observedAt, Date.now(), provider.healthPolicy.staleAfterMs) : null,
+        health: registry.health(provider.id) };
+    } catch (error) { return reply.code(502).send({ error: safeError(error), providerId: provider.id }); }
+  });
+
+  app.get("/api/market/v1/funding/:canonicalId", async (req, reply) => {
+    const { canonicalId } = req.params as { canonicalId: string };
+    const query = req.query as { from?: string; to?: string };
+    const to = Number(query.to ?? Date.now()), from = Number(query.from ?? to - 30 * 86_400_000);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to || to - from > 366 * 86_400_000) {
+      return reply.code(400).send({ error: "funding range must be ascending epoch milliseconds and at most 366 days" });
+    }
+    let mapping;
+    try { mapping = await resolveCanonical(registry, canonicalId); }
+    catch (error) { return reply.code(502).send({ error: safeError(error) }); }
+    if (!mapping) return reply.code(404).send({ error: "canonical instrument is not available" });
+    if (mapping.instrument.identity.instrumentType !== "perpetual") {
+      return reply.code(422).send({ error: "funding applies only to perpetual contracts" });
+    }
+    const provider = registry.get(mapping.providerId)!;
+    if (provider.derivatives.support !== "supported") return reply.code(422).send({ error: provider.derivatives.reason });
+    if (provider.derivatives.fundingHistory.support !== "supported") {
+      return reply.code(422).send({ error: provider.derivatives.fundingHistory.reason });
+    }
+    try { return { contractVersion: MARKET_CONTRACT_VERSION, canonicalId,
+      observations: await registry.call(provider.id, () => provider.derivatives.support === "supported" &&
+        provider.derivatives.fundingHistory.support === "supported"
+        ? provider.derivatives.fundingHistory.fetch(mapping!.providerSymbol, from, to) : Promise.resolve([])) };
+    } catch (error) { return reply.code(502).send({ error: safeError(error), providerId: provider.id }); }
+  });
+
+  app.get("/api/market/v1/compare", async (req, reply) => {
+    const query = req.query as { base?: string; type?: string };
+    const base = (query.base ?? "").trim().toUpperCase();
+    const type = (query.type ?? "perpetual").trim().toLowerCase();
+    if (!/^[A-Z0-9._-]{1,32}$/.test(base) || !["perpetual", "future"].includes(type)) {
+      return reply.code(400).send({ error: "base and derivative type are required" });
+    }
+    const providers = registry.all().filter((provider) => provider.derivatives.support === "supported");
+    const settled = await Promise.all(providers.map(async (provider) => {
+      try {
+        const instruments = (await registry.call(provider.id, (p) => p.catalog.list())).filter((item) =>
+          item.identity.baseAsset === base && item.identity.instrumentType === type && effectiveListingStatus(item) === "active");
+        const derivative = provider.derivatives;
+        const observations = derivative.support === "supported"
+          ? await registry.call(provider.id, () => derivative.snapshot(instruments.map((item) => item.listing.providerSymbol))) : [];
+        return { providerId: provider.id, instruments, observations };
+      } catch (error) { return { providerId: provider.id, error: safeError(error) }; }
+    }));
+    return { contractVersion: MARKET_CONTRACT_VERSION, base, type,
+      providers: settled.filter((item) => "instruments" in item), errors: settled.filter((item) => "error" in item) };
   });
 }

@@ -88,6 +88,7 @@ import { datasetKey } from "@/lib/liveDataset";
 import { useCandleHistory } from "@/lib/useCandleHistory";
 import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
+import { isCanonicalInstrumentId } from "@/lib/instrument";
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
@@ -321,7 +322,9 @@ export default function TvWorkspace() {
   // Read-only state hydration draws existing server-authoritative levels. It
   // never submits, retries, or mutates an order on page load/reconnect.
   useEffect(() => {
-    if (replayActive) return;
+    if (replayActive || isCanonicalInstrumentId(tradingSymbol)) {
+      setManualState(null); setManualReadAt(null); setManualUnavailable(null); return;
+    }
     let live = true;
     const refreshManual = async () => {
       if (!manualTradingPollingAllowed()) return;

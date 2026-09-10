@@ -60,8 +60,9 @@ function fakeInstrument(spec: FakeSpec): CanonicalInstrument {
     listing: { providerId: spec.providerId, providerSymbol: spec.providerSymbol, status: "active" },
     currency: spec.quoteAsset, precision: noPrecision,
     derivative: spec.instrumentType === "future" ? {
-      kind: "contract", contractSize: 1, multiplier: 10, settlement: "linear",
-      maturity: { kind: "dated", expiry: spec.expiry!, delivery: "cash" },
+      kind: "contract", contractSize: { value: 1, unit: "base" }, multiplier: 10,
+      quantityUnit: "contracts", settlement: "linear",
+      maturity: { kind: "dated", expiry: spec.expiry!, expiresAt: `${spec.expiry!}T16:00:00.000Z`, delivery: "cash" },
     } : { kind: "none" },
     sessions: spec.session === "continuous"
       ? { kind: "continuous", timezone: "UTC", calendarId: "24x7", supports24x7: true }
@@ -115,6 +116,11 @@ function fakeProvider(spec: FakeSpec, fail = false): MarketDataProviderAdapter {
     derivativeMetadata: spec.instrumentType === "future"
       ? { support: "supported", fetch: async () => [instrument] }
       : { support: "unsupported", reason: "spot" },
+    derivatives: spec.instrumentType === "future"
+      ? { support: "supported", snapshot: async () => maybeFail([]),
+          fundingHistory: { support: "unsupported", reason: "dated fixture has no funding" },
+          stream: { support: "unsupported", reason: "fixture stream disabled" } }
+      : { support: "unsupported", reason: "spot fixture" },
     execution: fakeExecution,
   };
 }

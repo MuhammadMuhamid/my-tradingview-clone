@@ -12,8 +12,9 @@ const id = "instrument:v1:COINBASE:spot:BTC:USD:USD:spot";
 test("canonical spot ids persist intact and render venue-qualified collision labels", () => {
   assert.equal(isCanonicalInstrumentId(id), true);
   assert.equal(storedSymbol(id), id);
-  assert.deepEqual(canonicalDisplayParts(id), { venue: "COINBASE", base: "BTC", quote: "USD" });
-  assert.equal(displaySymbol(id), "COINBASE:BTC/USD");
+  assert.deepEqual(canonicalDisplayParts(id), { venue: "COINBASE", type: "spot", base: "BTC", quote: "USD",
+    settlement: "USD", series: "spot", expiry: null });
+  assert.equal(displaySymbol(id), "COINBASE:BTC/USD · SPOT");
   assert.notEqual(displaySymbol(id), displaySymbol("instrument:v1:KRAKEN:spot:BTC:USD:USD:spot"));
 });
 

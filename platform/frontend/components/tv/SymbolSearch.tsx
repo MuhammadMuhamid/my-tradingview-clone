@@ -2,22 +2,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type SymbolSearchResult } from "@/lib/api";
 import {
-  ALL_QUOTES, ALL_VENUES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, dialogClosed, moveCursor,
+  ALL_QUOTES, ALL_TYPES, ALL_VENUES, LIVE_EXPIRIES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, dialogClosed, moveCursor,
   pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor, searchKey,
-  searchSummary, venueFilters, type SearchIntent,
+  searchSummary, venueFilters, type SearchExpiry, type SearchInstrumentType, type SearchIntent,
 } from "@/lib/symbolSearch";
-import { canonicalDisplayParts, displaySymbol, storedSymbol } from "@/lib/instrument";
+import { canonicalDisplayParts, displaySymbol, instrumentTypeLabel, storedSymbol } from "@/lib/instrument";
 
 /**
  * The symbol dialog.
  *
- * ── Spot, and only spot ────────────────────────────────────────────────────
- *
- * Every row here is a supported venue's SPOT pair. There are no stocks,
- * futures, forex or options, so there are no filter chips for them: a chip
- * that returns nothing is not a filter, it is a claim about what the product
- * trades. Quote and venue are the real filter axes, and every result carries
- * its venue so colliding pairs cannot be mistaken for each other.
+ * Spot, perpetuals and dated futures share search, but never identity. Every
+ * row names its product type, venue and (for futures) expiry; options remain
+ * outside this catalog.
  *
  * ── Which chart it changes ─────────────────────────────────────────────────
  *
@@ -69,6 +65,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   const [term, setTerm] = useState("");
   const [quote, setQuote] = useState(ALL_QUOTES);
   const [venue, setVenue] = useState(ALL_VENUES);
+  const [type, setType] = useState<SearchInstrumentType>(ALL_TYPES);
+  const [expiry, setExpiry] = useState<SearchExpiry>(LIVE_EXPIRIES);
   const [venues, setVenues] = useState<{ id: string; label: string }[]>([]);
   const [quotes, setQuotes] = useState<string[]>([]);
   const [rows, setRows] = useState<SymbolSearchResult[]>([]);
@@ -105,6 +103,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     setTerm(canonicalDisplayParts(current)?.base ?? current);
     setQuote(ALL_QUOTES);
     setVenue(ALL_VENUES);
+    setType(ALL_TYPES);
+    setExpiry(LIVE_EXPIRIES);
     setCursor(0);
     setErr(null);
     // A dialog that has just opened answers nothing yet; its rows are last
@@ -147,7 +147,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   // Debounced search; out-of-order responses are dropped by request id.
   useEffect(() => {
     if (!open) return;
-    const key = searchKey(term, quote, venue);
+    const key = searchKey(term, quote, venue, type, expiry);
     // This effect re-runs exactly when the query changed, which is exactly
     // when a waiting Enter stops being about what the user typed.
     intent.current = queryChanged(intent.current);
@@ -156,7 +156,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     let timer: ReturnType<typeof setTimeout> | null = null;
     const run = () => {
       timer = null;
-      api.searchMarket(term, quote === ALL_QUOTES ? "" : quote, venue === ALL_VENUES ? "" : venue, 60)
+      api.searchMarket(term, quote === ALL_QUOTES ? "" : quote, venue === ALL_VENUES ? "" : venue, 60, type, expiry)
         .then((res) => {
           if (reqId.current !== id) return;
           setRows(res.results);
@@ -203,7 +203,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       if (timer !== null) clearTimeout(timer);
       flushSearch.current = null;
     };
-  }, [open, term, quote, venue, bumpIntent]);
+  }, [open, term, quote, venue, type, expiry, bumpIntent]);
 
   const choose = useCallback(async (row: SymbolSearchResult) => {
     try {
@@ -247,7 +247,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       if (e.key === "Enter") {
         // Results that answer a previous query are not an answer to this one.
         // Selecting from them is exactly the defect: see the module header.
-        const decision = pressEnter(intent.current, searchKey(term, quote, venue));
+        const decision = pressEnter(intent.current, searchKey(term, quote, venue, type, expiry));
         intent.current = decision.intent;
         if (decision.action === "flush") {
           // Only now is Enter this dialog's key. Left un-prevented above, a
@@ -283,7 +283,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // `intentVersion` is a deliberate re-subscribe trigger, not a value read.
-  }, [open, rows, intentVersion, term, quote, venue, cursor, choose, onClose, bumpIntent]);
+  }, [open, rows, intentVersion, term, quote, venue, type, expiry, cursor, choose, onClose, bumpIntent]);
 
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {
@@ -312,7 +312,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           <div className="min-w-0">
             <h2 className="text-xl font-semibold text-ink">Symbol search</h2>
             <p className="mt-0.5 text-xs text-ink-muted">
-              {SEARCH_VENUE} · {SEARCH_MARKET}. Venue labels disambiguate identical pairs. Choosing one replaces the symbol on the chart
+              {SEARCH_VENUE} · {SEARCH_MARKET}. Type, venue and expiry disambiguate identical underlyings. Choosing one replaces the instrument on the chart
               currently showing <span className="font-semibold text-ink">{currentLabel}</span>.
             </p>
           </div>
@@ -333,8 +333,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
               ref={inputRef}
               value={term}
               onChange={(e) => setTerm(e.target.value)}
-              placeholder="Search — e.g. ZEC, SOLUSDT, BTC"
-              aria-label={`Search ${SEARCH_VENUE} ${SEARCH_MARKET} pairs`}
+              placeholder="Search — e.g. BTC, BTCUSDT, ETH"
+              aria-label={`Search ${SEARCH_VENUE} ${SEARCH_MARKET}`}
               className="w-full bg-transparent text-base text-ink outline-none placeholder:text-ink-faint"
             />
             {term && (
@@ -375,6 +375,25 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-2 overflow-x-auto border-t border-border/60 px-6 py-2">
+          <div role="group" aria-label="Filter by instrument type" className="flex shrink-0 gap-1">
+            {([ ["all", "All"], ["spot", "SPOT"], ["perpetual", "PERP"], ["future", "FUTURE"] ] as const).map(([value, label]) => (
+              <button key={value} onClick={() => setType(value)} aria-pressed={type === value}
+                className={`rounded px-2 py-1 text-[11px] font-semibold ${type === value
+                  ? "bg-accent/15 text-accent" : "text-ink-faint hover:bg-surface-2 hover:text-ink"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <label className="ml-auto flex shrink-0 items-center gap-1 text-[11px] text-ink-faint">
+            Expiry
+            <select aria-label="Filter futures by expiry" value={expiry} onChange={(event) => setExpiry(event.target.value as SearchExpiry)}
+              className="h-7 rounded border border-border bg-surface-2 px-1.5 text-[11px] text-ink outline-none focus:border-accent">
+              <option value="live">Live only</option><option value="30d">Next 30d</option>
+              <option value="90d">Next 90d</option><option value="expired">Expired/delisted</option><option value="all">All</option>
+            </select>
+          </label>
+        </div>
 
         {/* results */}
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto border-t border-border">
@@ -395,12 +414,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           {!err && rows.length === 0 && !busy && (
             <div className="px-6 py-12 text-center text-sm text-ink-faint">
               {term.trim().length === 0
-                ? `Type to search every ${SEARCH_VENUE} ${SEARCH_MARKET} pair.`
-                : <>No {SEARCH_VENUE} {SEARCH_MARKET} pair matches “{term}”{quote === ALL_QUOTES ? "" : ` in ${quote}`}.</>}
+                ? `Type to search every supported spot, perpetual and dated future.`
+                : <>No market instrument matches “{term}”{quote === ALL_QUOTES ? "" : ` in ${quote}`}.</>}
             </div>
           )}
           {rows.map((r, i) => {
             const isCurrent = (r.canonicalId ?? r.symbol) === current;
+            const instrumentType = r.instrumentType ?? "spot";
+            const typeLabel = instrumentTypeLabel(instrumentType);
+            const expiryLabel = r.series?.kind === "dated" ? r.series.expiry : null;
             return (
               <button
                 key={r.canonicalId ?? `${r.venueId ?? "BINANCE"}:${r.symbol}`}
@@ -430,7 +452,12 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                     add
                   </span>
                 )}
-                <span className="hidden shrink-0 text-xs text-ink-faint md:inline">{SEARCH_MARKET}</span>
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${instrumentType === "spot"
+                  ? "bg-surface-2 text-ink-faint" : "bg-accent/15 text-accent"}`}>{typeLabel}</span>
+                {expiryLabel && <span className="hidden shrink-0 text-[11px] tabular text-ink-muted sm:inline">{expiryLabel}</span>}
+                {r.derivative?.kind === "contract" && <span className="hidden shrink-0 text-[10px] uppercase text-ink-faint lg:inline">
+                  {r.derivative.settlement} · settle {r.settlementAsset}
+                </span>}
                 <span className="shrink-0 text-sm font-medium text-ink-muted">{r.venueId ?? SEARCH_VENUE}</span>
               </button>
             );

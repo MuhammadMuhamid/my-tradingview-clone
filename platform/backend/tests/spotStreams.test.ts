@@ -57,3 +57,35 @@ test("KuCoin public stream bootstrap is bounded to the official endpoint", async
   assert.match(request.path, /^\/endpoint\?token=fixture-token&connectId=market-v1-/);
   assert.equal(request.requiresBootstrapToken, false);
 });
+
+test("public derivative stream contracts use official origins and distinguish Gate delivery", () => {
+  for (const id of ["binance-derivatives", "bybit-derivatives", "okx-derivatives",
+    "gateio-derivatives", "hyperliquid-perps"] as const) {
+    const request = spotStreamRequest(id, "candle", id === "hyperliquid-perps" ? "BTC" : "BTCUSDT", "1m", "perpetual");
+    assert.ok(request.origins.every((origin) => origin.startsWith("wss://")), id);
+  }
+  assert.match(spotStreamRequest("gateio-derivatives", "ticker", "BTC_USDT_20260925", "1m", "future").subscribeMessage!,
+    /delivery\.tickers/);
+  assert.throws(() => spotStreamRequest("kraken-derivatives", "candle", "PI_XBTUSD"), /not supported/);
+  assert.throws(() => spotStreamRequest("kucoin-derivatives", "candle", "XBTUSDTM"), /not supported/);
+  assert.throws(() => spotStreamRequest("hyperliquid-perps", "ticker", "BTC"), /not a canonical last-trade/);
+});
+
+test("derivative candle frames normalize without falling through to spot-only parsing", () => {
+  const fixtures: Array<[string, string]> = [
+    ["binance-derivatives", JSON.stringify({ E: T, k: { t: T, o: "1", h: "3", l: "0.5", c: "2", v: "4", x: true } })],
+    ["bybit-derivatives", JSON.stringify({ ts: T, data: [{ start: T, open: "1", high: "3", low: "0.5", close: "2", volume: "4", confirm: true }] })],
+    ["okx-derivatives", JSON.stringify({ data: [[String(T), "1", "3", "0.5", "2", "4", "0", "0", "1"]] })],
+    ["gateio-derivatives", JSON.stringify({ result: { t: T / 1000, o: "1", h: "3", l: "0.5", c: "2", v: "4" } })],
+    ["hyperliquid-perps", JSON.stringify({ data: { t: T, o: "1", h: "3", l: "0.5", c: "2", v: "4" } })],
+  ];
+  for (const [provider, raw] of fixtures) {
+    const event = parseSpotStreamFrame(provider, "candle", raw, "BTC", "1m");
+    assert.equal(event?.kind, "candle", provider);
+  }
+});
+
+test("Hyperliquid mids never masquerade as derivative last trades", () => {
+  const raw = JSON.stringify({ channel: "allMids", data: { mids: { BTC: "77123.4" } } });
+  assert.equal(parseSpotStreamFrame("hyperliquid-perps", "ticker", raw, "BTC"), null);
+});
