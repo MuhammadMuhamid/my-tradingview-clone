@@ -39,3 +39,10 @@ venueRegistry.register({ id: "NYSE", label: "NYSE", timezone: "America/New_York"
 venueRegistry.register({ id: "ARCA", label: "NYSE Arca", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });
 venueRegistry.register({ id: "AMEX", label: "NYSE American", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });
 venueRegistry.register({ id: "BATS", label: "Cboe BZX", timezone: "America/New_York", calendarIds: ["US_EQUITIES"] });
+venueRegistry.register({ id: "OANDA", label: "OANDA OTC FX", timezone: "America/New_York", calendarIds: ["OANDA_FX_WEEK"] });
+venueRegistry.register({ id: "NYMEX", label: "NYMEX", timezone: "America/Chicago", calendarIds: ["CME_GLOBEX"] });
+venueRegistry.register({ id: "COMEX", label: "COMEX", timezone: "America/Chicago", calendarIds: ["CME_GLOBEX"] });
+venueRegistry.register({ id: "CME", label: "CME", timezone: "America/Chicago", calendarIds: ["CME_GLOBEX"] });
+venueRegistry.register({ id: "CBOE_INDEX", label: "Cboe reference indices", timezone: "America/New_York", calendarIds: ["REFERENCE_INDEX"] });
+venueRegistry.register({ id: "NASDAQ_INDEX", label: "Nasdaq reference indices", timezone: "America/New_York", calendarIds: ["REFERENCE_INDEX"] });
+venueRegistry.register({ id: "DJ_INDEX", label: "Dow Jones reference indices", timezone: "America/New_York", calendarIds: ["REFERENCE_INDEX"] });

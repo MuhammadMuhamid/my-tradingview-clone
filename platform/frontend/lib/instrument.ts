@@ -25,8 +25,12 @@ export const DEFAULT_VENUE = "BINANCE";
 export const CRYPTO_SPOT = "crypto_spot";
 export const CRYPTO_DERIVATIVE = "crypto_derivative";
 export const US_EQUITY = "us_equity";
+export const FX = "fx";
+export const TRADITIONAL_FUTURE = "traditional_future";
+export const REFERENCE_INDEX = "reference_index";
 
-export type AssetClass = typeof CRYPTO_SPOT | typeof CRYPTO_DERIVATIVE | typeof US_EQUITY;
+export type AssetClass = typeof CRYPTO_SPOT | typeof CRYPTO_DERIVATIVE | typeof US_EQUITY |
+  typeof FX | typeof TRADITIONAL_FUTURE | typeof REFERENCE_INDEX;
 
 export const DEFAULT_ASSET_CLASS: AssetClass = CRYPTO_SPOT;
 
@@ -53,9 +57,10 @@ export interface InstrumentId {
 
 const VENUE_RE = /^[A-Z][A-Z0-9_]{1,23}$/;
 const TICKER_RE = /^[A-Z0-9]{2,24}$/;
-const CANONICAL_RE = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future|stock|etf):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|cash|perpetual|dated-(\d{8}))$/i;
+const CANONICAL_RE = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future|continuous_future|stock|etf|fx_pair|commodity|index):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|cash|perpetual|dated-(\d{8})|continuous-([a-z0-9._-]+))$/i;
 
-export type CanonicalInstrumentType = "spot" | "perpetual" | "future" | "stock" | "etf";
+export type CanonicalInstrumentType = "spot" | "perpetual" | "future" | "continuous_future" | "stock" | "etf" |
+  "fx_pair" | "commodity" | "index";
 
 export interface CanonicalDisplayParts {
   venue: string;
@@ -78,7 +83,8 @@ export function canonicalDisplayParts(raw: string): CanonicalDisplayParts | null
   const series = match[6]!.toLowerCase();
   if ((type === "spot" && series !== "spot") || (type === "perpetual" && series !== "perpetual") ||
     (type === "future" && !series.startsWith("dated-")) ||
-    ((type === "stock" || type === "etf") && series !== "cash")) return null;
+    (type === "continuous_future" && !series.startsWith("continuous-")) ||
+    ((type === "stock" || type === "etf" || type === "fx_pair" || type === "commodity" || type === "index") && series !== "cash")) return null;
   const compact = match[7];
   const expiry = compact ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}` : null;
   if (expiry) {
@@ -89,9 +95,10 @@ export function canonicalDisplayParts(raw: string): CanonicalDisplayParts | null
     settlement: match[5]!.toUpperCase(), series, expiry };
 }
 
-export function instrumentTypeLabel(type: CanonicalInstrumentType): "SPOT" | "PERP" | "FUTURE" | "STOCK" | "ETF" {
+export function instrumentTypeLabel(type: CanonicalInstrumentType): "SPOT" | "PERP" | "FUTURE" | "CONTINUOUS" | "STOCK" | "ETF" | "FX" | "COMMODITY" | "INDEX" {
   return type === "spot" ? "SPOT" : type === "perpetual" ? "PERP" : type === "future" ? "FUTURE"
-    : type === "stock" ? "STOCK" : "ETF";
+    : type === "continuous_future" ? "CONTINUOUS" : type === "stock" ? "STOCK" : type === "etf" ? "ETF"
+      : type === "fx_pair" ? "FX" : type === "commodity" ? "COMMODITY" : "INDEX";
 }
 
 export function isDerivativeInstrumentId(raw: string): boolean {
@@ -100,6 +107,25 @@ export function isDerivativeInstrumentId(raw: string): boolean {
 
 export function isEquityInstrumentId(raw: string): boolean {
   const parts = canonicalDisplayParts(raw); return parts?.type === "stock" || parts?.type === "etf";
+}
+
+export function isTraditionalInstrumentId(raw: string): boolean {
+  const parts = canonicalDisplayParts(raw);
+  return parts?.type === "fx_pair" || parts?.type === "continuous_future" || parts?.type === "index" ||
+    (parts?.type === "future" && ["CME", "NYMEX", "COMEX", "CBOT"].includes(parts.venue));
+}
+
+/** Query semantics shared by chart and backtest candle callers. */
+export function canonicalCandleSemantics(raw: string, purpose: "chart" | "backtest" = "chart"): string {
+  const parts = canonicalDisplayParts(raw);
+  if (!parts) return "";
+  if (parts.type === "fx_pair") return `&purpose=${purpose}&priceBasis=mid`;
+  if (parts.type === "continuous_future") {
+    const schedule = parts.series.replace(/^continuous-/, "");
+    const adjustment = schedule.endsWith("-unadjusted") ? "none" : "none";
+    return `&purpose=${purpose}&rollSchedule=${encodeURIComponent(schedule)}&continuousAdjustment=${adjustment}`;
+  }
+  return `&purpose=${purpose}`;
 }
 
 export class InstrumentIdError extends Error {}

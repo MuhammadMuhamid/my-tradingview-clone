@@ -6,7 +6,7 @@ export const ASSET_CLASSES = ["crypto", "equity", "fx", "commodity", "index"] as
 export type CanonicalAssetClass = (typeof ASSET_CLASSES)[number];
 
 export const INSTRUMENT_TYPES = [
-  "spot", "perpetual", "future", "stock", "etf", "fx_pair", "commodity", "index",
+  "spot", "perpetual", "future", "continuous_future", "stock", "etf", "fx_pair", "commodity", "index",
 ] as const;
 export type InstrumentType = (typeof INSTRUMENT_TYPES)[number];
 
@@ -30,6 +30,7 @@ export interface InstrumentIdentity {
     | { kind: "spot" }
     | { kind: "cash" }
     | { kind: "perpetual" }
+    | { kind: "continuous"; methodologyId: string }
     | { kind: "dated"; expiry: string; delivery: "cash" | "physical" | "provider_defined" };
 }
 
@@ -81,6 +82,16 @@ export interface EventCapabilities {
 
 export type DerivativeTerms =
   | { kind: "none" }
+  | {
+      kind: "continuous_series";
+      root: string;
+      methodologyId: string;
+      selection: "front" | "next";
+      rollTrigger: "calendar" | "volume" | "open_interest";
+      adjustment: "none" | "back_adjusted_difference" | "back_adjusted_ratio";
+      rollScheduleSource: string;
+      directlyTradable: false;
+    }
   | {
       kind: "contract";
       /** Economic value represented by one provider contract/quantity unit. */
@@ -158,11 +169,46 @@ export interface CanonicalInstrument {
       source: string;
     };
   };
+  /** Decentralized OTC FX quote semantics. Never represented as consolidated last trade. */
+  fx?: {
+    baseCurrency: string;
+    quoteCurrency: string;
+    marketStructure: "otc_provider_quote";
+    defaultPriceBasis: "mid";
+    supportedPriceBases: readonly ("bid" | "ask" | "mid")[];
+    pipSize: number;
+    rollover: { capability: "provider_dependent" | "unavailable"; boundaryTime: string; timezone: string };
+    feed: { status: "demo_practice" | "auth_subscription_gated" | "fixture_only"; label: string; delaySeconds: number | null };
+  };
+  /** Exchange-listed futures and non-tradable continuous research series. */
+  futures?: {
+    exchange: string;
+    root: string;
+    contractCode: string | null;
+    monthCode: string | null;
+    contractMonth: string | null;
+    expiry: string | null;
+    firstTradeDate: string | null;
+    lastTradeDate: string | null;
+    firstNoticeDate: string | null;
+    lastDeliveryDate: string | null;
+    multiplier: number;
+    tickSize: number;
+    tickValue: number;
+    settlementCurrency: string;
+    overnightSession: true;
+    openInterest: Support;
+    chainPosition: "front" | "next" | "other" | "continuous";
+    feed: { status: "delayed" | "auth_subscription_gated" | "fixture_only"; label: string; delaySeconds: number | null };
+  };
+  /** A cash/reference index quote is never itself an orderable instrument. */
+  referenceIndex?: { methodologyOwner: string; directlyTradable: false;
+    feed: { status: "auth_subscription_gated" | "delayed" | "fixture_only"; label: string; delaySeconds: number | null } };
 }
 
 const TOKEN = /^[A-Z0-9][A-Z0-9._-]{0,31}$/;
 const VENUE = /^[A-Z][A-Z0-9_]{1,23}$/;
-const CANONICAL_INSTRUMENT = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future|stock|etf|fx_pair|commodity|index):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|cash|perpetual|dated-(\d{8}))$/i;
+const CANONICAL_INSTRUMENT = /^instrument:v1:([A-Z][A-Z0-9_]{1,23}):(spot|perpetual|future|continuous_future|stock|etf|fx_pair|commodity|index):([A-Z0-9._-]+):([A-Z0-9._-]+):([A-Z0-9._-]+):(spot|cash|perpetual|dated-(\d{8})|continuous-([a-z0-9._-]+))$/i;
 
 /** Validate and normalize canonical ids that cross persistence seams. */
 export function normalizeCanonicalInstrumentId(raw: string): string | null {
@@ -171,7 +217,7 @@ export function normalizeCanonicalInstrumentId(raw: string): string | null {
   const type = match[2]!.toLowerCase() as InstrumentType;
   const series = match[6]!.toLowerCase();
   const expected: Record<InstrumentType, string> = {
-    spot: "spot", perpetual: "perpetual", future: "dated-", stock: "cash", etf: "cash",
+    spot: "spot", perpetual: "perpetual", future: "dated-", continuous_future: "continuous-", stock: "cash", etf: "cash",
     fx_pair: "cash", commodity: "cash", index: "cash",
   };
   if (expected[type].endsWith("-") ? !series.startsWith(expected[type]) : series !== expected[type]) return null;
@@ -213,7 +259,7 @@ export function canonicalInstrumentId(input: {
   const quote = token(input.quoteAsset, "quote asset");
   const settlement = token(input.settlementAsset, "settlement asset");
   const expectedSeries: Record<InstrumentType, InstrumentIdentity["series"]["kind"]> = {
-    spot: "spot", perpetual: "perpetual", future: "dated", stock: "cash", etf: "cash",
+    spot: "spot", perpetual: "perpetual", future: "dated", continuous_future: "continuous", stock: "cash", etf: "cash",
     fx_pair: "cash", commodity: "cash", index: "cash",
   };
   if (input.series.kind !== expectedSeries[input.instrumentType]) {
@@ -228,6 +274,8 @@ export function canonicalInstrumentId(input: {
   }
   const series = input.series.kind === "dated"
     ? `dated-${input.series.expiry.replace(/-/g, "")}`
+    : input.series.kind === "continuous"
+      ? `continuous-${token(input.series.methodologyId, "continuous methodology").toLowerCase()}`
     : input.series.kind;
   return `instrument:v1:${venue}:${input.instrumentType}:${base}:${quote}:${settlement}:${series}`;
 }

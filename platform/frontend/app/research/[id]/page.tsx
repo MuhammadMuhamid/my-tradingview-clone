@@ -51,7 +51,7 @@ export default function BacktestDetail() {
           const [tr, cs] = await Promise.all([
             api.getBacktestTrades(id),
             api.candlesRange(b.symbol, b.timeframe,
-              new Date(b.startTime).getTime(), new Date(b.endTime).getTime()),
+              new Date(b.startTime).getTime(), new Date(b.endTime).getTime(), 200000, undefined, "backtest"),
           ]);
           if (!live) return;
           setTrades(tr);

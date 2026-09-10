@@ -160,7 +160,11 @@ export function Watchlist({
         symbol: s, baseAsset: parts.base, quoteAsset: parts.quote,
         priceTick: null, qtyStep: null, minNotional: null, isActive: true,
         venue: parts.venue, assetClass: parts.type === "spot" ? "crypto_spot" as const
-          : parts.type === "stock" || parts.type === "etf" ? "us_equity" as const : "crypto_derivative" as const,
+          : parts.type === "stock" || parts.type === "etf" ? "us_equity" as const
+            : parts.type === "fx_pair" ? "fx" as const
+              : parts.type === "index" ? "reference_index" as const
+                : parts.type === "future" || parts.type === "continuous_future" ? "traditional_future" as const
+                  : "crypto_derivative" as const,
       } : null;
     }).filter((s): s is SymbolInfo => Boolean(s));
   }, [active, symbols]);

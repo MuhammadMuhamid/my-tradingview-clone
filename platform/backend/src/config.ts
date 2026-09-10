@@ -36,6 +36,8 @@ export interface AppConfig {
   derivativeExecutionEnabled: boolean;
   /** X4 Alpaca paper equities channel. Production brokerage is unrepresentable. */
   equityPaperExecutionEnabled: boolean;
+  /** X5 OANDA practice / IBKR paper channel. Production endpoints are unrepresentable. */
+  traditionalPaperExecutionEnabled: boolean;
   /** Paired-release switch for the signed Platform->Bot `shariah` context block. */
   realizationIngestionEnabled: boolean;
   realizationHmacSecret: string;
@@ -183,6 +185,7 @@ export const config: AppConfig = {
   spotExecutionEnabled: process.env.SPOT_EXECUTION_ENABLED === "true",
   derivativeExecutionEnabled: process.env.DERIVATIVE_EXECUTION_ENABLED === "true",
   equityPaperExecutionEnabled: process.env.EQUITY_PAPER_EXECUTION_ENABLED === "true",
+  traditionalPaperExecutionEnabled: process.env.TRADITIONAL_PAPER_EXECUTION_ENABLED === "true",
   /*
    * SHARIAH_BOT_CONTEXT_ENABLED is gone, deliberately.
    *
@@ -278,6 +281,9 @@ if (config.derivativeExecutionEnabled && config.manualTradingHmacSecret.length =
 if (config.equityPaperExecutionEnabled && config.manualTradingHmacSecret.length === 0) {
   throw new Error("MANUAL_TRADING_HMAC_SECRET must be set when equity paper execution is enabled");
 }
+if (config.traditionalPaperExecutionEnabled && config.manualTradingHmacSecret.length === 0) {
+  throw new Error("MANUAL_TRADING_HMAC_SECRET must be set when traditional paper execution is enabled");
+}
 if (config.equityPaperExecutionEnabled && !alpacaDataParts.every(Boolean)) {
   throw new Error("Alpaca paper/data credentials and classification provenance are required when equity paper execution is enabled");
 }
@@ -288,7 +294,7 @@ if (config.realizationIngestionEnabled && isPublishedPlaceholder(config.realizat
   throw new Error("REALIZATION_HMAC_SECRET is a published placeholder value — generate a real one");
 }
 if (config.manualTradingEnabled || config.spotExecutionEnabled || config.derivativeExecutionEnabled
-    || config.equityPaperExecutionEnabled) {
+    || config.equityPaperExecutionEnabled || config.traditionalPaperExecutionEnabled) {
   const manualBotUrl = new URL(config.manualTradingBotUrl);
   if (!/^https?:$/.test(manualBotUrl.protocol) || manualBotUrl.username || manualBotUrl.password) {
     throw new Error("MANUAL_TRADING_BOT_URL must be an http(s) URL without embedded credentials");

@@ -29,7 +29,7 @@ export async function runProviderConformance(
     check(instrument.identity.canonicalId !== instrument.listing.providerSymbol, "provider-symbol-separation", "canonical id equals provider symbol");
     check(instrument.listing.providerId === provider.id, "provider-mapping", "listing maps to another provider");
     check(instrument.sessions.kind === "continuous" || instrument.sessions.kind === "calendar", "sessions", "session model is not explicit");
-    check(instrument.derivative.kind === "contract" || instrument.identity.instrumentType === "spot" ||
+    check(instrument.derivative.kind === "contract" || instrument.derivative.kind === "continuous_series" || instrument.identity.instrumentType === "spot" ||
       ["stock", "etf", "fx_pair", "commodity", "index"].includes(instrument.identity.instrumentType),
     "derivative-terms", "derivative has no contract terms");
     check(instrument.compliance.shariah.status === "unknown", "compliance-truth", "provider metadata invented a Shariah classification");

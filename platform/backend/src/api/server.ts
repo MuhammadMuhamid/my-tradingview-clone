@@ -27,6 +27,7 @@ import { marketCatalogRoutes } from "./routes/marketCatalog";
 import { spotExecutionRoutes } from "./routes/spotExecution";
 import { derivativeExecutionRoutes } from "./routes/derivativeExecution";
 import { equityExecutionRoutes } from "./routes/equityExecution";
+import { traditionalExecutionRoutes } from "./routes/traditionalExecution";
 import type { LiveRunner } from "../engine/liveRunner";
 import {
   SESSION_COOKIE, readCookie, sessionCookie, signSession, verifySession,
@@ -169,6 +170,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(spotExecutionRoutes);
   app.register(derivativeExecutionRoutes);
   app.register(equityExecutionRoutes);
+  app.register(traditionalExecutionRoutes);
 
   return app;
 }

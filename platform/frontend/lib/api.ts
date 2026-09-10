@@ -4,6 +4,7 @@ import type {
 } from "./types";
 import type { Resolution } from "./resolution";
 import type { TradingOverlayResponse } from "./tradingOverlays";
+import { canonicalCandleSemantics } from "./instrument";
 
 export interface OptimizerBest {
   symbol: string;
@@ -48,12 +49,24 @@ export interface SymbolSearchResult {
   baseAsset: string;
   quoteAsset: string;
   settlementAsset?: string;
-  instrumentType?: "spot" | "perpetual" | "future" | "stock" | "etf";
-  series?: { kind: "spot" | "cash" | "perpetual" } | { kind: "dated"; expiry: string; delivery: string };
+  instrumentType?: "spot" | "perpetual" | "future" | "continuous_future" | "stock" | "etf" | "fx_pair" | "commodity" | "index";
+  series?: { kind: "spot" | "cash" | "perpetual" } | { kind: "dated"; expiry: string; delivery: string } |
+    { kind: "continuous"; methodologyId: string };
   status?: "active" | "halted" | "delisted" | "unknown";
   derivative?: DerivativeTerms;
   currency?: string;
   equity?: EquitySemantics;
+  fx?: { baseCurrency: string; quoteCurrency: string; marketStructure: "otc_provider_quote";
+    defaultPriceBasis: "mid"; supportedPriceBases: ("bid" | "ask" | "mid")[]; pipSize: number;
+    rollover: { capability: string; boundaryTime: string; timezone: string };
+    feed: { status: string; label: string; delaySeconds: number | null } };
+  futures?: { exchange: string; root: string; contractCode: string | null; monthCode: string | null;
+    contractMonth: string | null; expiry: string | null; firstTradeDate: string | null; lastTradeDate: string | null;
+    firstNoticeDate: string | null; lastDeliveryDate: string | null; multiplier: number; tickSize: number; tickValue: number;
+    settlementCurrency: string; chainPosition: "front" | "next" | "other" | "continuous";
+    feed: { status: string; label: string; delaySeconds: number | null } };
+  referenceIndex?: { methodologyOwner: string; directlyTradable: false;
+    feed: { status: string; label: string; delaySeconds: number | null } };
   /** already in the local symbols table (has candles / can be charted at once) */
   tracked: boolean;
 }
@@ -81,6 +94,16 @@ export interface EquityInstrumentResponse {
     listing: { status: "active" | "halted" | "delisted" | "unknown" };
     currency: "USD"; equity: EquitySemantics;
     events: { corporateActions: { support: string; eventTypes?: string[] } };
+    execution: { availability: { paper: boolean; testnet: boolean; live: boolean }; directions: { long: boolean; short: boolean } } };
+}
+
+export interface TraditionalInstrumentResponse {
+  contractVersion: "market.v1"; providerId: string; providerSymbol: string;
+  instrument: { identity: { canonicalId: string; venueId: string; instrumentType: string; baseAsset: string;
+      quoteAsset: string; settlementAsset: string; series: { kind: string; expiry?: string; methodologyId?: string } };
+    listing: { status: "active" | "halted" | "delisted" | "unknown" }; currency: string;
+    fx?: SymbolSearchResult["fx"]; futures?: SymbolSearchResult["futures"];
+    referenceIndex?: SymbolSearchResult["referenceIndex"]; derivative: DerivativeTerms;
     execution: { availability: { paper: boolean; testnet: boolean; live: boolean }; directions: { long: boolean; short: boolean } } };
 }
 
@@ -350,6 +373,11 @@ export type DerivativeTerms = { kind: "none" } | {
   quantityUnit: "contracts" | "base" | "quote";
   settlement: "linear" | "inverse";
   maturity: { kind: "perpetual" } | { kind: "dated"; expiry: string; expiresAt: string; delivery: string };
+} | {
+  kind: "continuous_series"; root: string; methodologyId: string; selection: "front" | "next";
+  rollTrigger: "calendar" | "volume" | "open_interest";
+  adjustment: "none" | "back_adjusted_difference" | "back_adjusted_ratio";
+  rollScheduleSource: string; directlyTradable: false;
 };
 export interface DerivativeObservation {
   canonicalInstrumentId: string;
@@ -1145,7 +1173,7 @@ export const api = {
       `/api/symbols/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}&limit=${limit}`
     ),
   searchMarket: (q: string, quote = "", venue = "", limit = 60,
-    type: "all" | "spot" | "perpetual" | "future" | "stock" | "etf" = "all",
+    type: "all" | "spot" | "perpetual" | "future" | "continuous_future" | "stock" | "etf" | "fx_pair" | "commodity" | "index" = "all",
     expiry: "all" | "live" | "30d" | "90d" | "expired" = "live", underlying = "") =>
     req<SymbolSearchResponse>(
       `/api/market/v1/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}` +
@@ -1153,6 +1181,8 @@ export const api = {
       `&underlying=${encodeURIComponent(underlying)}&limit=${limit}`
     ),
   equityInstrument: (instrument: string, signal?: AbortSignal) => req<EquityInstrumentResponse>(
+    `/api/market/v1/instrument/${encodeURIComponent(instrument)}`, signal ? { signal } : undefined),
+  traditionalInstrument: (instrument: string, signal?: AbortSignal) => req<TraditionalInstrumentResponse>(
     `/api/market/v1/instrument/${encodeURIComponent(instrument)}`, signal ? { signal } : undefined),
   derivative: (instrument: string, signal?: AbortSignal) => req<DerivativeSnapshotResponse>(
     `/api/market/v1/derivatives/${encodeURIComponent(instrument)}`, signal ? { signal } : undefined),
@@ -1175,7 +1205,7 @@ export const api = {
   candles: (symbol: string, interval: Resolution, limit = 1000, signal?: AbortSignal) =>
     req<CompactCandles>(
       symbol.toLowerCase().startsWith("instrument:v1:")
-        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=${limit}&format=compact&session=regular&adjustment=raw&purpose=chart`
+        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=${limit}&format=compact&session=regular&adjustment=raw${canonicalCandleSemantics(symbol)}`
         : `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
     ).then(expandCompact),
@@ -1210,11 +1240,11 @@ export const api = {
   /** Candles covering an explicit window — used to frame a backtest's own range. */
   candlesRange: (
     symbol: string, interval: Resolution, fromMs: number, toMs: number,
-    limit = 200000, signal?: AbortSignal
+    limit = 200000, signal?: AbortSignal, purpose: "chart" | "backtest" = "chart"
   ) =>
     req<CompactCandles>(
       symbol.toLowerCase().startsWith("instrument:v1:")
-        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact&session=regular&adjustment=raw&purpose=chart`
+        ? `/api/market/v1/candles/${encodeURIComponent(symbol)}?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact&session=regular&adjustment=raw${canonicalCandleSemantics(symbol, purpose)}`
         : `/api/symbols/${symbol}/candles?interval=${interval}&from=${fromMs}&to=${toMs}&limit=${limit}&format=compact`,
       signal ? { signal } : undefined
     ).then(expandCompact),

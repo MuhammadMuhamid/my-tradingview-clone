@@ -26,6 +26,7 @@
 import { useEffect, useState } from "react";
 import { marketFeed, type FeedState, type KlineTick } from "./marketFeed";
 import { datasetKey } from "./liveDataset";
+import { isCanonicalInstrumentId } from "./instrument";
 import type { Resolution } from "./resolution";
 
 export interface LivePriceState {
@@ -53,7 +54,10 @@ export function useLivePrice(
     // Switching instrument invalidates the previous price immediately. Showing
     // the last symbol's price under this symbol's name is the whole defect.
     setState(EMPTY);
-    if (!enabled || !symbol || typeof window === "undefined") return;
+    // Canonical instruments have their own provider stream contract in
+    // `useCandleHistory`; passing their full ids to the legacy Binance feed
+    // would misroute them to a fabricated Binance kline URL.
+    if (!enabled || !symbol || isCanonicalInstrumentId(symbol) || typeof window === "undefined") return;
     const wanted = datasetKey({ symbol, interval });
     return marketFeed.subscribe(symbol, interval, {
       onTick: (tick: KlineTick) => {

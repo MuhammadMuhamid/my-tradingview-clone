@@ -119,6 +119,16 @@ export async function equityBotRequest<T>(
   return sendManualBotRequest<T>(input, fetchImpl);
 }
 
+/** X5 order traffic. The wire schema contains only OANDA practice / IBKR paper. */
+export async function traditionalBotRequest<T>(
+  input: ManualBotRequestInput, fetchImpl: typeof fetch = fetch
+): Promise<T> {
+  if (!config.traditionalPaperExecutionEnabled) {
+    throw new ManualBotError("traditional paper/practice execution is disabled", 404);
+  }
+  return sendManualBotRequest<T>(input, fetchImpl);
+}
+
 async function sendManualBotRequest<T>(
   input: ManualBotRequestInput, fetchImpl: typeof fetch
 ): Promise<T> {

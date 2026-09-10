@@ -341,6 +341,6 @@ test("every pane is handed the same replay session and goes offline with it", ()
     "there is more than one replay clock in the workspace");
   // A pane clips to it and disconnects its live feed while it is set.
   assert.match(pane, /replayCandles\(history\.candles, replay\)/);
-  assert.match(pane, /live=\{!replayActive\}/);
+  assert.match(pane, /live=\{!replayActive && !isCanonicalInstrumentId\(pane\.symbol\)\}/);
   assert.match(pane, /onLiveBarBoundary=\{replayActive \? undefined : liveBarBoundary\}/);
 });

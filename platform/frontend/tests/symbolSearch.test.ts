@@ -39,14 +39,13 @@ const row = (over: Partial<SymbolSearchResult> = {}): SymbolSearchResult => ({
 
 // ── market identity ────────────────────────────────────────────────────────
 
-test("the dialog offers crypto, stock and ETF identity while unsupported markets remain absent", () => {
+test("the dialog offers every implemented market identity while unsupported identifiers remain absent", () => {
   const source = readCode(DIALOG);
-  for (const supported of [/\bSPOT\b/, /\bPERP\b/, /\bFUTURE\b/, /\bSTOCK\b/, /\bETF\b/, /Filter by instrument type/]) {
+  for (const supported of [/\bSPOT\b/, /\bPERP\b/, /\bFUTURE\b/, /\bCONT\b/, /\bFX\b/, /\bINDEX\b/,
+    /\bCOMMODITY\b/, /\bSTOCK\b/, /\bETF\b/, /Filter by instrument type/]) {
     assert.match(source, supported);
   }
-  for (const forbidden of [
-    /\bforex\b/i, /\bindices\b/i, /\bCUSIP\b/i, /\bISIN\b/i,
-  ]) {
+  for (const forbidden of [/\bCUSIP\b/i, /\bISIN\b/i]) {
     assert.doesNotMatch(source, forbidden,
       `${forbidden} names a market with no feed — a filter for it would return nothing`);
   }
@@ -56,7 +55,7 @@ test("the dialog offers crypto, stock and ETF identity while unsupported markets
 
 test("the venue and market are stated rather than left to be inferred", () => {
   assert.equal(SEARCH_VENUE, "All venues");
-  assert.equal(SEARCH_MARKET, "Crypto, U.S. stocks & ETFs");
+  assert.equal(SEARCH_MARKET, "Crypto, stocks, FX, futures & indices");
   const source = read(DIALOG);
   assert.match(source, /SEARCH_VENUE/);
   assert.match(source, /SEARCH_MARKET/);
@@ -159,7 +158,7 @@ test("a failed search clears the rows rather than leaving a stale answer under a
 test("an empty search is distinguished from a search that matched nothing", () => {
   const source = read(DIALOG);
   assert.match(source, /term\.trim\(\)\.length === 0/);
-  assert.match(source, /Type to search crypto, U\.S\. stocks and ETFs/);
+  assert.match(source, /Type to search crypto, U\.S\. stocks\/ETFs, FX, futures and indices/);
 });
 
 // ── which chart it changes ─────────────────────────────────────────────────

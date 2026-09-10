@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
-  canonicalDisplayParts, displaySymbol, instrumentTypeLabel, isEquityInstrumentId, storedSymbol,
+  canonicalCandleSemantics, canonicalDisplayParts, displaySymbol, instrumentTypeLabel,
+  isEquityInstrumentId, storedSymbol,
 } from "../lib/instrument";
 import { heldWindow } from "../lib/useCandleHistory";
 import type { Candle } from "../lib/types";
@@ -30,9 +31,11 @@ test("canonical stock and ETF identities preserve venue and product collisions",
 
 test("equity chart requests are explicitly regular-session raw data", () => {
   const source = read("lib/api.ts");
-  const contract = "session=regular&adjustment=raw&purpose=chart";
+  const contract = "session=regular&adjustment=raw${canonicalCandleSemantics";
   assert.equal(source.split(contract).length - 1, 2,
     "both depth and range requests must preserve the same study-safe boundary");
+  assert.equal(canonicalCandleSemantics(aapl), "&purpose=chart");
+  assert.equal(canonicalCandleSemantics(aapl, "backtest"), "&purpose=backtest");
   assert.match(source, /equityInstrument:.*EquityInstrumentResponse/s);
 });
 

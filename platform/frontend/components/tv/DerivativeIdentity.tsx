@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type DerivativeCompareResponse, type DerivativeSnapshotResponse, type QuantityUnit } from "@/lib/api";
-import { canonicalDisplayParts, instrumentTypeLabel, isDerivativeInstrumentId } from "@/lib/instrument";
+import { canonicalDisplayParts, instrumentTypeLabel, isDerivativeInstrumentId, isTraditionalInstrumentId } from "@/lib/instrument";
 import { fmtPrice } from "@/lib/format";
 
 function compact(value: number): string {
@@ -26,7 +26,7 @@ export function DerivativeIdentity({ symbol, dense }: { symbol: string; dense: b
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!isDerivativeInstrumentId(symbol)) return;
+    if (!isDerivativeInstrumentId(symbol) || isTraditionalInstrumentId(symbol)) return;
     setSnapshot(null); setComparison(null); setError(null);
     const controller = new AbortController();
     const refresh = () => void api.derivative(symbol, controller.signal)
@@ -45,9 +45,9 @@ export function DerivativeIdentity({ symbol, dense }: { symbol: string; dense: b
     return () => controller.abort();
   }, [open, identity]);
 
-  if (!identity || (identity.type !== "perpetual" && identity.type !== "future")) return null;
+  if (!identity || isTraditionalInstrumentId(symbol) || (identity.type !== "perpetual" && identity.type !== "future")) return null;
   const observation = snapshot?.observation;
-  const terms = snapshot?.instrument.derivative;
+  const terms = snapshot?.instrument.derivative.kind === "contract" ? snapshot.instrument.derivative : null;
   const badge = instrumentTypeLabel(identity.type);
   const oi = observation?.openInterest;
   const settlement = snapshot?.instrument.identity.settlementAsset ?? identity.settlement;

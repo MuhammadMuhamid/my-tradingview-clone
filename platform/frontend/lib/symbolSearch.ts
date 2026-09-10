@@ -20,14 +20,15 @@ import type { SymbolSearchResult } from "./api";
 /** Search is provider-aggregated and can return several canonical venues. */
 export const SEARCH_VENUE = "All venues";
 /** The supported read-only market catalog. Options remain intentionally absent. */
-export const SEARCH_MARKET = "Crypto, U.S. stocks & ETFs";
+export const SEARCH_MARKET = "Crypto, stocks, FX, futures & indices";
 
 /** The chip that means "do not filter by quote asset". */
 export const ALL_QUOTES = "ALL";
 export const ALL_VENUES = "ALL";
 export const ALL_TYPES = "all";
 export const LIVE_EXPIRIES = "live";
-export type SearchInstrumentType = "all" | "spot" | "perpetual" | "future" | "stock" | "etf";
+export type SearchInstrumentType = "all" | "spot" | "perpetual" | "future" | "continuous_future" | "stock" | "etf" |
+  "fx_pair" | "commodity" | "index";
 export type SearchExpiry = "all" | "live" | "30d" | "90d" | "expired";
 
 /**

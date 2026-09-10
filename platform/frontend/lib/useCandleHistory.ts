@@ -26,7 +26,7 @@ import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import type { Candle } from "./types";
 import { resolutionMs, type Resolution } from "./resolution";
-import { isCanonicalInstrumentId, isEquityInstrumentId } from "./instrument";
+import { isCanonicalInstrumentId, isEquityInstrumentId, isTraditionalInstrumentId } from "./instrument";
 import { subscribeCanonicalMarket } from "./canonicalMarketStream";
 
 /**
@@ -248,6 +248,12 @@ export function useCandleHistory(
       setHeld(heldWindow(cached, window_));
       setError(null); setLoading(false); return;
     }
+    // X5 credential/subscription-gated markets commonly fail before returning
+    // their first bar. Keeping the previous symbol's window under the new FX,
+    // futures or index legend would falsely relabel those prices. Clear only
+    // this market family at the identity transition; the explicit feed error
+    // then appears over an empty plot rather than over somebody else's bars.
+    if (isTraditionalInstrumentId(symbol)) setHeld(heldWindow([], window_));
     const signal = inFlight.current.start();
     setLoading(true);
     setError(null);

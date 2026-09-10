@@ -68,6 +68,7 @@ import type { PaneCompare } from "@/lib/workspace";
 import { pricePrecision } from "@/lib/movingAverages";
 import { type Candle, type Trade } from "@/lib/types";
 import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
+import { isCanonicalInstrumentId } from "@/lib/instrument";
 
 export interface ChartPaneProps {
   pane: PaneState;
@@ -778,7 +779,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             markers={paneMarkers}
             pineDrawings={indicators.drawings}
             priceLines={props.priceLines}
-            live={!replayActive}
+            live={!replayActive && !isCanonicalInstrumentId(pane.symbol)}
             fill
             compact={density !== "large"}
             onLiveBarBoundary={replayActive ? undefined : liveBarBoundary}

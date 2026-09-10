@@ -9,6 +9,7 @@ import { foldBars, parseResolution, type ResolutionPlan } from "../../data/resol
 import { resolveSpotStreamRequest, type SpotStreamKind } from "../../market/spotStreams";
 import { assertEquityPricePurpose, EquitySemanticError } from "../../market/usEquities";
 import type { EquityAdjustmentMode, EquitySessionMode } from "../../market/provider";
+import { assertTraditionalResearchSemantics, TraditionalMarketSemanticError } from "../../market/traditionalMarkets";
 
 function safeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message.slice(0, 200) : "provider unavailable";
@@ -154,7 +155,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
     const type = (query.type ?? "all").trim().toLowerCase();
     const expiry = (query.expiry ?? "live").trim().toLowerCase();
     const underlying = (query.underlying ?? "").trim().toUpperCase();
-    const allowedTypes = new Set(["all", "spot", "perpetual", "future", "stock", "etf"]);
+    const allowedTypes = new Set(["all", "spot", "perpetual", "future", "continuous_future", "stock", "etf", "fx_pair", "commodity", "index"]);
     const allowedExpiries = new Set(["all", "live", "30d", "90d", "expired"]);
     if (!allowedTypes.has(type) || !allowedExpiries.has(expiry)) {
       return { contractVersion: MARKET_CONTRACT_VERSION, total: 0, venues: [], quotes: [], results: [],
@@ -178,7 +179,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       const status = effectiveListingStatus(item, now);
       const maturity = item.derivative.kind === "contract" ? item.derivative.maturity : null;
       const expiryAt = maturity?.kind === "dated" ? Date.parse(maturity.expiresAt) : null;
-      if (type !== "all" && item.identity.instrumentType !== type) return false;
+      if (type === "commodity" && item.identity.assetClass !== "commodity") return false;
+      if (type !== "all" && type !== "commodity" && item.identity.instrumentType !== type) return false;
       if (underlying && item.identity.baseAsset !== underlying) return false;
       if (expiry === "live" && status !== "active") return false;
       if (expiry === "expired" && status !== "delisted") return false;
@@ -206,7 +208,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         baseAsset: item.identity.baseAsset, quoteAsset: item.identity.quoteAsset,
         settlementAsset: item.identity.settlementAsset, instrumentType: item.identity.instrumentType,
         series: item.identity.series, status: effectiveListingStatus(item, now), tracked: true,
-        currency: item.currency, sessions: item.sessions, equity: item.equity,
+        currency: item.currency, sessions: item.sessions, equity: item.equity, fx: item.fx,
+        futures: item.futures, referenceIndex: item.referenceIndex,
         derivative: item.derivative, prices: item.prices, events: item.events, execution: item.execution,
         screener: item.equity ? { category: item.equity.securityType,
           fields: ["last", "volume", "listing_status", "session", "feed_delay", "adjustment"] } : undefined,
@@ -219,7 +222,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
   app.get("/api/market/v1/candles/:canonicalId", async (req, reply) => {
     const { canonicalId } = req.params as { canonicalId: string };
     const query = req.query as { interval?: string; from?: string; to?: string; limit?: string; format?: string;
-      adjustment?: string; session?: string; feed?: string; purpose?: string };
+      adjustment?: string; session?: string; feed?: string; purpose?: string; priceBasis?: string;
+      continuousAdjustment?: string; rollSchedule?: string };
     const requestedInterval = query.interval ?? "";
     if (!parseResolution(requestedInterval)) return reply.code(400).send({ error: "a canonical interval is required" });
     const limit = Math.min(Math.max(Number(query.limit ?? 1000) || 1000, 1), 200_000);
@@ -228,6 +232,20 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
     catch (error) { return reply.code(502).send({ error: safeError(error) }); }
     if (!mapping) return reply.code(404).send({ error: "canonical instrument is not available" });
     const provider = registry.get(mapping.providerId)!;
+    const purpose = query.purpose ?? "chart";
+    if (purpose !== "chart" && purpose !== "study" && purpose !== "alert" && purpose !== "execution" && purpose !== "backtest") {
+      return reply.code(400).send({ error: "purpose must be chart, study, backtest, alert or execution" });
+    }
+    try {
+      if (mapping.instrument.fx || mapping.instrument.derivative.kind === "continuous_series" || mapping.instrument.referenceIndex) {
+        assertTraditionalResearchSemantics(mapping.instrument, { purpose: purpose === "study" || purpose === "alert" ? "chart" : purpose,
+          priceBasis: query.priceBasis, continuousAdjustment: query.continuousAdjustment,
+          rollSchedule: query.rollSchedule });
+      }
+    } catch (error) {
+      if (error instanceof TraditionalMarketSemanticError) return reply.code(error.status).send({ error: error.message });
+      throw error;
+    }
     const plan = providerResolutionPlan(requestedInterval, provider.candles.resolutions);
     if (!plan) {
       return reply.code(422).send({ error: `${provider.label} cannot serve ${requestedInterval} exactly`,
@@ -253,13 +271,10 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         if (!provider.equities) return reply.code(422).send({ error: "equity semantics are unavailable" });
         const adjustment = (query.adjustment ?? provider.equities.defaultAdjustment) as EquityAdjustmentMode;
         const session = (query.session ?? provider.equities.defaultSession) as EquitySessionMode;
-        const purpose = query.purpose ?? "chart";
         if (!provider.equities.adjustmentModes.includes(adjustment) || !provider.equities.sessionModes.includes(session)) {
           return reply.code(400).send({ error: "invalid equity adjustment/session mode" });
         }
-        if (purpose !== "chart" && purpose !== "study" && purpose !== "alert" && purpose !== "execution") {
-          return reply.code(400).send({ error: "purpose must be chart, study, alert or execution" });
-        }
+        if (purpose === "backtest") return reply.code(422).send({ error: "equity backtest route is not enabled in X5" });
         try { assertEquityPricePurpose(adjustment, purpose, session); }
         catch (error) {
           if (error instanceof EquitySemanticError) return reply.code(error.status).send({ error: error.message });
@@ -286,8 +301,14 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       const named = folded.slice(-limit).map((row) => ({ ...row, symbol: canonicalId })) as Candle[];
       const completeness = candleCompleteness(named, Math.max(requestedStartMs, startMs), endMs, plan.ms,
         truncated, provider.candles.pagination.limitation);
-      return query.format === "compact" ? compact(named, canonicalId, requestedInterval, completeness)
-        : { symbol: canonicalId, interval: requestedInterval, bars: named, completeness };
+      const traditional = mapping.instrument.fx ? { priceBasis: query.priceBasis, marketStructure: "otc_provider_quote",
+        spreadIncluded: query.priceBasis === "bid" || query.priceBasis === "ask", providerHours: mapping.instrument.sessions,
+        rollover: mapping.instrument.fx.rollover }
+        : mapping.instrument.derivative.kind === "continuous_series" ? { directlyTradable: false,
+          rollSchedule: query.rollSchedule, adjustment: query.continuousAdjustment,
+          methodology: mapping.instrument.derivative } : mapping.instrument.futures ? { contract: mapping.instrument.futures } : undefined;
+      return query.format === "compact" ? { ...compact(named, canonicalId, requestedInterval, completeness), marketData: traditional }
+        : { symbol: canonicalId, interval: requestedInterval, bars: named, completeness, marketData: traditional };
     } catch (error) {
       req.log.warn({ providerId: provider.id, err: error }, "provider candles unavailable");
       return reply.code(502).send({ error: safeError(error), providerId: provider.id,
