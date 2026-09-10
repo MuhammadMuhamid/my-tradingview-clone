@@ -667,9 +667,9 @@ export default function GettingStarted() {
           {/* ── 9 ── */}
           <Section id="live" title={SECTIONS[8]!.title}>
             <p>
-              Manual trading happens in the chart&rsquo;s <C>Trade</C> ticket, headed{" "}
-              <C>Manual Binance Spot trading</C>. The path a real order takes is short,
-              and there is exactly one place in it where money moves:
+              Sandbox Spot trading happens in the chart&rsquo;s <C>Trade</C> ticket, headed{" "}
+              <C>Paper / testnet Crypto Spot trading</C>. X3A exposes no production
+              activation control; the execution path is:
             </p>
             <Flow
               label="How a manual order reaches the exchange"
@@ -678,7 +678,7 @@ export default function GettingStarted() {
                 "Review and explicit confirmation",
                 "Platform gates: halt, risk, Shariah",
                 "Execution Bot",
-                "Binance Spot",
+                "Paper simulator or official Spot sandbox",
               ]}
             />
             <Terms
@@ -688,7 +688,7 @@ export default function GettingStarted() {
                 ["Sides and quotes", <><C>SELL</C> is shown with the live bid, <C>BUY</C> with the live ask, and the spread between them. With no live quote it says so, and says that the last chart close is a last trade rather than a bid or an ask.</>],
                 ["Sizing", <>A BUY is sized in <C>Quote amount</C> (USDT). A SELL is sized in <C>Base quantity</C> (the coin). The quick-fill row — 1, 5, 10, 25, 50, 75, 100 percent — writes a number into that same field, and always rounds down.</>],
                 ["Balances", <>An <C>Account balances</C> card shows available and reserved amounts per asset, and states the maximum order at the current state. If your size is not allowed, the ticket says which rule stopped it: available balance, minimum quantity, lot step, or minimum order value.</>],
-                ["Confirmation", <>Nothing submits from the ticket. <C>Review BUY</C> or <C>Review SELL</C> opens <C>Confirm manual Spot order</C>, which restates account, mode, symbol, side and type, amount, limit price and protection. On a real-funds account you must additionally tick that you confirm the order uses real funds on Binance mainnet before <C>Confirm</C> is enabled.</>],
+                ["Confirmation", <>Nothing submits from the ticket. <C>Review BUY</C> or <C>Review SELL</C> opens <C>Confirm manual Spot order</C>, which restates account, sandbox mode, symbol, side and type, amount, limit price and protection. Production accounts are not offered.</>],
                 ["Selling", <>A SELL is scoped to the symbol and account it is issued for. When positions are tracked you must pick one, or choose <C>Unassociated wallet sell</C> explicitly. Manual buys and sells are never paired into a position by the product, and no cost basis is reconstructed for them.</>],
                 ["Monitoring", <>The <C>Orders</C> tab filters by <C>All</C>, <C>Working</C>, <C>Filled</C>, <C>Cancelled</C>, <C>Rejected</C> and <C>Blocked</C>. Any row opens a <C>Timeline</C>: a read-only projection of the evidence behind that one order.</>],
               ]}
@@ -717,8 +717,7 @@ export default function GettingStarted() {
                 ticket</strong>, and it tells you: it was prepared for one instrument and
                 the chart now shows another. That is deliberate — a staged size and a
                 staged limit price mean nothing on a different coin. Changing the
-                connected account keeps the numbers but clears the mainnet
-                acknowledgement and the chosen position.
+                connected sandbox account keeps the numbers but clears the chosen position.
               </p>
               <p>
                 <strong className="text-ink">The platform cannot flatten a
@@ -978,7 +977,7 @@ export default function GettingStarted() {
                   <li>Check the symbol in the ticket&rsquo;s <C>Trading</C> strip and the account in <C>Connected account</C>. That pair is what will be traded.</li>
                   <li>Choose the side, then <C>Market</C> or <C>Limit</C>. A BUY is sized in USDT; a SELL is sized in the coin.</li>
                   <li>Enter the amount, or use a percent button. Read the balances card and any sizing message beneath it.</li>
-                  <li>Press <C>Review BUY</C> / <C>Review SELL</C>, read the confirmation, tick the real-funds acknowledgement if this is a mainnet account, and confirm.</li>
+                  <li>Verify the persistent <C>PAPER / TESTNET ONLY</C> banner, press <C>Review BUY</C> / <C>Review SELL</C>, read the confirmation, and confirm.</li>
                   <li>Watch it in the <C>Orders</C> tab. Open its <C>Timeline</C> for the evidence behind it.</li>
                 </Ol>
               </Panel>

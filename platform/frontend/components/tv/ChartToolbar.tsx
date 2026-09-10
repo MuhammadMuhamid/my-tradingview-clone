@@ -290,7 +290,7 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
       <button
         {...ctl("trade")}
         onClick={props.onOpenManual} disabled={replayBlocksLiveActions}
-        title={replayActive ? "Exit Replay to trade" : "Manual Binance Spot order ticket"}
+        title={replayActive ? "Exit Replay to trade" : "Paper / testnet Crypto Spot order ticket"}
         aria-label="Trade"
         className={TOOL_BUTTON}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">

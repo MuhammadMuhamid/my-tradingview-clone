@@ -89,6 +89,16 @@ export async function manualBotRequest<T>(
   return sendManualBotRequest<T>(input, fetchImpl);
 }
 
+/** X3A order traffic. This flag exposes only the Bot's paper/testnet/demo API. */
+export async function spotBotRequest<T>(
+  input: ManualBotRequestInput, fetchImpl: typeof fetch = fetch
+): Promise<T> {
+  if (!config.spotExecutionEnabled) {
+    throw new ManualBotError("paper/testnet spot execution is disabled", 404);
+  }
+  return sendManualBotRequest<T>(input, fetchImpl);
+}
+
 async function sendManualBotRequest<T>(
   input: ManualBotRequestInput, fetchImpl: typeof fetch
 ): Promise<T> {

@@ -221,8 +221,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "manual" ? null : "manual"))}
         disabled={props.replayBlocksLiveActions}
         className={railBtn(props.panel === "manual")}
-        title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Manual Binance Spot trading"}
-        aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Manual Binance Spot trading"}
+        title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / testnet Crypto Spot trading"}
+        aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / testnet Crypto Spot trading"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />

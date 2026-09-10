@@ -111,8 +111,14 @@ test("the component resets the attestation on an account change", () => {
   assert.match(handler.slice(0, 1200), /resetForAccountChange\(/);
 });
 
-test("ticking the attestation arms the ticket, so it cannot outlive its instrument", () => {
-  assert.match(panel(), /arm\(setMainnetConfirmed\)/);
+test("X3A exposes no production activation or real-funds order control", () => {
+  const src = panel();
+  assert.doesNotMatch(src, /arm\(setMainnetConfirmed\)/);
+  assert.doesNotMatch(src, /I confirm this order uses real funds/);
+  assert.match(src, /PAPER \/ TESTNET ONLY/);
+  assert.match(src, /Production activation is unavailable/);
+  assert.match(src, /safeAccountIds\.has\(order\.exchangeAccountId\)/,
+    "production-account history must not appear under a paper/testnet heading");
 });
 
 // ── D3: the SELL position picker ───────────────────────────────────────────

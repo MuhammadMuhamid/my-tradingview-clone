@@ -185,7 +185,8 @@ export function ManualTradingPanel({
       const next = await api.manualState();
       if (!next.enabled) noteManualTradingFailure("manual trading is disabled");
       setState(next); onStateChange(next); setError(null);
-      if (!accountId && next.accounts[0]) setAccountId(next.accounts[0].id);
+      const firstSandbox = next.accounts.find((candidate) => candidate.testnet);
+      if (!accountId && firstSandbox) setAccountId(firstSandbox.id);
     } catch (e) {
       const message = (e as Error).message;
       noteManualTradingFailure(message);
@@ -270,7 +271,8 @@ export function ManualTradingPanel({
   const quote = useBookQuote(symbol);
   const spread = spreadOf(quote);
 
-  const account = state?.accounts.find((a) => a.id === accountId) ?? null;
+  const sandboxAccounts = useMemo(() => state?.accounts.filter((candidate) => candidate.testnet) ?? [], [state]);
+  const account = sandboxAccounts.find((a) => a.id === accountId) ?? null;
   /*
    * Only positions this chart's symbol can actually exit.
    *
@@ -328,13 +330,13 @@ export function ManualTradingPanel({
     positionId, side, selectablePositions: activePositions,
   });
 
-  const valid = !!account && (account.testnet || !!state?.mainnetEnabled) && Number(amount) > 0 &&
+  const valid = !!account && account.testnet && Number(amount) > 0 &&
     (orderType === "MARKET" || Number(limitPrice) > 0)
     && !shariahBlocksBuy
     && staleTicket === null
     && sizingProblem === null
     && (side === "BUY" || !positionId || activePositions.some((p) => p.id === positionId));
-  const mode = account ? `${state?.dryRun ? "dry run · " : ""}${account.mode}` : "unknown";
+  const mode = account ? (state?.dryRun ? "PAPER SIMULATION" : "TESTNET SANDBOX") : "SANDBOX ONLY";
   const accountLabel = (id: string): string => {
     const found = state?.accounts.find((item) => item.id === id);
     return found ? ` · ${found.name} (${found.mode})` : "";
@@ -353,8 +355,7 @@ export function ManualTradingPanel({
     ...(orderType === "LIMIT" ? { limitPrice: n(limitPrice) } : {}),
     ...(side === "BUY" && n(tp) !== undefined ? { takeProfitPrice: n(tp) } : {}),
     ...(side === "BUY" && n(sl) !== undefined ? { stopLossPrice: n(sl) } : {}),
-    ...(side === "SELL" && positionId ? { positionId } : {}),
-    ...(!selected.testnet ? { mainnetConfirmation: "PLACE_MAINNET_ORDER" } : {}) });
+    ...(side === "SELL" && positionId ? { positionId } : {}) });
 
   const submit = async () => {
     if (!account || pending) return;
@@ -378,12 +379,11 @@ export function ManualTradingPanel({
     const order = state?.orders.find((o) => o.id === id);
     const selected = state?.accounts.find((a) => a.id === order?.exchangeAccountId);
     if (!selected || pending) return;
-    if (!selected.testnet && !window.confirm("Cancel this real-funds Binance mainnet limit order?")) return;
+    if (!selected.testnet) { setError("Production order mutation is unavailable in this campaign."); return; }
     const key = `cancel:${id}`; const requestId = actionRequestIds[key] ?? newRequestId();
     if (!actionRequestIds[key]) setActionRequestIds((old) => ({ ...old, [key]: requestId }));
     setPending(true); setError(null); setNotice(null);
-    try { await api.cancelManualOrder(id, { requestId,
-      ...(!selected.testnet ? { mainnetConfirmation: "PLACE_MAINNET_ORDER" } : {}) });
+    try { await api.cancelManualOrder(id, { requestId });
       setActionRequestIds((old) => { const next = { ...old }; delete next[key]; return next; });
       setNotice("Limit cancellation confirmed by the execution bot."); await refresh(); }
     catch (e) { setError((e as Error).message); } finally { setPending(false); }
@@ -392,8 +392,7 @@ export function ManualTradingPanel({
   const protection = async (position: ManualPosition, remove = false) => {
     const selected = state?.accounts.find((a) => a.id === position.exchangeAccountId);
     if (!selected || pending) return;
-    if (!selected.testnet && !window.confirm(
-      `${remove ? "Remove" : "Update"} bot-managed protection for a Binance mainnet position?`)) return;
+    if (!selected.testnet) { setError("Production order mutation is unavailable in this campaign."); return; }
     const key = `protection:${position.id}:${remove ? "remove" : "edit"}`;
     const requestId = actionRequestIds[key] ?? newRequestId();
     if (!actionRequestIds[key]) setActionRequestIds((old) => ({ ...old, [key]: requestId }));
@@ -402,14 +401,16 @@ export function ManualTradingPanel({
     setPending(true); setError(null); setNotice(null);
     try { await api.updateManualProtection(position.id, { requestId,
       takeProfitPrice: remove ? null : n(values.tp) ?? null,
-      stopLossPrice: remove ? null : n(values.sl) ?? null,
-      ...(!selected.testnet ? { mainnetConfirmation: "PLACE_MAINNET_ORDER" } : {}) });
+      stopLossPrice: remove ? null : n(values.sl) ?? null });
       setActionRequestIds((old) => { const next = { ...old }; delete next[key]; return next; });
       setNotice(remove ? "TP/SL removed on the server." : "TP/SL updated on the server."); await refresh(); }
     catch (e) { setError((e as Error).message); } finally { setPending(false); }
   };
 
-  const orders = useMemo(() => state?.orders ?? [], [state]);
+  const orders = useMemo(() => {
+    const safeAccountIds = new Set(sandboxAccounts.map((candidate) => candidate.id));
+    return state?.orders.filter((order) => safeAccountIds.has(order.exchangeAccountId)) ?? [];
+  }, [sandboxAccounts, state]);
   const counts = useMemo(() => Object.fromEntries(
     ORDER_FILTERS.map((f) => [f.id, orders.filter(f.match).length])
   ) as Record<OrderFilter, number>, [orders]);
@@ -460,7 +461,7 @@ export function ManualTradingPanel({
   }, [state, error]);
 
   return <aside className="flex h-full w-[90vw] max-w-[340px] shrink-0 flex-col border-l border-border bg-surface md:w-[340px]"
-    aria-label="Manual Binance Spot trading">
+    aria-label="Paper and testnet Crypto Spot trading">
     {/*
       Instrument header. The panel used to open with no statement of which
       symbol it would trade — it follows the chart, but the chart's symbol is
@@ -488,6 +489,11 @@ export function ManualTradingPanel({
         className={`flex-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
           tab === id ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"}`}>
         {id === "ticket" ? "Order" : `Orders${orders.length ? ` ${orders.length}` : ""}`}</button>)}
+    </div>
+    <div role="status" data-testid="sandbox-execution-banner"
+      className="border-b border-warn/50 bg-warn/10 px-3 py-2 text-xs leading-4 text-warn">
+      <span className="font-semibold">PAPER / TESTNET ONLY</span>
+      <span className="block text-ink-muted">Crypto Spot simulation and official sandbox accounts. Production activation is unavailable.</span>
     </div>
     {/*
       An error about the ticket, not about the panel.
@@ -523,17 +529,10 @@ export function ManualTradingPanel({
     </div>
     : !state ? <div role="status" className="p-4 text-sm text-ink-faint">Loading manual trading…</div>
     : tab === "ticket" ? <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-      {/*
-        Real funds versus testnet is the single most consequential fact in this
-        panel, and it was one word in a thin outline. `mainnet` now reads as a
-        filled warning; every other mode stays quiet.
-      */}
-      <div className="flex items-center justify-between text-xs"><span className="text-ink-muted">Binance Spot</span>
-        <span className={`rounded border px-2 py-0.5 font-medium ${
-          account && !account.testnet
-            ? "border-down/50 bg-down/15 text-down"
-            : "border-warn/40 bg-warn/10 text-warn"}`}>
-          {account && !account.testnet ? `${mode} · real funds` : mode}</span></div>
+      {/* The safe execution mode remains visible inside the scrollable ticket. */}
+      <div className="flex items-center justify-between text-xs"><span className="text-ink-muted">Crypto Spot</span>
+        <span className="rounded border border-warn/50 bg-warn/10 px-2 py-0.5 font-semibold text-warn">
+          {mode}</span></div>
       {/*
         * The instrument this ticket will trade, stated once and unmissably.
         * The panel sits beside a chart whose symbol changes from several
@@ -559,11 +558,8 @@ export function ManualTradingPanel({
         Ticket cleared: it was prepared for {disarmedFrom}, and the chart now shows {symbol}.
       </p>}
       {staleTicket && <p role="alert" className="text-xs text-down">{staleTicket}</p>}
-      {state.mixed && <p className="text-xs text-warn">Mixed account modes: verify the selected account.</p>}
-      {state.accounts.length === 0 && <p role="alert" className="text-xs text-warn">
-        No connected Binance Spot account is available. Add credentials in the execution bot.</p>}
-      {account && !account.testnet && !state.mainnetEnabled &&
-        <p role="alert" className="text-xs text-down">Mainnet manual trading is disabled on the execution bot.</p>}
+      {sandboxAccounts.length === 0 && <p role="alert" className="text-xs text-warn">
+        No paper/testnet Crypto Spot account is available. Production accounts are intentionally hidden.</p>}
       <div>
         <label htmlFor="manual-account" className="mb-1 block text-[11px] font-medium text-ink-muted">Connected account</label>
         <select id="manual-account" value={accountId}
@@ -582,7 +578,7 @@ export function ManualTradingPanel({
             setArmedAccountId(null);
           }}
           className="w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent">
-          {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.mode}</option>)}
+          {sandboxAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} · sandbox</option>)}
         </select>
       </div>
       {/*
@@ -822,7 +818,7 @@ export function ManualTradingPanel({
     <Modal title="Confirm manual Spot order" open={confirming} onClose={() => !pending && setConfirming(false)} footer={<>
       <Button onClick={() => setConfirming(false)} disabled={pending}>Back</Button>
       <Button variant={side === "BUY" ? "primary" : "danger"} onClick={() => void submit()}
-        disabled={pending || (!!account && !account.testnet && !mainnetConfirmed)}>{pending ? "Submitting…" : `Confirm ${side}`}</Button></>}>
+        disabled={pending || !account?.testnet}>{pending ? "Submitting…" : `Confirm ${side}`}</Button></>}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
         <dt className="text-ink-muted">Account</dt><dd>{account?.name ?? "—"}</dd><dt className="text-ink-muted">Mode</dt><dd>{mode}</dd>
         <dt className="text-ink-muted">Symbol</dt><dd>{symbol}</dd><dt className="text-ink-muted">Side / type</dt><dd>{side} · {orderType}</dd>
@@ -832,9 +828,6 @@ export function ManualTradingPanel({
         <dt className="text-ink-muted">Protection</dt><dd>{side === "BUY" && (tp || sl)
           ? "bot-managed · not exchange-resting" : "none"}</dd>
       </dl>
-      {account && !account.testnet && <label className="mt-4 flex items-start gap-2 rounded-md border border-down/40 bg-down/10 p-3 text-sm text-down">
-        <input type="checkbox" checked={mainnetConfirmed} onChange={(e) => arm(setMainnetConfirmed)(e.target.checked)} />
-        I confirm this order uses real funds on Binance mainnet.</label>}
     </Modal>
   </aside>;
 }

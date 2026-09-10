@@ -24,6 +24,7 @@ import { tradingOverlayRoutes } from "./routes/tradingOverlays";
 import { realizationEventRoutes } from "./routes/realizationEvents";
 import { shariahRoutes } from "./routes/shariah";
 import { marketCatalogRoutes } from "./routes/marketCatalog";
+import { spotExecutionRoutes } from "./routes/spotExecution";
 import type { LiveRunner } from "../engine/liveRunner";
 import {
   SESSION_COOKIE, readCookie, sessionCookie, signSession, verifySession,
@@ -163,6 +164,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(realizationEventRoutes);
   app.register(shariahRoutes);
   app.register(marketCatalogRoutes);
+  app.register(spotExecutionRoutes);
 
   return app;
 }
