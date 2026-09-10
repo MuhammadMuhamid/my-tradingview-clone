@@ -99,6 +99,16 @@ export async function spotBotRequest<T>(
   return sendManualBotRequest<T>(input, fetchImpl);
 }
 
+/** X3B order traffic. The only representable environments are paper/testnet/demo. */
+export async function derivativeBotRequest<T>(
+  input: ManualBotRequestInput, fetchImpl: typeof fetch = fetch
+): Promise<T> {
+  if (!config.derivativeExecutionEnabled) {
+    throw new ManualBotError("paper/testnet derivatives execution is disabled", 404);
+  }
+  return sendManualBotRequest<T>(input, fetchImpl);
+}
+
 async function sendManualBotRequest<T>(
   input: ManualBotRequestInput, fetchImpl: typeof fetch
 ): Promise<T> {

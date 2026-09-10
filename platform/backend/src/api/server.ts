@@ -25,6 +25,7 @@ import { realizationEventRoutes } from "./routes/realizationEvents";
 import { shariahRoutes } from "./routes/shariah";
 import { marketCatalogRoutes } from "./routes/marketCatalog";
 import { spotExecutionRoutes } from "./routes/spotExecution";
+import { derivativeExecutionRoutes } from "./routes/derivativeExecution";
 import type { LiveRunner } from "../engine/liveRunner";
 import {
   SESSION_COOKIE, readCookie, sessionCookie, signSession, verifySession,
@@ -165,6 +166,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(shariahRoutes);
   app.register(marketCatalogRoutes);
   app.register(spotExecutionRoutes);
+  app.register(derivativeExecutionRoutes);
 
   return app;
 }

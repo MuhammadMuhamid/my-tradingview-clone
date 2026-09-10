@@ -32,6 +32,8 @@ export interface AppConfig {
   manualTradingHmacSecret: string;
   /** X3A paper/testnet/demo Spot execution channel. No production mode exists. */
   spotExecutionEnabled: boolean;
+  /** X3B paper/testnet/demo derivatives channel. No production mode exists. */
+  derivativeExecutionEnabled: boolean;
   /** Paired-release switch for the signed Platform->Bot `shariah` context block. */
   realizationIngestionEnabled: boolean;
   realizationHmacSecret: string;
@@ -172,6 +174,7 @@ export const config: AppConfig = {
   manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
   spotExecutionEnabled: process.env.SPOT_EXECUTION_ENABLED === "true",
+  derivativeExecutionEnabled: process.env.DERIVATIVE_EXECUTION_ENABLED === "true",
   /*
    * SHARIAH_BOT_CONTEXT_ENABLED is gone, deliberately.
    *
@@ -251,13 +254,16 @@ if (config.manualTradingEnabled && config.manualTradingHmacSecret.length === 0) 
 if (config.spotExecutionEnabled && config.manualTradingHmacSecret.length === 0) {
   throw new Error("MANUAL_TRADING_HMAC_SECRET must be set when spot execution is enabled");
 }
+if (config.derivativeExecutionEnabled && config.manualTradingHmacSecret.length === 0) {
+  throw new Error("MANUAL_TRADING_HMAC_SECRET must be set when derivatives execution is enabled");
+}
 if (config.realizationIngestionEnabled && config.realizationHmacSecret.length < 32) {
   throw new Error("REALIZATION_HMAC_SECRET must be at least 32 characters when realization ingestion is enabled");
 }
 if (config.realizationIngestionEnabled && isPublishedPlaceholder(config.realizationHmacSecret)) {
   throw new Error("REALIZATION_HMAC_SECRET is a published placeholder value — generate a real one");
 }
-if (config.manualTradingEnabled || config.spotExecutionEnabled) {
+if (config.manualTradingEnabled || config.spotExecutionEnabled || config.derivativeExecutionEnabled) {
   const manualBotUrl = new URL(config.manualTradingBotUrl);
   if (!/^https?:$/.test(manualBotUrl.protocol) || manualBotUrl.username || manualBotUrl.password) {
     throw new Error("MANUAL_TRADING_BOT_URL must be an http(s) URL without embedded credentials");
