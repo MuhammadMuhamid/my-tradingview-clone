@@ -1,7 +1,23 @@
-# Live charting, backtesting and signalling platform
+# Trading Scene Platform — canonical workstation and decision authority
 
-Charting, backtesting, parameter optimization and live signal emission for
-Binance spot markets. **This repository decides. It does not place orders.**
+This is the current Trading Scene workstation: charting, watchlists, screener,
+alerts, research integration and the canonical multi-asset backtesting engine.
+**Platform decides; it does not place exchange orders.** The Bot repository is
+the separate execution boundary.
+
+## V3 market and capability status
+
+The canonical V3 engine covers crypto spot, crypto derivatives, U.S.
+stocks/ETFs, FX, dated futures and continuous futures rolls. Read-only provider
+adapters and fixture contracts are present for the providers listed in the
+[owner handoff](../evidence/TRADING_SCENE_V3_OWNER_HANDOFF.md). Alpaca, OANDA,
+IBKR and other external authenticated/data-entitlement boundaries are
+`UNVERIFIED_DISABLED` in this local workspace; no credentials, subscriptions,
+paper/demo/testnet handshakes or production execution are claimed.
+
+The current live deployment and Scanner workflows remain Binance Spot-scoped.
+The canonical engine and provider capability model must not be read as an
+assertion that non-Binance markets can place orders.
 
 Orders are placed by a separate service, the execution bot
 (`MuhammadMuhamid/3commabotclone`), which is the only component that holds

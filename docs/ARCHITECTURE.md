@@ -2,6 +2,15 @@
 
 **Status:** current. Three systems, three repositories, explicit ownership boundaries.
 
+**V3 capability note.** Platform is the canonical Trading Scene workstation and
+owns multi-asset market/provider contracts plus the canonical backtest engine
+(crypto spot and derivatives, U.S. stocks/ETFs, FX, dated and continuous
+futures). External authenticated/data-entitlement paths are
+`UNVERIFIED_DISABLED`; the current live execution and native Scanner workflows
+are Binance Spot-only and the Bot remains the sole order-placement owner. See
+the [V3 owner handoff](../../evidence/TRADING_SCENE_V3_OWNER_HANDOFF.md) for the
+authoritative provider matrix.
+
 ## The three systems
 
 | | Platform (`my-tradingview-clone`, this repository) | Research (`pythoncryptobacktesingsystems`) | Execution bot (`3commabotclone`) |
@@ -194,11 +203,14 @@ while a pane's studies stay put when its symbol changes. Every write carries
 the version it last read; a stale write is refused with the state that is
 actually stored. There is no CRDT and no merge.
 
-### Spot-only Trading Scene and native Scanner
+### Binance Spot execution scope and native Scanner
 
-Trading Scene is Spot-only: Chart, notification alerts, Manual Trading V1,
-deployments, Paper and the Scanner represent Binance Spot instruments. The
-native `/scanner` route is part of the authenticated Next.js Platform, while the
+The current live execution surfaces are Spot-only: notification alerts, Manual
+Trading V1, deployments, Paper and the Scanner represent Binance Spot
+instruments. The broader Platform workstation also exposes read-only
+multi-market provider capabilities and the canonical multi-asset backtester;
+those paths do not authorize orders. The native `/scanner` route is part of the
+authenticated Next.js Platform, while the
 Python Scanner remains the calculation authority for Mahamid's 1h/15m/5m
 checklist, eight indicators, S&R/VWAP/pivots, confluence scoring and empirical
 calibration. Browser traffic follows a fixed boundary:
