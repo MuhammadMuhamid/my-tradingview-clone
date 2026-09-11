@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import type { Backtest, OpenTrade, Strategy, StrategyParams, Trade } from "@/lib/types";
 import type { StrategyProperties } from "./StrategySettingsModal";
 import { fmtNum, fmtPct, fmtPrice, signClass } from "@/lib/format";
+import { legacyBinanceSpotTicker } from "@/lib/instrument";
 
 function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
@@ -98,10 +99,13 @@ export function StrategyTester({
    * with the reason on the button, and the timeframe is left to the user.
    */
   const backtestTimeframe = storedIntervalFor(timeframe);
-  const backtestNotice = nativeOnlyNotice(timeframe, "the backtester");
+  const backtestSymbol = legacyBinanceSpotTicker(symbol);
+  const backtestNotice = backtestSymbol === null
+    ? "This installed strategy engine is Binance Spot only; chart studies remain available for this instrument."
+    : nativeOnlyNotice(timeframe, "the backtester");
 
   const launch = async (startDate = start, endDate = end) => {
-    if (!strategy || backtestTimeframe === null) return;
+    if (!strategy || backtestTimeframe === null || backtestSymbol === null) return;
     setErr(null);
     setTrades([]);
     onTrades([]);
@@ -109,7 +113,7 @@ export function StrategyTester({
     try {
       const bt = await api.createBacktest({
         strategyKey: strategy.key,
-        symbol,
+        symbol: backtestSymbol,
         timeframe: backtestTimeframe,
         startTime: new Date(startDate).toISOString(),
         endTime: new Date(endDate + "T23:59:59Z").toISOString(),
@@ -187,7 +191,7 @@ export function StrategyTester({
           onChange={(e) => setEnd(e.target.value)} className={inputBox} />
         <button
           onClick={() => void launch()}
-          disabled={running || !strategy || backtestTimeframe === null}
+          disabled={running || !strategy || backtestTimeframe === null || backtestSymbol === null}
           title={backtestNotice ?? undefined}
           className="flex h-7 shrink-0 items-center rounded-md bg-accent px-3 text-xs font-semibold text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
         >

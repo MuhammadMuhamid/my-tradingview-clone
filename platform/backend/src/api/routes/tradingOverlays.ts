@@ -11,6 +11,7 @@ import * as deploymentRepo from "../../repositories/deployments";
 import * as journalRepo from "../../repositories/journal";
 import * as overlayRepo from "../../repositories/tradingOverlays";
 import * as symbolRepo from "../../repositories/symbols";
+import { normalizeCanonicalInstrumentId } from "../../market/model";
 
 export const MAX_OVERLAY_RANGE_MS = 366 * 86_400_000;
 export const MAX_OVERLAY_ITEMS = 500;
@@ -21,7 +22,8 @@ export interface TradingOverlayQuery {
   scope?: string;
 }
 export type ParsedTradingOverlayQuery = {
-  symbol: string; from: Date; to: Date; toExclusive: Date;
+  /** Browser identity returned to the chart, plus the legacy Spot projection used by existing ledgers. */
+  symbol: string; storedSymbol: string; from: Date; to: Date; toExclusive: Date;
   replayCutoff: Date | null; limit: number; scope: "all" | "historical" | "current";
 };
 type ParseResult = { ok: true; value: ParsedTradingOverlayQuery } | { ok: false; error: string };
@@ -40,8 +42,22 @@ const instant = (value: string | undefined): Date | null => {
 };
 
 export function parseTradingOverlayQuery(query: TradingOverlayQuery): ParseResult {
-  const symbol = query.symbol?.trim().toUpperCase() ?? "";
-  if (!SYMBOL.test(symbol)) return { ok: false, error: "symbol must contain 5 to 20 uppercase letters or digits" };
+  const requested = query.symbol?.trim() ?? "";
+  const canonical = normalizeCanonicalInstrumentId(requested);
+  let symbol: string;
+  let storedSymbol: string;
+  if (canonical) {
+    const parts = canonical.split(":");
+    if (parts[2] !== "BINANCE" || parts[3] !== "spot") {
+      return { ok: false, error: "trading overlays are available for Binance Spot execution evidence only" };
+    }
+    symbol = canonical;
+    storedSymbol = `${parts[4]}${parts[5]}`;
+  } else {
+    symbol = requested.toUpperCase();
+    storedSymbol = symbol;
+    if (!SYMBOL.test(symbol)) return { ok: false, error: "symbol must be a Binance Spot ticker or canonical Binance Spot instrument" };
+  }
   const from = instant(query.from); const requestedTo = instant(query.to);
   if (!from || !requestedTo) return { ok: false, error: "from and to must be valid timestamps" };
   const replayCutoff = query.replayCutoff === undefined ? null : instant(query.replayCutoff);
@@ -61,7 +77,7 @@ export function parseTradingOverlayQuery(query: TradingOverlayQuery): ParseResul
   if (!(["all", "historical", "current"] as string[]).includes(scope)) {
     return { ok: false, error: "scope must be all, historical, or current" };
   }
-  return { ok: true, value: { symbol, from, to,
+  return { ok: true, value: { symbol, storedSymbol, from, to,
     toExclusive: new Date(to.getTime() + 1), replayCutoff, limit,
     scope: scope as ParsedTradingOverlayQuery["scope"] } };
 }
@@ -118,10 +134,10 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
     const parsed = parseTradingOverlayQuery(req.query);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     const q = parsed.value;
-    const spot = await symbolRepo.getSymbol(q.symbol);
+    const spot = await symbolRepo.getSymbol(q.storedSymbol);
     if (!spot) return reply.code(404).send({ error: "Spot symbol is not tracked" });
     const sourceLimit = q.limit + 1;
-    const filter = { from: q.from, toExclusive: q.toExclusive, symbol: q.symbol,
+    const filter = { from: q.from, toExclusive: q.toExclusive, symbol: q.storedSymbol,
       deploymentId: null, strategyId: null, limit: sourceLimit };
     // Replay never performs the current Manual/Bot state read. That source cannot
     // prove what was knowable at T, so Manual history is omitted in Replay.
@@ -140,7 +156,7 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
       wantsHistorical ? journalRepo.listPaperFills(filter) : Promise.resolve([]),
       !wantsManual ? Promise.resolve({ state: undefined, unavailable: false })
         : manualBotRequest<ManualStateWire>({ method: "GET",
-          path: `/api/manual-trading/state?symbol=${encodeURIComponent(q.symbol)}` })
+          path: `/api/manual-trading/state?symbol=${encodeURIComponent(q.storedSymbol)}` })
           .then((state) => ({ state, unavailable: false }))
           .catch(() => ({ state: undefined, unavailable: true })),
       !wantsManual ? Promise.resolve(null as BotExchangeMode)
@@ -149,12 +165,12 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
           .then((bot) => bot.state === "CONNECTED" ? bot.status.exchange.mode : null)
           .catch(() => null),
     ]);
-    const manual = manualRead.state ? manualState(manualRead.state, q.symbol, Date.now()) : undefined;
+    const manual = manualRead.state ? manualState(manualRead.state, q.storedSymbol, Date.now()) : undefined;
     const historicalManual = wantsHistorical && manual ? { ...manual, positions: [], orders: manual.orders.filter((order) =>
       order.completedAt !== null && order.completedAt >= q.from.getTime()
         && order.completedAt <= q.to.getTime()) } : undefined;
     const projectedHistorical = wantsHistorical
-      ? projectHistoricalOverlays({ symbol: q.symbol, manual: historicalManual,
+      ? projectHistoricalOverlays({ symbol: q.storedSymbol, manual: historicalManual,
         automatedActivity: activity, automatedRealizations: realizations, paperFills: paper,
         limit: q.limit, botExchangeMode })
       : { items: [], truncated: false };
@@ -164,17 +180,18 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
     let currentItems: ReturnType<typeof projectCurrentOverlays> = [];
     if (wantsCurrent) {
       const [orders, automatedPositions, paperPositions] = await Promise.all([
-        overlayRepo.listCurrentAutomatedOrders(q.symbol, sourceLimit),
-        overlayRepo.listCurrentAutomatedPositions(q.symbol, sourceLimit),
-        overlayRepo.listCurrentPaperPositions(q.symbol, sourceLimit),
+        overlayRepo.listCurrentAutomatedOrders(q.storedSymbol, sourceLimit),
+        overlayRepo.listCurrentAutomatedPositions(q.storedSymbol, sourceLimit),
+        overlayRepo.listCurrentPaperPositions(q.storedSymbol, sourceLimit),
       ]);
-      currentItems = projectCurrentOverlays({ symbol: q.symbol, manual,
+      currentItems = projectCurrentOverlays({ symbol: q.storedSymbol, manual,
         automatedOrders: orders, positions: [...automatedPositions, ...paperPositions],
         botExchangeMode });
     }
     const room = Math.max(0, q.limit - historical.items.length);
     const currentTruncated = currentItems.length > room;
-    const items = [...historical.items, ...currentItems.slice(0, room)];
+    const items = [...historical.items, ...currentItems.slice(0, room)]
+      .map((item) => ({ ...item, symbol: q.symbol }));
     const truncated = sourceTruncated || historical.truncated || currentTruncated;
     const response: TradingOverlayResponse = {
       symbol: q.symbol, range: { from: q.from.toISOString(), to: q.to.toISOString(),

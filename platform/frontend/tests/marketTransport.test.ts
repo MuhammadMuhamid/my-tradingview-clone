@@ -380,7 +380,7 @@ test("a symbol removed from the watchlist does not come back wearing its old quo
   assert.deepEqual(retainTickers(streamed, []), {});
   // The hook prunes on every membership change, before the seed request.
   const hook = fs.readFileSync(path.join(__dirname, "..", "lib", "useWatchlistTickers.ts"), "utf8");
-  assert.match(hook, /setTickers\(\(current\) => retainTickers\(current, list\)\);\s*\n\s*if \(list\.length === 0\) return;/);
+  assert.match(hook, /setTickers\(\(current\) => retainTickers\(current, list\)\);[\s\S]{0,100}if \(list\.length === 0\) return;/);
 });
 
 test("the watchlist header claims live only for a live stream, never for a handshake", () => {

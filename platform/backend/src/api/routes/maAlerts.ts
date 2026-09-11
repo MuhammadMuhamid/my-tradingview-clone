@@ -33,7 +33,7 @@ import {
 } from "../../alerts/alertFrequency";
 import { validateCondition } from "../../alerts/alertConditions";
 import { scannerRequest } from "../../scanner/client";
-import { normalizeCanonicalInstrumentId } from "../../market/model";
+import { canonicalizeLegacySpotSymbol, normalizeCanonicalInstrumentId } from "../../market/model";
 
 export const MAX_BULK_ALERTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -44,6 +44,30 @@ export function isCanonicalEquityAlertSymbol(raw: string): boolean {
   const canonical = normalizeCanonicalInstrumentId(raw);
   const type = canonical?.split(":")[3];
   return type === "stock" || type === "etf";
+}
+
+/** Resolve the alert's immutable market identity while retaining the legacy
+ * Binance ticker used by the current 24/7 runner. Unsupported market classes
+ * fail closed instead of being evaluated against the wrong calendar/feed. */
+export function alertInstrumentIdentity(raw: string): {
+  symbol: string; canonicalInstrumentId: string | null; providerId: string | null;
+  priceBasis: "last";
+} | { error: string; status: number } {
+  const value = String(raw ?? "").trim();
+  const canonical = normalizeCanonicalInstrumentId(value);
+  if (canonical) {
+    const parts = canonical.split(":");
+    const venue = parts[2]; const type = parts[3]; const series = parts[7];
+    if (venue !== "BINANCE" || type !== "spot" || series !== "spot") {
+      return { error: "this alert runner supports Binance Spot only; choose a supported Spot instrument", status: 422 };
+    }
+    const ticker = `${parts[4]}${parts[5]}`;
+    return { symbol: ticker, canonicalInstrumentId: canonical, providerId: "binance-spot", priceBasis: "last" };
+  }
+  let symbol: string;
+  try { symbol = assertSymbol(value); }
+  catch { return { error: "symbol must be 2-24 uppercase letters or digits", status: 400 }; }
+  return { symbol, canonicalInstrumentId: canonicalizeLegacySpotSymbol(symbol), providerId: "binance-spot", priceBasis: "last" };
 }
 
 interface PatternCatalogProfile {
@@ -209,16 +233,13 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
     const patch: maAlertRepo.MaAlertPatch = {};
 
     if (b.symbol !== undefined) {
-      if (isCanonicalEquityAlertSymbol(String(b.symbol))) {
-        return reply.code(422).send(bad(EQUITY_ALERT_UNAVAILABLE));
-      }
-      // Same choke point every market-data call uses: the symbol is
-      // interpolated into a Binance stream name.
-      try {
-        patch.symbol = assertSymbol(String(b.symbol));
-      } catch {
-        return reply.code(400).send(bad("symbol must be 2-24 uppercase letters or digits"));
-      }
+      const identity = alertInstrumentIdentity(String(b.symbol));
+      if ("error" in identity) return reply.code(identity.status).send(bad(
+        isCanonicalEquityAlertSymbol(String(b.symbol)) ? EQUITY_ALERT_UNAVAILABLE : identity.error));
+      patch.symbol = identity.symbol;
+      patch.canonicalInstrumentId = identity.canonicalInstrumentId;
+      patch.providerId = identity.providerId;
+      patch.priceBasis = identity.priceBasis;
     }
     if (b.timeframe !== undefined) {
       const tf = String(b.timeframe);
@@ -368,8 +389,10 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     const q = req.query as { symbol?: string; timeframe?: string; enabled?: string };
     // Do not imply the Binance websocket runner monitors an equity calendar.
     if (q.symbol && isCanonicalEquityAlertSymbol(q.symbol)) return [];
+    const requested = q.symbol ? alertInstrumentIdentity(q.symbol) : null;
+    if (requested && "error" in requested) return [];
     return maAlertRepo.listAlerts({
-      symbol: q.symbol ? assertSymbol(q.symbol) : undefined,
+      symbol: requested && !("error" in requested) ? requested.symbol : undefined,
       timeframe: q.timeframe && isInterval(q.timeframe) ? q.timeframe : undefined,
       activeOnly: q.enabled === "true",
     });
@@ -389,26 +412,20 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
      * elsewhere pushed this chart's events out of the window and the chart
      * concluded that none had fired.
      */
-    const scope = symbol && timeframe
-      ? { symbol: String(symbol), timeframe: String(timeframe) }
+    const requested = symbol ? alertInstrumentIdentity(String(symbol)) : null;
+    const scope = symbol && timeframe && requested && !("error" in requested)
+      ? { symbol: requested.symbol, timeframe: String(timeframe) }
       : undefined;
+    if (symbol && timeframe && (!requested || "error" in requested)) return [];
     return maAlertRepo.listEvents(Number(limit ?? 100) || 100, scope);
   });
 
   app.post("/api/ma-alerts", async (req, reply) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
-    if (isCanonicalEquityAlertSymbol(String(b.symbol ?? ""))) {
-      return reply.code(422).send(bad(EQUITY_ALERT_UNAVAILABLE));
-    }
-    // An armed alert's symbol is interpolated straight into the Binance
-    // websocket stream name, where a `/` would inject extra streams. This is
-    // the same choke point every market-data call already uses.
-    let symbol: string;
-    try {
-      symbol = assertSymbol(String(b?.symbol ?? ""));
-    } catch {
-      return reply.code(400).send(bad("symbol must be 2-24 uppercase letters or digits"));
-    }
+    const identity = alertInstrumentIdentity(String(b?.symbol ?? ""));
+    if ("error" in identity) return reply.code(identity.status).send(bad(
+      isCanonicalEquityAlertSymbol(String(b.symbol ?? "")) ? EQUITY_ALERT_UNAVAILABLE : identity.error));
+    const symbol = identity.symbol;
 
     const timeframe = String(b?.timeframe ?? "");
     if (!isAlertInterval(timeframe)) {
@@ -463,6 +480,9 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
 
     const row = await maAlertRepo.upsertAlert({
       symbol, timeframe, frequency, cooldownMin,
+      canonicalInstrumentId: identity.canonicalInstrumentId,
+      providerId: identity.providerId,
+      priceBasis: identity.priceBasis,
       ...toColumns(read.condition),
       patternDetectorId: b.patternDetectorId as string | undefined,
       patternDetectorVersion: b.patternDetectorVersion as string | undefined,

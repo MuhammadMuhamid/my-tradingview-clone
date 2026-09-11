@@ -161,7 +161,8 @@ test("equity alerts fail closed until the runner persists calendar and adjustmen
   assert.equal(isCanonicalEquityAlertSymbol("BTCUSDT"), false);
   assert.match(EQUITY_ALERT_UNAVAILABLE, /RAW adjustment and REGULAR session/);
   const routes = fs.readFileSync(path.join(__dirname, "..", "src", "api", "routes", "maAlerts.ts"), "utf8");
-  assert.match(routes, /reply\.code\(422\)\.send\(bad\(EQUITY_ALERT_UNAVAILABLE\)\)/);
+  assert.match(routes, /isCanonicalEquityAlertSymbol\(String\(b\.symbol/);
+  assert.match(routes, /identity\.error/);
 });
 
 test("market API makes adjustment/session/feed meaning explicit and protects study boundaries", async () => {

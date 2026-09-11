@@ -26,13 +26,15 @@ function row(symbol: string, state: ScreenerRow["state"], bull: number | null): 
   };
 }
 
-test("native Scanner route and navigation preserve visible Binance Spot identity", () => {
+test("Market Screener preserves Spot identity while exposing separate categories", () => {
   const page = read("app/screener/page.tsx");
   const nav = read("lib/navigation.ts");
-  assert.match(page, /Spot Scanner/);
+  assert.match(page, /Market Screener/);
   assert.match(page, /snapshot\?\.market\.spot/);
   assert.match(page, /Binance Spot/);
-  assert.doesNotMatch(page, /USD-M|perpetual|not Spot/);
+  for (const category of ["crypto_spot", "crypto_derivatives", "stocks", "etfs", "fx", "futures", "indices"])
+    assert.match(read("lib/workstation.ts"), new RegExp(category));
+  assert.match(page, /does not reuse Spot fields/);
   assert.ok(nav.indexOf('href: "/chart"') < nav.indexOf('href: "/screener"'));
   assert.ok(nav.indexOf('href: "/screener"') < nav.indexOf('href: "/alerts"'));
 });
@@ -99,7 +101,7 @@ test("Scanner navigation prefills existing Spot workflows without direct mutatio
   assert.match(chart, /resolveTradingTarget\(/);
   assert.match(chart, /tradingSymbol=\{tradingSymbol\}/);
   assert.match(read("components/tv/ChartSidePanel.tsx"),
-    /<ManualTradingPanel symbol=\{props\.tradingSymbol\}/);
+    /<ManualTradingPanel symbol=\{tradingIdentity/);
   assert.match(alerts, /parseScannerAlertTarget\(window\.location\.search\)/);
   assert.match(alerts, /setNewSymbol\(target\.symbol\)/);
   assert.match(alerts, /setLevelOpen\(true\)/);

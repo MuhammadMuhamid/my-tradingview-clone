@@ -11,7 +11,7 @@ import {
   MANUAL_SORT, canReorder, nextSort, reorderRefusal, reorderSymbols, sortSymbols,
   type SortColumn, type WatchlistSort,
 } from "@/lib/watchlistOrder";
-import { canonicalDisplayParts, displaySymbol, instrumentTypeLabel, isCanonicalInstrumentId } from "@/lib/instrument";
+import { canonicalDisplayParts, canonicalizeLegacySpotSymbol, displaySymbol, instrumentTypeLabel, isCanonicalInstrumentId } from "@/lib/instrument";
 
 interface Ticker { last: number; chg: number; chgPct: number; stale?: boolean; changeKnown?: boolean }
 type NamedWatchlist = ServerWatchlist;
@@ -120,7 +120,7 @@ export function Watchlist({
           } catch { /* malformed legacy data — fall through to the default */ }
           if (!seeded) {
             await api.upsertWatchlist({
-              name: "Main Watchlist", symbols: symbols.map((s) => s.symbol), position: 0,
+              name: "Main Watchlist", symbols: symbols.map((s) => s.canonicalId ?? s.symbol), position: 0,
             });
           }
           rows = await api.listWatchlists();
@@ -151,10 +151,12 @@ export function Watchlist({
    */
   const manualSymbols = useMemo(() => {
     if (!active) return [];
-    const bySymbol = new Map(symbols.map((s) => [s.symbol, s]));
+    const bySymbol = new Map(symbols.flatMap((s) => [
+      [s.symbol, s] as const, ...(s.canonicalId ? [[s.canonicalId, s] as const] : []),
+    ]));
     return active.symbols.map((s) => {
       const existing = bySymbol.get(s);
-      if (existing) return existing;
+      if (existing) return { ...existing, symbol: s };
       const parts = canonicalDisplayParts(s);
       return parts ? {
         symbol: s, baseAsset: parts.base, quoteAsset: parts.quote,
@@ -233,7 +235,7 @@ export function Watchlist({
    */
   const priceState: { label: string; tone: string; detail: string } | null =
     visibleSymbols.length === 0 ? null
-    : issues.length > 0 ? { label: "partial outage", tone: "text-down", detail: issues.join(" ") }
+    : issues.length > 0 ? { label: "some quotes unavailable", tone: "text-warn", detail: issues.join(" ") }
     : visibleSymbolNames.some((name) => tickers[name]?.stale)
       ? { label: "stale", tone: "text-warn", detail: "One or more provider quotes are older than the venue freshness limit." }
     : stream.status === "live" ? { label: "live", tone: "text-up", detail: streamWords.detail }
@@ -267,7 +269,7 @@ export function Watchlist({
         if (isCanonicalInstrumentId(s)) { resolved.push(s); continue; }
         if (s.endsWith("USDT")) {
           if (!symbols.some((x) => x.symbol === s)) await api.addSymbol(s, s.replace(/USDT$/, ""), "USDT");
-          resolved.push(s); continue;
+          resolved.push(canonicalizeLegacySpotSymbol(s) ?? s); continue;
         }
         const found = await api.searchMarket(s, "", "", 20);
         const exact = found.results.filter((row) => row.providerSymbol?.toUpperCase() === s || row.symbol.toUpperCase() === s);
@@ -511,8 +513,9 @@ export function Watchlist({
               three pulled the same way: the list read as looser and less
               scannable than the reference while occupying the same width.
             */
-            className={`group grid h-[29px] grid-cols-[1fr_auto_auto_18px] items-center gap-x-2 border-b border-border px-3 text-sm tabular ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-surface-2"}`}>
-            <button onClick={() => onSelect(s.symbol)} className="contents text-left">
+            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[29px] md:grid-cols-[minmax(0,1fr)_18px] ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-surface-2"}`}>
+            <button onClick={() => onSelect(s.symbol)}
+              className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 text-left">
               <span className="flex min-w-0 items-center font-medium text-ink" title={displaySymbol(s.symbol)}>
                 <span className="truncate">{s.baseAsset}<span className="text-ink-faint">/{s.quoteAsset}</span></span>
                 {identity && <span className={`ml-1 shrink-0 text-[9px] font-bold ${identity.type === "spot" ? "text-ink-faint" : "text-accent"}`}>
@@ -525,7 +528,9 @@ export function Watchlist({
               </span>
               <span className={`w-[64px] text-right ${t && t.changeKnown !== false ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t && t.changeKnown !== false ? `${up ? "+" : ""}${t.chgPct.toFixed(2)}%` : "—"}</span>
             </button>
-            <button title="Remove from watchlist" onClick={() => updateActive((l) => ({ ...l, symbols: l.symbols.filter((x) => x !== s.symbol) }))} className="invisible text-ink-faint hover:text-down group-hover:visible">×</button>
+            <button title="Remove from watchlist" aria-label={`Remove ${displaySymbol(s.symbol)} from watchlist`}
+              onClick={() => updateActive((l) => ({ ...l, symbols: l.symbols.filter((x) => x !== s.symbol) }))}
+              className="flex h-11 w-11 items-center justify-center text-ink-faint hover:text-down md:invisible md:h-[29px] md:w-[18px] md:group-hover:visible">×</button>
           </div>;
         })}
       </div>

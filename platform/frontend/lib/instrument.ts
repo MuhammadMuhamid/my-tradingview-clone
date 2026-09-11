@@ -186,6 +186,31 @@ export function storedSymbol(raw: string): string {
   return resolveInstrument(raw).ticker;
 }
 
+/** Canonical id used when importing legacy Binance-only saved state. */
+export function canonicalizeLegacySpotSymbol(raw: string): string | null {
+  const original = String(raw ?? "").trim();
+  if (!original) return null;
+  const parts = canonicalDisplayParts(original);
+  if (parts) return `instrument:v1:${parts.venue}:${parts.type}:${parts.base}:${parts.quote}:${parts.settlement}:${parts.series}`;
+  const value = original.toUpperCase();
+  const ticker = value.replace(/^BINANCE:/, "");
+  if (!/^[A-Z0-9]{2,24}$/.test(ticker)) return null;
+  const quote = ["USDT", "USDC", "FDUSD", "TUSD", "BUSD", "BTC", "ETH", "BNB", "TRY", "EUR"]
+    .find((candidate) => ticker.endsWith(candidate) && ticker.length > candidate.length);
+  if (!quote) return null;
+  return `instrument:v1:BINANCE:spot:${ticker.slice(0, -quote.length)}:${quote}:${quote}:spot`;
+}
+
+/** Compatibility projection for the legacy Binance-only strategy/optimizer store. */
+export function legacyBinanceSpotTicker(raw: string): string | null {
+  const canonical = canonicalDisplayParts(raw);
+  if (canonical) {
+    return canonical.venue === "BINANCE" && canonical.type === "spot"
+      ? `${canonical.base}${canonical.quote}` : null;
+  }
+  return tryResolveInstrument(raw)?.ticker ?? null;
+}
+
 /** The same, without the throw: unresolvable input yields null. */
 export function tryStoredSymbol(raw: string): string | null {
   if (isCanonicalInstrumentId(raw)) return String(raw).trim();

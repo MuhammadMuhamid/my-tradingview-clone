@@ -38,7 +38,7 @@ async function resolve(registry: ProviderRegistry, id: string): Promise<Canonica
   const venue = id.split(":")[2]; if (!venue) return null;
   for (const provider of registry.forVenue(venue)) {
     if (provider.catalog.availability.support !== "supported") continue;
-    const found = (await registry.call(provider.id, (current) => current.catalog.list()))
+    const found = (await registry.catalog(provider.id))
       .find((row) => row.identity.canonicalId === id);
     if (found) return found;
   }

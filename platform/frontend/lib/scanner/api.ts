@@ -2,6 +2,7 @@ import type { Calibration, Snapshot } from "./types";
 import type { PatternAnalysis, PatternCatalog } from "../candleOverlay";
 import type { Candle } from "../types";
 import type { ClassicalAnalysis, ClassicalCatalog } from "../classicalPatterns";
+import type { WorkstationCategory } from "../workstation";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
@@ -27,6 +28,9 @@ function symbolPath(symbol: string): string {
 }
 
 export const api = {
+  screenerSchema: (category: WorkstationCategory) => request<{ category: WorkstationCategory; fields: Array<{
+    id: string; label: string; semantic: string }>; note: string }>(
+    `/api/market/v1/screener/schema?category=${encodeURIComponent(category)}`),
   screener: () => request<Snapshot>("/api/scanner"),
   health: () => request<Record<string, unknown>>("/api/scanner/health"),
   patternCatalog: () => request<PatternCatalog>("/api/scanner/patterns/catalog"),

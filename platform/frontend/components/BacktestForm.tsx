@@ -5,6 +5,8 @@ import { ParamForm } from "@/components/ParamForm";
 import { api } from "@/lib/api";
 import { defaultParams } from "@/lib/paramSchema";
 import type { Interval, StrategyParams, SymbolInfo } from "@/lib/types";
+import { displaySymbol } from "@/lib/instrument";
+import { researchAssumptions } from "@/lib/workstation";
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h"];
 
@@ -55,7 +57,7 @@ export function BacktestForm({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <Field label="Symbol">
             <Select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-              {symbols.map((s) => <option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
+              {symbols.map((s) => <option key={s.symbol} value={s.symbol}>{displaySymbol(s.canonicalId ?? s.symbol)}</option>)}
             </Select>
           </Field>
           <Field label="Timeframe">
@@ -90,6 +92,14 @@ export function BacktestForm({
           </div>
         </details>
 
+        <section aria-label="Research assumptions" className="rounded-md border border-border bg-surface-2/40 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Run assumptions</p>
+          <p className="mt-1 text-xs leading-5 text-ink">
+            {researchAssumptions(symbol).join(" · ")}
+          </p>
+          <p className="mt-1 text-[11px] text-ink-faint">Unsupported session, adjustment, funding, roll or execution semantics fail before a run is queued.</p>
+        </section>
+
         {err && <div className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{err}</div>}
 
         <div className="flex items-center gap-3">
@@ -97,7 +107,7 @@ export function BacktestForm({
             {busy ? "Queuing…" : "Run backtest"}
           </Button>
           <span className="text-xs text-ink-faint">
-            Data is auto-fetched from Binance if not cached — first run on a new range may take a moment.
+            Provider data is fetched through the instrument contract when supported; a new range may take a moment.
           </span>
         </div>
       </div>

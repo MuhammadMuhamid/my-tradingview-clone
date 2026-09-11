@@ -22,7 +22,7 @@ import { api } from "./api";
 import {
   combinedStreamPath, marketStreams, miniTickerStreamName, type StreamState,
 } from "./marketStream";
-import { isCanonicalInstrumentId } from "./instrument";
+import { canonicalDisplayParts, isCanonicalInstrumentId } from "./instrument";
 import { subscribeCanonicalMarket } from "./canonicalMarketStream";
 
 export interface WatchlistTicker {
@@ -50,6 +50,17 @@ export function tickerFrom(last: number, open: number, source: WatchlistTicker["
 }
 
 const IDLE: StreamState = { status: "idle", origin: null, attempt: 0, everLive: false, refused: [] };
+export const MAX_CANONICAL_WATCHLIST_STREAMS = 12;
+const DIRECT_STREAM_VENUES = new Set(["COINBASE", "BYBIT", "OKX", "KRAKEN", "KUCOIN", "GATEIO"]);
+
+/** Catalog-only/auth-gated markets deliberately stay on the shared snapshot.
+ * Asking their stream endpoint only to receive an expected 422 turns an
+ * honest capability limitation into noisy console/network failures. */
+export function directWatchlistStreamSupported(instrument: string): boolean {
+  const parts = canonicalDisplayParts(instrument);
+  return Boolean(parts && DIRECT_STREAM_VENUES.has(parts.venue) &&
+    (parts.type === "spot" || parts.type === "perpetual" || parts.type === "future"));
+}
 
 /**
  * The rows that survive a change of membership: only symbols still on the
@@ -76,17 +87,35 @@ export function useWatchlistTickers(symbols: readonly string[]): {
   const [stream, setStream] = useState<StreamState>(IDLE);
   const [canonicalStates, setCanonicalStates] = useState<Record<string, StreamState>>({});
   const [issues, setIssues] = useState<string[]>([]);
+  const [canonicalStreamEligible, setCanonicalStreamEligible] = useState<string[]>([]);
   // Identity by content, so a re-rendered parent with the same list does not
   // re-open the socket.
-  const key = useMemo(() => watchlistStreamKey(symbols), [symbols]);
-  const list = useMemo(() => symbols.map((s) => isCanonicalInstrumentId(s) ? s : s.toUpperCase()), [symbols]);
+  const contentKey = symbols.map((s) => isCanonicalInstrumentId(s) ? s : s.toUpperCase()).join("\u0000");
+  const list = useMemo(() => contentKey ? contentKey.split("\u0000") : [], [contentKey]);
   const canonical = useMemo(() => list.filter((s) => s.toLowerCase().startsWith("instrument:v1:")), [list]);
   const legacy = useMemo(() => list.filter((s) => !s.toLowerCase().startsWith("instrument:v1:")), [list]);
+  // Migrated Binance Spot rows keep the economical combined mini-ticker
+  // socket. Canonical persistence must not turn one legacy socket into one
+  // socket per row after reload.
+  const combined = useMemo(() => list.flatMap((storageKey) => {
+    const parts = canonicalDisplayParts(storageKey);
+    if (parts) return parts.venue === "BINANCE" && parts.type === "spot"
+      ? [{ storageKey, providerSymbol: `${parts.base}${parts.quote}` }] : [];
+    return [{ storageKey, providerSymbol: storageKey.toUpperCase() }];
+  }), [list]);
+  const combinedByProviderSymbol = useMemo(() => new Map(combined.map((item) =>
+    [item.providerSymbol, item.storageKey])), [combined]);
+  const key = useMemo(() => watchlistStreamKey(combined.map((item) => item.storageKey)), [combined]);
+  const directCanonicalKey = canonicalStreamEligible.join("\u0000");
+  const directCanonical = useMemo(() => directCanonicalKey ? directCanonicalKey.split("\u0000") : [],
+    [directCanonicalKey]);
+  const canonicalLive = useMemo(() => directCanonical.slice(0, MAX_CANONICAL_WATCHLIST_STREAMS), [directCanonical]);
 
   // Seed: one same-origin request per symbol-set change. A stream tick that
   // arrives first is never overwritten by the slower seed.
   useEffect(() => {
     setTickers((current) => retainTickers(current, list));
+    setCanonicalStreamEligible([]);
     if (list.length === 0) return;
     const controller = new AbortController();
     const legacyRead = (legacy.length > 0 ? api.tickers(legacy, controller.signal) : Promise.resolve([]))
@@ -99,6 +128,8 @@ export function useWatchlistTickers(symbols: readonly string[]): {
       if (controller.signal.aborted) return;
       const rows = legacyResult.rows;
       const market = canonicalResult.market;
+      setCanonicalStreamEligible(market?.providers.flatMap((group) => group.observations)
+        .map((row) => row.canonicalInstrumentId).filter(directWatchlistStreamSupported) ?? []);
       setIssues([...(market?.errors ?? []).map((item) => `${item.providerId}: ${item.error}`),
         ...((market?.missing ?? []).length ? [`${market!.missing.length} saved instrument(s) unavailable`] : []),
         ...[legacyResult.error, canonicalResult.error].filter((item): item is string => item !== null)]);
@@ -121,8 +152,8 @@ export function useWatchlistTickers(symbols: readonly string[]): {
   }, [list, legacy, canonical]);
 
   useEffect(() => {
-    if (legacy.length === 0) { setStream(IDLE); return; }
-    const path = combinedStreamPath(legacy.map(miniTickerStreamName));
+    if (combined.length === 0) { setStream(IDLE); return; }
+    const path = combinedStreamPath(combined.map((item) => miniTickerStreamName(item.providerSymbol)));
     const release = marketStreams.subscribe(key, path, {
       onState: setStream,
       onMessage: (data) => {
@@ -133,18 +164,20 @@ export function useWatchlistTickers(symbols: readonly string[]): {
         if (!row) return;
         const last = parseFloat(row.c), open = parseFloat(row.o);
         if (!Number.isFinite(last) || !Number.isFinite(open)) return;
-        setTickers((t) => ({ ...t, [row.s]: tickerFrom(last, open, "stream") }));
+        const storageKey = combinedByProviderSymbol.get(row.s);
+        if (!storageKey) return;
+        setTickers((t) => ({ ...t, [storageKey]: tickerFrom(last, open, "stream") }));
       },
     });
     return release;
-  }, [key, legacy]);
+  }, [key, combined, combinedByProviderSymbol]);
 
   useEffect(() => {
-    if (canonical.length === 0) return;
+    if (directCanonical.length === 0) return;
     const controller = new AbortController();
     const releases: Array<() => void> = [];
     let stopped = false;
-    for (const instrument of canonical) {
+    for (const instrument of canonicalLive) {
       void api.marketStream(instrument, "ticker", "1m", controller.signal).then((config) => {
         if (stopped) return;
         releases.push(subscribeCanonicalMarket(config, "ticker", "1m", {
@@ -185,16 +218,21 @@ export function useWatchlistTickers(symbols: readonly string[]): {
     const timer = window.setInterval(poll, 15_000);
     return () => { stopped = true; controller.abort(); for (const release of releases) release();
       setCanonicalStates({}); window.clearInterval(timer); };
-  }, [canonical]);
+  }, [canonical, directCanonical, canonicalLive]);
 
-  const states = Object.values(canonicalStates);
-  const canonicalStream = states.some((state) => state.status === "stale")
+  const states = [
+    ...(combined.length > 0 && stream.status !== "idle" ? [stream] : []),
+    ...Object.values(canonicalStates),
+  ];
+  const aggregateStream = states.some((state) => state.status === "stale")
     ? states.find((state) => state.status === "stale")!
     : states.some((state) => state.status === "reconnecting")
       ? states.find((state) => state.status === "reconnecting")!
       : states.some((state) => state.status === "connecting" || state.status === "open")
         ? states.find((state) => state.status === "connecting" || state.status === "open")!
         : states.some((state) => state.status === "live") ? states.find((state) => state.status === "live")! : IDLE;
-  const combined = legacy.length > 0 && stream.status !== "idle" ? stream : canonicalStream;
-  return { tickers, stream: combined, issues };
+  const boundedIssues = directCanonical.length > MAX_CANONICAL_WATCHLIST_STREAMS
+    ? [...issues, `${directCanonical.length - MAX_CANONICAL_WATCHLIST_STREAMS} additional instruments use the shared 15-second provider snapshot to avoid excess subscriptions.`]
+    : issues;
+  return { tickers, stream: aggregateStream, issues: boundedIssues };
 }

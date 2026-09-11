@@ -215,6 +215,10 @@ export const isPriceDirection = (v: string): v is PriceDirection =>
 export interface MaAlertRow {
   id: string;
   symbol: string;
+  /** Immutable identity of the provider feed and price role this alert reads. */
+  canonicalInstrumentId?: string | null;
+  providerId?: string | null;
+  priceBasis?: "last" | "bid" | "ask" | "mid" | "mark" | "index" | null;
   timeframe: Interval;
   conditionKind: ConditionKind;
   /** Populated for `ma` and `ma_vs_ma`. */

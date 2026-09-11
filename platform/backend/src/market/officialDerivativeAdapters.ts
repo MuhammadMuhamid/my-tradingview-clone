@@ -285,7 +285,14 @@ export function createOfficialDerivativeAdapter(definition: OfficialDerivativeDe
     if (cache.length > 0 && Date.now() - cacheAt < 300_000) return cache;
     if (catalogInFlight) return catalogInFlight;
     catalogInFlight = list().then((rows) => {
-      cache = rows.map((row) => canonical(definition, row)); cacheAt = Date.now(); return cache;
+      // Provider display-token listings outside the canonical ASCII contract
+      // are quarantined row-by-row. Economic contract violations (for example
+      // a dated future without its exact delivery instant) still reject the
+      // catalog instead of disappearing as if the contract never existed.
+      const token = /^[A-Z0-9][A-Z0-9._-]{0,31}$/i;
+      cache = rows.flatMap((row) => [row.base, row.quote, row.settlement].every((value) => token.test(value))
+        ? [canonical(definition, row)] : []);
+      cacheAt = Date.now(); return cache;
     }).finally(() => { catalogInFlight = null; });
     return catalogInFlight;
   };

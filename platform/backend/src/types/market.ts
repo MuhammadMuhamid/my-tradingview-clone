@@ -79,6 +79,8 @@ export interface Candle {
 
 export interface SymbolInfo {
   symbol: string;
+  /** Canonical economic identity; present after migration 036. */
+  canonicalId?: string | null;
   baseAsset: string;
   quoteAsset: string;
   priceTick: number | null;

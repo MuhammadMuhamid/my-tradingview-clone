@@ -84,6 +84,15 @@ function canonical(row: ExchangeSymbol | SymbolMetadata, precision = unknownPrec
   };
 }
 
+/** Provider directories occasionally add display-token listings outside the
+ * canonical ASCII identity contract. One malformed row must not take the
+ * entire venue catalog down. */
+function canonicalIfValid(row: ExchangeSymbol | SymbolMetadata,
+  precision?: PrecisionRules): CanonicalInstrument | null {
+  try { return canonical(row, precision); }
+  catch { return null; }
+}
+
 export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): MarketDataProviderAdapter {
   const adapter: MarketDataProviderAdapter = {
     id: BINANCE_SPOT_PROFILE.id,
@@ -117,8 +126,11 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
     },
     catalog: {
       availability: supported(),
-      list: async () => (await deps.listSymbols()).map((row) => canonical(row)),
-      metadata: async (symbols) => (await deps.metadata([...symbols])).map((row) => canonical(row, {
+      list: async () => (await deps.listSymbols()).flatMap((row) => {
+        const item = canonicalIfValid(row); return item ? [item] : [];
+      }),
+      metadata: async (symbols) => (await deps.metadata([...symbols])).flatMap((row) => {
+        const item = canonicalIfValid(row, {
         priceTick: knownNumber(row.priceTick, "PRICE_FILTER missing"),
         quantityLot: knownNumber(row.qtyStep, "LOT_SIZE missing"),
         minimumQuantity: unknownNumber("legacy Binance metadata seam does not expose minQty yet"),
@@ -129,7 +141,9 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
         quantityDecimals: row.qtyStep > 0
           ? { state: "known", value: decimals(row.qtyStep) }
           : unknownNumber("LOT_SIZE missing"),
-      })),
+        });
+        return item ? [item] : [];
+      }),
     },
     candles: {
       availability: supported(),
@@ -144,7 +158,10 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
       prices: canonical({ symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", status: "TRADING" }).prices,
       fetch: async (symbols): Promise<TickerObservation[]> => {
         const [rows, metadata] = await Promise.all([deps.tickers(symbols), deps.metadata([...symbols])]);
-        const canonicalBySymbol = new Map(metadata.map((row) => [row.symbol, canonical(row).identity.canonicalId]));
+        const canonicalBySymbol = new Map(metadata.flatMap((row) => {
+          const item = canonicalIfValid(row);
+          return item ? [[row.symbol, item.identity.canonicalId] as const] : [];
+        }));
         return rows.flatMap((row) => {
           const id = canonicalBySymbol.get(row.symbol);
           return id ? [{ canonicalInstrumentId: id, providerSymbol: row.symbol,

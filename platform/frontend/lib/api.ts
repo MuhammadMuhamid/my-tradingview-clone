@@ -100,7 +100,8 @@ export interface EquityInstrumentResponse {
 export interface TraditionalInstrumentResponse {
   contractVersion: "market.v1"; providerId: string; providerSymbol: string;
   instrument: { identity: { canonicalId: string; venueId: string; instrumentType: string; baseAsset: string;
-      quoteAsset: string; settlementAsset: string; series: { kind: string; expiry?: string; methodologyId?: string } };
+      quoteAsset: string; settlementAsset: string; assetClass?: string;
+      series: { kind: string; expiry?: string; methodologyId?: string } };
     listing: { status: "active" | "halted" | "delisted" | "unknown" }; currency: string;
     fx?: SymbolSearchResult["fx"]; futures?: SymbolSearchResult["futures"];
     referenceIndex?: SymbolSearchResult["referenceIndex"]; derivative: DerivativeTerms;
@@ -817,6 +818,9 @@ export const isIntrabarFrequency = (f: AlertFrequency): boolean =>
 export interface MaAlert {
   id: string;
   symbol: string;
+  canonicalInstrumentId?: string | null;
+  providerId?: string | null;
+  priceBasis?: "last" | "bid" | "ask" | "mid" | "mark" | "index" | null;
   timeframe: Interval;
   conditionKind: ConditionKind;
   patternId?: string | null;
@@ -953,6 +957,9 @@ export interface MaAlertOptions {
 export interface MaAlertUpdate {
   // ── common to every family ──
   symbol?: string;
+  canonicalInstrumentId?: string;
+  providerId?: string;
+  priceBasis?: "last" | "bid" | "ask" | "mid" | "mark" | "index";
   timeframe?: Interval;
   frequency?: AlertFrequency;
   cooldownMin?: number;

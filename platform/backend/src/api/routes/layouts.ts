@@ -5,7 +5,7 @@ import * as strategies from "../../repositories/strategies";
 import { isInterval } from "../../types/market";
 import type { StrategyParams } from "../../types/strategy";
 import type { LayoutMaLine, LayoutProperties } from "../../repositories/layouts";
-import { normalizeCanonicalInstrumentId } from "../../market/model";
+import { canonicalizeLegacySpotSymbol } from "../../market/model";
 
 interface LayoutBody {
   name?: string;
@@ -18,8 +18,8 @@ interface LayoutBody {
   movingAverages?: LayoutMaLine[];
 }
 
-const storedLayoutSymbol = (value: string): string =>
-  normalizeCanonicalInstrumentId(value) ?? value.toUpperCase();
+export const storedLayoutSymbol = (value: string): string =>
+  canonicalizeLegacySpotSymbol(value) ?? value.toUpperCase();
 
 export async function layoutRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/layouts", async () => layouts.listLayouts());
@@ -99,7 +99,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
       if (!strategyKey) continue;
       const existing = await layouts.getLayoutByName(symbol);
       const state = layouts.layoutStateFromDeployment(dep, strategyKey, existing);
-      await layouts.upsertLayoutByName(symbol, state);
+      await layouts.upsertLayoutByName(symbol, { ...state, symbol: storedLayoutSymbol(state.symbol) });
       synced.push(symbol);
     }
     return { synced, count: synced.length };

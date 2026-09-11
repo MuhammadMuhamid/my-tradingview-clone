@@ -74,7 +74,7 @@ test("search and watchlists carry stock and ETF category without collapsing cano
 
 test("equity alert controls explain the calendar-aware boundary instead of arming a crypto runner", () => {
   const page = read("app/chart/page.tsx");
-  assert.match(page, /isEquityInstrumentId\(symbol\)/);
-  assert.match(page, /calendar-aware runner can persist REGULAR · RAW semantics/);
+  assert.match(page, /alertCapability\(symbol\)/);
+  assert.match(read("lib/workstation.ts"), /Binance Spot last-price bars only/);
   assert.match(page, /onOpenAutomation=\{openAutomation\}/);
 });

@@ -88,7 +88,8 @@ import { datasetKey } from "@/lib/liveDataset";
 import { useCandleHistory } from "@/lib/useCandleHistory";
 import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
-import { isCanonicalInstrumentId, isEquityInstrumentId } from "@/lib/instrument";
+import { isCanonicalInstrumentId, legacyBinanceSpotTicker } from "@/lib/instrument";
+import { alertCapability } from "@/lib/workstation";
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
@@ -685,8 +686,9 @@ export default function TvWorkspace() {
 
   /** Open the dialog with no level picked; it falls back to the last price. */
   const openPriceAlert = useCallback(() => {
-    if (isEquityInstrumentId(symbol)) {
-      setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.");
+    const capability = alertCapability(symbol);
+    if (!capability.supported) {
+      setToast(capability.reason);
       return;
     }
     setPriceAlertLevel(null);
@@ -694,8 +696,9 @@ export default function TvWorkspace() {
   }, [symbol]);
 
   const openAutomation = useCallback(() => {
-    if (isEquityInstrumentId(symbol)) {
-      setToast("U.S. equity automation stays off until alerts and paper execution share an explicit market calendar.");
+    const capability = alertCapability(symbol);
+    if (!capability.supported) {
+      setToast(capability.reason);
       return;
     }
     setAlertOpen(true);
@@ -832,6 +835,8 @@ export default function TvWorkspace() {
     setLoadingBest(true);
     setErr(null);
     try {
+      const optimizerSymbol = legacyBinanceSpotTicker(symbol);
+      if (!optimizerSymbol) throw new Error("Optimizer configurations are available for Binance Spot instruments only.");
       /*
        * The optimizer's leaderboard is keyed by a STORED interval. A derived
        * chart resolution has no row there, so the request is made without a
@@ -840,7 +845,7 @@ export default function TvWorkspace() {
        * than silent.
        */
       const best = await api.optimizerBest(
-        symbol, 1, strategyKey, storedIntervalFor(interval) ?? undefined);
+        optimizerSymbol, 1, strategyKey, storedIntervalFor(interval) ?? undefined);
       setStrategyKey(best.strategyKey);
       setParams(best.params);
       setProperties((prev) => withOptimizerProperties(prev, best.properties));
@@ -1847,8 +1852,8 @@ export default function TvWorkspace() {
         }}
         onAddSymbolAlert={(s) => {
           changePaneSymbol(active.id, s);
-          if (isEquityInstrumentId(s)) {
-            setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.");
+          if (!alertCapability(s).supported) {
+            setToast(alertCapability(s).reason);
           } else {
             setPriceAlertOpen(true);
           }
@@ -1873,15 +1878,15 @@ export default function TvWorkspace() {
         maAlerts={maAlerts}
         onToggleMa={toggleMa}
         onToggleAllMa={toggleAllMa}
-        onArmMa={(type, length) => isEquityInstrumentId(symbol)
-          ? setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.")
+        onArmMa={(type, length) => !alertCapability(symbol).supported
+          ? setToast(alertCapability(symbol).reason)
           : setArmLine({ type, length })}
         onArmPrice={openPriceAlert}
-        onArmLevel={(kind) => isEquityInstrumentId(symbol)
-          ? setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.")
+        onArmLevel={(kind) => !alertCapability(symbol).supported
+          ? setToast(alertCapability(symbol).reason)
           : setLevelKind(kind)}
-        onArmOscillator={(kind) => isEquityInstrumentId(symbol)
-          ? setToast("U.S. equity alerts stay off until a calendar-aware runner can persist REGULAR · RAW semantics.")
+        onArmOscillator={(kind) => !alertCapability(symbol).supported
+          ? setToast(alertCapability(symbol).reason)
           : setOscillatorKind(kind)}
         onOpenAlert={setEditingAlert}
         onToast={setToast}

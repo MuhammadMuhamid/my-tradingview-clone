@@ -29,7 +29,8 @@ import type { MaType } from "@/lib/movingAverages";
 import type { ReplayQuote } from "@/lib/replay";
 import type { SymbolInfo } from "@/lib/types";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
-import { isCanonicalInstrumentId } from "@/lib/instrument";
+import { canonicalDisplayParts, isCanonicalInstrumentId } from "@/lib/instrument";
+import { WorkstationOrderTicket } from "@/components/tv/WorkstationOrderTicket";
 
 export type ChartPanel =
   | "watchlist" | "alerts" | "indicators" | "ma" | "manual" | "correlation" | null;
@@ -93,6 +94,8 @@ export interface ChartSidePanelProps {
 }
 
 export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
+  const tradingIdentity = canonicalDisplayParts(props.tradingSymbol);
+  const canonicalBinanceSpot = tradingIdentity?.venue === "BINANCE" && tradingIdentity.type === "spot";
   /*
    * The far-right rail is built like the left one (FC2-M1): full-width,
    * square-cornered, 52 x 38 hit zones rather than 36px pills inset in a 48px
@@ -166,14 +169,11 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
             )
           )}
           {props.panel === "manual" && !props.replayActive && (isCanonicalInstrumentId(props.tradingSymbol)
-            ? <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface p-4 md:w-[294px]">
-                <h2 className="text-sm font-semibold text-ink">Read-only market instrument</h2>
-                <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-                  This canonical instrument is available for market data and analytics only. Orders and account mutations are disabled;
-                  derivative leverage and margin fields describe venue capability, not an enabled ticket.
-                </p>
-              </aside>
-            : <ManualTradingPanel symbol={props.tradingSymbol}
+            && !canonicalBinanceSpot
+            ? <WorkstationOrderTicket instrument={props.tradingSymbol} />
+            : <ManualTradingPanel symbol={tradingIdentity
+                ? `${tradingIdentity.base}${tradingIdentity.quote}`
+                : props.tradingSymbol}
                 lastPrice={props.tradingLastPrice}
                 targetNotice={props.tradingNotice}
                 onStagedChange={props.onTicketStagedChange}
@@ -221,8 +221,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "manual" ? null : "manual"))}
         disabled={props.replayBlocksLiveActions}
         className={railBtn(props.panel === "manual")}
-        title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / testnet Crypto Spot trading"}
-        aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / testnet Crypto Spot trading"}
+        title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
+        aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />

@@ -42,6 +42,7 @@ import { isResolution, type Resolution } from "./resolution";
 import {
   isDefaultPriceScale, normalizePriceScale, resetPriceScale, type PriceScaleState,
 } from "./priceScale";
+import { canonicalizeLegacySpotSymbol } from "./instrument";
 
 /** Stable across layout changes, maximise, and reloads. */
 export type PaneId = string;
@@ -443,7 +444,8 @@ function validCompare(value: unknown): PaneCompare | null {
   const length = typeof raw.length === "number" && Number.isFinite(raw.length)
     ? Math.max(2, Math.min(1000, Math.round(raw.length)))
     : DEFAULT_COMPARE_LENGTH;
-  return { symbol: raw.symbol.trim().toUpperCase(), mode: raw.mode, length };
+  const symbol = canonicalizeLegacySpotSymbol(raw.symbol) ?? raw.symbol.trim().toUpperCase();
+  return { symbol, mode: raw.mode, length };
 }
 
 function validPane(value: unknown): PaneState | null {
@@ -484,7 +486,7 @@ function validPane(value: unknown): PaneState | null {
     ? null : normalizePriceScale(raw.priceScale);
 
   return {
-    id: raw.id, symbol: raw.symbol, interval: raw.interval,
+    id: raw.id, symbol: canonicalizeLegacySpotSymbol(raw.symbol) ?? raw.symbol.trim().toUpperCase(), interval: raw.interval,
     chartType: raw.chartType, bars: raw.bars, maLines,
     ...(compare ? { compare } : {}),
     ...(priceScale && !isDefaultPriceScale(priceScale) ? { priceScale } : {}),

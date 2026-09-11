@@ -19,6 +19,7 @@ import {
 } from "@/lib/alertManagement";
 import { leavesFilteredView } from "@/lib/alertEditing";
 import { parseScannerAlertTarget } from "@/lib/spotScene";
+import { displaySymbol } from "@/lib/instrument";
 
 /**
  * Every alert across every coin, in one place.
@@ -345,7 +346,10 @@ export default function AlertsPage() {
                     onChange={() => toggleGroup(list.map((a) => a.id))}
                     aria-label={`Select all ${symbol} alerts`}
                   />
-                  <span className="text-xs font-semibold text-ink">{symbol}</span>
+                  <span className="text-xs font-semibold text-ink">{displaySymbol(list[0]?.canonicalInstrumentId ?? symbol)}</span>
+                  <span className="text-[10px] text-ink-faint">
+                    {list[0]?.providerId ?? "legacy provider unknown"} · {list[0]?.priceBasis ?? "legacy basis unknown"}
+                  </span>
                   <span className="text-[11px] text-ink-faint">
                     {list.length} alert{list.length === 1 ? "" : "s"}
                   </span>

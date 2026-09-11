@@ -51,10 +51,14 @@ test("pane and watchlist expose derivative identity and compact mark/index/fundi
   assert.match(watchlist, /shrink-0 text-\[9px\]/, "watchlist preserves type/venue while the pair label yields width");
 });
 
-test("canonical instruments cannot reach the legacy spot order ticket or polling loop", () => {
+test("canonical instruments use the capability ticket and stay outside the legacy polling loop", () => {
   const page = fs.readFileSync(path.join(ROOT, "app", "chart", "page.tsx"), "utf8");
   const side = fs.readFileSync(path.join(ROOT, "components", "tv", "ChartSidePanel.tsx"), "utf8");
   assert.match(page, /replayActive \|\| isCanonicalInstrumentId\(tradingSymbol\)/);
-  assert.match(side, /isCanonicalInstrumentId\(props\.tradingSymbol\)[\s\S]+Read-only market instrument/);
-  assert.match(side, /analytics only/);
+  assert.match(side, /<WorkstationOrderTicket instrument=\{props\.tradingSymbol\}/);
+  assert.match(side, /canonicalBinanceSpot/);
+  const ticket = fs.readFileSync(path.join(ROOT, "components", "tv", "WorkstationOrderTicket.tsx"), "utf8");
+  assert.match(ticket, /Continuous futures are research series/);
+  assert.match(ticket, /Reference indices are not orderable/);
+  assert.match(ticket, /No request was sent to Bot/);
 });

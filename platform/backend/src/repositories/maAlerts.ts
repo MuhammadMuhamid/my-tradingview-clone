@@ -5,10 +5,14 @@ import type {
   PriceDirection, SrSide, StAtrMethod,
 } from "../types/maAlerts";
 import type { AlertFrequency } from "../alerts/alertFrequency";
+import { canonicalizeLegacySpotSymbol } from "../market/model";
 
 interface DbAlert {
   id: string;
   symbol: string;
+  canonical_instrument_id?: string | null;
+  provider_id?: string | null;
+  price_basis?: "last" | "bid" | "ask" | "mid" | "mark" | "index" | null;
   timeframe: Interval;
   condition_kind: ConditionKind;
   ma_type: MaType | null;
@@ -84,6 +88,9 @@ function toRow(r: DbAlert): MaAlertRow {
   return {
     id: r.id,
     symbol: r.symbol,
+    canonicalInstrumentId: r.canonical_instrument_id ?? null,
+    providerId: r.provider_id ?? null,
+    priceBasis: r.price_basis ?? null,
     timeframe: r.timeframe,
     conditionKind: r.condition_kind,
     maType: r.ma_type,
@@ -154,6 +161,9 @@ function toRow(r: DbAlert): MaAlertRow {
 
 export interface MaAlertInput {
   symbol: string;
+  canonicalInstrumentId?: string | null;
+  providerId?: string | null;
+  priceBasis?: "last" | "bid" | "ask" | "mid" | "mark" | "index" | null;
   timeframe: Interval;
   conditionKind?: ConditionKind;
   maType?: MaType | null;
@@ -262,6 +272,12 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
  */
 export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
   const kind = input.conditionKind ?? "ma";
+  // Internal seed/import callers historically supplied only the runner symbol.
+  // Derive its canonical envelope here too, so an upsert cannot erase identity
+  // that an HTTP-created alert already carries.
+  const canonicalInstrumentId = input.canonicalInstrumentId ?? canonicalizeLegacySpotSymbol(input.symbol);
+  const providerId = input.providerId ?? (canonicalInstrumentId?.startsWith("instrument:v1:BINANCE:spot:")
+    ? "binance-spot" : null);
   const { rows } = await query<DbAlert>(
     `INSERT INTO ma_alerts
        (symbol, timeframe, condition_kind, ma_type, ma_length, mode,
@@ -279,11 +295,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         filter_ma_type, filter_ma_length, filter_ma_side,
         filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side,
         pattern_id, pattern_detector_id, pattern_detector_version,
-        pattern_settings_hash, pattern_settings)
+        pattern_settings_hash, pattern_settings,
+        canonical_instrument_id, provider_id, price_basis)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
-             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58)
+             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -335,6 +352,9 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        pattern_detector_version = EXCLUDED.pattern_detector_version,
        pattern_settings_hash = EXCLUDED.pattern_settings_hash,
        pattern_settings    = EXCLUDED.pattern_settings,
+       canonical_instrument_id = COALESCE(EXCLUDED.canonical_instrument_id, ma_alerts.canonical_instrument_id),
+       provider_id         = COALESCE(EXCLUDED.provider_id, ma_alerts.provider_id),
+       price_basis         = EXCLUDED.price_basis,
        completed_at        = NULL,
        last_fired_at       = NULL,
        last_fired_bar_time = NULL,
@@ -368,6 +388,7 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.patternId ?? null,
       input.patternDetectorId ?? null, input.patternDetectorVersion ?? null,
       input.patternSettingsHash ?? null, input.patternSettings ?? null,
+      canonicalInstrumentId, providerId, input.priceBasis ?? "last",
     ]
   );
   return toRow(rows[0]!);
@@ -422,6 +443,9 @@ export type MaAlertPatch = Partial<Omit<MaAlertInput, "conditionKind">> & {
 /** Patch key → column, for every field an edit may write. */
 const PATCH_COLUMNS: Record<string, string> = {
   symbol: "symbol",
+  canonicalInstrumentId: "canonical_instrument_id",
+  providerId: "provider_id",
+  priceBasis: "price_basis",
   timeframe: "timeframe",
   enabled: "enabled",
   frequency: "frequency",

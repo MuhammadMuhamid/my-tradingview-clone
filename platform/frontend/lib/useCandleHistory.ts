@@ -26,7 +26,7 @@ import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import type { Candle } from "./types";
 import { resolutionMs, type Resolution } from "./resolution";
-import { isCanonicalInstrumentId, isEquityInstrumentId, isTraditionalInstrumentId } from "./instrument";
+import { canonicalDisplayParts, isCanonicalInstrumentId, isEquityInstrumentId, isTraditionalInstrumentId } from "./instrument";
 import { subscribeCanonicalMarket } from "./canonicalMarketStream";
 
 /**
@@ -166,6 +166,24 @@ export interface HeldWindow {
    * a fresh series under a stale flag or the reverse.
    */
   stale: boolean;
+}
+
+const STREAM_INTERVALS: Readonly<Record<string, readonly Resolution[]>> = {
+  COINBASE: ["5m"],
+  BYBIT: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"],
+  OKX: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"],
+  KRAKEN: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+  KUCOIN: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d"],
+  GATEIO: ["1m", "5m", "15m", "30m", "1h", "4h", "8h", "1d"],
+  HYPERLIQUID: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d"],
+};
+
+/** Avoid asking for a stream the provider contract says cannot exist. */
+export function canonicalCandleStreamSupported(symbol: string, interval: Resolution): boolean {
+  const parts = canonicalDisplayParts(symbol);
+  if (!parts || !["spot", "perpetual", "future"].includes(parts.type)) return false;
+  if (parts.venue === "BINANCE") return true;
+  return STREAM_INTERVALS[parts.venue]?.includes(interval) === true;
 }
 
 /**
@@ -341,8 +359,11 @@ export function useCandleHistory(
 
   /* Canonical instruments stream through the provider contract. A slow REST
    * tail poll remains as an explicit degraded-mode fallback. */
+  const canonicalStreamReady = datasetKey(held.dataset) === datasetKey({ symbol, interval }) &&
+    held.candles.length > 0;
   useEffect(() => {
-    if (!enabled || !isCanonicalInstrumentId(symbol)) return;
+    if (!enabled || !isCanonicalInstrumentId(symbol) || !canonicalStreamReady ||
+      !canonicalCandleStreamSupported(symbol, interval)) return;
     let stopped = false;
     let release: (() => void) | null = null;
     const controller = new AbortController();
@@ -377,7 +398,7 @@ export function useCandleHistory(
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 15_000);
     return () => { stopped = true; controller.abort(); release?.(); window.clearInterval(timer); };
-  }, [enabled, symbol, interval, mergeLiveBars]);
+  }, [enabled, symbol, interval, canonicalStreamReady, mergeLiveBars]);
 
   return useMemo(
     () => ({

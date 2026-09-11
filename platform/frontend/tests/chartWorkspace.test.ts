@@ -431,7 +431,15 @@ test("a workspace round-trips through storage with its identity intact", () => {
   ws = setActivePane(ws, "p3");
   ws = maximizePane(ws, "p3");
   const restored = parseWorkspace(JSON.parse(JSON.stringify(ws)) as unknown);
-  assert.deepEqual(restored, ws);
+  assert.deepEqual(restored?.panes.map((pane) => pane.symbol), [
+    "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot",
+    "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
+    "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot",
+    "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot",
+  ]);
+  assert.deepEqual(restored && { ...restored, panes: restored.panes.map((pane, index) => ({
+    ...pane, symbol: ws.panes[index]!.symbol,
+  })) }, ws, "only the legacy symbol spelling is migrated");
 });
 
 test("legacy split state migrates to the equivalent workspace", () => {
@@ -685,7 +693,11 @@ test("A SYNTHETIC PANE SURVIVES A RELOAD, AND A DAMAGED ONE DOES NOT COME BACK W
   const stored = JSON.parse(JSON.stringify(ws)) as unknown;
   const restored = restoreWorkspace({ stored, legacySplit: null, seed: SEED });
   assert.equal(restored.source, "stored");
-  assert.deepEqual(restored.workspace, ws);
+  assert.deepEqual(restored.workspace.panes.map((pane) => pane.symbol), [
+    "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
+    "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
+    "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
+  ]);
   assert.deepEqual(restored.workspace.panes.map((p) => p.chartType),
     ["candles", "heikinAshi", "renko"]);
 

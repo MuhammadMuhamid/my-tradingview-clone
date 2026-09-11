@@ -10,6 +10,7 @@ import { resolveSpotStreamRequest, type SpotStreamKind } from "../../market/spot
 import { assertEquityPricePurpose, EquitySemanticError } from "../../market/usEquities";
 import type { EquityAdjustmentMode, EquitySessionMode } from "../../market/provider";
 import { assertTraditionalResearchSemantics, TraditionalMarketSemanticError } from "../../market/traditionalMarkets";
+import { SCREENER_FIELDS, screenerFieldsFor, workstationCategory, type WorkstationCategory } from "../../market/workstation";
 
 function safeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message.slice(0, 200) : "provider unavailable";
@@ -29,7 +30,7 @@ async function resolveCanonical(registry: ProviderRegistry, canonicalId: string)
   for (const provider of registry.forVenue(venue)) {
     if (provider.catalog.availability.support !== "supported") continue;
     try {
-      const instruments = await registry.call(provider.id, (registered) => registered.catalog.list());
+      const instruments = await registry.catalog(provider.id);
       const found = instruments.find((item) => item.identity.canonicalId.toLowerCase() === canonicalId.toLowerCase());
       if (found) return { providerId: provider.id, providerSymbol: found.listing.providerSymbol, instrument: found };
     } catch (error) { failures.push(`${provider.id}: ${safeError(error)}`); }
@@ -169,7 +170,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       }
       try {
         return { providerId: provider.id,
-          instruments: await registry.call(provider.id, (registered) => registered.catalog.list()) };
+          instruments: await registry.catalog(provider.id) };
       } catch (error) {
         return { providerId: provider.id, instruments: [] as never[], unavailable: safeError(error) };
       }
@@ -211,8 +212,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         currency: item.currency, sessions: item.sessions, equity: item.equity, fx: item.fx,
         futures: item.futures, referenceIndex: item.referenceIndex,
         derivative: item.derivative, prices: item.prices, events: item.events, execution: item.execution,
-        screener: item.equity ? { category: item.equity.securityType,
-          fields: ["last", "volume", "listing_status", "session", "feed_delay", "adjustment"] } : undefined,
+        screener: { category: workstationCategory(item.identity.instrumentType, item.identity.assetClass),
+          fields: screenerFieldsFor(item) },
       })),
       errors: settled.filter((item) => item.unavailable).map((item) =>
         ({ providerId: item.providerId, error: item.unavailable })),
@@ -363,7 +364,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
     const providers = registry.all().filter((provider) => provider.equities);
     const settled = await Promise.all(providers.map(async (provider) => {
       try {
-        const instruments = (await registry.call(provider.id, (item) => item.catalog.list()))
+        const instruments = (await registry.catalog(provider.id))
           .filter((item) => item.identity.instrumentType === type);
         const observations = instruments.length > 0
           ? await registry.call(provider.id, (item) => item.ticker.fetch(instruments.map((instrument) => instrument.listing.providerSymbol)))
@@ -383,6 +384,14 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       columns: ["symbol", "venue", "last", "listing_status", "feed_delay"],
       rows: settled.flatMap((item) => "rows" in item ? item.rows : []),
       errors: settled.filter((item) => "error" in item) };
+  });
+
+  app.get("/api/market/v1/screener/schema", async (req, reply) => {
+    const category = String((req.query as { category?: string }).category ?? "crypto_spot") as WorkstationCategory;
+    const fields = SCREENER_FIELDS[category];
+    if (!fields) return reply.code(400).send({ error: `unknown screener category: ${category}` });
+    return { contractVersion: MARKET_CONTRACT_VERSION, category, fields,
+      note: "Only fields with valid data semantics for this market category are exposed." };
   });
 
   app.get("/api/market/v1/stream/:canonicalId", async (req, reply) => {
@@ -509,7 +518,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
     const providers = registry.all().filter((provider) => provider.derivatives.support === "supported");
     const settled = await Promise.all(providers.map(async (provider) => {
       try {
-        const instruments = (await registry.call(provider.id, (p) => p.catalog.list())).filter((item) =>
+        const instruments = (await registry.catalog(provider.id)).filter((item) =>
           item.identity.baseAsset === base && item.identity.instrumentType === type && effectiveListingStatus(item) === "active");
         const derivative = provider.derivatives;
         const observations = derivative.support === "supported"

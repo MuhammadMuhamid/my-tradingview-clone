@@ -8,6 +8,7 @@ import { api } from "@/lib/scanner/api";
 import { fmtAge } from "@/lib/scanner/format";
 import { INDICATOR_KEYS, TIMEFRAMES, type IndicatorKey, type Snapshot } from "@/lib/scanner/types";
 import { shariahApi, type ShariahClassification, type ShariahMode } from "@/lib/shariah";
+import { WORKSTATION_CATEGORIES, type WorkstationCategory } from "@/lib/workstation";
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -28,6 +29,9 @@ export default function ScannerPage() {
   const [shariahStatuses, setShariahStatuses] = useState<Map<string, ShariahClassification> | null>(null);
   const [shariahError, setShariahError] = useState<string | null>(null);
   const [shariahMode, setShariahMode] = useState<ShariahMode | null>(null);
+  const [category, setCategory] = useState<WorkstationCategory>("crypto_spot");
+  const [categoryFields, setCategoryFields] = useState<Array<{ id: string; label: string; semantic: string }>>([]);
+  const spotCategory = category === "crypto_spot";
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +83,14 @@ export default function ScannerPage() {
     }, 15_000);
     return () => window.clearInterval(id);
   }, [load, loadPresets, loadShariah]);
+
+  useEffect(() => {
+    let current = true;
+    void api.screenerSchema(category).then((schema) => {
+      if (current) setCategoryFields(schema.fields);
+    }).catch(() => { if (current) setCategoryFields([]); });
+    return () => { current = false; };
+  }, [category]);
 
   const run = async (label: string, operation: () => Promise<unknown>, after?: () => void) => {
     setBusy(label);
@@ -135,9 +147,12 @@ export default function ScannerPage() {
     };
   }, [snapshot, shariahStatuses]);
 
-  const marketLabel = snapshot?.market.spot
-    ? `${snapshot.market.exchange === "binance" ? "Binance" : snapshot.market.exchange} Spot`
-    : "Binance Spot";
+  const categoryLabel = WORKSTATION_CATEGORIES.find((item) => item.id === category)?.label ?? category;
+  const marketLabel = spotCategory
+    ? snapshot?.market.spot
+      ? `${snapshot.market.exchange === "binance" ? "Binance" : snapshot.market.exchange} Spot`
+      : "Binance Spot"
+    : categoryLabel;
 
   /*
    * The service is gone and nothing has ever loaded. One state, said once:
@@ -147,17 +162,21 @@ export default function ScannerPage() {
    * help. It used to render the whole toolbar over a blank table with the
    * same failure written in two places.
    */
-  const unavailable = snapshot === null && error !== null;
+  const unavailable = spotCategory && snapshot === null && error !== null;
   if (unavailable) {
     const unconfigured = /not configured/i.test(error);
     return (
       <div className="scanner-workspace flex h-full min-h-0 flex-col bg-bg">
         <header className="border-b border-border bg-surface px-3 py-2">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold text-ink">Spot Scanner</h1>
+            <h1 className="text-sm font-semibold text-ink">Market Screener</h1>
             <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
               {marketLabel}
             </span>
+            <select value={category} onChange={(event) => setCategory(event.target.value as WorkstationCategory)}
+              className="scanner-select" aria-label="Screener market category">
+              {WORKSTATION_CATEGORIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
           </div>
         </header>
         <div className="grid flex-1 place-items-center p-6">
@@ -189,7 +208,7 @@ export default function ScannerPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
           <div className="mr-1 min-w-[220px]">
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold text-ink">Spot Scanner</h1>
+              <h1 className="text-sm font-semibold text-ink">Market Screener</h1>
               <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-medium text-accent">
                 {marketLabel}
               </span>
@@ -201,12 +220,26 @@ export default function ScannerPage() {
               unavailable" banner insisting it was still loading.
             */}
             <p className="mt-0.5 text-[11px] text-ink-muted">
-              Exact Spot instruments · {snapshot?.market.spot
+              {spotCategory ? "Exact Spot instruments" : "Separate market semantics"} · {spotCategory && snapshot?.market.spot
                 ? "API provenance verified"
-                : error ? "market identity unknown" : "market identity loading"}
+                : spotCategory ? (error ? "market identity unknown" : "market identity loading")
+                  : "no compatible compute snapshot installed"}
             </p>
           </div>
 
+          <label className="flex items-center gap-1 text-ink-muted">
+            <span>Category</span>
+            <select value={category} onChange={(event) => setCategory(event.target.value as WorkstationCategory)}
+              className="scanner-select" aria-label="Screener market category">
+              {WORKSTATION_CATEGORIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          {!spotCategory && (
+            <span role="status" className="rounded border border-warn/40 bg-warn/10 px-2 py-1 text-warn">
+              {categoryLabel} fields are category-specific; this installed compute service has no compatible snapshot.
+            </span>
+          )}
+          {spotCategory && <>
           <span className="text-ink-muted">
             {snapshot
               ? `${snapshot.rows.length} symbols · refreshed ${fmtAge(snapshot.last_refresh_at)}`
@@ -288,16 +321,17 @@ export default function ScannerPage() {
               }
             }}>Delete</button>
           </span>
+          </>}
         </div>
 
-        {!shariahStatuses && shariahError && (
+        {spotCategory && !shariahStatuses && shariahError && (
           <p role="alert" className="mt-1 text-xs text-warn">
             Shariah classifications could not be read, so the status column and Shariah Mode are
             not shown here. This screen only reports them — buying is gated by the server either
             way. <span className="font-mono text-ink-faint">{shariahError}</span>
           </p>
         )}
-        {shariahStatuses && (
+        {spotCategory && shariahStatuses && (
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
             <span>
               Shariah Mode is {shariahMode === "enforce" ? <span className="text-up">ON</span> : "OFF"}
@@ -318,10 +352,10 @@ export default function ScannerPage() {
             </button>
           </p>
         )}
-        {busy && busy !== "Refreshing" && <p role="status" className="mt-1 text-xs text-ink-muted">{busy}…</p>}
-        {error && <p role="alert" className="mt-1 text-xs text-down">Scanner: {error}</p>}
-        {snapshot?.last_refresh_error && <p role="alert" className="mt-1 text-xs text-down">Last refresh: {snapshot.last_refresh_error}</p>}
-        {(snapshot?.unverified_symbols.length ?? 0) > 0 && (
+        {spotCategory && busy && busy !== "Refreshing" && <p role="status" className="mt-1 text-xs text-ink-muted">{busy}…</p>}
+        {spotCategory && error && <p role="alert" className="mt-1 text-xs text-down">Scanner: {error}</p>}
+        {spotCategory && snapshot?.last_refresh_error && <p role="alert" className="mt-1 text-xs text-down">Last refresh: {snapshot.last_refresh_error}</p>}
+        {spotCategory && (snapshot?.unverified_symbols.length ?? 0) > 0 && (
           <div role="status" aria-live="polite">
             {snapshot?.unverified_symbols.map((item) => (
               <p key={item.raw} className="mt-1 text-xs text-warn">Unverified {item.raw} — {item.note}</p>
@@ -331,7 +365,16 @@ export default function ScannerPage() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {shariahSnapshot ? (
+        {!spotCategory ? (
+          <div className="grid flex-1 place-items-center p-6 text-center">
+            <div><p className="text-sm font-medium text-ink">No {categoryLabel} snapshot on this installation</p>
+              <p className="mt-2 max-w-lg text-xs leading-5 text-ink-muted">The workstation keeps separate field contracts for each market category. It does not reuse Spot volume, 24×7 sessions or crypto indicators where those semantics do not apply.</p>
+              {categoryFields.length > 0 && <div aria-label={`${categoryLabel} field contract`} className="mt-4 flex max-w-lg flex-wrap justify-center gap-1.5">
+                {categoryFields.map((field) => <span key={field.id} title={field.semantic}
+                  className="rounded border border-border bg-surface px-2 py-1 text-[11px] text-ink-muted">{field.label}</span>)}
+              </div>}</div>
+          </div>
+        ) : shariahSnapshot ? (
           <ScreenerTable snapshot={shariahSnapshot} filters={filters} hiddenGroups={hiddenGroups}
             showExtras={showExtras} onToggleGroup={toggleGroup}
             onTimeframeChange={changeIndicatorTimeframe} busy={busy !== null}
@@ -344,13 +387,14 @@ export default function ScannerPage() {
             </div>
           </div>
         )}
-        {showFilters && <FilterPanel specs={COLUMNS} filters={filters} onChange={setFilters}
+        {showFilters && spotCategory && <FilterPanel specs={COLUMNS} filters={filters} onChange={setFilters}
           onClose={() => setShowFilters(false)} />}
       </div>
 
       <footer className="border-t border-border bg-surface px-3 py-1 text-[11px] text-ink-muted">
-        Checklist percentages are the share of conditions passing, not probabilities. Confluence Score is not a probability.
-        Empirical calibration is separate and is shown only when its sample fingerprint matches current settings.
+        {spotCategory
+          ? "Checklist percentages are the share of conditions passing, not probabilities. Confluence Score is not a probability. Empirical calibration is separate and appears only when its sample fingerprint matches current settings."
+          : `${categoryLabel} does not reuse Spot fields. A compatible category snapshot is required before rows or filters appear.`}
       </footer>
     </div>
   );

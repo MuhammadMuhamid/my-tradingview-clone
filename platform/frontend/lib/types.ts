@@ -64,6 +64,8 @@ export const INTERVAL_MS: Record<Interval, number> = {
 
 export interface SymbolInfo {
   symbol: string;
+  /** Canonical economic identity from the market catalog migration. */
+  canonicalId?: string | null;
   baseAsset: string;
   quoteAsset: string;
   priceTick: number | null;

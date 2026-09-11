@@ -444,7 +444,9 @@ test("a corrupt comparison costs the comparison, never the workspace", () => {
   const restored = parseWorkspace(record);
   assert.ok(restored, "the workspace must still load");
   assert.equal(restored!.panes[0]!.compare, undefined, "and the bad comparison is dropped");
-  assert.equal(restored!.panes[0]!.symbol, "BTCUSDT", "while the chart itself survives");
+  assert.equal(restored!.panes[0]!.symbol,
+    "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
+    "while the chart itself survives under the canonical migrated identity");
 
   // A comparison with no length at all takes the default rather than failing.
   panes[0]!.compare = { symbol: "SOLUSDT", mode: "beta" };
@@ -458,5 +460,5 @@ test("a comparison survives a round trip through storage", () => {
   });
   const restored = parseWorkspace(JSON.parse(JSON.stringify(ws)));
   assert.deepEqual(restored!.panes[0]!.compare,
-    { symbol: "ETHUSDT", mode: "beta", length: 120 });
+    { symbol: "instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot", mode: "beta", length: 120 });
 });

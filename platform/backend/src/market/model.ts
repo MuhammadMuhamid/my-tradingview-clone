@@ -231,6 +231,29 @@ export function normalizeCanonicalInstrumentId(raw: string): string | null {
     `${match[4]!.toUpperCase()}:${match[5]!.toUpperCase()}:${series}`;
 }
 
+/**
+ * Convert a legacy Binance Spot ticker at a persistence boundary into the
+ * canonical economic identity.  Old rows intentionally keep their provider
+ * symbol in compatibility projections, but watchlists, layouts and alert
+ * identity must not keep inventing a second spelling for the same market.
+ */
+export function canonicalizeLegacySpotSymbol(raw: string): string | null {
+  const value = String(raw ?? "").trim().toUpperCase();
+  if (!value) return null;
+  const canonical = normalizeCanonicalInstrumentId(value);
+  if (canonical) return canonical;
+  const qualified = /^BINANCE:([A-Z0-9]{2,24})$/.exec(value);
+  const ticker = qualified?.[1] ?? (/^[A-Z0-9]{2,24}$/.test(value) ? value : null);
+  if (!ticker) return null;
+  const quotes = ["USDT", "USDC", "FDUSD", "TUSD", "BUSD", "BTC", "ETH", "BNB", "TRY", "EUR"];
+  const quote = quotes.find((candidate) => ticker.endsWith(candidate) && ticker.length > candidate.length);
+  if (!quote) return null;
+  return canonicalInstrumentId({
+    venueId: "BINANCE", instrumentType: "spot", baseAsset: ticker.slice(0, -quote.length),
+    quoteAsset: quote, settlementAsset: quote, series: { kind: "spot" },
+  });
+}
+
 /** Expiry is economic state, not a provider status guess. */
 export function effectiveListingStatus(instrument: CanonicalInstrument, now = Date.now()): ProviderListing["status"] {
   if (instrument.listing.status === "delisted") return "delisted";

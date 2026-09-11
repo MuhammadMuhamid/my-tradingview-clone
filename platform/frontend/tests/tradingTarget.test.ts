@@ -181,7 +181,10 @@ test("THE PAGE BINDS THE TICKET TO THE RESOLVED TARGET, NOT TO THE FOCUSED PANE"
   assert.match(page, /onTicketStagedChange=\{setTicketStaged\}/);
   assert.match(page, /tradingNotice=\{tradingNotice\}/);
   const side = read("components/tv/ChartSidePanel.tsx");
-  assert.match(side, /<ManualTradingPanel symbol=\{props\.tradingSymbol\}/);
+  assert.match(side, /<WorkstationOrderTicket instrument=\{props\.tradingSymbol\}/,
+    "canonical non-Binance markets keep the resolved target at the capability boundary");
+  assert.match(side, /<ManualTradingPanel symbol=\{tradingIdentity/,
+    "legacy and canonical Binance Spot targets retain the existing executable ticket");
   assert.match(side, /onStagedChange=\{props\.onTicketStagedChange\}/);
   assert.match(side, /targetNotice=\{props\.tradingNotice\}/);
   // Server-authoritative manual state is read for the TICKET's instrument, so
