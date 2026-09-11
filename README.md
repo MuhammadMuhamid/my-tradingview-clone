@@ -20,7 +20,7 @@ The canonical engine and provider capability model must not be read as an
 assertion that non-Binance markets can place orders.
 
 Orders are placed by a separate service, the execution bot
-(`MuhammadMuhamid/3commabotclone`), which is the only component that holds
+([`2ms-muzammil/trading-scene-bot`](https://github.com/2ms-muzammil/trading-scene-bot)), which is the only component that holds
 exchange credentials. Keeping the two apart is deliberate and is not to be
 merged — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -50,7 +50,7 @@ and handoff.
 | `platform/deployment` | AWS deployment scripts. Run by the owner only; nothing here is executed by CI. |
 | `docs` | Source-of-truth documentation. Machine-checked by `scripts/ci/check-docs.sh`. |
 | `scripts` | Repository tooling, including the CI hygiene checks. |
-| the optimizer trees | Live in the [research repository](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems) under `research:trees/`. Each owns a `tree.json` the application routes through. Point `OPTIMIZER_ROOT` at that checkout to serve them; with no trees present the optimizer API reports an empty registry rather than failing. |
+| the optimizer trees | Live in the [research repository](https://github.com/2ms-muzammil/trading-scene-research) under `research:trees/`. Each owns a `tree.json` the application routes through. Point `OPTIMIZER_ROOT` at that checkout to serve them; with no trees present the optimizer API reports an empty registry rather than failing. |
 | the retired research archive | Also in the research repository, under `research:legacy/`. Nothing there runs, and no live code path may depend on it. |
 
 ## Local development
@@ -106,12 +106,12 @@ it reports file and line only, never the value.
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What each system owns, and how a signal reaches an order. |
 | [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md) | The cross-repository payload contract, versioned. |
-| [research/docs/COST-MODELS.md](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems/blob/main/docs/COST-MODELS.md) | The cost model each research tree actually ran (research repository). |
+| [research/docs/COST-MODELS.md](https://github.com/2ms-muzammil/trading-scene-research/blob/main/docs/COST-MODELS.md) | The cost model each research tree actually ran (research repository). |
 | [docs/ALERTS.md](docs/ALERTS.md) | Notification alerts: all seven condition families, the trend gates, and the four frequency modes. |
 | [docs/CANDLE-PERFORMANCE.md](docs/CANDLE-PERFORMANCE.md) | Candle and chart loading: what was measured, and what was not. |
 | [docs/WEB-QA.md](docs/WEB-QA.md) | Desktop and mobile browser QA: what was exercised, and what was not. |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator console, the halt control, paper mode, testnet, and what has never been verified here. |
-| [research/docs/RESEARCH-METHODOLOGY.md](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems/blob/main/docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected (research repository). |
+| [research/docs/RESEARCH-METHODOLOGY.md](https://github.com/2ms-muzammil/trading-scene-research/blob/main/docs/RESEARCH-METHODOLOGY.md) | How a research result may and may not be selected (research repository). |
 | [docs/REMEDIATION-LEDGER.md](docs/REMEDIATION-LEDGER.md) | Every finding of the 2026-08-23 audit and its disposition. Generated — do not hand-edit. |
 | [docs/SECURITY-AUDIT-2026-08-31.md](docs/SECURITY-AUDIT-2026-08-31.md) | A later, separate audit: an SSRF fix, two corrections to earlier claims, and the AWS cost answer. |
 | `BACKTESTING_SYSTEMS.md` (backtesting repository) | Metric definitions and per-tree research notes. |

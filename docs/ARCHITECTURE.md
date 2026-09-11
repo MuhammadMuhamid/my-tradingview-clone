@@ -13,7 +13,7 @@ authoritative provider matrix.
 
 ## The three systems
 
-| | Platform (`my-tradingview-clone`, this repository) | Research (`pythoncryptobacktesingsystems`) | Execution bot (`3commabotclone`) |
+| | Platform (`trading-scene-platform`, this repository) | Research (`trading-scene-research`) | Execution bot (`trading-scene-bot`) |
 |---|---|---|---|
 | Role | live charting, alerts, deployments and canonical backtest engine | offline optimizer/research trees consuming the canonical engine | exchange execution |
 | Decides when to trade live | **yes** | no | no |
@@ -425,7 +425,7 @@ script can no longer stall live evaluation.
 ## Research trees
 
 Optimizer, walk-forward, holdout and analysis trees live only in the separate
-[`pythoncryptobacktesingsystems`](https://github.com/MuhammadMuhamid/pythoncryptobacktesingsystems)
+[`trading-scene-research`](https://github.com/2ms-muzammil/trading-scene-research)
 repository. The platform can read their registries and results when
 `OPTIMIZER_ROOT` points at that checkout. In the other direction, an explicitly
 started research process sets `PLATFORM_BACKEND` to this repository's
