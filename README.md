@@ -33,9 +33,13 @@ merged — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | | |
 |---|---|
-| Live platform + canonical backtest engine | `MuhammadMuhamid/my-tradingview-clone` — **this repository** |
-| Separate research + optimizers | `MuhammadMuhamid/pythoncryptobacktesingsystems` — consumes this repository's canonical engine through `PLATFORM_BACKEND` |
-| Exchange execution + Binance credential owner | `MuhammadMuhamid/3commabotclone` — receives webhooks and places orders |
+| Live platform + canonical backtest engine | [`2ms-muzammil/trading-scene-platform`](https://github.com/2ms-muzammil/trading-scene-platform) — **this repository** |
+| Separate research + optimizers | [`2ms-muzammil/trading-scene-research`](https://github.com/2ms-muzammil/trading-scene-research) — consumes this repository's canonical engine through `PLATFORM_BACKEND` |
+| Exchange execution + Binance credential owner | [`2ms-muzammil/trading-scene-bot`](https://github.com/2ms-muzammil/trading-scene-bot) — receives webhooks and places orders |
+
+These are the owner's private canonical repositories. Mahamid's original
+repositories are retained as the `mahamid-upstream` remote for collaboration
+and handoff.
 
 ## Layout
 
