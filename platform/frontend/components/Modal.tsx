@@ -23,7 +23,7 @@ const FOCUSABLE =
  * an ordinary div, announced as though the page had simply grown more content.
  */
 export function Modal({
-  title, open, onClose, children, footer, wide = false,
+  title, open, onClose, children, footer, wide = false, panelClassName = "", contentClassName = "",
 }: {
   title: ReactNode;
   open: boolean;
@@ -31,6 +31,10 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** Optional surface sizing for dialogs with a measured product contract. */
+  panelClassName?: string;
+  /** Optional content treatment when the child owns its own scroll regions. */
+  contentClassName?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   /** Whatever had focus before the dialog opened, so it can be given back. */
@@ -138,7 +142,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative flex max-h-[85vh] w-full ${wide ? "max-w-2xl" : "max-w-lg"} flex-col rounded-lg border border-border bg-surface shadow-2xl outline-none`}
+        className={`relative flex max-h-[85vh] w-full ${wide ? "max-w-2xl" : "max-w-lg"} flex-col rounded-md border border-border bg-surface shadow-2xl outline-none ${panelClassName}`}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
           <h2 id={titleId} className="text-base font-semibold text-ink">{title}</h2>
@@ -153,7 +157,7 @@ export function Modal({
             </svg>
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className={`min-h-0 flex-1 overflow-y-auto px-5 py-4 ${contentClassName}`}>{children}</div>
         {footer && (
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
             {footer}

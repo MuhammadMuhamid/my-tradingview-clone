@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { DrawingTool } from "@/lib/drawings";
 
+const DRAWING_FAVOURITES_KEY = "tv.drawing-tools.favourites.v1";
+
 /**
  * Icon set — 24x24 stroked paths in the TradingView left-rail style.
  *
@@ -177,6 +179,7 @@ export function DrawingToolbar({
   const [active, setActive] = useState<Record<string, DrawingTool>>(() =>
     Object.fromEntries(GROUPS.map((g) => [g.id, g.tools[0]!.tool]))
   );
+  const [favourites, setFavourites] = useState<DrawingTool[]>([]);
   /*
    * The tool flyout, through the same registry as every other popover.
    *
@@ -193,6 +196,31 @@ export function DrawingToolbar({
     setFlyoutOpen(id !== null);
   }, [setFlyoutOpen]);
   const railRef = useRef<HTMLDivElement>(null);
+
+  // TradingView keeps drawing-tool favourites across chart reloads. Keep the
+  // same muscle-memory affordance locally without coupling it to drawings or
+  // server state (favourites are a device preference, not chart data).
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DRAWING_FAVOURITES_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const known = new Set(GROUPS.flatMap((g) => g.tools.map((t) => t.tool)));
+        setFavourites(parsed.filter((v): v is DrawingTool => typeof v === "string" && known.has(v as DrawingTool)));
+      }
+    } catch { /* unavailable storage is a valid first-run state */ }
+  }, []);
+
+  const toggleFavourite = useCallback((candidate: DrawingTool) => {
+    setFavourites((current) => {
+      const next = current.includes(candidate)
+        ? current.filter((t) => t !== candidate)
+        : [...current, candidate];
+      try { window.localStorage.setItem(DRAWING_FAVOURITES_KEY, JSON.stringify(next)); } catch { /* best effort */ }
+      return next;
+    });
+  }, []);
 
   // Remember which variant of a group is in use, so the rail icon follows it.
   useEffect(() => {
@@ -283,18 +311,32 @@ export function DrawingToolbar({
             )}
             {flyout === group.id && (
               <div className="absolute left-[51px] top-0 z-50 w-[248px] rounded-sm border border-border bg-surface py-1 shadow-2xl">
-                {group.tools.map((t) => (
-                  <button
-                    key={t.tool}
-                    onClick={() => { onTool(t.tool); setActive((a) => ({ ...a, [group.id]: t.tool })); setFlyout(null); }}
-                    className={`flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm hover:bg-surface-2 ${
-                      t.tool === tool ? "text-accent" : "text-ink"
-                    }`}
-                  >
-                    <Icon name={t.icon} size={20} />
-                    <span className="truncate">{t.label}</span>
-                  </button>
-                ))}
+                {group.tools.map((t) => {
+                  const starred = favourites.includes(t.tool);
+                  return (
+                    <div key={t.tool} className={`flex w-full items-center hover:bg-surface-2 ${t.tool === tool ? "text-accent" : "text-ink"}`}>
+                      <button
+                        onClick={() => { onTool(t.tool); setActive((a) => ({ ...a, [group.id]: t.tool })); setFlyout(null); }}
+                        className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 text-left text-sm"
+                      >
+                        <Icon name={t.icon} size={20} />
+                        <span className="truncate">{t.label}</span>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleFavourite(t.tool); }}
+                        aria-label={starred ? "Remove from favourites" : "Add to favourites"}
+                        aria-pressed={starred}
+                        title={starred ? "Remove from favourites" : "Add to favourites"}
+                        className={`mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded text-[15px] ${starred ? "text-warn" : "text-ink-faint hover:text-ink"}`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill={starred ? "currentColor" : "none"}
+                          stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                          <path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6-4.5-4.2 6.1-.8z" />
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

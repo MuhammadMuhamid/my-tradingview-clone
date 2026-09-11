@@ -201,6 +201,12 @@ export interface ChartToolbarProps {
   indicatorCount: number;
   onOpenIndicators: () => void;
 
+  /** Drawing-history actions, kept on the primary row like TradingView. */
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+
   replayActive: boolean;
   replayPickerOpen: boolean;
   onToggleReplayPicker: () => void;
@@ -503,6 +509,33 @@ export function ChartToolbar(props: ChartToolbarProps) {
         </div>
 
         <ContextActions {...props} className="hidden sm:flex" labelClass={density.label} />
+
+        <div className="flex shrink-0 items-center" aria-label="Edit history">
+          <button
+            onClick={props.onUndo}
+            disabled={!props.canUndo}
+            aria-label="Undo"
+            title="Undo last drawing change"
+            className={TOOL_ICON_BUTTON}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 7 4 12l5 5" /><path d="M4 12h9a6 6 0 0 1 6 6" />
+            </svg>
+          </button>
+          <button
+            onClick={props.onRedo}
+            disabled={!props.canRedo}
+            aria-label="Redo"
+            title="Redo last drawing change"
+            className={TOOL_ICON_BUTTON}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 7 5 5-5 5" /><path d="M20 12h-9a6 6 0 0 0-6 6" />
+            </svg>
+          </button>
+        </div>
 
         <Separator className={`${SEPARATOR} ${density.separator}`} />
 

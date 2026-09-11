@@ -1677,6 +1677,28 @@ export default function TvWorkspace() {
           onBars={changeBars}
           indicatorCount={activeIndicatorList.length}
           onOpenIndicators={() => setIndicatorBrowserOpen(true)}
+          canUndo={replayActive
+            ? drawingStore.replayHistoryState(symbol).canUndo
+            : drawingStore.historyState(symbol).canUndo}
+          canRedo={replayActive
+            ? drawingStore.replayHistoryState(symbol).canRedo
+            : drawingStore.historyState(symbol).canRedo}
+          onUndo={() => {
+            if (replayActive) {
+              const restored = drawingStore.undoReplay(symbol);
+              if (restored) setReplayDrawings(restored);
+            } else {
+              drawingStore.undo(symbol);
+            }
+          }}
+          onRedo={() => {
+            if (replayActive) {
+              const restored = drawingStore.redoReplay(symbol);
+              if (restored) setReplayDrawings(restored);
+            } else {
+              drawingStore.redo(symbol);
+            }
+          }}
           replayActive={replayActive}
           replayPickerOpen={replayPickerOpen}
           onToggleReplayPicker={() => setReplayPickerOpen((open) => replayActive ? open : !open)}

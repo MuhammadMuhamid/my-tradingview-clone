@@ -80,7 +80,10 @@ export interface IndicatorBrowserProps {
   onOpenInEditor: (script: PineScript) => void;
 }
 
-const CHIP = "rounded-full px-3 py-1 text-[12px] transition-colors";
+// TradingView's category strip is a compact tab row, not pill-shaped tags.
+// Keeping a fixed 32px row also prevents the browser from jumping when a
+// category is changed or a search result count appears.
+const CHIP = "h-8 rounded-sm border-b-2 px-2.5 py-1 text-[12px] transition-colors";
 const ACTION =
   "shrink-0 rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-ink " +
   "transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-40";
@@ -346,7 +349,12 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     && findTemplate(templates, templateName) !== null;
 
   return (
-    <Modal open={open} onClose={onClose} wide title="Indicators">
+    <Modal open={open} onClose={onClose}
+      wide
+      title="Indicators, metrics, and strategies"
+      panelClassName="!max-w-[840px] !h-[638px] !max-h-[calc(100vh-24px)]"
+      contentClassName="px-5 py-4 sm:px-5"
+    >
       {/* ── search ── */}
       <input
         ref={searchRef}
@@ -376,6 +384,32 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         Press Enter to add the first result.
       </p>
 
+      {/* A stable library rail mirrors the current TradingView hierarchy while
+          exposing only sections backed by real local data. */}
+      <div className="mt-3 flex min-h-0 gap-4">
+        <nav aria-label="Indicator library sections"
+          className="hidden w-[200px] shrink-0 flex-col gap-3 border-r border-border pr-3 sm:flex">
+          <LibrarySection title="Personal">
+            <LibraryNavButton active={category === "all"} onClick={() => setCategory("all")}
+              label="My scripts" count={categoryCount("all")} />
+            <LibraryNavButton active={category === "onChart"} onClick={() => setCategory("onChart")}
+              label="On this chart" count={categoryCount("onChart")} />
+          </LibrarySection>
+          <LibrarySection title="Built-in">
+            <LibraryNavButton active={category === "builtin"} onClick={() => setCategory("builtin")}
+              label="Built-in" count={categoryCount("builtin")} />
+            <LibraryNavButton active={category === "favourites"} onClick={() => setCategory("favourites")}
+              label="Favourites" count={categoryCount("favourites")} />
+            <LibraryNavButton active={category === "recents"} onClick={() => setCategory("recents")}
+              label="Recents" count={categoryCount("recents")} />
+          </LibrarySection>
+          <LibrarySection title="Saved">
+            <LibraryNavButton active={category === "templates"} onClick={() => setCategory("templates")}
+              label="Indicator templates" count={categoryCount("templates")} />
+          </LibrarySection>
+        </nav>
+        <div className="min-w-0 flex-1">
+
       {/*
         ── categories, all derived from what is CURRENTLY listed ──
 
@@ -385,7 +419,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         show, or it is telling the user the search did not happen.
       */}
       <div role="group" aria-label="Indicator category" className="mt-3 flex flex-wrap gap-1.5">
-        {CATEGORIES.map((c) => {
+        {CATEGORIES.filter((c) => c.id !== "all").map((c) => {
           const active = category === c.id;
           const count = categoryCount(c.id);
           return (
@@ -394,7 +428,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
               onClick={() => setCategory(c.id)}
               aria-pressed={active}
               className={`${CHIP} ${
-                active ? "bg-ink font-medium text-bg" : "bg-surface-2 text-ink-muted hover:text-ink"
+                active ? "border-accent font-medium text-accent" : "border-transparent text-ink-muted hover:border-border hover:text-ink"
               }`}
             >
               {c.label}
@@ -426,7 +460,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
             const starred = favourites.includes(def.id);
             return (
               <div key={def.id}
-                className="flex items-center gap-2 rounded border border-border px-2 py-1.5 hover:bg-surface-2">
+                className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-surface-2">
                 <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">
                   Built-in
                 </span>
@@ -483,7 +517,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
           {filtered.map((s) => {
             const count = appliedCount(s);
             return (
-              <div key={s.id} className="flex items-center gap-2 rounded border border-border px-2 py-1.5 hover:bg-surface-2">
+              <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-surface-2">
                 <span className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${
                   s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
                 }`}>
@@ -592,7 +626,36 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
           Import .pine
         </button>
       </div>
+        </div>
+      </div>
     </Modal>
+  );
+}
+
+function LibrarySection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{title}</h3>
+      <div className="flex flex-col gap-0.5">{children}</div>
+    </section>
+  );
+}
+
+function LibraryNavButton({
+  active, onClick, label, count,
+}: { active: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[12px] ${
+        active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <span className="tabular text-[10px] text-ink-faint">{count}</span>
+    </button>
   );
 }
 

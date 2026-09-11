@@ -9,9 +9,12 @@ const fixture = new FixtureServer();
 fixture.routes.set("/api/market/v1/candles/", async (_body, url) => {
   const encoded = url.pathname.split("/candles/")[1] ?? "";
   const instrument = decodeURIComponent(encoded);
-  const symbol = instrument.match(/:([A-Z0-9]+):([A-Z0-9]+):spot$/)?.[1]
-    ? `${instrument.match(/:([A-Z0-9]+):([A-Z0-9]+):spot$/)![1]}${instrument.match(/:([A-Z0-9]+):([A-Z0-9]+):spot$/)![2]}`
-    : "SOLUSDT";
+  // Canonical spot ids include settlement and series segments:
+  // `instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot`.  Keep the fixture
+  // aligned with the product wire id rather than only accepting the older
+  // `BASE:QUOTE:spot` shorthand.
+  const match = instrument.match(/:([^:]+):([^:]+):[^:]+:spot$/);
+  const symbol = match ? `${match[1]}${match[2]}` : "SOLUSDT";
   const interval = url.searchParams.get("interval") ?? "15m";
   const bars = fixture.candlesFor(symbol, interval);
   return { format: "compact-v1", symbol, interval, stepMs: intervals[interval] ?? 900000, count: bars.length, bars };
@@ -39,6 +42,27 @@ createServer(async (req, res) => {
   try {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    // The standalone fixture is the backend origin for the Next rewrite. The
+    // product's canonical market endpoint is dynamic, so it cannot be
+    // registered in FixtureServer's exact-path route map. Handle that one
+    // endpoint here and leave every other contract on the shared harness.
+    const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1:4000");
+    if (requestUrl.pathname.startsWith("/api/market/v1/candles/")) {
+      const encoded = requestUrl.pathname.slice("/api/market/v1/candles/".length);
+      const instrument = decodeURIComponent(encoded);
+      const id = instrument.match(/:([^:]+):([^:]+):[^:]+:spot$/);
+      const symbol = id ? `${id[1]}${id[2]}` : "SOLUSDT";
+      const interval = requestUrl.searchParams.get("interval") ?? "15m";
+      const bars = fixture.candlesFor(symbol, interval);
+      const payload = {
+        format: "compact-v1", symbol, interval,
+        stepMs: intervals[interval] ?? 900000,
+        count: bars.length, bars,
+      };
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify(payload));
+      return;
+    }
     const response = await fixture.handle(req.url ?? "/", {
       method: req.method, body: chunks.length ? Buffer.concat(chunks).toString() : undefined,
     });
