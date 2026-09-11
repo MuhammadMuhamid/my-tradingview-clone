@@ -175,6 +175,15 @@ test("a placeholder stops claiming that an answer is coming", () => {
     "a failed read is not a total of zero");
 });
 
+test("the optimizer page cannot shrink-wrap wider than a phone viewport", () => {
+  const optimizers = read("app/optimizers/page.tsx");
+  const constrainedRoots = optimizers.match(
+    /className="mx-auto w-full max-w-\[1400px\] px-4 py-6 space-y-4"/g,
+  );
+  assert.equal(constrainedRoots?.length, 2,
+    "both the empty and populated optimizer roots need an explicit width inside the flex main");
+});
+
 test("a backtest that is still running is asked about again", () => {
   const detail = read("app/research/[id]/page.tsx");
   assert.match(detail, /setTimeout\(\(\) => void load\(\), 2500\)/);

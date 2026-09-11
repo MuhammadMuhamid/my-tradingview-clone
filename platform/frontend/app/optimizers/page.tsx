@@ -205,7 +205,7 @@ export default function OptimizersPage() {
    */
   if (trees && trees.length === 0) {
     return (
-      <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
+      <div className="mx-auto w-full max-w-[1400px] px-4 py-6 space-y-4">
         <div>
           <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
           <p className="text-xs text-ink-faint">
@@ -223,7 +223,7 @@ export default function OptimizersPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
+    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 space-y-4">
       <div>
         <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
         <p className="text-xs text-ink-faint">
