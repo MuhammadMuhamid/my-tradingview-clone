@@ -31,6 +31,8 @@ import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
 import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel";
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
 import { NativeStudySettings } from "@/components/tv/NativeStudySettings";
+import { ChartSettingsModal } from "@/components/tv/ChartSettingsModal";
+import { DrawingSettingsModal } from "@/components/tv/DrawingSettingsModal";
 import { DEFAULT_PROPERTIES, type StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import type { IndicatorsApi } from "@/lib/useIndicators";
@@ -286,7 +288,10 @@ export default function TvWorkspace() {
     return lines;
   }, [openTrade]);
 
-  const [panel, setPanel] = useState<Panel>("watchlist");
+  // TradingView opens on a narrow icon rail; a panel is selected on demand.
+  // Keeping the chart unobstructed also preserves the user's last explicit
+  // choice instead of treating the watchlist as permanent chrome.
+  const [panel, setPanel] = useState<Panel>(null);
 
   // ── the order ticket's target ──
   /** True while the ticket holds anything an operator typed, chose or attested. */
@@ -395,6 +400,8 @@ export default function TvWorkspace() {
     if (typeof window !== "undefined" && window.innerWidth < 768) setPanel(null);
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
+  const [drawingSettingsOpen, setDrawingSettingsOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
   /** Which pane the symbol dialog will retarget, or null when it is closed. */
   const [searchPaneId, setSearchPaneId] = useState<string | null>(null);
@@ -1385,7 +1392,7 @@ export default function TvWorkspace() {
         setPanel("manual");
         return;
       case "chart:indicators": setIndicatorBrowserOpen(true); return;
-      case "chart:chart-settings": setSettingsOpen(true); return;
+      case "chart:chart-settings": setChartSettingsOpen(true); return;
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
       case "chart:toggle-candle-patterns":
@@ -1425,9 +1432,9 @@ export default function TvWorkspace() {
     if (!target) return;
     switch (id) {
       case "drawing:settings":
-        // The style bar is already beside the drawing — right-clicking it
-        // selects it. What this adds is a way IN from the keyboard, which the
-        // bar had no other route to.
+        // The quick style bar remains available, while Settings opens the
+        // deeper shared editor for coordinates/text and style.
+        setDrawingSettingsOpen(true);
         setPaneStyleFocus((current) => ({ ...current, [paneId]: (current[paneId] ?? 0) + 1 }));
         return;
       case "drawing:clone": {
@@ -1522,7 +1529,7 @@ export default function TvWorkspace() {
         case "hide-drawings": setDrawHidden((v) => !v); return true;
         case "symbol-search": setSearchPaneId(workspace.activePaneId); return true;
         case "indicators": setIndicatorBrowserOpen(true); return true;
-        case "chart-settings": setSettingsOpen(true); return true;
+        case "chart-settings": setChartSettingsOpen(true); return true;
         case "shortcuts-sheet": setShortcutsOpen(true); return true;
         case "fullscreen":
           if (!fullscreen.supported) return false;
@@ -1629,7 +1636,7 @@ export default function TvWorkspace() {
     maAlerts, candleOverlays, classicalOverlays, resolutions]);
 
   return (
-    <div ref={fullscreen.ref} className="flex min-h-0 flex-1 bg-bg pb-[52px] md:pb-0">
+    <div ref={fullscreen.ref} className="flex min-h-0 flex-1 bg-bg pb-[52px] md:pb-0 tv-workstation">
       {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
       <div className="hidden md:flex">
         <DrawingToolbar {...drawingToolbarProps} />
@@ -1956,6 +1963,30 @@ export default function TvWorkspace() {
         onStyle={(key, plotId, style) => activeNativeStudies?.setStyle(key, plotId, style)}
         onReset={(key) => activeNativeStudies?.resetParams(key)}
         sourceOptions={(key) => activeNativeStudies?.sourceOptions(key) ?? []}
+      />
+
+      <ChartSettingsModal
+        open={chartSettingsOpen}
+        onClose={() => setChartSettingsOpen(false)}
+        symbol={symbol}
+        interval={interval}
+        scale={paneScale(workspace.activePaneId)}
+        onScale={(next) => setPaneScale(workspace.activePaneId, next)}
+        onReset={() => {
+          setPaneScale(workspace.activePaneId, resetPriceScale());
+          setPaneResets((current) => ({
+            ...current, [workspace.activePaneId]: (current[workspace.activePaneId] ?? 0) + 1,
+          }));
+        }}
+      />
+      <DrawingSettingsModal
+        open={drawingSettingsOpen && selectedDrawing !== null}
+        drawing={selectedDrawing}
+        onClose={() => setDrawingSettingsOpen(false)}
+        onChange={(next) => {
+          if (!selectedDrawing) return;
+          writeDrawings(currentDrawings.map((item) => item.id === next.id ? next : item), "settings");
+        }}
       />
 
       <ChartDialogs

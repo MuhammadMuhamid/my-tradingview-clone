@@ -74,7 +74,10 @@ export function Watchlist({
 }) {
   const [adding, setAdding] = useState("");
   /** The add-symbol field is opened from the header, not permanently reserved. */
-  const [addOpen, setAddOpen] = useState(false);
+  // When the panel is opened from the compact rail, put the add field in the
+  // first tab order position. It keeps the empty state actionable without
+  // reserving permanent vertical chrome on the chart.
+  const [addOpen, setAddOpen] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);

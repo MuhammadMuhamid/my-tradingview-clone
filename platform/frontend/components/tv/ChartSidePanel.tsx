@@ -212,6 +212,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}
         title="Watchlist"
+        aria-label={props.panel === null ? "Add a symbol to this list" : "Watchlist"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 6h16M4 12h16M4 18h10" />

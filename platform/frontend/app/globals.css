@@ -70,6 +70,14 @@
   --ts-chart-grid: #1e1e1e;
   --ts-chart-crosshair: #5c5c5c;
   --ts-chart-label: #3d3d3d;
+
+  /* Dense chart-workstation contract (TradingView measured at 1440px). */
+  --ts-workstation-font-size: 14px;
+  --ts-workstation-toolbar-height: 38px;
+  --ts-workstation-rail-width: 52px;
+  --ts-workstation-menu-row-height: 32px;
+  --ts-workstation-popover-padding: 6px;
+  --ts-workstation-radius: 3px;
 }
 
 :root[data-theme="light"] {
@@ -101,6 +109,28 @@
   --ts-chart-grid: #f0f0f0;
   --ts-chart-crosshair: #9c9c9c;
   --ts-chart-label: #5c5c5c;
+}
+
+/* Scope the compact grammar to the chart only; marketing and research pages
+   keep their more spacious application typography. */
+.tv-workstation {
+  font-size: var(--ts-workstation-font-size);
+  line-height: 1.35;
+}
+.tv-workstation button,
+.tv-workstation input,
+.tv-workstation select,
+.tv-workstation textarea {
+  font-size: inherit;
+}
+.tv-workstation [role="menu"] {
+  border-radius: var(--ts-workstation-radius);
+}
+.tv-workstation [role="menu"] > button,
+.tv-workstation [role="menu"] > [role="menuitem"],
+.tv-workstation [role="menu"] > [role="menuitemcheckbox"],
+.tv-workstation [role="menu"] > [role="menuitemradio"] {
+  min-height: var(--ts-workstation-menu-row-height);
 }
 
 /*

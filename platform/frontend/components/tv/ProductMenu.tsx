@@ -189,7 +189,9 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
               )}
               <span className="flex items-center gap-1.5" title={health.summary}>
                 <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${HEALTH_DOT[health.tone]}`} />
-                System {health.label}
+                {health.label === "Unknown" && health.summary.startsWith("Operations status could not be read")
+                  ? "System status unavailable"
+                  : `System ${health.label}`}
               </span>
             </div>
           </div>
