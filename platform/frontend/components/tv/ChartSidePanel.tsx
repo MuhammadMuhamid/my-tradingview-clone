@@ -12,7 +12,7 @@
  * a column of panels beside a chart is not a phone layout — it is a desktop
  * layout with the chart squeezed out of it.
  */
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { type Resolution } from "@/lib/resolution";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
@@ -94,6 +94,24 @@ export interface ChartSidePanelProps {
 }
 
 export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef<HTMLElement | null>(null);
+  const { onClosePanel } = props;
+  useEffect(() => {
+    if (props.panel) {
+      restoreFocus.current = document.activeElement as HTMLElement | null;
+      const onEscape = (event: KeyboardEvent): void => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        onClosePanel();
+      };
+      window.addEventListener("keydown", onEscape);
+      return () => window.removeEventListener("keydown", onEscape);
+    }
+    const target = restoreFocus.current;
+    if (target?.isConnected) target.focus();
+    return undefined;
+  }, [props.panel, onClosePanel]);
   const tradingIdentity = canonicalDisplayParts(props.tradingSymbol);
   const canonicalBinanceSpot = tradingIdentity?.venue === "BINANCE" && tradingIdentity.type === "spot";
   /*
@@ -123,7 +141,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           onClick={props.onClosePanel}
           className="fixed inset-0 z-30 bg-black/50 md:hidden"
         />
-        <div className="fixed bottom-[52px] right-0 top-0 z-40 md:static md:bottom-auto md:right-auto md:z-auto md:h-auto">
+        <div ref={drawerRef} role="region" aria-label={`${props.panel} panel`}
+          className="fixed bottom-[52px] right-0 top-0 z-40 md:static md:bottom-auto md:right-auto md:z-auto md:h-auto">
           {props.panel === "watchlist" && (
             <Watchlist symbols={props.symbols} selected={props.symbol}
               onSelect={props.onSelectSymbol}
@@ -213,6 +232,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         className={railBtn(props.panel === "watchlist")}
         title="Watchlist"
         aria-label={props.panel === null ? "Add a symbol to this list" : "Watchlist"}
+        aria-pressed={props.panel === "watchlist"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 6h16M4 12h16M4 18h10" />
@@ -224,6 +244,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         className={railBtn(props.panel === "manual")}
         title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
+        aria-pressed={props.panel === "manual"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
@@ -233,6 +254,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "indicators" ? null : "indicators"))}
         className={railBtn(props.panel === "indicators")}
         title="Indicators"
+        aria-label="Indicators"
+        aria-pressed={props.panel === "indicators"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
@@ -247,6 +270,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "ma" ? null : "ma"))}
         className={railBtn(props.panel === "ma")}
         title="Moving averages and the alerts armed on them"
+        aria-label="Moving averages"
+        aria-pressed={props.panel === "ma"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
@@ -261,6 +286,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "correlation" ? null : "correlation"))}
         className={railBtn(props.panel === "correlation")}
         title="Correlation — how the watchlist's instruments move together"
+        aria-label="Correlation"
+        aria-pressed={props.panel === "correlation"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
@@ -272,6 +299,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         disabled={props.replayBlocksLiveActions}
         className={railBtn(props.panel === "alerts")}
         title={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations — running strategies and their order log"}
+        aria-label={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations"}
+        aria-pressed={props.panel === "alerts"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
@@ -298,6 +327,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           onClick={onClick}
           disabled={props.replayBlocksLiveActions && id === "alerts"}
           title={props.replayBlocksLiveActions && id === "alerts" ? "Exit Replay to manage live automation" : undefined}
+          aria-label={label}
+          aria-pressed={isActive}
           className={`relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] ${
             props.replayBlocksLiveActions && id === "alerts"
               ? "cursor-not-allowed text-ink-faint opacity-40"

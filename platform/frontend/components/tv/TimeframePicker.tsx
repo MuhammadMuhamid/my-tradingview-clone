@@ -43,6 +43,7 @@ import {
   removeCustom, timeframeStrip, toggleFavourite, type CustomUnit,
 } from "@/lib/timeframes";
 import { describeResolution, explainResolution, parseResolution, type Resolution } from "@/lib/resolution";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
  * Read a stored list without letting a corrupt entry take the page down.
@@ -351,21 +352,51 @@ export function ResolutionMenu({ interval, onPick, preferences }: ResolutionMenu
 /** Dismiss-on-outside-click and Escape, shared by both triggers. */
 function useDismiss(
   open: boolean, setOpen: (open: boolean) => void,
-  boxRef: { current: HTMLElement | null }
+  boxRef: { current: HTMLElement | null },
+  triggerRef?: { current: HTMLElement | null },
 ): void {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent): void => {
       if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onEsc = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") { setOpen(false); triggerRef?.current?.focus(); }
+    };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onEsc);
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [open, setOpen, boxRef]);
+  }, [open, setOpen, boxRef, triggerRef]);
+}
+
+function useMenuKeys(
+  open: boolean,
+  setOpen: (open: boolean) => void,
+  menuRef: { current: HTMLElement | null },
+  triggerRef: { current: HTMLElement | null },
+): void {
+  useEffect(() => {
+    if (open) menuItems(menuRef.current)[0]?.focus();
+  }, [open, menuRef]);
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
+      } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+        e.preventDefault();
+        moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+      }
+    };
+    const menu = menuRef.current;
+    menu?.addEventListener("keydown", onKeyDown);
+    return () => menu?.removeEventListener("keydown", onKeyDown);
+  }, [open, setOpen, menuRef, triggerRef]);
 }
 
 /*
@@ -399,7 +430,10 @@ export interface LegendTimeframeProps {
 export function LegendTimeframe(props: LegendTimeframeProps) {
   const [open, setOpen] = useExclusivePopover(`timeframe:${props.scope}`);
   const boxRef = useRef<HTMLDivElement>(null);
-  useDismiss(open, setOpen, boxRef);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismiss(open, setOpen, boxRef, triggerRef);
+  useMenuKeys(open, setOpen, menuRef, triggerRef);
 
   const pick = useCallback((resolution: Resolution) => {
     props.preferences.noteUsed(resolution);
@@ -410,6 +444,7 @@ export function LegendTimeframe(props: LegendTimeframeProps) {
   return (
     <div ref={boxRef} className={`relative shrink-0 ${props.className ?? ""}`}>
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -423,7 +458,7 @@ export function LegendTimeframe(props: LegendTimeframeProps) {
         </svg>
       </button>
       {open && (
-        <div role="menu" aria-label="Pane timeframe" className={`${MENU_BOX} left-0 top-[22px]`}>
+        <div ref={menuRef} role="menu" aria-label="Pane timeframe" className={`${MENU_BOX} left-0 top-[22px]`}>
           <ResolutionMenu
             interval={props.interval}
             onPick={pick}
@@ -490,7 +525,10 @@ export function TimeframePicker(props: TimeframePickerProps) {
   const strip = timeframeStrip(interval, preferences.favourites);
   const [open, setOpen] = useExclusivePopover("timeframe");
   const boxRef = useRef<HTMLDivElement>(null);
-  useDismiss(open, setOpen, boxRef);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismiss(open, setOpen, boxRef, triggerRef);
+  useMenuKeys(open, setOpen, menuRef, triggerRef);
 
   const pick = useCallback((resolution: Resolution) => {
     preferences.noteUsed(resolution);
@@ -525,6 +563,7 @@ export function TimeframePicker(props: TimeframePickerProps) {
       */}
       <div ref={boxRef} className="relative shrink-0">
         <button
+          ref={triggerRef}
           onClick={() => setOpen(!open)}
           aria-expanded={open}
           aria-haspopup="menu"
@@ -567,7 +606,7 @@ export function TimeframePicker(props: TimeframePickerProps) {
         </button>
 
         {open && (
-          <div role="menu" aria-label="All timeframes" className={`${MENU_BOX} left-0 top-full`}>
+          <div ref={menuRef} role="menu" aria-label="All timeframes" className={`${MENU_BOX} left-0 top-full`}>
             <ResolutionMenu interval={interval} onPick={pick} preferences={preferences} />
           </div>
         )}

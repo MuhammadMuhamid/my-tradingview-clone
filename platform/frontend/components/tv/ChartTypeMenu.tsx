@@ -5,6 +5,7 @@ import {
   CHART_TYPES, SYNTHETIC_DISCLOSURE_HINT, syntheticDisclosure, type ChartType,
 } from "@/lib/chartType";
 import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /** 14px glyphs, one per type, drawn rather than imported. */
 const ICONS: Record<ChartType, React.ReactNode> = {
@@ -117,13 +118,17 @@ export function ChartTypeMenu({
   // compete for the same clicks. See `lib/popoverGroup`.
   const [open, setOpen] = useExclusivePopover("chart-type");
   const boxRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpen(false); buttonRef.current?.focus(); }
+    };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onEsc);
     return () => {
@@ -131,6 +136,23 @@ export function ChartTypeMenu({
       window.removeEventListener("keydown", onEsc);
     };
   }, [open, setOpen]);
+
+  useEffect(() => {
+    if (open) menuItems(menuRef.current)[0]?.focus();
+  }, [open]);
+
+  const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+      return;
+    }
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+      e.preventDefault();
+      moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+    }
+  };
 
   const active = CHART_TYPES.find((t) => t.value === value) ?? CHART_TYPES[0]!;
   const synthetic = syntheticDisclosure(active.value);
@@ -163,6 +185,7 @@ export function ChartTypeMenu({
   return (
     <div ref={boxRef} className="relative shrink-0">
       <button
+        ref={buttonRef}
         onClick={() => setOpen(!open)}
         title={synthetic
           ? `Chart type — ${active.label}. ${SYNTHETIC_DISCLOSURE_HINT}`
@@ -191,8 +214,10 @@ export function ChartTypeMenu({
 
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label="Chart type"
+          onKeyDown={onMenuKeyDown}
           className="absolute left-0 top-full z-50 w-[248px] rounded-sm border border-border bg-surface py-1 shadow-2xl"
         >
           {PRESENTATIONS.map(row)}

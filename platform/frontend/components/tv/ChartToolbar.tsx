@@ -90,7 +90,7 @@
  * make the row fit, and nothing decorative was added to make it look like some
  * other product.
  */
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { type Resolution } from "@/lib/resolution";
 import { Separator } from "@/components/ui";
 import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
@@ -432,11 +432,18 @@ export function ChartToolbar(props: ChartToolbarProps) {
   const symbolLabel = displaySymbol(symbol);
   const { moreOpen, onMoreOpen } = props;
   const density = toolbarDensityClasses(props.ticketOpen);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
 
   // Escape closes the More strip, like every other overlay in the workspace.
   useEffect(() => {
     if (!moreOpen) return;
-    const onEsc = (e: KeyboardEvent): void => { if (e.key === "Escape") onMoreOpen(false); };
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onMoreOpen(false);
+        moreButtonRef.current?.focus();
+      }
+    };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
   }, [moreOpen, onMoreOpen]);
@@ -552,6 +559,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
 
         <button
           {...ctl("more")}
+          ref={moreButtonRef}
           onClick={() => onMoreOpen(!moreOpen)}
           aria-expanded={moreOpen}
           aria-controls="chart-toolbar-more"

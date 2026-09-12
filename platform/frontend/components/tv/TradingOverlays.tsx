@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import type { TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse } from "@/lib/tradingOverlays";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 const LABELS: Record<keyof TradingOverlayPreferences, string> = {
   activity: "Trading activity", activeOrders: "Active orders", positions: "Positions",
@@ -14,10 +16,37 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
   data: TradingOverlayResponse | null; loading: boolean; error: string | null;
   items: readonly TradingOverlayItem[]; onSelect: (id: string) => void;
 }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent): void => {
+      if (!boxRef.current?.contains(event.target as Node)) onOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault(); onOpen(false); buttonRef.current?.focus();
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKeyDown);
+    menuItems(menuRef.current)[0]?.focus();
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onOpen]);
+  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      moveMenuFocus(menuItems(menuRef.current), document.activeElement, event.key);
+    }
+  };
   const toggle = (key: keyof TradingOverlayPreferences) =>
     onChange({ ...value, [key]: !value[key] });
-  return <div className="relative shrink-0">
-    <button onClick={() => onOpen(!open)} aria-expanded={open} aria-haspopup="menu"
+  return <div ref={boxRef} className="relative shrink-0">
+    <button ref={buttonRef} onClick={() => onOpen(!open)} aria-expanded={open} aria-haspopup="menu"
       className={`flex h-11 items-center gap-1.5 rounded-md px-2 text-[13px] transition-colors md:h-7 ${
         open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
       }`} title="Show or hide read-only trading evidence">
@@ -27,7 +56,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
       Overlays
       {data && data.items.length > 0 && <span className="rounded-full bg-accent/15 px-1.5 text-[10px] font-semibold text-accent">{data.items.length}</span>}
     </button>
-    {open && <div role="menu" aria-label="Trading overlay visibility"
+    {open && <div ref={menuRef} role="menu" aria-label="Trading overlay visibility" onKeyDown={onMenuKeyDown}
       className="absolute right-0 top-full z-50 mt-1 w-[min(19rem,calc(100vw-1rem))] rounded-lg border border-border bg-surface p-3 shadow-xl">
       <div className="flex items-start justify-between gap-3">
         <div><p className="text-xs font-semibold text-ink">Read-only trading overlays</p>

@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { HEALTH_DOT, useOpsHealth, useStreamSummary } from "@/lib/navStatus";
 import { productMenuLinks, PRODUCT_NAME, SYSTEM_LINKS } from "@/lib/navigation";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /** The manual. Read once, and then it stops asking. */
 const HELP_HREF = "/getting-started";
@@ -91,6 +92,8 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
   const username = useUsername();
   const [open, setOpen] = useExclusivePopover("product-menu");
   const boxRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const health = useOpsHealth();
   const stream = useStreamSummary();
   const firstRun = useFirstRun();
@@ -100,7 +103,9 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
     const onDown = (e: MouseEvent): void => {
       if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onEsc = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") { setOpen(false); buttonRef.current?.focus(); }
+    };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onEsc);
     return () => {
@@ -108,6 +113,23 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
       window.removeEventListener("keydown", onEsc);
     };
   }, [open, setOpen]);
+
+  useEffect(() => {
+    if (open) menuItems(menuRef.current)[0]?.focus();
+  }, [open]);
+
+  const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+      return;
+    }
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+      e.preventDefault();
+      moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+    }
+  };
 
   const signOut = async (): Promise<void> => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
@@ -127,6 +149,7 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
   return (
     <div ref={boxRef} className="relative shrink-0">
       <button
+        ref={buttonRef}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -174,8 +197,10 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
 
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label={PRODUCT_NAME}
+          onKeyDown={onMenuKeyDown}
           className="absolute left-0 top-full z-50 w-72 border border-border bg-surface py-1 shadow-2xl"
         >
           <div className="px-3 pb-1.5 pt-1.5">

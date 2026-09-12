@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { SYNC_LABELS, type SyncOptions } from "@/lib/paneSync";
 import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
  * Which properties the charts in this layout follow from one another.
@@ -41,6 +42,7 @@ export function SyncMenu({
   const [open, setOpen] = useExclusivePopover("pane-sync");
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -59,6 +61,23 @@ export function SyncMenu({
       window.removeEventListener("keydown", onEsc);
     };
   }, [open, setOpen]);
+
+  useEffect(() => {
+    if (open) menuItems(menuRef.current)[0]?.focus();
+  }, [open]);
+
+  const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+      return;
+    }
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+      e.preventDefault();
+      moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+    }
+  };
 
   const activeCount = SYNC_LABELS.filter((o) => value[o.id]).length;
   /*
@@ -101,7 +120,7 @@ export function SyncMenu({
       </button>
 
       {open && (
-        <div role="menu" aria-label="Sync across charts"
+        <div ref={menuRef} role="menu" aria-label="Sync across charts" onKeyDown={onMenuKeyDown}
           className="absolute right-0 top-full z-50 w-[300px] rounded-sm border border-border bg-surface py-1 shadow-2xl">
           <div className="px-3 pb-1 pt-2">
             <div className="text-[10px] uppercase tracking-wide text-ink-faint">

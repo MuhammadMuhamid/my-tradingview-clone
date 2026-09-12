@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { Layout } from "@/lib/layouts";
 import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
  * The saved layout this workspace is on, and what can be done with it.
@@ -61,6 +62,7 @@ export function LayoutMenu({
   // compete for the same clicks. See `lib/popoverGroup`.
   const [open, setOpen] = useExclusivePopover("saved-layouts");
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const current = layouts.find((l) => l.id === currentId) ?? null;
 
   useEffect(() => {
@@ -73,6 +75,23 @@ export function LayoutMenu({
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
   }, [open, setOpen]);
+
+  useEffect(() => {
+    if (open) menuItems(menuRef.current)[0]?.focus();
+  }, [open]);
+
+  const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+      return;
+    }
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+      e.preventDefault();
+      moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+    }
+  };
 
   /** The one sentence about where this workspace's arrangement currently lives. */
   const status: { label: string; tone: string; help: string } = autosaveError
@@ -181,7 +200,7 @@ export function LayoutMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div role="menu" aria-label="Saved layouts"
+          <div ref={menuRef} role="menu" aria-label="Saved layouts" onKeyDown={onMenuKeyDown}
             className="absolute right-0 top-full z-40 mt-1 w-72 rounded-lg border border-border bg-surface py-1.5 shadow-2xl">
             <div className="px-3.5 pb-2 pt-1">
               <div className="truncate text-[13px] font-semibold text-ink">
