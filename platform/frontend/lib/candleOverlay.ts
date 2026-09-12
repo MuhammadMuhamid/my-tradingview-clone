@@ -79,6 +79,7 @@ export function placePatterns(
 
 export function patternMarkers(placed: readonly PlacedPattern[]): ChartMarker[] {
   return placed.map(({ pattern, time }) => ({
+    category: "event" as const,
     time,
     position: pattern.direction === "bear" ? "aboveBar" : "belowBar",
     color: pattern.direction === "bull" ? "#2ebd85"

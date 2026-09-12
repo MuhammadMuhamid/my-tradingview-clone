@@ -140,6 +140,7 @@ export interface ChartMarker {
   color: string;
   text: string;
   shape: "arrowUp" | "arrowDown" | "circle" | "square";
+  category?: "alert" | "event";
 }
 
 type OverlaySeriesEntry =
@@ -709,7 +710,9 @@ export function CandleChart({
   };
   const visiblePriceLines = useMemo(() => settings.showTrading ? (priceLines ?? []) : [], [settings.showTrading, priceLines]);
   const visibleTrades = useMemo(() => settings.showTrading ? (trades ?? []) : [], [settings.showTrading, trades]);
-  const visibleMarkers = useMemo(() => settings.showEvents ? (markers ?? []) : [], [settings.showEvents, markers]);
+  const visibleMarkers = useMemo(() => (markers ?? []).filter((marker) =>
+    marker.category === "alert" ? settings.showAlerts : settings.showEvents
+  ), [settings.showAlerts, settings.showEvents, markers]);
   const applyScale = useCallback((next: PriceScaleState) => {
     setOwnPriceScale(next);
     onPriceScaleChange?.(next);

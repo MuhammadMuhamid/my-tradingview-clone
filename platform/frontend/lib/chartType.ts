@@ -248,6 +248,7 @@ export function transformParams(type: ChartType): TransformParams {
     ...(transform === "pointAndFigure" ? {
       pnfBoxPercent: DEFAULT_PNF_BOX_PERCENT, pnfReversalBoxes: DEFAULT_PNF_REVERSAL_BOXES,
     } : {}),
+    ...(transform === "kagi" || transform === "pointAndFigure" ? { latestCloseSizing: true } : {}),
   };
 }
 

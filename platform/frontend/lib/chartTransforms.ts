@@ -70,6 +70,7 @@ export interface TransformParams extends RenkoParams {
   kagiReversalPercent?: number;
   pnfBoxPercent?: number;
   pnfReversalBoxes?: number;
+  latestCloseSizing?: boolean;
 }
 
 // ── Heikin Ashi ────────────────────────────────────────────────────────────
@@ -426,10 +427,15 @@ export function createKagiState(): KagiState {
  */
 export function foldKagi(
   state: KagiState, bar: OhlcBar, reversalPercent = DEFAULT_KAGI_REVERSAL_PERCENT,
+  latestCloseSizing = false,
 ): { state: KagiState; emitted: OhlcBar[] } {
   const pct = Math.max(0.01, Math.min(100, reversalPercent)) / 100;
+  const roundedReversal = (close: number): number => {
+    const tick = 0.01;
+    return Math.max(tick, Math.round(Math.abs(close) * pct / tick) * tick);
+  };
   if (state.current === null) {
-    const reversal = Math.max(Math.abs(bar.close) * pct, Number.EPSILON);
+    const reversal = roundedReversal(bar.close);
     const first = { ...bar, sourceOpenTime: bar.openTime };
     return {
       state: { current: bar.close, direction: 0, reversal, lastTime: bar.openTime, extreme: bar.close },
@@ -437,7 +443,11 @@ export function foldKagi(
     };
   }
   const current = state.current;
-  const reversal = state.reversal;
+  // TradingView Percentage (LTP) sizing follows the most recent close and
+  // rounds to the instrument minimum tick. Reversal is therefore recomputed
+  // for each completed source bar; synthetic history is intentionally rebuilt
+  // by callers when the latest close changes (the documented repaint).
+  const reversal = latestCloseSizing ? roundedReversal(bar.close) : state.reversal;
   let direction = state.direction;
   const extreme = state.extreme ?? current;
   if (direction === 0) {
@@ -472,14 +482,14 @@ export function foldKagi(
 }
 
 export function kagiBars(
-  bars: readonly OhlcBar[], reversalPercent = DEFAULT_KAGI_REVERSAL_PERCENT,
+  bars: readonly OhlcBar[], reversalPercent = DEFAULT_KAGI_REVERSAL_PERCENT, latestCloseSizing = false,
 ): OhlcBar[] {
   // The reversal amount is established from the first close by `foldKagi`;
   // the state itself starts empty and carries that derived amount forward.
   let state = createKagiState();
   const out: OhlcBar[] = [];
   for (const bar of bars) {
-    const stepped = foldKagi(state, bar, reversalPercent);
+    const stepped = foldKagi(state, bar, reversalPercent, latestCloseSizing);
     state = stepped.state;
     out.push(...stepped.emitted);
   }
@@ -524,14 +534,16 @@ export function createPointFigureState(): PointFigureState {
 export function foldPointFigure(
   state: PointFigureState, bar: OhlcBar, boxPercent = DEFAULT_PNF_BOX_PERCENT,
   reversalBoxes = DEFAULT_PNF_REVERSAL_BOXES,
+  latestCloseSizing = false,
 ): { state: PointFigureState; emitted: PointFigureColumn[] } {
   const pct = Math.max(0.01, Math.min(100, boxPercent)) / 100;
+  const roundedBox = (close: number): number => Math.max(0.01, Math.round(Math.abs(close) * pct / 0.01) * 0.01);
   const rev = Math.max(1, Math.floor(reversalBoxes));
   if (state.current === null) {
-    const boxSize = Math.max(Math.abs(bar.close) * pct, Number.EPSILON);
+    const boxSize = roundedBox(bar.close);
     return { state: { ...state, boxSize, reversalBoxes: rev, current: bar.close, lastTime: bar.openTime }, emitted: [] };
   }
-  const box = state.boxSize;
+  const box = latestCloseSizing ? roundedBox(bar.close) : state.boxSize;
   if (!(box > 0)) return { state, emitted: [] };
   let current = state.current;
   let direction = state.direction;
@@ -581,11 +593,12 @@ export function foldPointFigure(
 export function pointFigureColumns(
   bars: readonly OhlcBar[], boxPercent = DEFAULT_PNF_BOX_PERCENT,
   reversalBoxes = DEFAULT_PNF_REVERSAL_BOXES,
+  latestCloseSizing = false,
 ): PointFigureColumn[] {
   let state = createPointFigureState();
   const out: PointFigureColumn[] = [];
   for (const bar of bars) {
-    const stepped = foldPointFigure(state, bar, boxPercent, reversalBoxes);
+    const stepped = foldPointFigure(state, bar, boxPercent, reversalBoxes, latestCloseSizing);
     state = stepped.state;
     for (const column of stepped.emitted) {
       const previous = out[out.length - 1];
@@ -645,14 +658,14 @@ export function transformStep(
     };
   }
   if (cursor.kind === "kagi") {
-    const stepped = foldKagi(cursor.kagi, bar, cursor.params.kagiReversalPercent);
+    const stepped = foldKagi(cursor.kagi, bar, cursor.params.kagiReversalPercent, cursor.params.latestCloseSizing);
     return {
       cursor: { ...cursor, bars: cursor.bars + 1, kagi: stepped.state },
       emitted: stepped.emitted,
     };
   }
   if (cursor.kind === "pointAndFigure") {
-    const stepped = foldPointFigure(cursor.pointAndFigure, bar, cursor.params.pnfBoxPercent, cursor.params.pnfReversalBoxes);
+    const stepped = foldPointFigure(cursor.pointAndFigure, bar, cursor.params.pnfBoxPercent, cursor.params.pnfReversalBoxes, cursor.params.latestCloseSizing);
     return {
       cursor: { ...cursor, bars: cursor.bars + 1, pointAndFigure: stepped.state },
       emitted: stepped.emitted,

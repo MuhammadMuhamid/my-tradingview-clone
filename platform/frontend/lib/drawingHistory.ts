@@ -208,7 +208,10 @@ export function sameDrawings(a: readonly Drawing[], b: readonly Drawing[]): bool
     const x = a[i]!;
     const y = b[i]!;
     if (x === y) continue;
-    if (x.id !== y.id || x.tool !== y.tool || x.locked !== y.locked) return false;
+    if (x.id !== y.id || x.tool !== y.tool || !!x.locked !== !!y.locked
+      || !!x.hidden !== !!y.hidden) return false;
+    const vx = x.visibleOn ?? [], vy = y.visibleOn ?? [];
+    if (vx.length !== vy.length || [...vx].sort().some((v, i) => v !== [...vy].sort()[i])) return false;
     if (x.points.length !== y.points.length) return false;
     for (let k = 0; k < x.points.length; k++) {
       if (x.points[k]!.time !== y.points[k]!.time) return false;
@@ -218,6 +221,10 @@ export function sameDrawings(a: readonly Drawing[], b: readonly Drawing[]): bool
     if ((x.style.dashed ?? false) !== (y.style.dashed ?? false)) return false;
     if ((x.style.filled ?? false) !== (y.style.filled ?? false)) return false;
     if ((x.style.text ?? "") !== (y.style.text ?? "")) return false;
+    if ((x.style.bands ?? 0) !== (y.style.bands ?? 0)) return false;
+    const px = x.style.profile ?? {}, py = y.style.profile ?? {};
+    const profileKeys = ["layout", "rowSize", "valueAreaPercent", "allocation", "split", "side", "widthPercent", "showValueArea", "showPoc"] as const;
+    for (const key of profileKeys) if (px[key] !== py[key]) return false;
   }
   return true;
 }

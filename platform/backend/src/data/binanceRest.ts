@@ -61,6 +61,20 @@ export function assertSymbol(symbol: string): string {
   return s;
 }
 
+export interface AggregateTrade { id: number; price: number; quantity: number; timestamp: number; aggressor: "buy" | "sell" }
+export async function fetchAggTrades(symbol: string, startMs: number, endMs: number, limit = 1000): Promise<AggregateTrade[]> {
+  const ticker = assertSymbol(symbol); const out: AggregateTrade[] = []; let cursor: number | null = null;
+  const pageSize = Math.max(1, Math.min(limit, 1000));
+  while (true) {
+    const query = `symbol=${ticker}&startTime=${startMs}&endTime=${endMs}&limit=${pageSize}` + (cursor === null ? "" : `&fromId=${cursor}`);
+    const rows = await getJson(`${base()}/api/v3/aggTrades?${query}`) as Array<{ a: number; p: string; q: string; T: number; m: boolean }>;
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    for (const row of rows) { const price = Number(row.p), quantity = Number(row.q); if (row.T >= startMs && row.T <= endMs && Number.isFinite(price) && Number.isFinite(quantity) && quantity > 0) out.push({ id: row.a, price, quantity, timestamp: row.T, aggressor: row.m ? "sell" : "buy" }); }
+    const last = rows[rows.length - 1]!.a; if (rows.length < pageSize || cursor === last) break; cursor = last + 1; await sleep(PAGE_DELAY_MS);
+  }
+  const unique = new Map<number, AggregateTrade>(); for (const t of out) unique.set(t.id, t); return [...unique.values()].sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
+}
+
 type RawKline = [number, string, string, string, string, string, number, string, number, ...unknown[]];
 
 /**

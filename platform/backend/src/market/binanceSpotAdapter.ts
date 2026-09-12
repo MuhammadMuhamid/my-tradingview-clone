@@ -1,5 +1,5 @@
 import {
-  fetch24hTickers, fetchKlines, fetchSymbolMetadata, listExchangeSymbols,
+  fetch24hTickers, fetchKlines, fetchSymbolMetadata, listExchangeSymbols, fetchAggTrades,
   type ExchangeSymbol, type SymbolMetadata, type Ticker24h,
 } from "../data/binanceRest";
 import { BINANCE_SPOT_PROFILE } from "../data/providerProfile";
@@ -15,6 +15,7 @@ export interface BinanceSpotAdapterDependencies {
   metadata(symbols: string[]): Promise<SymbolMetadata[]>;
   candles(symbol: string, interval: Interval, startMs: number, endMs: number): Promise<Candle[]>;
   tickers(symbols: readonly string[]): Promise<Ticker24h[]>;
+  trades?(symbol: string, startMs: number, endMs: number, limit: number): Promise<import("./provider").TradeObservation[]>;
 }
 
 const unknownPrecision = (): PrecisionRules => ({
@@ -171,7 +172,7 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
       stream: { support: "supported", origins: BINANCE_SPOT_PROFILE.streamOrigins,
         protocol: "url_subscription", topic: "{symbol}@miniTicker" },
     },
-    trades: { support: "unsupported", reason: "trade history is outside the current Binance Spot seam" },
+    trades: { support: "supported", fetch: (providerSymbol, limit, startMs = 0, endMs = Date.now()) => deps.trades?.(providerSymbol, startMs, endMs, limit) ?? Promise.resolve([]) },
     orderBook: { support: "unsupported", reason: "order book is outside the current Binance Spot seam" },
     derivativeMetadata: {
       support: "unsupported",
@@ -188,4 +189,5 @@ export const binanceSpotAdapter = createBinanceSpotAdapter({
   metadata: fetchSymbolMetadata,
   candles: fetchKlines,
   tickers: fetch24hTickers,
+  trades: async (symbol, startMs, endMs, limit) => (await fetchAggTrades(symbol, startMs, endMs, limit)).map((t) => ({ canonicalInstrumentId: `BINANCE:SPOT:${symbol.toUpperCase()}`, observedAt: t.timestamp, price: t.price, quantity: t.quantity, aggressor: t.aggressor })),
 });

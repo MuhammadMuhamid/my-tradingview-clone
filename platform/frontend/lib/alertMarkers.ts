@@ -120,6 +120,7 @@ export function alertEventMarkers(placed: readonly PlacedAlertEvent[]): ChartMar
     const up = alert?.mode === "cross_up" || alert?.priceDirection === "cross_up";
     const down = alert?.mode === "cross_down" || alert?.priceDirection === "cross_down";
     return {
+      category: "alert" as const,
       time: Math.floor(new Date(event.barTime).getTime() / 1000),
       position: down ? "aboveBar" : "belowBar",
       color: up ? "#2ebd85" : down ? "#f6465d" : "#f0b90b",

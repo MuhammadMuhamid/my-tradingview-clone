@@ -171,6 +171,7 @@ export function classicalMarkers(
     if (selected && !selected.has(pattern.id)) return [];
     const event = pattern.breakout ?? { open_time: pattern.detected_open_time };
     return [{
+      category: "event" as const,
       id: `classical:${pattern.occurrence_id}`,
       time: Math.floor(event.open_time / 1000),
       position: (pattern.breakout?.direction ?? pattern.direction) === "bear"

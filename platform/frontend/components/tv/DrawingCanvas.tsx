@@ -884,6 +884,34 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
     if (d.tool === "gannBox" || d.tool === "gannSquareFixed" || d.tool === "gannSquare") {
       return Math.min(...gannSquareGeometry(a, b, d.tool === "gannSquareFixed").segments.map((s) => distToSegment(p, s.a, s.b)));
     }
+    if (d.tool === "fibSpeedResistanceFan") {
+      const direction = { x: b.x - a.x, y: b.y - a.y };
+      return Math.min(...[0.236, 0.382, 0.5, 0.618, 0.786, 1].map((ratio) => distToSegment(p, a, { x: a.x + direction.x * 4, y: a.y + direction.y * ratio * 4 })));
+    }
+    if (d.tool === "fibSpeedResistanceArcs" || d.tool === "fibCircles" || d.tool === "fibSpiral") {
+      const radius = Math.max(8, Math.hypot(b.x - a.x, b.y - a.y));
+      return Math.min(...[1, 2, 3, 4, 5].map((i) => Math.abs(Math.hypot(p.x - a.x, p.y - a.y) - radius * i / 3)));
+    }
+    if (d.tool === "sector") {
+      const c = q[2] ?? b; const radius = Math.hypot(b.x - a.x, b.y - a.y);
+      return Math.min(Math.abs(Math.hypot(p.x - a.x, p.y - a.y) - radius), distToSegment(p, a, b), distToSegment(p, a, c));
+    }
+    if (d.tool === "rotatedRectangle" && q[2]) {
+      const c = q[2]!; const d4 = { x: a.x + c.x - b.x, y: a.y + c.y - b.y };
+      return Math.min(distToSegment(p, a, b), distToSegment(p, b, c), distToSegment(p, c, d4), distToSegment(p, d4, a));
+    }
+    if (d.tool === "table") {
+      const width = Math.max(90, Math.abs(b.x - a.x)); let best = Infinity;
+      for (let i = 0; i <= 4; i++) best = Math.min(best, distToSegment(p, { x: a.x, y: a.y + i * 20 }, { x: a.x + width, y: a.y + i * 20 }));
+      return Math.min(best, distToSegment(p, a, { x: a.x, y: a.y + 80 }), distToSegment(p, { x: a.x + width, y: a.y }, { x: a.x + width, y: a.y + 80 }), distToSegment(p, { x: a.x + width / 2, y: a.y }, { x: a.x + width / 2, y: a.y + 80 }));
+    }
+    if (d.tool === "cyclicLines" || d.tool === "timeCycles" || d.tool === "sineLine") {
+      const projection = timeProjection(d.tool, q, 10000);
+      return Math.min(...projection.verticals.map((x) => Math.abs(p.x - x)), ...projection.segments.map((s) => distToSegment(p, s.a, s.b)));
+    }
+    if (d.tool === "positionForecast" || d.tool === "barsPattern") {
+      let best = Infinity; for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!)); return best;
+    }
     let best = Math.hypot(p.x - a.x, p.y - a.y);
     for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!));
     return best;
@@ -1030,7 +1058,7 @@ function drawOne(
     } else if (d.tool === "fibSpeedResistanceFan" || d.tool === "fibSpeedResistanceArcs") {
       const direction = { x: b.x - a.x, y: b.y - a.y };
       for (const ratio of [0.236, 0.382, 0.5, 0.618, 0.786, 1]) {
-        if (d.tool === "fibSpeedResistanceFan") line(a, { x: a.x + direction.x * 2, y: a.y + direction.y * ratio * 2 });
+        if (d.tool === "fibSpeedResistanceFan") line(a, { x: a.x + direction.x * 4, y: a.y + direction.y * ratio * 4 });
         else { ctx.beginPath(); ctx.arc(a.x, a.y, Math.max(8, Math.hypot(direction.x, direction.y) * ratio), 0, Math.PI * 2); ctx.stroke(); }
       }
     } else if (d.tool === "fibCircles" || d.tool === "fibSpiral") {
