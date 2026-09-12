@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   createRenkoState, createTransformCursor, DEFAULT_RENKO_ATR_PERIOD, foldRenko,
-  foldKagi, foldLineBreak, heikinAshiBar, heikinAshiBars, kagiBars, lineBreakBars,
+  heikinAshiBar, heikinAshiBars, kagiBars, lineBreakBars,
   pointFigureColumns, renkoBricks, transformAll, transformStep,
   type OhlcBar,
 } from "../lib/chartTransforms";
