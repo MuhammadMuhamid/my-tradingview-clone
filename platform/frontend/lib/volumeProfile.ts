@@ -76,6 +76,8 @@ export interface VolumeProfileSettings {
   /** Share of the range's volume inside the value area, in percent. */
   valueAreaPercent: number;
   allocation: VolumeAllocation;
+  /** TPO letter block duration. Omitted keeps one source bar per letter. */
+  tpoBlockMinutes?: number;
 }
 
 export const DEFAULT_PROFILE_SETTINGS: VolumeProfileSettings = {
@@ -174,6 +176,9 @@ export function normalizeProfileSettings(
     rowSize,
     valueAreaPercent: Math.max(MIN_VALUE_AREA, Math.min(MAX_VALUE_AREA, Math.round(pct))),
     allocation: raw?.allocation === "close" ? "close" : "range",
+    ...(typeof raw?.tpoBlockMinutes === "number" && Number.isFinite(raw.tpoBlockMinutes)
+      && raw.tpoBlockMinutes > 0
+      ? { tpoBlockMinutes: Math.max(1, Math.round(raw.tpoBlockMinutes)) } : {}),
   };
 }
 
@@ -422,12 +427,18 @@ export function computeTpoProfile(
     bars: candles.length, basis, sourceInterval: interval, allocation: "range",
   };
   const tpoLabels: { rowIndex: number; label: string }[] = [];
+  const blockMs = settings.tpoBlockMinutes && settings.tpoBlockMinutes > 0
+    ? settings.tpoBlockMinutes * 60_000 : 0;
+  const firstBlock = blockMs > 0 ? Math.floor(candles[0]!.openTime / blockMs) : 0;
   for (let bracket = 0; bracket < candles.length; bracket += 1) {
     const candle = candles[bracket]!;
     if (!Number.isFinite(candle.low) || !Number.isFinite(candle.high)) continue;
     const first = rowOf(Math.min(candle.low, candle.high));
     const last = rowOf(Math.max(candle.low, candle.high));
-    const label = String.fromCharCode(65 + (bracket % 26));
+    const block = blockMs > 0 ? Math.floor(candle.openTime / blockMs) - firstBlock : bracket;
+    // TradingView advances A–Z, then a–z, and repeats for long profiles.
+    const cycle = block % 52;
+    const label = cycle < 26 ? String.fromCharCode(65 + cycle) : String.fromCharCode(97 + cycle - 26);
     for (let rowIndex = first; rowIndex <= last; rowIndex += 1) tpoLabels.push({ rowIndex, label });
   }
   const withLabels = { ...base, tpoLabels };

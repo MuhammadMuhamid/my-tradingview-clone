@@ -70,15 +70,52 @@ test("POINT & FIGURE creates explicit X/O columns with box and source metadata",
   const source = [bar(0, 100, 100, 100, 100), bar(1, 100, 104, 99, 104),
     bar(2, 104, 105, 100, 101), bar(3, 101, 101, 101, 101)];
   const columns = pointFigureColumns(source, 1, 3);
-  assert.equal(columns.length, 3);
+  // The second source bar extends the active X column; it must not create a
+  // second adjacent X column. The third bar then creates the opposite O.
+  assert.equal(columns.length, 2);
   assert.equal(columns[0]!.direction, 1);
-  assert.equal(columns[1]!.direction, 1);
-  assert.equal(columns[2]!.direction, -1);
+  assert.equal(columns[1]!.direction, -1);
+  assert.equal(columns[0]!.boxes, 5);
   assert.ok(columns.every((x) => x.boxSize === 1 && x.boxes >= 1));
   assert.ok(columns.every((x) => x.sourceOpenTime >= T0));
   assert.deepEqual(columns, transformAll("pointAndFigure", source, {
     atrPeriod: 14, pnfBoxPercent: 1, pnfReversalBoxes: 3,
   }).output);
+});
+
+test("POINT & FIGURE resolves an OHLC bar spanning both directions high-first", () => {
+  const source = [
+    bar(0, 100, 100, 100, 100),
+    bar(1, 100, 104, 100, 104), // establish X column
+    bar(2, 104, 110, 90, 105),  // both continuation and reversal are possible
+  ];
+  const columns = pointFigureColumns(source, 1, 3);
+  assert.equal(columns.length, 1, "a spanning candle must not invent an intrabar reversal");
+  assert.equal(columns[0]!.direction, 1);
+  assert.equal(columns[0]!.close, 110);
+});
+
+test("LINE BREAK compares against prior line highs and lows, not closes", () => {
+  const source = [
+    bar(0, 10, 20, 5, 10),
+    bar(1, 10, 12, 8, 11),
+    bar(2, 11, 13, 9, 12),
+    // The source wick at 20 is not a line high; line-break inputs are close-only.
+    bar(3, 12, 15, 11, 14),
+    // Both closes are genuine breaks of the prior confirmed close-lines.
+    bar(4, 14, 22, 13, 21),
+  ];
+  const lines = lineBreakBars(source, 3);
+  assert.deepEqual(lines.map((item) => item.close), [10, 11, 12, 14, 21]);
+});
+
+test("sparse transforms preserve the canonical source timestamp", () => {
+  const source = [bar(0, 100, 101, 99, 100), bar(1, 100, 105, 99, 104),
+    bar(2, 104, 106, 102, 103), bar(3, 103, 110, 100, 109)];
+  for (const item of [lineBreakBars(source), kagiBars(source), pointFigureColumns(source, 1, 3)]) {
+    assert.ok(item.every((display) => typeof display.sourceOpenTime === "number"));
+    assert.ok(item.every((display) => source.some((bar) => bar.openTime === display.sourceOpenTime)));
+  }
 });
 
 const clone = (bars: readonly OhlcBar[]): OhlcBar[] => bars.map((b) => ({ ...b }));
@@ -412,6 +449,57 @@ for (const kind of ["heikinAshi", "renko"] as const) {
         "a tick disturbed bars that were already closed");
       assert.deepEqual(drawn, transformAll(kind, [...closed, forming]).output,
         "the live series diverged from a clean recomputation of the same candles");
+    }
+  });
+}
+
+for (const kind of ["lineBreak", "kagi", "pointAndFigure"] as const) {
+  test(`${kind}: deterministic batch and incremental folds agree`, () => {
+    const source = series(180, (i) => 100 + Math.sin(i / 7) * 14 + (i % 9 === 0 ? 6 : 0));
+    const params = {
+      atrPeriod: 14, lineBreakLines: 3, kagiReversalPercent: 1,
+      pnfBoxPercent: 1, pnfReversalBoxes: 3,
+    };
+    const expected = transformAll(kind, source, params).output;
+    let cursor = createTransformCursor(kind, params);
+    const actual: OhlcBar[] = [];
+    for (let i = 0; i < source.length; i += 1) {
+      const stepped = transformStep(cursor, source[i]!);
+      cursor = stepped.cursor;
+      for (const item of stepped.emitted) {
+        const previous = actual[actual.length - 1];
+        if (previous && previous.openTime === item.openTime) actual[actual.length - 1] = item;
+        else actual.push(item);
+      }
+      assert.deepEqual(actual, transformAll(kind, source.slice(0, i + 1), params).output);
+    }
+    assert.deepEqual(actual, expected);
+  });
+
+  test(`${kind}: replay horizons are clean prefixes with no look-ahead`, () => {
+    const source = series(120, (i) => 100 + Math.sin(i / 5) * 18 + (i % 11 === 0 ? 8 : 0));
+    const params = {
+      atrPeriod: 14, lineBreakLines: 3, kagiReversalPercent: 1,
+      pnfBoxPercent: 1, pnfReversalBoxes: 3,
+    };
+    for (const horizon of [0, 1, 3, 17, 61, source.length]) {
+      const clipped = transformAll(kind, source.slice(0, horizon), params).output;
+      let cursor = createTransformCursor(kind, params);
+      const expected: OhlcBar[] = [];
+      for (const candle of source.slice(0, horizon)) {
+        const stepped = transformStep(cursor, candle);
+        cursor = stepped.cursor;
+        for (const item of stepped.emitted) {
+          const previous = expected[expected.length - 1];
+          if (previous && previous.openTime === item.openTime) expected[expected.length - 1] = item;
+          else expected.push(item);
+        }
+      }
+      assert.deepEqual(clipped, expected);
+      for (const item of clipped) {
+        assert.ok((item.sourceOpenTime ?? item.openTime) < T0 + horizon * MINUTE,
+          `a ${kind} replay emitted a point beyond its horizon`);
+      }
     }
   });
 }

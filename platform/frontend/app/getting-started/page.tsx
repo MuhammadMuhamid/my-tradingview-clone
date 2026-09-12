@@ -525,23 +525,26 @@ export default function GettingStarted() {
                 always means you are not looking at raw candles.
               </p>
             </Callout>
-            <Detail summary="Why Renko hides markers, drawings and indicator panes">
+            <Detail summary="Why sparse transforms hide time-anchored layers">
               <p>
-                A Renko brick is not a time bar. One candle can complete several bricks,
+                Renko bricks, Line Break lines, Kagi points and Point &amp; Figure columns
+                are not time bars. One candle can complete several synthetic points,
                 and hundreds of candles can complete none. Anything anchored to a
                 timestamp — a script plot, a trade marker, a drawing, an indicator
-                sub-pane — has no honest position on a brick axis, so Renko hides those
-                layers rather than drawing them where they do not belong, and says so on
-                the chart. They are unchanged and return on any other chart type.
+                sub-pane — has no honest position on those axes, so these transforms hide
+                those layers rather than drawing them where they do not belong, and say
+                so on the chart. They are unchanged and return on any other chart type.
               </p>
               <p>
                 Heikin Ashi emits exactly one bar per canonical bar at that bar&rsquo;s
                 own time, so it keeps all of them.
               </p>
               <p>
-                Brick size is fixed at ATR(14) in V1 and is not adjustable. Kagi, Range,
-                Point &amp; Figure and Line Break are not implemented, and the menu
-                offers only what exists.
+                Brick size is fixed at ATR(14) in V1 and is not adjustable. Line Break,
+                Kagi and Point &amp; Figure use their fixed, disclosed V1 policies. Range
+                and Volume Footprint remain unavailable because the supported providers
+                do not supply the ordered price-crossing and aggressor-side data those
+                chart types require; the menu offers only what exists.
               </p>
             </Detail>
           </Section>

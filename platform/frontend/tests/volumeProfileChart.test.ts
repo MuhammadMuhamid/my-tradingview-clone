@@ -48,6 +48,19 @@ test("TPO counts one bracket per source bar and exposes letters", () => {
   assert.ok(profile.tpoLabels?.some((label) => label.label === "D"));
 });
 
+test("TPO supports TradingView-style fixed time blocks and mixed-case labels", () => {
+  const blockBars = bars(53).map((c, i) => ({
+    ...c, openTime: T0 + i * 30 * MINUTE,
+    closeTime: T0 + (i + 1) * 30 * MINUTE - 1,
+  }));
+  const profile = computeTpoProfile(
+    blockBars, { ...DEFAULT_PROFILE_SETTINGS, tpoBlockMinutes: 30 }, "1m",
+  );
+  const labels = new Set(profile.tpoLabels?.map((item) => item.label));
+  assert.equal(labels.size, 52);
+  assert.ok(labels.has("A") && labels.has("Z") && labels.has("a") && labels.has("z"));
+});
+
 test("the visible-range profile exists and declares what makes it different", () => {
   assert.ok(vrvp, "vrvp is in the catalog");
   assert.equal(vrvp.overlay, true);

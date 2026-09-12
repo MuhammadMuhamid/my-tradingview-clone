@@ -485,7 +485,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
     const latest = visibleCandles[visibleCandles.length - 1]!;
     const dayStart = Math.floor(latest.openTime / 86_400_000) * 86_400_000;
     const session = visibleCandles.filter((c) => c.openTime >= dayStart);
-    const profile = computeTpoProfile(session, DEFAULT_PROFILE_SETTINGS, pane.interval, "chart");
+    const profile = computeTpoProfile(
+      session, { ...DEFAULT_PROFILE_SETTINGS, tpoBlockMinutes: 30 }, pane.interval, "chart",
+    );
     if (profile.rows.length === 0 || profile.from === null || profile.to === null) return [];
     return [{
       kind: "profile" as const, id: `tpo:${paneId}`, paneId: "price",

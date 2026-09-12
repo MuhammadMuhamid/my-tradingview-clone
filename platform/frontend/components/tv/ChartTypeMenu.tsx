@@ -103,8 +103,8 @@ const TRANSFORMS = CHART_TYPES.filter((t) => t.group === "transform");
  * label on this button always means "you are not looking at raw candles".
  *
  * Only implemented types appear. There are no greyed-out placeholders for
- * Kagi, Range or Point & Figure: an entry that cannot be chosen teaches the
- * user nothing except that the menu lies about what the product does.
+ * unsupported Range or Volume Footprint: an entry that cannot be chosen teaches
+ * the user nothing except that the menu lies about what the product does.
  */
 export function ChartTypeMenu({
   value, onChange,

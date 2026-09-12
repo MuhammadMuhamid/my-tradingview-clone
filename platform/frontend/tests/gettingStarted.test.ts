@@ -178,8 +178,15 @@ test("the chart types it names are the chart types that exist", () => {
   );
 
   // Types that do not exist must not be advertised as if they did.
-  for (const absent of ["Kagi", "Point & Figure", "Line Break"]) {
+  for (const absent of ["Range", "Volume Footprint"]) {
     assert.ok(!chartType.includes(`label: "${absent}"`), `${absent} now exists — describe it`);
+  }
+  for (const implemented of ["Kagi", "Point & Figure", "Line Break"]) {
+    const value = implemented === "Kagi" ? "kagi"
+      : implemented === "Point & Figure" ? "pointAndFigure" : "lineBreak";
+    assert.ok(chartType.includes(`value: "${value}"`), `${implemented} is implemented — describe it`);
+    const proseName = implemented === "Point & Figure" ? "Point &amp; Figure" : implemented;
+    assert.ok(prose.includes(proseName), `the page must name the ${implemented} chart type`);
   }
 });
 

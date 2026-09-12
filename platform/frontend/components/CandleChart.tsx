@@ -73,12 +73,12 @@ export type { ChartOverlay } from "@/lib/chartSeries";
  * The legend used to print the canonical candle whatever the chart drew, which
  * was wrong in two different ways at once. On Heikin Ashi the four numbers
  * labelled O/H/L/C did not describe the body under the pointer — they
- * described a bar that is not on screen. On Renko they described a time candle
- * on a chart that has no time candles at all.
+ * described a bar that is not on screen. On sparse transforms they described
+ * a time candle on a chart that has no time candles at all.
  *
  * So the readout says which bars it is reading, and the renderer says so on
  * screen too. `canonical` is the only kind whose numbers are exchange prices;
- * the other two are display values and are labelled as such wherever they are
+ * the synthetic kinds are display values and are labelled as such wherever they are
  * shown. NOTHING downstream of this component reads a `LegendBar`.
  */
 interface LegendBar {
@@ -373,7 +373,18 @@ interface TransformHead {
 function withFormingBar(head: TransformHead, candles: readonly Candle[]): OhlcBar[] {
   const forming = candles[candles.length - 1];
   if (!forming || head.bars !== candles.length - 1) return [...head.output];
-  return [...head.output, ...transformStep(head.cursor, forming).emitted];
+  return mergeSyntheticOutput(head.output, transformStep(head.cursor, forming).emitted);
+}
+
+/** P&F extensions update the active X/O column at its existing display time. */
+function mergeSyntheticOutput(output: readonly OhlcBar[], emitted: readonly OhlcBar[]): OhlcBar[] {
+  const next = [...output];
+  for (const bar of emitted) {
+    const last = next[next.length - 1];
+    if (last && last.openTime === bar.openTime) next[next.length - 1] = bar;
+    else next.push(bar);
+  }
+  return next;
 }
 
 /** Fold the whole canonical series from scratch. */
@@ -408,7 +419,7 @@ function advanceTransform(
     const stepped = transformStep(head.cursor, candles[head.bars]!);
     next = {
       ...head, bars: head.bars + 1, cursor: stepped.cursor,
-      output: [...head.output, ...stepped.emitted],
+      output: mergeSyntheticOutput(head.output, stepped.emitted),
     };
   }
   return { head: next, display: withFormingBar(next, candles) };
@@ -990,7 +1001,8 @@ export function CandleChart({
         setLegend(latestLegend());
         return;
       }
-      if (chartTransform(mainKindRef.current) === "renko") {
+      const transform = chartTransform(mainKindRef.current);
+      if (transform !== null && transform !== "heikinAshi") {
         const display = displayRef.current;
         const brickIndex = snapToBarIndexBy(
           display, raw, (bar) => Math.floor(bar.openTime / 1000));
@@ -1229,7 +1241,7 @@ export function CandleChart({
 
   /**
    * Whether anything anchored to a canonical timestamp can be drawn on this
-   * presentation at all. False under Renko — see `lib/chartType`.
+   * presentation at all. False under sparse transforms — see `lib/chartType`.
    */
   const timeAnchored = timeAnchoredVisualsTruthful(chartType);
 
@@ -1238,14 +1250,14 @@ export function CandleChart({
     const series = seriesRef.current;
     if (!series) return;
     /*
-     * Renko draws no markers at all.
+     * Sparse transforms draw no time-anchored markers at all.
      *
-     * A marker is placed at a canonical bar time. The Renko axis is brick
-     * positions, so the library would pin every marker to whichever brick
+     * A marker is placed at a canonical bar time. A sparse-transform axis is
+     * synthetic positions, so the library would pin every marker to whichever point
      * happens to sit nearest that number — a BUY arrow under a brick the trade
      * has no relationship with, which reads as evidence and is not. Nothing is
      * changed about the trades or the script output; they are simply not drawn
-     * here. Every other presentation, Heikin Ashi included, keeps them.
+     * here. Every canonical presentation and Heikin Ashi keep them.
      */
     if (!timeAnchored) { series.setMarkers([]); return; }
 
@@ -1690,7 +1702,7 @@ export function CandleChart({
       return;
     }
     const transform = chartTransform(chartType);
-    if (transform === "renko") {
+    if (transform !== null && transform !== "heikinAshi") {
       /*
        * Synthetic columns/lines carry their source bar timestamp separately
        * from the strictly increasing display timestamp. Mapping through that
@@ -1912,8 +1924,8 @@ export function CandleChart({
       >
       <div ref={containerRef} className="absolute inset-0 z-[1]" />
       {/*
-        Everything below is anchored to a canonical bar time, and under Renko
-        none of it is drawn — the bricks are not those bars. See
+        Everything below is anchored to a canonical bar time, and under sparse
+        transforms none of it is drawn — synthetic points are not those bars. See
         `timeAnchoredVisualsTruthful` in `lib/chartType`. Nothing is deleted or
         recomputed: the drawings stay in their per-symbol store, the scripts
         keep their output, and all of it returns on any other chart type.

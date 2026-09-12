@@ -45,6 +45,8 @@ export interface OhlcBar {
   high: number;
   low: number;
   close: number;
+  /** Canonical source timestamp for sparse price-driven displays. */
+  sourceOpenTime?: number;
 }
 
 /** Wilder ATR period for Renko V1. */
@@ -349,9 +351,9 @@ export function createLineBreakState(): LineBreakState {
 }
 
 /**
- * Fold a close into an n-line-break chart. The first n source closes establish
- * the comparison window; afterwards a new line is emitted only when the close
- * breaks the highest/lowest close in that window. Source OHLC is never used to
+ * Fold a close into an n-line-break chart. The close is compared with the
+ * high/low of the last n confirmed lines, as in TradingView's definition.
+ * Source OHLC is never used to
  * invent an intrabar path — line-break state is explicitly close-driven.
  */
 export function foldLineBreak(
@@ -360,12 +362,17 @@ export function foldLineBreak(
   const window = Math.max(1, Math.floor(lines));
   const previous = state.lines[state.lines.length - 1];
   if (!previous) {
-    const first = { ...bar };
+    // Line-break bars are close-defined; a source candle's intrabar wick is
+    // not a line high/low and must not change the break threshold.
+    const first: OhlcBar = {
+      openTime: bar.openTime, open: bar.close, high: bar.close, low: bar.close,
+      close: bar.close, sourceOpenTime: bar.openTime,
+    };
     return { state: { lines: [first], lastTime: bar.openTime }, emitted: [first] };
   }
-  const closes = state.lines.slice(-window).map((line) => line.close);
-  const high = Math.max(...closes);
-  const low = Math.min(...closes);
+  const previousLines = state.lines.slice(-window);
+  const high = Math.max(...previousLines.map((line) => line.high));
+  const low = Math.min(...previousLines.map((line) => line.low));
   if (state.lines.length >= window && bar.close <= high && bar.close >= low) {
     return { state, emitted: [] };
   }
@@ -375,6 +382,7 @@ export function foldLineBreak(
     close: bar.close,
     high: Math.max(previous.close, bar.close),
     low: Math.min(previous.close, bar.close),
+    sourceOpenTime: bar.openTime,
   };
   return {
     state: { lines: [...state.lines, next], lastTime: next.openTime },
@@ -402,10 +410,12 @@ export interface KagiState {
   direction: 1 | -1 | 0;
   reversal: number;
   lastTime: number;
+  /** Extreme close reached by the current directional leg. */
+  extreme: number | null;
 }
 
 export function createKagiState(): KagiState {
-  return { current: null, direction: 0, reversal: 0, lastTime: 0 };
+  return { current: null, direction: 0, reversal: 0, lastTime: 0, extreme: null };
 }
 
 /**
@@ -420,22 +430,23 @@ export function foldKagi(
   const pct = Math.max(0.01, Math.min(100, reversalPercent)) / 100;
   if (state.current === null) {
     const reversal = Math.max(Math.abs(bar.close) * pct, Number.EPSILON);
-    const first = { ...bar };
+    const first = { ...bar, sourceOpenTime: bar.openTime };
     return {
-      state: { current: bar.close, direction: 0, reversal, lastTime: bar.openTime },
+      state: { current: bar.close, direction: 0, reversal, lastTime: bar.openTime, extreme: bar.close },
       emitted: [first],
     };
   }
   const current = state.current;
   const reversal = state.reversal;
   let direction = state.direction;
+  const extreme = state.extreme ?? current;
   if (direction === 0) {
     if (bar.close >= current + reversal) direction = 1;
     else if (bar.close <= current - reversal) direction = -1;
     else return { state, emitted: [] };
-  } else if (direction === 1 && bar.close <= current - reversal) {
+  } else if (direction === 1 && bar.close <= extreme - reversal) {
     direction = -1;
-  } else if (direction === -1 && bar.close >= current + reversal) {
+  } else if (direction === -1 && bar.close >= extreme + reversal) {
     direction = 1;
   } else if ((direction === 1 && bar.close <= current)
     || (direction === -1 && bar.close >= current)) {
@@ -449,9 +460,13 @@ export function foldKagi(
     close: bar.close,
     high: Math.max(current, bar.close),
     low: Math.min(current, bar.close),
+    sourceOpenTime: bar.openTime,
   };
+  const nextExtreme = direction === 1
+    ? Math.max(direction === state.direction ? extreme : current, bar.close)
+    : Math.min(direction === state.direction ? extreme : current, bar.close);
   return {
-    state: { current: bar.close, direction, reversal, lastTime: next.openTime },
+    state: { current: bar.close, direction, reversal, lastTime: next.openTime, extreme: nextExtreme },
     emitted: [next],
   };
 }
@@ -486,17 +501,25 @@ export interface PointFigureState {
   current: number | null;
   direction: 1 | -1 | 0;
   lastTime: number;
+  columnOpen: number | null;
+  columnOpenTime: number;
+  columnBoxes: number;
+  columnSourceOpenTime: number;
 }
 
 export function createPointFigureState(): PointFigureState {
-  return { boxSize: 0, reversalBoxes: DEFAULT_PNF_REVERSAL_BOXES, current: null, direction: 0, lastTime: 0 };
+  return {
+    boxSize: 0, reversalBoxes: DEFAULT_PNF_REVERSAL_BOXES, current: null, direction: 0, lastTime: 0,
+    columnOpen: null, columnOpenTime: 0, columnBoxes: 0, columnSourceOpenTime: 0,
+  };
 }
 
 /**
  * Close-driven P&F columns using a deterministic percentage box policy. The
  * first observed close establishes the box size; subsequent columns use the
- * source bar's high/low to avoid inventing an intrabar path. Each emitted
- * column represents the full X/O run reached by that source bar.
+ * source bar's high/low to avoid inventing an intrabar path. An active column
+ * is updated in place while it extends; reversals create one opposite column.
+ * If one OHLC bar spans both directions, high-first is deterministic.
  */
 export function foldPointFigure(
   state: PointFigureState, bar: OhlcBar, boxPercent = DEFAULT_PNF_BOX_PERCENT,
@@ -513,31 +536,46 @@ export function foldPointFigure(
   let current = state.current;
   let direction = state.direction;
   let lastTime = state.lastTime;
+  let columnOpen = state.columnOpen;
+  let columnOpenTime = state.columnOpenTime;
+  let columnBoxes = state.columnBoxes;
+  let columnSourceOpenTime = state.columnSourceOpenTime;
   const emitted: PointFigureColumn[] = [];
-  const emit = (next: number, dir: 1 | -1) => {
-    const count = Math.max(1, Math.round(Math.abs(next - current) / box));
+  const emit = (next: number, dir: 1 | -1, extending = false) => {
+    const open = extending && columnOpen !== null ? columnOpen : current;
+    const count = Math.max(1, Math.round(Math.abs(next - open) / box));
+    if (!extending) columnOpenTime = Math.max(bar.openTime, lastTime + 1);
+    columnOpen = open;
+    columnBoxes = count;
+    columnSourceOpenTime = bar.openTime;
     const column: PointFigureColumn = {
-      openTime: Math.max(bar.openTime, lastTime + 1),
-      open: current, close: next, high: Math.max(current, next), low: Math.min(current, next),
-      direction: dir, boxSize: box, boxes: count, sourceOpenTime: bar.openTime,
+      openTime: columnOpenTime,
+      open, close: next, high: Math.max(open, next), low: Math.min(open, next),
+      direction: dir, boxSize: box, boxes: columnBoxes, sourceOpenTime: columnSourceOpenTime,
     };
     emitted.push(column); current = next; direction = dir; lastTime = column.openTime;
   };
   const high = Math.max(bar.high, bar.close);
   const low = Math.min(bar.low, bar.close);
+  const hadColumn = columnOpen !== null;
   if (direction === 0) {
     if (high - current >= box) direction = 1;
     else if (current - low >= box) direction = -1;
     else return { state, emitted: [] };
   }
   if (direction === 1) {
-    if (high >= current + box) emit(current + Math.floor((high - current) / box) * box, 1);
+    if (high >= current + box) emit(current + Math.floor((high - current) / box) * box, 1, hadColumn);
     else if (current - low >= rev * box) emit(current - rev * box, -1);
   } else {
-    if (low <= current - box) emit(current - Math.floor((current - low) / box) * box, -1);
+    if (low <= current - box) emit(current - Math.floor((current - low) / box) * box, -1, hadColumn);
     else if (high - current >= rev * box) emit(current + rev * box, 1);
   }
-  return { state: { ...state, boxSize: box, reversalBoxes: rev, current, direction, lastTime }, emitted };
+  return {
+    state: {
+      ...state, boxSize: box, reversalBoxes: rev, current, direction, lastTime,
+      columnOpen, columnOpenTime, columnBoxes, columnSourceOpenTime,
+    }, emitted,
+  };
 }
 
 export function pointFigureColumns(
@@ -548,7 +586,12 @@ export function pointFigureColumns(
   const out: PointFigureColumn[] = [];
   for (const bar of bars) {
     const stepped = foldPointFigure(state, bar, boxPercent, reversalBoxes);
-    state = stepped.state; out.push(...stepped.emitted);
+    state = stepped.state;
+    for (const column of stepped.emitted) {
+      const previous = out[out.length - 1];
+      if (previous && previous.openTime === column.openTime) out[out.length - 1] = column;
+      else out.push(column);
+    }
   }
   return out;
 }
@@ -622,6 +665,15 @@ export function transformStep(
   };
 }
 
+/** Replace the active synthetic column when a source bar extends it. */
+function mergeTransformOutput(output: OhlcBar[], emitted: readonly OhlcBar[]): void {
+  for (const bar of emitted) {
+    const last = output[output.length - 1];
+    if (last && last.openTime === bar.openTime) output[output.length - 1] = bar;
+    else output.push(bar);
+  }
+}
+
 /** Fold a whole canonical series. Equal, by construction, to stepping it. */
 export function transformAll(
   kind: TransformKind, bars: readonly OhlcBar[], params?: TransformParams
@@ -631,7 +683,7 @@ export function transformAll(
   for (const bar of bars) {
     const stepped = transformStep(cursor, bar);
     cursor = stepped.cursor;
-    output.push(...stepped.emitted);
+    mergeTransformOutput(output, stepped.emitted);
   }
   return { cursor, output };
 }
@@ -675,5 +727,5 @@ export function isPointFigureColumn(bar: OhlcBar): bar is PointFigureColumn {
  * published to another pane, a legend timestamp — goes through it.
  */
 export function canonicalOpenTime(bar: OhlcBar): number {
-  return isRenkoBrick(bar) ? bar.sourceOpenTime : bar.openTime;
+  return typeof bar.sourceOpenTime === "number" ? bar.sourceOpenTime : bar.openTime;
 }

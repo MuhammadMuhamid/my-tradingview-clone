@@ -34,11 +34,10 @@ test("only the types this chart actually implements are offered", () => {
     "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo",
     "heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure",
   ]);
-  // Unimplemented synthetic systems stay absent rather than appearing as
-  // placeholders that cannot be chosen. Kagi, Point & Figure, Range and Line
-  // Break are all DELIBERATELY not here: each invents its own bars, and this
-  // product's position is that a chart type may re-present the market's bars
-  // but not replace them.
+  // Unsupported synthetic systems stay absent rather than appearing as
+  // placeholders that cannot be chosen. Range and Volume Footprint remain
+  // unavailable because their required provider data is not in the candle
+  // contract; implemented transforms are tested and listed above.
   for (const absent of ["range", "pnf", "heikinashi", "Renko", "footprint", "tpoo"]) {
     assert.equal(isChartType(absent), false, absent);
   }

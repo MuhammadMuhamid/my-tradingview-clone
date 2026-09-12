@@ -7,7 +7,7 @@
  * exchange candles this chart already holds. Nothing is recomputed and no
  * price appears that did not trade.
  *
- * TRANSFORMS (`heikinAshi`, `renko`) do not. They derive their own bars from
+ * TRANSFORMS (`heikinAshi`, `renko`, `lineBreak`, `kagi`, `pointAndFigure`) do not. They derive their own bars from
  * the canonical candles and put prices on screen that never traded — which is
  * the point of them, and exactly why they are labelled wherever they are
  * active and kept in their own group in the menu. They are a lens on the
@@ -25,9 +25,10 @@
  * no dependants other than the renderer. This module only says which types
  * exist, what each one means, and how a bar becomes a datum.
  *
- * Point & Figure and Range remain absent because their correct box/column
- * inputs are not present in the supported candle contract. Line Break and
- * Kagi are close-driven transforms and are implemented below.
+ * Point & Figure is a close/high/low display transform with an explicit
+ * high-first policy when a candle spans both directions. Range remains absent
+ * because its price-crossing inputs are not present in the supported candle
+ * contract. Line Break and Kagi are close-driven transforms.
  */
 import {
   DEFAULT_KAGI_REVERSAL_PERCENT, DEFAULT_LINE_BREAK_LINES, DEFAULT_RENKO_ATR_PERIOD,
@@ -216,7 +217,7 @@ export function chartTransform(type: ChartType): TransformKind | null {
   return spec(type).transform;
 }
 
-/** True for the modes that invent bars: Heikin Ashi and Renko. */
+/** True for the modes that invent bars or synthetic price points. */
 export function isSyntheticChartType(type: ChartType): boolean {
   return spec(type).group === "transform";
 }
@@ -357,19 +358,19 @@ export function legendSource(type: ChartType): LegendSource {
  * exactly one bar per canonical bar at that bar's own timestamp — so a script
  * plot, a trade marker or a drawing lands on the bar it belongs to.
  *
- * False for Renko. A brick is not a bar: one canonical candle can complete
- * several bricks and hundreds can complete none, so a plot drawn at canonical
- * times against a brick axis would *look* aligned to bricks it has no
- * relationship with. Wave 2 left that as an approximation; the resolution here
- * is to draw none of it rather than to draw it wrong, and to say so.
+ * False for sparse price-driven displays. A synthetic point is not a canonical
+ * time bar: one candle can complete several points and many can complete none,
+ * so a plot drawn at canonical times against that axis would look aligned to
+ * points it has no relationship with. The resolution is to draw none of it
+ * rather than to draw it wrong, and to say so.
  */
 export function timeAnchoredVisualsTruthful(type: ChartType): boolean {
   const transform = chartTransform(type);
   return transform === null || transform === "heikinAshi";
 }
 
-/** Shown wherever Renko has suppressed a time-anchored layer. */
+/** Shown wherever a sparse transform has suppressed a time-anchored layer. */
 export const RENKO_ALIGNMENT_NOTE =
-  "Bricks are not time bars, so script plots, markers, drawings and indicator "
-  + "panes are hidden here rather than drawn at times they do not line up with. "
-  + "They are unchanged and return on any other chart type.";
+  "Synthetic points are not time bars, so script plots, markers, drawings and "
+  + "indicator panes are hidden here rather than drawn at times they do not line "
+  + "up with. They are unchanged and return on any other chart type.";
