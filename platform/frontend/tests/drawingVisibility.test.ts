@@ -43,3 +43,21 @@ test("new drawing variants are registered, exposed and rendered by shared primit
     assert.ok(TEXT_TOOLS.has(tool), `${tool} must collect its caption through the shared text flow`);
   }
 });
+
+test("advanced TradingView families share persisted anchor-template semantics", () => {
+  const toolbar = read("components/tv/DrawingToolbar.tsx");
+  const canvas = read("components/tv/DrawingCanvas.tsx");
+  const advanced: DrawingTool[] = [
+    "regression", "flatTopBottom", "schiffPitchfork", "modifiedSchiffPitchfork", "insidePitchfork",
+    "fibChannel", "fibTimeZone", "trendFibTime", "fibSpeedResistanceFan", "fibSpeedResistanceArcs",
+    "fibCircles", "fibSpiral", "fibWedge", "pitchfan", "gannBox", "gannSquareFixed", "gannSquare", "gannFan",
+    "xabcd", "cypher", "headAndShoulders", "abcdPattern", "trianglePattern", "threeDrives",
+    "elliottImpulse", "elliottCorrection", "elliottTriangle", "elliottDoubleCombo", "elliottTripleCombo",
+    "cyclicLines", "timeCycles", "sineLine", "positionForecast", "barsPattern", "sector", "rotatedRectangle", "table",
+  ];
+  for (const tool of advanced) {
+    assert.equal(typeof TOOL_POINTS[tool], "number", `${tool} has no anchor count`);
+    assert.match(toolbar, new RegExp(`tool: "${tool}"`), `${tool} is not exposed`);
+    assert.ok(canvas.includes(`"${tool}"`), `${tool} is not handled by the shared renderer`);
+  }
+});
