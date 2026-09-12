@@ -1,4 +1,9 @@
-# TVP4 — TradingView feature-gap engineering closure
+# TVP4 — TradingView feature-gap engineering closure (historical)
+
+> Historical evidence at the TVP4 source head. The Range and Volume Footprint
+> entries below were superseded by FX1's ordered-trade renderer and replay
+> closure; see `TVP5_FX1_FINAL_ENGINEERING_CLOSURE_AND_RECONCILIATION.md` for
+> current truth.
 
 Scope: the 46 TradingView / 34 Trading Scene screenshots in the 2026-09-11
 capture corpus, reconciled against the current frontend source. `A`–`G` below

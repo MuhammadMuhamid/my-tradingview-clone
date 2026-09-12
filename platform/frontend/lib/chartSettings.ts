@@ -12,6 +12,8 @@ export interface ChartSettings {
   showAlerts: boolean;
   /** Strategy, script and pattern event markers. */
   showEvents: boolean;
+  /** Range chart size, expressed in provider ticks. */
+  rangeTicks: number;
 }
 
 export const DEFAULT_CHART_SETTINGS: ChartSettings = {
@@ -21,6 +23,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   showTrading: true,
   showAlerts: true,
   showEvents: true,
+  rangeTicks: 20,
 };
 
 export function normalizeChartSettings(raw: unknown): ChartSettings {
@@ -33,6 +36,8 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     showTrading: typeof value.showTrading === "boolean" ? value.showTrading : true,
     showAlerts: typeof value.showAlerts === "boolean" ? value.showAlerts : true,
     showEvents: typeof value.showEvents === "boolean" ? value.showEvents : true,
+    rangeTicks: typeof value.rangeTicks === "number" && Number.isFinite(value.rangeTicks) && value.rangeTicks >= 1
+      ? Math.min(10000, Math.round(value.rangeTicks)) : 20,
   };
 }
 

@@ -28,6 +28,7 @@ import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { IndicatorPane, type PaneAction } from "@/components/tv/IndicatorPane";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 import { VolumeProfileLayer } from "@/components/tv/VolumeProfileLayer";
+import { FootprintLayer } from "@/components/tv/FootprintLayer";
 import type { PineDrawings } from "@/lib/api";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import {
@@ -464,7 +465,7 @@ function updateOverlayData(entry: OverlaySeriesEntry, point: ChartPoint): void {
 }
 
 export function CandleChart({
-  symbol, interval, candles, dataset, trades, marketTrades, priceTick, priceLines, overlays, decorations, barColors,
+  symbol, interval, candles, dataset, trades, marketTrades, marketTradesError, priceTick, priceLines, overlays, decorations, barColors,
   markers, pineDrawings,
   live = true, fill = false,
   chartType = "candles",
@@ -496,8 +497,9 @@ export function CandleChart({
   trades?: Trade[];
   /** Ordered public executions used by the range/footprint presentations. */
   marketTrades?: AggregateTrade[];
+  marketTradesError?: string | null;
   /** Provider-reported minimum price increment for percentage sizing. */
-  priceTick?: number;
+  priceTick?: number | null;
   /** Live SL/TP/entry levels for a running position. */
   priceLines?: ChartPriceLine[];
   /** Line series plotted by a compiled Pine script. */
@@ -715,7 +717,7 @@ export function CandleChart({
   const scale = priceScale ?? ownPriceScale;
   const settings = chartSettings ?? {
     showStatusLine: true, showGrid: true, showCrosshair: true,
-    showTrading: true, showAlerts: true, showEvents: true,
+    showTrading: true, showAlerts: true, showEvents: true, rangeTicks: 20,
   };
   const visiblePriceLines = useMemo(() => settings.showTrading ? (priceLines ?? []) : [], [settings.showTrading, priceLines]);
   const visibleTrades = useMemo(() => settings.showTrading ? (trades ?? []) : [], [settings.showTrading, trades]);
@@ -1201,7 +1203,7 @@ export function CandleChart({
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
     const kind = mainKindRef.current;
     const transform = chartTransform(kind);
-    const tick = Number.isFinite(priceTick) && (priceTick ?? 0) > 0 ? priceTick! : 0.01;
+    const tick = Number.isFinite(priceTick) && (priceTick ?? 0) > 0 ? priceTick! : null;
     const maxVolume = candles.reduce((max, candle) => Number.isFinite(candle.volume)
       ? Math.max(max, candle.volume) : max, 0);
     const candleDatum = (c: Candle) =>
@@ -1238,11 +1240,19 @@ export function CandleChart({
       // data therefore means an empty price series, never an OHLC estimate.
       const source = marketTrades ?? [];
       const tradeDisplay = kind === "range"
-        ? rangeBarsAsOhlc(source, Math.max(tick * 20, (candles[0]?.close ?? 1) * 0.005), tick)
-        : footprintBarsAsOhlc(source, Math.max(60_000, resolutionMs(interval)), tick);
+        ? (tick ? rangeBarsAsOhlc(source, tick * settings.rangeTicks, tick) : [])
+        : (tick ? footprintBarsAsOhlc(source, Math.max(60_000, resolutionMs(interval)), tick) : []);
       transformHeadRef.current = null;
-      displayRef.current = tradeDisplay;
-      setMainSeriesData(series, kind, tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)));
+      displayRef.current = kind === "range" ? tradeDisplay : [];
+      // Footprint keeps a transparent OHLC anchor solely so lightweight-charts
+      // supplies a usable price scale; all visible information is painted by
+      // FootprintLayer at its individual bid/ask levels.
+      const footprintAnchor = kind === "footprint" ? tradeDisplay.map((bar) => ({
+        ...mainSeriesDatum(kind, bar), color: "rgba(0,0,0,0)",
+        wickColor: "rgba(0,0,0,0)", borderColor: "rgba(0,0,0,0)",
+      })) : [];
+      setMainSeriesData(series, kind, kind === "range"
+        ? tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)) : footprintAnchor);
       mainSeriesDirtyRef.current = false;
     } else if (transform === null) {
       transformHeadRef.current = null;
@@ -1258,6 +1268,10 @@ export function CandleChart({
         updateMainSeries(series, kind, kind === "columns"
           ? { time: last.openTime / 1000, value: last.close } : candleDatum(last));
       }
+    } else if ((transform === "kagi" || transform === "pointAndFigure") && !tick) {
+      transformHeadRef.current = null;
+      displayRef.current = [];
+      setMainSeriesData(series, kind, []);
     } else {
       /*
        * A chart-only transform. The canonical candles above are untouched and
@@ -1265,7 +1279,7 @@ export function CandleChart({
        * everything downstream of this component; only the bars handed to the
        * price series are derived.
        */
-      const params = transformParams(kind, tick);
+      const params = transformParams(kind, tick ?? 0);
       const rebuilt = rebuildTransform(transform, params, candles);
       transformHeadRef.current = rebuilt.head;
       const display = rebuilt.display;
@@ -1300,7 +1314,7 @@ export function CandleChart({
       { symbol: heldSymbol, interval: heldInterval }, last ? last.openTime : null);
     if (pending) applyTickRef.current?.(pending);
   }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady,
-    marketTrades, priceTick, interval]);
+    marketTrades, priceTick, interval, settings.rangeTicks]);
 
 
   /**
@@ -1690,7 +1704,9 @@ export function CandleChart({
           : mainSeriesDatum(kind, liveOhlc, override
             ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)));
       } else if (transform !== null) {
-        const params = transformParams(kind, priceTick);
+        if ((transform === "kagi" || transform === "pointAndFigure")
+          && !(priceTick && priceTick > 0)) return;
+        const params = transformParams(kind, priceTick ?? undefined);
         const advanced = advanceTransform(
           transformHeadRef.current, transform, params, list
         );
@@ -2020,6 +2036,17 @@ export function CandleChart({
             series={seriesRef.current}
             profiles={priceProfiles}
           />
+          {chartType === "footprint" && (
+            <FootprintLayer
+              container={containerRef.current}
+              chart={chartRef.current}
+              series={seriesRef.current}
+              trades={marketTrades ?? []}
+              intervalMs={Math.max(60_000, resolutionMs(interval))}
+              tickSize={priceTick && priceTick > 0 ? priceTick : null}
+              unavailable={marketTradesError || (priceTick && priceTick > 0 ? null : "Footprint unavailable: provider tick size is not known")}
+            />
+          )}
           {/* Script drawings sit under the user's own drawing layer, so the
               user's tools keep priority for clicks and hit-testing. */}
           <PineDrawingLayer
@@ -2132,6 +2159,13 @@ export function CandleChart({
           <span aria-hidden="true">◆ </span>
           {syntheticDisclosure(chartType)}
           <span className="sr-only"> — {SYNTHETIC_DISCLOSURE_HINT}</span>
+        </div>
+      )}
+      {chartType === "footprint" && (marketTradesError || !priceTick || (marketTrades?.length ?? 0) === 0) && (
+        <div role="status" className="rounded-sm border border-warn/40 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-warn">
+          {marketTradesError ?? (!priceTick
+            ? "Volume footprint unavailable: provider tick size is not known."
+            : "Volume footprint has no executions in the requested window.")}
         </div>
       )}
       {settings.showStatusLine && legend && (

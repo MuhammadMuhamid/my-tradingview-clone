@@ -61,6 +61,7 @@ import {
 } from "@/lib/useClassicalPatterns";
 import { ClassicalPatternControls } from "@/components/tv/ClassicalPatternControls";
 import type { MaAlert } from "@/lib/api";
+import { tradesThroughHorizon } from "@/lib/tradeChartTransforms";
 
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
 const NO_FIRED: ChartMarker[] = [];
@@ -71,6 +72,7 @@ import { pricePrecision } from "@/lib/movingAverages";
 import { type Candle, type Trade } from "@/lib/types";
 import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
 import { isCanonicalInstrumentId } from "@/lib/instrument";
+import { resolvePriceTick } from "@/lib/priceTick";
 import { computeTpoProfile, computeVolumeProfile, DEFAULT_PROFILE_SETTINGS } from "@/lib/volumeProfile";
 import { PROFILE_COLORS } from "@/lib/native/profile";
 
@@ -262,14 +264,13 @@ function ChartPaneImpl(props: ChartPaneProps) {
     symbol: pane.symbol, interval: pane.interval, bars: pane.bars,
   });
   const tradeMode = pane.chartType === "range" || pane.chartType === "footprint";
-  const marketTrades = useMarketTrades(pane.symbol, tradeMode && !replayActive);
-  const [priceTick, setPriceTick] = useState<number>(0.01);
+  const marketTrades = useMarketTrades(pane.symbol, tradeMode, replay?.horizonCloseTime ?? null);
+  const [priceTick, setPriceTick] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     void api.listSymbols().then((rows) => {
       if (cancelled) return;
-      const row = rows.find((item) => item.symbol.toUpperCase() === pane.symbol.toUpperCase());
-      if (row?.priceTick && row.priceTick > 0) setPriceTick(row.priceTick);
+      setPriceTick(resolvePriceTick(rows, pane.symbol));
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [pane.symbol]);
@@ -857,7 +858,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
             dataset={history.dataset}
             chartType={pane.chartType}
             trades={indicators.trades ?? (replayActive ? [] : props.strategyTrades)}
-            marketTrades={marketTrades.trades}
+            marketTrades={tradesThroughHorizon(marketTrades.trades, replay?.horizonCloseTime ?? null)}
+            marketTradesError={marketTrades.error}
             priceTick={priceTick}
             overlays={overlays}
             decorations={decorations}

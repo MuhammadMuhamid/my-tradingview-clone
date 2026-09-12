@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type MarketTrade } from "./api";
 import {
   aggregateTradeStreamName, marketStreams, singleStreamPath,
@@ -15,10 +15,17 @@ export interface MarketTradesState {
 interface RawAggregateTrade { a?: number; p?: string; q?: string; T?: number; m?: boolean }
 
 /** Historical + live ordered public executions for trade-driven charts. */
-export function useMarketTrades(symbol: string, enabled: boolean): MarketTradesState {
+export function useMarketTrades(symbol: string, enabled: boolean, replayToMs?: number | null): MarketTradesState {
   const [state, setState] = useState<MarketTradesState>({ trades: [], loading: false, error: null });
+  const replayTargetRef = useRef<number | null>(replayToMs ?? null);
+  const previousReplayMode = useRef(replayToMs != null);
+  const previousSymbol = useRef(symbol);
 
+  const replayMode = replayToMs != null;
   useEffect(() => {
+    if (replayMode && (!previousReplayMode.current || previousSymbol.current !== symbol)) replayTargetRef.current = replayToMs ?? null;
+    previousReplayMode.current = replayMode;
+    previousSymbol.current = symbol;
     const parts = canonicalDisplayParts(symbol);
     const providerSymbol = parts?.venue === "BINANCE" && parts.base && parts.quote
       ? `${parts.base}${parts.quote}` : symbol;
@@ -36,7 +43,8 @@ export function useMarketTrades(symbol: string, enabled: boolean): MarketTradesS
       try {
         // A bounded recent tape is preferable to a silent partial seven-day
         // range on liquid markets. The response is ordered and capped at 50k.
-        const to = Date.now();
+        const to = replayMode && replayTargetRef.current && Number.isFinite(replayTargetRef.current)
+          ? replayTargetRef.current : Date.now();
         const rows = await api.marketTrades(providerSymbol, to - 30 * 60_000, to, 50_000, controller.signal);
         if (!disposed && generation === reload) setState({ trades: rows, loading: false, error: null });
       } catch (error) {
@@ -78,7 +86,10 @@ export function useMarketTrades(symbol: string, enabled: boolean): MarketTradesS
       },
     });
     return () => { disposed = true; controller.abort(); release(); };
-  }, [symbol, enabled]);
+  // replayToMs is intentionally sampled only when entering replay; subsequent
+  // horizon steps clip the already-loaded tape without refetching.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, enabled, replayMode]);
 
   return state;
 }
