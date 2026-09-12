@@ -26,7 +26,7 @@ import type { ChartProfileDecoration } from "@/lib/chartSeries";
 /** Any main-series presentation: only `priceToCoordinate` is used. */
 type PriceSeries =
   | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
-  | ISeriesApi<"Area"> | ISeriesApi<"Baseline">;
+  | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | ISeriesApi<"Histogram">;
 
 /** A row thinner than this is drawn without its separating gap. */
 const GAP_THRESHOLD_PX = 3;
@@ -169,6 +169,30 @@ export function VolumeProfileLayer({
             inArea ? profile.colors.valueArea : profile.colors.total,
             inArea ? IN_AREA_ALPHA : OUT_AREA_ALPHA);
         }
+      }
+
+      if (profile.labels && profile.labels.length > 0) {
+        const byRow = new Map<number, string>();
+        for (const label of profile.labels) {
+          const previous = byRow.get(label.rowIndex) ?? "";
+          if (!previous.includes(label.label)) byRow.set(label.rowIndex, previous + label.label);
+        }
+        ctx.save();
+        ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillStyle = profile.colors.valueArea;
+        ctx.globalAlpha = 0.9;
+        for (const [rowIndex, text] of byRow) {
+          const row = profile.rows[rowIndex];
+          if (!row) continue;
+          const yHigh = series.priceToCoordinate(row.high) as number | null;
+          const yLow = series.priceToCoordinate(row.low) as number | null;
+          if (yHigh === null || yLow === null) continue;
+          const y = (yHigh + yLow) / 2 + 3;
+          const x = profile.side === "left" ? anchor + 4 : anchor - 4;
+          ctx.textAlign = profile.side === "left" ? "left" : "right";
+          ctx.fillText(text, x, y);
+        }
+        ctx.restore();
       }
 
       if (profile.showPoc && profile.pocIndex >= 0) {

@@ -23,6 +23,7 @@ import type { Candle } from "../lib/types";
 import {
   MAX_PROFILE_REFINEMENT_BARS, profileRefinementPlan,
 } from "../lib/useVolumeProfileRefinement";
+import { computeTpoProfile, DEFAULT_PROFILE_SETTINGS } from "../lib/volumeProfile";
 
 const MINUTE = 60_000;
 const T0 = 1_700_000_000_000;
@@ -38,6 +39,14 @@ function bars(count: number): Candle[] {
 }
 
 const vrvp = studyById("vrvp")!;
+
+test("TPO counts one bracket per source bar and exposes letters", () => {
+  const profile = computeTpoProfile(bars(4), DEFAULT_PROFILE_SETTINGS, "1m");
+  assert.equal(profile.bars, 4);
+  assert.ok(profile.totalVolume >= 4);
+  assert.ok(profile.tpoLabels?.some((label) => label.label === "A"));
+  assert.ok(profile.tpoLabels?.some((label) => label.label === "D"));
+});
 
 test("the visible-range profile exists and declares what makes it different", () => {
   assert.ok(vrvp, "vrvp is in the catalog");
@@ -226,11 +235,32 @@ test("a hidden fixed range is stored but not drawn", () => {
   assert.equal(fixedRangeDecorations([range("a", 0, 10)], series, "1m").length, 1);
 });
 
-test("only vprange drawings profile anything", () => {
+test("timeframe-scoped profiles are omitted outside their allow-list", () => {
+  const scoped = range("scoped", 0, 10, { visibleOn: ["5m"] });
+  assert.equal(fixedRangeProfiles([scoped], bars(30), "1m").length, 0);
+  assert.equal(fixedRangeProfiles([scoped], bars(30), "5m").length, 1);
+});
+
+test("only range-profile drawings profile anything", () => {
   const series = bars(30);
   const trend = range("t", 0, 10, { tool: "trend" });
   assert.equal(fixedRangeProfiles([trend], series, "1m").length, 0);
   assert.equal(fixedRangeOverlays([trend], series, "1m", 2).length, 0);
+});
+
+test("anchored volume profile reuses the range engine through the current tail", () => {
+  const series = bars(30);
+  const anchored: Drawing = {
+    id: "anchor", tool: "avprofile",
+    points: [{ time: (T0 + 10 * MINUTE) / 1000, price: 110 }],
+    style: { color: "#4f8cff", width: 2 },
+  };
+  const found = fixedRangeProfiles([anchored], series, "1m");
+  assert.equal(found.length, 1);
+  assert.equal(found[0]!.profile.from, T0 + 10 * MINUTE);
+  assert.equal(found[0]!.profile.to, T0 + 29 * MINUTE);
+  assert.equal(found[0]!.profile.bars, 20);
+  assert.equal(fixedRangeDecorations([anchored], series, "1m")[0]!.showRange, false);
 });
 
 test("a fixed range outlines itself and takes its value-area colour from its style", () => {

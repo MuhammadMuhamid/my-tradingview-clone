@@ -37,7 +37,7 @@ import type { PriceScaleState } from "@/lib/priceScale";
 import type { AppliedIndicator } from "@/lib/indicators";
 import { buildMaOverlays } from "@/lib/movingAverages";
 import { drawingStore } from "@/lib/drawingStore";
-import type { Drawing, DrawingTool } from "@/lib/drawings";
+import { drawingVisibleOnTimeframe, type Drawing, type DrawingTool } from "@/lib/drawings";
 import { useCandleHistory } from "@/lib/useCandleHistory";
 import { datasetKey } from "@/lib/liveDataset";
 import { paneDensity, type PaneDensity } from "@/lib/layoutPresets";
@@ -69,6 +69,8 @@ import { pricePrecision } from "@/lib/movingAverages";
 import { type Candle, type Trade } from "@/lib/types";
 import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
 import { isCanonicalInstrumentId } from "@/lib/instrument";
+import { computeTpoProfile, computeVolumeProfile, DEFAULT_PROFILE_SETTINGS } from "@/lib/volumeProfile";
+import { PROFILE_COLORS } from "@/lib/native/profile";
 
 export interface ChartPaneProps {
   pane: PaneState;
@@ -349,8 +351,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
     () => anchoredVwapOverlays(
       drawingsAtReplayHorizon(replay, drawings, props.replayDrawings),
       visibleCandles,
-      pricePrecision(visibleCandles[visibleCandles.length - 1]?.close ?? 0)),
-    [replay, drawings, props.replayDrawings, visibleCandles]);
+      pricePrecision(visibleCandles[visibleCandles.length - 1]?.close ?? 0),
+      pane.interval),
+    [replay, drawings, props.replayDrawings, visibleCandles, pane.interval]);
 
   /*
    * The second instrument, loaded once for this pane.
@@ -394,7 +397,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
     let fromMs = Number.POSITIVE_INFINITY;
     let toMs = Number.NEGATIVE_INFINITY;
     for (const drawing of fixedProfileDrawings) {
-      if (drawing.tool !== "vprange" || drawing.hidden) continue;
+      if (drawing.tool !== "vprange" || drawing.hidden || !drawingVisibleOnTimeframe(drawing, pane.interval)) continue;
       const a = drawing.points[0]?.time;
       const b = drawing.points[1]?.time ?? a;
       if (a === undefined || b === undefined) continue;
@@ -436,18 +439,82 @@ function ChartPaneImpl(props: ChartPaneProps) {
       fixedRefinementInput),
     [fixedProfileDrawings, visibleCandles, pane.interval, fixedRefinementInput]);
 
+  const hlcOverlays = useMemo(() => pane.chartType === "hlcArea" ? [
+    {
+      id: `hlc:${paneId}:high`, title: "High", color: "#a8a8a8", width: 1,
+      dashed: true, style: "line" as const, paneId: "price",
+      data: visibleCandles.map((c) => ({ time: c.openTime / 1000, value: c.high })),
+    },
+    {
+      id: `hlc:${paneId}:low`, title: "Low", color: "#a8a8a8", width: 1,
+      dashed: true, style: "line" as const, paneId: "price",
+      data: visibleCandles.map((c) => ({ time: c.openTime / 1000, value: c.low })),
+    },
+  ] : [], [pane.chartType, paneId, visibleCandles]);
+
+  const hlcDecorations = useMemo(() => pane.chartType === "hlcArea" ? [{
+    kind: "fill" as const, id: `hlc:${paneId}:range`, paneId: "price",
+    firstId: `hlc:${paneId}:high`, secondId: `hlc:${paneId}:low`, fillgaps: false,
+    data: visibleCandles.map((c) => ({
+      time: c.openTime / 1000, color: "rgba(79, 140, 255, 0.12)",
+    })),
+  }] : [], [pane.chartType, paneId, visibleCandles]);
+
+  const sessionProfileDecorations = useMemo(() => {
+    if (pane.chartType !== "sessionVolumeProfile" || visibleCandles.length === 0) return [];
+    const latest = visibleCandles[visibleCandles.length - 1]!;
+    const dayStart = Math.floor(latest.openTime / 86_400_000) * 86_400_000;
+    const session = visibleCandles.filter((c) => c.openTime >= dayStart);
+    const profile = computeVolumeProfile(session, DEFAULT_PROFILE_SETTINGS, pane.interval, "chart");
+    if (profile.rows.length === 0 || profile.from === null || profile.to === null) return [];
+    return [{
+      kind: "profile" as const, id: `session-profile:${paneId}`, paneId: "price",
+      title: "Session Volume Profile", basis: profile.basis,
+      sourceInterval: profile.sourceInterval,
+      basisNotice: `UTC session estimate from ${profile.bars} ${profile.sourceInterval} bars`,
+      from: Math.floor(profile.from / 1000), to: Math.floor(profile.to / 1000) + 1,
+      rows: profile.rows, pocIndex: profile.pocIndex, valueAreaRows: profile.valueAreaRows,
+      peakVolume: profile.peakVolume, split: "total" as const, showValueArea: true,
+      showPoc: true, showRange: false, side: "right" as const, widthRatio: 0.3,
+      colors: { ...PROFILE_COLORS },
+    }];
+  }, [pane.chartType, pane.interval, paneId, visibleCandles]);
+
+  const tpoDecorations = useMemo(() => {
+    if (pane.chartType !== "tpo" || visibleCandles.length === 0) return [];
+    const latest = visibleCandles[visibleCandles.length - 1]!;
+    const dayStart = Math.floor(latest.openTime / 86_400_000) * 86_400_000;
+    const session = visibleCandles.filter((c) => c.openTime >= dayStart);
+    const profile = computeTpoProfile(session, DEFAULT_PROFILE_SETTINGS, pane.interval, "chart");
+    if (profile.rows.length === 0 || profile.from === null || profile.to === null) return [];
+    return [{
+      kind: "profile" as const, id: `tpo:${paneId}`, paneId: "price",
+      title: "Time Price Opportunity", basis: profile.basis,
+      sourceInterval: profile.sourceInterval,
+      basisNotice: `TPO count from ${profile.bars} ${profile.sourceInterval} bars; each bar contributes one opportunity to every row its range touched`,
+      from: Math.floor(profile.from / 1000), to: Math.floor(profile.to / 1000) + 1,
+      rows: profile.rows, pocIndex: profile.pocIndex, valueAreaRows: profile.valueAreaRows,
+      labels: profile.tpoLabels,
+      peakVolume: profile.peakVolume, split: "total" as const, showValueArea: true,
+      showPoc: true, showRange: false, side: "right" as const, widthRatio: 0.3,
+      colors: { ...PROFILE_COLORS, total: "#a855f7", valueArea: "#a855f7" },
+    }];
+  }, [pane.chartType, pane.interval, paneId, visibleCandles]);
+
   const baseOverlays = useMemo(
     () => [
-      ...maOverlays, ...avwapOverlays, ...fixedProfileOverlays, ...compared.overlays,
+      ...maOverlays, ...avwapOverlays, ...fixedProfileOverlays, ...hlcOverlays, ...compared.overlays,
       ...nativeStudies.overlays, ...indicators.overlays,
     ],
-    [maOverlays, avwapOverlays, fixedProfileOverlays, compared.overlays,
+    [maOverlays, avwapOverlays, fixedProfileOverlays, hlcOverlays, compared.overlays,
       nativeStudies.overlays, indicators.overlays]);
   const decorations = useMemo(
     () => [
-      ...fixedProfileDecorations, ...nativeStudies.decorations, ...indicators.decorations,
+      ...fixedProfileDecorations, ...sessionProfileDecorations, ...tpoDecorations, ...hlcDecorations,
+      ...nativeStudies.decorations, ...indicators.decorations,
     ],
-    [fixedProfileDecorations, nativeStudies.decorations, indicators.decorations]);
+    [fixedProfileDecorations, sessionProfileDecorations, tpoDecorations, hlcDecorations,
+      nativeStudies.decorations, indicators.decorations]);
 
   const markers = useMemo(
     () => [...indicators.markers, ...props.markers], [indicators.markers, props.markers]);

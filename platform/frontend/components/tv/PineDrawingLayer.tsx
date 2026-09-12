@@ -31,7 +31,7 @@ export function PineDrawingLayer({
    * which every series kind has — so widening it costs nothing.
    */
   series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
-    | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | null;
+    | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | ISeriesApi<"Histogram"> | null;
   candles: Candle[];
   drawings: PineDrawings | null;
 }) {

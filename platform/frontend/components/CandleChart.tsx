@@ -35,15 +35,16 @@ import {
   type ChartProfileDecoration,
 } from "@/lib/chartSeries";
 import {
-  chartTransform, legendSource, mainSeriesDatum, renderKind, renkoParams,
+  chartTransform, legendSource, mainSeriesDatum, renderKind, transformParams,
   syntheticDisclosure, timeAnchoredVisualsTruthful,
   RENKO_ALIGNMENT_NOTE, SYNTHETIC_DISCLOSURE_HINT,
   type ChartRenderKind, type ChartType, type LegendSource, type MainSeriesDatum,
   type OhlcBar,
 } from "@/lib/chartType";
+import { hasLineMarkers, isVolumeCandle } from "@/lib/chartType";
 import {
-  canonicalOpenTime, isRenkoBrick, transformAll, transformStep,
-  DEFAULT_RENKO_ATR_PERIOD, type TransformCursor, type TransformKind,
+  canonicalOpenTime, isRenkoBrick, isPointFigureColumn, transformAll, transformStep,
+  type TransformCursor, type TransformKind, type TransformParams,
 } from "@/lib/chartTransforms";
 import {
   DEFAULT_PRICE_SCALE, priceScaleLabel, priceScaleModeLabel, resetPriceScale,
@@ -250,7 +251,7 @@ function customCandleDatum(point: ChartPoint): CandlestickData<Time> | Whitespac
  */
 type MainSeriesApi =
   | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
-  | ISeriesApi<"Area"> | ISeriesApi<"Baseline">;
+  | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | ISeriesApi<"Histogram">;
 
 function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[]): void {
   const data = rows as unknown;
@@ -258,6 +259,7 @@ function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeries
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).setData(data as CandlestickData<Time>[]);
   else if (kind === "bars") (api as ISeriesApi<"Bar">).setData(data as BarData<Time>[]);
   else if (kind === "area") (api as ISeriesApi<"Area">).setData(data as AreaData<Time>[]);
+  else if (kind === "histogram") (api as ISeriesApi<"Histogram">).setData(data as HistogramData<Time>[]);
   else if (kind === "baseline") (api as ISeriesApi<"Baseline">).setData(data as LineData<Time>[]);
   else (api as ISeriesApi<"Line">).setData(data as LineData<Time>[]);
 }
@@ -268,6 +270,7 @@ function updateMainSeries(api: MainSeriesApi, type: ChartType, row: MainSeriesDa
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).update(datum as CandlestickData<Time>);
   else if (kind === "bars") (api as ISeriesApi<"Bar">).update(datum as BarData<Time>);
   else if (kind === "area") (api as ISeriesApi<"Area">).update(datum as AreaData<Time>);
+  else if (kind === "histogram") (api as ISeriesApi<"Histogram">).update(datum as HistogramData<Time>);
   else if (kind === "baseline") (api as ISeriesApi<"Baseline">).update(datum as LineData<Time>);
   else (api as ISeriesApi<"Line">).update(datum as LineData<Time>);
 }
@@ -286,11 +289,14 @@ function addMainSeries(
      * making the outline neutral would remove it.
      */
     const hollow = type === "hollowCandles";
+    const highLow = type === "highLow";
     return chart.addCandlestickSeries({
-      upColor: hollow ? "rgba(0,0,0,0)" : CHART_UP,
-      downColor: CHART_DOWN,
-      borderUpColor: CHART_UP, borderDownColor: CHART_DOWN,
-      wickUpColor: CHART_UP, wickDownColor: CHART_DOWN,
+      upColor: highLow ? "rgba(0,0,0,0)" : hollow ? "rgba(0,0,0,0)" : CHART_UP,
+      downColor: highLow ? "rgba(0,0,0,0)" : CHART_DOWN,
+      borderUpColor: highLow ? "rgba(0,0,0,0)" : CHART_UP,
+      borderDownColor: highLow ? "rgba(0,0,0,0)" : CHART_DOWN,
+      wickUpColor: highLow ? CHART_ACCENT : CHART_UP,
+      wickDownColor: highLow ? CHART_ACCENT : CHART_DOWN,
     });
   }
   if (kind === "baseline") {
@@ -323,12 +329,24 @@ function addMainSeries(
       priceLineVisible: false,
     });
   }
+  if (kind === "histogram") {
+    return chart.addHistogramSeries({
+      color: CHART_ACCENT, base: 0, priceLineVisible: false,
+      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+    });
+  }
   return chart.addLineSeries({
     color: CHART_ACCENT, lineWidth: 2, priceLineVisible: false,
     // A step holds each close until the next one, which is what a close IS —
     // the price at one instant, not a path between two of them.
     lineType: type === "stepLine" ? LineType.WithSteps : LineType.Simple,
   });
+}
+
+function volumeCandleColor(candle: Candle, max: number): string {
+  const ratio = max > 0 ? Math.max(0.18, Math.min(1, candle.volume / max)) : 0.5;
+  const alpha = Math.round((0.35 + ratio * 0.6) * 255).toString(16).padStart(2, "0");
+  return candle.close >= candle.open ? `${CHART_UP}${alpha}` : `${CHART_DOWN}${alpha}`;
 }
 
 /**
@@ -344,7 +362,7 @@ function addMainSeries(
  */
 interface TransformHead {
   kind: TransformKind;
-  atrPeriod: number;
+  params: TransformParams;
   /** Canonical bars already folded into `cursor`. */
   bars: number;
   cursor: TransformCursor;
@@ -360,11 +378,11 @@ function withFormingBar(head: TransformHead, candles: readonly Candle[]): OhlcBa
 
 /** Fold the whole canonical series from scratch. */
 function rebuildTransform(
-  kind: TransformKind, atrPeriod: number, candles: readonly Candle[]
+  kind: TransformKind, params: TransformParams, candles: readonly Candle[]
 ): { head: TransformHead; display: OhlcBar[] } {
   const closed = candles.length > 0 ? candles.slice(0, -1) : [];
-  const { cursor, output } = transformAll(kind, closed, { atrPeriod });
-  const head: TransformHead = { kind, atrPeriod, bars: closed.length, cursor, output };
+  const { cursor, output } = transformAll(kind, closed, params);
+  const head: TransformHead = { kind, params, bars: closed.length, cursor, output };
   return { head, display: withFormingBar(head, candles) };
 }
 
@@ -377,13 +395,13 @@ function rebuildTransform(
  * fast path can only ever be taken when it is exactly equal to the slow one.
  */
 function advanceTransform(
-  head: TransformHead | null, kind: TransformKind, atrPeriod: number,
+  head: TransformHead | null, kind: TransformKind, params: TransformParams,
   candles: readonly Candle[]
 ): { head: TransformHead; display: OhlcBar[] } {
   const closedCount = candles.length - 1;
-  if (!head || head.kind !== kind || head.atrPeriod !== atrPeriod
+  if (!head || head.kind !== kind || JSON.stringify(head.params) !== JSON.stringify(params)
     || head.bars > closedCount || closedCount - head.bars > 1) {
-    return rebuildTransform(kind, atrPeriod, candles);
+    return rebuildTransform(kind, params, candles);
   }
   let next = head;
   if (head.bars === closedCount - 1) {
@@ -866,6 +884,20 @@ export function CandleChart({
           volume: canonical ? canonical.volume : null, chg, chgPct,
         };
       }
+      if (kind === "pointFigureColumn") {
+        if (!isPointFigureColumn(bar)) return null;
+        return {
+          kind, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+          volume: null, chg, chgPct,
+          brick: { direction: bar.direction, size: bar.boxSize, sourceOpenTime: bar.sourceOpenTime },
+        };
+      }
+      if (kind === "kagiPoint" || kind === "lineBreakLine") {
+        return {
+          kind, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+          volume: null, chg, chgPct,
+        };
+      }
       // Renko. A brick has an open and a close and nothing else that a candle
       // readout would name: its "high" and "low" are the same two numbers, it
       // spans no period, and it has no volume. So the renderer is given the
@@ -898,7 +930,7 @@ export function CandleChart({
   const latestLegend = useCallback((): LegendBar | null => {
     const n = candlesRef.current.length;
     if (n === 0) return null;
-    if (legendSource(mainKindRef.current) === "renkoBrick") {
+    if (legendSource(mainKindRef.current) !== "canonical" && legendSource(mainKindRef.current) !== "heikinAshi") {
       const last = displayRef.current.length - 1;
       return last < 0 ? null : buildLegend(n - 1, last);
     }
@@ -1107,8 +1139,11 @@ export function CandleChart({
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
     const kind = mainKindRef.current;
     const transform = chartTransform(kind);
+    const maxVolume = candles.reduce((max, candle) => Number.isFinite(candle.volume)
+      ? Math.max(max, candle.volume) : max, 0);
     const candleDatum = (c: Candle) =>
-      mainSeriesDatum(kind, c, nextColors.get(c.openTime / 1000) ?? null);
+      mainSeriesDatum(kind, c, nextColors.get(c.openTime / 1000)
+        ?? (isVolumeCandle(kind) ? volumeCandleColor(c, maxVolume) : null));
     const volumeDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       value: c.volume,
@@ -1122,7 +1157,7 @@ export function CandleChart({
      * reinterpretation — a brick is not a time bar, so there is no honest
      * volume to put under it and none is drawn.
      */
-    if (transform === "renko") {
+    if (transform !== null && transform !== "heikinAshi") {
       if (volumeDrawnRef.current) {
         vol.setData([]);
         volumeDrawnRef.current = false;
@@ -1138,10 +1173,15 @@ export function CandleChart({
       transformHeadRef.current = null;
       displayRef.current = [];
       if (mutation === "replace") {
-        setMainSeriesData(series, kind, candles.map(candleDatum));
+        const rows = kind === "columns"
+          ? candles.map((c) => ({ time: c.openTime / 1000, value: c.close }))
+          : candles.map(candleDatum);
+        setMainSeriesData(series, kind, rows);
         mainSeriesDirtyRef.current = false;
       } else if (mutation === "update" && candles.length > 0) {
-        updateMainSeries(series, kind, candleDatum(candles[candles.length - 1]!));
+        const last = candles[candles.length - 1]!;
+        updateMainSeries(series, kind, kind === "columns"
+          ? { time: last.openTime / 1000, value: last.close } : candleDatum(last));
       }
     } else {
       /*
@@ -1150,8 +1190,8 @@ export function CandleChart({
        * everything downstream of this component; only the bars handed to the
        * price series are derived.
        */
-      const atrPeriod = renkoParams(kind)?.atrPeriod ?? DEFAULT_RENKO_ATR_PERIOD;
-      const rebuilt = rebuildTransform(transform, atrPeriod, candles);
+      const params = transformParams(kind);
+      const rebuilt = rebuildTransform(transform, params, candles);
       transformHeadRef.current = rebuilt.head;
       const display = rebuilt.display;
       // A `barcolor()` override describes one canonical bar. Heikin Ashi keeps
@@ -1221,8 +1261,20 @@ export function CandleChart({
       ? candles[candles.length - 1]!.openTime / 1000 : 0;
     const inWindow = (t: number): boolean => t >= firstT && t <= lastT;
 
-    if (candles.length > 0 && ((trades?.length ?? 0) > 0 || (markers?.length ?? 0) > 0)) {
+    if (candles.length > 0 && (hasLineMarkers(chartType)
+      || (trades?.length ?? 0) > 0 || (markers?.length ?? 0) > 0)) {
       const drawn: SeriesMarker<Time>[] = [];
+      if (hasLineMarkers(chartType)) {
+        for (const candle of candles) {
+          drawn.push({
+            time: (candle.openTime / 1000) as UTCTimestamp,
+            position: "inBar",
+            color: candle.close >= candle.open ? CHART_UP : CHART_DOWN,
+            shape: "circle",
+            text: "",
+          });
+        }
+      }
       /*
        * Past a point, a label stops being a label.
        *
@@ -1277,7 +1329,7 @@ export function CandleChart({
     } else {
       series.setMarkers([]);
     }
-  }, [candles, trades, markers, chartReady, timeAnchored]);
+  }, [candles, trades, markers, chartReady, timeAnchored, chartType]);
 
   // Live stop / target / entry levels for a running position.
   useEffect(() => {
@@ -1547,15 +1599,21 @@ export function CandleChart({
 
       const kind = mainKindRef.current;
       const transform = chartTransform(kind);
+      const maxVolume = list.reduce((max, candle) => Number.isFinite(candle.volume)
+        ? Math.max(max, candle.volume) : max, 0);
       if (transform === null) {
-        updateMainSeries(series, kind, mainSeriesDatum(kind, {
+        const liveOhlc = {
           openTime: tick.openTime, open: tick.open, high: tick.high,
           low: tick.low, close: tick.close,
-        }, override));
+        };
+        updateMainSeries(series, kind, kind === "columns"
+          ? { time: timeSec, value: tick.close }
+          : mainSeriesDatum(kind, liveOhlc, override
+            ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)));
       } else {
-        const atrPeriod = renkoParams(kind)?.atrPeriod ?? DEFAULT_RENKO_ATR_PERIOD;
+        const params = transformParams(kind);
         const advanced = advanceTransform(
-          transformHeadRef.current, transform, atrPeriod, list
+          transformHeadRef.current, transform, params, list
         );
         transformHeadRef.current = advanced.head;
         const display = advanced.display;
@@ -1634,12 +1692,9 @@ export function CandleChart({
     const transform = chartTransform(chartType);
     if (transform === "renko") {
       /*
-       * The incoming time is canonical, because that is the only kind this
-       * chart ever publishes. It is mapped onto the LAST brick that canonical
-       * bar completed — through `canonicalOpenTime`, never by comparing the
-       * brick's own rendering time with another pane's market timestamps. A
-       * moment that completed no brick draws nothing, which is the same
-       * "no bar here" answer a pane on another instrument gives.
+       * Synthetic columns/lines carry their source bar timestamp separately
+       * from the strictly increasing display timestamp. Mapping through that
+       * source keeps replay and cross-pane interaction on canonical market time.
        */
       const display = displayRef.current;
       const brickIndex = snapToBarIndexBy(
@@ -1844,7 +1899,10 @@ export function CandleChart({
   const chgUp = legend ? legend.chg >= 0 : true;
   const px = up ? "text-up" : "text-down";
   const legendLabel = legend?.kind === "heikinAshi" ? "HA"
-    : legend?.kind === "renkoBrick" ? "Brick" : null;
+    : legend?.kind === "renkoBrick" ? "Brick"
+      : legend?.kind === "pointFigureColumn" ? "P&F"
+        : legend?.kind === "kagiPoint" ? "Kagi"
+          : legend?.kind === "lineBreakLine" ? "Line break" : null;
 
   return (
     <div className={`flex ${fill ? "h-full" : "h-[520px]"} w-full flex-col overflow-hidden`}>
@@ -2027,7 +2085,7 @@ export function CandleChart({
               <span className="sr-only"> — displayed values, not exchange prices</span>
             </span>
           )}
-          {legend.kind === "renkoBrick" && legend.brick ? (
+          {(legend.kind === "renkoBrick" || legend.kind === "pointFigureColumn") && legend.brick ? (
             <>
               {/*
                 A brick, described as a brick. It has an open and a close and a
@@ -2041,7 +2099,7 @@ export function CandleChart({
                 {legend.brick.direction > 0 ? "▲" : "▼"} {fmtPrice(legend.open)} → {fmtPrice(legend.close)}
               </span>
               <span className="hidden sm:inline">
-                size <span className="text-ink">{fmtPrice(legend.brick.size)}</span>
+                {legend.kind === "pointFigureColumn" ? "box" : "size"} <span className="text-ink">{fmtPrice(legend.brick.size)}</span>
               </span>
               <span className="hidden lg:inline">
                 from <span className="text-ink">

@@ -1982,6 +1982,7 @@ export default function TvWorkspace() {
       <DrawingSettingsModal
         open={drawingSettingsOpen && selectedDrawing !== null}
         drawing={selectedDrawing}
+        interval={interval}
         onClose={() => setDrawingSettingsOpen(false)}
         onChange={(next) => {
           if (!selectedDrawing) return;

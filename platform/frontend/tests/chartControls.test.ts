@@ -808,7 +808,7 @@ test("LEGEND — Renko prints a brick, not a fabricated time candle", () => {
     assert.ok(brick.size > 0);
   }
   // So the readout is direction, open → close, size, and the canonical time.
-  assert.match(CHART, /legend\.kind === "renkoBrick" && legend\.brick \?/);
+  assert.match(CHART, /legend\.kind === "renkoBrick" \|\| legend\.kind === "pointFigureColumn"/);
   assert.match(CHART, /fmtChartBarTime\(legend\.brick\.sourceOpenTime, resolutionMs\(interval\)\)/);
   // And it carries no volume: a brick is not a bar and has no traded size.
   const build = CHART.slice(CHART.indexOf("if (!isRenkoBrick(bar)) return null;"));

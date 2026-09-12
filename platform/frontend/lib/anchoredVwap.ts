@@ -34,7 +34,8 @@
 import { anchoredVwap, anchoredVwapDeviation } from "@/lib/ta/core";
 import type { ChartOverlay } from "@/lib/chartSeries";
 import { PRICE_PANE_ID } from "@/lib/chartSeries";
-import type { Drawing } from "@/lib/drawings";
+import { drawingVisibleOnTimeframe, type Drawing } from "@/lib/drawings";
+import type { Resolution } from "@/lib/resolution";
 import type { Candle } from "@/lib/types";
 
 /** The tool id. One anchor, chosen by clicking a bar. */
@@ -80,7 +81,8 @@ export function anchorBarIndex(candles: readonly Candle[], anchorTimeSeconds: nu
  * exactly its own lines.
  */
 export function anchoredVwapOverlays(
-  drawings: readonly Drawing[], candles: readonly Candle[], precision: number
+  drawings: readonly Drawing[], candles: readonly Candle[], precision: number,
+  interval?: Resolution,
 ): ChartOverlay[] {
   if (candles.length === 0) return [];
   const times = candles.map((c) => Math.floor(c.openTime / 1000));
@@ -90,6 +92,7 @@ export function anchoredVwapOverlays(
 
   for (const drawing of drawings) {
     if (drawing.tool !== AVWAP_TOOL) continue;
+    if (drawing.hidden || (interval !== undefined && !drawingVisibleOnTimeframe(drawing, interval))) continue;
     const anchorTime = drawing.points[0]?.time;
     if (anchorTime === undefined) continue;
     const index = anchorBarIndex(candles, anchorTime);

@@ -78,6 +78,8 @@ export interface ChartProfileDecoration {
   widthRatio: number;
   /** Rows, low price first. `high` is the row's upper price edge. */
   rows: readonly { low: number; high: number; total: number; up: number; down: number }[];
+  /** Optional bracket letters for a TPO profile. */
+  labels?: readonly { rowIndex: number; label: string }[];
   /** Row index of the point of control, or −1. */
   pocIndex: number;
   /** Row indices inside the value area, ascending; empty when there is none. */

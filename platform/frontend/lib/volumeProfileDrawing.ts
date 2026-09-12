@@ -30,7 +30,7 @@
  * because those bars are not in the array.
  */
 import { PRICE_PANE_ID, type ChartOverlay, type ChartProfileDecoration } from "@/lib/chartSeries";
-import type { Drawing } from "@/lib/drawings";
+import { drawingVisibleOnTimeframe, type Drawing } from "@/lib/drawings";
 import { PROFILE_COLORS } from "@/lib/native/profile";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import type { Candle } from "@/lib/types";
@@ -82,10 +82,11 @@ export function fixedRangeProfiles(
   if (candles.length === 0) return [];
   const out: FixedRangeProfile[] = [];
   for (const drawing of drawings) {
-    if (drawing.tool !== VP_RANGE_TOOL) continue;
-    if (drawing.hidden) continue;
+    if (drawing.tool !== VP_RANGE_TOOL && drawing.tool !== "avprofile") continue;
+    if (drawing.hidden || !drawingVisibleOnTimeframe(drawing, interval)) continue;
     const a = drawing.points[0]?.time;
-    const b = drawing.points[1]?.time ?? a;
+    const b = drawing.tool === "avprofile"
+      ? (candles[candles.length - 1]?.openTime ?? a / 1000) : (drawing.points[1]?.time ?? a);
     if (a === undefined || b === undefined) continue;
     const fromMs = Math.min(a, b) * 1000;
     const toMs = Math.max(a, b) * 1000;
@@ -164,7 +165,7 @@ export function fixedRangeDecorations(
       peakVolume: profile.peakVolume,
       // A fixed range HAS edges the reader chose, so it shows them. A visible
       // range's edges are the edges of the pane, and outlining those is noise.
-      showRange: true,
+      showRange: drawing.tool !== "avprofile",
       colors: {
         ...PROFILE_COLORS,
         // The drawing's own colour, so the palette swatches on the style bar

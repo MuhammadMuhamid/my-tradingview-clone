@@ -30,16 +30,16 @@ const BAR = { openTime: 1_700_000_000_000, open: 10, high: 12, low: 9, close: 11
 
 test("only the types this chart actually implements are offered", () => {
   assert.deepEqual(CHART_TYPES.map((t) => t.value), [
-    "candles", "hollowCandles", "bars", "line", "stepLine", "area", "baseline",
-    "heikinAshi", "renko",
+    "candles", "hollowCandles", "volumeCandles", "bars", "line", "lineWithMarkers",
+    "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo",
+    "heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure",
   ]);
   // Unimplemented synthetic systems stay absent rather than appearing as
   // placeholders that cannot be chosen. Kagi, Point & Figure, Range and Line
   // Break are all DELIBERATELY not here: each invents its own bars, and this
   // product's position is that a chart type may re-present the market's bars
   // but not replace them.
-  for (const absent of ["kagi", "range", "pnf", "lineBreak", "heikinashi", "Renko",
-                        "footprint", "tpo"]) {
+  for (const absent of ["range", "pnf", "heikinashi", "Renko", "footprint", "tpoo"]) {
     assert.equal(isChartType(absent), false, absent);
   }
 });
@@ -57,8 +57,9 @@ test("presentations and transforms are separate, and the split is data", () => {
    * is what keeps "display only" meaning something.
    */
   assert.deepEqual(presentations,
-    ["candles", "hollowCandles", "bars", "line", "stepLine", "area", "baseline"]);
-  assert.deepEqual(transforms, ["heikinAshi", "renko"]);
+    ["candles", "hollowCandles", "volumeCandles", "bars", "line", "lineWithMarkers",
+      "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo"]);
+  assert.deepEqual(transforms, ["heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure"]);
 
   // The transforms come last, so the menu can render them as a terminal group.
   assert.deepEqual(CHART_TYPES.map((t) => t.group),
@@ -74,7 +75,8 @@ test("presentations and transforms are separate, and the split is data", () => {
 test("a synthetic type is disclosed and a canonical one never is", () => {
   assert.equal(syntheticDisclosure("heikinAshi"), "Heikin Ashi");
   assert.equal(syntheticDisclosure("renko"), `Renko · ATR(${DEFAULT_RENKO_ATR_PERIOD})`);
-  for (const canonical of ["candles", "bars", "line", "area"] as ChartType[]) {
+  for (const canonical of ["candles", "bars", "line", "lineWithMarkers", "area", "hlcArea",
+    "columns", "highLow", "sessionVolumeProfile", "tpo"] as ChartType[]) {
     assert.equal(syntheticDisclosure(canonical), null,
       `${canonical} draws the exchange's own candles and must not carry a synthetic label`);
   }
@@ -92,7 +94,7 @@ test("Renko's parameters are ATR(14), and they belong to the chart type", () => 
 });
 
 test("an unknown or damaged persisted type falls back to canonical candles", () => {
-  for (const bad of [null, undefined, 3, "", "renko ", "kagi", {}, ["renko"]]) {
+  for (const bad of [null, undefined, 3, "", "renko ", "range", {}, ["renko"]]) {
     assert.equal(chartTypeOrDefault(bad), "candles", JSON.stringify(bad));
   }
   // A type that IS known round-trips unchanged, including the synthetic ones.
@@ -102,9 +104,18 @@ test("an unknown or damaged persisted type falls back to canonical candles", () 
 test("transforms are drawn by a candlestick series, not by a series of their own", () => {
   assert.equal(renderKind("heikinAshi"), "candles");
   assert.equal(renderKind("renko"), "candles");
-  for (const t of ["candles", "bars", "line", "area"] as ChartType[]) {
-    assert.equal(renderKind(t), t);
-  }
+  assert.equal(renderKind("candles"), "candles");
+  assert.equal(renderKind("bars"), "bars");
+  assert.equal(renderKind("line"), "line");
+  assert.equal(renderKind("lineWithMarkers"), "line");
+  assert.equal(renderKind("area"), "area");
+  assert.equal(renderKind("hlcArea"), "line");
+  assert.equal(renderKind("columns"), "histogram");
+  assert.equal(renderKind("highLow"), "candles");
+  assert.equal(renderKind("sessionVolumeProfile"), "candles");
+  assert.equal(renderKind("lineBreak"), "line");
+  assert.equal(renderKind("kagi"), "line");
+  assert.equal(renderKind("pointAndFigure"), "line");
 });
 
 test("THE MENU OFFERS NO TYPE THE RENDERER CANNOT DRAW", () => {
@@ -160,7 +171,7 @@ test("OHLC modes carry the candle unchanged", () => {
 });
 
 test("line and area plot the close, and nothing derived from it", () => {
-  for (const t of ["line", "area"] as ChartType[]) {
+  for (const t of ["line", "lineWithMarkers", "area", "hlcArea"] as ChartType[]) {
     const d = mainSeriesDatum(t, BAR);
     assert.equal(d.value, 11);
     assert.equal(d.open, undefined);
@@ -216,7 +227,7 @@ test("the new presentations are display-only: alerts and orders see canonical ba
 test("every type names a series kind the renderer can actually create", () => {
   // A type whose `renderKind` the chart does not implement would silently fall
   // through to a line and misdraw without erroring.
-  const implemented = new Set(["candles", "bars", "line", "area", "baseline"]);
+  const implemented = new Set(["candles", "bars", "line", "area", "baseline", "histogram"]);
   for (const t of CHART_TYPES) {
     assert.ok(implemented.has(t.renderKind), `${t.value} names an unimplemented ${t.renderKind}`);
   }
@@ -225,4 +236,22 @@ test("every type names a series kind the renderer can actually create", () => {
   // to do, and this pins the reason.
   assert.equal(CHART_TYPES.find((t) => t.value === "hollowCandles")!.renderKind, "candles");
   assert.equal(CHART_TYPES.find((t) => t.value === "stepLine")!.renderKind, "line");
+});
+
+test("simple TradingView variants reuse canonical OHLC data without changing semantics", () => {
+  assert.deepEqual(mainSeriesDatum("highLow", BAR), {
+    time: 1_700_000_000, open: 10.5, high: 12, low: 9, close: 10.5,
+  });
+  assert.equal(mainSeriesDatum("columns", BAR).value, 11);
+  assert.equal(mainSeriesDatum("lineWithMarkers", BAR).value, 11);
+  assert.equal(mainSeriesDatum("volumeCandles", BAR).close, 11);
+  assert.equal(mainSeriesDatum("hlcArea", BAR).value, 11);
+  assert.equal(mainSeriesDatum("sessionVolumeProfile", BAR).close, 11);
+});
+
+test("HLC area uses the shared fill decoration between high and low overlays", () => {
+  const pane = read("components/tv/ChartPane.tsx");
+  assert.match(pane, /firstId: `hlc:\$\{paneId\}:high`/);
+  assert.match(pane, /secondId: `hlc:\$\{paneId\}:low`/);
+  assert.match(pane, /kind: "fill"/);
 });

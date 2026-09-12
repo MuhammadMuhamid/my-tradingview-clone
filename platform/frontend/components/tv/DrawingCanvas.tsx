@@ -7,7 +7,7 @@ import { fmtPrice } from "@/lib/format";
 import { isTypingTarget } from "@/lib/shortcuts";
 import {
   DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
-  distToEllipse, distToLine, distToRay, distToRect, distToSegment, newId,
+  distToEllipse, distToLine, distToRay, distToRect, drawingVisibleOnTimeframe, distToSegment, newId,
   type Anchor, type Drawing, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
@@ -80,7 +80,7 @@ export function DrawingCanvas({
    * which every series kind has — so widening it costs nothing.
    */
   series: ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
-    | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | null;
+    | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | ISeriesApi<"Histogram"> | null;
   candles: Candle[];
   interval: Resolution;
   tool: DrawingTool;
@@ -231,18 +231,18 @@ export function DrawingCanvas({
     // Topmost first, and handles of the selected drawing win over any body.
     const ordered = [...list].reverse();
     const sel = list.find((d) => d.id === selectedRef.current);
-    if (sel && !sel.locked && !sel.hidden) {
+    if (sel && !sel.locked && !sel.hidden && drawingVisibleOnTimeframe(sel, interval)) {
       for (let i = 0; i < sel.points.length; i++) {
         const h = toPx(sel.points[i]!);
         if (Math.hypot(p.x - h.x, p.y - h.y) <= HIT_PX + 2) return { id: sel.id, handle: i };
       }
     }
     for (const d of ordered) {
-      if (d.hidden) continue;
+      if (d.hidden || !drawingVisibleOnTimeframe(d, interval)) continue;
       if (distToDrawing(p, d, toPx) <= HIT_PX) return { id: d.id, handle: null };
     }
     return null;
-  }, [toPx]);
+  }, [toPx, interval]);
 
   // ── committing drawings ───────────────────────────────────────────────────
   const commit = useCallback((tl: DrawingTool, points: Anchor[]) => {
@@ -254,7 +254,7 @@ export function DrawingCanvas({
     }
     let text: string | undefined;
     if (TEXT_TOOLS.has(tl)) {
-      const input = window.prompt(tl === "callout" ? "Callout text:" : "Text:", "");
+      const input = window.prompt(tl === "callout" ? "Callout text:" : `${tl} text:`, "");
       if (input === null) { draftRef.current = null; onToolDoneRef.current(); return; }
       text = input;
     }
@@ -387,7 +387,7 @@ export function DrawingCanvas({
       const need = TOOL_POINTS[t];
       const draft = draftRef.current;
 
-      if (t === "brush") {
+      if (t === "brush" || t === "highlighter") {
         draftRef.current = { tool: t, points: [anchor] };
         return;
       }
@@ -434,7 +434,7 @@ export function DrawingCanvas({
 
       // Freehand brush records while the button is held.
       const draft = draftRef.current;
-      if (draft?.tool === "brush" && e.buttons === 1) {
+      if ((draft?.tool === "brush" || draft?.tool === "highlighter") && e.buttons === 1) {
         draft.points.push(previewRef.current);
         e.stopPropagation();
         return;
@@ -458,8 +458,8 @@ export function DrawingCanvas({
       const draft = draftRef.current;
       if (!draft) return;
       const p = rectOf(e);
-      if (draft.tool === "brush") {
-        if (draft.points.length > 1) commit("brush", draft.points);
+      if (draft.tool === "brush" || draft.tool === "highlighter") {
+        if (draft.points.length > 1) commit(draft.tool, draft.points);
         else draftRef.current = null;
         e.stopPropagation();
         return;
@@ -554,6 +554,7 @@ export function DrawingCanvas({
       const y0 = series.priceToCoordinate(candles[candles.length - 1]?.close ?? 1);
       const x1 = chart.timeScale().logicalToCoordinate(100 as Logical);
       const fp = `${w}|${h}|${x0}|${x1}|${y0}|${drawings.length}|${selected}|${hidden}` +
+        `|${interval}` +
         `|${draftRef.current?.points.length ?? -1}|${previewRef.current?.time ?? 0}` +
         `|${previewRef.current?.price ?? 0}|${hoverRef.current}|${geometryDigest(drawings)}`;
       if (fp === last) return;
@@ -563,7 +564,7 @@ export function DrawingCanvas({
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, series, container, drawings, selected, hidden, candles]);
+  }, [chart, series, container, drawings, selected, hidden, candles, interval]);
 
   const paint = useCallback((canvas: HTMLCanvasElement, w: number, h: number): void => {
     const dpr = window.devicePixelRatio || 1;
@@ -591,7 +592,7 @@ export function DrawingCanvas({
       // A drawing hidden on its own is not drawn. It is still in the list, so
       // it can be un-hidden from the drawings panel; it is simply not on the
       // chart, and `hitTest` agrees so it cannot be grabbed by an empty click.
-      if (d.hidden) continue;
+      if (d.hidden || !drawingVisibleOnTimeframe(d, interval)) continue;
       drawOne(ctx, d, toPx, plotW, plotH, d.id === selected, d.id === hoverRef.current);
     }
     // In-progress geometry follows the pointer.
@@ -609,7 +610,7 @@ export function DrawingCanvas({
       }
     }
     ctx.restore();
-  }, [drawings, selected, hidden, style, toPx, chart]);
+  }, [drawings, selected, hidden, style, toPx, chart, interval]);
 
   // Style edits apply to the selected drawing, else become the new default.
   const applyStyle = (patch: Partial<typeof style>): void => {
@@ -847,11 +848,13 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
   const b = q[1] ?? a;
   const span = 6000;
   switch (d.tool) {
-    case "trend": case "arrow": case "pricerange": case "daterange": case "ruler":
+    case "trend": case "trendAngle": case "arrow": case "arrowMarker": case "infoline": case "pricerange": case "daterange": case "datePriceRange": case "ruler":
       return distToSegment(p, a, b);
     case "ray": return distToRay(p, a, b);
     case "extended": return distToLine(p, a, b);
+    case "dot": case "arrowUp": case "arrowDown": return Math.hypot(p.x - a.x, p.y - a.y);
     case "hline": return Math.abs(p.y - a.y);
+    case "crossline": return Math.min(Math.abs(p.x - a.x), Math.abs(p.y - a.y));
     case "hray": return p.x >= a.x - HIT_PX ? Math.abs(p.y - a.y) : Math.hypot(p.x - a.x, p.y - a.y);
     case "vline": return Math.abs(p.x - a.x);
     // The anchor is the grabbable part; the computed line is an overlay and is
@@ -866,12 +869,23 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
      * candles behind it.
      */
     case "vprange": return Math.min(Math.abs(p.x - a.x), Math.abs(p.x - b.x));
+    case "avprofile": return Math.hypot(p.x - a.x, p.y - a.y);
     case "rect": case "long": case "short":
       return distToRect(p, a, b, !!d.style.filled || d.tool !== "rect");
     case "ellipse": return distToEllipse(p, a, b, !!d.style.filled);
+    case "circle": {
+      const radius = Math.hypot(b.x - a.x, b.y - a.y);
+      const distance = Math.hypot(p.x - a.x, p.y - a.y);
+      return d.style.filled && distance <= radius ? 0 : Math.abs(distance - radius);
+    }
     case "triangle": {
       const c = q[2] ?? b;
       return Math.min(distToSegment(p, a, b), distToSegment(p, b, c), distToSegment(p, c, a));
+    }
+    case "arc": case "curve": case "doubleCurve": {
+      let best = Infinity;
+      for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!));
+      return best;
     }
     case "parallel": {
       const c = q[2] ?? b;
@@ -880,6 +894,10 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
         distToSegment(p, a, b),
         distToSegment(p, { x: a.x, y: a.y + off }, { x: b.x, y: b.y + off })
       );
+    }
+    case "disjointChannel": {
+      const c = q[2] ?? b;
+      return Math.min(distToRay(p, a, b), distToRay(p, a, c));
     }
     case "pitchfork": {
       const c = q[2] ?? b;
@@ -901,12 +919,12 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
       const range = d.tool === "fib" ? b.y - a.y : -(base.y - a.y);
       return Math.min(...levels.map((l) => Math.abs(p.y - (from + range * l))));
     }
-    case "path": case "brush": {
+    case "path": case "polyline": case "brush": case "highlighter": {
       let best = Infinity;
       for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!));
       return best;
     }
-    case "text": case "callout": case "pricelabel":
+    case "text": case "note": case "priceNote": case "pin": case "comment": case "callout": case "pricelabel": case "signpost": case "flagMark":
       return Math.hypot(p.x - a.x, p.y - a.y) <= 40 ? 0 : Infinity;
     default:
       return Infinity;
@@ -953,7 +971,23 @@ function drawOne(
   };
 
   switch (d.tool) {
+    case "dot":
+      ctx.beginPath(); ctx.arc(a.x, a.y, Math.max(3, d.style.width + 1), 0, Math.PI * 2); ctx.fill();
+      break;
     case "trend": line(a, b); break;
+    case "trendAngle": {
+      line(a, b);
+      const degrees = Math.atan2(a.y - b.y, b.x - a.x) * 180 / Math.PI;
+      label(`${degrees.toFixed(1)}°`, b.x + 5, b.y - 5);
+      break;
+    }
+    case "infoline": {
+      line(a, b);
+      line({ x: a.x, y: a.y }, { x: a.x, y: b.y });
+      line({ x: a.x, y: b.y }, { x: b.x, y: b.y });
+      label(`${fmtPrice(d.points[1]!.price - d.points[0]!.price)} · ${fmtDuration(Math.abs(d.points[1]!.time - d.points[0]!.time))}`, b.x + 5, b.y - 5);
+      break;
+    }
     case "ray": line(a, far(a, b, span)); break;
     case "extended": line(far(b, a, span), far(a, b, span)); break;
     case "arrow": {
@@ -977,6 +1011,8 @@ function drawOne(
       label(fmtPrice(d.points[0]!.price), w - 62, a.y - 3);
       break;
     case "vline": line({ x: a.x, y: 0 }, { x: a.x, y: h }); break;
+    case "crossline":
+      line({ x: 0, y: a.y }, { x: w, y: a.y }); line({ x: a.x, y: 0 }, { x: a.x, y: h }); break;
     /*
      * Anchored VWAP: the canvas draws only the ANCHOR.
      *
@@ -986,7 +1022,7 @@ function drawOne(
      * makes it a drawing: a grabbable point at the bar it starts from, and a
      * short marker so the anchor is visible even where the line is far away.
      */
-    case "avwap": {
+    case "avwap": case "avprofile": {
       ctx.beginPath();
       ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
       ctx.stroke();
@@ -1026,6 +1062,13 @@ function drawOne(
       ctx.stroke();
       break;
     }
+    case "circle": {
+      const radius = Math.hypot(b.x - a.x, b.y - a.y);
+      ctx.beginPath(); ctx.arc(a.x, a.y, radius, 0, Math.PI * 2);
+      if (d.style.filled) fillAlpha(() => ctx.fill(), 0.15);
+      ctx.stroke();
+      break;
+    }
     case "triangle": {
       const c = q[2] ?? b;
       ctx.beginPath();
@@ -1034,10 +1077,31 @@ function drawOne(
       ctx.stroke();
       break;
     }
-    case "path": case "brush": {
+    case "path": case "polyline": case "brush": case "highlighter": {
+      if (d.tool === "highlighter") { ctx.save(); ctx.globalAlpha = 0.28; ctx.lineWidth = Math.max(8, d.style.width * 3); }
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y);
+      ctx.stroke();
+      if (d.tool === "highlighter") ctx.restore();
+      break;
+    }
+    case "arrowMarker": {
+      ctx.beginPath(); ctx.arc(a.x, a.y, 4, 0, Math.PI * 2); ctx.fill();
+      line(a, { x: a.x + 22, y: a.y - 22 });
+      break;
+    }
+    case "arrowUp": case "arrowDown": {
+      const dir = d.tool === "arrowUp" ? -1 : 1;
+      line({ x: a.x, y: a.y - dir * 10 }, { x: a.x, y: a.y + dir * 10 });
+      ctx.beginPath(); ctx.moveTo(a.x, a.y + dir * 10); ctx.lineTo(a.x - 6, a.y + dir * 3); ctx.lineTo(a.x + 6, a.y + dir * 3); ctx.closePath(); ctx.fill();
+      break;
+    }
+    case "arc": case "curve": case "doubleCurve": {
+      const control = q[1] ?? a;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo(control.x, control.y, (q[2] ?? b).x, (q[2] ?? b).y);
+      if (d.tool === "doubleCurve" && q[3]) ctx.quadraticCurveTo(q[2]!.x, q[2]!.y, q[3]!.x, q[3]!.y);
       ctx.stroke();
       break;
     }
@@ -1051,6 +1115,16 @@ function drawOne(
         ctx.closePath(); ctx.fill();
       }, 0.12);
       line(a, b); line(a2, b2);
+      break;
+    }
+    case "disjointChannel": {
+      const c = q[2] ?? b;
+      const bFar = far(a, b, span), cFar = far(a, c, span);
+      fillAlpha(() => {
+        ctx.beginPath(); ctx.moveTo(a.x, a.y);
+        ctx.lineTo(bFar.x, bFar.y); ctx.lineTo(cFar.x, cFar.y); ctx.closePath(); ctx.fill();
+      }, 0.08);
+      line(a, bFar); line(a, cFar);
       break;
     }
     case "pitchfork": {
@@ -1097,7 +1171,7 @@ function drawOne(
       }
       break;
     }
-    case "pricerange": case "daterange": case "ruler": {
+    case "pricerange": case "daterange": case "datePriceRange": case "ruler": {
       const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
       const rw = Math.abs(b.x - a.x), rh = Math.abs(b.y - a.y);
       const dp = d.points[1]!.price - d.points[0]!.price;
@@ -1145,10 +1219,46 @@ function drawOne(
       ctx.fillText(`SL ${fmtPrice(stop.price)}`, x1 + 4, ps.y + (ps.y > pe.y ? -4 : 12));
       break;
     }
-    case "text": {
+    case "text": case "note": case "priceNote": case "pin": case "comment": case "signpost": case "flagMark": {
       ctx.fillStyle = color;
       ctx.font = "13px ui-monospace, monospace";
-      ctx.fillText(d.style.text ?? "", a.x + 4, a.y);
+      const caption = d.style.text ?? "";
+      if (d.tool === "pin") {
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x - 8, a.y - 18);
+        ctx.lineTo(a.x, a.y - 28); ctx.lineTo(a.x + 8, a.y - 18); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.arc(a.x, a.y - 18, 3, 0, Math.PI * 2); ctx.fillStyle = "#0f0f0f"; ctx.fill();
+        break;
+      }
+      if (d.tool === "priceNote") {
+        const text = `${fmtPrice(d.points[0]!.price)}${caption ? ` · ${caption}` : ""}`;
+        const tw = ctx.measureText(text).width + 10;
+        line(a, { x: a.x + 18, y: a.y - 18 });
+        fillAlpha(() => ctx.fillRect(a.x + 18, a.y - 30, tw, 20), 0.16);
+        ctx.strokeRect(a.x + 18, a.y - 30, tw, 20);
+        ctx.fillStyle = color; ctx.fillText(text, a.x + 23, a.y - 16);
+        break;
+      }
+      if (d.tool === "note" || d.tool === "comment") {
+        const text = caption || (d.tool === "note" ? "Note" : "Comment");
+        const tw = ctx.measureText(text).width + 12;
+        const bx = a.x + 10, by = a.y - 30;
+        fillAlpha(() => ctx.fillRect(bx, by, tw, 20), 0.16);
+        ctx.strokeRect(bx, by, tw, 20);
+        ctx.beginPath(); ctx.moveTo(bx + 8, by + 20); ctx.lineTo(bx + 3, by + 26); ctx.lineTo(bx + 15, by + 20); ctx.stroke();
+        ctx.fillStyle = color; ctx.fillText(text, bx + 6, by + 14);
+        break;
+      }
+      if (d.tool === "signpost") {
+        line(a, { x: a.x, y: a.y - 28 });
+        const text = caption || "Signpost";
+        const tw = ctx.measureText(text).width + 12;
+        fillAlpha(() => ctx.fillRect(a.x - tw / 2, a.y - 45, tw, 18), 0.16);
+        ctx.strokeRect(a.x - tw / 2, a.y - 45, tw, 18);
+        ctx.fillStyle = color; ctx.fillText(text, a.x - tw / 2 + 6, a.y - 32);
+        break;
+      }
+      if (d.tool === "flagMark") { line(a, { x: a.x, y: a.y - 24 }); ctx.beginPath(); ctx.moveTo(a.x, a.y - 24); ctx.lineTo(a.x + 22, a.y - 16); ctx.lineTo(a.x, a.y - 8); ctx.closePath(); ctx.fill(); }
+      ctx.fillText(caption, a.x + 4, a.y);
       break;
     }
     case "callout": {

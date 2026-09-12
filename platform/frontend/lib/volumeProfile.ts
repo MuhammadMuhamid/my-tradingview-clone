@@ -134,6 +134,8 @@ export interface VolumeProfile {
   sourceInterval: Resolution;
   /** How each source bar's volume was assigned to price rows. */
   allocation: VolumeAllocation;
+  /** TPO bracket labels, present only for TPO profiles. */
+  tpoLabels?: readonly { rowIndex: number; label: string }[];
 }
 
 /** A profile of nothing: an empty range, or one with no traded volume. */
@@ -347,6 +349,92 @@ export function computeVolumeProfile(
   const area = valueArea(rows, pocIndex, totalVolume, settings.valueAreaPercent);
   return {
     ...base,
+    valueAreaRows: area.indices,
+    valueAreaVolume: area.volume,
+    valueAreaLow: rows[area.indices[0]!]!.low,
+    valueAreaHigh: rows[area.indices[area.indices.length - 1]!]!.high,
+  };
+}
+
+/**
+ * Time-price-opportunity rows from timestamped OHLC bars.
+ *
+ * Unlike a volume profile, each source bar contributes one TPO to every price
+ * row its high/low touched; volume is intentionally ignored. This is the
+ * honest candle-data subset of a TPO chart. Session/bracket letters are a
+ * renderer concern, while the row arithmetic is shared with the profile layer.
+ */
+export function computeTpoProfile(
+  candles: readonly Candle[], settings: VolumeProfileSettings, interval: Resolution,
+  basis: ProfileBasis = "chart",
+): VolumeProfile {
+  if (candles.length === 0) return emptyProfile(interval, basis);
+  let priceLow = Number.POSITIVE_INFINITY;
+  let priceHigh = Number.NEGATIVE_INFINITY;
+  for (const candle of candles) {
+    if (Number.isFinite(candle.low)) priceLow = Math.min(priceLow, candle.low);
+    if (Number.isFinite(candle.high)) priceHigh = Math.max(priceHigh, candle.high);
+  }
+  if (!Number.isFinite(priceLow) || !Number.isFinite(priceHigh)) {
+    return emptyProfile(interval, basis);
+  }
+  const span = priceHigh - priceLow;
+  const rowCount = span <= 0
+    ? 1
+    : settings.layout === "rows"
+      ? settings.rowSize
+      : Math.max(1, Math.min(MAX_ROWS, Math.ceil(span / settings.rowSize)));
+  const rowHeight = span <= 0 ? 0 : span / rowCount;
+  const totals = new Float64Array(rowCount);
+  const ups = new Float64Array(rowCount);
+  const rowOf = (price: number): number => {
+    if (rowHeight <= 0) return 0;
+    const index = Math.floor((price - priceLow) / rowHeight);
+    return Math.max(0, Math.min(rowCount - 1, index));
+  };
+  for (const candle of candles) {
+    if (!Number.isFinite(candle.low) || !Number.isFinite(candle.high)) continue;
+    const first = rowOf(Math.min(candle.low, candle.high));
+    const last = rowOf(Math.max(candle.low, candle.high));
+    for (let index = first; index <= last; index += 1) {
+      totals[index]! += 1;
+      if (candle.close >= candle.open) ups[index]! += 1;
+    }
+  }
+  const rows: VolumeProfileRow[] = [];
+  let totalVolume = 0;
+  let peakVolume = 0;
+  let pocIndex = -1;
+  for (let index = 0; index < rowCount; index += 1) {
+    const low = priceLow + index * rowHeight;
+    const high = index === rowCount - 1 ? priceHigh : low + rowHeight;
+    const total = totals[index]!;
+    rows.push({ low, high, total, up: ups[index]!, down: total - ups[index]! });
+    totalVolume += total;
+    if (total > peakVolume) { peakVolume = total; pocIndex = index; }
+  }
+  const base: VolumeProfile = {
+    rows, pocIndex,
+    poc: pocIndex >= 0 ? (rows[pocIndex]!.low + rows[pocIndex]!.high) / 2 : null,
+    valueAreaHigh: null, valueAreaLow: null, valueAreaRows: [], valueAreaVolume: 0,
+    totalVolume, peakVolume, priceLow, priceHigh,
+    from: candles[0]!.openTime, to: candles[candles.length - 1]!.openTime,
+    bars: candles.length, basis, sourceInterval: interval, allocation: "range",
+  };
+  const tpoLabels: { rowIndex: number; label: string }[] = [];
+  for (let bracket = 0; bracket < candles.length; bracket += 1) {
+    const candle = candles[bracket]!;
+    if (!Number.isFinite(candle.low) || !Number.isFinite(candle.high)) continue;
+    const first = rowOf(Math.min(candle.low, candle.high));
+    const last = rowOf(Math.max(candle.low, candle.high));
+    const label = String.fromCharCode(65 + (bracket % 26));
+    for (let rowIndex = first; rowIndex <= last; rowIndex += 1) tpoLabels.push({ rowIndex, label });
+  }
+  const withLabels = { ...base, tpoLabels };
+  if (pocIndex < 0 || totalVolume <= 0) return withLabels;
+  const area = valueArea(rows, pocIndex, totalVolume, settings.valueAreaPercent);
+  return {
+    ...withLabels,
     valueAreaRows: area.indices,
     valueAreaVolume: area.volume,
     valueAreaLow: rows[area.indices[0]!]!.low,

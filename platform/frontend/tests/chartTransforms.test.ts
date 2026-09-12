@@ -18,7 +18,8 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   createRenkoState, createTransformCursor, DEFAULT_RENKO_ATR_PERIOD, foldRenko,
-  heikinAshiBar, heikinAshiBars, renkoBricks, transformAll, transformStep,
+  foldKagi, foldLineBreak, heikinAshiBar, heikinAshiBars, kagiBars, lineBreakBars,
+  pointFigureColumns, renkoBricks, transformAll, transformStep,
   type OhlcBar,
 } from "../lib/chartTransforms";
 
@@ -41,6 +42,44 @@ function series(count: number, shape: (i: number) => number): OhlcBar[] {
   }
   return out;
 }
+
+test("LINE BREAK emits only close breaks and preserves increasing display times", () => {
+  const source = [bar(0, 10, 11, 9, 10), bar(1, 10, 11, 9, 10.5),
+    bar(2, 10.5, 12, 10, 12), bar(3, 12, 12.5, 11, 11),
+    bar(4, 11, 13, 10, 13)];
+  const lines = lineBreakBars(source, 3);
+  assert.deepEqual(lines.map((x) => x.close), [10, 10.5, 12, 13]);
+  for (let i = 1; i < lines.length; i++) assert.ok(lines[i]!.openTime > lines[i - 1]!.openTime);
+  assert.deepEqual(lines, transformAll("lineBreak", source, { atrPeriod: 14, lineBreakLines: 3 }).output);
+});
+
+test("KAGI uses a fixed reversal threshold and folds incrementally", () => {
+  const source = [bar(0, 100, 101, 99, 100), bar(1, 100, 103, 99, 102),
+    bar(2, 102, 103, 101, 101), bar(3, 101, 105, 100, 104),
+    bar(4, 104, 105, 100, 100)];
+  const full = kagiBars(source, 1);
+  assert.deepEqual(full.map((x) => x.close), [100, 102, 101, 104, 100]);
+  assert.deepEqual(full, transformAll("kagi", source, { atrPeriod: 14, kagiReversalPercent: 1 }).output);
+  const cursor = createTransformCursor("kagi", { atrPeriod: 14, kagiReversalPercent: 1 });
+  let current = cursor; const incremental: OhlcBar[] = [];
+  for (const item of source) { const step = transformStep(current, item); current = step.cursor; incremental.push(...step.emitted); }
+  assert.deepEqual(incremental, full);
+});
+
+test("POINT & FIGURE creates explicit X/O columns with box and source metadata", () => {
+  const source = [bar(0, 100, 100, 100, 100), bar(1, 100, 104, 99, 104),
+    bar(2, 104, 105, 100, 101), bar(3, 101, 101, 101, 101)];
+  const columns = pointFigureColumns(source, 1, 3);
+  assert.equal(columns.length, 3);
+  assert.equal(columns[0]!.direction, 1);
+  assert.equal(columns[1]!.direction, 1);
+  assert.equal(columns[2]!.direction, -1);
+  assert.ok(columns.every((x) => x.boxSize === 1 && x.boxes >= 1));
+  assert.ok(columns.every((x) => x.sourceOpenTime >= T0));
+  assert.deepEqual(columns, transformAll("pointAndFigure", source, {
+    atrPeriod: 14, pnfBoxPercent: 1, pnfReversalBoxes: 3,
+  }).output);
+});
 
 const clone = (bars: readonly OhlcBar[]): OhlcBar[] => bars.map((b) => ({ ...b }));
 

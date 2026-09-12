@@ -1,5 +1,5 @@
 /**
- * Chart-only transforms: Heikin Ashi and Renko.
+ * Chart-only transforms: Heikin Ashi, Renko, Line Break, Kagi and Point & Figure.
  *
  * ── The boundary this file sits on ─────────────────────────────────────────
  *
@@ -55,7 +55,20 @@ export interface RenkoParams {
   atrPeriod: number;
 }
 
-export type TransformKind = "heikinAshi" | "renko";
+export type TransformKind = "heikinAshi" | "renko" | "lineBreak" | "kagi" | "pointAndFigure";
+
+/** Fixed, explicit defaults for the price-driven display transforms. */
+export const DEFAULT_LINE_BREAK_LINES = 3;
+export const DEFAULT_KAGI_REVERSAL_PERCENT = 1;
+export const DEFAULT_PNF_BOX_PERCENT = 1;
+export const DEFAULT_PNF_REVERSAL_BOXES = 3;
+
+export interface TransformParams extends RenkoParams {
+  lineBreakLines?: number;
+  kagiReversalPercent?: number;
+  pnfBoxPercent?: number;
+  pnfReversalBoxes?: number;
+}
 
 // ── Heikin Ashi ────────────────────────────────────────────────────────────
 
@@ -324,6 +337,222 @@ export function renkoBricks(
   return out;
 }
 
+// ── Line Break ─────────────────────────────────────────────────────────────
+
+export interface LineBreakState {
+  lines: OhlcBar[];
+  lastTime: number;
+}
+
+export function createLineBreakState(): LineBreakState {
+  return { lines: [], lastTime: 0 };
+}
+
+/**
+ * Fold a close into an n-line-break chart. The first n source closes establish
+ * the comparison window; afterwards a new line is emitted only when the close
+ * breaks the highest/lowest close in that window. Source OHLC is never used to
+ * invent an intrabar path — line-break state is explicitly close-driven.
+ */
+export function foldLineBreak(
+  state: LineBreakState, bar: OhlcBar, lines = DEFAULT_LINE_BREAK_LINES,
+): { state: LineBreakState; emitted: OhlcBar[] } {
+  const window = Math.max(1, Math.floor(lines));
+  const previous = state.lines[state.lines.length - 1];
+  if (!previous) {
+    const first = { ...bar };
+    return { state: { lines: [first], lastTime: bar.openTime }, emitted: [first] };
+  }
+  const closes = state.lines.slice(-window).map((line) => line.close);
+  const high = Math.max(...closes);
+  const low = Math.min(...closes);
+  if (state.lines.length >= window && bar.close <= high && bar.close >= low) {
+    return { state, emitted: [] };
+  }
+  const next: OhlcBar = {
+    openTime: Math.max(bar.openTime, state.lastTime + 1),
+    open: previous.close,
+    close: bar.close,
+    high: Math.max(previous.close, bar.close),
+    low: Math.min(previous.close, bar.close),
+  };
+  return {
+    state: { lines: [...state.lines, next], lastTime: next.openTime },
+    emitted: [next],
+  };
+}
+
+export function lineBreakBars(
+  bars: readonly OhlcBar[], lines = DEFAULT_LINE_BREAK_LINES,
+): OhlcBar[] {
+  let state = createLineBreakState();
+  const out: OhlcBar[] = [];
+  for (const bar of bars) {
+    const stepped = foldLineBreak(state, bar, lines);
+    state = stepped.state;
+    out.push(...stepped.emitted);
+  }
+  return out;
+}
+
+// ── Kagi ───────────────────────────────────────────────────────────────────
+
+export interface KagiState {
+  current: number | null;
+  direction: 1 | -1 | 0;
+  reversal: number;
+  lastTime: number;
+}
+
+export function createKagiState(): KagiState {
+  return { current: null, direction: 0, reversal: 0, lastTime: 0 };
+}
+
+/**
+ * Close-based Kagi fold with a fixed percentage reversal. A Kagi segment is a
+ * display line, not a traded bar: the emitted OHLC is only the segment's
+ * endpoints so the line renderer can preserve the price path and the source
+ * timestamp remains available for replay clipping.
+ */
+export function foldKagi(
+  state: KagiState, bar: OhlcBar, reversalPercent = DEFAULT_KAGI_REVERSAL_PERCENT,
+): { state: KagiState; emitted: OhlcBar[] } {
+  const pct = Math.max(0.01, Math.min(100, reversalPercent)) / 100;
+  if (state.current === null) {
+    const reversal = Math.max(Math.abs(bar.close) * pct, Number.EPSILON);
+    const first = { ...bar };
+    return {
+      state: { current: bar.close, direction: 0, reversal, lastTime: bar.openTime },
+      emitted: [first],
+    };
+  }
+  const current = state.current;
+  const reversal = state.reversal;
+  let direction = state.direction;
+  if (direction === 0) {
+    if (bar.close >= current + reversal) direction = 1;
+    else if (bar.close <= current - reversal) direction = -1;
+    else return { state, emitted: [] };
+  } else if (direction === 1 && bar.close <= current - reversal) {
+    direction = -1;
+  } else if (direction === -1 && bar.close >= current + reversal) {
+    direction = 1;
+  } else if ((direction === 1 && bar.close <= current)
+    || (direction === -1 && bar.close >= current)) {
+    // A Kagi line continues only in its current direction until a full
+    // reversal; small counter-moves do not create a new point.
+    return { state, emitted: [] };
+  }
+  const next: OhlcBar = {
+    openTime: Math.max(bar.openTime, state.lastTime + 1),
+    open: current,
+    close: bar.close,
+    high: Math.max(current, bar.close),
+    low: Math.min(current, bar.close),
+  };
+  return {
+    state: { current: bar.close, direction, reversal, lastTime: next.openTime },
+    emitted: [next],
+  };
+}
+
+export function kagiBars(
+  bars: readonly OhlcBar[], reversalPercent = DEFAULT_KAGI_REVERSAL_PERCENT,
+): OhlcBar[] {
+  // The reversal amount is established from the first close by `foldKagi`;
+  // the state itself starts empty and carries that derived amount forward.
+  let state = createKagiState();
+  const out: OhlcBar[] = [];
+  for (const bar of bars) {
+    const stepped = foldKagi(state, bar, reversalPercent);
+    state = stepped.state;
+    out.push(...stepped.emitted);
+  }
+  return out;
+}
+
+// ── Point & Figure ─────────────────────────────────────────────────────────
+
+export interface PointFigureColumn extends OhlcBar {
+  direction: 1 | -1;
+  boxSize: number;
+  boxes: number;
+  sourceOpenTime: number;
+}
+
+export interface PointFigureState {
+  boxSize: number;
+  reversalBoxes: number;
+  current: number | null;
+  direction: 1 | -1 | 0;
+  lastTime: number;
+}
+
+export function createPointFigureState(): PointFigureState {
+  return { boxSize: 0, reversalBoxes: DEFAULT_PNF_REVERSAL_BOXES, current: null, direction: 0, lastTime: 0 };
+}
+
+/**
+ * Close-driven P&F columns using a deterministic percentage box policy. The
+ * first observed close establishes the box size; subsequent columns use the
+ * source bar's high/low to avoid inventing an intrabar path. Each emitted
+ * column represents the full X/O run reached by that source bar.
+ */
+export function foldPointFigure(
+  state: PointFigureState, bar: OhlcBar, boxPercent = DEFAULT_PNF_BOX_PERCENT,
+  reversalBoxes = DEFAULT_PNF_REVERSAL_BOXES,
+): { state: PointFigureState; emitted: PointFigureColumn[] } {
+  const pct = Math.max(0.01, Math.min(100, boxPercent)) / 100;
+  const rev = Math.max(1, Math.floor(reversalBoxes));
+  if (state.current === null) {
+    const boxSize = Math.max(Math.abs(bar.close) * pct, Number.EPSILON);
+    return { state: { ...state, boxSize, reversalBoxes: rev, current: bar.close, lastTime: bar.openTime }, emitted: [] };
+  }
+  const box = state.boxSize;
+  if (!(box > 0)) return { state, emitted: [] };
+  let current = state.current;
+  let direction = state.direction;
+  let lastTime = state.lastTime;
+  const emitted: PointFigureColumn[] = [];
+  const emit = (next: number, dir: 1 | -1) => {
+    const count = Math.max(1, Math.round(Math.abs(next - current) / box));
+    const column: PointFigureColumn = {
+      openTime: Math.max(bar.openTime, lastTime + 1),
+      open: current, close: next, high: Math.max(current, next), low: Math.min(current, next),
+      direction: dir, boxSize: box, boxes: count, sourceOpenTime: bar.openTime,
+    };
+    emitted.push(column); current = next; direction = dir; lastTime = column.openTime;
+  };
+  const high = Math.max(bar.high, bar.close);
+  const low = Math.min(bar.low, bar.close);
+  if (direction === 0) {
+    if (high - current >= box) direction = 1;
+    else if (current - low >= box) direction = -1;
+    else return { state, emitted: [] };
+  }
+  if (direction === 1) {
+    if (high >= current + box) emit(current + Math.floor((high - current) / box) * box, 1);
+    else if (current - low >= rev * box) emit(current - rev * box, -1);
+  } else {
+    if (low <= current - box) emit(current - Math.floor((current - low) / box) * box, -1);
+    else if (high - current >= rev * box) emit(current + rev * box, 1);
+  }
+  return { state: { ...state, boxSize: box, reversalBoxes: rev, current, direction, lastTime }, emitted };
+}
+
+export function pointFigureColumns(
+  bars: readonly OhlcBar[], boxPercent = DEFAULT_PNF_BOX_PERCENT,
+  reversalBoxes = DEFAULT_PNF_REVERSAL_BOXES,
+): PointFigureColumn[] {
+  let state = createPointFigureState();
+  const out: PointFigureColumn[] = [];
+  for (const bar of bars) {
+    const stepped = foldPointFigure(state, bar, boxPercent, reversalBoxes);
+    state = stepped.state; out.push(...stepped.emitted);
+  }
+  return out;
+}
+
 // ── One cursor for both transforms ─────────────────────────────────────────
 
 /**
@@ -335,17 +564,23 @@ export function renkoBricks(
  */
 export interface TransformCursor {
   kind: TransformKind;
-  params: RenkoParams;
+  params: TransformParams;
   /** Canonical bars folded into this cursor. */
   bars: number;
   ha: HeikinAshiState | null;
   renko: RenkoState;
+  lineBreak: LineBreakState;
+  kagi: KagiState;
+  pointAndFigure: PointFigureState;
 }
 
 export function createTransformCursor(
-  kind: TransformKind, params: RenkoParams = { atrPeriod: DEFAULT_RENKO_ATR_PERIOD }
+  kind: TransformKind, params: TransformParams = { atrPeriod: DEFAULT_RENKO_ATR_PERIOD }
 ): TransformCursor {
-  return { kind, params, bars: 0, ha: null, renko: createRenkoState() };
+  return {
+    kind, params, bars: 0, ha: null, renko: createRenkoState(),
+    lineBreak: createLineBreakState(), kagi: createKagiState(), pointAndFigure: createPointFigureState(),
+  };
 }
 
 /** Fold one canonical bar. Pure: the cursor passed in is left untouched. */
@@ -359,6 +594,27 @@ export function transformStep(
       emitted: [ha],
     };
   }
+  if (cursor.kind === "lineBreak") {
+    const stepped = foldLineBreak(cursor.lineBreak, bar, cursor.params.lineBreakLines);
+    return {
+      cursor: { ...cursor, bars: cursor.bars + 1, lineBreak: stepped.state },
+      emitted: stepped.emitted,
+    };
+  }
+  if (cursor.kind === "kagi") {
+    const stepped = foldKagi(cursor.kagi, bar, cursor.params.kagiReversalPercent);
+    return {
+      cursor: { ...cursor, bars: cursor.bars + 1, kagi: stepped.state },
+      emitted: stepped.emitted,
+    };
+  }
+  if (cursor.kind === "pointAndFigure") {
+    const stepped = foldPointFigure(cursor.pointAndFigure, bar, cursor.params.pnfBoxPercent, cursor.params.pnfReversalBoxes);
+    return {
+      cursor: { ...cursor, bars: cursor.bars + 1, pointAndFigure: stepped.state },
+      emitted: stepped.emitted,
+    };
+  }
   const stepped = foldRenko(cursor.renko, bar, cursor.params);
   return {
     cursor: { ...cursor, bars: cursor.bars + 1, renko: stepped.state },
@@ -368,7 +624,7 @@ export function transformStep(
 
 /** Fold a whole canonical series. Equal, by construction, to stepping it. */
 export function transformAll(
-  kind: TransformKind, bars: readonly OhlcBar[], params?: RenkoParams
+  kind: TransformKind, bars: readonly OhlcBar[], params?: TransformParams
 ): { cursor: TransformCursor; output: OhlcBar[] } {
   let cursor = createTransformCursor(kind, params);
   const output: OhlcBar[] = [];
@@ -395,6 +651,13 @@ export function isRenkoBrick(bar: OhlcBar): bar is RenkoBrick {
   const candidate = bar as Partial<RenkoBrick>;
   return typeof candidate.sourceOpenTime === "number"
     && typeof candidate.size === "number"
+    && (candidate.direction === 1 || candidate.direction === -1);
+}
+
+export function isPointFigureColumn(bar: OhlcBar): bar is PointFigureColumn {
+  const candidate = bar as Partial<PointFigureColumn>;
+  return typeof candidate.boxSize === "number" && typeof candidate.boxes === "number"
+    && typeof candidate.sourceOpenTime === "number"
     && (candidate.direction === 1 || candidate.direction === -1);
 }
 

@@ -24,6 +24,13 @@ const ICONS: Record<ChartType, React.ReactNode> = {
       <rect x="13.5" y="6" width="5" height="7" rx="0.5" fill="currentColor" />
     </>
   ),
+  volumeCandles: (
+    <>
+      <path d="M8 4v16M16 4v16" />
+      <rect x="5.5" y="8" width="5" height="8" rx="0.5" fill="currentColor" fillOpacity="0.25" />
+      <rect x="13.5" y="6" width="5" height="7" rx="0.5" fill="currentColor" fillOpacity="0.8" />
+    </>
+  ),
   bars: (
     <>
       <path d="M8 4v16M16 5v14" />
@@ -38,12 +45,22 @@ const ICONS: Record<ChartType, React.ReactNode> = {
       <path d="M3 16l5-6 4 4 3-5 6 6" />
     </>
   ),
+  columns: <path d="M4 20V12h3v8zM10 20V7h3v13zM16 20V4h3v16z" fill="currentColor" />,
+  highLow: <><path d="M8 4v16M16 4v16" /><path d="M5 8h6M13 15h6" /></>,
+  sessionVolumeProfile: <><path d="M4 4v16M20 4v16" /><path d="M20 7h-6M20 11h-10M20 15h-7" /></>,
+  tpo: <><path d="M4 4v16M20 4v16" /><path d="M7 7h10M7 11h7M7 15h10" /><circle cx="9" cy="7" r="1" fill="currentColor" /><circle cx="12" cy="11" r="1" fill="currentColor" /><circle cx="15" cy="15" r="1" fill="currentColor" /></>,
   line: <path d="M3 16l5-6 4 4 3-5 6 6" />,
+  lineWithMarkers: (
+    <><path d="M3 16l5-6 4 4 3-5 6 6" /><circle cx="8" cy="10" r="1.5" fill="currentColor" /><circle cx="15" cy="9" r="1.5" fill="currentColor" /></>
+  ),
   area: (
     <>
       <path d="M3 16l5-6 4 4 3-5 6 6" />
       <path d="M3 16l5-6 4 4 3-5 6 6V20H3z" fill="currentColor" fillOpacity="0.25" stroke="none" />
     </>
+  ),
+  hlcArea: (
+    <><path d="M3 16l5-6 4 4 3-5 6 6V20H3z" fill="currentColor" fillOpacity="0.2" stroke="none" /><path d="M3 16l5-6 4 4 3-5 6 6" /><path d="M3 19l5-4 4 2 3-3 6 4" strokeDasharray="2 2" /></>
   ),
   // Heikin Ashi: candle bodies that abut, because HA bars open at the previous
   // bar's midpoint rather than at a gap.
@@ -63,6 +80,9 @@ const ICONS: Record<ChartType, React.ReactNode> = {
       <rect x="15" y="2" width="6" height="6" rx="0.5" />
     </>
   ),
+  lineBreak: <><path d="M4 18h5v-5h5V8h6" /><path d="M4 13h5V8h5V4h6" /></>,
+  kagi: <path d="M5 19V8h5v8h5V5h4" />,
+  pointAndFigure: <><circle cx="7" cy="17" r="2.5" /><path d="M7 14V7h10" /><path d="M17 4v6" /></>,
 };
 
 const PRESENTATIONS = CHART_TYPES.filter((t) => t.group === "presentation");

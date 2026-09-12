@@ -9,21 +9,23 @@
  */
 
 import { tryStoredSymbol } from "./instrument";
+import { isResolution, type Resolution } from "./resolution";
 
 export type DrawingTool =
   // cursors / modes
-  | "cursor" | "eraser"
+  | "cursor" | "dot" | "eraser"
   // lines
-  | "trend" | "ray" | "extended" | "arrow" | "hline" | "hray" | "vline"
-  | "parallel" | "pitchfork"
+  | "trend" | "trendAngle" | "infoline" | "ray" | "extended" | "arrow" | "hline" | "hray" | "vline" | "crossline"
+  | "parallel" | "disjointChannel" | "pitchfork"
   // fib
   | "fib" | "fibext"
   // shapes
-  | "rect" | "ellipse" | "triangle" | "path" | "brush"
+  | "rect" | "ellipse" | "circle" | "triangle" | "path" | "polyline" | "brush" | "highlighter"
+  | "arrowMarker" | "arrowUp" | "arrowDown" | "arc" | "curve" | "doubleCurve"
   // annotations
-  | "text" | "callout" | "pricelabel"
+  | "text" | "note" | "priceNote" | "pin" | "comment" | "callout" | "pricelabel" | "signpost" | "flagMark"
   // measurement
-  | "ruler" | "pricerange" | "daterange" | "long" | "short"
+  | "ruler" | "pricerange" | "daterange" | "datePriceRange" | "long" | "short"
   /*
    * A drawing that COMPUTES.
    *
@@ -44,7 +46,7 @@ export type DrawingTool =
    * that made Anchored VWAP a drawing. The visible-range profile is a study,
    * because its range is not a decision the user makes.
    */
-  | "vprange";
+  | "vprange" | "avprofile";
 
 export interface Anchor {
   /** bar open time in seconds (chart time units) */
@@ -105,28 +107,40 @@ export interface Drawing {
    * hiding from deleting, and why the context menu offers both.
    */
   hidden?: boolean;
+  /** Optional timeframe allow-list. Missing/empty means every timeframe. */
+  visibleOn?: Resolution[];
+}
+
+export function drawingVisibleOnTimeframe(drawing: Drawing, interval: Resolution): boolean {
+  const visibleOn = drawing.visibleOn;
+  return !visibleOn || visibleOn.length === 0 || visibleOn.includes(interval);
 }
 
 /** How many anchors each tool takes. `0` = freeform (finish explicitly). */
 export const TOOL_POINTS: Record<DrawingTool, number> = {
   cursor: 0, eraser: 0,
-  trend: 2, ray: 2, extended: 2, arrow: 2,
-  hline: 1, hray: 1, vline: 1,
-  parallel: 3, pitchfork: 3,
+  dot: 1,
+  trend: 2, trendAngle: 2, infoline: 2, ray: 2, extended: 2, arrow: 2,
+  hline: 1, hray: 1, vline: 1, crossline: 1,
+  parallel: 3, disjointChannel: 3, pitchfork: 3,
   fib: 2, fibext: 3,
-  rect: 2, ellipse: 2, triangle: 3, path: 0, brush: 0,
-  text: 1, callout: 1, pricelabel: 1,
-  ruler: 2, pricerange: 2, daterange: 2, long: 2, short: 2,
+  rect: 2, ellipse: 2, circle: 2, triangle: 3, path: 0, polyline: 0, brush: 0, highlighter: 0,
+  arrowMarker: 1, arrowUp: 1, arrowDown: 1, arc: 3, curve: 3, doubleCurve: 4,
+  text: 1, note: 1, priceNote: 1, pin: 1, comment: 1, callout: 1, pricelabel: 1, signpost: 1, flagMark: 1,
+  ruler: 2, pricerange: 2, daterange: 2, datePriceRange: 2, long: 2, short: 2,
   // One anchor: the bar the accumulation starts from.
   avwap: 1,
   // Two: the range's edges. Only their TIMES are read — a volume profile
   // covers every price its bars traded at, so dragging one higher or lower
   // would suggest a vertical bound it does not have.
   vprange: 2,
+  avprofile: 1,
 };
 
 /** Tools whose creation asks the user for a caption. */
-export const TEXT_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>(["text", "callout"]);
+export const TEXT_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>([
+  "text", "note", "priceNote", "comment", "callout", "signpost", "flagMark",
+]);
 
 /** Tools that are transient measurements — cleared when the tool is switched. */
 export const EPHEMERAL_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>(["ruler"]);
@@ -238,7 +252,10 @@ function isValidDrawing(d: unknown): d is Drawing {
     x.points.every((p) => p && Number.isFinite(p.time) && Number.isFinite(p.price)) &&
     !!x.style &&
     typeof x.style.color === "string" &&
-    Number.isFinite(x.style.width)
+    Number.isFinite(x.style.width) &&
+    (x.visibleOn === undefined || (
+      Array.isArray(x.visibleOn) && x.visibleOn.every((resolution) => isResolution(resolution))
+    ))
   );
 }
 

@@ -206,6 +206,14 @@ export function Watchlist({
       .filter((s): s is SymbolInfo => Boolean(s));
   }, [manualSymbols, visibleSymbolNames, tickers, sort]);
 
+  const selectedDetails = useMemo(() => {
+    const selectedLabel = displaySymbol(selected);
+    const info = manualSymbols.find((item) => item.symbol === selected
+      || displaySymbol(item.symbol) === selectedLabel) ?? null;
+    if (!info) return null;
+    return { info, ticker: tickers[info.symbol] ?? tickers[selected] ?? null };
+  }, [manualSymbols, selected, tickers]);
+
   /** The row being dragged, in the manual order. Null when nothing is. */
   const [dragging, setDragging] = useState<string | null>(null);
 
@@ -537,6 +545,29 @@ export function Watchlist({
           </div>;
         })}
       </div>
+      {selectedDetails && (
+        <section aria-label={`Details for ${displaySymbol(selectedDetails.info.symbol)}`} className="max-h-56 shrink-0 overflow-y-auto border-t border-border bg-surface-2 px-3 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold text-ink">{selectedDetails.info.baseAsset}/{selectedDetails.info.quoteAsset}</h2>
+              <p className="text-[10px] text-ink-faint">{instrumentTypeLabel(canonicalDisplayParts(selectedDetails.info.symbol)?.type ?? "spot")} · {selectedDetails.info.venue ?? "BINANCE"}</p>
+            </div>
+            {selectedDetails.ticker && <div className={`text-right tabular ${selectedDetails.ticker.chgPct >= 0 ? "text-up" : "text-down"}`}><div className="text-sm font-semibold">{px(selectedDetails.ticker.last)}</div><div className="text-[11px]">{selectedDetails.ticker.chgPct >= 0 ? "+" : ""}{selectedDetails.ticker.chgPct.toFixed(2)}%</div></div>}
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+            <div><span className="block text-ink-faint">Market</span><span className="text-ink">{selectedDetails.info.venue ?? "BINANCE"} {selectedDetails.info.quoteAsset}</span></div>
+            <div><span className="block text-ink-faint">Feed</span><span className="text-ink">{selectedDetails.ticker?.source === "stream" ? "Live stream" : selectedDetails.ticker ? "Seeded quote" : "Unavailable"}</span></div>
+          </div>
+          <div className="mt-3 border-t border-border pt-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">News</h3>
+            <p className="mt-1 text-[11px] text-ink-faint">No news-feed provider is configured for this instrument.</p>
+          </div>
+          <div className="mt-2 border-t border-border pt-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Key stats</h3>
+            <p className="mt-1 text-[11px] text-ink-faint">The available quote contract supplies last price and 24h change. Volume and 30-day average volume are not provided by the configured ticker API.</p>
+          </div>
+        </section>
+      )}
       <ContextMenu
         at={rowMenu?.at ?? null}
         label={rowMenu?.symbol ?? ""}

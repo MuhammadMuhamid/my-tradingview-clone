@@ -25,22 +25,29 @@
  * no dependants other than the renderer. This module only says which types
  * exist, what each one means, and how a bar becomes a datum.
  *
- * Kagi, Point & Figure, Range and Line Break are still absent: they are not
- * implemented, and the menu offers only what is.
+ * Point & Figure and Range remain absent because their correct box/column
+ * inputs are not present in the supported candle contract. Line Break and
+ * Kagi are close-driven transforms and are implemented below.
  */
 import {
-  DEFAULT_RENKO_ATR_PERIOD, type OhlcBar, type RenkoParams, type TransformKind,
+  DEFAULT_KAGI_REVERSAL_PERCENT, DEFAULT_LINE_BREAK_LINES, DEFAULT_RENKO_ATR_PERIOD,
+  DEFAULT_PNF_BOX_PERCENT, DEFAULT_PNF_REVERSAL_BOXES,
+  type OhlcBar, type RenkoParams, type TransformKind, type TransformParams,
 } from "./chartTransforms";
 
 export type { OhlcBar } from "./chartTransforms";
-export { DEFAULT_RENKO_ATR_PERIOD } from "./chartTransforms";
+export {
+  DEFAULT_KAGI_REVERSAL_PERCENT, DEFAULT_LINE_BREAK_LINES, DEFAULT_RENKO_ATR_PERIOD,
+  DEFAULT_PNF_BOX_PERCENT, DEFAULT_PNF_REVERSAL_BOXES,
+} from "./chartTransforms";
 
 export type ChartType =
-  | "candles" | "hollowCandles" | "bars" | "line" | "stepLine" | "area" | "baseline"
-  | "heikinAshi" | "renko";
+  | "candles" | "hollowCandles" | "volumeCandles" | "bars" | "line" | "lineWithMarkers"
+  | "stepLine" | "area" | "hlcArea" | "baseline" | "columns" | "highLow" | "sessionVolumeProfile"
+  | "tpo" | "heikinAshi" | "renko" | "lineBreak" | "kagi" | "pointAndFigure";
 
 /** Which of lightweight-charts' series kinds actually draws a type. */
-export type ChartRenderKind = "candles" | "bars" | "line" | "area" | "baseline";
+export type ChartRenderKind = "candles" | "bars" | "line" | "area" | "baseline" | "histogram";
 
 /** The two shelves of the menu. Transforms never mix in with presentations. */
 export type ChartTypeGroup = "presentation" | "transform";
@@ -74,6 +81,11 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "Candles with an unfilled body where the bar closed up",
   },
   {
+    value: "volumeCandles", label: "Volume candles", group: "presentation",
+    renderKind: "candles", transform: null,
+    hint: "Candles shaded by each bar's traded volume",
+  },
+  {
     value: "bars", label: "Bars", group: "presentation",
     renderKind: "bars", transform: null,
     hint: "Open, high, low and close as an OHLC bar",
@@ -84,6 +96,11 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "Closing price only",
   },
   {
+    value: "lineWithMarkers", label: "Line with markers", group: "presentation",
+    renderKind: "line", transform: null,
+    hint: "Closing price with a marker at every bar",
+  },
+  {
     value: "stepLine", label: "Step line", group: "presentation",
     renderKind: "line", transform: null,
     hint: "Closing price as a step — each close held until the next one",
@@ -92,6 +109,11 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     value: "area", label: "Area", group: "presentation",
     renderKind: "area", transform: null,
     hint: "Closing price, filled to the baseline",
+  },
+  {
+    value: "hlcArea", label: "HLC area", group: "presentation",
+    renderKind: "line", transform: null,
+    hint: "High-to-low range filled with the closing price traced through it",
   },
   {
     /*
@@ -106,6 +128,26 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "Filled above and below the first close in view",
   },
   {
+    value: "columns", label: "Columns", group: "presentation",
+    renderKind: "histogram", transform: null,
+    hint: "Closing price as vertical columns",
+  },
+  {
+    value: "highLow", label: "High-low", group: "presentation",
+    renderKind: "candles", transform: null,
+    hint: "The traded high-to-low range without an OHLC body",
+  },
+  {
+    value: "sessionVolumeProfile", label: "Session volume profile", group: "presentation",
+    renderKind: "candles", transform: null,
+    hint: "Candles with a price-volume profile for the current UTC session",
+  },
+  {
+    value: "tpo", label: "Time Price Opportunity (TPO)", group: "presentation",
+    renderKind: "candles", transform: null,
+    hint: "Session profile counting time brackets at each traded price",
+  },
+  {
     value: "heikinAshi", label: "Heikin Ashi", group: "transform",
     renderKind: "candles", transform: "heikinAshi",
     hint: "Averaged bars — display only, not traded prices",
@@ -114,6 +156,21 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     value: "renko", label: `Renko · ATR(${DEFAULT_RENKO_ATR_PERIOD})`, group: "transform",
     renderKind: "candles", transform: "renko",
     hint: `Bricks of one ATR(${DEFAULT_RENKO_ATR_PERIOD}) — display only, no time axis`,
+  },
+  {
+    value: "lineBreak", label: `${DEFAULT_LINE_BREAK_LINES}-line Break`, group: "transform",
+    renderKind: "line", transform: "lineBreak",
+    hint: `${DEFAULT_LINE_BREAK_LINES}-line close-break transform — display only`,
+  },
+  {
+    value: "kagi", label: `Kagi · ${DEFAULT_KAGI_REVERSAL_PERCENT}% reversal`, group: "transform",
+    renderKind: "line", transform: "kagi",
+    hint: "Close-driven Kagi line with a fixed percentage reversal",
+  },
+  {
+    value: "pointAndFigure", label: `Point & Figure · ${DEFAULT_PNF_BOX_PERCENT}% / ${DEFAULT_PNF_REVERSAL_BOXES} boxes`, group: "transform",
+    renderKind: "line", transform: "pointAndFigure",
+    hint: `Price columns using ${DEFAULT_PNF_BOX_PERCENT}% boxes and ${DEFAULT_PNF_REVERSAL_BOXES}-box reversals`,
   },
 ];
 
@@ -149,6 +206,11 @@ export function drawsOhlc(type: ChartType): boolean {
   return kind === "candles" || kind === "bars";
 }
 
+export function isVolumeCandle(type: ChartType): boolean { return type === "volumeCandles"; }
+export function hasLineMarkers(type: ChartType): boolean { return type === "lineWithMarkers"; }
+export function hasHlcComponents(type: ChartType): boolean { return type === "hlcArea"; }
+export function isHighLow(type: ChartType): boolean { return type === "highLow"; }
+
 /** The transform to run before drawing, or null when the candles are drawn as-is. */
 export function chartTransform(type: ChartType): TransformKind | null {
   return spec(type).transform;
@@ -173,6 +235,19 @@ export function renkoParams(type: ChartType): RenkoParams | null {
   return chartTransform(type) === "renko"
     ? { atrPeriod: DEFAULT_RENKO_ATR_PERIOD }
     : null;
+}
+
+/** Parameters for every implemented display transform. */
+export function transformParams(type: ChartType): TransformParams {
+  const transform = chartTransform(type);
+  return {
+    atrPeriod: DEFAULT_RENKO_ATR_PERIOD,
+    ...(transform === "lineBreak" ? { lineBreakLines: DEFAULT_LINE_BREAK_LINES } : {}),
+    ...(transform === "kagi" ? { kagiReversalPercent: DEFAULT_KAGI_REVERSAL_PERCENT } : {}),
+    ...(transform === "pointAndFigure" ? {
+      pnfBoxPercent: DEFAULT_PNF_BOX_PERCENT, pnfReversalBoxes: DEFAULT_PNF_REVERSAL_BOXES,
+    } : {}),
+  };
 }
 
 /**
@@ -241,7 +316,12 @@ export function mainSeriesDatum(
   const time = bar.openTime / 1000;
   const kind = renderKind(type);
   if (kind !== "candles" && kind !== "bars") return { time, value: bar.close };
-  const ohlc = { time, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
+  const ohlc = type === "highLow"
+    ? {
+        time, open: (bar.high + bar.low) / 2,
+        high: bar.high, low: bar.low, close: (bar.high + bar.low) / 2,
+      }
+    : { time, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
   if (!color) return ohlc;
   return kind === "candles"
     ? { ...ohlc, color, borderColor: color, wickColor: color }
@@ -257,12 +337,15 @@ export function mainSeriesDatum(
  * a chart that has no time candles. Both are answered here rather than in the
  * renderer, so "what does the legend claim" is a property of the chart type.
  */
-export type LegendSource = "canonical" | "heikinAshi" | "renkoBrick";
+export type LegendSource = "canonical" | "heikinAshi" | "renkoBrick" | "pointFigureColumn" | "kagiPoint" | "lineBreakLine";
 
 export function legendSource(type: ChartType): LegendSource {
   const transform = chartTransform(type);
   if (transform === "heikinAshi") return "heikinAshi";
   if (transform === "renko") return "renkoBrick";
+  if (transform === "pointAndFigure") return "pointFigureColumn";
+  if (transform === "kagi") return "kagiPoint";
+  if (transform === "lineBreak") return "lineBreakLine";
   return "canonical";
 }
 
@@ -281,7 +364,8 @@ export function legendSource(type: ChartType): LegendSource {
  * is to draw none of it rather than to draw it wrong, and to say so.
  */
 export function timeAnchoredVisualsTruthful(type: ChartType): boolean {
-  return chartTransform(type) !== "renko";
+  const transform = chartTransform(type);
+  return transform === null || transform === "heikinAshi";
 }
 
 /** Shown wherever Renko has suppressed a time-anchored layer. */
