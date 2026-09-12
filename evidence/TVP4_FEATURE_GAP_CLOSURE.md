@@ -102,7 +102,7 @@ flyout. Rows are grouped only where every named tool has the same status.
 
 ## Validation and artifacts
 
-- Full frontend unit suite: rerun after the chart-engine checkpoint; focused transform/type/workspace tests cover Line Break, Kagi, TPO and Point & Figure.
+- Full frontend unit suite: **953 passed**. Focused transform/type/workspace tests cover Line Break, Kagi, TPO and Point & Figure; advanced drawing registry tests cover every added family.
 - Full frontend DOM workflow suite: **91 passed**.
 - Focused closure tests: chart types, drawing visibility/tool registry, profile wiring and anchored profile behavior all passed.
 - `npm run typecheck`, `npm run lint`, `npm run build`, and `git diff --check` pass after the closure changes.
