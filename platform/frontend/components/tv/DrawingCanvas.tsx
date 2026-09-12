@@ -11,6 +11,10 @@ import {
   type Anchor, type Drawing, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
+import {
+  fibChannelGeometry, gannSquareGeometry, patternLabels,
+  pitchforkGeometry, regression as regressionGeometry, timeProjection,
+} from "@/lib/drawingGeometry";
 
 const HIT_PX = 7;
 const HANDLE_PX = 4.5;
@@ -593,7 +597,7 @@ export function DrawingCanvas({
       // it can be un-hidden from the drawings panel; it is simply not on the
       // chart, and `hitTest` agrees so it cannot be grabbed by an empty click.
       if (d.hidden || !drawingVisibleOnTimeframe(d, interval)) continue;
-      drawOne(ctx, d, toPx, plotW, plotH, d.id === selected, d.id === hoverRef.current);
+      drawOne(ctx, d, toPx, plotW, plotH, d.id === selected, d.id === hoverRef.current, candles);
     }
     // In-progress geometry follows the pointer.
     const draft = draftRef.current;
@@ -605,12 +609,12 @@ export function DrawingCanvas({
         drawOne(
           ctx,
           { id: "draft", tool: draft.tool, points: pts, style: { ...style, dashed: true } },
-          toPx, plotW, plotH, false, false
+          toPx, plotW, plotH, false, false, candles
         );
       }
     }
     ctx.restore();
-  }, [drawings, selected, hidden, style, toPx, chart, interval]);
+  }, [drawings, selected, hidden, style, toPx, chart, interval, candles]);
 
   // Style edits apply to the selected drawing, else become the new default.
   const applyStyle = (patch: Partial<typeof style>): void => {
@@ -835,6 +839,13 @@ export function DrawingCanvas({
 
 type ToPx = (a: Anchor) => Pt;
 
+const addPx = (p: Pt, normal: Pt, amount: number): Pt => ({ x: p.x + normal.x * amount, y: p.y + normal.y * amount });
+const unitPerpendicular = (a: Pt, b: Pt): Pt => {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const length = Math.hypot(dx, dy) || 1;
+  return { x: -dy / length, y: dx / length };
+};
+
 /** Multi-anchor TradingView families share one persisted template geometry. */
 const TEMPLATE_TOOLS = new Set<DrawingTool>([
   "regression", "flatTopBottom", "schiffPitchfork", "modifiedSchiffPitchfork", "insidePitchfork",
@@ -843,10 +854,6 @@ const TEMPLATE_TOOLS = new Set<DrawingTool>([
   "xabcd", "cypher", "headAndShoulders", "abcdPattern", "trianglePattern", "threeDrives",
   "elliottImpulse", "elliottCorrection", "elliottTriangle", "elliottDoubleCombo", "elliottTripleCombo",
   "cyclicLines", "timeCycles", "sineLine", "positionForecast", "barsPattern", "sector", "rotatedRectangle", "table",
-]);
-const FIB_TEMPLATE_TOOLS = new Set<DrawingTool>([
-  "fibChannel", "fibTimeZone", "trendFibTime", "fibSpeedResistanceFan", "fibSpeedResistanceArcs",
-  "fibCircles", "fibSpiral", "fibWedge", "pitchfan",
 ]);
 const GANN_TEMPLATE_TOOLS = new Set<DrawingTool>(["gannBox", "gannSquareFixed", "gannSquare", "gannFan"]);
 const PATTERN_TEMPLATE_TOOLS = new Set<DrawingTool>([
@@ -867,6 +874,16 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
   const b = q[1] ?? a;
   const span = 6000;
   if (TEMPLATE_TOOLS.has(d.tool)) {
+    if (["schiffPitchfork", "modifiedSchiffPitchfork", "insidePitchfork"].includes(d.tool)) {
+      const variant: "schiff" | "modifiedSchiff" | "inside" = d.tool === "schiffPitchfork" ? "schiff" : d.tool === "modifiedSchiffPitchfork" ? "modifiedSchiff" : "inside";
+      return Math.min(...pitchforkGeometry(q, variant, span).segments.map((s) => distToSegment(p, s.a, s.b)));
+    }
+    if (d.tool === "fibChannel" || d.tool === "pitchfan") {
+      return Math.min(...fibChannelGeometry(q, undefined, span).segments.map((s) => distToSegment(p, s.a, s.b)));
+    }
+    if (d.tool === "gannBox" || d.tool === "gannSquareFixed" || d.tool === "gannSquare") {
+      return Math.min(...gannSquareGeometry(a, b, d.tool === "gannSquareFixed").segments.map((s) => distToSegment(p, s.a, s.b)));
+    }
     let best = Math.hypot(p.x - a.x, p.y - a.y);
     for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!));
     return best;
@@ -957,7 +974,7 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
 
 function drawOne(
   ctx: CanvasRenderingContext2D, d: Drawing, toPx: ToPx,
-  w: number, h: number, selected: boolean, hovered: boolean
+  w: number, h: number, selected: boolean, hovered: boolean, candles: Candle[] = []
 ): void {
   const q = d.points.map(toPx);
   if (q.length === 0) return;
@@ -995,61 +1012,79 @@ function drawOne(
   };
 
   if (TEMPLATE_TOOLS.has(d.tool)) {
-    // Shared anchor-template renderer: every advanced family is an actual
-    // editable chart object, with its anchors and leg labels preserved.
-    ctx.beginPath(); ctx.moveTo(a.x, a.y);
-    for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y);
-    ctx.stroke();
-    if (FIB_TEMPLATE_TOOLS.has(d.tool) && q.length >= 2) {
-      const ratios = [0, 0.382, 0.5, 0.618, 1, 1.618];
-      for (const ratio of ratios) {
-        const y = a.y + (b.y - a.y) * ratio;
-        line({ x: Math.min(a.x, b.x), y }, { x: Math.max(a.x, b.x) + 140, y });
-        ctx.fillText(`${Math.round(ratio * 100)}%`, Math.max(a.x, b.x) + 6, y - 3);
+    // Advanced tools are rendered from their actual construction rules. The
+    // persisted anchors remain the handles; all secondary lines are derived.
+    if (["schiffPitchfork", "modifiedSchiffPitchfork", "insidePitchfork"].includes(d.tool)) {
+      const variant: "schiff" | "modifiedSchiff" | "inside" = d.tool === "schiffPitchfork" ? "schiff" : d.tool === "modifiedSchiffPitchfork" ? "modifiedSchiff" : "inside";
+      for (const segment of pitchforkGeometry(q, variant).segments) line(segment.a, segment.b);
+    } else if (d.tool === "fibChannel" || d.tool === "pitchfan") {
+      for (const segment of fibChannelGeometry(q).segments) line(segment.a, segment.b);
+    } else if (d.tool === "fibTimeZone" || d.tool === "trendFibTime") {
+      const fibSteps = [0, 1, 2, 3, 5, 8, 13, 21];
+      const period = Math.max(8, Math.abs(b.x - a.x));
+      for (const step of fibSteps) {
+        const x = a.x + Math.sign(b.x - a.x || 1) * period * step;
+        line({ x, y: 0 }, { x, y: h });
+        label(`${step}`, x + 3, 14);
       }
-      if (d.tool === "fibTimeZone" || d.tool === "trendFibTime") {
-        for (const ratio of ratios) {
-          const x = a.x + (b.x - a.x) * ratio;
-          line({ x, y: 0 }, { x, y: h });
-        }
+    } else if (d.tool === "fibSpeedResistanceFan" || d.tool === "fibSpeedResistanceArcs") {
+      const direction = { x: b.x - a.x, y: b.y - a.y };
+      for (const ratio of [0.236, 0.382, 0.5, 0.618, 0.786, 1]) {
+        if (d.tool === "fibSpeedResistanceFan") line(a, { x: a.x + direction.x * 2, y: a.y + direction.y * ratio * 2 });
+        else { ctx.beginPath(); ctx.arc(a.x, a.y, Math.max(8, Math.hypot(direction.x, direction.y) * ratio), 0, Math.PI * 2); ctx.stroke(); }
       }
-      if (d.tool === "fibCircles" || d.tool === "fibSpiral") {
-        const radius = Math.max(8, Math.hypot(b.x - a.x, b.y - a.y));
-        for (let i = 1; i <= 3; i++) { ctx.beginPath(); ctx.arc(a.x, a.y, radius * i / 3, 0, Math.PI * 2); ctx.stroke(); }
+    } else if (d.tool === "fibCircles" || d.tool === "fibSpiral") {
+      const radius = Math.max(8, Math.hypot(b.x - a.x, b.y - a.y));
+      for (let i = 1; i <= 5; i++) { ctx.beginPath(); ctx.arc(a.x, a.y, radius * i / 3, 0, Math.PI * 2); ctx.stroke(); }
+      if (d.tool === "fibSpiral") { ctx.beginPath(); for (let t = 0; t < Math.PI * 4; t += 0.12) { const r = radius * t / (Math.PI * 2); const p = { x: a.x + Math.cos(t) * r, y: a.y + Math.sin(t) * r }; if (t === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); } ctx.stroke(); }
+    } else if (d.tool === "fibWedge") {
+      const c = q[2] ?? b; line(a, b); line(a, c); line(b, c);
+      for (const ratio of [0.382, 0.618]) line({ x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio }, { x: a.x + (c.x - a.x) * ratio, y: a.y + (c.y - a.y) * ratio });
+    } else if (d.tool === "flatTopBottom") {
+      // Flat top/bottom channel: the first segment is the trend edge and the
+      // second handle chooses which horizontal boundary is active.
+      line(a, b);
+      const top = Math.min(a.y, b.y), bottom = Math.max(a.y, b.y);
+      line({ x: 0, y: top }, { x: w, y: top });
+      line({ x: 0, y: bottom }, { x: w, y: bottom });
+    } else if (d.tool === "gannFan") {
+      for (const slope of [-2, -1, -0.5, 0.5, 1, 2]) line(a, { x: a.x + span, y: a.y + slope * span });
+    } else if (GANN_TEMPLATE_TOOLS.has(d.tool)) {
+      for (const segment of gannSquareGeometry(a, b, d.tool === "gannSquareFixed").segments) line(segment.a, segment.b);
+    } else if (PATTERN_TEMPLATE_TOOLS.has(d.tool)) {
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y); ctx.stroke();
+      const labels = patternLabels(d.tool); q.forEach((point, index) => label(labels[index] ?? String(index + 1), point.x + 4, point.y - 4));
+    } else if (d.tool === "regression") {
+      const t0 = Math.min(d.points[0]!.time, d.points[1]!.time);
+      const t1 = Math.max(d.points[0]!.time, d.points[1]!.time);
+      const observations = candles.filter((c) => c.openTime / 1000 >= t0 && c.openTime / 1000 <= t1).map((c) => toPx({ time: c.openTime / 1000, price: c.close }));
+      const fit = regressionGeometry(q, observations);
+      if (fit) {
+        line(fit.center.a, fit.center.b);
+        const normal = unitPerpendicular(fit.center.a, fit.center.b);
+        line(addPx(fit.center.a, normal, fit.deviation), addPx(fit.center.b, normal, fit.deviation));
+        line(addPx(fit.center.a, normal, -fit.deviation), addPx(fit.center.b, normal, -fit.deviation));
       }
-    }
-    if (GANN_TEMPLATE_TOOLS.has(d.tool) && q.length >= 2) {
-      if (d.tool === "gannFan") {
-        for (const slope of [-1, -0.5, 0.5, 1]) line(a, { x: a.x + span, y: a.y + slope * span });
-      } else {
-        const size = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-        ctx.strokeRect(a.x, a.y, size, size);
-        for (const fraction of [0.25, 0.5, 0.75]) { line({ x: a.x + size * fraction, y: a.y }, { x: a.x + size * fraction, y: a.y + size }); line({ x: a.x, y: a.y + size * fraction }, { x: a.x + size, y: a.y + size * fraction }); }
-      }
-    }
-    if (PATTERN_TEMPLATE_TOOLS.has(d.tool) && q.length > 1) {
-      q.forEach((point, index) => label(`${String.fromCharCode(88 + (index % 4))}${index}`, point.x + 4, point.y - 4));
-    }
-    if (d.tool === "regression" && q.length >= 2) {
-      const dx = q[1]!.x - q[0]!.x, dy = q[1]!.y - q[0]!.y;
-      line({ x: q[0]!.x, y: q[0]!.y - 18 }, { x: q[1]!.x, y: q[1]!.y - 18 });
-      line({ x: q[0]!.x, y: q[0]!.y + 18 }, { x: q[1]!.x, y: q[1]!.y + 18 });
-      void dx; void dy;
+    } else if (d.tool === "cyclicLines" || d.tool === "timeCycles" || d.tool === "sineLine") {
+      const projection = timeProjection(d.tool, q, h);
+      for (const x of projection.verticals) line({ x, y: 0 }, { x, y: h });
+      for (const segment of projection.segments) line(segment.a, segment.b);
+    } else if (d.tool === "positionForecast" || d.tool === "barsPattern") {
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y); ctx.stroke();
+      const delta = q.length > 1 ? { x: q[q.length - 1]!.x - q[0]!.x, y: q[q.length - 1]!.y - q[0]!.y } : { x: 80, y: 0 };
+      line(q[q.length - 1]!, addPx(q[q.length - 1]!, delta, 1));
+    } else if (d.tool === "sector") {
+      const c = q[2] ?? b; const r = Math.hypot(b.x - a.x, b.y - a.y); const start = Math.atan2(b.y - a.y, b.x - a.x); const end = Math.atan2(c.y - a.y, c.x - a.x);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.arc(a.x, a.y, r, start, end); ctx.closePath(); fillAlpha(() => ctx.fill(), 0.12); ctx.stroke();
+    } else if (d.tool === "table") {
+      const width = Math.max(90, Math.abs(b.x - a.x)); const rows = 4; for (let i = 0; i <= rows; i++) line({ x: a.x, y: a.y + i * 20 }, { x: a.x + width, y: a.y + i * 20 }); line({ x: a.x, y: a.y }, { x: a.x, y: a.y + rows * 20 }); line({ x: a.x + width / 2, y: a.y }, { x: a.x + width / 2, y: a.y + rows * 20 });
+    } else {
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y); ctx.stroke();
     }
     if (d.tool === "rotatedRectangle" && q.length >= 3) {
       const c = q[2]!; const d4 = { x: a.x + c.x - b.x, y: a.y + c.y - b.y };
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d4.x, d4.y); ctx.closePath();
       if (d.style.filled) fillAlpha(() => ctx.fill(), 0.12); ctx.stroke();
-    }
-    if (d.tool === "table") {
-      const width = Math.max(90, Math.abs((b?.x ?? a.x) - a.x));
-      const rows = Math.max(2, Math.min(6, q.length));
-      for (let i = 0; i <= rows; i++) line({ x: a.x, y: a.y + i * 20 }, { x: a.x + width, y: a.y + i * 20 });
-      line({ x: a.x, y: a.y }, { x: a.x, y: a.y + rows * 20 });
-      line({ x: a.x + width / 2, y: a.y }, { x: a.x + width / 2, y: a.y + rows * 20 });
-    }
-    if (q.length > 2 && d.tool !== "table") {
-      q.forEach((point, index) => label(String.fromCharCode(65 + (index % 26)), point.x + 4, point.y - 4));
     }
     if (selected) {
       ctx.setLineDash([]);
