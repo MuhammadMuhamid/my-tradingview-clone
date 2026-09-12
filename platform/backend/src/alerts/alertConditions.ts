@@ -184,7 +184,53 @@ export interface PivotFilter {
   maxPct: number;
 }
 
-export type AlertFilter = RsiFilter | MaFilter | SupertrendFilter | PivotFilter;
+/**
+ * RSI(length) must sit above/below a moving average OF THE RSI ITSELF.
+ *
+ * Distinct from `RsiFilter`, which compares the oscillator to a fixed level.
+ * "RSI 50 is above 50" and "RSI 50 is above its own EMA 14" are different
+ * questions: the first is an absolute regime test, the second a momentum test
+ * that travels with the market. Folding them into one kind by making `level`
+ * optional would make the stored gate ambiguous about which was meant.
+ *
+ * The average is smoothed from the RSI series including its leading NaNs, so
+ * it appears on the bar the indicator would draw it and not earlier — the same
+ * rule the `rsi` alert family already follows for its SMA.
+ */
+export interface RsiMaFilter {
+  kind: "rsi_ma";
+  timeframe: FilterTimeframe;
+  /** The RSI's own length. */
+  length: number;
+  maType: MaType;
+  /** The length of the average taken OF the RSI — 14 and 21 are the common pair. */
+  maLength: number;
+  side: Side;
+}
+
+/**
+ * The MACD line must sit above/below its signal line, or above/below zero.
+ *
+ * "Above the signal" is the state a bullish crossover leaves behind, and it is
+ * deliberately the state and not the crossing. A gate asks "is this true now",
+ * and a cross is true for exactly one bar — gating on the cross itself would
+ * mean the alert could only ever fire on that one bar, which is a different
+ * and far narrower rule than the one being asked for.
+ */
+export interface MacdFilter {
+  kind: "macd";
+  timeframe: FilterTimeframe;
+  fastLength: number;
+  slowLength: number;
+  signalLength: number;
+  /** "signal" compares against the signal line; "zero" against the centreline. */
+  target: MacdTarget;
+  side: Side;
+}
+
+export type AlertFilter =
+  | RsiFilter | MaFilter | SupertrendFilter | PivotFilter
+  | RsiMaFilter | MacdFilter;
 
 /**
  * The gates an alert carries, in order.
@@ -196,7 +242,9 @@ export type AlertFilter = RsiFilter | MaFilter | SupertrendFilter | PivotFilter;
  */
 export type AlertFilters = AlertFilter[];
 
-export const FILTER_KINDS = ["rsi", "ma", "supertrend", "pivot"] as const;
+export const FILTER_KINDS = [
+  "rsi", "ma", "supertrend", "pivot", "rsi_ma", "macd",
+] as const;
 export type FilterKind = (typeof FILTER_KINDS)[number];
 export const isFilterKind = (v: string): v is FilterKind =>
   (FILTER_KINDS as readonly string[]).includes(v);
@@ -620,6 +668,20 @@ export function filtersPass(
         return filter.side === "above" ? sample.close > value : sample.close < value;
       case "supertrend":
         // The indicator's own direction: +1 uptrend, -1 downtrend.
+        return filter.side === "above" ? value > 0 : value < 0;
+      case "rsi_ma":
+      case "macd":
+        /*
+         * `value` is the SPREAD — the line minus what it is measured against
+         * (RSI minus its average; MACD minus its signal or zero). Both gates
+         * compare two computed numbers rather than one number to a constant,
+         * and `filterReadings` carries one scalar per gate, so the runner does
+         * the subtraction and the sign is the whole answer.
+         *
+         * The same shape `supertrend` already uses, for the same reason: what
+         * the gate acts on is a direction, not a level a reader could confuse
+         * with a price.
+         */
         return filter.side === "above" ? value > 0 : value < 0;
       case "pivot": {
         /*
@@ -1243,6 +1305,26 @@ export function parseStoredFilters(raw: unknown): AlertFilters {
         levelName: typeof e.levelName === "string" ? e.levelName : PIVOT_LEVEL_ANY,
         side: bs, minPct: e.minPct, maxPct: e.maxPct,
       });
+    } else if (e.kind === "rsi_ma") {
+      if (!s) continue;
+      if (typeof e.length !== "number" || typeof e.maLength !== "number") continue;
+      if (e.maType !== "sma" && e.maType !== "ema") continue;
+      out.push({
+        kind: "rsi_ma", timeframe, length: e.length,
+        maType: e.maType, maLength: e.maLength, side: s,
+      });
+    } else if (e.kind === "macd") {
+      if (!s) continue;
+      if (
+        typeof e.fastLength !== "number" || typeof e.slowLength !== "number"
+        || typeof e.signalLength !== "number"
+      ) continue;
+      const target = typeof e.target === "string" ? e.target : "";
+      if (!isMacdTarget(target)) continue;
+      out.push({
+        kind: "macd", timeframe, fastLength: e.fastLength,
+        slowLength: e.slowLength, signalLength: e.signalLength, target, side: s,
+      });
     } else if (e.kind === "supertrend") {
       if (!s) continue;
       if (typeof e.period !== "number" || typeof e.multiplier !== "number") continue;
@@ -1320,6 +1402,14 @@ export function describeFilters(filters: AlertFilters | undefined): string {
         return `${at}price is ${f.side} the ${maLabel(f.type, f.length)}`;
       case "supertrend":
         return `${at}price is ${f.side} the ${stLabel(f)}`;
+      case "rsi_ma":
+        return `${at}RSI ${f.length} is ${f.side} its ${maLabel(f.maType, f.maLength)}`;
+      case "macd": {
+        const against = f.target === "zero"
+          ? "zero"
+          : `its signal line (${f.fastLength}/${f.slowLength}/${f.signalLength})`;
+        return `${at}MACD is ${f.side} ${against}`;
+      }
       case "pivot": {
         const level = f.levelName === PIVOT_LEVEL_ANY
           ? `the nearest ${f.pivotType} pivot`
@@ -1395,6 +1485,36 @@ function filterError(filters: AlertFilters | undefined): string | null {
         }
         break;
       }
+      case "rsi_ma":
+        if (!Number.isInteger(f.length) || f.length < 1 || f.length > 1000) {
+          return "filter RSI length must be an integer between 1 and 1000";
+        }
+        if (!isMaType(f.maType)) return "filter RSI average type must be sma or ema";
+        if (!Number.isInteger(f.maLength) || f.maLength < 1 || f.maLength > 1000) {
+          return "filter RSI average length must be an integer between 1 and 1000";
+        }
+        break;
+      case "macd":
+        for (const [name, len] of [
+          ["fast", f.fastLength], ["slow", f.slowLength], ["signal", f.signalLength],
+        ] as const) {
+          if (!Number.isInteger(len) || len < 1 || len > 1000) {
+            return `filter MACD ${name} length must be an integer between 1 and 1000`;
+          }
+        }
+        /*
+         * A fast length at or above the slow one inverts the histogram: the
+         * "MACD line" becomes the negative of itself, so "above the signal"
+         * would quietly mean the opposite of what the gate says. Refused
+         * rather than normalised, because the user picked both numbers.
+         */
+        if (f.fastLength >= f.slowLength) {
+          return "filter MACD fast length must be shorter than its slow length";
+        }
+        if (!isMacdTarget(f.target)) {
+          return "filter MACD target must be signal or zero";
+        }
+        break;
       case "supertrend":
         if (!Number.isInteger(f.period) || f.period < 1 || f.period > 1000) {
           return "filter Supertrend ATR period must be an integer between 1 and 1000";

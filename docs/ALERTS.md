@@ -259,6 +259,61 @@ level list when the type changes, for the same reason.
 > `jsonb_path_exists` takes `jsonpath`, so the concatenated form fails to
 > resolve the function at all.
 
+### Two gates that compare a line to another line
+
+`kind: "rsi_ma"` and `kind: "macd"` are the fifth and sixth gates, and they
+share a shape the first four do not: both compare **two computed series**
+rather than one series to a constant.
+
+`rsi_ma` asks whether the RSI sits above a moving average **of the RSI itself**
+— "RSI 50 above its EMA 14". That is deliberately a separate kind from `rsi`,
+which compares the oscillator to a fixed level. "RSI 50 above 50" is an
+absolute regime test; "RSI 50 above its EMA 14" is a momentum test that travels
+with the market. Folding them together by making `level` optional would leave a
+stored gate ambiguous about which question was meant.
+
+> The average is EMA by default here, while the `rsi` **alert family**'s target
+> is an SMA. Both are correct: the family predates this and its stored rows
+> mean SMA, so the resolver's `maType` defaults to `sma` and only the gate
+> passes `ema`. Changing the family's default would silently redefine every
+> alert already saved against it.
+
+`macd` asks whether the MACD line sits above its signal line, or above zero.
+Note what it does **not** ask: it is the STATE a bullish crossover leaves
+behind, not the crossing. A gate answers "is this true now", and a cross is
+true for exactly one bar — gating on the cross itself would mean the alert
+could only ever fire on that single bar, which is a far narrower rule than the
+one being asked for. The alert **family** `macd` is where a cross belongs; the
+gate is where the standing condition belongs.
+
+A fast length at or above the slow length is **refused** rather than
+normalised. It inverts the histogram, so the MACD line becomes the negative of
+itself and "above the signal" would quietly mean its opposite.
+
+**The reading is a spread.** `filterReadings` carries one scalar per gate, and
+both of these need two numbers, so the runner subtracts and stores
+`line - reference`; `filtersPass` then tests its sign. The same shape
+`supertrend` already uses for its direction, and for the same reason — what the
+gate acts on is a direction, not a level a reader could mistake for a price. An
+exact touch (a spread of zero) is not "above": both sides are strict.
+
+Both accept a `timeframe`, so "the 1h RSI above its EMA 14 **and** the 4h RSI
+above its EMA 21" is two gates, and both must hold. That is the whole reason
+gates are a list.
+
+> **Changed in `034`.** `kind` widens to admit `rsi_ma` and `macd`, and the
+> per-alert gate cap rises from **6 to 8**. Six was chosen when three kinds
+> existed; asking the same question on two timeframes now costs two slots, and
+> two such questions fill four before anything else is added. `side` is
+> unchanged — both new gates ask which side of a line the indicator is on, so
+> `either` stays refused for them.
+>
+> `parseStoredFilters` had to learn both kinds too, and that is the part with
+> teeth: it **drops** an element it cannot parse, so a kind it did not know
+> would be read back as *no gate* and the alert would fire **ungated** — armed,
+> displayed with its filter, and wrong. The type checker cannot catch that,
+> because the function reads `unknown`.
+
 ### Arming one alert across a watchlist
 
 `POST /api/ma-alerts` accepts `symbols` as well as `symbol`. "The same 15m
@@ -446,7 +501,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–033
+## 8. Migrations 010–034
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -463,7 +518,8 @@ oscillators, `017` added the trend gates, and `025` added the `supertrend`
 family, the Supertrend gate and the note length bound — while dropping `017`'s
 `ma_alerts_filter_kind_ck`, which had confined gates to the two level families.
 `026`–`031` came with the TradingView-grade programme, `032` moved the gates
-to a list so each can name its own timeframe, and `033` added the pivot gate. Each new kind's completeness rule
+to a list so each can name its own timeframe, `033` added the pivot gate, and
+`034` added the RSI-vs-average and MACD gates while raising the gate cap to eight. Each new kind's completeness rule
 lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
 **effective** vocabulary — the last definition across the whole set — against
 `CONDITION_KINDS`, so columns can never be added without widening the CHECK

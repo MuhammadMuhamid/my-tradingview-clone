@@ -173,6 +173,46 @@ function readOneFilter(
     return { filter: { kind: "ma", timeframe, type, length, side } };
   }
 
+  if (kind === "rsi_ma") {
+    const d = FILTER_DEFAULTS.rsi_ma;
+    const length = Number(f.length ?? d.length);
+    const maType = String(f.maType ?? d.maType);
+    const maLength = Number(f.maLength ?? d.maLength);
+    if (!isLength(length)) return bad(`filters[${index}].length must be an integer 1..1000`);
+    if (!isMaType(maType)) return bad(`filters[${index}].maType must be sma or ema`);
+    if (!isLength(maLength)) {
+      return bad(`filters[${index}].maLength must be an integer 1..1000`);
+    }
+    return { filter: { kind: "rsi_ma", timeframe, length, maType, maLength, side } };
+  }
+
+  if (kind === "macd") {
+    const d = FILTER_DEFAULTS.macd;
+    const fastLength = Number(f.fastLength ?? d.fastLength);
+    const slowLength = Number(f.slowLength ?? d.slowLength);
+    const signalLength = Number(f.signalLength ?? d.signalLength);
+    const target = String(f.target ?? d.target);
+    for (const [name, len] of [
+      ["fastLength", fastLength], ["slowLength", slowLength],
+      ["signalLength", signalLength],
+    ] as const) {
+      if (!isLength(len)) return bad(`filters[${index}].${name} must be an integer 1..1000`);
+    }
+    // Refused here as well as in `filterError`, so a bad request is rejected at
+    // the edge with the field name the client actually sent.
+    if (fastLength >= slowLength) {
+      return bad(`filters[${index}].fastLength must be less than slowLength`);
+    }
+    if (!isMacdTarget(target)) {
+      return bad(`filters[${index}].target must be one of ${MACD_TARGETS.join(", ")}`);
+    }
+    return {
+      filter: {
+        kind: "macd", timeframe, fastLength, slowLength, signalLength, target, side,
+      },
+    };
+  }
+
   const period = Number(f.period ?? FILTER_DEFAULTS.supertrend.period);
   const multiplier = Number(f.multiplier ?? FILTER_DEFAULTS.supertrend.multiplier);
   const atrMethod = String(f.atrMethod ?? FILTER_DEFAULTS.supertrend.atrMethod);

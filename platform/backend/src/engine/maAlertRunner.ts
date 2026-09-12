@@ -487,7 +487,8 @@ export class MaAlertRunner {
       return s;
     };
     const rsiFor = (
-      length: number, target: RsiTarget, level: number, maLength: number
+      length: number, target: RsiTarget, level: number, maLength: number,
+      maType: MaType = "sma"
     ): { value: number; reference: number } | undefined => {
       const series = rsiSeries(length);
       const value = series[series.length - 1];
@@ -495,7 +496,7 @@ export class MaAlertRunner {
       if (target === "level") return { value, reference: level };
       // The RSI-based MA is smoothed from the RSI series including its leading
       // NaNs, so it appears at the bar the indicator would show it, not earlier.
-      const ma = sma(series, maLength);
+      const ma = maType === "ema" ? ema(series, maLength) : sma(series, maLength);
       const reference = ma[ma.length - 1];
       if (reference === undefined || !Number.isFinite(reference)) return undefined;
       return { value, reference };

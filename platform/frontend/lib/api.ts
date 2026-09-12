@@ -585,7 +585,7 @@ export const FILTER_TIMEFRAMES: Interval[] = [
 ];
 
 /** The most gates one alert may carry. Mirrors `MAX_ALERT_FILTERS`. */
-export const MAX_ALERT_FILTERS = 6;
+export const MAX_ALERT_FILTERS = 8;
 
 /**
  * One precondition on an alert.
@@ -617,6 +617,28 @@ export type AlertFilter =
       kind: "pivot"; timeframe: null;
       anchor: string; pivotType: PivotType; levelName: string;
       side: FilterSide | "either"; minPct: number; maxPct: number;
+    }
+  /**
+   * RSI against a moving average OF THE RSI, rather than a fixed level.
+   *
+   * "RSI 50 above 50" is an absolute regime test; "RSI 50 above its EMA 14" is
+   * a momentum test that travels with the market. Separate kinds because the
+   * stored gate would otherwise be ambiguous about which was meant.
+   */
+  | {
+      kind: "rsi_ma"; timeframe: Interval | null;
+      length: number; maType: MaType; maLength: number; side: FilterSide;
+    }
+  /**
+   * The MACD line against its signal line, or against zero.
+   *
+   * The STATE a crossover leaves behind, not the crossing itself: a gate asks
+   * "is this true now", and a cross is true for one bar only.
+   */
+  | {
+      kind: "macd"; timeframe: Interval | null;
+      fastLength: number; slowLength: number; signalLength: number;
+      target: MacdTarget; side: FilterSide;
     };
 
 /** Which average of true range a Supertrend uses. `rma` is Wilder's. */
@@ -628,6 +650,13 @@ export const FILTER_DEFAULTS = {
   ma: { type: "ema" as MaType, length: 200, side: "above" as FilterSide },
   supertrend: {
     period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod, side: "above" as FilterSide,
+  },
+  rsi_ma: {
+    length: 50, maType: "ema" as MaType, maLength: 14, side: "above" as FilterSide,
+  },
+  macd: {
+    fastLength: 12, slowLength: 26, signalLength: 9,
+    target: "signal" as MacdTarget, side: "above" as FilterSide,
   },
 } as const;
 

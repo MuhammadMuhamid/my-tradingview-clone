@@ -80,11 +80,16 @@ export interface FeedSample {
   ) => { price: number; label: string } | undefined;
   /**
    * RSI at this bar, and the reference it is compared against — the fixed
-   * level, or the RSI-based SMA. Both come from the runner because only it
-   * holds the bar history the oscillator needs.
+   * level, or a moving average of the RSI. Both come from the runner because
+   * only it holds the bar history the oscillator needs.
+   *
+   * `maType` is optional and defaults to "sma", which is what the `rsi` alert
+   * family has always used and must keep using. The `rsi_ma` gate passes "ema"
+   * because that is the average traders actually overlay on an RSI pane.
    */
   rsi?: (
-    length: number, target: RsiTarget, level: number, maLength: number
+    length: number, target: RsiTarget, level: number, maLength: number,
+    maType?: MaType
   ) => { value: number; reference: number } | undefined;
   /** MACD line and its reference: the signal line, or zero. */
   macd?: (
@@ -322,6 +327,21 @@ function filterReadings(
         return sample.supertrend?.(
           filter.period, filter.multiplier, filter.atrMethod
         )?.trend;
+      case "rsi_ma": {
+        /*
+         * The SPREAD, not the RSI — see `filtersPass`. The resolver already
+         * returns the oscillator and what it is measured against as a pair, so
+         * the subtraction here is the only place the two are combined.
+         */
+        const r = sample.rsi?.(filter.length, "sma", 0, filter.maLength, filter.maType);
+        return r ? r.value - r.reference : undefined;
+      }
+      case "macd": {
+        const m = sample.macd?.(
+          filter.fastLength, filter.slowLength, filter.signalLength, filter.target
+        );
+        return m ? m.value - m.reference : undefined;
+      }
       case "pivot":
         /*
          * The LEVEL's price. `filtersPass` turns that into a distance from the

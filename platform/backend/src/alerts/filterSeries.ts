@@ -24,7 +24,7 @@
  *
  * Pure, so the boundary can be tested without a database or a feed.
  */
-import { ema, rsi, sma, supertrend } from "../engine/ta";
+import { ema, macd, rsi, sma, supertrend } from "../engine/ta";
 import type { AlertFilter } from "./alertConditions";
 
 /** The subset of a candle this needs. */
@@ -72,6 +72,27 @@ export function gateReading(
       return finite(last(
         filter.type === "ema" ? ema(closes, filter.length) : sma(closes, filter.length)
       ));
+    case "rsi_ma": {
+      /*
+       * The SPREAD, matching what the own-timeframe path resolves — see
+       * `filtersPass`. The average is taken of the RSI series WITH its leading
+       * NaNs, so it starts on the bar the indicator would draw it.
+       */
+      const series = rsi(closes, filter.length);
+      const value = finite(last(series));
+      const avg = finite(last(
+        filter.maType === "ema" ? ema(series, filter.maLength) : sma(series, filter.maLength)
+      ));
+      return value !== undefined && avg !== undefined ? value - avg : undefined;
+    }
+    case "macd": {
+      const m = macd(closes, filter.fastLength, filter.slowLength, filter.signalLength);
+      const line = finite(last(m.macd));
+      if (line === undefined) return undefined;
+      if (filter.target === "zero") return line;
+      const signal = finite(last(m.signal));
+      return signal === undefined ? undefined : line - signal;
+    }
     case "supertrend":
       return finite(last(supertrend(
         window.map((b) => b.high), window.map((b) => b.low), closes,

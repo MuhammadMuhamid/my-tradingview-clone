@@ -290,6 +290,14 @@ export function describeFilters(a: MaAlert): string {
         const where = f.side === "either" ? "either side of" : f.side;
         return `price is ${f.minPct}–${f.maxPct}% ${where} ${level} (${f.anchor})`;
       }
+      case "rsi_ma":
+        return `${at}RSI ${f.length} is ${f.side} its ${maLabel(f.maType, f.maLength)}`;
+      case "macd": {
+        const against = f.target === "zero"
+          ? "zero"
+          : `its signal line (${f.fastLength}/${f.slowLength}/${f.signalLength})`;
+        return `${at}MACD is ${f.side} ${against}`;
+      }
     }
   });
   return ` — only while ${parts.join(" and ")}`;

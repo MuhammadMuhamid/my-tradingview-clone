@@ -1,7 +1,8 @@
 "use client";
 import {
   FILTER_DEFAULTS, FILTER_TIMEFRAMES, MAX_ALERT_FILTERS,
-  type AlertFilter, type FilterSide, type MaAlert, type MaType, type StAtrMethod,
+  type AlertFilter, type FilterSide, type MaAlert, type MacdTarget, type MaType,
+  type StAtrMethod,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 
@@ -40,6 +41,25 @@ function blankFilter(kind: AlertFilter["kind"]): AlertFilter {
       type: FILTER_DEFAULTS.ma.type,
       length: FILTER_DEFAULTS.ma.length,
       side: FILTER_DEFAULTS.ma.side,
+    };
+  }
+  if (kind === "rsi_ma") {
+    return {
+      kind: "rsi_ma", timeframe: null,
+      length: FILTER_DEFAULTS.rsi_ma.length,
+      maType: FILTER_DEFAULTS.rsi_ma.maType,
+      maLength: FILTER_DEFAULTS.rsi_ma.maLength,
+      side: FILTER_DEFAULTS.rsi_ma.side,
+    };
+  }
+  if (kind === "macd") {
+    return {
+      kind: "macd", timeframe: null,
+      fastLength: FILTER_DEFAULTS.macd.fastLength,
+      slowLength: FILTER_DEFAULTS.macd.slowLength,
+      signalLength: FILTER_DEFAULTS.macd.signalLength,
+      target: FILTER_DEFAULTS.macd.target,
+      side: FILTER_DEFAULTS.macd.side,
     };
   }
   if (kind === "pivot") {
@@ -117,6 +137,8 @@ const KIND_LABEL: Record<AlertFilter["kind"], string> = {
   ma: "Moving average",
   supertrend: "Supertrend",
   pivot: "Pivot points",
+  rsi_ma: "RSI vs its average",
+  macd: "MACD",
 };
 
 /** Fibonacci defines P and three levels either side — it has no R4/R5. */
@@ -245,7 +267,18 @@ export function AlertFiltersField({
               </>
             )}
 
-            {f.kind === "pivot" && (
+            {f.kind === "macd" && (
+            <p className="text-xs text-ink-faint">
+              Fast / slow / signal. This is the <span className="text-ink">state</span> a
+              crossover leaves behind, not the crossing itself — &ldquo;MACD is above its
+              signal&rdquo; stays true for as long as it is, which is what a filter needs.
+              {f.fastLength >= f.slowLength
+                ? " Fast must be shorter than slow, or the line is inverted."
+                : ""}
+            </p>
+          )}
+
+          {f.kind === "pivot" && (
               <>
                 <select value={f.anchor} aria-label="Filter pivot anchor"
                   onChange={(e) => patch(i, { anchor: e.target.value })}
@@ -297,6 +330,54 @@ export function AlertFiltersField({
               </>
             )}
 
+            {f.kind === "rsi_ma" && (
+              <>
+                <span className="text-sm text-ink-muted">RSI</span>
+                <input type="number" min="1" max="1000" value={f.length}
+                  aria-label="Filter RSI length"
+                  onChange={(e) => patch(i, { length: parseInt(e.target.value || "0", 10) })}
+                  className={`${BOX} w-[68px]`} />
+                {sideSelect(f, i, "Filter RSI average side")}
+                <span className="text-sm text-ink-muted">its</span>
+                <select value={f.maType} aria-label="Filter RSI average type"
+                  onChange={(e) => patch(i, { maType: e.target.value as MaType })}
+                  className={`${BOX} w-[76px]`}>
+                  <option value="ema">EMA</option>
+                  <option value="sma">SMA</option>
+                </select>
+                <input type="number" min="1" max="1000" value={f.maLength}
+                  aria-label="Filter RSI average length"
+                  onChange={(e) => patch(i, { maLength: parseInt(e.target.value || "0", 10) })}
+                  className={`${BOX} w-[68px]`} />
+              </>
+            )}
+
+            {f.kind === "macd" && (
+              <>
+                <span className="text-sm text-ink-muted">MACD</span>
+                {sideSelect(f, i, "Filter MACD side")}
+                <select value={f.target} aria-label="Filter MACD target"
+                  onChange={(e) => patch(i, { target: e.target.value as MacdTarget })}
+                  className={`${BOX} w-[112px]`}>
+                  <option value="signal">signal line</option>
+                  <option value="zero">zero</option>
+                </select>
+                <input type="number" min="1" max="1000" value={f.fastLength}
+                  aria-label="Filter MACD fast length"
+                  onChange={(e) => patch(i, { fastLength: parseInt(e.target.value || "0", 10) })}
+                  className={`${BOX} w-[64px]`} />
+                <input type="number" min="1" max="1000" value={f.slowLength}
+                  aria-label="Filter MACD slow length"
+                  onChange={(e) => patch(i, { slowLength: parseInt(e.target.value || "0", 10) })}
+                  className={`${BOX} w-[64px]`} />
+                <input type="number" min="1" max="1000" value={f.signalLength}
+                  aria-label="Filter MACD signal length"
+                  onChange={(e) =>
+                    patch(i, { signalLength: parseInt(e.target.value || "0", 10) })}
+                  className={`${BOX} w-[64px]`} />
+              </>
+            )}
+
             {f.kind === "supertrend" && (
               <>
                 <span className="text-sm text-ink-muted">Price</span>
@@ -313,6 +394,17 @@ export function AlertFiltersField({
               </>
             )}
           </div>
+
+          {f.kind === "macd" && (
+            <p className="text-xs text-ink-faint">
+              Fast / slow / signal. This is the <span className="text-ink">state</span> a
+              crossover leaves behind, not the crossing itself — &ldquo;MACD is above its
+              signal&rdquo; stays true for as long as it is, which is what a filter needs.
+              {f.fastLength >= f.slowLength
+                ? " Fast must be shorter than slow, or the line is inverted."
+                : ""}
+            </p>
+          )}
 
           {f.kind === "pivot" && (
             <p className="text-xs text-ink-faint">
@@ -331,7 +423,7 @@ export function AlertFiltersField({
       {value.length < MAX_ALERT_FILTERS && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-ink-faint">Add filter</span>
-          {(["rsi", "ma", "supertrend", "pivot"] as const).map((kind) => (
+          {(["rsi", "rsi_ma", "ma", "macd", "supertrend", "pivot"] as const).map((kind) => (
             <button
               key={kind}
               type="button"

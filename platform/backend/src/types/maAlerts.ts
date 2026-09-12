@@ -78,7 +78,7 @@ export const FILTER_TIMEFRAMES = [
  * fetch and an indicator to compute per evaluation, so this is a real cost
  * bound rather than a tidiness rule.
  */
-export const MAX_ALERT_FILTERS = 6;
+export const MAX_ALERT_FILTERS = 8;
 
 /**
  * Defaults for the gates: RSI 50 > 50, price > EMA 200, price above Supertrend.
@@ -92,6 +92,19 @@ export const FILTER_DEFAULTS = {
   ma: { type: "ema" as MaType, length: 200, side: "above" as FilterSide },
   supertrend: {
     period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod, side: "above" as FilterSide,
+  },
+  /*
+   * RSI 50 against its own EMA 14 — the pair the request that added this gate
+   * named. The RSI length defaults to the same 50 the plain RSI gate uses so
+   * switching between the two kinds does not silently change the oscillator.
+   */
+  rsi_ma: {
+    length: 50, maType: "ema" as MaType, maLength: 14, side: "above" as FilterSide,
+  },
+  /** The classic 12/26/9, matching `MACD_DEFAULTS`. */
+  macd: {
+    fastLength: 12, slowLength: 26, signalLength: 9,
+    target: "signal" as MacdTarget, side: "above" as FilterSide,
   },
 } as const;
 
