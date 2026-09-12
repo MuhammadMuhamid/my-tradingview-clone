@@ -31,14 +31,10 @@ const BAR = { openTime: 1_700_000_000_000, open: 10, high: 12, low: 9, close: 11
 test("only the types this chart actually implements are offered", () => {
   assert.deepEqual(CHART_TYPES.map((t) => t.value), [
     "candles", "hollowCandles", "volumeCandles", "bars", "line", "lineWithMarkers",
-    "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo",
+    "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo", "range", "footprint",
     "heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure",
   ]);
-  // Unsupported synthetic systems stay absent rather than appearing as
-  // placeholders that cannot be chosen. Range and Volume Footprint remain
-  // unavailable because their required provider data is not in the candle
-  // contract; implemented transforms are tested and listed above.
-  for (const absent of ["range", "pnf", "heikinashi", "Renko", "footprint", "tpoo"]) {
+  for (const absent of ["pnf", "heikinashi", "Renko", "tpoo"]) {
     assert.equal(isChartType(absent), false, absent);
   }
 });
@@ -57,7 +53,7 @@ test("presentations and transforms are separate, and the split is data", () => {
    */
   assert.deepEqual(presentations,
     ["candles", "hollowCandles", "volumeCandles", "bars", "line", "lineWithMarkers",
-      "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo"]);
+      "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo", "range", "footprint"]);
   assert.deepEqual(transforms, ["heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure"]);
 
   // The transforms come last, so the menu can render them as a terminal group.
@@ -93,7 +89,7 @@ test("Renko's parameters are ATR(14), and they belong to the chart type", () => 
 });
 
 test("an unknown or damaged persisted type falls back to canonical candles", () => {
-  for (const bad of [null, undefined, 3, "", "renko ", "range", {}, ["renko"]]) {
+  for (const bad of [null, undefined, 3, "", "renko ", {}, ["renko"]]) {
     assert.equal(chartTypeOrDefault(bad), "candles", JSON.stringify(bad));
   }
   // A type that IS known round-trips unchanged, including the synthetic ones.

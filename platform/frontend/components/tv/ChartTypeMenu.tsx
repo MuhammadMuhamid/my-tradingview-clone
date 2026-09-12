@@ -50,6 +50,8 @@ const ICONS: Record<ChartType, React.ReactNode> = {
   highLow: <><path d="M8 4v16M16 4v16" /><path d="M5 8h6M13 15h6" /></>,
   sessionVolumeProfile: <><path d="M4 4v16M20 4v16" /><path d="M20 7h-6M20 11h-10M20 15h-7" /></>,
   tpo: <><path d="M4 4v16M20 4v16" /><path d="M7 7h10M7 11h7M7 15h10" /><circle cx="9" cy="7" r="1" fill="currentColor" /><circle cx="12" cy="11" r="1" fill="currentColor" /><circle cx="15" cy="15" r="1" fill="currentColor" /></>,
+  range: <><rect x="4" y="13" width="6" height="7" /><rect x="10" y="6" width="6" height="7" /><rect x="16" y="10" width="4" height="6" /></>,
+  footprint: <><path d="M5 4v16M19 4v16" /><path d="M5 7h9M5 11h13M5 15h7" /><circle cx="16" cy="7" r="1" fill="currentColor" /><circle cx="10" cy="15" r="1" fill="currentColor" /></>,
   line: <path d="M3 16l5-6 4 4 3-5 6 6" />,
   lineWithMarkers: (
     <><path d="M3 16l5-6 4 4 3-5 6 6" /><circle cx="8" cy="10" r="1.5" fill="currentColor" /><circle cx="15" cy="9" r="1.5" fill="currentColor" /></>
@@ -103,9 +105,8 @@ const TRANSFORMS = CHART_TYPES.filter((t) => t.group === "transform");
  * label whenever one is active — a canonical chart shows only its glyph, so a
  * label on this button always means "you are not looking at raw candles".
  *
- * Only implemented types appear. There are no greyed-out placeholders for
- * unsupported Range or Volume Footprint: an entry that cannot be chosen teaches
- * the user nothing except that the menu lies about what the product does.
+ * Only implemented types appear; trade-driven types remain truthful when
+ * their public execution feed is temporarily unavailable by drawing no data.
  */
 export function ChartTypeMenu({
   value, onChange,

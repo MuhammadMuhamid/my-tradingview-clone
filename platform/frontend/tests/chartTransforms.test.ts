@@ -578,7 +578,7 @@ test("NO TRADING, ALERT, STRATEGY OR SCIENTIFIC PATH DRAWS FROM A TRANSFORM", ()
    * under it are the actual rule.
    */
   const sinks = chart.match(/displayRef\.current/g) ?? [];
-  assert.ok(sinks.length > 0 && sinks.length <= 12,
+  assert.ok(sinks.length > 0 && sinks.length <= 20,
     "the transformed series grew more consumers than the display surfaces");
   assert.ok(!/priceLines[\s\S]{0,120}display/.test(chart),
     "an order/price line was derived from transformed bars");

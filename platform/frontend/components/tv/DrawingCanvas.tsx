@@ -243,10 +243,10 @@ export function DrawingCanvas({
     }
     for (const d of ordered) {
       if (d.hidden || !drawingVisibleOnTimeframe(d, interval)) continue;
-      if (distToDrawing(p, d, toPx) <= HIT_PX) return { id: d.id, handle: null };
+      if (distToDrawing(p, d, toPx, candles) <= HIT_PX) return { id: d.id, handle: null };
     }
     return null;
-  }, [toPx, interval]);
+  }, [toPx, interval, candles]);
 
   // ── committing drawings ───────────────────────────────────────────────────
   const commit = useCallback((tl: DrawingTool, points: Anchor[]) => {
@@ -868,7 +868,7 @@ function far(a: Pt, b: Pt, span: number): Pt {
   return { x: b.x + (dx / len) * span, y: b.y + (dy / len) * span };
 }
 
-function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
+function distToDrawing(p: Pt, d: Drawing, toPx: ToPx, candles: Candle[] = []): number {
   const q = d.points.map(toPx);
   const a = q[0]!;
   const b = q[1] ?? a;
@@ -880,6 +880,24 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
     }
     if (d.tool === "fibChannel" || d.tool === "pitchfan") {
       return Math.min(...fibChannelGeometry(q, undefined, span).segments.map((s) => distToSegment(p, s.a, s.b)));
+    }
+    if (d.tool === "fibTimeZone" || d.tool === "trendFibTime") {
+      const period = Math.max(8, Math.abs(b.x - a.x));
+      return Math.min(...[0, 1, 2, 3, 5, 8, 13, 21].map((step) => Math.abs(p.x - (a.x + Math.sign(b.x - a.x || 1) * period * step))));
+    }
+    if (d.tool === "fibWedge") {
+      const c = q[2] ?? b;
+      return Math.min(distToSegment(p, a, b), distToSegment(p, a, c), distToSegment(p, b, c),
+        ...[0.382, 0.618].map((ratio) => distToSegment(p,
+          { x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio },
+          { x: a.x + (c.x - a.x) * ratio, y: a.y + (c.y - a.y) * ratio })));
+    }
+    if (d.tool === "flatTopBottom") {
+      const top = Math.min(a.y, b.y), bottom = Math.max(a.y, b.y);
+      return Math.min(distToSegment(p, a, b), Math.abs(p.y - top), Math.abs(p.y - bottom));
+    }
+    if (d.tool === "gannFan") {
+      return Math.min(...[-2, -1, -0.5, 0.5, 1, 2].map((slope) => distToSegment(p, a, { x: a.x + span, y: a.y + slope * span })));
     }
     if (d.tool === "gannBox" || d.tool === "gannSquareFixed" || d.tool === "gannSquare") {
       return Math.min(...gannSquareGeometry(a, b, d.tool === "gannSquareFixed").segments.map((s) => distToSegment(p, s.a, s.b)));
@@ -904,6 +922,19 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
       const width = Math.max(90, Math.abs(b.x - a.x)); let best = Infinity;
       for (let i = 0; i <= 4; i++) best = Math.min(best, distToSegment(p, { x: a.x, y: a.y + i * 20 }, { x: a.x + width, y: a.y + i * 20 }));
       return Math.min(best, distToSegment(p, a, { x: a.x, y: a.y + 80 }), distToSegment(p, { x: a.x + width, y: a.y }, { x: a.x + width, y: a.y + 80 }), distToSegment(p, { x: a.x + width / 2, y: a.y }, { x: a.x + width / 2, y: a.y + 80 }));
+    }
+    if (d.tool === "regression") {
+      const t0 = Math.min(d.points[0]!.time, d.points[1]!.time);
+      const t1 = Math.max(d.points[0]!.time, d.points[1]!.time);
+      const observations = candles.filter((c) => c.openTime / 1000 >= t0 && c.openTime / 1000 <= t1)
+        .map((c) => toPx({ time: c.openTime / 1000, price: c.close }));
+      const fit = regressionGeometry(q, observations);
+      if (fit) {
+        const normal = unitPerpendicular(fit.center.a, fit.center.b);
+        return Math.min(distToSegment(p, fit.center.a, fit.center.b),
+          distToSegment(p, addPx(fit.center.a, normal, fit.deviation), addPx(fit.center.b, normal, fit.deviation)),
+          distToSegment(p, addPx(fit.center.a, normal, -fit.deviation), addPx(fit.center.b, normal, -fit.deviation)));
+      }
     }
     if (d.tool === "cyclicLines" || d.tool === "timeCycles" || d.tool === "sineLine") {
       const projection = timeProjection(d.tool, q, 10000);

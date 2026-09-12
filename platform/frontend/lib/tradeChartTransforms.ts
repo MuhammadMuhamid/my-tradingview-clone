@@ -5,6 +5,24 @@ export interface RangeBar { openTime: number; open: number; high: number; low: n
 export interface FootprintLevel { price: number; buyVolume: number; sellVolume: number; totalVolume: number }
 export interface FootprintBar { openTime: number; closeTime: number; levels: FootprintLevel[]; totalVolume: number }
 
+/** Convert truthful trade bars to the common renderer's OHLC shape. */
+export function rangeBarsAsOhlc(trades: readonly AggregateTrade[], rangeSize: number, tickSize = 0.01): RangeBar[] {
+  return rangeBars(trades, rangeSize, tickSize);
+}
+
+export function footprintBarsAsOhlc(trades: readonly AggregateTrade[], intervalMs: number, tickSize = 0.01): Array<{
+  openTime: number; open: number; high: number; low: number; close: number; volume: number;
+}> {
+  return footprintBars(trades, intervalMs, tickSize).flatMap((bar) => {
+    if (bar.levels.length === 0) return [];
+    const levels = bar.levels;
+    const first = levels[0]!.price;
+    const last = levels[levels.length - 1]!.price;
+    const weighted = levels.reduce((sum, level) => sum + level.price * level.totalVolume, 0);
+    return [{ openTime: bar.openTime, open: first, high: last, low: first, close: bar.totalVolume > 0 ? weighted / bar.totalVolume : first, volume: bar.totalVolume }];
+  });
+}
+
 export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, tickSize = 0.01): RangeBar[] {
   if (!(rangeSize > 0)) return [];
   const out: RangeBar[] = []; let current: RangeBar | null = null;

@@ -542,9 +542,8 @@ export default function GettingStarted() {
               <p>
                 Brick size is fixed at ATR(14) in V1 and is not adjustable. Line Break,
                 Kagi and Point &amp; Figure use their fixed, disclosed V1 policies. Range
-                and Volume Footprint remain unavailable because the supported providers
-                do not supply the ordered price-crossing and aggressor-side data those
-                chart types require; the menu offers only what exists.
+                and Volume Footprint use the ordered public execution tape when it is
+                available, and disclose an unavailable feed rather than fabricating bars.
               </p>
             </Detail>
           </Section>

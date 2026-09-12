@@ -47,6 +47,7 @@ import {
   canonicalOpenTime, isRenkoBrick, isPointFigureColumn, transformAll, transformStep,
   type TransformCursor, type TransformKind, type TransformParams,
 } from "@/lib/chartTransforms";
+import { rangeBarsAsOhlc, footprintBarsAsOhlc, type AggregateTrade } from "@/lib/tradeChartTransforms";
 import {
   DEFAULT_PRICE_SCALE, priceScaleLabel, priceScaleModeLabel, resetPriceScale,
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
@@ -413,6 +414,10 @@ function advanceTransform(
   candles: readonly Candle[]
 ): { head: TransformHead; display: OhlcBar[] } {
   const closedCount = candles.length - 1;
+  // Percentage (LTP) Kagi/P&F sizing is defined by the latest close. When the
+  // forming close changes, every earlier synthetic threshold changes with it,
+  // so the documented repaint is a full deterministic rebuild.
+  if (params.latestCloseSizing) return rebuildTransform(kind, params, candles);
   if (!head || head.kind !== kind || JSON.stringify(head.params) !== JSON.stringify(params)
     || head.bars > closedCount || closedCount - head.bars > 1) {
     return rebuildTransform(kind, params, candles);
@@ -459,7 +464,7 @@ function updateOverlayData(entry: OverlaySeriesEntry, point: ChartPoint): void {
 }
 
 export function CandleChart({
-  symbol, interval, candles, dataset, trades, priceLines, overlays, decorations, barColors,
+  symbol, interval, candles, dataset, trades, marketTrades, priceTick, priceLines, overlays, decorations, barColors,
   markers, pineDrawings,
   live = true, fill = false,
   chartType = "candles",
@@ -489,6 +494,10 @@ export function CandleChart({
    */
   dataset?: DatasetIdentity;
   trades?: Trade[];
+  /** Ordered public executions used by the range/footprint presentations. */
+  marketTrades?: AggregateTrade[];
+  /** Provider-reported minimum price increment for percentage sizing. */
+  priceTick?: number;
   /** Live SL/TP/entry levels for a running position. */
   priceLines?: ChartPriceLine[];
   /** Line series plotted by a compiled Pine script. */
@@ -896,6 +905,15 @@ export function CandleChart({
     (canonicalIndex: number, displayIndex: number): LegendBar | null => {
       const kind = legendSource(mainKindRef.current);
       const list = candlesRef.current;
+      if (kind === "tradeBar") {
+        const trade = displayRef.current[displayIndex];
+        if (!trade) return null;
+        const prev = displayIndex > 0 ? displayRef.current[displayIndex - 1]!.close : trade.open;
+        const chg = trade.close - prev;
+        return { kind, open: trade.open, high: trade.high, low: trade.low, close: trade.close,
+          volume: (trade as OhlcBar & { volume?: number }).volume ?? null, chg,
+          chgPct: prev !== 0 ? chg / prev * 100 : 0 };
+      }
       if (kind === "canonical") {
         const c = list[canonicalIndex];
         if (!c) return null;
@@ -952,6 +970,11 @@ export function CandleChart({
   const displayIndexFor = useCallback((canonicalIndex: number): number => {
     const kind = legendSource(mainKindRef.current);
     if (kind === "canonical") return -1;
+    if (kind === "tradeBar") {
+      const candle = candlesRef.current[canonicalIndex];
+      return candle ? snapToBarIndexBy(displayRef.current, Math.floor(candle.openTime / 1000),
+        (bar) => Math.floor(bar.openTime / 1000)) : -1;
+    }
     if (kind === "heikinAshi") return canonicalIndex;
     const candle = candlesRef.current[canonicalIndex];
     if (!candle) return -1;
@@ -1178,6 +1201,7 @@ export function CandleChart({
     timeIndexRef.current = new Map(candles.map((c, i) => [c.openTime / 1000, i]));
     const kind = mainKindRef.current;
     const transform = chartTransform(kind);
+    const tick = Number.isFinite(priceTick) && (priceTick ?? 0) > 0 ? priceTick! : 0.01;
     const maxVolume = candles.reduce((max, candle) => Number.isFinite(candle.volume)
       ? Math.max(max, candle.volume) : max, 0);
     const candleDatum = (c: Candle) =>
@@ -1208,7 +1232,19 @@ export function CandleChart({
       vol.update(volumeDatum(candles[candles.length - 1]!));
     }
 
-    if (transform === null) {
+    if (transform === null && (kind === "range" || kind === "footprint")) {
+      // These presentations have a stricter input contract than ordinary
+      // candles: only ordered executions may produce their bars. Empty trade
+      // data therefore means an empty price series, never an OHLC estimate.
+      const source = marketTrades ?? [];
+      const tradeDisplay = kind === "range"
+        ? rangeBarsAsOhlc(source, Math.max(tick * 20, (candles[0]?.close ?? 1) * 0.005), tick)
+        : footprintBarsAsOhlc(source, Math.max(60_000, resolutionMs(interval)), tick);
+      transformHeadRef.current = null;
+      displayRef.current = tradeDisplay;
+      setMainSeriesData(series, kind, tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)));
+      mainSeriesDirtyRef.current = false;
+    } else if (transform === null) {
       transformHeadRef.current = null;
       displayRef.current = [];
       if (mutation === "replace") {
@@ -1229,7 +1265,7 @@ export function CandleChart({
        * everything downstream of this component; only the bars handed to the
        * price series are derived.
        */
-      const params = transformParams(kind);
+      const params = transformParams(kind, tick);
       const rebuilt = rebuildTransform(transform, params, candles);
       transformHeadRef.current = rebuilt.head;
       const display = rebuilt.display;
@@ -1263,7 +1299,8 @@ export function CandleChart({
     const pending = tickGateRef.current.adopt(
       { symbol: heldSymbol, interval: heldInterval }, last ? last.openTime : null);
     if (pending) applyTickRef.current?.(pending);
-  }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady]);
+  }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady,
+    marketTrades, priceTick, interval]);
 
 
   /**
@@ -1643,7 +1680,7 @@ export function CandleChart({
       const transform = chartTransform(kind);
       const maxVolume = list.reduce((max, candle) => Number.isFinite(candle.volume)
         ? Math.max(max, candle.volume) : max, 0);
-      if (transform === null) {
+      if (transform === null && kind !== "range" && kind !== "footprint") {
         const liveOhlc = {
           openTime: tick.openTime, open: tick.open, high: tick.high,
           low: tick.low, close: tick.close,
@@ -1652,8 +1689,8 @@ export function CandleChart({
           ? { time: timeSec, value: tick.close }
           : mainSeriesDatum(kind, liveOhlc, override
             ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)));
-      } else {
-        const params = transformParams(kind);
+      } else if (transform !== null) {
+        const params = transformParams(kind, priceTick);
         const advanced = advanceTransform(
           transformHeadRef.current, transform, params, list
         );
@@ -1710,7 +1747,7 @@ export function CandleChart({
       if (applyTickRef.current === applyTick) applyTickRef.current = null;
       setFeedState(IDLE_FEED);
     };
-  }, [symbol, interval, live, latestLegend, legendAtCanonical]);
+  }, [symbol, interval, live, latestLegend, legendAtCanonical, priceTick]);
 
   /**
    * Mirror another pane's crosshair.

@@ -172,7 +172,12 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
       stream: { support: "supported", origins: BINANCE_SPOT_PROFILE.streamOrigins,
         protocol: "url_subscription", topic: "{symbol}@miniTicker" },
     },
-    trades: { support: "supported", fetch: (providerSymbol, limit, startMs = 0, endMs = Date.now()) => deps.trades?.(providerSymbol, startMs, endMs, limit) ?? Promise.resolve([]) },
+    trades: {
+      support: "supported",
+      fetch: (providerSymbol, limit, startMs = 0, endMs = Date.now()) => deps.trades?.(providerSymbol, startMs, endMs, limit) ?? Promise.resolve([]),
+      stream: { support: "supported", origins: BINANCE_SPOT_PROFILE.streamOrigins,
+        protocol: "url_subscription", topic: "{symbol}@aggTrade" },
+    },
     orderBook: { support: "unsupported", reason: "order book is outside the current Binance Spot seam" },
     derivativeMetadata: {
       support: "unsupported",

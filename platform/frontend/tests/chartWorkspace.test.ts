@@ -497,7 +497,7 @@ test("A MALFORMED WORKSPACE FAILS SAFE TO ONE PANE", () => {
     { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "1w" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "0m" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], interval: "7" }] },
-    { ...good, panes: [good.panes[0], { ...good.panes[1], chartType: "range" }] },
+    { ...good, panes: [good.panes[0], { ...good.panes[1], chartType: "not-a-chart" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], bars: -5 }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], symbol: "" }] },
     { ...good, panes: [good.panes[0], { ...good.panes[1], maLines: "all" }] },
@@ -708,7 +708,7 @@ test("A SYNTHETIC PANE SURVIVES A RELOAD, AND A DAMAGED ONE DOES NOT COME BACK W
   // A record naming an unsupported chart type is a damaged record, and a
   // damaged record lands on a clean canonical pane rather than half restoring.
   const bogus = JSON.parse(JSON.stringify(ws)) as { panes: { chartType: string }[] };
-  bogus.panes[1]!.chartType = "range";
+  bogus.panes[1]!.chartType = "not-a-chart";
   assert.equal(parseWorkspace(bogus), null);
   const fallback = restoreWorkspace({ stored: bogus, legacySplit: null, seed: SEED });
   assert.equal(fallback.source, "default");

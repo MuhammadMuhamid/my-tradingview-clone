@@ -177,9 +177,9 @@ test("the chart types it names are the chart types that exist", () => {
     `the page must print Renko · ATR(${period}), matching the menu`
   );
 
-  // Types that do not exist must not be advertised as if they did.
-  for (const absent of ["Range", "Volume Footprint"]) {
-    assert.ok(!chartType.includes(`label: "${absent}"`), `${absent} now exists — describe it`);
+  for (const implemented of ["Range", "Volume footprint"]) {
+    assert.ok(chartType.includes(`label: "${implemented}"`), `${implemented} is implemented — describe it`);
+    assert.ok(prose.toLowerCase().includes(implemented.toLowerCase()), `the page must name the ${implemented} chart type`);
   }
   for (const implemented of ["Kagi", "Point & Figure", "Line Break"]) {
     const value = implemented === "Kagi" ? "kagi"

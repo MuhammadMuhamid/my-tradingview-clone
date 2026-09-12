@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { fetchKlines } from "../../data/binanceRest";
+import { fetchAggTrades, fetchKlines } from "../../data/binanceRest";
 import { marketData } from "../../data/marketData";
 import * as candleRepo from "../../repositories/candles";
 import { parseResolution } from "../../data/resolution";
@@ -9,6 +9,29 @@ import { registerInstrument } from "../../data/instrumentRegistration";
 import { inspectCandleIntegrity } from "../../data/candleIntegrity";
 
 export async function dataRoutes(app: FastifyInstance): Promise<void> {
+  /** Ordered public executions for Range and Volume Footprint charts. */
+  app.get("/api/data/trades", async (req, reply) => {
+    const q = req.query as { symbol?: string; from?: string; to?: string; limit?: string };
+    if (!q.symbol || !/^[A-Z0-9]{2,24}$/i.test(q.symbol)) {
+      return reply.code(400).send({ error: "a Binance symbol is required" });
+    }
+    const from = Number(q.from), to = Number(q.to);
+    const limit = Math.min(Math.max(Number(q.limit ?? 10_000) || 10_000, 1), 50_000);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to || to - from > 7 * 86_400_000) {
+      return reply.code(400).send({ error: "from/to must describe at most seven days" });
+    }
+    try {
+      const rows = await fetchAggTrades(q.symbol, from, to, limit);
+      return rows.map((row) => ({
+        id: row.id, timestamp: row.timestamp, price: row.price, quantity: row.quantity,
+        aggressor: row.aggressor,
+      }));
+    } catch (error) {
+      req.log.warn({ error }, "aggregate trade history unavailable");
+      return reply.code(502).send({ error: "aggregate trade history unavailable" });
+    }
+  });
+
   /**
    * Backfill OHLCV from Binance for a symbol/interval range and cache it.
    * POST /api/data/backfill { symbol, interval, start, end }

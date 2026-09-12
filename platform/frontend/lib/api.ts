@@ -71,6 +71,14 @@ export interface SymbolSearchResult {
   tracked: boolean;
 }
 
+export interface MarketTrade {
+  id: number;
+  timestamp: number;
+  price: number;
+  quantity: number;
+  aggressor: "buy" | "sell";
+}
+
 export interface EquitySemantics {
   securityType: "stock" | "etf";
   classificationSource: string;
@@ -1242,6 +1250,11 @@ export const api = {
   candlesVerbose: (symbol: string, interval: Resolution, limit = 1000, signal?: AbortSignal) =>
     req<Candle[]>(
       `/api/symbols/${symbol}/candles?interval=${interval}&limit=${limit}`,
+      signal ? { signal } : undefined
+    ),
+  marketTrades: (symbol: string, fromMs: number, toMs: number, limit = 10_000, signal?: AbortSignal) =>
+    req<MarketTrade[]>(
+      `/api/data/trades?symbol=${encodeURIComponent(symbol)}&from=${fromMs}&to=${toMs}&limit=${limit}`,
       signal ? { signal } : undefined
     ),
   /** Candles covering an explicit window — used to frame a backtest's own range. */

@@ -45,7 +45,7 @@ export {
 export type ChartType =
   | "candles" | "hollowCandles" | "volumeCandles" | "bars" | "line" | "lineWithMarkers"
   | "stepLine" | "area" | "hlcArea" | "baseline" | "columns" | "highLow" | "sessionVolumeProfile"
-  | "tpo" | "heikinAshi" | "renko" | "lineBreak" | "kagi" | "pointAndFigure";
+  | "tpo" | "range" | "footprint" | "heikinAshi" | "renko" | "lineBreak" | "kagi" | "pointAndFigure";
 
 /** Which of lightweight-charts' series kinds actually draws a type. */
 export type ChartRenderKind = "candles" | "bars" | "line" | "area" | "baseline" | "histogram";
@@ -149,6 +149,14 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "Session profile counting time brackets at each traded price",
   },
   {
+    value: "range", label: "Range", group: "presentation", renderKind: "candles", transform: null,
+    hint: "Trade-driven bars completed after the configured price range",
+  },
+  {
+    value: "footprint", label: "Volume footprint", group: "presentation", renderKind: "candles", transform: null,
+    hint: "Trade-driven bars with bid/ask volume by price level",
+  },
+  {
     value: "heikinAshi", label: "Heikin Ashi", group: "transform",
     renderKind: "candles", transform: "heikinAshi",
     hint: "Averaged bars — display only, not traded prices",
@@ -239,7 +247,7 @@ export function renkoParams(type: ChartType): RenkoParams | null {
 }
 
 /** Parameters for every implemented display transform. */
-export function transformParams(type: ChartType): TransformParams {
+export function transformParams(type: ChartType, tickSize = 0.01): TransformParams {
   const transform = chartTransform(type);
   return {
     atrPeriod: DEFAULT_RENKO_ATR_PERIOD,
@@ -249,6 +257,7 @@ export function transformParams(type: ChartType): TransformParams {
       pnfBoxPercent: DEFAULT_PNF_BOX_PERCENT, pnfReversalBoxes: DEFAULT_PNF_REVERSAL_BOXES,
     } : {}),
     ...(transform === "kagi" || transform === "pointAndFigure" ? { latestCloseSizing: true } : {}),
+    tickSize,
   };
 }
 
@@ -339,10 +348,11 @@ export function mainSeriesDatum(
  * a chart that has no time candles. Both are answered here rather than in the
  * renderer, so "what does the legend claim" is a property of the chart type.
  */
-export type LegendSource = "canonical" | "heikinAshi" | "renkoBrick" | "pointFigureColumn" | "kagiPoint" | "lineBreakLine";
+export type LegendSource = "canonical" | "tradeBar" | "heikinAshi" | "renkoBrick" | "pointFigureColumn" | "kagiPoint" | "lineBreakLine";
 
 export function legendSource(type: ChartType): LegendSource {
   const transform = chartTransform(type);
+  if (type === "range" || type === "footprint") return "tradeBar";
   if (transform === "heikinAshi") return "heikinAshi";
   if (transform === "renko") return "renkoBrick";
   if (transform === "pointAndFigure") return "pointFigureColumn";

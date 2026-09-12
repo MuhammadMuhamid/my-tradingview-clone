@@ -118,7 +118,10 @@ export interface OrderBookSnapshot {
 
 export type OptionalTrades =
   | { support: "unsupported"; reason: string }
-  | { support: "supported"; fetch(providerSymbol: string, limit: number, startMs?: number, endMs?: number): Promise<TradeObservation[]> };
+  | { support: "supported";
+      fetch(providerSymbol: string, limit: number, startMs?: number, endMs?: number): Promise<TradeObservation[]>;
+      stream: StreamContract;
+    };
 
 export type OptionalOrderBook =
   | { support: "unsupported"; reason: string }

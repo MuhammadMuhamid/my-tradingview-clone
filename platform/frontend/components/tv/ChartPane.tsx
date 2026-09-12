@@ -39,6 +39,8 @@ import { buildMaOverlays } from "@/lib/movingAverages";
 import { drawingStore } from "@/lib/drawingStore";
 import { drawingVisibleOnTimeframe, type Drawing, type DrawingTool } from "@/lib/drawings";
 import { useCandleHistory } from "@/lib/useCandleHistory";
+import { useMarketTrades } from "@/lib/useMarketTrades";
+import { api } from "@/lib/api";
 import { datasetKey } from "@/lib/liveDataset";
 import { paneDensity, type PaneDensity } from "@/lib/layoutPresets";
 import type { PaneState } from "@/lib/workspace";
@@ -197,6 +199,7 @@ export interface ChartPaneProps {
 
 function ChartPaneImpl(props: ChartPaneProps) {
   const { pane, active, replay } = props;
+  const replayActive = replay !== null;
   /*
    * More than one chart is on screen. `canClose` is exactly that condition —
    * the only pane in a workspace cannot be closed — so this reads it rather
@@ -258,6 +261,18 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const history = useCandleHistory({
     symbol: pane.symbol, interval: pane.interval, bars: pane.bars,
   });
+  const tradeMode = pane.chartType === "range" || pane.chartType === "footprint";
+  const marketTrades = useMarketTrades(pane.symbol, tradeMode && !replayActive);
+  const [priceTick, setPriceTick] = useState<number>(0.01);
+  useEffect(() => {
+    let cancelled = false;
+    void api.listSymbols().then((rows) => {
+      if (cancelled) return;
+      const row = rows.find((item) => item.symbol.toUpperCase() === pane.symbol.toUpperCase());
+      if (row?.priceTick && row.priceTick > 0) setPriceTick(row.priceTick);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [pane.symbol]);
   const visibleCandles = useMemo(
     () => replayCandles(history.candles, replay), [history.candles, replay]);
   /*
@@ -589,7 +604,6 @@ function ChartPaneImpl(props: ChartPaneProps) {
     };
   }, [onVisibleRangeChange, onViewportChange, paneId, pane.interval]);
 
-  const replayActive = replay !== null;
 
   const patternAnalysis = usePatternAnalysis({
     enabled: !replayActive && props.candleOverlay?.enabled === true && holdingRequested,
@@ -843,6 +857,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
             dataset={history.dataset}
             chartType={pane.chartType}
             trades={indicators.trades ?? (replayActive ? [] : props.strategyTrades)}
+            marketTrades={marketTrades.trades}
+            priceTick={priceTick}
             overlays={overlays}
             decorations={decorations}
             barColors={indicators.barColors}

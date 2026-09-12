@@ -71,6 +71,8 @@ export interface TransformParams extends RenkoParams {
   pnfBoxPercent?: number;
   pnfReversalBoxes?: number;
   latestCloseSizing?: boolean;
+  /** Instrument minimum price increment used by percentage transforms. */
+  tickSize?: number;
 }
 
 // ── Heikin Ashi ────────────────────────────────────────────────────────────
@@ -427,11 +429,11 @@ export function createKagiState(): KagiState {
  */
 export function foldKagi(
   state: KagiState, bar: OhlcBar, reversalPercent = DEFAULT_KAGI_REVERSAL_PERCENT,
-  latestCloseSizing = false,
+  latestCloseSizing = false, tickSize = 0.01,
 ): { state: KagiState; emitted: OhlcBar[] } {
   const pct = Math.max(0.01, Math.min(100, reversalPercent)) / 100;
   const roundedReversal = (close: number): number => {
-    const tick = 0.01;
+    const tick = Number.isFinite(tickSize) && tickSize > 0 ? tickSize : 0.01;
     return Math.max(tick, Math.round(Math.abs(close) * pct / tick) * tick);
   };
   if (state.current === null) {
@@ -483,13 +485,14 @@ export function foldKagi(
 
 export function kagiBars(
   bars: readonly OhlcBar[], reversalPercent = DEFAULT_KAGI_REVERSAL_PERCENT, latestCloseSizing = false,
+  tickSize = 0.01,
 ): OhlcBar[] {
   // The reversal amount is established from the first close by `foldKagi`;
   // the state itself starts empty and carries that derived amount forward.
   let state = createKagiState();
   const out: OhlcBar[] = [];
   for (const bar of bars) {
-    const stepped = foldKagi(state, bar, reversalPercent, latestCloseSizing);
+    const stepped = foldKagi(state, bar, reversalPercent, latestCloseSizing, tickSize);
     state = stepped.state;
     out.push(...stepped.emitted);
   }
@@ -534,10 +537,11 @@ export function createPointFigureState(): PointFigureState {
 export function foldPointFigure(
   state: PointFigureState, bar: OhlcBar, boxPercent = DEFAULT_PNF_BOX_PERCENT,
   reversalBoxes = DEFAULT_PNF_REVERSAL_BOXES,
-  latestCloseSizing = false,
+  latestCloseSizing = false, tickSize = 0.01,
 ): { state: PointFigureState; emitted: PointFigureColumn[] } {
   const pct = Math.max(0.01, Math.min(100, boxPercent)) / 100;
-  const roundedBox = (close: number): number => Math.max(0.01, Math.round(Math.abs(close) * pct / 0.01) * 0.01);
+  const tick = Number.isFinite(tickSize) && tickSize > 0 ? tickSize : 0.01;
+  const roundedBox = (close: number): number => Math.max(tick, Math.round(Math.abs(close) * pct / tick) * tick);
   const rev = Math.max(1, Math.floor(reversalBoxes));
   if (state.current === null) {
     const boxSize = roundedBox(bar.close);
@@ -593,12 +597,12 @@ export function foldPointFigure(
 export function pointFigureColumns(
   bars: readonly OhlcBar[], boxPercent = DEFAULT_PNF_BOX_PERCENT,
   reversalBoxes = DEFAULT_PNF_REVERSAL_BOXES,
-  latestCloseSizing = false,
+  latestCloseSizing = false, tickSize = 0.01,
 ): PointFigureColumn[] {
   let state = createPointFigureState();
   const out: PointFigureColumn[] = [];
   for (const bar of bars) {
-    const stepped = foldPointFigure(state, bar, boxPercent, reversalBoxes, latestCloseSizing);
+    const stepped = foldPointFigure(state, bar, boxPercent, reversalBoxes, latestCloseSizing, tickSize);
     state = stepped.state;
     for (const column of stepped.emitted) {
       const previous = out[out.length - 1];
@@ -658,14 +662,14 @@ export function transformStep(
     };
   }
   if (cursor.kind === "kagi") {
-    const stepped = foldKagi(cursor.kagi, bar, cursor.params.kagiReversalPercent, cursor.params.latestCloseSizing);
+    const stepped = foldKagi(cursor.kagi, bar, cursor.params.kagiReversalPercent, cursor.params.latestCloseSizing, cursor.params.tickSize);
     return {
       cursor: { ...cursor, bars: cursor.bars + 1, kagi: stepped.state },
       emitted: stepped.emitted,
     };
   }
   if (cursor.kind === "pointAndFigure") {
-    const stepped = foldPointFigure(cursor.pointAndFigure, bar, cursor.params.pnfBoxPercent, cursor.params.pnfReversalBoxes, cursor.params.latestCloseSizing);
+    const stepped = foldPointFigure(cursor.pointAndFigure, bar, cursor.params.pnfBoxPercent, cursor.params.pnfReversalBoxes, cursor.params.latestCloseSizing, cursor.params.tickSize);
     return {
       cursor: { ...cursor, bars: cursor.bars + 1, pointAndFigure: stepped.state },
       emitted: stepped.emitted,

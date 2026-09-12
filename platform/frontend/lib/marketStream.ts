@@ -171,6 +171,10 @@ export function bookTickerStreamName(symbol: string): string {
   return `${symbol.toLowerCase()}@bookTicker`;
 }
 
+export function aggregateTradeStreamName(symbol: string): string {
+  return `${symbol.toLowerCase()}@aggTrade`;
+}
+
 export function streamUrl(origin: string, path: string): string {
   return `${origin}${path}`;
 }
