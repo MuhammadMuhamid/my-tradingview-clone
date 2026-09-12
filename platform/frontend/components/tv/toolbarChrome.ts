@@ -31,6 +31,9 @@
  */
 export const TOOLBAR_H = "h-[38px]";
 
+/** Desktop header row height from the reference capture. */
+export const TOOLBAR_ROW_H = "h-[42px]";
+
 /**
  * Every secondary toolbar control, at one height.
  *
@@ -63,4 +66,3 @@ export const SEPARATOR = "mx-1 !h-[22px] self-center";
 export const TOOL_ICON_BUTTON =
   `flex ${TOOLBAR_H} w-[38px] shrink-0 items-center justify-center ` +
   "text-ink-muted hover:bg-surface-2 hover:text-ink";
-

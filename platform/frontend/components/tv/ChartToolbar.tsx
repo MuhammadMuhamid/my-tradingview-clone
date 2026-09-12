@@ -102,7 +102,7 @@ import type { ChartType } from "@/lib/chartType";
 import type { SyncOptions } from "@/lib/paneSync";
 import type { Layout } from "@/lib/layouts";
 import { ProductMenu } from "@/components/tv/ProductMenu";
-import { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H } from "@/components/tv/toolbarChrome";
+import { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
 import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
 import { displaySymbol } from "@/lib/instrument";
@@ -110,7 +110,7 @@ import type {
   TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse,
 } from "@/lib/tradingOverlays";
 
-export { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H } from "@/components/tv/toolbarChrome";
+export { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
 
 const HISTORY_OPTIONS = [
   { label: "2K", bars: 2000 },
@@ -446,7 +446,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
       {/* ── primary row: chart context, then workspace actions ── */}
       <div
         data-toolbar-row="primary"
-        className={`flex ${TOOLBAR_H} flex-nowrap items-center px-0.5`}
+        className={`flex ${TOOLBAR_ROW_H} flex-nowrap items-center px-0.5`}
       >
         {/*
           The product mark, and behind it everything the global horizontal bar

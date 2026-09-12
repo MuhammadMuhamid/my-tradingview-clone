@@ -73,9 +73,11 @@
 
   /* Dense chart-workstation contract (TradingView measured at 1440px). */
   --ts-workstation-font-size: 14px;
-  --ts-workstation-toolbar-height: 38px;
+  /* TradingView's desktop header is 42px; controls remain 38px hit zones
+     centered within it so the drawing rail and chart begin on the same row. */
+  --ts-workstation-toolbar-height: 42px;
   --ts-workstation-rail-width: 52px;
-  --ts-workstation-menu-row-height: 32px;
+  --ts-workstation-menu-row-height: 36px;
   --ts-workstation-popover-padding: 6px;
   --ts-workstation-radius: 3px;
 }

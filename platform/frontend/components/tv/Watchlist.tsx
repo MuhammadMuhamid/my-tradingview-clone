@@ -341,7 +341,7 @@ export function Watchlist({
   };
 
   return (
-    <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[294px]">
+    <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[279px]">
       {/*
         FC2-L3: one header row, not three.
 

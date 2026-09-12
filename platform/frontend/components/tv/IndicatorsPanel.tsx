@@ -180,7 +180,7 @@ export function IndicatorsPanel({
   const btn = "rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-ink hover:border-accent";
 
   return (
-    <div className="flex h-full w-[294px] shrink-0 flex-col border-l border-border bg-surface">
+    <div className="flex h-full w-[279px] shrink-0 flex-col border-l border-border bg-surface">
       {/* ── library ── */}
       <div className="border-b border-border px-3 py-2">
         <div className="mb-2 flex items-center gap-2">

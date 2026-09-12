@@ -352,7 +352,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     <Modal open={open} onClose={onClose}
       wide
       title="Indicators, metrics, and strategies"
-      panelClassName="!max-w-[840px] !h-[638px] !max-h-[calc(100vh-24px)]"
+      panelClassName="!max-w-[840px] !h-[620px] !max-h-[calc(100vh-24px)]"
       contentClassName="px-5 py-4 sm:px-5"
     >
       {/* ── search ── */}

@@ -306,7 +306,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         role="dialog"
         aria-modal="true"
         aria-label="Symbol search"
-        className="relative flex max-h-[80vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
+        className="relative flex max-h-[80vh] w-full max-w-[840px] flex-col overflow-hidden rounded-[3px] border border-border bg-surface shadow-2xl"
       >
         <div className="flex items-start justify-between gap-3 px-6 pb-2 pt-5">
           <div className="min-w-0">

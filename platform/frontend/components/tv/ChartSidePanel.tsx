@@ -97,13 +97,13 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
   const tradingIdentity = canonicalDisplayParts(props.tradingSymbol);
   const canonicalBinanceSpot = tradingIdentity?.venue === "BINANCE" && tradingIdentity.type === "spot";
   /*
-   * The far-right rail is built like the left one (FC2-M1): full-width,
-   * square-cornered, 52 x 38 hit zones rather than 36px pills inset in a 48px
-   * column, and no hover transition. The two rails frame the same chart and
-   * had no reason to be two different controls.
+   * The far-right rail follows TradingView's narrower 45px icon column while
+   * keeping the same full-bleed 38px hit zones as the drawing rail. It stays
+   * square-cornered and avoids pill-like inset controls so both rails frame
+   * the chart as one workstation surface.
    */
   const railBtn = (isActive: boolean): string =>
-    `flex h-[38px] w-[52px] items-center justify-center ${
+    `flex h-[38px] w-[45px] items-center justify-center ${
       isActive ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
     }`;
 
@@ -163,7 +163,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 focusKey={props.indicatorFocusKey}
               />
             ) : (
-              <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 items-center justify-center border-l border-border bg-surface p-4 text-xs text-ink-faint md:w-[294px]">
+              <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 items-center justify-center border-l border-border bg-surface p-4 text-xs text-ink-faint md:w-[279px]">
                 Preparing this pane&apos;s studies…
               </aside>
             )
@@ -180,7 +180,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 onClose={props.onClosePanel}
                 onStateChange={props.onManualState} />)}
           {props.panel === "ma" && (
-            <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[294px]">
+            <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[279px]">
               <MaPanel
                 lines={props.maLines}
                 values={props.maValues}
@@ -207,7 +207,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
     )}
 
     {/* ── far-right icon rail (TV-style) ── */}
-    <div className="hidden w-[52px] shrink-0 flex-col items-center border-l border-border bg-surface py-1 md:flex">
+    <div className="hidden w-[45px] shrink-0 flex-col items-center border-l border-border bg-surface py-1 md:flex">
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}
