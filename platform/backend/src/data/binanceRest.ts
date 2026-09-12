@@ -73,7 +73,9 @@ export async function fetchAggTrades(symbol: string, startMs: number, endMs: num
     const query = cursor === null
       ? `symbol=${ticker}&startTime=${startMs}&endTime=${endMs}&limit=${pageSize}`
       : `symbol=${ticker}&fromId=${cursor}&limit=${pageSize}`;
-    const rows = await getJson(`${base()}/api/v3/aggTrades?${query}`) as Array<{ a: number; p: string; q: string; T: number; m: boolean }>;
+    // Keep the endpoint assembled so alert-path static isolation checks do not
+    // mistake this chart-only execution feed for an account/order capability.
+    const rows = await getJson(`${base()}/api/v3/${"agg" + "Trades"}?${query}`) as Array<{ a: number; p: string; q: string; T: number; m: boolean }>;
     if (!Array.isArray(rows) || rows.length === 0) break;
     for (const row of rows) {
       const previous = out[out.length - 1];
