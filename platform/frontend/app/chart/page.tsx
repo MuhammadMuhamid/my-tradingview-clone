@@ -92,10 +92,11 @@ import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
 import { isCanonicalInstrumentId, legacyBinanceSpotTicker } from "@/lib/instrument";
 import { alertCapability } from "@/lib/workstation";
+import type { ChartSettings } from "@/lib/chartSettings";
 import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
-  setPanePriceScale,
+  setPanePriceScale, paneChartSettings, setPaneChartSettings,
   setPreset, setWorkspaceBars, togglePaneMa, toggleMaximize, updatePane,
   type ChartWorkspace as Workspace, type PaneCompare, type PaneState,
 } from "@/lib/workspace";
@@ -1713,6 +1714,7 @@ export default function TvWorkspace() {
           fullscreen={fullscreen.active}
           fullscreenSupported={fullscreen.supported}
           onToggleFullscreen={fullscreen.toggle}
+          onOpenChartSettings={() => setChartSettingsOpen(true)}
           overlayMenuOpen={overlays.menuOpen}
           onOverlayMenuOpen={overlays.setMenuOpen}
           overlayPrefs={overlays.prefs}
@@ -1978,6 +1980,8 @@ export default function TvWorkspace() {
             ...current, [workspace.activePaneId]: (current[workspace.activePaneId] ?? 0) + 1,
           }));
         }}
+        settings={paneChartSettings(workspace, workspace.activePaneId)}
+        onSettings={(next: ChartSettings) => setWorkspace((ws) => setPaneChartSettings(ws, ws.activePaneId, next))}
       />
       <DrawingSettingsModal
         open={drawingSettingsOpen && selectedDrawing !== null}

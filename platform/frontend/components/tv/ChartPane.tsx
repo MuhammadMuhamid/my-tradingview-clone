@@ -635,10 +635,10 @@ function ChartPaneImpl(props: ChartPaneProps) {
    */
   const alertEvents = useAlertEvents(pane.symbol, pane.interval, !replayActive);
   const firedMarkers = useMemo(() => {
-    if (replayActive || !props.maAlerts) return NO_FIRED;
+    if (replayActive || !props.maAlerts || pane.chartSettings?.showAlerts === false) return NO_FIRED;
     return alertEventMarkers(placeAlertEvents(
       alertEvents, props.maAlerts, pane.symbol, pane.interval, visibleCandles));
-  }, [replayActive, alertEvents, props.maAlerts, pane.symbol, pane.interval, visibleCandles]);
+  }, [replayActive, alertEvents, props.maAlerts, pane.symbol, pane.interval, pane.chartSettings?.showAlerts, visibleCandles]);
 
   /*
    * Candlestick patterns — the Screener's, not a second opinion.
@@ -687,6 +687,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const showIdentityDetail = density === "large" || density === "medium";
   const showReadout = density !== "tiny";
 
+  /* priceLines={props.priceLines} — projected by CandleChart when hidden in Chart Settings. */
   return (
     <div
       ref={rootRef}
@@ -879,6 +880,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             resetSignal={props.resetSignal}
             drawingStyleFocusSignal={props.drawingStyleFocusSignal}
             paneActive={props.active}
+            chartSettings={pane.chartSettings}
             onIndicatorPaneAction={paneAction}
           />
         )}

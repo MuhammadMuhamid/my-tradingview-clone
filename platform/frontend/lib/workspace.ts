@@ -42,6 +42,9 @@ import { isResolution, type Resolution } from "./resolution";
 import {
   isDefaultPriceScale, normalizePriceScale, resetPriceScale, type PriceScaleState,
 } from "./priceScale";
+import {
+  isDefaultChartSettings, normalizeChartSettings, type ChartSettings,
+} from "./chartSettings";
 import { canonicalizeLegacySpotSymbol } from "./instrument";
 
 /** Stable across layout changes, maximise, and reloads. */
@@ -79,6 +82,8 @@ export interface PaneState {
    * treats it as optional and defaults it.
    */
   priceScale?: PriceScaleState;
+  /** Display preferences for the pane's chart settings dialog. */
+  chartSettings?: ChartSettings;
 }
 
 /** What a pane is comparing against, and how it is drawing the comparison. */
@@ -390,6 +395,29 @@ export function panePriceScale(ws: ChartWorkspace, id: PaneId): PriceScaleState 
   return ws.panes.find((p) => p.id === id)?.priceScale ?? resetPriceScale();
 }
 
+/** Set one pane's display preferences; omitted when they are all defaults. */
+export function setPaneChartSettings(
+  ws: ChartWorkspace, id: PaneId, chartSettings: ChartSettings
+): ChartWorkspace {
+  if (!ws.panes.some((p) => p.id === id)) return ws;
+  return {
+    ...ws,
+    panes: ws.panes.map((p) => {
+      if (p.id !== id) return p;
+      if (isDefaultChartSettings(chartSettings)) {
+        const { chartSettings: _removed, ...rest } = p;
+        return rest;
+      }
+      return { ...p, chartSettings };
+    }),
+  };
+}
+
+export function paneChartSettings(ws: ChartWorkspace, id: PaneId): ChartSettings {
+  const pane = ws.panes.find((p) => p.id === id);
+  return normalizeChartSettings(pane?.chartSettings);
+}
+
 export function setPaneCompare(
   ws: ChartWorkspace, id: PaneId, compare: PaneCompare | null
 ): ChartWorkspace {
@@ -484,12 +512,15 @@ function validPane(value: unknown): PaneState | null {
    */
   const priceScale = raw.priceScale === undefined
     ? null : normalizePriceScale(raw.priceScale);
+  const chartSettings = raw.chartSettings === undefined
+    ? null : normalizeChartSettings(raw.chartSettings);
 
   return {
     id: raw.id, symbol: canonicalizeLegacySpotSymbol(raw.symbol) ?? raw.symbol.trim().toUpperCase(), interval: raw.interval,
     chartType: raw.chartType, bars: raw.bars, maLines,
     ...(compare ? { compare } : {}),
     ...(priceScale && !isDefaultPriceScale(priceScale) ? { priceScale } : {}),
+    ...(chartSettings && !isDefaultChartSettings(chartSettings) ? { chartSettings } : {}),
   };
 }
 

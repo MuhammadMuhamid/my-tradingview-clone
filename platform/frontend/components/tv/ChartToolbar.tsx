@@ -217,6 +217,7 @@ export interface ChartToolbarProps {
   /** The browser permits fullscreen at all; false hides the control entirely. */
   fullscreenSupported: boolean;
   onToggleFullscreen: () => void;
+  onOpenChartSettings: () => void;
 
   overlayMenuOpen: boolean;
   onOverlayMenuOpen: (open: boolean) => void;
@@ -336,6 +337,14 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
           </svg>
         </button>
       )}
+      <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
+        title="Chart settings — symbol, status, scales, canvas, trading and events"
+        aria-label="Chart settings" className={TOOL_ICON_BUTTON}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+          <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" />
+          <circle cx="12" cy="12" r="4" />
+        </svg>
+      </button>
     </div>
   );
 }

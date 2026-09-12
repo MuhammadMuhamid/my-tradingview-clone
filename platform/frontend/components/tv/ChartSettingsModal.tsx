@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { Resolution } from "@/lib/resolution";
+import type { ChartSettings } from "@/lib/chartSettings";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
@@ -20,7 +21,7 @@ const TABS: { id: Tab; label: string }[] = [
 
 /** A real chart-settings entry point, separate from strategy properties. */
 export function ChartSettingsModal({
-  open, onClose, symbol, interval, scale, onScale, onReset,
+  open, onClose, symbol, interval, scale, onScale, onReset, settings, onSettings,
 }: {
   open: boolean;
   onClose: () => void;
@@ -29,6 +30,8 @@ export function ChartSettingsModal({
   scale: PriceScaleState;
   onScale: (next: PriceScaleState) => void;
   onReset: () => void;
+  settings: ChartSettings;
+  onSettings: (next: ChartSettings) => void;
 }) {
   const [tab, setTab] = useState<Tab>("symbol");
   useEffect(() => { if (open) setTab("symbol"); }, [open]);
@@ -57,21 +60,11 @@ export function ChartSettingsModal({
             </dl>
             <p className="pt-2 text-xs text-ink-faint">Use the symbol control in the toolbar to change instruments.</p>
           </div>}
-          {tab === "status" && <Info title="Status line">
-            The status line is always visible on the chart and reports the active instrument, interval, OHLC readout and feed state. There are no hidden status-line toggles in this build.
-          </Info>}
-          {tab === "canvas" && <Info title="Canvas">
-            Canvas colours, grid and crosshair follow the active Trading Scene theme. Use the theme control in the shell to switch between light and dark.
-          </Info>}
-          {tab === "trading" && <Info title="Trading">
-            Orders are prepared in the paper/demo ticket and are never submitted from chart settings. Trading Scene keeps this safety boundary explicit.
-          </Info>}
-          {tab === "alerts" && <Info title="Alerts">
-            Alert levels and automation are managed from the Alert and Automate controls. Existing levels remain scoped to the focused instrument and timeframe.
-          </Info>}
-          {tab === "events" && <Info title="Events">
-            Strategy, alert and market events are rendered from their authoritative sources when available. No event display preferences are hidden here.
-          </Info>}
+          {tab === "status" && <div className="space-y-4"><Info title="Status line">Control the instrument and OHLC readout rendered over the focused chart.</Info><Toggle label="Show status line" checked={settings.showStatusLine} onChange={(checked) => onSettings({ ...settings, showStatusLine: checked })} /></div>}
+          {tab === "canvas" && <div className="space-y-4"><Info title="Canvas">Canvas colours follow the active Trading Scene theme. These switches apply to this chart and persist with its workspace.</Info><Toggle label="Show grid lines" checked={settings.showGrid} onChange={(checked) => onSettings({ ...settings, showGrid: checked })} /><Toggle label="Show crosshair" checked={settings.showCrosshair} onChange={(checked) => onSettings({ ...settings, showCrosshair: checked })} /></div>}
+          {tab === "trading" && <div className="space-y-4"><Info title="Trading">Trading overlays are read-only chart annotations. Orders remain prepared in the paper/demo ticket and are never submitted from chart settings.</Info><Toggle label="Show positions and orders" checked={settings.showTrading} onChange={(checked) => onSettings({ ...settings, showTrading: checked })} /></div>}
+          {tab === "alerts" && <div className="space-y-4"><Info title="Alerts">Alert creation and automation remain available from their normal toolbar and rail actions.</Info><Toggle label="Show fired-alert markers" checked={settings.showAlerts} onChange={(checked) => onSettings({ ...settings, showAlerts: checked })} /></div>}
+          {tab === "events" && <div className="space-y-4"><Info title="Events">Events are sourced from the alert runner and strategy results; this switch controls their chart annotations.</Info><Toggle label="Show strategy and alert events" checked={settings.showEvents} onChange={(checked) => onSettings({ ...settings, showEvents: checked })} /></div>}
           {tab === "scales" && <div className="space-y-4">
             <div><h3 className="text-sm font-semibold text-ink">Price scale</h3><p className="mt-1 text-xs text-ink-muted">These controls update the focused pane immediately and persist with its layout.</p></div>
             <label className="flex items-center justify-between gap-4 text-sm"><span>Scale mode</span>

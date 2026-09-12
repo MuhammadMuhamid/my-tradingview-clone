@@ -77,6 +77,21 @@ test("the workspace asks for exactly the instrument and timeframe it is showing"
   assert.equal(armedInterval(chart.container), "15m");
 });
 
+test("chart settings is reachable from the normal toolbar and changes a real pane preference", async () => {
+  const chart = await mountChart();
+  const trigger = [...chart.container.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.getAttribute("aria-label") === "Chart settings");
+  assert.ok(trigger, "the chart settings action is missing from the toolbar");
+  fireEvent.click(trigger);
+  const dialog = screen.getByRole("dialog", { name: "Chart settings" });
+  assert.ok(dialog);
+  fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
+  const grid = screen.getByRole("checkbox", { name: "Show grid lines" });
+  assert.equal((grid as HTMLInputElement).checked, true);
+  fireEvent.click(grid);
+  assert.equal((grid as HTMLInputElement).checked, false);
+});
+
 test("clicking a timeframe loads that timeframe, once", async () => {
   const chart = await mountChart();
   const before = server.callsTo("/candles").length;

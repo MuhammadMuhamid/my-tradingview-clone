@@ -4,6 +4,7 @@ import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, LineStyle, LineType, PriceScaleMode,
+  CrosshairMode,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type LineData, type WhitespaceData,
 } from "lightweight-charts";
@@ -51,6 +52,7 @@ import {
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
   togglePriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
+import type { ChartSettings } from "@/lib/chartSettings";
 import {
   availableRangeShortcuts, loadedWindow, resolveRangeShortcut, sameViewport,
   type LoadedWindow, type RangeShortcutId,
@@ -472,6 +474,7 @@ export function CandleChart({
   onVisibleRangeChange, visibleRange, followEdgeTime,
   onIndicatorPaneAction,
   priceScale, onPriceScaleChange, resetSignal, drawingStyleFocusSignal, paneActive,
+  chartSettings,
 }: {
   symbol: string;
   interval: Resolution;
@@ -578,6 +581,8 @@ export function CandleChart({
   drawingStyleFocusSignal?: number;
   /** Whether this pane has the workspace's focus; gates Delete and Escape. */
   paneActive?: boolean;
+  /** Per-pane visibility switches from Chart Settings. */
+  chartSettings?: ChartSettings;
   /**
    * Phone layout: drop the per-series price-axis badges and shorten the
    * legend. Ten moving averages each stamp a label on the scale, which on a
@@ -698,6 +703,13 @@ export function CandleChart({
 
   /** Controlled if a caller supplied one; this chart's own otherwise. */
   const scale = priceScale ?? ownPriceScale;
+  const settings = chartSettings ?? {
+    showStatusLine: true, showGrid: true, showCrosshair: true,
+    showTrading: true, showAlerts: true, showEvents: true,
+  };
+  const visiblePriceLines = useMemo(() => settings.showTrading ? (priceLines ?? []) : [], [settings.showTrading, priceLines]);
+  const visibleTrades = useMemo(() => settings.showTrading ? (trades ?? []) : [], [settings.showTrading, trades]);
+  const visibleMarkers = useMemo(() => settings.showEvents ? (markers ?? []) : [], [settings.showEvents, markers]);
   const applyScale = useCallback((next: PriceScaleState) => {
     setOwnPriceScale(next);
     onPriceScaleChange?.(next);
@@ -761,6 +773,18 @@ export function CandleChart({
       });
     } catch { /* the chart went away between render and effect */ }
   }, [scale, chartReady]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.applyOptions({
+      grid: {
+        vertLines: { visible: settings.showGrid },
+        horzLines: { visible: settings.showGrid },
+      },
+      crosshair: { mode: settings.showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden },
+    });
+  }, [settings.showGrid, settings.showCrosshair, chartReady]);
 
   /** Auto-fit both axes and return the scale to its default. */
   const resetView = useCallback(() => {
@@ -1274,7 +1298,7 @@ export function CandleChart({
     const inWindow = (t: number): boolean => t >= firstT && t <= lastT;
 
     if (candles.length > 0 && (hasLineMarkers(chartType)
-      || (trades?.length ?? 0) > 0 || (markers?.length ?? 0) > 0)) {
+      || (visibleTrades?.length ?? 0) > 0 || (visibleMarkers?.length ?? 0) > 0)) {
       const drawn: SeriesMarker<Time>[] = [];
       if (hasLineMarkers(chartType)) {
         for (const candle of candles) {
@@ -1302,8 +1326,11 @@ export function CandleChart({
        * them, and a handful of trades — the chart page's own strategy tester,
        * which is the case the labels were designed for — is still labelled.
        */
-      const labelled = tradeMarkerCount(trades, inWindow) <= TRADE_LABEL_LIMIT;
-      for (const t of trades ?? []) {
+      // The public trade input remains `trades`; visibility is a chart-setting
+      // projection so callers keep the same first-class pane contract.
+      const labelled = tradeMarkerCount(visibleTrades, inWindow) <= TRADE_LABEL_LIMIT;
+      // const labelled = tradeMarkerCount(trades, inWindow) <= TRADE_LABEL_LIMIT;
+      for (const t of visibleTrades ?? []) {
         const open = t.exitTime === null;
         if (inWindow(t.entryTime / 1000)) {
           drawn.push({
@@ -1326,7 +1353,7 @@ export function CandleChart({
           });
         }
       }
-      for (const m of markers ?? []) {
+      for (const m of visibleMarkers ?? []) {
         if (!inWindow(m.time)) continue;
         drawn.push({
           time: m.time as UTCTimestamp,
@@ -1341,13 +1368,13 @@ export function CandleChart({
     } else {
       series.setMarkers([]);
     }
-  }, [candles, trades, markers, chartReady, timeAnchored, chartType]);
+  }, [candles, visibleTrades, visibleMarkers, chartReady, timeAnchored, chartType]);
 
   // Live stop / target / entry levels for a running position.
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
-    const drawn = (priceLines ?? [])
+    const drawn = (visiblePriceLines ?? [])
       .filter((l) => Number.isFinite(l.price))
       .map((l) => series.createPriceLine({
         price: l.price,
@@ -1358,7 +1385,7 @@ export function CandleChart({
         title: l.title,
       }));
     return () => { for (const line of drawn) series.removePriceLine(line); };
-  }, [priceLines, chartReady]);
+  }, [visiblePriceLines, chartReady]);
 
   // Pick a price level by clicking the chart. Subscribed only while a handler
   // exists — see `onPriceSelect`.
@@ -1387,11 +1414,11 @@ export function CandleChart({
     if (!chart || !series || !onAnnotationSelect || onPriceSelect) return;
     const onClick = (param: MouseEventParams): void => {
       const time = typeof param.time === "number" ? param.time : null;
-      const marker = time === null ? undefined : (markers ?? []).find((item) =>
+      const marker = time === null ? undefined : (visibleMarkers ?? []).find((item) =>
         item.id && item.time === time);
       if (marker?.id) { onAnnotationSelect(marker.id); return; }
       if (!param.point) return;
-      const line = (priceLines ?? []).find((item) => {
+      const line = (visiblePriceLines ?? []).find((item) => {
         if (!item.id) return false;
         const coordinate = series.priceToCoordinate(item.price);
         return coordinate !== null && Math.abs(coordinate - param.point!.y) <= 8;
@@ -1400,7 +1427,7 @@ export function CandleChart({
     };
     chart.subscribeClick(onClick);
     return () => chart.unsubscribeClick(onClick);
-  }, [markers, priceLines, onAnnotationSelect, onPriceSelect, chartReady]);
+  }, [visibleMarkers, visiblePriceLines, onAnnotationSelect, onPriceSelect, chartReady]);
 
   // Pine/MA series are stable by plot id. Gaps stay as whitespace and a
   // last-point change uses update() instead of replaying the full history.
@@ -2011,7 +2038,7 @@ export function CandleChart({
         that supplies it also takes the symbol and the interval OUT of the OHLC
         row below — see `identity` in the props.
       */}
-      {identity}
+      {settings.showStatusLine ? <>{identity}</> : null}
       {/*
         FC2-M4: one line per series, with the explanation behind it.
 
@@ -2067,7 +2094,7 @@ export function CandleChart({
           <span className="sr-only"> — {SYNTHETIC_DISCLOSURE_HINT}</span>
         </div>
       )}
-      {legend && (
+      {settings.showStatusLine && legend && (
         <div className="flex flex-wrap items-baseline gap-x-2 rounded-sm bg-surface/75 px-1.5 text-[13px] leading-[20px] tabular text-ink-muted">
           {/*
             Named here only when nothing above named them. A pane passes an
@@ -2153,7 +2180,7 @@ export function CandleChart({
           className="max-w-full rounded bg-surface/75 px-1 py-0.5"
         />
       ) : (groupedOverlays.price.length > 0 || groupedOverlays.panes.length > 0
-        || (markers?.length ?? 0) > 0 || (trades?.length ?? 0) > 0
+        || (visibleMarkers?.length ?? 0) > 0 || (visibleTrades?.length ?? 0) > 0
         || (drawings?.length ?? 0) > 0) && (
         /*
           Said out loud, not silently done. A user who has applied three
