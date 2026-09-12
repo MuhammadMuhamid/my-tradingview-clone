@@ -47,3 +47,31 @@ test("replay footprint clips future executions at the horizon", () => {
   assert.deepEqual(tradesThroughHorizon(trades, 1500).map((t) => t.id), [1]);
   assert.deepEqual(footprintBars(tradesThroughHorizon(trades, 1500), 1000, 1).flatMap((b) => b.levels).map((l) => l.price), [10]);
 });
+
+test("range splits multi-range upward and downward jumps without oversize bars", () => {
+  const up = rangeBars([
+    { id: 1, timestamp: 1, price: 100, quantity: 1, aggressor: "buy" },
+    { id: 2, timestamp: 2, price: 135, quantity: 2, aggressor: "buy" },
+  ], 10, 1);
+  assert.deepEqual(up.map((b) => [b.open, b.close]), [[100, 110], [110, 120], [120, 130], [130, 135]]);
+  assert.ok(up.every((b) => b.high - b.low <= 10));
+  const down = rangeBars([
+    { id: 1, timestamp: 1, price: 100, quantity: 1, aggressor: "sell" },
+    { id: 2, timestamp: 2, price: 65, quantity: 2, aggressor: "sell" },
+  ], 10, 1);
+  assert.deepEqual(down.map((b) => [b.open, b.close]), [[100, 90], [90, 80], [80, 70], [70, 65]]);
+  assert.ok(down.every((b) => b.high - b.low <= 10));
+});
+
+test("range replay prefixes are deterministic at exact and sub-cent boundaries", () => {
+  const trades = [
+    { id: 1, timestamp: 1, price: 1.0000, quantity: 1, aggressor: "buy" as const },
+    { id: 2, timestamp: 2, price: 1.0005, quantity: 1, aggressor: "buy" as const },
+    { id: 3, timestamp: 3, price: 1.0013, quantity: 1, aggressor: "sell" as const },
+  ];
+  const batch = rangeBars(trades, 0.0005, 0.0001);
+  assert.deepEqual(batch.map((b) => [b.open, b.close]), [[1, 1.0005], [1.0013, 1.0013]]);
+  assert.deepEqual(rangeBars(tradesThroughHorizon(trades, 2), 0.0005, 0.0001)
+    .map((b) => [b.open, b.close]), [[1, 1.0005]]);
+  assert.ok(batch.every((b) => b.high - b.low <= 0.0005 + 1e-9));
+});

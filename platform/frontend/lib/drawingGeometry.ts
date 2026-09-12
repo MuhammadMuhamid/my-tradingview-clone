@@ -10,6 +10,57 @@ export interface AdvancedGeometry {
   horizontals: number[];
 }
 
+/** Position Forecast: first anchor is the origin, second the measured move,
+ * third the forecast target. The returned segments are the exact geometry
+ * used by both painting and hit testing (risk/reward box plus continuation).
+ */
+export function positionForecastGeometry(points: PixelPoint[], span = 6000): AdvancedGeometry {
+  const [entry, stop, target] = points;
+  if (!entry || !stop) return EMPTY;
+  const tip = target ?? extend(entry, stop, Math.max(80, span * 0.12));
+  const dx = tip.x - entry.x, dy = tip.y - entry.y;
+  const continuation = { x: tip.x + dx, y: tip.y + dy };
+  const top = Math.min(entry.y, stop.y, tip.y), bottom = Math.max(entry.y, stop.y, tip.y);
+  const boxLeft = Math.min(entry.x, tip.x), boxRight = Math.max(entry.x, tip.x);
+  return {
+    ...EMPTY,
+    segments: [
+      { a: entry, b: stop }, { a: entry, b: tip }, { a: tip, b: continuation },
+      { a: { x: boxLeft, y: top }, b: { x: boxRight, y: top } },
+      { a: { x: boxRight, y: top }, b: { x: boxRight, y: bottom } },
+      { a: { x: boxRight, y: bottom }, b: { x: boxLeft, y: bottom } },
+      { a: { x: boxLeft, y: bottom }, b: { x: boxLeft, y: top } },
+    ],
+    polygons: [[entry, stop, tip]],
+  };
+}
+
+/**
+ * Bars Pattern geometry. `source` is the historical close path selected by
+ * the two anchors; it is translated/scaled into a projected copy beginning at
+ * the second anchor. The source and projected paths are both returned so the
+ * selection affordance remains visible while the projection is editable.
+ */
+export function barsPatternGeometry(points: PixelPoint[], source: PixelPoint[], _span = 6000): AdvancedGeometry {
+  const [start, end] = points;
+  if (!start || !end || source.length < 2) {
+    return start && end ? { ...EMPTY, segments: [{ a: start, b: end }] } : EMPTY;
+  }
+  const src0 = source[0]!, srcN = source[source.length - 1]!;
+  const srcWidth = Math.max(1, srcN.x - src0.x);
+  const dstWidth = end.x - start.x;
+  const sx = (Math.abs(dstWidth) < 1 ? 1 : dstWidth) / srcWidth;
+  const sy = 1;
+  const projected = source.map((p) => ({
+    x: end.x + (p.x - src0.x) * sx,
+    y: end.y + (p.y - src0.y) * sy,
+  }));
+  const segments: Segment[] = [];
+  for (let i = 1; i < source.length; i++) segments.push({ a: source[i - 1]!, b: source[i]! });
+  for (let i = 1; i < projected.length; i++) segments.push({ a: projected[i - 1]!, b: projected[i]! });
+  return { ...EMPTY, segments, polygons: [projected] };
+}
+
 const EMPTY: AdvancedGeometry = { segments: [], circles: [], polygons: [], verticals: [], horizontals: [] };
 
 const sub = (a: PixelPoint, b: PixelPoint): PixelPoint => ({ x: a.x - b.x, y: a.y - b.y });

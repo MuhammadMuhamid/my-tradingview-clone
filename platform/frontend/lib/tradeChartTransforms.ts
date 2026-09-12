@@ -30,15 +30,62 @@ export function footprintBarsAsOhlc(trades: readonly AggregateTrade[], intervalM
 }
 
 export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, tickSize = 0.01): RangeBar[] {
-  if (!(rangeSize > 0)) return [];
+  if (!(rangeSize > 0) || !(tickSize > 0)) return [];
   const out: RangeBar[] = []; let current: RangeBar | null = null;
-  for (const trade of [...trades].sort((a, b) => a.timestamp - b.timestamp)) {
+  const ticks = Math.max(1, Math.round(rangeSize / tickSize));
+  const unit = (price: number) => Math.round(price / tickSize);
+  const price = (u: number) => u * tickSize;
+  const sorted = [...trades].sort((a, b) => a.timestamp - b.timestamp || (a.id ?? 0) - (b.id ?? 0));
+  for (const trade of sorted) {
     if (!Number.isFinite(trade.price) || trade.quantity <= 0) continue;
-    if (!current) current = { openTime: trade.timestamp, open: trade.price, high: trade.price, low: trade.price, close: trade.price, volume: trade.quantity, sourceTrades: 1 };
-    else { current.high = Math.max(current.high, trade.price); current.low = Math.min(current.low, trade.price); current.close = trade.price; current.volume += trade.quantity; current.sourceTrades += 1; }
-    if (current.high - current.low >= rangeSize) { out.push({ ...current, high: Math.round(current.high / tickSize) * tickSize, low: Math.round(current.low / tickSize) * tickSize }); current = null; }
+    const target = unit(trade.price);
+    if (!current) {
+      const p = price(target);
+      current = { openTime: trade.timestamp, open: p, high: p, low: p, close: p, volume: trade.quantity, sourceTrades: 1 };
+      continue;
+    }
+    const openU = unit(current.open);
+    const dir = target >= openU ? 1 : -1;
+    const distance = Math.abs(target - openU);
+    if (distance < ticks) {
+      const p = price(target);
+      current.high = Math.max(current.high, p); current.low = Math.min(current.low, p);
+      current.close = p; current.volume += trade.quantity; current.sourceTrades += 1;
+      continue;
+    }
+    // A single execution may cross several boundaries. Complete one bounded
+    // synthetic segment per crossed range; only the final segment receives the
+    // observed execution's volume. No intratrade path is invented beyond the
+    // deterministic boundary prices required to represent the crossing.
+    let from = openU;
+    let remaining = distance;
+    let first = true;
+    while (remaining >= ticks) {
+      const to = from + dir * ticks;
+      const segmentOpen = price(from), segmentClose = price(to);
+      out.push({
+        openTime: first ? current.openTime : trade.timestamp,
+        open: segmentOpen,
+        high: Math.max(segmentOpen, segmentClose),
+        low: Math.min(segmentOpen, segmentClose),
+        close: segmentClose,
+        volume: first ? current.volume : 0,
+        sourceTrades: first ? current.sourceTrades : 0,
+      });
+      first = false; from = to; remaining -= ticks;
+    }
+    if (remaining === 0) {
+      const last = out[out.length - 1];
+      if (last) { last.volume += trade.quantity; last.sourceTrades += 1; }
+      current = null;
+    }
+    else {
+      const p = price(target), boundary = price(from);
+      current = { openTime: trade.timestamp, open: boundary, high: Math.max(boundary, p), low: Math.min(boundary, p), close: p, volume: trade.quantity, sourceTrades: 1 };
+    }
   }
-  if (current) out.push(current); return out;
+  if (current) out.push(current);
+  return out;
 }
 
 export function footprintBars(trades: readonly AggregateTrade[], intervalMs: number, tickSize = 0.01): FootprintBar[] {

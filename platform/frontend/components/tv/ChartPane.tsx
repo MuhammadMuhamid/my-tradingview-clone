@@ -264,7 +264,12 @@ function ChartPaneImpl(props: ChartPaneProps) {
     symbol: pane.symbol, interval: pane.interval, bars: pane.bars,
   });
   const tradeMode = pane.chartType === "range" || pane.chartType === "footprint";
-  const marketTrades = useMarketTrades(pane.symbol, tradeMode, replay?.horizonCloseTime ?? null);
+  const marketTrades = useMarketTrades(
+    pane.symbol,
+    tradeMode,
+    replay?.horizonCloseTime ?? null,
+    `${pane.chartType}|${pane.interval}`,
+  );
   const [priceTick, setPriceTick] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;

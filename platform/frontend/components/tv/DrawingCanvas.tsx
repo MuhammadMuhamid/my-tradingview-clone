@@ -12,7 +12,7 @@ import {
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
 import {
-  fibChannelGeometry, gannSquareGeometry, patternLabels,
+  barsPatternGeometry, fibChannelGeometry, gannSquareGeometry, patternLabels, positionForecastGeometry,
   pitchforkGeometry, regression as regressionGeometry, timeProjection,
 } from "@/lib/drawingGeometry";
 
@@ -839,6 +839,13 @@ export function DrawingCanvas({
 
 type ToPx = (a: Anchor) => Pt;
 
+function barsPatternSource(d: Drawing, candles: Candle[], toPx: ToPx): Pt[] {
+  const from = Math.min(d.points[0]?.time ?? 0, d.points[1]?.time ?? 0);
+  const to = Math.max(d.points[0]?.time ?? 0, d.points[1]?.time ?? 0);
+  return candles.filter((c) => c.openTime / 1000 >= from && c.openTime / 1000 <= to)
+    .map((c) => toPx({ time: c.openTime / 1000, price: c.close }));
+}
+
 const addPx = (p: Pt, normal: Pt, amount: number): Pt => ({ x: p.x + normal.x * amount, y: p.y + normal.y * amount });
 const unitPerpendicular = (a: Pt, b: Pt): Pt => {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -940,8 +947,12 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx, candles: Candle[] = []): n
       const projection = timeProjection(d.tool, q, 10000);
       return Math.min(...projection.verticals.map((x) => Math.abs(p.x - x)), ...projection.segments.map((s) => distToSegment(p, s.a, s.b)));
     }
-    if (d.tool === "positionForecast" || d.tool === "barsPattern") {
-      let best = Infinity; for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!)); return best;
+    if (d.tool === "positionForecast") {
+      return Math.min(...positionForecastGeometry(q, span).segments.map((s) => distToSegment(p, s.a, s.b)));
+    }
+    if (d.tool === "barsPattern") {
+      const source = barsPatternSource(d, candles, toPx);
+      return Math.min(...barsPatternGeometry(q, source, span).segments.map((s) => distToSegment(p, s.a, s.b)));
     }
     let best = Math.hypot(p.x - a.x, p.y - a.y);
     for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!));
@@ -1128,10 +1139,14 @@ function drawOne(
       const projection = timeProjection(d.tool, q, h);
       for (const x of projection.verticals) line({ x, y: 0 }, { x, y: h });
       for (const segment of projection.segments) line(segment.a, segment.b);
-    } else if (d.tool === "positionForecast" || d.tool === "barsPattern") {
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y); ctx.stroke();
-      const delta = q.length > 1 ? { x: q[q.length - 1]!.x - q[0]!.x, y: q[q.length - 1]!.y - q[0]!.y } : { x: 80, y: 0 };
-      line(q[q.length - 1]!, addPx(q[q.length - 1]!, delta, 1));
+    } else if (d.tool === "positionForecast") {
+      const geometry = positionForecastGeometry(q, span);
+      for (const segment of geometry.segments) line(segment.a, segment.b);
+      if (geometry.polygons[0]) { ctx.globalAlpha = 0.08; ctx.beginPath(); geometry.polygons[0]!.forEach((point, i) => i ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y)); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1; }
+    } else if (d.tool === "barsPattern") {
+      const geometry = barsPatternGeometry(q, barsPatternSource(d, candles, toPx), span);
+      for (const segment of geometry.segments) line(segment.a, segment.b);
+      if (geometry.polygons[0]) { ctx.globalAlpha = 0.08; ctx.beginPath(); geometry.polygons[0]!.forEach((point, i) => i ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y)); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1; }
     } else if (d.tool === "sector") {
       const c = q[2] ?? b; const r = Math.hypot(b.x - a.x, b.y - a.y); const start = Math.atan2(b.y - a.y, b.x - a.x); const end = Math.atan2(c.y - a.y, c.x - a.x);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.arc(a.x, a.y, r, start, end); ctx.closePath(); fillAlpha(() => ctx.fill(), 0.12); ctx.stroke();
