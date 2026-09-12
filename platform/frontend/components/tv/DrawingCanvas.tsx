@@ -844,6 +844,15 @@ const TEMPLATE_TOOLS = new Set<DrawingTool>([
   "elliottImpulse", "elliottCorrection", "elliottTriangle", "elliottDoubleCombo", "elliottTripleCombo",
   "cyclicLines", "timeCycles", "sineLine", "positionForecast", "barsPattern", "sector", "rotatedRectangle", "table",
 ]);
+const FIB_TEMPLATE_TOOLS = new Set<DrawingTool>([
+  "fibChannel", "fibTimeZone", "trendFibTime", "fibSpeedResistanceFan", "fibSpeedResistanceArcs",
+  "fibCircles", "fibSpiral", "fibWedge", "pitchfan",
+]);
+const GANN_TEMPLATE_TOOLS = new Set<DrawingTool>(["gannBox", "gannSquareFixed", "gannSquare", "gannFan"]);
+const PATTERN_TEMPLATE_TOOLS = new Set<DrawingTool>([
+  "xabcd", "cypher", "headAndShoulders", "abcdPattern", "trianglePattern", "threeDrives",
+  "elliottImpulse", "elliottCorrection", "elliottTriangle", "elliottDoubleCombo", "elliottTripleCombo",
+]);
 
 /** Extend a→b far past b (used for rays and infinite lines). */
 function far(a: Pt, b: Pt, span: number): Pt {
@@ -991,6 +1000,36 @@ function drawOne(
     ctx.beginPath(); ctx.moveTo(a.x, a.y);
     for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y);
     ctx.stroke();
+    if (FIB_TEMPLATE_TOOLS.has(d.tool) && q.length >= 2) {
+      const ratios = [0, 0.382, 0.5, 0.618, 1, 1.618];
+      for (const ratio of ratios) {
+        const y = a.y + (b.y - a.y) * ratio;
+        line({ x: Math.min(a.x, b.x), y }, { x: Math.max(a.x, b.x) + 140, y });
+        ctx.fillText(`${Math.round(ratio * 100)}%`, Math.max(a.x, b.x) + 6, y - 3);
+      }
+      if (d.tool === "fibTimeZone" || d.tool === "trendFibTime") {
+        for (const ratio of ratios) {
+          const x = a.x + (b.x - a.x) * ratio;
+          line({ x, y: 0 }, { x, y: h });
+        }
+      }
+      if (d.tool === "fibCircles" || d.tool === "fibSpiral") {
+        const radius = Math.max(8, Math.hypot(b.x - a.x, b.y - a.y));
+        for (let i = 1; i <= 3; i++) { ctx.beginPath(); ctx.arc(a.x, a.y, radius * i / 3, 0, Math.PI * 2); ctx.stroke(); }
+      }
+    }
+    if (GANN_TEMPLATE_TOOLS.has(d.tool) && q.length >= 2) {
+      if (d.tool === "gannFan") {
+        for (const slope of [-1, -0.5, 0.5, 1]) line(a, { x: a.x + span, y: a.y + slope * span });
+      } else {
+        const size = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        ctx.strokeRect(a.x, a.y, size, size);
+        for (const fraction of [0.25, 0.5, 0.75]) { line({ x: a.x + size * fraction, y: a.y }, { x: a.x + size * fraction, y: a.y + size }); line({ x: a.x, y: a.y + size * fraction }, { x: a.x + size, y: a.y + size * fraction }); }
+      }
+    }
+    if (PATTERN_TEMPLATE_TOOLS.has(d.tool) && q.length > 1) {
+      q.forEach((point, index) => label(`${String.fromCharCode(88 + (index % 4))}${index}`, point.x + 4, point.y - 4));
+    }
     if (d.tool === "regression" && q.length >= 2) {
       const dx = q[1]!.x - q[0]!.x, dy = q[1]!.y - q[0]!.y;
       line({ x: q[0]!.x, y: q[0]!.y - 18 }, { x: q[1]!.x, y: q[1]!.y - 18 });
