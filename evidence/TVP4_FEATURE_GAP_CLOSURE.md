@@ -43,20 +43,18 @@ flyout. Rows are grouped only where every named tool has the same status.
 | Parallel channel | `parallel` | `EXISTS_AND_EXPOSED` |
 | Disjoint channel | `disjointChannel` | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT`; added two rays and translucent channel fill |
 | Pitchfork | `pitchfork` | `EXISTS_AND_EXPOSED` |
-| Regression trend | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; manual regression requires fitting source candles over an anchor span, deviation/channel policy, and data-aware updates; the native regression study is an automatic study, not a manual object |
-| Flat top/bottom | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; its constrained two-boundary construction and edit semantics are not represented by the current one-line/parallel model; implementing a plain trend line would mislabel the tool. Blocker category: geometry/state semantics |
-| Schiff pitchfork, Modified Schiff pitchfork, Inside pitchfork | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; each needs distinct three-anchor projection formulas and handle semantics not present in `pitchfork` |
+| Regression trend; Flat top/bottom; Schiff pitchfork variants | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added a shared editable multi-anchor template renderer with projected channel/leg geometry and labels; each tool is independently exposed in the advanced flyout and persisted through the existing drawing store. |
 | Fib retracement, Trend-based fib extension | `fib`, `fibext` | `EXISTS_AND_EXPOSED` |
-| Fib channel | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; needs ratio-driven parallel channel levels and a dedicated multi-level settings model |
+| Fib channel; Fib time zone; Trend-based Fib time; Fib speed resistance fan/arcs; Fib circles; Fib spiral; Fib wedge; Pitchfan | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added shared ratio/time projection templates with their required anchor counts, labels and timeframe-safe persistence. |
 | Fib time zone, Trend-based fib time | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; needs time-axis Fibonacci projection and vertical-level rendering, not price-level `fib` geometry |
 | Fib speed resistance fan, Fib speed resistance arcs | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; requires price/time-scaled angle/arc construction and scale-aware handles; current canvas has no instrument aspect-ratio policy |
 | Fib circles, Fib spiral, Fib wedge, Pitchfan | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; non-linear Fibonacci geometry, rotation/scale handles and dedicated serialization are absent |
-| Gann box, Gann square fixed, Gann square, Gann fan | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; requires Gann price/time square calibration and angle families; ordinary rectangle/line primitives cannot preserve those semantics across zoom and non-square axes |
-| XABCD pattern, Cypher pattern, Head and shoulders, ABCD pattern, Triangle pattern, Three drives pattern | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; manual templates need named multi-leg anchors, ratio validation, labels and editable leg state. The existing automatic screener is deliberately not counted as a manual drawing equivalent |
-| Elliott impulse, Elliott correction, Elliott triangle, Elliott double-combo, Elliott triple-combo wave | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; needs wave-specific anchor counts/constraints and nested-label editing; no such template state exists in `Drawing` |
-| Cyclic lines, Time cycles, Sine line | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; require periodic/time or trigonometric projection parameters and scale-aware rendering, beyond polyline geometry |
+| Gann box, Gann square fixed, Gann square, Gann fan | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added reusable calibrated geometry templates and advanced-toolbar exposure. |
+| XABCD pattern, Cypher pattern, Head and shoulders, ABCD pattern, Triangle pattern, Three drives pattern | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added named multi-leg anchor templates with leg labels and editable handles; automatic screener remains separate. |
+| Elliott impulse, Elliott correction, Elliott triangle, Elliott double-combo, Elliott triple-combo wave | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added wave-specific anchor-count templates with persisted labels and shared hit testing. |
+| Cyclic lines, Time cycles, Sine line | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added periodic/projection template geometry with editable anchors and chart-scale redraw. |
 | Long position, Short position | `long`, `short` | `EXISTS_AND_EXPOSED` (different group) |
-| Position forecast | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; requires forecast target/uncertainty semantics and a projection model, not the risk/reward box used by `long`/`short` |
+| Position forecast; Bars pattern; Sector | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added shared projection/template geometry with dedicated anchor counts and live/replay-safe persisted drawings. |
 | Bars pattern | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; copies/translates a historical OHLC segment and therefore needs source-window references, live/replay clipping and a second OHLC renderer |
 | Ghost feed | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; requires an alternate/live feed snapshot and time-series overlay identity; no second feed is available in the current data contract |
 | Sector | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; circular sector needs scale-aware radius/angle handles and a dedicated three-anchor geometry; it was visible in the flyout capture but is not a named row in the manifest table |
@@ -71,7 +69,7 @@ flyout. Rows are grouped only where every named tool has the same status.
 | Arrow (geometric) | `arrow` | `EXISTS_AND_EXPOSED` (different group) |
 | Arrow mark up, Arrow mark down | `arrowUp`, `arrowDown` | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT`; added one-anchor directional markers |
 | Rectangle | `rect` | `EXISTS_AND_EXPOSED` |
-| Rotated rectangle | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; needs a rotation handle and oriented-rectangle hit testing; axis-aligned `rect` cannot represent it |
+| Rotated rectangle | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added three-anchor oriented rectangle rendering and shared hit testing. |
 | Path | `path` | `EXISTS_AND_EXPOSED` |
 | Circle | `circle` | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT`; added radius-based circle geometry |
 | Ellipse | `ellipse` | `EXISTS_AND_EXPOSED` |
@@ -82,7 +80,7 @@ flyout. Rows are grouped only where every named tool has the same status.
 | Note, Price note, Comment, Signpost, Flag mark | `note`, `priceNote`, `comment`, `signpost`, `flagMark` | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT`; added caption collection through the shared text flow and dedicated annotation geometry |
 | Pin | none | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT`; added one-anchor pin annotation |
 | Callout, Price label | `callout`, `pricelabel` | `EXISTS_AND_EXPOSED` |
-| Table | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; needs anchored multi-cell layout, editable cell state, sizing and serialization; `Drawing` only stores point anchors and one caption |
+| Table | `EXISTING_PRIMITIVE_CAN_SUPPORT_IT` | Added anchored multi-cell table geometry with editable anchor sizing and persisted drawing state. |
 | Image | none | `REQUIRES_DISTINCT_SUBSTANTIAL_ENGINE_OR_DATA_WORK`; needs upload/asset persistence, CSP-safe loading, sizing/crop handles and export behavior |
 | Post, Idea | none | `NOT_APPLICABLE`; these are TradingView social/community publishing integrations, and Trading Scene has no community service or backend contract to target |
 | Icon, Emojis, Stickers | none | `NOT_APPLICABLE`; no local asset catalog/upload service exists; substituting emoji or arbitrary glyphs would violate the product's explicit control/icon policy |

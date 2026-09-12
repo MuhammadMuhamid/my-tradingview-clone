@@ -80,7 +80,7 @@ const ICONS: Record<string, JSX.Element> = {
 const Icon = ({ name, size = 24 }: { name: string; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    {ICONS[name]}
+    {ICONS[name] ?? ICONS.trend}
   </svg>
 );
 
@@ -122,6 +122,48 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
       { tool: "parallel", icon: "parallel", label: "Parallel channel" },
       { tool: "disjointChannel", icon: "disjointChannel", label: "Disjoint channel" },
       { tool: "pitchfork", icon: "pitchfork", label: "Pitchfork" },
+    ],
+  },
+  {
+    id: "advanced",
+    tools: [
+      { tool: "regression", icon: "trend", label: "Regression trend" },
+      { tool: "flatTopBottom", icon: "parallel", label: "Flat top/bottom" },
+      { tool: "schiffPitchfork", icon: "pitchfork", label: "Schiff pitchfork" },
+      { tool: "modifiedSchiffPitchfork", icon: "pitchfork", label: "Modified Schiff pitchfork" },
+      { tool: "insidePitchfork", icon: "pitchfork", label: "Inside pitchfork" },
+      { tool: "fibChannel", icon: "fib", label: "Fib channel" },
+      { tool: "fibTimeZone", icon: "fib", label: "Fib time zone" },
+      { tool: "trendFibTime", icon: "fibext", label: "Trend-based Fib time" },
+      { tool: "fibSpeedResistanceFan", icon: "fibext", label: "Fib speed resistance fan" },
+      { tool: "fibSpeedResistanceArcs", icon: "fibext", label: "Fib speed resistance arcs" },
+      { tool: "fibCircles", icon: "circle", label: "Fib circles" },
+      { tool: "fibSpiral", icon: "arc", label: "Fib spiral" },
+      { tool: "fibWedge", icon: "triangle", label: "Fib wedge" },
+      { tool: "pitchfan", icon: "pitchfork", label: "Pitchfan" },
+      { tool: "gannBox", icon: "rect", label: "Gann box" },
+      { tool: "gannSquareFixed", icon: "rect", label: "Gann square fixed" },
+      { tool: "gannSquare", icon: "rect", label: "Gann square" },
+      { tool: "gannFan", icon: "trend", label: "Gann fan" },
+      { tool: "xabcd", icon: "polyline", label: "XABCD pattern" },
+      { tool: "cypher", icon: "polyline", label: "Cypher pattern" },
+      { tool: "headAndShoulders", icon: "polyline", label: "Head and shoulders" },
+      { tool: "abcdPattern", icon: "polyline", label: "ABCD pattern" },
+      { tool: "trianglePattern", icon: "triangle", label: "Triangle pattern" },
+      { tool: "threeDrives", icon: "polyline", label: "Three drives pattern" },
+      { tool: "elliottImpulse", icon: "polyline", label: "Elliott impulse" },
+      { tool: "elliottCorrection", icon: "polyline", label: "Elliott correction" },
+      { tool: "elliottTriangle", icon: "triangle", label: "Elliott triangle" },
+      { tool: "elliottDoubleCombo", icon: "polyline", label: "Elliott double combo" },
+      { tool: "elliottTripleCombo", icon: "polyline", label: "Elliott triple combo" },
+      { tool: "cyclicLines", icon: "daterange", label: "Cyclic lines" },
+      { tool: "timeCycles", icon: "daterange", label: "Time cycles" },
+      { tool: "sineLine", icon: "curve", label: "Sine line" },
+      { tool: "positionForecast", icon: "arrow", label: "Position forecast" },
+      { tool: "barsPattern", icon: "bars", label: "Bars pattern" },
+      { tool: "sector", icon: "arc", label: "Sector" },
+      { tool: "rotatedRectangle", icon: "rect", label: "Rotated rectangle" },
+      { tool: "table", icon: "rect", label: "Table" },
     ],
   },
   {

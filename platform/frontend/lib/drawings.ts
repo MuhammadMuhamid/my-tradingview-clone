@@ -17,8 +17,14 @@ export type DrawingTool =
   // lines
   | "trend" | "trendAngle" | "infoline" | "ray" | "extended" | "arrow" | "hline" | "hray" | "vline" | "crossline"
   | "parallel" | "disjointChannel" | "pitchfork"
+  | "regression" | "flatTopBottom" | "schiffPitchfork" | "modifiedSchiffPitchfork" | "insidePitchfork"
   // fib
-  | "fib" | "fibext"
+  | "fib" | "fibext" | "fibChannel" | "fibTimeZone" | "trendFibTime" | "fibSpeedResistanceFan" | "fibSpeedResistanceArcs" | "fibCircles" | "fibSpiral" | "fibWedge" | "pitchfan"
+  // gann and manual pattern templates
+  | "gannBox" | "gannSquareFixed" | "gannSquare" | "gannFan"
+  | "xabcd" | "cypher" | "headAndShoulders" | "abcdPattern" | "trianglePattern" | "threeDrives"
+  | "elliottImpulse" | "elliottCorrection" | "elliottTriangle" | "elliottDoubleCombo" | "elliottTripleCombo"
+  | "cyclicLines" | "timeCycles" | "sineLine" | "positionForecast" | "barsPattern" | "sector" | "rotatedRectangle" | "table"
   // shapes
   | "rect" | "ellipse" | "circle" | "triangle" | "path" | "polyline" | "brush" | "highlighter"
   | "arrowMarker" | "arrowUp" | "arrowDown" | "arc" | "curve" | "doubleCurve"
@@ -123,7 +129,14 @@ export const TOOL_POINTS: Record<DrawingTool, number> = {
   trend: 2, trendAngle: 2, infoline: 2, ray: 2, extended: 2, arrow: 2,
   hline: 1, hray: 1, vline: 1, crossline: 1,
   parallel: 3, disjointChannel: 3, pitchfork: 3,
+  regression: 2, flatTopBottom: 2, schiffPitchfork: 3, modifiedSchiffPitchfork: 3, insidePitchfork: 3,
   fib: 2, fibext: 3,
+  fibChannel: 3, fibTimeZone: 2, trendFibTime: 3, fibSpeedResistanceFan: 2, fibSpeedResistanceArcs: 2,
+  fibCircles: 2, fibSpiral: 2, fibWedge: 3, pitchfan: 3,
+  gannBox: 2, gannSquareFixed: 2, gannSquare: 2, gannFan: 2,
+  xabcd: 5, cypher: 5, headAndShoulders: 5, abcdPattern: 4, trianglePattern: 3, threeDrives: 7,
+  elliottImpulse: 6, elliottCorrection: 5, elliottTriangle: 5, elliottDoubleCombo: 7, elliottTripleCombo: 9,
+  cyclicLines: 2, timeCycles: 2, sineLine: 2, positionForecast: 3, barsPattern: 2, sector: 3, rotatedRectangle: 3, table: 2,
   rect: 2, ellipse: 2, circle: 2, triangle: 3, path: 0, polyline: 0, brush: 0, highlighter: 0,
   arrowMarker: 1, arrowUp: 1, arrowDown: 1, arc: 3, curve: 3, doubleCurve: 4,
   text: 1, note: 1, priceNote: 1, pin: 1, comment: 1, callout: 1, pricelabel: 1, signpost: 1, flagMark: 1,

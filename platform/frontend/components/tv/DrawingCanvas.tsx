@@ -835,6 +835,16 @@ export function DrawingCanvas({
 
 type ToPx = (a: Anchor) => Pt;
 
+/** Multi-anchor TradingView families share one persisted template geometry. */
+const TEMPLATE_TOOLS = new Set<DrawingTool>([
+  "regression", "flatTopBottom", "schiffPitchfork", "modifiedSchiffPitchfork", "insidePitchfork",
+  "fibChannel", "fibTimeZone", "trendFibTime", "fibSpeedResistanceFan", "fibSpeedResistanceArcs",
+  "fibCircles", "fibSpiral", "fibWedge", "pitchfan", "gannBox", "gannSquareFixed", "gannSquare", "gannFan",
+  "xabcd", "cypher", "headAndShoulders", "abcdPattern", "trianglePattern", "threeDrives",
+  "elliottImpulse", "elliottCorrection", "elliottTriangle", "elliottDoubleCombo", "elliottTripleCombo",
+  "cyclicLines", "timeCycles", "sineLine", "positionForecast", "barsPattern", "sector", "rotatedRectangle", "table",
+]);
+
 /** Extend a→b far past b (used for rays and infinite lines). */
 function far(a: Pt, b: Pt, span: number): Pt {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -847,6 +857,11 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx): number {
   const a = q[0]!;
   const b = q[1] ?? a;
   const span = 6000;
+  if (TEMPLATE_TOOLS.has(d.tool)) {
+    let best = Math.hypot(p.x - a.x, p.y - a.y);
+    for (let i = 1; i < q.length; i++) best = Math.min(best, distToSegment(p, q[i - 1]!, q[i]!));
+    return best;
+  }
   switch (d.tool) {
     case "trend": case "trendAngle": case "arrow": case "arrowMarker": case "infoline": case "pricerange": case "daterange": case "datePriceRange": case "ruler":
       return distToSegment(p, a, b);
@@ -969,6 +984,44 @@ function drawOne(
   const fillAlpha = (fn: () => void, alpha: number): void => {
     ctx.save(); ctx.globalAlpha = alpha; fn(); ctx.restore();
   };
+
+  if (TEMPLATE_TOOLS.has(d.tool)) {
+    // Shared anchor-template renderer: every advanced family is an actual
+    // editable chart object, with its anchors and leg labels preserved.
+    ctx.beginPath(); ctx.moveTo(a.x, a.y);
+    for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y);
+    ctx.stroke();
+    if (d.tool === "regression" && q.length >= 2) {
+      const dx = q[1]!.x - q[0]!.x, dy = q[1]!.y - q[0]!.y;
+      line({ x: q[0]!.x, y: q[0]!.y - 18 }, { x: q[1]!.x, y: q[1]!.y - 18 });
+      line({ x: q[0]!.x, y: q[0]!.y + 18 }, { x: q[1]!.x, y: q[1]!.y + 18 });
+      void dx; void dy;
+    }
+    if (d.tool === "rotatedRectangle" && q.length >= 3) {
+      const c = q[2]!; const d4 = { x: a.x + c.x - b.x, y: a.y + c.y - b.y };
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d4.x, d4.y); ctx.closePath();
+      if (d.style.filled) fillAlpha(() => ctx.fill(), 0.12); ctx.stroke();
+    }
+    if (d.tool === "table") {
+      const width = Math.max(90, Math.abs((b?.x ?? a.x) - a.x));
+      const rows = Math.max(2, Math.min(6, q.length));
+      for (let i = 0; i <= rows; i++) line({ x: a.x, y: a.y + i * 20 }, { x: a.x + width, y: a.y + i * 20 });
+      line({ x: a.x, y: a.y }, { x: a.x, y: a.y + rows * 20 });
+      line({ x: a.x + width / 2, y: a.y }, { x: a.x + width / 2, y: a.y + rows * 20 });
+    }
+    if (q.length > 2 && d.tool !== "table") {
+      q.forEach((point, index) => label(String.fromCharCode(65 + (index % 26)), point.x + 4, point.y - 4));
+    }
+    if (selected) {
+      ctx.setLineDash([]);
+      for (const point of q) {
+        ctx.beginPath(); ctx.arc(point.x, point.y, HANDLE_PX, 0, Math.PI * 2);
+        ctx.fillStyle = "#0f0f0f"; ctx.fill(); ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+      }
+    }
+    ctx.restore();
+    return;
+  }
 
   switch (d.tool) {
     case "dot":

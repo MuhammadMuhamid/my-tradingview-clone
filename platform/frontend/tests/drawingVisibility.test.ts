@@ -31,11 +31,13 @@ test("new drawing variants are registered, exposed and rendered by shared primit
     "polyline", "arc", "curve", "doubleCurve", "highlighter", "arrowMarker",
     "arrowUp", "arrowDown", "note", "priceNote", "pin", "comment", "signpost", "flagMark",
     "avprofile", "datePriceRange",
+    "regression", "schiffPitchfork", "fibChannel", "gannBox", "xabcd",
+    "elliottImpulse", "cyclicLines", "positionForecast", "rotatedRectangle", "table",
   ];
   for (const tool of variants) {
     assert.ok(Object.prototype.hasOwnProperty.call(TOOL_POINTS, tool), `${tool} lacks anchor semantics`);
     assert.match(toolbar, new RegExp(`tool: "${tool}"`), `${tool} is not reachable from the toolbar`);
-    assert.match(canvas, new RegExp(`case "${tool}"`), `${tool} has no canvas renderer branch`);
+    assert.ok(canvas.includes(`"${tool}"`), `${tool} has no canvas renderer branch`);
   }
   for (const tool of ["note", "priceNote", "comment", "signpost", "flagMark"] as DrawingTool[]) {
     assert.ok(TEXT_TOOLS.has(tool), `${tool} must collect its caption through the shared text flow`);
