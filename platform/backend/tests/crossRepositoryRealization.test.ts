@@ -11,7 +11,65 @@ import { config } from "../src/config";
 import { realizationEventRoutes } from "../src/api/routes/realizationEvents";
 import { platformWebhookIdentity } from "../src/contract/realizationEventContract";
 
-const botRoot = process.env.TRADING_SCENE_BOT_ROOT;
+/**
+ * Where the Bot repository is.
+ *
+ * ── TVP8 round two ─────────────────────────────────────────────────────────
+ *
+ * This was `process.env.TRADING_SCENE_BOT_ROOT` and nothing else, so both
+ * tests below skipped unless somebody happened to export that variable — which
+ * nobody did, for the whole of two campaigns. The runner printed
+ *
+ *   ﹣ the shared webhook contract is byte-identical in both repositories # SKIP
+ *
+ * with NO REASON, so a reader could not tell a deliberately disabled test from
+ * a broken one from one waiting on an environment variable they could have set
+ * in a second. A contract-drift guard that never runs is not a guard; it is a
+ * line in a report.
+ *
+ * It now looks for the checkout as well. Walking up from here and taking the
+ * first `bot/` that actually contains the vendored contract, because the
+ * directory depth between the two repositories is a property of somebody's
+ * working copy — this one has `platform/platform/backend` — and not something
+ * a test should encode. The environment variable still wins, for a checkout
+ * laid out some other way.
+ */
+function findBotRoot(): string | null {
+  const fromEnv = process.env.TRADING_SCENE_BOT_ROOT;
+  if (fromEnv) return fromEnv;
+  let dir = __dirname;
+  for (let up = 0; up < 8; up++) {
+    const candidate = path.join(dir, "bot");
+    if (fs.existsSync(path.join(candidate, "backend", "src", "contract", "webhookContract.ts"))) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+const botRoot = findBotRoot();
+
+/** Skip reasons, so a skipped test says what would make it run. */
+const NO_BOT_REPO =
+  "no Bot checkout found beside this one, and TRADING_SCENE_BOT_ROOT is unset — "
+  + "the cross-repository contract cannot be compared from one tree alone";
+
+/**
+ * The loopback half additionally boots the Bot's own Prisma and its delivery
+ * service, so that repository's dependencies have to be installed. Reported
+ * separately from "no repository", because they are different things to do
+ * about it.
+ */
+const botInstalled = botRoot !== null
+  && fs.existsSync(path.join(botRoot, "backend", "node_modules", "prisma", "build", "index.js"));
+const NO_BOT_DEPS = botRoot === null
+  ? NO_BOT_REPO
+  : `the Bot checkout at ${botRoot} has no installed dependencies — `
+    + "run `npm ci` in its backend to exercise the loopback delivery path";
+
 const dbPath = botRoot ? path.join(botRoot, "backend", "tests", ".tmp-cross-repo.db") : "";
 const original = { enabled: config.realizationIngestionEnabled, secret: config.realizationHmacSecret };
 const webhookSecret = "cross-repository-webhook-secret-000000000000";
@@ -74,7 +132,7 @@ class ReceiptDb {
  * project and an ESM one.
  */
 test("the shared webhook contract is byte-identical in both repositories", {
-  skip: !botRoot,
+  skip: botRoot ? false : NO_BOT_REPO,
 }, async () => {
   if (!botRoot) return;
   const here = fs.readFileSync(
@@ -104,7 +162,7 @@ test("the shared webhook contract is byte-identical in both repositories", {
 });
 
 test("loopback Bot outbox to authenticated Platform receipt survives duplicate replay", {
-  skip: !botRoot,
+  skip: botInstalled ? false : NO_BOT_DEPS,
 }, async () => {
   if (!botRoot) return;
   const backend = path.join(botRoot, "backend");
