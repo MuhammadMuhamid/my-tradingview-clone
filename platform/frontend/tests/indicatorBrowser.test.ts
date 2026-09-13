@@ -157,7 +157,7 @@ test("destructive actions in the browser are named and confirmed", () => {
   // TVP8: through the product's own dialog, not the browser's — see AskDialog.
   assert.match(source, /title: `Delete “\$\{s\.name\}” from the library\?`/);
   assert.match(source, /title: `Delete the template “\$\{template\.name\}”\?`/);
-  assert.match(source, /Replace the \$\{applied\.length\} stud/,
+  assert.match(source, /Replace the \$\{onChart\} stud/,
     "clearing a chart's studies must say how many it is replacing");
   // And each of them is dressed as destructive, which `window.confirm` could
   // not do: its one button said OK for deleting a library script and for
@@ -405,4 +405,59 @@ test("THE BROWSER ACTUALLY SAVES AND RESTORES THE BUILT-INS", () => {
     "applying must restore them");
   assert.match(browser, /props\.nativeStudies\?\.setStyle\(key, plot,/,
     "and restore their styling");
+});
+
+
+test("REPLACE COUNTS BOTH KINDS OF STUDY, AND GUARDS ON BOTH", () => {
+  /*
+   * TVP8 round two. The guard was `replace && applied.length > 0` — and
+   * `applied` is the PINE list, while `props.nativeStudies?.clear()` ran
+   * inside it regardless. A chart carrying nothing but built-ins, which is
+   * what most charts carry, had every one of them removed with NO
+   * confirmation. When it did ask, the number in the title was the Pine count,
+   * so it under-reported what was about to be destroyed.
+   */
+  const source = read(BROWSER);
+  const guard = /const onChart = applied\.length \+ \(props\.nativeStudies\?\.list\.length \?\? 0\);/;
+  assert.match(source, guard, "the guard must count what is actually cleared");
+  assert.match(source, /if \(replace && onChart > 0\) \{/);
+
+  /*
+   * And nothing is cleared outside that branch. Asserted structurally rather
+   * than by eye: `clear()` is the destructive call, and both of them have to
+   * sit inside the block the confirmation guards.
+   */
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const applyFn = /const applyTemplate = async[\s\S]*?\n {2}\};/.exec(code);
+  assert.ok(applyFn, "applyTemplate is no longer where this rule can read it");
+  const guarded = /if \(replace && onChart > 0\) \{[\s\S]*?indicators\.clear\(\);\s*props\.nativeStudies\?\.clear\(\);\s*\}/;
+  assert.match(applyFn[0], guarded);
+  /*
+   * Comments stripped first, and not as a formality: the first version of this
+   * counted three because the sentence explaining the bug says
+   * `props.nativeStudies?.clear()` in prose. A rule that a comment can turn
+   * RED is the same class of mistake as one a comment can turn green.
+   */
+  assert.equal((applyFn[0].match(/\.clear\(\)/g) ?? []).length, 2,
+    "a third clear() outside the guarded block would be a silent wipe");
+});
+
+test("A TEMPLATE NAMING A STUDY THIS BUILD LACKS SAYS SO", () => {
+  /*
+   * TVP8 round two. `props.nativeStudies?.add(defId, params)` returns nothing
+   * for a `defId` the catalogue does not contain — a template written by a
+   * newer build, or exported from an installation with a study this one has
+   * since dropped. The loop did `continue`, and the status line then said
+   * "Applied" as though everything had arrived. The only way to notice was to
+   * count the legend.
+   */
+  const source = read(BROWSER);
+  assert.match(source, /if \(!key\) \{ missing\.push\(study\.defId\); continue; \}/,
+    "a skipped study must be remembered, not just skipped");
+  assert.match(source, /Applied \$\{applyCount\} of \$\{applyCount \+ missing\.length\} from/);
+  assert.match(source, /This build has no study called \$\{missing\.join\(", "\)\}/);
+
+  // The unqualified "Applied …" sentence survives only for the case where
+  // nothing was missing.
+  assert.match(source, /missing\.length === 0\n\s*\? `Applied “\$\{template\.name\}”/);
 });

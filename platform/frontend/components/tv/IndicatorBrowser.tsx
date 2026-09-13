@@ -359,9 +359,21 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
    */
   const applyTemplate = async (template: IndicatorTemplate, replace: boolean): Promise<void> => {
     if (!indicators) return;
-    if (replace && applied.length > 0) {
+
+    /*
+     * ── TVP8 round two: Replace counted the wrong half of the chart ──────────
+     *
+     * The guard was `replace && applied.length > 0`, and `applied` is the PINE
+     * list. `props.nativeStudies?.clear()` ran inside it regardless — so a
+     * chart carrying nothing but built-ins, which is what most charts carry,
+     * had all of them removed with no confirmation at all. The count in the
+     * title was the Pine count too, so when it did ask, it under-reported what
+     * was about to be destroyed.
+     */
+    const onChart = applied.length + (props.nativeStudies?.list.length ?? 0);
+    if (replace && onChart > 0) {
       const ok = await ask.confirm({
-        title: `Replace the ${applied.length} stud${applied.length === 1 ? "y" : "ies"} on `
+        title: `Replace the ${onChart} stud${onChart === 1 ? "y" : "ies"} on `
           + `${ticker} ${props.interval}?`,
         body: `“${template.name}” has ${template.indicators.length + template.studies.length}. `
           + "The studies on the chart now are removed.",
@@ -371,10 +383,12 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       indicators.clear();
       props.nativeStudies?.clear();
     }
+
     // TVP8: the built-ins, restored with their tuning AND their styling.
+    const missing: string[] = [];
     for (const study of template.studies) {
       const key = props.nativeStudies?.add(study.defId, study.params);
-      if (!key) continue;
+      if (!key) { missing.push(study.defId); continue; }
       for (const [plot, style] of Object.entries(study.styles)) {
         props.nativeStudies?.setStyle(key, plot, style as Record<string, never>);
       }
@@ -388,7 +402,22 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       // restores it hidden.
       if (!row.visible) indicators.toggleVisible(key);
     }
-    setStatus(`Applied “${template.name}” to ${ticker} ${props.interval}`);
+
+    /*
+     * ── TVP8 round two: a study the template names and this build has not ────
+     *
+     * `add` returns nothing for a `defId` the catalogue does not contain — a
+     * template written by a newer build, or exported from an installation with
+     * a study this one has since dropped. The loop did `continue`, and then the
+     * status line said "Applied" as though everything had arrived. The user
+     * gets a chart that is quietly missing an indicator, and the only way to
+     * find out is to count.
+     */
+    const applyCount = template.indicators.length + template.studies.length - missing.length;
+    setStatus(missing.length === 0
+      ? `Applied “${template.name}” to ${ticker} ${props.interval}`
+      : `Applied ${applyCount} of ${applyCount + missing.length} from “${template.name}”. `
+        + `This build has no study called ${missing.join(", ")}.`);
   };
 
   const removeTemplate = async (template: IndicatorTemplate): Promise<void> => {
