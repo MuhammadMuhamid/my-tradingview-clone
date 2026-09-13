@@ -337,6 +337,14 @@ export interface ServerLayout {
   };
   /** MA lines the layout draws; see lib/movingAverages.ts. */
   movingAverages: { type: MaType; length: number; visible: boolean }[];
+  /**
+   * TVP8: the rest of the arrangement — studies, drawings, chart type, the
+   * per-pane settings, the price scale and the pane grid.
+   *
+   * Opaque on the wire; `lib/layouts.ts` owns its shape and normalises it on
+   * restore. Null on a layout saved before this existed.
+   */
+  workspace?: unknown;
   createdAt: string;
   updatedAt: string;
 }

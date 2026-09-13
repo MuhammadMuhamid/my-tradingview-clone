@@ -34,6 +34,8 @@ export interface LayoutRow {
   params: StrategyParams;
   properties: LayoutProperties;
   movingAverages: LayoutMaLine[];
+  /** TVP8: the rest of the workspace. See `DbLayout.workspace`. */
+  workspace: unknown;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +50,16 @@ interface DbLayout {
   params: StrategyParams;
   properties: LayoutProperties;
   moving_averages: LayoutMaLine[];
+  /**
+   * TVP8: the rest of the workspace — studies, drawings, chart type, per-pane
+   * settings, the price scale and the pane grid.
+   *
+   * Opaque here on purpose: what a workspace holds is the frontend's business
+   * and has changed twice this year. It is validated on the way in by
+   * `lib/workspace.ts`'s own normaliser, and a damaged record degrades to
+   * "restore what you can", which is what the localStorage path already does.
+   */
+  workspace: unknown;
   created_at: Date;
   updated_at: Date;
 }
@@ -63,6 +75,7 @@ function toRow(r: DbLayout): LayoutRow {
     params: r.params,
     properties: r.properties,
     movingAverages: r.moving_averages ?? [],
+    workspace: r.workspace ?? null,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
   };
@@ -99,6 +112,8 @@ export interface LayoutState {
   params: StrategyParams;
   properties: LayoutProperties;
   movingAverages?: LayoutMaLine[];
+  /** See `DbLayout.workspace`. Omitted by callers that do not own it. */
+  workspace?: unknown;
 }
 
 /** Create or update by case-insensitive name (frontend upsert semantics). */
@@ -109,8 +124,9 @@ export async function upsertLayoutByName(
   const cleanName = name.trim() || "Unnamed";
   const { rows } = await query<DbLayout>(
     `INSERT INTO chart_layouts
-       (name, symbol, timeframe, bars, strategy_key, params, properties, moving_averages)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '[]'::jsonb))
+       (name, symbol, timeframe, bars, strategy_key, params, properties, moving_averages,
+        workspace)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '[]'::jsonb), $9::jsonb)
      ON CONFLICT (upper(btrim(name)))
      DO UPDATE SET
        symbol = EXCLUDED.symbol,
@@ -122,12 +138,16 @@ export async function upsertLayoutByName(
        -- Deployment sync calls this without MA data; $8 is NULL there, so keep
        -- what the user drew rather than blanking the lines on every sync pass.
        moving_averages = COALESCE($8::jsonb, chart_layouts.moving_averages),
+       -- Same reasoning as the line above: deployment sync does not own the
+       -- workspace, so a NULL keeps what the user arranged.
+       workspace = COALESCE($9::jsonb, chart_layouts.workspace),
        updated_at = now()
      RETURNING *`,
     [
       cleanName, state.symbol, state.timeframe, state.bars, state.strategyKey,
       JSON.stringify(state.params), JSON.stringify(state.properties),
       state.movingAverages ? JSON.stringify(state.movingAverages) : null,
+      state.workspace === undefined ? null : JSON.stringify(state.workspace),
     ]
   );
   return toRow(rows[0]!);
@@ -151,6 +171,7 @@ export async function updateLayout(
   if (patch.params !== undefined) push("params", JSON.stringify(patch.params));
   if (patch.properties !== undefined) push("properties", JSON.stringify(patch.properties));
   if (patch.movingAverages !== undefined) push("moving_averages", JSON.stringify(patch.movingAverages));
+  if (patch.workspace !== undefined) push("workspace", JSON.stringify(patch.workspace));
   if (sets.length === 0) return getLayout(id);
 
   const { rows } = await query<DbLayout>(

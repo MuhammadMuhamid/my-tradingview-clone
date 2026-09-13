@@ -16,6 +16,16 @@ interface LayoutBody {
   params?: StrategyParams;
   properties?: LayoutProperties;
   movingAverages?: LayoutMaLine[];
+  /**
+   * TVP8: the rest of the workspace — studies, drawings, chart type, per-pane
+   * settings, the price scale and the pane grid.
+   *
+   * Passed through opaquely. The frontend's `lib/workspace.ts` validates it on
+   * the way in, and a damaged record degrades to "restore what you can", which
+   * is exactly what the localStorage path it replaces already does. Validating
+   * a frontend view model here would mean two definitions of it.
+   */
+  workspace?: unknown;
 }
 
 export const storedLayoutSymbol = (value: string): string =>
@@ -48,6 +58,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
       params: body.params ?? {},
       properties: body.properties ?? layouts.defaultSyncedProperties(null),
       movingAverages: body.movingAverages,
+      workspace: body.workspace,
     });
     return reply.code(201).send(saved);
   });
@@ -67,6 +78,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
       params: body.params,
       properties: body.properties,
       movingAverages: body.movingAverages,
+      workspace: body.workspace,
     });
     if (!updated) return reply.code(404).send({ error: "layout not found" });
     return updated;

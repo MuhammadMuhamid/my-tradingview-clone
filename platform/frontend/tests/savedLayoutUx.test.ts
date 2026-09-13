@@ -113,3 +113,62 @@ test("Escape closes the menu and gives the keyboard back to its trigger", () => 
   assert.match(source, /aria-expanded=\{open\}/);
   assert.match(source, /role="menu"/);
 });
+
+// ── TVP8: what a layout actually carries ──────────────────────────────────
+
+test("A SAVED LAYOUT CARRIES THE ARRANGEMENT, NOT ONLY THE SYMBOL", () => {
+  /*
+   * `lib/layouts.ts` said in its own docstring that a layout "snapshots the
+   * whole workspace" and listed DRAWINGS among what it carries. It carried
+   * neither: the applied studies, the drawings, the chart type, the per-pane
+   * settings, the price scale and the pane grid were all localStorage-only, so
+   * opening a saved layout restored a symbol and a timeframe onto whatever the
+   * browser happened to be showing. Two reviews flagged the sentence as false
+   * before anyone noticed the feature was.
+   */
+  const layouts = read("lib/layouts.ts");
+  assert.match(layouts, /workspace\?: LayoutWorkspace;/,
+    "the state a layout saves has to include the arrangement");
+  assert.doesNotMatch(layouts, /A\s*\n?\s*\* layout snapshots the whole workspace: symbol, timeframe, history depth,/,
+    "the false docstring must be gone, not just outvoted by a new one");
+
+  // It reaches the wire, both on create and on save.
+  assert.match(layouts, /\.\.\.\(s\.workspace \? \{ workspace: s\.workspace \} : \{\}\)/);
+  assert.match(layouts, /\.\.\.\(state\.workspace \? \{ workspace: state\.workspace \} : \{\}\)/);
+
+  // And the column exists to receive it.
+  const migration = fs.readFileSync(
+    path.join(ROOT, "..", "backend", "src", "db", "migrations", "040_layout_workspace.sql"), "utf8");
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS workspace jsonb/);
+});
+
+test("restoring an arrangement degrades rather than throwing", () => {
+  /*
+   * A layout written by a newer build, or a record damaged in storage, must
+   * restore what it can and drop the rest. A saved arrangement that can break
+   * the page it restores into is worse than one that restores partially — and
+   * every store this touches already has that contract.
+   */
+  const helper = read("lib/layoutWorkspace.ts");
+
+  // Nothing at all is not an error.
+  assert.match(helper, /if \(typeof window === "undefined" \|\| !held\) return false;/);
+  // A non-array where a list is expected is skipped, not coerced.
+  assert.equal((helper.match(/if \(!Array\.isArray\(list\)\) continue;/g) ?? []).length, 2);
+  // One unreadable scope does not lose the others.
+  assert.match(helper, /one unreadable scope must not lose the others/);
+  // And the writes go through each store's OWN writer, so the stored shape
+  // stays that store's business.
+  assert.match(helper, /saveStoredNative\(list as never, scope\)/);
+  assert.match(helper, /drawingStore\.set\(symbol, list as Drawing\[\], "layout"\)/);
+
+  // The page restores before it applies, and reloads only when the pane record
+  // changed — that record is read once, at mount.
+  const page = read("app/chart/page.tsx");
+  assert.match(page, /const panesRestored = restoreLayoutWorkspace\(s\.workspace\);/);
+  assert.match(page, /if \(panesRestored\) window\.location\.reload\(\);/);
+
+  // Capture happens at SAVE time, not in a memo keyed on React state: the
+  // stores change without this component re-rendering.
+  assert.match(page, /get workspace\(\) \{ return captureLayoutWorkspace\(\); \}/);
+});

@@ -1,8 +1,26 @@
 /**
  * TradingView-style chart layouts, persisted server-side in PostgreSQL via
- * /api/layouts so they survive refreshes, browsers, and redeployments. A
- * layout snapshots the whole workspace: symbol, timeframe, history depth,
- * strategy and its params/properties.
+ * /api/layouts so they survive refreshes, browsers, and redeployments.
+ *
+ * ── What a layout actually holds ───────────────────────────────────────────
+ *
+ * Symbol, timeframe, history depth, strategy and its params/properties, the
+ * moving-average lines — and, since TVP8, the WORKSPACE: the applied studies,
+ * the drawings, the chart type, the per-pane chart settings, the price scale
+ * and the pane grid.
+ *
+ * This docstring used to say a layout "snapshots the whole workspace" and list
+ * drawings among what it carries. It carried neither: everything in the second
+ * half of that list was localStorage-only, so opening a saved layout restored
+ * a symbol and a timeframe onto whatever the browser happened to be showing.
+ * Two independent reviews flagged the sentence as false before anyone noticed
+ * the feature was.
+ *
+ * `workspace` is one opaque jsonb column rather than a column per piece: what
+ * a workspace holds is this side's business and has changed twice this year.
+ * It is normalised on restore by `lib/workspace.ts`, and a record this build
+ * cannot read degrades to "restore what you can" — the same contract the
+ * localStorage path has always had.
  *
  * Legacy localStorage layouts (pre-database) are imported to the server once
  * on first load, then kept as a local backup under a `.migrated` key. Only
@@ -23,6 +41,30 @@ export interface WorkspaceState {
   properties: StrategyProperties;
   /** Which SMA/EMA lines this workspace draws. */
   movingAverages: MaLine[];
+  /**
+   * The rest of the arrangement — see this module's docstring.
+   *
+   * Optional so a layout saved before TVP8, or by the deployment sync (which
+   * does not own the workspace), restores exactly as it did.
+   */
+  workspace?: LayoutWorkspace;
+}
+
+/**
+ * The arrangement a layout restores alongside the symbol.
+ *
+ * Deliberately the shapes these already have elsewhere rather than a new view
+ * model: `ChartWorkspace` is what `lib/workspace.ts` persists to localStorage,
+ * and the drawings are the per-symbol store's own records. A layout is a
+ * SNAPSHOT of those, not a second definition of them.
+ */
+export interface LayoutWorkspace {
+  /** `ChartWorkspace` — panes, their symbols, chart types and settings. */
+  panes?: unknown;
+  /** Applied built-in studies, per pane scope. */
+  studies?: unknown;
+  /** Drawings, per symbol. */
+  drawings?: unknown;
 }
 
 export interface Layout extends WorkspaceState {
@@ -50,6 +92,9 @@ function fromServer(l: ServerLayout): Layout {
     // Layouts saved before MA lines existed carry an empty array; fall back to
     // the full set so an older coin layout still opens with its averages.
     movingAverages: l.movingAverages?.length ? l.movingAverages : defaultMaLines(),
+    // TVP8: absent on a layout saved before this existed, which restores
+    // exactly as it did.
+    ...(l.workspace ? { workspace: l.workspace as LayoutWorkspace } : {}),
     updatedAt: Date.parse(l.updatedAt),
   };
 }
@@ -64,6 +109,7 @@ function toServerBody(name: string, s: WorkspaceState) {
     params: s.params,
     properties: s.properties,
     movingAverages: s.movingAverages,
+    ...(s.workspace ? { workspace: s.workspace } : {}),
   };
 }
 
@@ -128,6 +174,7 @@ export async function saveLayout(id: string, state: WorkspaceState): Promise<Lay
     params: state.params,
     properties: state.properties,
     movingAverages: state.movingAverages,
+    ...(state.workspace ? { workspace: state.workspace } : {}),
   }));
 }
 

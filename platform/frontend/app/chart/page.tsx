@@ -23,6 +23,7 @@
  * `lib/tradingTarget`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { captureLayoutWorkspace, restoreLayoutWorkspace } from "@/lib/layoutWorkspace";
 import { shortReason } from "@/components/ui";
 import { useAsk } from "@/components/AskDialog";
 import { type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
@@ -846,13 +847,36 @@ export default function TvWorkspace() {
   const [pendingApply, setPendingApply] = useState<ApplyRequest | null>(null);
 
   // ── saved layouts (server-side; the pane arrangement is device-local) ──
+  /*
+   * TVP8: a layout carries the arrangement, not just the symbol.
+   *
+   * `captureLayoutWorkspace` is called at SAVE time rather than memoised with
+   * the rest: the studies and drawings live in their own stores and change
+   * without this component re-rendering, so a memo keyed on React state would
+   * save a stale arrangement. `useSavedLayouts` reads this object when it
+   * saves, which is the moment the answer has to be current.
+   */
   const workspaceState = useMemo<WorkspaceState>(
-    () => ({ symbol, interval, bars, strategyKey, params, properties, movingAverages: maLines }),
+    () => ({
+      symbol, interval, bars, strategyKey, params, properties, movingAverages: maLines,
+      get workspace() { return captureLayoutWorkspace(); },
+    }),
     [symbol, interval, bars, strategyKey, params, properties, maLines]
   );
 
   /** A saved layout describes one chart; it is applied to the focused pane. */
   const applyState = useCallback((s: WorkspaceState) => {
+    /*
+     * TVP8: the arrangement first, then the chart.
+     *
+     * The studies and drawings go back into their own stores, and the pane
+     * record into the key `lib/workspace.ts` reads at mount. That record is
+     * read ONCE, so a layout that changes the pane grid needs the page to
+     * re-read it — which is what the reload below is for. When the layout
+     * carries no pane record (one saved before TVP8, or by the deployment
+     * sync) nothing reloads and this behaves exactly as it always did.
+     */
+    const panesRestored = restoreLayoutWorkspace(s.workspace);
     setWorkspace((ws) => setWorkspaceBars(updatePane(ws, ws.activePaneId, {
       symbol: s.symbol,
       interval: s.interval,
@@ -862,6 +886,7 @@ export default function TvWorkspace() {
     setParams(s.params);
     setProperties(s.properties);
     setTrades([]);
+    if (panesRestored) window.location.reload();
   }, []);
 
   /** Opening a layout always backtests 2025-11-01 → today automatically. */
