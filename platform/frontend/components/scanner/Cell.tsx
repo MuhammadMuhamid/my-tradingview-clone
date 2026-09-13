@@ -32,7 +32,7 @@ export function Cell({ spec, row, series }: Props) {
   const err = spec.indicator ? row.errors[spec.indicator] : undefined;
   if (err) {
     return (
-      <td className="num text-[var(--color-ink-dim)]" title={err}>
+      <td className="num text-ink-muted" title={err}>
         Error
       </td>
     );

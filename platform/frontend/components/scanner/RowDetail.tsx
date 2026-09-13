@@ -22,14 +22,14 @@ function Bar({ value }: { value: number }) {
   // magnitude as length. The number is printed beside it regardless.
   const pct = Math.min(Math.abs(value), 1) * 50;
   return (
-    <span className="relative inline-block h-2 w-24 rounded-sm bg-[var(--color-surface)] align-middle">
-      <span className="absolute left-1/2 top-0 h-full w-px bg-[var(--color-line)]" />
+    <span className="relative inline-block h-2 w-24 rounded-sm bg-bg align-middle">
+      <span className="absolute left-1/2 top-0 h-full w-px bg-border" />
       <span
         className="absolute top-0 h-full rounded-sm"
         style={{
           left: value >= 0 ? "50%" : `${50 - pct}%`,
           width: `${pct}%`,
-          backgroundColor: value >= 0 ? "var(--color-pos)" : "var(--color-neg)",
+          backgroundColor: value >= 0 ? "var(--ts-positive)" : "var(--ts-negative)",
         }}
       />
     </span>
@@ -40,10 +40,10 @@ function ScoreBreakdown({ score }: { score: RowScore | null }) {
   if (!score || score.score === null) {
     return (
       <>
-        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
           Confluence Score
         </h3>
-        <p className="text-xs text-[var(--color-ink-dim)]">
+        <p className="text-xs text-ink-muted">
           {score?.note ?? "Not scored — no bucket had usable inputs."}
         </p>
       </>
@@ -55,18 +55,18 @@ function ScoreBreakdown({ score }: { score: RowScore | null }) {
 
   return (
     <>
-      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
         {score.label}{" "}
-        <span className="ml-1 font-normal normal-case text-[var(--color-ink)]">
+        <span className="ml-1 font-normal normal-case text-ink">
           {score.score.toFixed(1)}
         </span>
-        <span className="ml-1 font-normal normal-case text-[var(--color-ink-dim)]">
+        <span className="ml-1 font-normal normal-case text-ink-muted">
           ({score.signed !== null && score.signed > 0 ? "+" : ""}
           {score.signed?.toFixed(1)} signed)
         </span>
       </h3>
 
-      <p className="mb-2 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+      <p className="mb-2 text-[10px] leading-tight text-ink-muted">
         {score.disclaimer}
       </p>
 
@@ -86,7 +86,7 @@ function ScoreBreakdown({ score }: { score: RowScore | null }) {
               <td className="pr-2 num">
                 {b.available ? (b.sub_score ?? 0).toFixed(2) : "n/a"}
               </td>
-              <td className="num text-[var(--color-ink-dim)]">
+              <td className="num text-ink-muted">
                 ×{b.effective_weight}
                 {b.effective_weight !== b.weight ? ` (of ${b.weight})` : ""}
               </td>
@@ -96,7 +96,7 @@ function ScoreBreakdown({ score }: { score: RowScore | null }) {
       </table>
       </div>
 
-      <p className="mt-1 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+      <p className="mt-1 text-[10px] leading-tight text-ink-muted">
         ADX regime <strong>{gate.regime ?? "—"}</strong>
         {gated
           ? ` scales Trend and Trigger by ${gate.multiplier}. ADX is a gate, not a sixth vote.`
@@ -106,7 +106,7 @@ function ScoreBreakdown({ score }: { score: RowScore | null }) {
           ? ` Coverage ${(score.coverage * 100).toFixed(0)}% — some buckets had no inputs and the weights were renormalised.`
           : ""}
       </p>
-      <p className="mt-1 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+      <p className="mt-1 text-[10px] leading-tight text-ink-muted">
         Hover a bucket for the raw components behind its sub-score.
       </p>
     </>
@@ -128,11 +128,11 @@ export function RowDetail({ row, span, onRemove, busy }: {
   const marketLabel = row.market?.spot
     ? `${row.market.exchange === "binance" ? "Binance" : row.market.exchange} Spot`
     : "market identity unavailable";
-  const linkClass = "inline-flex h-7 items-center rounded border border-[var(--color-line)] px-2 text-xs text-[var(--color-ink)] hover:bg-[var(--color-surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]";
+  const linkClass = "inline-flex h-7 items-center rounded border border-border px-2 text-xs text-ink hover:bg-state-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
   return (
     <tr>
-      <td colSpan={span} className="row-detail bg-[var(--color-surface-3)] p-0">
+      <td colSpan={span} className="row-detail bg-surface-2 p-0">
         {/* The table scrolls horizontally and is far wider than the viewport, so
             the panel is pinned to the left edge — otherwise the breakdown sits
             off-screen and the whole point of showing it is lost. */}
@@ -145,22 +145,22 @@ export function RowDetail({ row, span, onRemove, busy }: {
               {actions.trade && <Link href={actions.trade} className={linkClass}>Trade</Link>}
               {!actions.chart && (
                 <button disabled title="Exact Binance Spot identity is unresolved"
-                  className={`${linkClass} cursor-not-allowed text-[var(--color-ink-dim)] opacity-60`}>
+                  className={`${linkClass} cursor-not-allowed text-ink-muted opacity-60`}>
                   Spot actions unavailable
                 </button>
               )}
               <button disabled title={BACKTEST_REASON} aria-label={`Backtest unavailable: ${BACKTEST_REASON}`}
-                className={`${linkClass} cursor-not-allowed text-[var(--color-ink-dim)] opacity-60`}>
+                className={`${linkClass} cursor-not-allowed text-ink-muted opacity-60`}>
                 Backtest · unavailable
               </button>
               {onRemove && (
                 <button disabled={busy} onClick={() => onRemove(row.symbol)}
-                  className="ml-auto rounded border border-[var(--color-line)] px-2 py-1 text-xs text-[var(--color-neg)] hover:bg-[var(--color-surface-2)] disabled:opacity-50">
+                  className="ml-auto rounded border border-border px-2 py-1 text-xs text-down hover:bg-state-hover disabled:opacity-50">
                   Remove symbol
                 </button>
               )}
             </div>
-            <p className="mt-1 text-[10px] text-[var(--color-ink-dim)]">
+            <p className="mt-1 text-[10px] text-ink-muted">
               Chart opens this exact Spot pair. Alert and Trade only prefill their existing review flows;
               neither action saves, arms, sizes, or submits anything.
             </p>
@@ -174,10 +174,10 @@ export function RowDetail({ row, span, onRemove, busy }: {
 
             <CalibrationPanel symbol={row.symbol} empirical={row.empirical} />
 
-            <h3 className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+            <h3 className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Data provenance
             </h3>
-            <ul className="space-y-0.5 text-xs text-[var(--color-ink-dim)]">
+            <ul className="space-y-0.5 text-xs text-ink-muted">
               {Object.values(row.series).map((s) => (
                 <li key={s.timeframe}>
                   <span className="inline-block w-10">{s.timeframe}</span>
@@ -187,7 +187,7 @@ export function RowDetail({ row, span, onRemove, busy }: {
               ))}
             </ul>
             {Object.keys(row.errors).length > 0 && (
-              <p className="mt-2 text-xs text-[var(--color-neg)]">
+              <p className="mt-2 text-xs text-down">
                 {Object.entries(row.errors)
                   .map(([k, v]) => `${k}: ${v}`)
                   .join(" · ")}
@@ -195,11 +195,11 @@ export function RowDetail({ row, span, onRemove, busy }: {
             )}
           </section>
           <section className="min-w-0">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Candle patterns ({patterns.length})
             </h3>
             {patterns.length === 0 ? (
-              <p className="text-xs text-[var(--color-ink-dim)]">None in the lookback window.</p>
+              <p className="text-xs text-ink-muted">None in the lookback window.</p>
             ) : (
               <ul className="space-y-1 text-xs break-words">
                 {patterns.map((p) => (
@@ -209,16 +209,16 @@ export function RowDetail({ row, span, onRemove, busy }: {
                       style={{
                         color:
                           p.direction === "bull"
-                            ? "var(--color-pos)"
+                            ? "var(--ts-positive)"
                             : p.direction === "bear"
-                              ? "var(--color-neg)"
-                              : "var(--color-ink-dim)",
+                              ? "var(--ts-negative)"
+                              : "var(--ts-ink-muted)",
                       }}
                     >
                       {p.direction}
                     </span>
                     <span className="mr-2">{p.name}</span>
-                    <span className="text-[var(--color-ink-dim)]">
+                    <span className="text-ink-muted">
                       {p.bars_ago === 0 ? "this bar" : `${p.bars_ago} bars ago`} · strength{" "}
                       {p.strength.toFixed(2)}
                     </span>
@@ -226,44 +226,44 @@ export function RowDetail({ row, span, onRemove, busy }: {
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+            <p className="mt-2 text-[10px] leading-tight text-ink-muted">
               Strength is 0.0 at the detection threshold and 1.0 at the ideal form of the
               pattern. Hover a row for the exact ratio it comes from.
             </p>
           </section>
 
           <section className="min-w-0">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Chart patterns ({classical.length})
             </h3>
             {classical.length === 0 ? (
-              <p className="text-xs text-[var(--color-ink-dim)]">No qualifying 5/5-pivot formation.</p>
+              <p className="text-xs text-ink-muted">No qualifying 5/5-pivot formation.</p>
             ) : (
               <ul className="space-y-1 text-xs break-words">
                 {classical.slice(0, 8).map((pattern) => (
                   <li key={pattern.occurrence_id}>
                     <span className="mr-2 font-medium">{pattern.name}</span>
                     <span className={pattern.status === "reached"
-                      ? "text-[var(--color-pos)]" : pattern.status === "failed"
-                        ? "text-[var(--color-neg)]" : "text-[var(--color-ink-dim)]"}>
+                      ? "text-up" : pattern.status === "failed"
+                        ? "text-down" : "text-ink-muted"}>
                       {pattern.status} · {(pattern.quality.score * 100).toFixed(0)}% geometry
                     </span>
                   </li>
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+            <p className="mt-2 text-[10px] leading-tight text-ink-muted">
               Pivots are knowable only after five bars on the right. Breakouts use completed closes;
               targets are measured geometry, not forecasts.
             </p>
           </section>
 
           <section className="min-w-0">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               S&amp;R levels ({levels.length})
             </h3>
             {levels.length === 0 ? (
-              <p className="text-xs text-[var(--color-ink-dim)]">No surviving levels.</p>
+              <p className="text-xs text-ink-muted">No surviving levels.</p>
             ) : (
               <div className="overflow-x-auto">
               <table className="min-w-max text-xs">
@@ -275,15 +275,15 @@ export function RowDetail({ row, span, onRemove, busy }: {
                         className="pr-3"
                         style={{
                           color:
-                            l.side === "support" ? "var(--color-pos)" : "var(--color-neg)",
+                            l.side === "support" ? "var(--ts-positive)" : "var(--ts-negative)",
                         }}
                       >
                         {l.side}
                       </td>
-                      <td className="pr-3 num text-[var(--color-ink-dim)]">
+                      <td className="pr-3 num text-ink-muted">
                         ×{l.strength}
                       </td>
-                      <td className="num text-[var(--color-ink-dim)]">
+                      <td className="num text-ink-muted">
                         {fmtNum(l.dist_atr, 2)} ATR
                       </td>
                     </tr>

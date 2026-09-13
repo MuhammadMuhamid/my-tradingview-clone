@@ -18,12 +18,12 @@ const SLOTS = ["1h", "15m", "5m"] as const;
  */
 function Mark({ value }: { value: boolean | null }) {
   if (value === null) {
-    return <span className="text-[var(--color-ink-dim)]" title="No data">No data</span>;
+    return <span className="text-ink-muted" title="No data">No data</span>;
   }
   return value ? (
-    <span style={{ color: "var(--color-pos)" }}>Pass</span>
+    <span style={{ color: "var(--ts-positive)" }}>Pass</span>
   ) : (
-    <span style={{ color: "var(--color-neg)" }}>Fail</span>
+    <span style={{ color: "var(--ts-negative)" }}>Fail</span>
   );
 }
 
@@ -34,7 +34,7 @@ function ruleOf(rules: RuleResult[], id: string): RuleResult | undefined {
 export function StrategyPanel({ strategy }: { strategy: StrategyResult | null }) {
   if (!strategy) {
     return (
-      <p className="text-xs text-[var(--color-ink-dim)]">
+      <p className="text-xs text-ink-muted">
         Strategy disabled, or no candles cached for its timeframes yet.
       </p>
     );
@@ -42,9 +42,9 @@ export function StrategyPanel({ strategy }: { strategy: StrategyResult | null })
 
   return (
     <div>
-      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-dim)]">
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
         MTF checklist
-        <span className="ml-2 font-normal normal-case text-[var(--color-ink)]">
+        <span className="ml-2 font-normal normal-case text-ink">
           bull {strategy.bullish_pct ?? "—"}% · bear {strategy.bearish_pct ?? "—"}%
         </span>
         {strategy.setup && (
@@ -72,15 +72,15 @@ export function StrategyPanel({ strategy }: { strategy: StrategyResult | null })
           <div key={slot} className="mb-2">
             <div className="mb-0.5 flex items-baseline gap-2 text-[11px]">
               <span className="font-semibold">{slot}</span>
-              <span style={{ color: "var(--color-pos)" }}>
+              <span style={{ color: "var(--ts-positive)" }}>
                 bull {bull.passed}/{bull.total}
               </span>
-              <span style={{ color: "var(--color-neg)" }}>
+              <span style={{ color: "var(--ts-negative)" }}>
                 bear {bear.passed}/{bear.total}
               </span>
               {series && (
                 <span
-                  className={`text-[var(--color-ink-dim)] ${series.stale ? "stale" : ""}`}
+                  className={`text-ink-muted ${series.stale ? "stale" : ""}`}
                   title={`source bar closed ${fmtTime(series.last_close_ts)}`}
                 >
                   {series.stale ? "STALE" : fmtTime(series.last_close_ts)}
@@ -91,7 +91,7 @@ export function StrategyPanel({ strategy }: { strategy: StrategyResult | null })
             <div className="overflow-x-auto">
             <table className="min-w-max w-full text-[11px]">
               <thead>
-                <tr className="text-[var(--color-ink-dim)]">
+                <tr className="text-ink-muted">
                   <th className="w-14 text-left">Bull</th>
                   <th className="w-14 text-left">Bear</th>
                   <th className="text-left">Condition</th>
@@ -105,11 +105,11 @@ export function StrategyPanel({ strategy }: { strategy: StrategyResult | null })
                     <tr key={rule.id} title={rule.note ?? undefined}>
                       <td><Mark value={rule.passed} /></td>
                       <td><Mark value={mirror?.passed ?? null} /></td>
-                      <td className={rule.required ? "" : "text-[var(--color-ink-dim)] italic"}>
+                      <td className={rule.required ? "" : "text-ink-muted italic"}>
                         {rule.label}
                         {!rule.required && " (optional)"}
                       </td>
-                      <td className="text-[var(--color-ink-dim)]">{rule.detail ?? ""}</td>
+                      <td className="text-ink-muted">{rule.detail ?? ""}</td>
                     </tr>
                   );
                 })}
@@ -120,7 +120,7 @@ export function StrategyPanel({ strategy }: { strategy: StrategyResult | null })
         );
       })}
 
-      <p className="mt-1 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+      <p className="mt-1 text-[10px] leading-tight text-ink-muted">
         {strategy.note}
       </p>
     </div>

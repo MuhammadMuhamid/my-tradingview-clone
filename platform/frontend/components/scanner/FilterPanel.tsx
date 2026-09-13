@@ -79,18 +79,18 @@ export function FilterPanel({ specs, filters, onChange, onClose }: Props) {
   };
 
   return (
-    <aside className="w-80 shrink-0 overflow-y-auto border-l border-[var(--color-line)] bg-[var(--color-surface-2)] p-3 text-xs">
+    <aside className="w-80 shrink-0 overflow-y-auto border-l border-border bg-surface p-3 text-xs">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="font-semibold uppercase tracking-wide">Filters</h2>
         <div className="flex gap-2">
           <button
-            className="rounded border border-[var(--color-line)] px-2 py-0.5 hover:bg-[var(--color-surface-3)]"
+            className="rounded border border-border px-2 py-0.5 hover:bg-state-hover"
             onClick={() => onChange(EMPTY_FILTERS)}
           >
             Clear
           </button>
           <button
-            className="rounded border border-[var(--color-line)] px-2 py-0.5 hover:bg-[var(--color-surface-3)]"
+            className="rounded border border-border px-2 py-0.5 hover:bg-state-hover"
             onClick={onClose}
           >
             Close
@@ -98,19 +98,19 @@ export function FilterPanel({ specs, filters, onChange, onClose }: Props) {
         </div>
       </div>
 
-      <p className="mb-3 text-[10px] leading-tight text-[var(--color-ink-dim)]">
+      <p className="mb-3 text-[10px] leading-tight text-ink-muted">
         Clauses combine with AND. A row must satisfy every one. Rows whose value is missing
         are excluded by an active numeric range.
       </p>
 
       <section className="mb-4">
-        <h3 className="mb-1 font-semibold text-[var(--color-ink-dim)]">Categorical</h3>
+        <h3 className="mb-1 font-semibold text-ink-muted">Categorical</h3>
         {categorical.map((spec) => {
           const options = CATEGORY_OPTIONS[spec.id] ?? ["true", "false"];
           const active = filters.categorical[spec.id] ?? [];
           return (
             <div key={spec.id} className="mb-2">
-              <div className="mb-0.5 text-[var(--color-ink-dim)]">
+              <div className="mb-0.5 text-ink-muted">
                 {spec.group} · {spec.header}
               </div>
               <div className="flex flex-wrap gap-1">
@@ -120,8 +120,8 @@ export function FilterPanel({ specs, filters, onChange, onClose }: Props) {
                     onClick={() => toggleCategory(spec.id, o)}
                     className={`rounded border px-1.5 py-0.5 ${
                       active.includes(o)
-                        ? "border-[var(--color-pos)] bg-[rgba(13,148,136,0.25)]"
-                        : "border-[var(--color-line)] hover:bg-[var(--color-surface-3)]"
+                        ? "border-up bg-[rgba(13,148,136,0.25)]"
+                        : "border-border hover:bg-state-hover"
                     }`}
                   >
                     {o}
@@ -134,13 +134,13 @@ export function FilterPanel({ specs, filters, onChange, onClose }: Props) {
       </section>
 
       <section>
-        <h3 className="mb-1 font-semibold text-[var(--color-ink-dim)]">Numeric ranges</h3>
+        <h3 className="mb-1 font-semibold text-ink-muted">Numeric ranges</h3>
         {numeric.map((spec) => {
           const range = filters.numeric[spec.id] ?? { min: "", max: "" };
           return (
             <div key={spec.id} className="mb-1.5 flex items-center gap-1">
               <span
-                className="w-32 shrink-0 truncate text-[var(--color-ink-dim)]"
+                className="w-32 shrink-0 truncate text-ink-muted"
                 title={`${spec.group} · ${spec.header}`}
               >
                 {spec.group} · {spec.header}
@@ -151,7 +151,7 @@ export function FilterPanel({ specs, filters, onChange, onClose }: Props) {
                 onChange={(e) => setNumeric(spec.id, { min: e.target.value })}
                 placeholder="min"
                 inputMode="decimal"
-                className="w-14 rounded border border-[var(--color-line)] bg-[var(--color-surface)] px-1 py-0.5"
+                className="w-14 rounded border border-border bg-bg px-1 py-0.5"
               />
               <input
                 aria-label={`${spec.id} max`}
@@ -159,7 +159,7 @@ export function FilterPanel({ specs, filters, onChange, onClose }: Props) {
                 onChange={(e) => setNumeric(spec.id, { max: e.target.value })}
                 placeholder="max"
                 inputMode="decimal"
-                className="w-14 rounded border border-[var(--color-line)] bg-[var(--color-surface)] px-1 py-0.5"
+                className="w-14 rounded border border-border bg-bg px-1 py-0.5"
               />
             </div>
           );

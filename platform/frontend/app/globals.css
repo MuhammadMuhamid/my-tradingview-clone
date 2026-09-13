@@ -641,24 +641,28 @@ select:not([multiple]):not([size]) {
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
-/* Native Scanner keeps Mahamid's information density inside Platform tokens. */
-.scanner-workspace {
-  --color-surface: theme("colors.bg");
-  --color-surface-2: theme("colors.surface");
-  --color-surface-3: theme("colors.surface-2");
-  --color-line: theme("colors.border");
-  --color-ink: theme("colors.ink");
-  --color-ink-dim: theme("colors.ink-muted");
-  --color-pos: theme("colors.up");
-  --color-neg: theme("colors.down");
-  /*
-   * `--color-accent` was read by the Chart / Alert / Trade links in a row's
-   * detail panel and defined nowhere, so `outline-[var(--color-accent)]`
-   * resolved to nothing: the focus ring on the three controls that navigate
-   * out of the Scanner was invisible to a keyboard user.
-   */
-  --color-accent: theme("colors.accent");
-}
+/*
+ * ── TVP8 round two: the Scanner's second colour vocabulary ────────────────
+ *
+ * `.scanner-workspace` declared nine `--color-*` custom properties, each
+ * aliasing one of the product's own tokens, and `components/scanner/*` then
+ * spelt every colour as `text-[var(--color-ink-dim)]` — 112 call sites across
+ * six files and this stylesheet.
+ *
+ * Nothing was WRONG with it: the aliases resolved, the colours were right and
+ * both themes worked. What it cost was that the Screener had a second set of
+ * names for the same eight colours, so a reader of those six files learned a
+ * vocabulary that exists nowhere else in the product, and a token added to the
+ * design system did not exist there until somebody remembered to alias it.
+ * The UI contract's own words are that the unique pages use the same
+ * primitives as the chart workstation.
+ *
+ * So the aliases are gone and the call sites say `text-ink-muted` like
+ * everything else does. What survives below is the part that was never a
+ * vocabulary — the Scanner's DENSITY, which is genuinely its own: 20px rows
+ * and 12px type in a thirty-column table, and a sticky first column that has
+ * to stay opaque while the others scroll under it.
+ */
 /*
  * One control height across the Scanner toolbar.
  *
@@ -700,8 +704,8 @@ select:not([multiple]):not([size]) {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: var(--color-surface-2);
-  box-shadow: 1px 0 0 var(--color-line);
+  background: theme("colors.surface");
+  box-shadow: 1px 0 0 theme("colors.border");
 }
 .scanner-workspace thead .sticky-col { z-index: 4; }
 .scanner-workspace .stale { opacity: 0.48; font-style: italic; }
@@ -709,7 +713,7 @@ select:not([multiple]):not([size]) {
 .scanner-workspace table.dense td {
   padding: 2px 8px;
   white-space: nowrap;
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 1px solid theme("colors.border");
   font-size: 12px;
   line-height: 20px;
 }
@@ -722,13 +726,13 @@ select:not([multiple]):not([size]) {
  * let the cells sliding underneath show through the symbol.
  */
 .scanner-workspace table.dense tbody tr:nth-child(odd) > td:not(.sticky-col) {
-  background: color-mix(in srgb, var(--color-surface-2) 45%, transparent);
+  background: color-mix(in srgb, theme("colors.surface") 45%, transparent);
 }
 .scanner-workspace table.dense tbody tr:hover > td:not(.sticky-col) {
-  background: var(--color-surface-3);
+  background: theme("colors.surface-2");
 }
 .scanner-workspace table.dense tbody tr:hover > td.sticky-col {
-  background: var(--color-surface-3);
+  background: theme("colors.surface-2");
 }
 .scanner-workspace table.dense thead tr:first-child th {
   padding-top: 4px;

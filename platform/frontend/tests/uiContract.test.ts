@@ -278,11 +278,30 @@ test("CONTRACT — accent never means 'this one is selected' in the workstation"
 });
 
 test("CONTRACT — no workstation surface reverts to the pre-TVP7 hover", () => {
-  // `surface-2` is #1f1f1f: a correct panel, and one step too dark for a hover
-  // on every surface that used it.
-  const offenders = PRODUCT.filter((f) => /hover:bg-surface-2\b/.test(read(f)));
+  /*
+   * Hover is a STATE, and this product has a token for it. A panel colour is
+   * a place, and using one as a hover moves the control a step in whichever
+   * direction that panel happens to sit — on the dark theme `surface` is
+   * `#0f0f0f` against a `#2e2e2e` ground, so hovering made the control DARKER,
+   * which reads as pressed or disabled rather than hot.
+   *
+   * TVP8 round two: this rule named `surface-2` alone, and six sites were
+   * hovering to `surface` — five of them in the Screener, where they were
+   * spelt `hover:bg-[var(--color-surface-3)]` and therefore invisible to a
+   * rule about Tailwind tokens at all. Removing that second vocabulary is what
+   * surfaced them; the rule now covers every surface rather than the one it
+   * was written against.
+   */
+  const SURFACE_HOVER = /hover:bg-(?:bg|surface|surface-2)\b(?!-)/;
+  const offenders = PRODUCT_AND_LIB.filter((f) => SURFACE_HOVER.test(read(f)));
   assert.deepEqual(offenders, [],
     `hover must be the state token, not a panel colour: ${offenders.join(", ")}`);
+
+  // The tripwire: 69 sites use the state token, so a rule reading zero of
+  // either is a rule that has stopped reading.
+  const using = PRODUCT_AND_LIB.filter((f) => /hover:bg-state-hover\b/.test(read(f)));
+  assert.ok(using.length >= 20,
+    `only ${using.length} files use the state hover — this rule has stopped reading`);
 });
 
 test("CONTRACT — a provider's raw words are never a headline", () => {
@@ -845,4 +864,53 @@ test("CONTRACT — every page renders inside the shared grammar", () => {
   // And the nav, which is above every one of them.
   assert.match(code(read("components/Nav.tsx")), /className="ts-app /,
     "the nav sits outside <main>, so it needs the class itself");
+});
+
+test("ONE COLOUR VOCABULARY, INCLUDING IN THE SCREENER", () => {
+  /*
+   * ── TVP8 round two ─────────────────────────────────────────────────────
+   *
+   * `.scanner-workspace` declared nine `--color-*` custom properties, each
+   * aliasing one of the product's own tokens, and `components/scanner/*` then
+   * spelt every colour as `text-[var(--color-ink-dim)]` — 112 call sites
+   * across six files and the stylesheet.
+   *
+   * Nothing was WRONG with it: the aliases resolved, the colours were right
+   * and both themes worked. What it cost was a SECOND SET OF NAMES for the
+   * same eight colours, so a reader of those six files learned a vocabulary
+   * that exists nowhere else, and a token added to the design system did not
+   * exist there until somebody remembered to alias it. The contract's own
+   * words are that the unique pages use the same primitives as the chart
+   * workstation.
+   *
+   * The rule is on the SHAPE rather than on the nine names, so a tenth alias
+   * invented tomorrow fails it too.
+   */
+  const offenders: string[] = [];
+  for (const file of PRODUCT_AND_LIB) {
+    const src = read(file);
+    for (const m of src.matchAll(/var\(--color-[a-z0-9-]+\)/g)) {
+      // The one in `globals.css` is the sentence explaining the removal.
+      const at = m.index ?? 0;
+      const line = src.slice(src.lastIndexOf("\n", at) + 1, src.indexOf("\n", at));
+      if (/^\s*\*/.test(line)) continue;
+      offenders.push(`${file}: ${line.trim().slice(0, 84)}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "`--color-*` is a second name for a token that already has one — use the "
+    + "product's own:\n  " + offenders.join("\n  "));
+
+  /*
+   * And the alias block itself is gone, rather than merely unused: an unused
+   * declaration is an invitation, and this one was taken 112 times.
+   */
+  const css = read("app/globals.css");
+  assert.doesNotMatch(css, /^\s*--color-[a-z0-9-]+:/m,
+    "the Screener's alias block is the thing that made the second vocabulary possible");
+
+  // What survives is the part that was never a vocabulary: the Scanner's
+  // DENSITY, which is genuinely its own.
+  assert.match(css, /\.scanner-workspace table\.dense th,/);
+  assert.match(css, /\.scanner-workspace \.sticky-col \{/);
 });

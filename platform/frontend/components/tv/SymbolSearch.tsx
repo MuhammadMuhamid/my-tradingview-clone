@@ -344,7 +344,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
             />
             {term && (
               <button onClick={() => { setTerm(""); inputRef.current?.focus(); }} title="Clear" aria-label="Clear the search"
-                className="shrink-0 rounded-full p-0.5 text-ink-faint hover:bg-surface hover:text-ink">
+                className="shrink-0 rounded-full p-0.5 text-ink-faint hover:bg-state-hover hover:text-ink">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                   <circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" />
                 </svg>

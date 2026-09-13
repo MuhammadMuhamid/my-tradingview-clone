@@ -125,7 +125,7 @@ export function ScreenerTable({
   return (
     <div className="relative flex-1 overflow-auto overflow-x-auto">
       <table className="dense min-w-max w-full border-collapse">
-        <thead className="sticky top-0 z-[3] bg-[var(--color-surface-2)]">
+        <thead className="sticky top-0 z-[3] bg-surface">
           {/* Group header row: collapse toggle + per-indicator timeframe selector. */}
           <tr>
             {visibleGroups.map((group) => {
@@ -140,7 +140,7 @@ export function ScreenerTable({
                   >
                     <button
                       onClick={() => onToggleGroup(group)}
-                      className="flex items-center gap-1 text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]"
+                      className="flex items-center gap-1 text-ink-muted hover:text-ink"
                       title={`Expand ${group}`}
                       aria-expanded={false}
                       aria-label={`Expand the ${group} columns`}
@@ -156,7 +156,7 @@ export function ScreenerTable({
                 <th
                   key={group}
                   colSpan={groupSpecs.length}
-                  className={`border-l border-[var(--color-line)] text-left ${
+                  className={`border-l border-border text-left ${
                     group === "Symbol" ? "sticky-col" : ""
                   }`}
                 >
@@ -171,7 +171,7 @@ export function ScreenerTable({
                     */}
                     <button
                       onClick={() => onToggleGroup(group)}
-                      className="flex items-center gap-1 font-semibold text-[var(--color-ink)] hover:text-[var(--color-ink-dim)]"
+                      className="flex items-center gap-1 font-semibold text-ink hover:text-ink-muted"
                       title={`Collapse ${group}`}
                       aria-expanded
                       aria-label={`Collapse the ${group} columns`}
@@ -189,7 +189,7 @@ export function ScreenerTable({
                           `Timeframe for ${group}. Changing it refetches only the ` +
                           `newly-required (symbol, timeframe) pairs.`
                         }
-                        className="rounded border border-[var(--color-line)] bg-[var(--color-surface)] px-1 text-[11px]"
+                        className="rounded border border-border bg-bg px-1 text-[11px]"
                       >
                         {TIMEFRAMES.map((tf) => (
                           <option key={tf} value={tf}>
@@ -214,12 +214,12 @@ export function ScreenerTable({
                   key={header.id}
                   title={spec.title ?? spec.header}
                   aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"}
-                  className={`select-none text-right font-medium text-[var(--color-ink-dim)] ${
+                  className={`select-none text-right font-medium text-ink-muted ${
                     spec.group === "Symbol" ? "sticky-col text-left" : ""
                   }`}
                 >
                   <button onClick={header.column.getToggleSortingHandler()}
-                    className="cursor-pointer hover:text-[var(--color-ink)]"
+                    className="cursor-pointer hover:text-ink"
                     aria-label={`Sort by ${spec.header}${sorted ? `, currently ${sorted}` : ""}`}>
                     {flexRender(header.column.columnDef.header, header.getContext())}
                     {sorted === "asc" ? " ↑" : sorted === "desc" ? " ↓" : ""}
@@ -237,13 +237,13 @@ export function ScreenerTable({
 
             if (data.state === "unresolved") {
               return (
-                <tr key={data.symbol} className="text-[var(--color-ink-dim)]">
+                <tr key={data.symbol} className="text-ink-muted">
                   <td className="sticky-col">{data.symbol}</td>
                   <td colSpan={colCount - 1} className="italic" title={data.note ?? ""}>
                     unresolved — {data.note}
                     {onRemoveSymbol && (
                       <button disabled={busy} onClick={() => onRemoveSymbol(data.symbol)}
-                        className="ml-3 rounded border border-[var(--color-line)] px-2 text-[var(--color-neg)] disabled:opacity-50">
+                        className="ml-3 rounded border border-border px-2 text-down disabled:opacity-50">
                         Remove symbol
                       </button>
                     )}
@@ -255,7 +255,7 @@ export function ScreenerTable({
             return (
               <Fragment key={data.symbol}>
                 <tr
-                  className="cursor-pointer hover:bg-[var(--color-surface-2)]"
+                  className="cursor-pointer hover:bg-state-hover"
                   onClick={() => setExpanded(isOpen ? null : data.symbol)}
                   tabIndex={0}
                   aria-expanded={isOpen}
@@ -272,7 +272,7 @@ export function ScreenerTable({
                     if (spec.id === "symbol") {
                       return (
                         <td key={cell.id} className="sticky-col font-medium">
-                          <span className="mr-1 text-[var(--color-ink-dim)]">
+                          <span className="mr-1 text-ink-muted">
                             {isOpen ? "−" : "+"}
                           </span>
                           {data.symbol.replace("/USDT", "")}
@@ -294,7 +294,7 @@ export function ScreenerTable({
       </table>
 
       {table.getRowModel().rows.length === 0 && (
-        <p className="p-6 text-sm text-[var(--color-ink-dim)]">
+        <p className="p-6 text-sm text-ink-muted">
           No rows match the active filters.
         </p>
       )}
