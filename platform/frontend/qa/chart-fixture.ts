@@ -222,6 +222,164 @@ function watchlistRequest(url: URL, method: string, body: unknown): unknown | un
   return undefined;
 }
 
+/*
+ * ── TVP8: the routes the fixture did not serve ─────────────────────────────
+ *
+ * Four endpoints 404'd, and each one cost a whole surface:
+ *
+ *   /api/scanner                  the Screener was an error page, so the
+ *                                 densest table in the product could not be
+ *                                 reviewed at all
+ *   /api/ma-alerts/events         the chart's fired-alert markers
+ *   /api/auth/me                  the sign-in identity
+ *   /api/layouts/sync-deployments the layout menu's deployment sync
+ *
+ * Everything below is obviously synthetic and served only by this process. It
+ * exists so a reviewer can see the POPULATED shape of a surface — row density,
+ * column behaviour, sorting, empty and error states — without an exchange, an
+ * account or a database.
+ *
+ * `/api/market/v1/stream` is deliberately still absent. Answering it with a
+ * real Binance origin would make the evidence depend on the network and on an
+ * exchange being reachable, and the degraded notice the chart shows instead is
+ * honest product behaviour rather than a defect to paper over.
+ */
+const SCANNER_SYMBOLS = [
+  ["BTCUSDT", 77_000, 1.8], ["ETHUSDT", 2_520, -0.9], ["SOLUSDT", 145, 3.4],
+  ["BNBUSDT", 604, 0.6], ["XRPUSDT", 1.94, -2.1], ["ADAUSDT", 0.61, 1.2],
+  ["DOGEUSDT", 0.152, -0.4], ["LINKUSDT", 13.4, 2.7], ["AVAXUSDT", 21.8, -1.5],
+  ["DOTUSDT", 4.35, 0.9], ["MATICUSDT", 0.38, -3.2], ["ATOMUSDT", 5.12, 1.1],
+] as const;
+
+const SCANNER_TIMEFRAMES = ["15m", "1h", "4h", "1d"];
+
+function scannerRow(symbol: string, price: number, change: number, index: number) {
+  const score = Math.round(50 + change * 8 + (index % 5) * 3);
+  const series = Object.fromEntries(SCANNER_TIMEFRAMES.map((tf) => [tf, {
+    timeframe: tf, last_bar_ts: Date.now(), last_close_ts: Date.now(),
+    stale: false, bars: 500,
+  }]));
+  const rsi = 50 + change * 6;
+  return {
+    symbol,
+    market: { exchange: "BINANCE", market_type: "spot", contract_type: null, linear: false, spot: true },
+    state: "ok",
+    price,
+    change_24h_pct: change,
+    indicators: {
+      ema: { fast: price * 1.001, slow: price * 0.998, trend: change > 0 ? "up" : "down" },
+      rsi: { value: rsi, timeframe: "4h" },
+      macd: { hist: change / 4, signal: change / 6, macd: change / 3 },
+      adx: { value: 18 + Math.abs(change) * 4, di_plus: 22, di_minus: 18 },
+      supertrend: { direction: change > 0 ? 1 : -1, value: price * (change > 0 ? 0.98 : 1.02) },
+      vfi: { value: change * 1.7 },
+      sr: { levels: [] },
+      candles: { patterns: [] },
+      classical: {},
+    },
+    series,
+    errors: {},
+    score: {
+      label: "Long bias", disclaimer: "Not a probability.",
+      score: Math.max(0, Math.min(100, score)), signed: score - 50,
+      coverage: 1, gate: { passed: true, reasons: [] },
+      buckets: {}, note: null,
+    },
+    empirical: null,
+    strategy: null,
+    mtf: Object.fromEntries(SCANNER_TIMEFRAMES.map((tf) => [tf, {
+      rsi: { value: rsi + (tf === "1d" ? 4 : 0) },
+      adx: { value: 20 },
+    }])),
+    note: null,
+    shariah: index % 4 === 0 ? "ELIGIBLE" : index % 4 === 1 ? "REVIEW" : index % 4 === 2 ? "EXCLUDED" : "UNKNOWN",
+  };
+}
+
+function scannerSnapshot(): unknown {
+  return {
+    exchange: "BINANCE",
+    market: { exchange: "BINANCE", market_type: "spot", contract_type: null, linear: false, spot: true },
+    generated_at: Date.now(),
+    last_refresh_at: Date.now(),
+    last_refresh_error: null,
+    timeframes: SCANNER_TIMEFRAMES,
+    indicators: Object.fromEntries(
+      ["ema", "rsi", "macd", "vfi", "adx", "candles", "supertrend", "sr", "classical"]
+        .map((k) => [k, { enabled: true, timeframe: "4h", params: {} }])),
+    strategy: {
+      enabled: false, name: null, timeframes: {}, rules: {},
+      note: "No strategy is configured on this QA fixture.",
+    },
+    scoring: {
+      label: "Long bias", mode: "weighted",
+      disclaimer: "A synthetic QA score. Not a probability and not advice.",
+      weights: { ema: 1, rsi: 1, macd: 1, adx: 1 }, ranging_multiplier: null,
+    },
+    unverified_symbols: [],
+    rows: SCANNER_SYMBOLS.map(([symbol, price, change], i) =>
+      scannerRow(symbol, price, change, i)),
+    compute_ms: 42,
+  };
+}
+
+/** The endpoints above, answered from this process. */
+function extraRoutes(url: URL, method: string): unknown | undefined {
+  const path = url.pathname;
+  if (path === "/api/scanner") return scannerSnapshot();
+  if (path === "/api/scanner/health") {
+    return { ok: true, service: "qa-fixture", checked_at: new Date().toISOString() };
+  }
+  if (path === "/api/scanner/presets") return [];
+  if (path === "/api/auth/me") {
+    return { id: "qa-user", email: "qa@example.invalid", name: "QA fixture" };
+  }
+  if (path === "/api/ma-alerts/events") return [];
+  /*
+   * The Shariah registry. The Screener joins it in for its status column, so
+   * without it that column is empty AND the page carries a warning naming a
+   * fixture route — which is the raw-provider-copy defect this campaign spent
+   * a commit removing everywhere else.
+   */
+  if (path === "/api/shariah/universe") {
+    const assets = SCANNER_SYMBOLS.map(([symbol], i) => {
+      const base = symbol.replace(/USDT$/, "");
+      const classification = i % 4 === 0 ? "ELIGIBLE"
+        : i % 4 === 1 ? "REVIEW" : i % 4 === 2 ? "EXCLUDED" : "UNKNOWN";
+      return {
+        assetId: `qa-${base.toLowerCase()}`,
+        baseAsset: base,
+        projectName: base,
+        binanceAvailable: true,
+        classification,
+        lifecycle: "SCREENED",
+        effectiveStatus: classification,
+        policyVersion: "qa-1",
+        reason: classification === "EXCLUDED" ? "QA fixture: synthetic exclusion." : null,
+        prohibitedCategories: classification === "EXCLUDED" ? ["qa-category"] : [],
+        reviewedAt: new Date().toISOString(),
+        publishedAt: new Date().toISOString(),
+      };
+    });
+    const count = (c: string) => assets.filter((a) => a.classification === c).length;
+    return {
+      policyVersion: "qa-1",
+      prohibitedCategories: ["qa-category"],
+      counts: {
+        total: assets.length, active: assets.length,
+        eligible: count("ELIGIBLE"), review: count("REVIEW"), excluded: count("EXCLUDED"),
+      },
+      assets,
+    };
+  }
+  if (path === "/api/shariah/mode") {
+    return { mode: "OFF", policyVersion: "qa-1", botMode: "OFF", inSync: true };
+  }
+  if (path === "/api/shariah/snapshots") return { snapshots: [] };
+  if (path === "/api/layouts/sync-deployments") return method === "POST" ? { synced: 0 } : [];
+  return undefined;
+}
+
 createServer(async (req, res) => {
   try {
     const chunks: Buffer[] = [];
@@ -245,6 +403,12 @@ createServer(async (req, res) => {
       };
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       res.end(JSON.stringify(payload));
+      return;
+    }
+    const extra = extraRoutes(requestUrl, (req.method ?? "GET").toUpperCase());
+    if (extra !== undefined) {
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify(extra));
       return;
     }
     const watchlistResult = watchlistRequest(
