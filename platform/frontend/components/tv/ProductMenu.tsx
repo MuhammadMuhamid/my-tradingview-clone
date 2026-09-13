@@ -24,6 +24,7 @@
  * renders nothing on `/chart` and this renders nowhere else, so exactly one of
  * them exists at a time and neither can drift from `lib/navigation`.
  */
+import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -95,6 +96,7 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const edgeClamp = useEdgeClamp(menuRef, open);
   const health = useOpsHealth();
   const stream = useStreamSummary();
   const firstRun = useFirstRun();
@@ -204,6 +206,10 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
           role="menu"
           aria-label={PRODUCT_NAME}
           onKeyDown={onMenuKeyDown}
+          // Clamped for the same reason the chart-type menu is: a 288px menu
+          // anchored to a trigger is only inside the window while the trigger
+          // is. See `lib/useEdgeClamp`.
+          style={edgeClamp}
           className="absolute left-0 top-full z-50 w-72 tvc-menu"
         >
           <div className="px-3 pb-1.5 pt-1.5">

@@ -1,4 +1,5 @@
 "use client";
+import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import { useEffect, useRef } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
@@ -127,6 +128,7 @@ export function ChartTypeMenu({
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const edgeClamp = useEdgeClamp(menuRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -241,6 +243,12 @@ export function ChartTypeMenu({
           role="menu"
           aria-label="Chart type"
           onKeyDown={onMenuKeyDown}
+          /*
+            TVP8 round two: at 390px the trigger sits at x=208 and this is
+            264px wide, so 82px of every row hung off the right edge with no
+            way to reach it. See `lib/useEdgeClamp`.
+          */
+          style={edgeClamp}
           className="absolute left-0 top-full z-50 max-h-[calc(100vh-52px)] w-[264px] overflow-y-auto tvc-menu"
         >
           {presentationRows}

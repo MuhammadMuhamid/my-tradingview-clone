@@ -20,6 +20,7 @@
  * Each variant draws itself from its own preset data, so a preset added to
  * `lib/layoutPresets` appears here with a correct thumbnail and no edit.
  */
+import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
@@ -98,6 +99,7 @@ export function LayoutSelector({
   const [count, setCount] = useState(current.panes);
   const boxRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const edgeClamp = useEdgeClamp(menuRef, open);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { setCount(current.panes); }, [current.panes]);
@@ -188,6 +190,7 @@ export function LayoutSelector({
 
       {open && (
         <div ref={menuRef} role="menu" aria-label="Chart layout"
+          style={edgeClamp}
           className="absolute right-0 top-full z-50 w-[276px] tvc-menu px-2">
           <div className="px-1 pb-1.5 text-[10px] uppercase tracking-wide text-ink-faint">
             Charts in this layout

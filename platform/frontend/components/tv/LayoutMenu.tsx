@@ -1,4 +1,5 @@
 "use client";
+import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import { useEffect, useRef } from "react";
 import { useAsk } from "@/components/AskDialog";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
@@ -65,6 +66,7 @@ export function LayoutMenu({
   const ask = useAsk();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const edgeClamp = useEdgeClamp(menuRef, open);
   const current = layouts.find((l) => l.id === currentId) ?? null;
 
   useEffect(() => {
@@ -204,7 +206,8 @@ export function LayoutMenu({
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div ref={menuRef} role="menu" aria-label="Saved layouts" onKeyDown={onMenuKeyDown}
-            className="absolute right-0 top-full z-40 mt-1 w-72 tvc-menu">
+            style={edgeClamp}
+          className="absolute right-0 top-full z-40 mt-1 w-72 tvc-menu">
             <div className="px-3.5 pb-2 pt-1">
               <div className="truncate text-[13px] font-semibold text-ink">
                 {current?.name ?? "Unnamed layout"}

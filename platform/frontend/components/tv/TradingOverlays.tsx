@@ -1,4 +1,5 @@
 "use client";
+import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import type { TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse } from "@/lib/tradingOverlays";
@@ -19,6 +20,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const edgeClamp = useEdgeClamp(menuRef, open);
   useEffect(() => {
     if (!open) return;
     const onDown = (event: MouseEvent): void => {
@@ -58,6 +60,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
       {data && data.items.length > 0 && <span className="rounded-full bg-accent/15 px-1.5 text-[10px] font-semibold text-accent">{data.items.length}</span>}
     </button>
     {open && <div ref={menuRef} role="menu" aria-label="Trading overlay visibility" onKeyDown={onMenuKeyDown}
+      style={edgeClamp}
       className="absolute right-0 top-full z-50 mt-1 w-[min(19rem,calc(100vw-1rem))] rounded-md border border-border bg-surface p-3 shadow-xl">
       <div className="flex items-start justify-between gap-3">
         <div><p className="text-xs font-semibold text-ink">Read-only trading overlays</p>

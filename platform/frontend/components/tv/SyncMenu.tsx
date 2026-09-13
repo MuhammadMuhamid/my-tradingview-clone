@@ -1,4 +1,5 @@
 "use client";
+import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { SYNC_LABELS, type SyncOptions } from "@/lib/paneSync";
@@ -44,6 +45,7 @@ export function SyncMenu({
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const edgeClamp = useEdgeClamp(menuRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -124,6 +126,7 @@ export function SyncMenu({
 
       {open && (
         <div ref={menuRef} role="menu" aria-label="Sync across charts" onKeyDown={onMenuKeyDown}
+          style={edgeClamp}
           className="absolute right-0 top-full z-50 w-[300px] tvc-menu">
           <div className="px-3 pb-1 pt-2">
             <div className="text-[10px] uppercase tracking-wide text-ink-faint">
