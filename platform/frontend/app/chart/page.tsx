@@ -32,6 +32,7 @@ import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
 import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel";
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
 import { GoToDateModal } from "@/components/tv/GoToDateModal";
+import { CommandPalette } from "@/components/tv/CommandPalette";
 import { NativeStudySettings } from "@/components/tv/NativeStudySettings";
 import { ChartSettingsModal } from "@/components/tv/ChartSettingsModal";
 import { DrawingSettingsModal } from "@/components/tv/DrawingSettingsModal";
@@ -103,7 +104,7 @@ import {
   type ChartWorkspace as Workspace, type PaneCompare, type PaneState,
 } from "@/lib/workspace";
 import { MAX_PANES } from "@/lib/layoutPresets";
-import { isMacPlatform } from "@/lib/shortcuts";
+import { isMacPlatform, type ShortcutAction } from "@/lib/shortcuts";
 import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
 import { usePaneCandleOverlays } from "@/lib/useCandleOverlay";
 import { usePaneClassicalOverlays } from "@/lib/useClassicalPatterns";
@@ -412,6 +413,12 @@ export default function TvWorkspace() {
    * still scrolls back to it — the pane compares the counter, not the moment.
    */
   const [goToOpen, setGoToOpen] = useState(false);
+  /*
+   * TVP8: the command palette. The reference has one behind the magnifier
+   * beside the settings gear; the previous campaign recorded it as
+   * not-applicable. See `components/tv/CommandPalette.tsx`.
+   */
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [goTo, setGoTo] = useState<{ time: number; signal: number } | null>(null);
   const [drawingSettingsOpen, setDrawingSettingsOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
@@ -1516,8 +1523,29 @@ export default function TvWorkspace() {
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
     copyPrice, candleOverlays, classicalOverlays]);
 
-  const shortcuts = useShortcuts({
-    onAction: (action) => {
+  /*
+   * What the palette can reach. Every one of these is the SAME handler the
+   * rail, the browser, the menu or the keyboard uses — a palette that had its
+   * own copy of "add this study" would be a second way for the two to disagree.
+   */
+  const paletteHandlers = useMemo(() => ({
+    drawing: (next: DrawingTool) => setTool(next),
+    indicator: (studyId: string) => { activeNativeStudies?.add(studyId); },
+    chartType: (next: ChartType) => changeChartType(next),
+    // The keyboard's own dispatcher, through a ref: it is declared below (it
+    // closes over half this component) and the palette must reach the same one.
+    action: (action: ShortcutAction) => { shortcutActionRef.current?.(action); },
+  }), [activeNativeStudies, changeChartType]);
+
+  const shortcutActionRef = useRef<((action: ShortcutAction) => boolean) | null>(null);
+
+  /*
+   * Named rather than inline, so the command palette can run the SAME
+   * dispatcher the keyboard does. Two copies of "what Ctrl+Z means" is two
+   * things to keep in step.
+   */
+  const runShortcutAction = (action: ShortcutAction): boolean => {
+    {
       switch (action) {
         case "undo": {
           if (replayActive) {
@@ -1575,6 +1603,7 @@ export default function TvWorkspace() {
         case "indicators": setIndicatorBrowserOpen(true); return true;
         case "chart-settings": setChartSettingsOpen(true); return true;
         case "shortcuts-sheet": setShortcutsOpen(true); return true;
+        case "command-palette": setPaletteOpen(true); return true;
         case "fullscreen":
           if (!fullscreen.supported) return false;
           fullscreen.toggle();
@@ -1591,7 +1620,12 @@ export default function TvWorkspace() {
         default:
           return false;
       }
-    },
+    }
+  };
+  shortcutActionRef.current = runShortcutAction;
+
+  const shortcuts = useShortcuts({
+    onAction: runShortcutAction,
     onInterval: (next) => changePaneInterval(workspace.activePaneId, next),
   }, { replayActive, enabled: !replayPickerOpen });
 
@@ -1771,6 +1805,7 @@ export default function TvWorkspace() {
           fullscreenSupported={fullscreen.supported}
           onToggleFullscreen={fullscreen.toggle}
           onOpenChartSettings={() => setChartSettingsOpen(true)}
+          onOpenCommandPalette={() => setPaletteOpen(true)}
           overlayMenuOpen={overlays.menuOpen}
           onOverlayMenuOpen={overlays.setMenuOpen}
           overlayPrefs={overlays.prefs}
@@ -2044,6 +2079,11 @@ export default function TvWorkspace() {
         picker on exactly this menu; the calendar is the same one Replay uses
         to choose its starting bar.
       */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        handlers={paletteHandlers}
+      />
       <GoToDateModal
         open={goToOpen}
         onClose={() => setGoToOpen(false)}

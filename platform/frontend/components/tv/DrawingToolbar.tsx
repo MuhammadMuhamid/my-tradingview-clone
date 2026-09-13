@@ -125,7 +125,7 @@ interface ToolDef { tool: DrawingTool; icon: string; label: string }
  * gained a height cap and scrolling, so a long group stays reachable however
  * short the window is.
  */
-const GROUPS: { id: string; tools: ToolDef[] }[] = [
+export const GROUPS: { id: string; tools: ToolDef[] }[] = [
   {
     id: "cursors",
     tools: [

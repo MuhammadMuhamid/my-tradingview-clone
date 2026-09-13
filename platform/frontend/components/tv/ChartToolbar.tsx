@@ -186,6 +186,7 @@ export interface ChartToolbarProps {
   fullscreenSupported: boolean;
   onToggleFullscreen: () => void;
   onOpenChartSettings: () => void;
+  onOpenCommandPalette: () => void;
 
   overlayMenuOpen: boolean;
   onOverlayMenuOpen: (open: boolean) => void;
@@ -316,6 +317,18 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
           </svg>
         </button>
       )}
+      {/*
+        TVP8: the command palette, where the reference puts it — the magnifier
+        immediately before the chart-settings gear.
+      */}
+      <button {...ctl("commandPalette")} onClick={props.onOpenCommandPalette}
+        title="Search tool or function"
+        aria-label="Search tool or function" className={TOOL_ICON_BUTTON}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+        </svg>
+      </button>
       <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
         title="Chart settings — symbol, status, scales, canvas, trading and events"
         aria-label="Chart settings" className={TOOL_ICON_BUTTON}>

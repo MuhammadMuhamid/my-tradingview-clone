@@ -37,7 +37,8 @@ export type ToolbarGroup = "context" | "workspace" | "secondary";
 
 export type ToolbarControlId =
   | "symbol" | "compare" | "timeframe" | "chartType" | "indicators" | "replay"
-  | "alert" | "trade" | "layout" | "sync" | "fullscreen" | "chartSettings" | "more"
+  | "alert" | "trade" | "layout" | "sync" | "fullscreen"
+  | "commandPalette" | "chartSettings" | "more"
   | "history" | "overlays" | "automate" | "strategy" | "best" | "savedLayouts";
 
 export interface ToolbarControl {
@@ -62,6 +63,8 @@ export const TOOLBAR_CONTROLS: readonly ToolbarControl[] = [
   { id: "layout", label: "Chart layout", group: "workspace" },
   { id: "sync", label: "Sync", group: "workspace" },
   { id: "fullscreen", label: "Fullscreen", group: "workspace" },
+  // TVP8: the reference puts its magnifier immediately before the gear.
+  { id: "commandPalette", label: "Search tool or function", group: "workspace" },
   { id: "chartSettings", label: "Chart settings", group: "workspace" },
   { id: "more", label: "More controls", group: "workspace" },
   { id: "savedLayouts", label: "Saved layouts", group: "workspace" },

@@ -32,6 +32,7 @@ export type ShortcutAction =
   | "tool:cursor" | "tool:trend" | "tool:horizontal" | "tool:vertical" | "tool:fib"
   | "tool:text" | "magnet" | "stay-in-drawing-mode" | "lock-drawings" | "hide-drawings"
   | "symbol-search" | "indicators" | "chart-settings" | "shortcuts-sheet"
+  | "command-palette"
   | "fullscreen" | "replay-step-back" | "replay-step-forward" | "replay-play-pause"
   | "reset-view" | "toggle-log" | "toggle-auto";
 
@@ -166,6 +167,7 @@ export const BINDINGS: readonly Binding[] = [
   { action: "indicators", key: "i", label: "Indicators", group: "Navigation" },
   { action: "chart-settings", key: ",", mod: true, label: "Chart settings", group: "Navigation" },
   { action: "shortcuts-sheet", key: "?", label: "Keyboard shortcuts", group: "Navigation" },
+  { action: "command-palette", key: "k", mod: true, label: "Search tool or function", group: "Navigation" },
   { action: "fullscreen", key: "F", shift: true, label: "Fullscreen", group: "Chart" },
   { action: "reset-view", key: "r", mod: true, shift: true, label: "Reset the view", group: "Chart" },
   { action: "toggle-log", key: "l", mod: true, shift: true, label: "Logarithmic scale", group: "Chart" },
