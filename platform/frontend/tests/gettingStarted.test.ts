@@ -47,10 +47,26 @@ const prose = page.replace(/\s+/g, " ");
 // ── The page exists, and is what it claims to be ────────────────────────────
 
 test("the route exists, has an h1, and is a static server component", () => {
-  // One name everywhere: the navigation, the System menu and the <title> say
-  // "Manual", and so must the heading a reader lands on.
-  assert.match(page, /<h1[^>]*>\s*Manual\s*<\/h1>/,
+  /*
+   * One name everywhere: the navigation, the System menu and the <title> say
+   * "Manual", and so must the heading a reader lands on.
+   *
+   * TVP8 round two: this matched a literal `<h1>Manual</h1>`, which is how the
+   * page used to spell it — one of six that hand-rolled `PageHeader`'s markup.
+   * The requirement is that the page's TITLE reaches an `h1`, so that is what
+   * is asserted: the page names itself through the shared header, and the
+   * shared header is the thing that emits the element.
+   */
+  assert.match(page, /<PageHeader\s+title="Manual"/,
     "every route in this product has an h1; this one is the page title, and its name is Manual");
+  // Comments stripped: the prop docs between the signature and the element are
+  // the component's own explanation, and a rule that a docstring can break is
+  // a rule that will break.
+  const ui = read("components/ui.tsx")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.match(ui,
+    /export function PageHeader[\s\S]{0,600}?<h1 className="text-lg font-semibold text-ink">\{title\}<\/h1>/,
+    "…and PageHeader is what turns that title into the heading");
   assert.match(page, /title: "Manual · Trading Scene"/, "the document title must carry the same name");
 
   // A manual that fetches, polls or holds state can fail, and then the one page

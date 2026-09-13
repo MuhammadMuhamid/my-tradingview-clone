@@ -6,7 +6,7 @@ import { api as scannerApi } from "@/lib/scanner/api";
 import {
   buildOperationsOverview, formatDuration, type HealthTone, type ScannerEvidence,
 } from "@/lib/operationsHealth";
-import { Button, Card, CardHeader, Empty, ErrorNotice, Field, Loading, TextInput, PageShell } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, ErrorNotice, Field, Loading, TextInput, PageShell, PageHeader } from "@/components/ui";
 
 /**
  * The operator console.
@@ -195,10 +195,7 @@ export default function OperationsPage() {
     return (
       <PageShell>
         <div>
-          <h1 className="text-lg font-semibold text-ink">Operations</h1>
-          <p className="text-xs text-ink-faint">
-            Platform emission, execution-bot truth, feed freshness and signal delivery.
-          </p>
+          <PageHeader title="Operations" description="Platform emission, execution-bot truth, feed freshness and signal delivery." />
         </div>
         <Card>
           {/*
@@ -237,16 +234,11 @@ export default function OperationsPage() {
 
   return (
     <PageShell>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-ink">Operations</h1>
-          <p className="text-xs text-ink-faint">
-            Platform state and bot-authoritative execution state. Refreshed every 10 seconds;
-            last read {when(status.time)}.
-          </p>
-        </div>
-        <HealthBadge tone={overview.tone}>{overview.status}</HealthBadge>
-      </div>
+      <PageHeader
+        title="Operations"
+        description={`Platform state and bot-authoritative execution state. Refreshed every 10 seconds; last read ${when(status.time)}.`}
+        actions={<HealthBadge tone={overview.tone}>{overview.status}</HealthBadge>}
+      />
 
       {/* accent-is-meaning: an operator notice is the page speaking, which is
           categorically ours; nothing on this page is selected. */}

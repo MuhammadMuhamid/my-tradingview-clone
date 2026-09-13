@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
-import { Button, Card, CardHeader, Empty, ErrorNotice, Loading, PageShell, Select, TextInput } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, ErrorNotice, Loading, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { AlertEditor } from "@/components/tv/AlertEditor";
@@ -176,11 +176,10 @@ export default function AlertsPage() {
     <PageShell width="narrow">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-ink">Alerts</h1>
-          <p className="mt-0.5 max-w-3xl text-sm text-ink-muted">
-            Price levels and moving averages, evaluated server-side and pushed to your devices —
-            the chart does not need to be open.
-          </p>
+          <PageHeader
+            title="Alerts"
+            description="Price levels and moving averages, evaluated server-side and pushed to your devices — the chart does not need to be open."
+          />
           {/*
             These alerts NOTIFY. They cannot reach a deployment, a broker or an
             order, and that separation is asserted over the alert runner's whole

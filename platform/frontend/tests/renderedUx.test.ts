@@ -332,3 +332,51 @@ test("controls that speak, and failures that are announced", () => {
     "a raw backend error must never be the page's own copy");
   assert.match(read("app/screener/page.tsx"), /<div role="status" aria-live="polite">/);
 });
+
+test("EVERY PAGE NAMES ITSELF THROUGH THE SHARED HEADER", () => {
+  /*
+   * ── TVP8 round two ─────────────────────────────────────────────────────
+   *
+   * `PageHeader` had ONE caller. Six pages hand-rolled it, and not
+   * consistently: Journal, Alerts, Trading and Shariah wrote
+   *
+   *   <h1 class="text-lg font-semibold text-ink">…</h1>
+   *   <p class="mt-0.5 max-w-3xl text-sm text-ink-muted">…</p>
+   *
+   * which is the component's markup letter for letter, while Operations and
+   * Optimizers wrote the same heading over `text-xs text-ink-faint` — a
+   * description two sizes smaller and a shade fainter — and the manual wrote a
+   * third variant at `leading-6`. The same sentence in the same slot on six
+   * pages, at three type treatments, because there was no one place to change
+   * it.
+   *
+   * Three headings are deliberately NOT this: `error`, `not-found` and `login`
+   * are centred cards rather than page shells, and the Screener's is a
+   * toolbar-level heading that sits inline with a badge and a market picker.
+   * They are named here rather than pattern-matched, because an exemption
+   * nobody wrote down is just a gap.
+   */
+  const CENTRED_CARDS = ["app/error.tsx", "app/not-found.tsx", "app/login/page.tsx"];
+  const TOOLBAR_HEADING = ["app/screener/page.tsx"];
+  const exempt = new Set([...CENTRED_CARDS, ...TOOLBAR_HEADING, "app/global-error.tsx"]);
+
+  const offenders: string[] = [];
+  for (const file of sourceFiles("app")) {
+    if (exempt.has(file)) continue;
+    const src = read(file);
+    for (const m of src.matchAll(/<h1[^>]*>/g)) {
+      // A screen-reader-only h1 is a landmark, not a page title.
+      if (/sr-only/.test(m[0])) continue;
+      offenders.push(`${file}: ${m[0].slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "these draw their own page title instead of rendering PageHeader:\n  "
+    + offenders.join("\n  "));
+
+  // The tripwire: PageHeader must actually be in use, or the rule above is
+  // satisfied by a product with no page titles at all.
+  const callers = sourceFiles("app").filter((f) => /<PageHeader[\s/>]/.test(read(f)));
+  assert.ok(callers.length >= 6,
+    `only ${callers.length} pages render PageHeader — it had one caller before this rule`);
+});

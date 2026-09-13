@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type OptimizerLeaderboard, type OptimizerTree } from "@/lib/api";
-import { Card, CardHeader, Empty, ErrorNotice, Loading, Select, PageShell } from "@/components/ui";
+import { Card, CardHeader, Empty, ErrorNotice, Loading, Select, PageShell, PageHeader } from "@/components/ui";
 
 type Metric = "score" | "net" | "dd" | "wr" | "pf" | "trades"
   | "oos" | "oosdd" | "ooswr" | "oostrades" | "held" | "sl" | "oossl";
@@ -207,10 +207,7 @@ export default function OptimizersPage() {
     return (
       <PageShell>
         <div>
-          <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
-          <p className="text-xs text-ink-faint">
-            Read-only leaderboards from optimizer trees registered on this server.
-          </p>
+          <PageHeader title="Optimizer results" description="Read-only leaderboards from optimizer trees registered on this server." />
         </div>
         <Card>
           <Empty>
@@ -224,12 +221,10 @@ export default function OptimizersPage() {
 
   return (
     <PageShell>
-      <div>
-        <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
-        <p className="text-xs text-ink-faint">
-          In-sample leaderboards beside the out-of-sample window each row was never fitted on.
-        </p>
-      </div>
+      <PageHeader
+        title="Optimizer results"
+        description="In-sample leaderboards beside the out-of-sample window each row was never fitted on."
+      />
 
       <Methodology />
       <div className="grid gap-3 md:grid-cols-2">

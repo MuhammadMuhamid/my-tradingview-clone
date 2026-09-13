@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useAsk } from "@/components/AskDialog";
-import { Button, Card, CardHeader, Empty, PageShell, StatusBadge } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, PageShell, StatusBadge, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { DeploymentForm } from "@/components/DeploymentForm";
 import { AlertFeed } from "@/components/AlertFeed";
@@ -132,18 +132,17 @@ export default function DeploymentsPage() {
 
   return (
     <PageShell>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold text-ink">Automations</h1>
-          <p className="mt-0.5 max-w-3xl text-sm text-ink-muted">
-            {activeCount} running · a strategy watching one symbol and timeframe, acting on each confirmed bar close.
-            Paper simulates fills; Live sends real Spot orders to the execution bot. Notification alerts are separate, under Alerts.
-          </p>
-        </div>
-        <Button variant={showForm ? "ghost" : "primary"} className="shrink-0 whitespace-nowrap" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? "Cancel" : "+ New automation"}
-        </Button>
-      </div>
+      {/* `actions` is why `PageHeader` takes one: a page title with a
+          primary action beside it was the shape four pages hand-rolled. */}
+      <PageHeader
+        title="Automations"
+        description={`${activeCount} running · a strategy watching one symbol and timeframe, acting on each confirmed bar close. Paper simulates fills; Live sends real Spot orders to the execution bot. Notification alerts are separate, under Alerts.`}
+        actions={
+          <Button variant={showForm ? "ghost" : "primary"} className="shrink-0 whitespace-nowrap" onClick={() => setShowForm((s) => !s)}>
+            {showForm ? "Cancel" : "+ New automation"}
+          </Button>
+        }
+      />
 
       <StaleNotice state={freshness} />
       {actionError && (

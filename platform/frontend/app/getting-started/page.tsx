@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { PageShell } from "@/components/ui";
+import { PageHeader, PageShell } from "@/components/ui";
 
 /**
  * The in-product manual.
@@ -243,13 +243,10 @@ export default function GettingStarted() {
   return (
     <PageShell width="narrow">
       <header className="max-w-3xl">
-        <h1 className="text-lg font-semibold text-ink">Manual</h1>
-        <p className="mt-1 text-sm leading-6 text-ink-muted">
-          The Trading Scene manual, and where to start. What this application is, how
-          its parts relate to one another, and how to operate each of its workflows. It describes the
-          software only: there is no trading advice here, no strategy instruction, and
-          no recommendation about what to buy or sell.
-        </p>
+        <PageHeader
+          title="Manual"
+          description="The Trading Scene manual, and where to start. What this application is, how its parts relate to one another, and how to operate each of its workflows. It describes the software only: there is no trading advice here, no strategy instruction, and no recommendation about what to buy or sell."
+        />
         <p className="mt-2 text-sm leading-6 text-ink-muted">
           Nothing on this page changes anything. Every control it names lives on the
           page it names.

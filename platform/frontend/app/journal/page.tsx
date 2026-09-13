@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Button, Card, Empty, ErrorNotice, Field, Loading, PageShell, Select, TextInput } from "@/components/ui";
+import { Button, Card, Empty, ErrorNotice, Field, Loading, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
 import {
   api, type JournalResponse, type JournalRow, type JournalSource,
   type JournalSummarySlice,
@@ -172,12 +172,10 @@ export default function JournalPage() {
   return (
     <PageShell width="narrow">
       <header>
-        <h1 className="text-lg font-semibold text-ink">Journal</h1>
-        <p className="mt-0.5 max-w-3xl text-sm leading-5 text-ink-muted">
-          What happened, newest first — manual orders, automated signals and paper fills, with the fill,
-          the position and the result where the record proves them. The sums beneath are known realized
-          performance from persisted evidence; Timeline explains what happened to one order. Unknown economics stay unknown.
-        </p>
+        <PageHeader
+          title="Journal"
+          description="What happened, newest first — manual orders, automated signals and paper fills, with the fill, the position and the result where the record proves them. The sums beneath are known realized performance from persisted evidence; Timeline explains what happened to one order. Unknown economics stay unknown."
+        />
         {/*
           The one zone statement this page needs.
 

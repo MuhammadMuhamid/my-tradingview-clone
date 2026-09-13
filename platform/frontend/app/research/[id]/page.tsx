@@ -2,7 +2,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Button, Card, CardHeader, StatusBadge, shortReason, PageShell } from "@/components/ui";
+import {
+  Button, Card, CardHeader, PageHeader, PageShell, StatusBadge, shortReason,
+} from "@/components/ui";
 import { Metrics } from "@/components/Metrics";
 import { EquityCurve } from "@/components/EquityCurve";
 import { TradeList } from "@/components/TradeList";
@@ -79,10 +81,10 @@ export default function BacktestDetail() {
    */
   const shell = (body: ReactNode): ReactNode => (
     <PageShell>
-      <div className="flex items-center gap-3">
-        <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
-        <h1 className="text-lg font-semibold">Backtest</h1>
-      </div>
+      <PageHeader
+        title="Backtest"
+        leading={<Link href="/research"><Button variant="ghost">← Backtests</Button></Link>}
+      />
       {body}
     </PageShell>
   );
@@ -97,14 +99,16 @@ export default function BacktestDetail() {
 
   return (
     <PageShell>
-      <div className="flex items-center gap-3">
-        <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
-        <h1 className="text-lg font-semibold">{bt.symbol} · {bt.timeframe}</h1>
-        <StatusBadge status={bt.status} />
-        <span className="text-sm text-ink-faint" title={UTC_DATE_NOTE}>
-          {fmtDate(bt.startTime)} → {fmtDate(bt.endTime)} <span className="text-ink-faint">UTC</span>
-        </span>
-      </div>
+      <PageHeader
+        title={`${bt.symbol} · ${bt.timeframe}`}
+        leading={<Link href="/research"><Button variant="ghost">← Backtests</Button></Link>}
+        actions={<>
+          <StatusBadge status={bt.status} />
+          <span className="text-sm text-ink-faint" title={UTC_DATE_NOTE}>
+            {fmtDate(bt.startTime)} → {fmtDate(bt.endTime)} <span className="text-ink-faint">UTC</span>
+          </span>
+        </>}
+      />
 
       {err && (
         <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">

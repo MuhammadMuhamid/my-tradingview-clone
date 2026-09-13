@@ -8,7 +8,7 @@ import {
   type ShariahImportPreview, type ShariahMode, type ShariahModeState, type ShariahSnapshotMeta,
   type ShariahSyncLevel, type ShariahUniverse,
 } from "@/lib/shariah";
-import { Button, Card, CardHeader, Empty, Field, Notice, PageShell, Select, TextInput } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, Field, Notice, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
 
 /**
  * The private Shariah review console.
@@ -300,11 +300,10 @@ export default function ShariahPage() {
     <PageShell>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-ink">Shariah</h1>
-          <p className="mt-0.5 text-sm text-ink-muted">
-            Policy {universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published
-            deliberately by you. Nothing here is decided automatically.
-          </p>
+          <PageHeader
+            title="Shariah"
+            description={`Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published deliberately by you. Nothing here is decided automatically.`}
+          />
           <div role="tablist" aria-label="Shariah views" className="mt-2 flex gap-1">
             {([["status", "Status"], ["screening", "Screening & publication"]] as const).map(([id, label]) => (
               <button
