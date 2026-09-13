@@ -218,7 +218,13 @@ export const srZonesStudy: NativeStudyDef = {
         { value: "wick", label: "Any wick through it" },
       ],
     },
-    { kind: "number", key: "maxZones", title: "Zones per side", defval: 3, min: 1, max: 10, integer: true },
+    /*
+     * TVP8: this accepted 1–10 and there are three plot slots per side, so
+     * asking for ten drew three and said nothing. The bound is the number of
+     * plots that exist, and the value is now READ — asking for one drew three
+     * as well.
+     */
+    { kind: "number", key: "maxZones", title: "Zones per side", defval: 3, min: 1, max: 3, integer: true },
   ],
   plots: [
     { id: "r1", title: "Resistance 1", style: "stepline", color: DOWN },
@@ -243,6 +249,7 @@ export const srZonesStudy: NativeStudyDef = {
         ? ("wick" as const) : ("close" as const),
       maxZones: num(params, "maxZones", 3),
     };
+    const maxZones = options.maxZones;
     const zones = buildZones({ high, low, close }, options);
     const ids = { resistance: ["r1", "r2", "r3"], support: ["s1", "s2", "s3"] };
     const plots: Record<string, number[]> = {};
@@ -265,8 +272,8 @@ export const srZonesStudy: NativeStudyDef = {
         .sort((a, b) => a.price - b.price);
       const below = live.filter((z) => z.kind === "support" && z.price <= close[i]!)
         .sort((a, b) => b.price - a.price);
-      above.slice(0, 3).forEach((z, k) => { plots[ids.resistance[k]!]![i] = z.price; });
-      below.slice(0, 3).forEach((z, k) => { plots[ids.support[k]!]![i] = z.price; });
+      above.slice(0, maxZones).forEach((z, k) => { plots[ids.resistance[k]!]![i] = z.price; });
+      below.slice(0, maxZones).forEach((z, k) => { plots[ids.support[k]!]![i] = z.price; });
     }
     return { plots };
   },

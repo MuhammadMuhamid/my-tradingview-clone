@@ -11,6 +11,7 @@ import {
   type Anchor, type Drawing, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
+import { cloneDrawing } from "@/lib/drawingHistory";
 import { useAsk } from "@/components/AskDialog";
 
 /** What the text dialog calls itself, per tool. */
@@ -966,6 +967,55 @@ export function DrawingCanvas({
           </button>
           )}
           <span className="mx-0.5 h-4 w-px bg-border" />
+          {/*
+            TVP8: Settings and Clone.
+            
+            The reference's floating toolbar over a selected drawing carries
+            colour, width, style, SETTINGS, CLONE, lock, delete and a "more"
+            menu. This one had the style half and the lock/delete half, and the
+            settings dialog was reachable only by right-clicking — so the
+            Coordinates tab, the text tab and every per-tool option were behind
+            a gesture nobody had been told about. Clone had no route at all
+            outside ⌘D.
+          */}
+          <button
+            onClick={() => {
+              const handler = onContextMenuRef.current;
+              if (!handler || !styleBarRef.current) return;
+              // Opened at the toolbar, as the reference opens it from the row
+              // the pointer is already on.
+              const box = styleBarRef.current.getBoundingClientRect();
+              handler({
+                x: Math.round(box.left), y: Math.round(box.bottom + 4),
+                drawingId: sel.id, price: null, region: "plot",
+              });
+            }}
+            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
+            title="Settings"
+            aria-label="Settings for this drawing"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.9" aria-hidden="true">
+              <path d="M12 4v2M12 18v2M4 12h2M18 12h2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3L16.3 7.7M7.7 16.3L6.3 17.7" />
+              <circle cx="12" cy="12" r="3.2" />
+            </svg>
+          </button>
+          <button
+            onClick={() => {
+              const copy = cloneDrawing(sel, newId, resolutionMs(interval) / 1000);
+              onChange([...drawings, copy]);
+              setSelected(copy.id);
+            }}
+            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
+            title="Clone (⌘D)"
+            aria-label="Clone this drawing"
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+              strokeWidth="1.2" aria-hidden="true">
+              <rect x="1.5" y="1.5" width="6.5" height="6.5" rx="1" />
+              <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
+            </svg>
+          </button>
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
             className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"

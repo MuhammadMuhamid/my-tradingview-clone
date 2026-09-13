@@ -143,10 +143,16 @@ export const aroonStudy: NativeStudyDef = {
   category: "trend",
   overlay: false,
   description: "How recently the window's high and low occurred, as a percentage.",
-  inputs: [
-    lengthInput(14),
-    { kind: "boolean", key: "showOscillator", title: "Show oscillator", defval: false },
-  ],
+  /*
+   * TVP8: `showOscillator` was an input nothing read.
+   *
+   * The oscillator plot below is `hiddenByDefault`, and the Style tab already
+   * offers per-plot visibility on every study — so this was a second control
+   * for the same thing, and the one that did not work. Two places to say
+   * whether a plot is drawn is how they come to disagree; the one that already
+   * works is the one that stays.
+   */
+  inputs: [lengthInput(14)],
   plots: [
     { id: "up", title: "Aroon Up", style: "line", color: UP, width: 2 },
     { id: "down", title: "Aroon Down", style: "line", color: DOWN, width: 2 },

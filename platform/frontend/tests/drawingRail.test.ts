@@ -21,10 +21,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { TOOL_POINTS, type DrawingTool } from "../lib/drawings";
+import {
+  FILLABLE_TOOLS, TOOL_POINTS, type DrawingTool,
+} from "../lib/drawings";
 
 const RAIL = path.join(__dirname, "..", "components", "tv", "DrawingToolbar.tsx");
 const source = fs.readFileSync(RAIL, "utf8");
+const read = (rel: string): string =>
+  fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
 
 /**
  * `{ tool: "trend", icon: "trend", label: "Trend line" }`, per group.
@@ -193,4 +197,47 @@ test("RAIL — every icon-only control has a NAME, not only a tooltip", () => {
 
   // And the icon itself is decoration, so it never competes for the name.
   assert.match(src, /const Icon = [\s\S]{0,320}aria-hidden="true"/);
+});
+
+test("THE SELECTED-DRAWING TOOLBAR OFFERS SETTINGS AND CLONE", () => {
+  /*
+   * TVP8. The reference's floating toolbar over a selected drawing carries
+   * colour, width, style, Settings, Clone, lock, delete and a "more" menu.
+   * This one had the style half and the lock/delete half — so the Coordinates
+   * tab, the text tab and every per-tool option lived behind a right-click
+   * nobody had been told about, and Clone had no route at all outside ⌘D.
+   */
+  const canvas = read("components/tv/DrawingCanvas.tsx")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  assert.match(canvas, /aria-label="Settings for this drawing"/);
+  assert.match(canvas, /aria-label="Clone this drawing"/);
+
+  // Settings opens the SAME menu the right-click opens, rather than a second
+  // route into the dialog that could drift from it.
+  assert.match(canvas, /handler\(\{\s*x: Math\.round\(box\.left\), y: Math\.round\(box\.bottom \+ 4\),/);
+  assert.match(canvas, /drawingId: sel\.id, price: null, region: "plot",/);
+
+  // Clone goes through `cloneDrawing`, which is what ⌘D uses — a second copy
+  // of "offset it so it does not land exactly on the original" would be one
+  // more thing to keep in step.
+  assert.match(canvas, /cloneDrawing\(sel, newId, resolutionMs\(interval\) \/ 1000\)/);
+});
+
+test("FILL IS OFFERED ONLY WHERE THERE IS AN INTERIOR TO FILL", () => {
+  /*
+   * TVP8: the Fill button was on all 87 tools and read by five. Toggling it on
+   * a trend line or a Fibonacci retracement did nothing, silently — and a
+   * control that does nothing is worse than a missing one, because it costs
+   * the user the time to find out.
+   */
+  const canvas = read("components/tv/DrawingCanvas.tsx");
+  assert.match(canvas, /\{FILLABLE_TOOLS\.has\(sel\.tool\) && \(/);
+  assert.deepEqual([...FILLABLE_TOOLS].sort(),
+    ["circle", "ellipse", "rect", "rotatedRectangle", "sector", "triangle"]);
+
+  // Every one of them is a tool that exists.
+  for (const tool of FILLABLE_TOOLS) {
+    assert.ok(tool in TOOL_POINTS, `${tool} is not a drawing tool`);
+  }
 });
