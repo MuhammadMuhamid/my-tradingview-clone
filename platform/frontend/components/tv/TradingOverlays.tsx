@@ -48,7 +48,12 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
   const toggle = (key: keyof TradingOverlayPreferences) =>
     onChange({ ...value, [key]: !value[key] });
   return <div ref={boxRef} className="relative shrink-0">
-    <button ref={buttonRef} onClick={() => onOpen(!open)} aria-expanded={open} aria-haspopup="menu"
+    {/*
+      `dialog`, not `menu`: what opens is a preferences panel — three
+      checkboxes and a disclosure — and announcing it as a menu promises a
+      screen-reader user `menuitem` children it does not have.
+    */}
+    <button ref={buttonRef} onClick={() => onOpen(!open)} aria-expanded={open} aria-haspopup="dialog"
       className={`flex h-11 items-center gap-1.5 rounded-md px-2 text-[13px] transition-colors md:h-7 ${
         open ? "text-ink" : "text-ink-muted hover:text-ink"
       }`} title="Show or hide read-only trading evidence">
@@ -59,9 +64,30 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
       {/* accent-is-meaning: a count badge. */}
       {data && data.items.length > 0 && <span className="rounded-full bg-accent/15 px-1.5 text-[10px] font-semibold text-accent">{data.items.length}</span>}
     </button>
-    {open && <div ref={menuRef} role="menu" aria-label="Trading overlay visibility" onKeyDown={onMenuKeyDown}
+    {/*
+      ── TVP8 round two: the last hand-rolled popover, and a wrong role ────
+
+      `rounded-md border border-border bg-surface … shadow-xl` where every
+      other popover says `.tvc-menu`. On the dark theme that is `#0f0f0f`
+      against a `#1f1f1f` grammar — a popover darker than the bar it opens
+      from, which is the opposite of the contract — under Tailwind's heaviest
+      shadow instead of the measured `0 2px 4px`.
+
+      The SURFACE is adopted and the padding moves inward, because this panel
+      genuinely has no menu rows: it is three checkboxes and a disclosure, and
+      `.tvc-menu`'s `6px 0` is for a list of 40px rows to sit in.
+
+      Which is also why it is a `group` and not a `menu`. ARIA's `menu` expects
+      `menuitem` / `menuitemcheckbox` children, and these are
+      `<label><input type="checkbox">`. Calling it a menu promised a screen
+      reader a structure that was never there — the styling was the visible
+      half of a claim that was wrong in both directions. Arrow-key roving
+      still works; it just no longer lies about what it is roving over.
+    */}
+    {open && <div ref={menuRef} role="group" aria-label="Trading overlay visibility" onKeyDown={onMenuKeyDown}
       style={edgeClamp}
-      className="absolute right-0 top-full z-50 mt-1 w-[min(19rem,calc(100vw-1rem))] rounded-md border border-border bg-surface p-3 shadow-xl">
+      className="tvc-menu absolute right-0 top-full z-50 mt-1 w-[min(19rem,calc(100vw-1rem))]">
+      <div className="p-3">
       <div className="flex items-start justify-between gap-3">
         <div><p className="text-xs font-semibold text-ink">Read-only trading overlays</p>
           <p className="mt-0.5 text-[11px] leading-4 text-ink-faint">Display preferences only. No chart execution.</p></div>
@@ -87,6 +113,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
       {data?.truncated && <p className="mt-2 rounded border border-warn/30 bg-warn/10 px-2 py-1.5 text-[11px] text-warn">
         This range reached the server rendering bound; shown evidence is explicitly truncated.
       </p>}
+      </div>
     </div>}
   </div>;
 }

@@ -726,16 +726,28 @@ test("CONTRACT — a menu that adopts the popover also adopts the ROW", () => {
    *
    * The rule: a file that renders `.tvc-menu` must render `.tvc-menu-row` too.
    *
-   * One principled exception, and it declares itself rather than appearing on
-   * a list here: the drawing style bar is a `role="toolbar"` that borrows the
-   * popover SURFACE — ground, radius, shadow — and has no rows at all, being a
-   * horizontal strip of controls. A toolbar is exempt; a menu is not.
+   * The exception declares itself rather than appearing on a list here, and
+   * TVP8 round two generalised it to what it was always about. It used to name
+   * `role="toolbar"` — the drawing style bar, which borrows the popover
+   * SURFACE and has no rows, being a horizontal strip of controls. The rule
+   * underneath that is simply: a thing with MENU SEMANTICS owes the row
+   * grammar; a thing that merely borrows the ground does not. The trading
+   * overlay panel is the second of those — three checkboxes and a disclosure
+   * — and it is a `group`, not a `menu`, for exactly the same reason a screen
+   * reader should not be promised `menuitem` children it will not find.
+   */
+  /*
+   * PRODUCT, not WORKSTATION. TVP8 round two: this rule read only the chart's
+   * own files, and the menu that had been hand-rolling its rows for the whole
+   * campaign was the System menu in the navigation bar — outside that list,
+   * and therefore outside the rule that exists to catch exactly it.
    */
   const offenders: string[] = [];
-  for (const file of WORKSTATION) {
+  for (const file of PRODUCT) {
+    if (!file.endsWith(".tsx")) continue;
     const src = code(read(file));
     if (!/\btvc-menu\b/.test(src)) continue;
-    if (/role="toolbar"/.test(src)) continue;
+    if (!/role="menu"/.test(src)) continue;
     if (!/\btvc-menu-row\b/.test(src)) offenders.push(file);
   }
   assert.deepEqual(offenders, [],
@@ -913,4 +925,68 @@ test("ONE COLOUR VOCABULARY, INCLUDING IN THE SCREENER", () => {
   // DENSITY, which is genuinely its own.
   assert.match(css, /\.scanner-workspace table\.dense th,/);
   assert.match(css, /\.scanner-workspace \.sticky-col \{/);
+});
+
+test("CONTRACT — ANYTHING THAT CALLS ITSELF A MENU LOOKS LIKE ONE", () => {
+  /*
+   * ── TVP8 round two ─────────────────────────────────────────────────────
+   *
+   * The rule above is the converse of this one, and only one of the two
+   * existed. "A menu that adopts the popover also adopts the row" catches half
+   * the grammar; it says nothing about a menu that adopts NEITHER — and two
+   * did, one of them the System menu in the product's own navigation bar,
+   * which is outside `WORKSTATION` and so outside every rule there is.
+   *
+   * Both hand-rolled `rounded-md border border-border bg-surface … shadow-xl`,
+   * which on the dark theme is `#0f0f0f` under a popover grammar of `#1f1f1f`:
+   * a popover DARKER than the bar it opens from, which is the opposite of the
+   * contract, under Tailwind's heaviest shadow instead of the measured
+   * `0 2px 4px rgba(0,0,0,0.4)`. The Nav's rows were ~33px against a 40px
+   * contract and, without the 6px gutter, hovered edge to edge rather than as
+   * the inset chip the control-state grammar is recognisable by.
+   *
+   * `role="menu"` is the trigger because it is the author's own claim about
+   * what the thing is. A panel that is not a menu should not say it is.
+   */
+  const offenders: string[] = [];
+  for (const file of PRODUCT) {
+    if (!file.endsWith(".tsx")) continue;
+    const src = read(file);
+    for (const m of src.matchAll(/role="menu"/g)) {
+      /*
+       * The whole opening tag, parsed past braces and quotes — a className
+       * built from a template literal or sitting after a `style={…}` is still
+       * part of the element, and a lazy `[\s\S]*?>` would stop at the first
+       * `>` inside an arrow function and miss it.
+       */
+      const start = src.lastIndexOf("<", m.index ?? 0);
+      let i = (m.index ?? 0) + m[0].length, depth = 0, quote = "";
+      while (i < src.length) {
+        const c = src[i]!;
+        if (quote) { if (c === quote) quote = ""; }
+        else if (c === '"' || c === "'" || c === "`") quote = c;
+        else if (c === "{") depth++;
+        else if (c === "}") depth--;
+        else if (c === ">" && depth === 0) break;
+        i++;
+      }
+      const tag = src.slice(start, i);
+      /*
+       * `MENU_BOX`-style constants count: the class reaches the element, and a
+       * rule that insisted on the literal would have reported two perfectly
+       * correct menus in the timeframe picker.
+       */
+      const named = [...tag.matchAll(/\$\{([A-Z_][A-Z0-9_]*)\}/g)].map((c) => c[1]!);
+      const reaches = /\btvc-menu\b/.test(tag)
+        || named.some((name) => new RegExp(`const ${name} =[\\s\\S]{0,400}?tvc-menu`).test(src));
+      if (!reaches) offenders.push(`${file}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "these declare role=\"menu\" and then paint their own popover:\n  " + offenders.join("\n  "));
+
+  // Tripwire: the parse must still be finding menus at all.
+  const menus = PRODUCT.filter((f) => f.endsWith(".tsx") && /role="menu"/.test(read(f)));
+  assert.ok(menus.length >= 6,
+    `found role="menu" in only ${menus.length} files — this rule has stopped reading`);
 });

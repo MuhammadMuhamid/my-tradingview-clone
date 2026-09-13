@@ -295,8 +295,28 @@ function SystemMenu({ path }: { path: string }) {
         </svg>
       </button>
       {open && (
+        /*
+          ── TVP8 round two: the one popover that was not one ────────────────
+
+          This hand-rolled `rounded-md border border-border bg-surface py-1
+          shadow-xl` where every other popover in the product says `.tvc-menu`.
+          Three visible consequences, all of them in the opposite direction
+          from the contract:
+
+            `bg-surface` is `#0f0f0f` on the dark theme and `--ts-popover` is
+            `#1f1f1f`. The grammar is that a popover sits one step LIGHTER than
+            the bar it opens from; this sat darker.
+
+            `shadow-xl` is Tailwind's heaviest, against the measured
+            `0 2px 4px rgba(0,0,0,0.4)`.
+
+            `py-2` on a 13px row is about 33px, where the contract's dropdown
+            row is 40px — and without the 6px gutter the hover painted edge to
+            edge instead of as an inset chip, which is the one thing the
+            control-state grammar is most recognisable by.
+        */
         <div role="menu" aria-label="System"
-          className="absolute right-0 top-[34px] z-50 w-72 rounded-md border border-border bg-surface py-1 shadow-xl">
+          className="tvc-menu absolute right-0 top-[34px] z-50 w-72">
           <div className="px-3 pb-2 pt-2">
             <div className="flex items-center gap-2 text-[13px] text-ink">
               <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${HEALTH_DOT[health.tone]}`} />
@@ -318,7 +338,7 @@ function SystemMenu({ path }: { path: string }) {
                 role="menuitem"
                 aria-current={current ? "page" : undefined}
                 onClick={() => setOpen(false)}
-                className={`flex items-baseline justify-between gap-3 px-3 py-2 text-[13px] hover:bg-state-hover ${
+                className={`tvc-menu-row justify-between gap-3 px-3 text-[13px] ${
                   current ? "text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >
