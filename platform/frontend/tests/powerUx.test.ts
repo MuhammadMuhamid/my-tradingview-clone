@@ -28,8 +28,7 @@ import {
   resolveShortcut, resolveTypedInterval,
 } from "../lib/shortcuts";
 import {
-  chartMenu, drawingMenu, priceAxisMenu, studyMenu, watchlistMenu,
-  CHART_MENU_IDS, DRAWING_MENU_IDS, STUDY_MENU_IDS, AXIS_MENU_IDS, WATCHLIST_MENU_IDS,
+  AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, studyMenu, watchlistMenu,
 } from "../lib/menuPayloads";
 import {
   cloneDrawing, DrawingHistory, historyScope, MAX_HISTORY, MAX_SCOPES, sameDrawings,
@@ -706,9 +705,17 @@ test("every toolbar popover goes through the registry rather than its own state"
  */
 const CHART_PAGE = read("app/chart/page.tsx");
 
+/*
+ * TVP8 round two: the time axis was left out.
+ *
+ * `TIME_AXIS_MENU_IDS` was added with the time-scale menu and never joined
+ * this list, so the "every id reaches a handler" rule — the whole point of
+ * which is that a menu cannot grow an item that does nothing — did not cover
+ * the newest menu in the product.
+ */
 const ALL_MENU_IDS = [
   ...CHART_MENU_IDS, ...DRAWING_MENU_IDS, ...STUDY_MENU_IDS,
-  ...AXIS_MENU_IDS, ...WATCHLIST_MENU_IDS,
+  ...AXIS_MENU_IDS, ...TIME_AXIS_MENU_IDS, ...WATCHLIST_MENU_IDS,
 ];
 
 test("every id a menu can emit is answered by a handler", () => {
@@ -735,7 +742,7 @@ test("two menus cannot collide on an id", () => {
     "two menus share an id, so one handler will answer for both");
   for (const [prefix, ids] of [
     ["chart", CHART_MENU_IDS], ["drawing", DRAWING_MENU_IDS], ["study", STUDY_MENU_IDS],
-    ["axis", AXIS_MENU_IDS], ["watchlist", WATCHLIST_MENU_IDS],
+    ["axis", AXIS_MENU_IDS], ["time", TIME_AXIS_MENU_IDS], ["watchlist", WATCHLIST_MENU_IDS],
   ] as const) {
     for (const id of ids) {
       assert.ok(id.startsWith(`${prefix}:`), `${id} does not name its own menu`);

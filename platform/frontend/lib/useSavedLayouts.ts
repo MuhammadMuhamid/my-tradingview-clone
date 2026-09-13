@@ -19,6 +19,7 @@
  * mid-work — so its failure is reported quietly in the layout menu instead.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import * as layoutStore from "./layouts";
 import type { Layout, WorkspaceState } from "./layouts";
 
@@ -75,6 +76,7 @@ export interface SavedLayoutsApi {
 }
 
 export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
+  const ask = useAsk();
   const { workspaceState, applyLayout, onRestored, skipRestore, defaultName,
     onToast, onError } = input;
   const [layouts, setLayouts] = useState<Layout[]>([]);
@@ -152,7 +154,18 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
         setAutosaveError(null);
         onToast("Layout saved");
       } else {
-        const name = window.prompt("Layout name:", defaultName);
+        /*
+         * TVP8 round two: the product's own dialog.
+         *
+         * All five of this hook's prompts and its delete confirm were native
+         * browser sheets — the whole Layouts workflow. They survived the
+         * campaign's sweep because the rule that forbids them scoped itself to
+         * `app` and `components`, and this is `lib`.
+         */
+        const name = await ask.promptFor({
+          title: "Save this layout", label: "Name", defaultValue: defaultName,
+          confirmLabel: "Save",
+        });
         if (name !== null) {
           const l = await layoutStore.createLayout(name, workspaceState);
           setCurrentLayoutId(l.id);
@@ -165,7 +178,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       // saved, which is the one thing a save confirmation must never do.
       onError(`Layout not saved: ${(e as Error).message}`);
     }
-  }, [currentLayoutId, workspaceState, defaultName, refreshLayouts, onToast, onError]);
+  }, [currentLayoutId, workspaceState, defaultName, refreshLayouts, onToast, onError, ask]);
 
   const layoutHandlers = useMemo(() => ({
     onSelect: (id: string) => {
@@ -183,31 +196,47 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       setAutosaveState(next);
     },
     onCreate: () => {
-      const name = window.prompt("New layout name:", defaultName);
+      void ask.promptFor({
+        title: "New layout", label: "Name", defaultValue: defaultName, confirmLabel: "Create",
+      }).then((name) => {
       if (name === null) return;
       void layoutStore.createLayout(name, workspaceState).then(async (l) => {
         setCurrentLayoutId(l.id);
         await refreshLayouts();
       }).catch((e) => onError((e as Error).message));
+      });
     },
     onCopy: () => {
-      const name = window.prompt("Copy name:", `${currentLayout?.name ?? "Layout"} copy`);
+      void ask.promptFor({
+        title: "Copy this layout", label: "Name",
+        defaultValue: `${currentLayout?.name ?? "Layout"} copy`, confirmLabel: "Copy",
+      }).then((name) => {
       if (name === null) return;
       void layoutStore.createLayout(name, workspaceState).then(async (l) => {
         setCurrentLayoutId(l.id);
         await refreshLayouts();
       }).catch((e) => onError((e as Error).message));
+      });
     },
     onRename: () => {
       if (!currentLayoutId) return;
-      const name = window.prompt("Rename layout:", currentLayout?.name ?? "");
+      void ask.promptFor({
+        title: "Rename this layout", label: "Name",
+        defaultValue: currentLayout?.name ?? "", confirmLabel: "Rename",
+      }).then((name) => {
       if (name === null) return;
       void layoutStore.renameLayout(currentLayoutId, name)
         .then(refreshLayouts)
         .catch((e: Error) => onError(`Layout not renamed: ${e.message}`));
+      });
     },
     onDelete: (id: string) => {
-      if (!window.confirm("Delete this layout?")) return;
+      void ask.confirm({
+        title: "Delete this layout?",
+        body: "The charts it holds are not affected; only the saved arrangement goes.",
+        confirmLabel: "Delete", tone: "danger",
+      }).then((ok) => {
+      if (!ok) return;
       void layoutStore.deleteLayout(id).then(async () => {
         if (id === currentLayoutId) setCurrentLayoutId(null);
         await refreshLayouts();
@@ -215,9 +244,10 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
         onError(`Layout not deleted: ${e.message}`);
         await refreshLayouts();
       });
+      });
     },
   }), [layouts, applyLayout, onRestored, saveNow, autosave, defaultName,
-    workspaceState, currentLayout, currentLayoutId, refreshLayouts, onError]);
+    workspaceState, currentLayout, currentLayoutId, refreshLayouts, onError, ask]);
   // ⌘S / Ctrl+S saves the current layout, like TV.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -26,7 +26,13 @@ export function StaleNotice({ state }: { state: Freshness }) {
   return (
     // `status` rather than `alert`: it is important, but it should not
     // interrupt a screen-reader user mid-sentence every time a poll fails.
-    <div role="status" className={`rounded-md border px-3 py-2 text-xs ${tone}`}>
+    // TVP8: `title` carries the provider's own words. The cause is not
+    // discarded — it moved off the headline, which is where it was doing harm.
+    <div
+      role="status"
+      title={notice.detail ?? undefined}
+      className={`rounded-md border px-3 py-2 text-xs ${tone}`}
+    >
       {notice.message}
     </div>
   );

@@ -281,7 +281,25 @@ export function IndicatorsPanel({
           </span>
           {(indicators.list.length > 0 || (nativeStudies?.list.length ?? 0) > 0) && (
             <button
-              onClick={() => { indicators.clear(); nativeStudies?.clear(); }}
+              onClick={() => {
+                /*
+                 * TVP8 round two: this cleared every study on the chart with
+                 * no confirmation and no undo, while the parallel "Remove all
+                 * drawings" on the rail asks first AND is undoable. Studies
+                 * carry tuning the user typed in; they are the more expensive
+                 * of the two to lose.
+                 */
+                const count = indicators.list.length + (nativeStudies?.list.length ?? 0);
+                void ask.confirm({
+                  title: `Remove all ${count} stud${count === 1 ? "y" : "ies"}?`,
+                  body: "Their settings go with them. Drawings and the chart type are untouched.",
+                  confirmLabel: "Remove all", tone: "danger",
+                }).then((ok) => {
+                  if (!ok) return;
+                  indicators.clear();
+                  nativeStudies?.clear();
+                });
+              }}
               className={`${btn} ml-auto`}
             >
               Remove all

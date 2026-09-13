@@ -40,6 +40,7 @@ import {
 } from "../lib/native/storage";
 import { PRICE_PANE_ID } from "../lib/chartSeries";
 import type { Candle, Interval } from "../lib/types";
+import { logReturns, stdev } from "../lib/ta/core";
 
 // ── a reproducible series ───────────────────────────────────────────────────
 
@@ -649,5 +650,151 @@ test("an id this build does not have survives a load and a save", () => {
       "the malformed rows are gone; there is nothing to preserve them for");
   } finally {
     (globalThis as { window?: unknown }).window = original;
+  }
+});
+
+/**
+ * A study definition's own output.
+ *
+ * `runNativeStudy` wraps this into overlays and a legend; the displacement,
+ * the annualisation factor and the plot arrays are properties of the
+ * DEFINITION, which is where all three of the fixes below live and where the
+ * suite that covers `lib/ta/core` never looks.
+ */
+function computed(
+  def: NativeStudyDef, candles: Candle[], params?: NativeParams, interval: Interval = "1m" as Interval,
+): { plots: Record<string, number[]>; plotOffsets?: Record<string, number> } {
+  const out = def.compute({
+    candles,
+    params: normalizeParams(def, params ?? defaultParams(def)),
+    interval,
+  } as Parameters<NativeStudyDef["compute"]>[0]);
+  return out as { plots: Record<string, number[]>; plotOffsets?: Record<string, number> };
+}
+
+// ── TVP8: the three studies that disagreed with the study they are named after ──
+//
+// These fixes lived in the STUDY DEFINITIONS, and the suite that covers the
+// maths covers `lib/ta/core` with explicit arguments — so all three landed with
+// no test at all. The wrapper is where the defaults, the displacement and the
+// annualisation live, which is where each of these was wrong.
+
+test("ICHIMOKU'S CLOUD IS DISPLACED THE WAY EVERY OTHER ICHIMOKU IS", () => {
+  /*
+   * The reference plots both lead lines at `offset = displacement - 1` and the
+   * lagging span at `-displacement + 1`: the bar the cloud is drawn from counts
+   * as the first of the displacement. Shifting by the full 26 put the whole
+   * cloud one bar further into the future than every other Ichimoku on the
+   * market — invisible until someone lines two charts up, which is exactly what
+   * the study is for.
+   */
+  const def = studyById("ichimoku");
+  assert.ok(def, "ichimoku is in the catalogue");
+  // The definition's own output: `runNativeStudy` turns this into overlays and
+  // the displacement is a property of the PLOT, which is where the bug was.
+  const result = computed(def!, bars(300));
+  const offsets = result.plotOffsets ?? {};
+  const displacement = Number(defaultParams(def!).displacement ?? 26);
+  assert.equal(offsets.spanA, displacement - 1);
+  assert.equal(offsets.spanB, displacement - 1);
+  assert.equal(offsets.lagging, -displacement + 1);
+});
+
+test("HISTORICAL VOLATILITY ANNUALISES THE WAY THE REFERENCE DOES", () => {
+  /*
+   * The reference is `stdev(log returns, length) * sqrt(annual / per) * 100`
+   * with `annual = 365` and `per` 1 on intraday and daily bars, 7 above them.
+   * This used to divide a year by the BAR SIZE — a true annualisation, 2.45x
+   * the reference's number on 4h and about 38x on 1m. Both are defensible
+   * statistics and only one is the number a user is comparing against.
+   *
+   * Asserted as a RATIO between two intervals rather than against a constant:
+   * under the reference's rule 4h and 1d give the same factor, and under
+   * bars-per-year they differ by six times. A test against one hard-coded
+   * value would pass for either rule if the fixture happened to match.
+   */
+  const def = studyById("hv");
+  assert.ok(def, "hv is in the catalogue");
+  assert.equal(defaultParams(def!).length, 10, "the reference's default length is 10, not 20");
+
+  const series = bars(400);
+  const at = (interval: Interval): number => {
+    const plot = computed(def!, series, undefined, interval).plots.hv!;
+    return plot[plot.length - 1]!;
+  };
+  const fourHour = at("4h" as Interval);
+  const daily = at("1d" as Interval);
+  assert.ok(Number.isFinite(fourHour) && fourHour > 0, `4h HV is ${fourHour}`);
+  assert.ok(Math.abs(fourHour - daily) < 1e-9,
+    `intraday and daily share one factor under the reference's rule; got ${fourHour} vs ${daily}`);
+
+  /*
+   * And the factor is 365, not bars-per-year — checked against the maths
+   * independently rather than against a transcribed constant. Under
+   * bars-per-year a 4h bar would use sqrt(2190), which is 2.45x this.
+   *
+   * (`per = 7` above a day is in the implementation for completeness and is
+   * unreachable today: `Resolution` tops out at `1d`, and `resolutionMs`
+   * throws on anything else by design.)
+   */
+  const closes = series.map((c) => c.close);
+  const expected = stdev(logReturns(closes), 10).map((v) => v * Math.sqrt(365) * 100);
+  assert.ok(Math.abs(fourHour - expected[expected.length - 1]!) < 1e-9,
+    `HV should be stdev * sqrt(365) * 100; got ${fourHour} against ${expected[expected.length - 1]}`);
+});
+
+test("THE DPO INPUT THE REFERENCE HAS IS REAL, AND DEFAULTS THE WAY IT DOES", () => {
+  /*
+   * `dpo = isCentered ? close[barsback] - ma : close - ma[barsback]`, default
+   * OFF. What shipped computed the centered numerator and drew it unshifted,
+   * which is neither branch. The input existing is not enough — it has to
+   * change the output.
+   */
+  const def = studyById("dpo");
+  assert.ok(def, "dpo is in the catalogue");
+  assert.equal(defaultParams(def!).centered, false, "the reference defaults it off");
+  assert.ok((def!.inputs ?? []).some((i) => i.key === "centered"), "and it is an input");
+
+  const series = bars(300);
+  const plotOf = (params?: NativeParams): number[] => computed(def!, series, params).plots.dpo!;
+  const off = plotOf();
+  const on = plotOf({ ...defaultParams(def!), centered: true });
+  const last = off.length - 1;
+  assert.ok(Number.isFinite(off[last]!) && Number.isFinite(on[last]!));
+  assert.ok(Math.abs(off[last]! - on[last]!) > 1e-9,
+    "the two branches must be different series, or the input is decorative");
+});
+
+test("THE TWO INPUTS THAT DID NOTHING ARE GONE OR BOUND", () => {
+  /*
+   * Aroon carried a `showOscillator` nothing read — a second control for what
+   * the Style tab's per-plot visibility already does, and the one that did not
+   * work. S/R Zones accepted 1–10 zones per side against three plot slots and
+   * a hard-coded `slice(0, 3)`: ten drew three and said nothing, one also drew
+   * three.
+   */
+  const aroon = studyById("aroon");
+  assert.ok(aroon);
+  assert.equal((aroon!.inputs ?? []).some((i) => i.key === "showOscillator"), false,
+    "a second, broken visibility control is worse than none");
+
+  const sr = studyById("srzones");
+  assert.ok(sr, "the support/resistance study is in the catalogue");
+  const maxZones = (sr!.inputs ?? []).find((i) => i.key === "maxZones");
+  assert.ok(maxZones, "it still offers the control");
+  assert.equal((maxZones as { max?: number }).max, 3,
+    "the bound is the number of plot slots that exist");
+
+  // And the value is READ: one zone per side must not draw three.
+  const series = bars(600);
+  const plots = (params: NativeParams): Record<string, number[]> =>
+    computed(sr!, series, params, "1h" as Interval).plots;
+  const drawn = (p: Record<string, number[]>, id: string): boolean =>
+    (p[id] ?? []).some((v) => Number.isFinite(v));
+  const three = plots({ ...defaultParams(sr!), maxZones: 3 });
+  const one = plots({ ...defaultParams(sr!), maxZones: 1 });
+  if (drawn(three, "r2") || drawn(three, "s2")) {
+    assert.equal(drawn(one, "r2") || drawn(one, "s2"), false,
+      "asking for one zone per side must not draw a second");
   }
 });

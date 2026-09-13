@@ -29,7 +29,7 @@ export default function RouteError({
   }, [error]);
 
   return (
-    <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 px-4 text-center">
+    <div className="ts-app mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 px-4 text-center">
       <h1 className="text-lg font-semibold text-ink">This page stopped working</h1>
       <p className="text-sm text-ink-muted">
         Something in the page threw an error. Nothing was sent to your bot and no orders were

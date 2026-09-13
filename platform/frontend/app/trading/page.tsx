@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { Button, Card, CardHeader, Empty, PageShell, StatusBadge } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { DeploymentForm } from "@/components/DeploymentForm";
@@ -18,6 +19,7 @@ import { INTERVAL_MS } from "@/lib/types";
 
 export default function DeploymentsPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
+  const ask = useAsk();
   const [deps, setDeps] = useState<Deployment[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -117,8 +119,12 @@ export default function DeploymentsPage() {
     setActivationAcknowledged(false);
   };
 
-  const remove = (d: Deployment) => {
-    if (!confirm(`Delete deployment for ${d.symbol}? Its alert history is removed too.`)) return;
+  const remove = async (d: Deployment) => {
+    if (!await ask.confirm({
+      title: `Delete the deployment on ${d.symbol}?`,
+      body: "Its alert history is removed with it. Nothing already sent to the bot is recalled.",
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     void act(d, "delete", () => api.deleteDeployment(d.id));
   };
 

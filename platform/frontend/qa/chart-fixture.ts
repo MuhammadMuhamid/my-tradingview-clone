@@ -376,6 +376,74 @@ function extraRoutes(url: URL, method: string): unknown | undefined {
     return { mode: "OFF", policyVersion: "qa-1", botMode: "OFF", inSync: true };
   }
   if (path === "/api/shariah/snapshots") return { snapshots: [] };
+  /*
+   * Operations.
+   *
+   * The shared DOM harness answers `/api/ops/status` with
+   * `{ halted: false, feeds: [] }`, which is not the contract in `lib/api.ts`:
+   * `feeds` is `{ worst, rows }`, and the page reads `status.feeds.rows.length`.
+   * So the whole route CRASHED into its error boundary — "Cannot read
+   * properties of undefined (reading 'length')" — and one of the campaign's
+   * own review screenshots was a dead page.
+   *
+   * The product behaved correctly: the boundary caught it, said nothing was
+   * sent to the bot and offered a way out. The fixture was lying about a
+   * contract. This is the contract.
+   */
+  if (path === "/api/ops/status") {
+    const now = new Date().toISOString();
+    return {
+      // `OpsMode` is LIVE | STANDBY | HALTED | DISABLED. Nothing else.
+      mode: "DISABLED",
+      emitter: {
+        thisProcess: "qa-fixture", liveRunnerEnabled: false, holdsLease: false, lease: null,
+      },
+      risk: {
+        tradingHalted: false, haltedReason: null, haltedBy: null, haltedAt: null,
+        maxTotalExposureQuote: 1000, maxConcurrentPositions: 3, maxDailyLossQuote: 100,
+        dailyLossWindowHours: 24,
+        snapshot: { currentExposureQuote: 0, openPositions: 0, realisedPnlInWindow: null },
+        summary: "QA fixture: no exposure and no open positions.",
+        dailyLossControl: {
+          state: "DISABLED_UNFED", authority: "BOT",
+          note: "The QA fixture does not feed realised PnL.",
+        },
+      },
+      bot: { state: "NOT_CONFIGURED", configuredEndpoints: 0, reason: "no_custom_bot_deployment" },
+      database: {
+        ready: true, checks: { database: "ok", schema: "current" },
+        schema: { expected: 39, applied: 39, missing: [] }, time: now,
+      },
+      alertRunner: {
+        state: "healthy", active: 0, recent: 0, stale: 0, withoutEvidence: 0,
+        lastEvaluatedAt: now, reason: "QA fixture",
+      },
+      deployments: {
+        total: 0, active: 0, long: 0, paused: 0, paper: 0, automated: 0, signalOnly: 0,
+      },
+      delivery: {
+        state: "healthy", summary: "Nothing queued.", windowHours: 24,
+        counts: { pending: 0, sent: 0, failed: 0, skipped: 0, blocked: 0 },
+        total: 0, lastSentAt: null, lastFailureAt: null, stuckPending: 0, retried: 0,
+      },
+      exchange: { testnetConfigured: false, note: "QA fixture: no exchange is configured." },
+      feeds: {
+        worst: "live",
+        rows: ["BTCUSDT", "ETHUSDT", "SOLUSDT"].map((symbol) => ({
+          symbol, interval: "4h", state: "live",
+          lastBarTime: now, lastCheckedAt: now,
+          barsBehind: 0, missingBars: 0, detail: null,
+          integrity: {
+            state: "healthy", market: "spot", symbol, interval: "4h",
+            latestCompletedBarTime: now, latestCompletedBarAgeMs: 0,
+            lastCheckedAt: now, issueCodes: [], issueCounts: {},
+          },
+        })),
+      },
+      time: now,
+    };
+  }
+  if (path === "/api/ops/unresolved-intents") return { count: 0, intents: [] };
   if (path === "/api/layouts/sync-deployments") return method === "POST" ? { synced: 0 } : [];
   return undefined;
 }

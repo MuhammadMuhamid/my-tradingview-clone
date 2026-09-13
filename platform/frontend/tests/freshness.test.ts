@@ -24,8 +24,22 @@ test("SUSTAINED FAILURE IS SAID, WITH HOW OLD THE DATA IS", () => {
   const notice = freshnessNotice({ lastOkAt: T, lastError: "fetch failed" }, T + 5 * 60_000);
   assert.equal(notice.show, true);
   assert.ok(notice.show && notice.message.includes("5m ago"));
-  assert.ok(notice.show && notice.message.includes("fetch failed"));
   assert.equal(notice.show && notice.severity, "warn");
+  /*
+   * TVP8: the cause moved OFF the headline and into `detail`.
+   *
+   * This used to assert the provider's own words were in `message`, and
+   * `message` is what a red banner across the top of the Trading page renders.
+   * `lastError` is whatever `lib/api.ts` put in `Error.message` — so that
+   * banner read "Could not load: fixture server has no route for GET
+   * /api/alerts", which is the exact defect the contract forbids on the chart
+   * and which this shared helper was reproducing on every page that uses it.
+   *
+   * Nothing is hidden: `detail` is the tooltip, and `StaleNotice` renders it
+   * as `title`.
+   */
+  assert.equal(notice.show && notice.detail, "fetch failed");
+  assert.doesNotMatch(notice.show ? notice.message : "", /fetch failed/);
 });
 
 test("never having loaded is a DIFFERENT situation from being behind", () => {
@@ -34,7 +48,9 @@ test("never having loaded is a DIFFERENT situation from being behind", () => {
   const notice = freshnessNotice({ lastOkAt: null, lastError: "Failed to fetch" }, T);
   assert.equal(notice.show, true);
   assert.equal(notice.show && notice.severity, "down");
-  assert.match(notice.show ? notice.message : "", /^Could not load: Failed to fetch$/);
+  assert.match(notice.show ? notice.message : "", /^This could not be loaded\./);
+  assert.doesNotMatch(notice.show ? notice.message : "", /Failed to fetch/);
+  assert.equal(notice.show && notice.detail, "Failed to fetch");
   assert.doesNotMatch(notice.show ? notice.message : "", /ago/);
 });
 

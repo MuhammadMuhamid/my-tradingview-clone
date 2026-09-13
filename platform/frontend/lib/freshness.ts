@@ -16,6 +16,7 @@
  * are normal and a banner that flickers is a banner people learn to ignore. The
  * threshold below is what separates the two.
  */
+import { shortReason } from "./errorCopy";
 
 /** A poll can miss this long before the screen is called stale. */
 export const STALE_AFTER_MS = 30_000;
@@ -31,7 +32,23 @@ export const freshAt = (now: number): Freshness => ({ lastOkAt: now, lastError: 
 
 export type FreshnessNotice =
   | { show: false }
-  | { show: true; message: string; severity: "warn" | "down" };
+  | {
+      show: true;
+      /** What to TELL the reader. Never a route path or a status line. */
+      message: string;
+      /**
+       * The provider's own words, for the tooltip and for a bug report.
+       *
+       * TVP8: `message` used to be `Could not load: ${lastError}`, and
+       * `lastError` is whatever `lib/api.ts` put in `Error.message` — a status
+       * line, a URL-encoded route, or "fixture server has no route for GET
+       * /api/alerts". That string was the whole of a red banner across the top
+       * of the Trading page. The contract has forbidden that on the chart for
+       * a campaign; this helper is how it kept happening everywhere else.
+       */
+      detail: string | null;
+      severity: "warn" | "down";
+    };
 
 /**
  * What to tell the user, if anything.
@@ -47,7 +64,8 @@ export function freshnessNotice(state: Freshness, now: number): FreshnessNotice 
     return {
       show: true,
       severity: "down",
-      message: `Could not load: ${state.lastError}`,
+      message: `This could not be loaded. ${shortReason(state.lastError)}`,
+      detail: state.lastError,
     };
   }
 
@@ -57,7 +75,8 @@ export function freshnessNotice(state: Freshness, now: number): FreshnessNotice 
   return {
     show: true,
     severity: "warn",
-    message: `Not updating — showing data from ${describeAge(staleFor)} ago. ${state.lastError}`,
+    message: `Not updating — showing data from ${describeAge(staleFor)} ago.`,
+    detail: state.lastError,
   };
 }
 

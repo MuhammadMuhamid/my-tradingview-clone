@@ -214,12 +214,29 @@ export default function OperationsPage() {
     );
   }
 
-  const mode = MODE_STYLE[status.mode];
+  /*
+   * TVP8: an unknown mode must not take the page down.
+   *
+   * This was `MODE_STYLE[status.mode]`, and a value outside the four the
+   * frontend knows made it `undefined` — then `mode.note` threw and the whole
+   * route became "This page stopped working". Found when a fixture answered
+   * with a mode this build had never heard of, which is exactly what a backend
+   * that ships a new one ahead of the frontend looks like.
+   *
+   * Every other read in this file is total by design. This one is now too: an
+   * unrecognised mode is shown AS the unrecognised string, with the neutral
+   * treatment, which tells an operator more than a blank page does.
+   */
+  const mode = MODE_STYLE[status.mode] ?? {
+    badge: "bg-ink-faint/15 text-ink-muted border-border",
+    note: `This build does not recognise the mode “${String(status.mode)}”. `
+      + "It is shown as reported.",
+  };
   const risk = status.risk;
   const overview = buildOperationsOverview(status, scanner);
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-4 px-4 py-6">
+    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-ink">Operations</h1>

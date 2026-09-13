@@ -165,7 +165,19 @@ test("A SAVED DEFAULT IS WHAT A NEW PANE STARTS FROM", () => {
   const dialog = read("components/tv/ChartSettingsModal.tsx");
   assert.match(dialog, /label="Chart settings template"/);
   assert.match(dialog, /Save current settings as…/);
-  assert.match(dialog, /Save as default/);
+  /*
+   * TVP8 round two: Defaults is a MENU, not a confirm.
+   *
+   * It was a two-button confirm encoding three outcomes, and Escape / the
+   * backdrop / the × all resolved `false` — so DISMISSING the dialog wiped the
+   * chart's settings and the stored default. A destructive action on the
+   * escape key is the worst place to put one.
+   */
+  assert.match(dialog, /label="Chart defaults"/);
+  assert.match(dialog, /\{ value: "save", label: "Save these as my default" \}/);
+  assert.match(dialog, /\{ value: "reset", label: "Reset to the product defaults" \}/);
+  assert.doesNotMatch(dialog, /cancelLabel: "Reset this chart"/,
+    "dismissing a dialog must never be the destructive branch");
 });
 
 test("no settings row can outgrow the dialog's content column", () => {
@@ -196,14 +208,30 @@ test("no settings row can outgrow the dialog's content column", () => {
   }
 
   /*
-   * The arithmetic the widths are chosen against, so a future control that
-   * breaks it fails here rather than in a screenshot: the panel is 1094-346 =
-   * 748 wide with a 206px nav and 5x4 = 20px of gutters, leaving about 482 for
-   * the controls column, of which the label takes 188.
+   * TVP8 round two: this was arithmetic over literals TRANSCRIBED from the
+   * source — `assert.ok(236 <= 294)`, which is true whatever the dialog does.
+   * Widening the narrow select to 400px reproduced the exact overflow defect
+   * and the test stayed green, so the commit's claim that "a future control
+   * that breaks it fails here rather than in a screenshot" was false.
+   *
+   * The widths are READ from the component now. The column arithmetic is still
+   * stated here because it is a measurement of the dialog's own geometry, but
+   * every number that can drift comes from the file that owns it.
    */
-  const forControls = 482 - 188;
-  const denseRow = 18 /* toggle */ + 34 /* swatch */ + 56 /* narrow number */
-    + 104 /* narrow select */ + 8 * 3 /* gaps */;
+  const widthOf = (pattern: RegExp): number => {
+    const found = pattern.exec(dialog);
+    assert.ok(found, `could not read a width from ${pattern}`);
+    return Number(found![1]);
+  };
+  const narrowSelect = widthOf(/narrow \? "w-\[(\d+)px\]" : "w-\[\d+px\]"/);
+  const narrowNumber = widthOf(/width === "narrow" \? "w-\[(\d+)px\]" : "w-\[\d+px\]"/);
+  const labelColumn = widthOf(/min-w-\[(\d+)px\] shrink-0 text-sm text-ink/);
+
+  // 1094 - 346 = 748 panel, minus a 206px nav and 5x4 = 20px of gutters.
+  const contentColumn = 748 - 206 - 20;
+  const forControls = contentColumn - labelColumn;
+  const denseRow = 18 /* toggle */ + 34 /* swatch */ + narrowNumber + narrowSelect + 8 * 3;
   assert.ok(denseRow <= forControls,
-    `the densest row is ${denseRow}px in a ${forControls}px column`);
+    `the densest row is ${denseRow}px in a ${forControls}px column `
+    + `(select ${narrowSelect}, number ${narrowNumber}, label ${labelColumn})`);
 });

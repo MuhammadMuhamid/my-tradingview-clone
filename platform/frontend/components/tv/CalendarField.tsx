@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 
 /*
@@ -80,22 +81,77 @@ export function CalendarField({
 }) {
   const [open, setOpen] = useExclusivePopover(`calendar:${id}`);
   const anchorRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [month, setMonth] = useState(() => value ?? max ?? Date.now());
+
+  /*
+   * ── TVP8: the calendar is a PORTAL ────────────────────────────────────────
+   *
+   * It was `absolute bottom-full` inside its anchor. That works in the Replay
+   * strip and is invisible in the Go-to dialog: `Modal`'s body is
+   * `overflow-y-auto`, so a popover positioned above a control near the top of
+   * an 80px-tall body is clipped into scroll space the user cannot reach. The
+   * whole "Go to…" feature was unreachable by its only route.
+   *
+   * Portalled to `document.body` and positioned against the trigger's viewport
+   * rect, it escapes every `overflow` ancestor. It opens BELOW when there is
+   * room and flips above when there is not, which is what the control does in
+   * the toolbar strip where it opens upward.
+   */
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  const PANEL = { width: 248, height: 300 };
+  useLayoutEffect(() => {
+    if (!open) { setAt(null); return; }
+    const place = (): void => {
+      const trigger = anchorRef.current?.firstElementChild;
+      if (!trigger) return;
+      const box = trigger.getBoundingClientRect();
+      const below = window.innerHeight - box.bottom;
+      const top = below >= PANEL.height + 8
+        ? box.bottom + 4
+        : Math.max(8, box.top - PANEL.height - 4);
+      const left = Math.min(
+        Math.max(8, box.left),
+        Math.max(8, window.innerWidth - PANEL.width - 8));
+      setAt({ left, top });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, PANEL.height, PANEL.width]);
 
   // Reopening on a chosen date shows that date's month, not the last one browsed.
   useEffect(() => { if (open) setMonth(value ?? max ?? Date.now()); }, [open, value, max]);
 
   useEffect(() => {
     if (!open) return;
+    const inside = (node: Node | null): boolean =>
+      Boolean(anchorRef.current?.contains(node) || popoverRef.current?.contains(node));
     const onDown = (e: MouseEvent): void => {
-      if (!anchorRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!inside(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
+    /*
+     * TVP8: capture, and stop it.
+     *
+     * `Modal` binds Escape on `document` in the CAPTURE phase, so a bubbling
+     * listener here never ran first: pressing Escape with the calendar open
+     * closed the whole Go-to dialog instead of the calendar. Escape closes the
+     * innermost thing, which is the only behaviour anyone expects.
+     */
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open, setOpen]);
 
@@ -143,11 +199,13 @@ export function CalendarField({
         </span>
       </button>
 
-      {open && (
+      {open && at && createPortal(
         <div
+          ref={popoverRef}
           role="dialog"
           aria-label={label}
-          className="tvc-popover absolute bottom-full left-0 z-50 mb-1 w-[248px] border border-border p-2"
+          style={{ left: at.left, top: at.top, width: PANEL.width }}
+          className="tvc-popover ts-app fixed z-[60] border border-border p-2"
         >
           <div className="mb-1 flex items-center justify-between">
             <button type="button" onClick={() => shiftMonth(-1)} aria-label="Previous month"
@@ -208,7 +266,8 @@ export function CalendarField({
               className="h-[26px] flex-1 rounded border border-control-border bg-transparent px-1.5 text-[13px] tabular text-ink outline-none focus:border-accent"
             />
           </label>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

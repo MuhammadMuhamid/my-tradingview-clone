@@ -79,6 +79,17 @@ const WORKSTATION = [
  */
 const PRODUCT = [...sourceFiles("app"), ...sourceFiles("components")];
 
+/*
+ * TVP8 round two: `lib` counts.
+ *
+ * The native-dialog ban scoped itself to `app` and `components`, and
+ * `lib/useSavedLayouts.ts` held five browser prompts and a confirm — the whole
+ * Layouts workflow, invisible to the rule that exists to forbid exactly that.
+ * A hook renders UI; where the file sits in the tree does not change what the
+ * user sees.
+ */
+const PRODUCT_AND_LIB = [...PRODUCT, ...sourceFiles("lib")];
+
 test("CONTRACT — the measured density numbers are the ones in the tokens", () => {
   /*
    * Each of these was wrong once, and each error was systemic rather than
@@ -232,7 +243,19 @@ test("CONTRACT — accent never means 'this one is selected' in the workstation"
    * Checked against PRODUCT, not WORKSTATION. Counted at the time of writing:
    * 0 in the old shape, 23 legitimate uses + 1 real defect in the new one.
    */
-  const ACCENT = String.raw`(?<![\w:-])(?:bg-accent(?:\/\d+)?|text-accent|border(?:-[xytrbl])?-accent(?:\/\d+)?)`;
+  /*
+   * TVP8 round two: the exclusion was `(?<![\w:-])`, which walks past EVERY
+   * Tailwind variant prefix and not only the pointer ones the comment above
+   * names. `aria-selected:bg-accent/10` and `data-[state=selected]:text-accent`
+   * are the idiomatic spellings of exactly the defect this rule exists to
+   * catch, and both passed.
+   *
+   * So: only a POINTER or focus variant is exempt, by name. A state variant —
+   * `aria-selected:`, `data-[…]:`, `group-aria-*` — is the rule's whole
+   * subject and must not be excused.
+   */
+  const POINTER_VARIANT = String.raw`(?:hover|focus|focus-visible|focus-within|active|group-hover|group-focus|peer-hover|peer-focus)`;
+  const ACCENT = String.raw`(?<!\w)(?<!${POINTER_VARIANT}:)(?:bg-accent(?:\/\d+)?|text-accent|border(?:-[xytrbl])?-accent(?:\/\d+)?)`;
   const CONDITIONAL = new RegExp(String.raw`(?:\?|&&|\|\|)\s*\(?\s*(?:<|\`|")`);
   const offenders: string[] = [];
   for (const file of PRODUCT) {
@@ -706,16 +729,46 @@ test("CONTRACT — the product never asks through the browser's own dialog", () 
    * `AskDialog` itself is exempt: it is the thing that replaced them, and it
    * names them in its own documentation.
    */
-  const NATIVE = /\bwindow\.(confirm|prompt|alert)\s*\(/;
-  const offenders = PRODUCT
+  /*
+   * TVP8 round two: `window.` is optional.
+   *
+   * The first version of this matched `window.confirm(` and walked straight
+   * past `app/trading/page.tsx`'s bare `confirm(...)` — the same global, the
+   * same native sheet, one qualifier short of being caught. A rule that only
+   * catches the spelling it was written against is not a rule, which is the
+   * second time this campaign has had to learn that.
+   *
+   * `\b(?<!\.)` so a method called `confirm` on something of ours is not a
+   * false positive; only the bare global and the `window.`-qualified one.
+   */
+  const NATIVE = /(?:\bwindow\.(?:confirm|prompt|alert)|(?<![.\w])(?:confirm|prompt|alert))\s*\(/;
+  /*
+   * Strings stripped as well as comments, because widening the rule to the
+   * bare global immediately matched `${count} alert(s) — click to add another`
+   * in a tooltip. A rule that fires on prose is a rule people turn off.
+   */
+  const withoutLiterals = (src: string): string => code(src)
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+  const offenders = PRODUCT_AND_LIB
     .filter((f) => !f.endsWith("AskDialog.tsx"))
-    .filter((f) => NATIVE.test(read(f)));
+    .filter((f) => NATIVE.test(withoutLiterals(read(f))));
   assert.deepEqual(offenders, [],
     `ask through <AskProvider>'s useAsk(), not the browser: ${offenders.join(", ")}`);
 
-  // And the provider is actually mounted, or `useAsk` throws on first use.
-  assert.match(read("app/layout.tsx"), /<AskProvider>/,
-    "the dialog has to be mounted above every page that asks");
+  /*
+   * And the provider is actually MOUNTED, or `useAsk` throws on first use.
+   *
+   * TVP8 round two: this matched `/<AskProvider>/` against the raw file, so
+   * replacing the real element with `{/* <AskProvider> was here *\/}` left it
+   * green while every one of the seventeen migrated confirmations would have
+   * thrown. Comments stripped, and both halves of the element required — an
+   * opening tag with no closing tag does not wrap anything.
+   */
+  const layout = code(read("app/layout.tsx"));
+  assert.match(layout, /<AskProvider>/, "the dialog has to be mounted above every page that asks");
+  assert.match(layout, /<\/AskProvider>/, "and it has to wrap the tree, not just open");
 });
 
 test("CONTRACT — every page renders inside the shared grammar", () => {
@@ -739,7 +792,9 @@ test("CONTRACT — every page renders inside the shared grammar", () => {
   const ROUTES = sourceFiles("app").filter((f) => f.endsWith("page.tsx"));
   const offenders: string[] = [];
   for (const route of ROUTES) {
-    const src = read(route);
+    // TVP8 round two: comments stripped. A file that merely MENTIONS `ts-app`
+    // in a docstring is not inside it.
+    const src = code(read(route));
     // A redirect-only route renders nothing to style.
     if (/redirect\(/.test(src) && !/return \(/.test(src)) continue;
     const inside = /\bts-app\b/.test(src)
@@ -750,7 +805,31 @@ test("CONTRACT — every page renders inside the shared grammar", () => {
   assert.deepEqual(offenders, [],
     `outside .ts-app / .tv-workstation, so the control grammar does not apply: ${offenders.join(", ")}`);
 
+  /*
+   * TVP8 round two: EVERY shell in the file, not just one.
+   *
+   * The check above is satisfied by a single occurrence anywhere in a file.
+   * Two pages return a different root for their error/loading branch and for
+   * their success branch, and the first fix landed on the error branch — which
+   * is the one a broken fixture renders and a reviewer therefore screenshots.
+   * So the page a user actually reaches stayed outside the design system while
+   * the test went green.
+   *
+   * A page shell is recognisable: it centres itself and caps its width. Every
+   * one of those has to carry the class.
+   */
+  const SHELL = /className="([^"]*\bmx-auto\b[^"]*\bmax-w-\[[^\]]+\][^"]*)"/g;
+  const looseShells: string[] = [];
+  for (const route of [...ROUTES, "app/error.tsx", "app/not-found.tsx"]) {
+    const src = code(read(route));
+    for (const match of src.matchAll(SHELL)) {
+      if (!/\bts-app\b/.test(match[1]!)) looseShells.push(`${route} → ${match[1]!.slice(0, 48)}…`);
+    }
+  }
+  assert.deepEqual(looseShells, [],
+    `a page shell outside the grammar: ${looseShells.join(" | ")}`);
+
   // And the nav, which is above every one of them.
-  assert.match(read("components/Nav.tsx"), /className="ts-app /,
+  assert.match(code(read("components/Nav.tsx")), /className="ts-app /,
     "the nav sits outside <main>, so it needs the class itself");
 });

@@ -433,7 +433,21 @@ export class FixtureServer {
           note: "the execution bot owns protection; the platform never rests an order",
         },
       },
-      "/api/ops/status": { halted: false, feeds: [] },
+      /*
+       * TVP8: this said `{ halted: false, feeds: [] }`, and `feeds` in
+       * `lib/api.ts` is `{ worst, rows }`. No DOM test mounts Operations, so
+       * it was harmless here and lethal in the standalone QA fixture, which
+       * copied it: the whole route crashed into its error boundary reading
+       * `status.feeds.rows.length`.
+       *
+       * A fixture that answers with a shape production never sends is worse
+       * than one that 404s — the 404 is obviously a fixture, and the wrong
+       * shape looks like a product bug.
+       */
+      "/api/ops/status": {
+        mode: "DISABLED",
+        feeds: { worst: "live", rows: [] },
+      },
       "/api/push/vapid": { publicKey: "", devices: 0 },
     };
     if (path in table) return json(200, table[path]);

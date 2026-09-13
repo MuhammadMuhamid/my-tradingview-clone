@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { shortReason } from "@/lib/errorCopy";
 import { useAsk } from "@/components/AskDialog";
 import { EMPTY_FILTERS, FilterPanel, countActive, type Filters } from "@/components/scanner/FilterPanel";
 import { ScreenerTable } from "@/components/scanner/ScreenerTable";
@@ -175,7 +176,7 @@ export default function ScannerPage() {
       <div className="ts-app scanner-workspace flex h-full min-h-0 flex-col bg-bg">
         <header className="border-b border-border bg-surface px-3 py-2">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold text-ink">Market Screener</h1>
+            <h1 className="text-lg font-semibold text-ink">Market Screener</h1>
             <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
               {marketLabel}
             </span>
@@ -214,7 +215,7 @@ export default function ScannerPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
           <div className="mr-1 min-w-[220px]">
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold text-ink">Market Screener</h1>
+              <h1 className="text-lg font-semibold text-ink">Market Screener</h1>
               <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-medium text-accent">
                 {marketLabel}
               </span>
@@ -369,7 +370,16 @@ export default function ScannerPage() {
           </p>
         )}
         {spotCategory && busy && busy !== "Refreshing" && <p role="status" className="mt-1 text-xs text-ink-muted">{busy}…</p>}
-        {spotCategory && error && <p role="alert" className="mt-1 text-xs text-down">Scanner: {error}</p>}
+        {/*
+          TVP8: this was `Scanner: {error}` — the raw thrown message with a
+          three-letter prefix, and no sentence a reader can act on. The cause
+          is the tooltip now, which is where a bug report gets it.
+        */}
+        {spotCategory && error && (
+          <p role="alert" title={error} className="mt-1 text-xs text-down">
+            The Scanner did not answer. {shortReason(error)}
+          </p>
+        )}
         {spotCategory && snapshot?.last_refresh_error && <p role="alert" className="mt-1 text-xs text-down">Last refresh: {snapshot.last_refresh_error}</p>}
         {spotCategory && (snapshot?.unverified_symbols.length ?? 0) > 0 && (
           <div role="status" aria-live="polite">

@@ -188,25 +188,34 @@ export function ChartSettingsModal({
               ...templates.map((t) => ({ value: `__delete:${t.name}`, label: `Delete “${t.name}”` })),
             ]}
           />
-          <Button
-            onClick={() => void (async () => {
-              if (!await ask.confirm({
-                title: "Chart defaults",
-                body: "Save these settings as the defaults every new pane starts from, "
-                  + "or reset this chart back to the product's own.",
-                confirmLabel: "Save as default",
-                cancelLabel: "Reset this chart",
-              })) {
+          {/*
+            TVP8 round two: Defaults is a MENU, not a confirm.
+            
+            It was a two-button confirm encoding three outcomes — OK saved the
+            default, Cancel reset the chart, and Escape / the backdrop / the ×
+            all resolve `false`, which means DISMISSING the dialog wiped both
+            the chart's settings and the stored default. A destructive action
+            on the escape key is the worst possible place to put one.
+            
+            Two named items, each doing exactly what it says, and dismissing
+            the menu does nothing. This is also the shape the reference uses.
+          */}
+          <Select
+            value=""
+            label="Chart defaults"
+            onChange={(v) => {
+              if (v === "save") saveUserDefaultChartSettings(settings);
+              else if (v === "reset") {
                 clearUserDefaultChartSettings();
                 onSettings(DEFAULT_CHART_SETTINGS);
-                return;
               }
-              saveUserDefaultChartSettings(settings);
-            })()}
-            className="px-3"
-          >
-            Defaults
-          </Button>
+            }}
+            options={[
+              { value: "", label: "Defaults" },
+              { value: "save", label: "Save these as my default" },
+              { value: "reset", label: "Reset to the product defaults" },
+            ]}
+          />
           <span className="flex-1" />
           <Button onClick={cancel} className="px-4">Cancel</Button>
           <Button variant="primary" onClick={onClose} className="px-4">Ok</Button>

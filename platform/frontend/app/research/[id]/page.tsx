@@ -96,7 +96,7 @@ export default function BacktestDetail() {
   if (!bt) return shell(<div role="status" className="text-ink-faint">Loading…</div>);
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
+    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
       <div className="flex items-center gap-3">
         <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
         <h1 className="text-lg font-semibold">{bt.symbol} · {bt.timeframe}</h1>

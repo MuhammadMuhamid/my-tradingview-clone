@@ -172,3 +172,24 @@ test("loading and API error states are explicit and halt/resume confirmations st
   assert.match(api, /confirmation: "HALT_TRADING"/);
   assert.match(api, /confirmation: "RESUME_TRADING"/);
 });
+
+test("AN UNKNOWN OPERATING MODE IS SHOWN, NOT CRASHED ON", () => {
+  /*
+   * TVP8. `MODE_STYLE[status.mode]` was an unguarded lookup over the four
+   * modes this build knows. A value outside them made it `undefined`, then
+   * `mode.note` threw, and the entire Operations route became "This page
+   * stopped working — Cannot read properties of undefined (reading 'note')".
+   *
+   * That is what a backend shipping a new mode ahead of the frontend looks
+   * like, on the one page an operator opens when they suspect something is
+   * wrong. Every other read in that file is total by design; this one was not.
+   */
+  const page = fs.readFileSync(path.join(ROOT, "app", "operations", "page.tsx"), "utf8");
+  assert.match(page, /MODE_STYLE\[status\.mode\] \?\?/,
+    "an unrecognised mode must fall back rather than return undefined");
+  assert.match(page, /does not recognise the mode/,
+    "and it must say so, because a silent neutral badge hides a real mismatch");
+
+  // The feed-state lookup beside it already had the guard; keep it.
+  assert.match(page, /FEED_STYLE\[status\.feeds\.worst\] \?\? ""/);
+});

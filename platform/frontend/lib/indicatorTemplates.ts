@@ -272,7 +272,17 @@ export function upsertTemplate(
 ): UpsertResult {
   const name = template.name.trim();
   if (name.length === 0) return { ok: false, reason: "empty-name" };
-  if (template.indicators.length === 0) return { ok: false, reason: "no-indicators" };
+  /*
+   * TVP8 round two: built-ins count here too.
+   *
+   * `templateFromIndicators` learned to carry the 57 built-in studies, and
+   * this guard did not — so a chart with three built-ins and no Pine script
+   * was still refused with "put at least one study on the chart first", which
+   * is the defect the commit that added them claims to have fixed.
+   */
+  if (template.indicators.length === 0 && template.studies.length === 0) {
+    return { ok: false, reason: "no-indicators" };
+  }
   const existing = findTemplate(list, name);
   if (existing && !options.overwrite) return { ok: false, reason: "exists" };
   if (!existing && list.length >= MAX_TEMPLATES) return { ok: false, reason: "full" };

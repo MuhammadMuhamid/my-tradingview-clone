@@ -658,6 +658,16 @@ export function DrawingCanvas({
         else setSelected(null);
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedRef.current && !lockedRef.current) {
+        /*
+         * TVP8 round two: the drawing's OWN lock, not only the workspace's.
+         *
+         * `lockedRef` is "Lock all drawings". A drawing locked individually —
+         * through its context menu or the padlock on its own toolbar — could
+         * still be deleted with one keystroke, which is the one thing locking
+         * it was for.
+         */
+        const target = drawingsRef.current.find((d) => d.id === selectedRef.current);
+        if (target?.locked) return;
         e.preventDefault();
         onChangeRef.current(drawingsRef.current.filter((d) => d.id !== selectedRef.current));
         setSelected(null);
@@ -744,8 +754,20 @@ export function DrawingCanvas({
 
   // Style edits apply to the selected drawing, else become the new default.
   const applyStyle = (patch: Partial<typeof style>): void => {
+    // The armed tool's default always follows the control, locked or not — the
+    // next drawing is not locked.
     setStyle((s) => ({ ...s, ...patch }));
     if (!selected) return;
+    /*
+     * TVP8 round two: a LOCKED drawing is not restyled.
+     *
+     * Locking honoured dragging, the eraser and the context menu, and the
+     * quick toolbar restyled straight through it — so a locked drawing could
+     * be recoloured, dashed, filled and widened in one click each. The lock
+     * either means "do not change this" or it means nothing.
+     */
+    const target = drawings.find((d) => d.id === selected);
+    if (locked || target?.locked) return;
     onChange(drawings.map((d) => (d.id === selected ? { ...d, style: { ...d.style, ...patch } } : d)));
   };
 
@@ -1033,8 +1055,9 @@ export function DrawingCanvas({
           </button>
           <button
             onClick={() => { onChange(drawings.filter((d) => d.id !== selected)); setSelected(null); }}
-            className="flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-down/15 hover:text-down"
-            title="Delete (Del)"
+            disabled={locked || sel.locked}
+            className="flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-down/15 hover:text-down disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
+            title={locked || sel.locked ? "Unlock this drawing to delete it" : "Delete (Del)"}
             aria-label="Delete this drawing"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
