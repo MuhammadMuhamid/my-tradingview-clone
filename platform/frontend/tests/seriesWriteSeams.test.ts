@@ -1,5 +1,5 @@
 /**
- * Every refusal at a series seam must DRAW the bars, not lose them.
+ * Every refusal at a series seam must be handed a repaint that redraws.
  *
  * ── Why this is a source test ─────────────────────────────────────────────
  *
@@ -15,144 +15,175 @@
  * fails when it is removed, and for a caller-supplied argument that something
  * has to read the call site.
  *
- * So this reads them. The rule, stated once:
+ * ── Why it reads the AST and not the text ─────────────────────────────────
  *
- *   A writer that can refuse a row must be handed a repaint argument that
- *   really calls the replacing writer — and the live-tick volume write is the
- *   one documented exception, because a frame behind the drawn bar has nothing
- *   to say that the next frame will not (`lib/liveDataset`).
+ * The first version scanned characters, and its prose claimed CLASSES —
+ * "an `[]` repaint", "a new call site added without one" — while the code
+ * matched TOKENS. The same reviewer broke three of those claims with one-token
+ * variants: `([])` rather than `[]`, `[...[]]`, a `const NO_ROWS = []` passed
+ * by name, a decoy declaration earlier in the file that the identifier
+ * resolver reached first, a guard rebuilt out of string literals, and a fifth
+ * unguarded call site hidden between two strings that looked like comment
+ * delimiters.
  *
- * ── What this cannot prove, stated so nobody reads more into it ────────────
+ * Every one of those is a way to write something that LOOKS different and
+ * PARSES the same, so the parser is the answer. `typescript` is already a
+ * devDependency; `ts.createSourceFile` gives the real tree, and comments,
+ * string literals, parentheses and scope stop being things to defend against.
  *
- * That the repaint draws THE SAME CONTENT the refused row belonged to. That is
- * not decidable from source text: a repaint can call the right writer with a
- * shortened list, or behind a condition that is never true, and this file will
- * pass it. A second reviewer demonstrated both. What it does catch is the
- * whole class that actually happened — an argument emptied, dropped, hidden
- * behind `?.()`, moved to another module, or a new call site added without one
- * — and it catches an `[]` repaint, which is worse than the bug it replaces
- * because it blanks the series.
+ * ── What this still cannot prove ──────────────────────────────────────────
  *
- * The behavioural half lives in `tests/dom/studyWindowZoom.test.tsx`, which
- * drives the writers themselves against real lightweight-charts series.
+ * That the repaint draws the same CONTENT the refused row belonged to. A
+ * repaint can call the right writer with a shortened list, or behind a
+ * condition that is never true, and this file will pass it. That is not a
+ * property of the syntax, and claiming it would be another round of evidence
+ * reading stronger than it is. The behavioural half lives in
+ * `tests/dom/studyWindowZoom.test.tsx`, against real series.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 
 const ROOT = join(import.meta.dirname, "..");
+const FILE = join(ROOT, "components/CandleChart.tsx");
+const SOURCE = ts.createSourceFile(
+  FILE, readFileSync(FILE, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+);
 
-/**
- * Comments are removed first, and that is not cosmetic: a reviewer defeated
- * the first version of this file by commenting a guard out and writing
- * `if (true)` under it, and by hiding `setMainSeriesData(` inside a `/* … *\/`
- * so the substring check found a name that no longer ran.
- */
-function stripComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+/** `(x)`, `((x))`, `x as T` and `x!` all denote `x`. */
+function unwrap(node: ts.Expression): ts.Expression {
+  let current = node;
+  for (;;) {
+    if (ts.isParenthesizedExpression(current)) current = current.expression;
+    else if (ts.isAsExpression(current)) current = current.expression;
+    else if (ts.isNonNullExpression(current)) current = current.expression;
+    else return current;
+  }
 }
 
-const CHART = stripComments(readFileSync(join(ROOT, "components/CandleChart.tsx"), "utf8"));
+/** Every call to `name`, however it is spelled — `name?.()` and `(name)()` included. */
+function callsTo(name: string): ts.CallExpression[] {
+  const found: ts.CallExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = unwrap(node.expression);
+      if (ts.isIdentifier(callee) && callee.text === name) found.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(SOURCE);
+  return found;
+}
 
 /**
- * The argument list of every call to `name(`, split at top-level commas.
+ * The initialiser `name` is bound to, searched outwards from `from`.
  *
- * A real parse rather than a regex: these arguments contain nested calls,
- * ternaries, object literals and arrow functions, and a regex that matched
- * them would either miss a call site or match half of one — and a source test
- * that silently matches nothing is worse than no test.
+ * Nearest enclosing scope first, which is what makes a decoy declaration
+ * elsewhere in the file harmless: a `const` at the call site shadows it, and
+ * that is the one a reader — and the runtime — would take.
  */
-function callArguments(source: string, name: string): string[][] {
-  const calls: string[][] = [];
-  const needle = `${name}(`;
-  for (let at = source.indexOf(needle); at >= 0; at = source.indexOf(needle, at + 1)) {
-    // `foo(` inside `updateFoo(` or `.foo(` is a different function, and the
-    // declaration of `foo` is not a call to it.
-    const before = source[at - 1];
-    if (before && /[A-Za-z0-9_$.]/.test(before)) continue;
-    if (/\bfunction\s+$/.test(source.slice(Math.max(0, at - 20), at))) continue;
-    let depth = 0;
-    let start = at + needle.length;
-    const args: string[] = [];
-    let i = start;
-    for (; i < source.length; i++) {
-      const c = source[i]!;
-      if (c === "(" || c === "[" || c === "{") depth++;
-      else if (c === ")" || c === "]" || c === "}") {
-        if (c === ")" && depth === 0) { args.push(source.slice(start, i)); break; }
-        depth--;
-      } else if (c === "," && depth === 0) {
-        args.push(source.slice(start, i));
-        start = i + 1;
+function resolve(name: string, from: ts.Node): ts.Expression | null {
+  for (let scope: ts.Node | undefined = from; scope; scope = scope.parent) {
+    const statements = ts.isSourceFile(scope) || ts.isBlock(scope) || ts.isCaseClause(scope)
+      ? scope.statements : undefined;
+    if (!statements) continue;
+    for (const statement of statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === name
+          && declaration.initializer) {
+          return declaration.initializer;
+        }
       }
     }
-    calls.push(args.map((a) => a.trim()).filter((a) => a.length > 0));
   }
-  return calls;
+  return null;
+}
+
+/** An expression that denotes no rows: `[]`, `([])`, `[...[]]`, or a name for one. */
+function isEmptyRows(expression: ts.Expression, at: ts.Node): boolean {
+  const value = unwrap(expression);
+  if (ts.isArrayLiteralExpression(value)) {
+    return value.elements.every((element) =>
+      ts.isSpreadElement(element) && isEmptyRows(element.expression, at));
+  }
+  if (ts.isIdentifier(value)) {
+    const declared = resolve(value.text, at);
+    return declared !== null && isEmptyRows(declared, at);
+  }
+  return false;
+}
+
+/** Whether `node` sits anywhere inside `ancestor`. */
+function within(node: ts.Node, ancestor: ts.Node): boolean {
+  for (let at: ts.Node | undefined = node; at; at = at.parent) if (at === ancestor) return true;
+  return false;
 }
 
 /**
  * Whether an argument is a repaint that will actually redraw something.
  *
- * An identifier is followed to its declaration in the same file, because
- * hoisting a thunk to a `const` is an ordinary refactor and a test that forbids
- * it is a test somebody deletes.
+ * An identifier is followed to its declaration, because hoisting a thunk to a
+ * `const` is an ordinary refactor and a test that forbids it is a test
+ * somebody deletes. An empty row list is refused: `setData([])` satisfies every
+ * name check and BLANKS the series, which is worse than the silent drop this
+ * whole rule exists to replace.
  */
-function isRealRepaint(arg: string | undefined, writer: string, source: string): boolean {
-  if (arg === undefined) return false;
-  let body = arg;
-  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(arg.trim())) {
-    const declared = new RegExp(`\\bconst\\s+${arg.trim()}\\s*=([\\s\\S]{0,600}?);\\n`).exec(source);
+function isRealRepaint(argument: ts.Expression | undefined, writer: string): boolean {
+  if (!argument) return false;
+  let body: ts.Expression = unwrap(argument);
+  if (ts.isIdentifier(body)) {
+    const declared = resolve(body.text, argument);
     if (!declared) return false;
-    body = declared[1]!;
+    body = unwrap(declared);
   }
-  if (!body.includes("=>") || !body.includes(`${writer}(`)) return false;
-  // An empty thunk, or one whose only statement is unreachable.
-  if (/=>\s*\{\s*\}\s*$/.test(body)) return false;
-  // `setData([])` satisfies every name check and blanks the series — worse
-  // than the silent drop this whole rule exists to replace.
-  for (const call of callArguments(body, writer)) {
-    if (call.some((a) => a === "[]")) return false;
-  }
-  return true;
+  if (!ts.isArrowFunction(body) && !ts.isFunctionExpression(body)) return false;
+  const writes = callsTo(writer).filter((call) => within(call, body));
+  return writes.some((call) => !call.arguments.some((arg) => isEmptyRows(arg, call)));
 }
 
-test("EVERY MAIN-SERIES WRITE THAT CAN REFUSE IS GIVEN THE REPAINT FOR ITS OWN CONTENT", () => {
-  const calls = callArguments(CHART, "updateMainSeries");
-  assert.ok(calls.length >= 4,
-    `expected at least 4 updateMainSeries call sites, parsed ${calls.length} — the parser is broken`);
+/** A call, flattened, for the message when one is wrong. */
+const shape = (call: ts.CallExpression): string =>
+  call.getText(SOURCE).replace(/\s+/g, " ").slice(0, 110);
 
-  for (const [i, args] of calls.entries()) {
-    assert.equal(args.length, 5,
-      `updateMainSeries call ${i + 1} passes ${args.length} arguments: a writer that can refuse a row `
-      + "must be handed the replacement for the content that row belonged to, or the refusal is a "
-      + "silent drop and `displayRef`/`candlesRef` go on claiming a bar the series never got");
-    assert.ok(isRealRepaint(args[4], "setMainSeriesData", CHART),
-      `updateMainSeries call ${i + 1} was given "${args[4]}" as its repaint. It must actually call `
-      + "`setMainSeriesData`; an empty thunk satisfies the signature and loses the bar");
+test("EVERY MAIN-SERIES WRITE THAT CAN REFUSE IS GIVEN A REPAINT", () => {
+  const calls = callsTo("updateMainSeries");
+  assert.ok(calls.length >= 4,
+    `expected at least 4 updateMainSeries call sites, found ${calls.length}. A call moved out of `
+    + "this file is a call this test can no longer see");
+
+  for (const call of calls) {
+    assert.equal(call.arguments.length, 5,
+      `updateMainSeries passes ${call.arguments.length} arguments at «${shape(call)}» — a writer `
+      + "that can refuse a row must be handed the replacement for the content that row belonged "
+      + "to, or the refusal is a silent drop and `displayRef`/`candlesRef` go on claiming a bar "
+      + "the series never got");
+    assert.ok(isRealRepaint(call.arguments[4], "setMainSeriesData"),
+      `the repaint at «${shape(call)}» does not call \`setMainSeriesData\` with rows. An empty `
+      + "thunk satisfies the signature and loses the bar; `setData([])` satisfies it and blanks "
+      + "the series");
   }
 });
 
 test("THE VOLUME HISTOGRAM REPAINTS IN THE DATA EFFECT AND DROPS ON THE LIVE PATH", () => {
-  const calls = callArguments(CHART, "updateVolumeSeries");
+  const calls = callsTo("updateVolumeSeries");
   assert.ok(calls.length >= 2,
-    `expected at least 2 updateVolumeSeries call sites, parsed ${calls.length} — the parser is broken`);
+    `expected at least 2 updateVolumeSeries call sites, found ${calls.length}`);
 
-  const withRepaint = calls.filter((args) => args.length === 4);
-  const without = calls.filter((args) => args.length === 3);
+  const withRepaint = calls.filter((call) => call.arguments.length === 4);
+  const without = calls.filter((call) => call.arguments.length === 3);
   assert.equal(withRepaint.length + without.length, calls.length,
     "an updateVolumeSeries call takes either 3 arguments (a documented drop) or 4 (a repaint)");
   assert.equal(withRepaint.length, 1,
     "exactly one volume write repaints — the data effect's, whose window can move backwards, and "
     + "where a dropped bar is a histogram that disagrees with the candles above it");
-  for (const args of withRepaint) {
-    assert.ok(isRealRepaint(args[3], "setVolumeData", CHART),
-      `a volume repaint was given "${args[3]}"; it must actually call \`setVolumeData\``);
-  }
   assert.equal(without.length, 1,
     "exactly one volume write drops — the live tick's. Giving it a repaint would silently invert "
-    + "the policy this test exists to state, and `<= 1` could not tell the difference");
+    + "the policy this test exists to state, and `>= 1` could not tell the difference");
+  assert.ok(isRealRepaint(withRepaint[0]!.arguments[3], "setVolumeData"),
+    "the volume repaint must call `setVolumeData` with rows");
 });
 
 test("THE LIVE VOLUME WRITE IS STILL SKIPPED WHERE THE HISTOGRAM IS DELIBERATELY EMPTY", () => {
@@ -161,16 +192,40 @@ test("THE LIVE VOLUME WRITE IS STILL SKIPPED WHERE THE HISTOGRAM IS DELIBERATELY
    * data effect clears volume under them. The tick handler used to write one
    * stray bar back into that empty histogram; it knew only about Renko.
    *
-   * Found by a reviewer, and unpinned by anything until now: removing either
-   * condition left all 1,228 tests green.
+   * Read off the `if` that encloses the call, as a tree. A reviewer defeated
+   * the text version twice — once by commenting the condition out and writing
+   * `if (true)` under it, once by rebuilding both halves out of string
+   * literals — and neither is expressible here, because a condition that is
+   * not the condition is simply a different node.
    */
-  const guard = CHART.slice(CHART.indexOf("const applyTick = (tick"));
-  const at = guard.indexOf("updateVolumeSeries(");
-  assert.ok(at > 0, "the live-tick volume write moved; this test no longer reads it");
-  const condition = guard.slice(Math.max(0, at - 400), at);
-  assert.match(condition, /transform !== "renko"/,
+  const live = callsTo("updateVolumeSeries").find((call) => call.arguments.length === 3);
+  assert.ok(live, "the live-tick volume write is gone; this test no longer reads anything");
+
+  let guard: ts.IfStatement | null = null;
+  for (let node: ts.Node | undefined = live; node && !guard; node = node.parent) {
+    if (ts.isIfStatement(node)) guard = node;
+  }
+  assert.ok(guard, "the live-tick volume write is no longer guarded by anything");
+
+  let renko = false;
+  let drawn = false;
+  const visit = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node)
+      && node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
+      const right = unwrap(node.right);
+      if (ts.isStringLiteral(right) && right.text === "renko") renko = true;
+    }
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "current") {
+      const target = unwrap(node.expression);
+      if (ts.isIdentifier(target) && target.text === "volumeDrawnRef") drawn = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(guard.expression);
+
+  assert.ok(renko,
     "a Renko brick is not a time bar, so no honest volume can be drawn under it");
-  assert.match(condition, /volumeDrawnRef\.current/,
+  assert.ok(drawn,
     "under Kagi, Point & Figure and Line Break the data effect empties the histogram; without this "
     + "condition the tick handler puts one stray bar back into a chart that is showing none");
 });
