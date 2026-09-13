@@ -21,6 +21,17 @@ import { mixToward } from "../lib/chartTheme";
 const ROOT = path.join(__dirname, "..");
 const read = (p: string): string => fs.readFileSync(path.join(ROOT, p), "utf8");
 const css = read("app/globals.css");
+/**
+ * Prose about a class is not a use of it.
+ *
+ * A comment that names the class it REMOVED is the most useful kind of
+ * comment and the easiest thing for a source scanner to mistake for the
+ * defect — the rule below about `flex-wrap` failed on the sentence
+ * explaining why `flex-wrap` was taken out. Scan the code.
+ */
+const code = (source: string): string => source
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/\/\/.*$/gm, "");
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -294,4 +305,62 @@ test("CONTRACT — the volume weight is TradingView's own, measured", () => {
    */
   assert.equal(mixToward("#2ebd85", "#fff", 0.5), mixToward("#2ebd85", "#ffffff", 0.5));
   assert.notEqual(mixToward("#2ebd85", "#fff", 0.5), "#2ebd85");
+});
+
+test("CONTRACT — the phone action bar owns the bottom edge, alone", () => {
+  /*
+   * At 390x844 the floating theme toggle is `position: fixed; bottom: 12px`,
+   * and the chart workstation's action bar is fixed to the same edge. The
+   * toggle landed on "Automate" — the last tab of the primary navigation was
+   * unreachable on a phone, underneath a control for changing the colour
+   * scheme.
+   *
+   * The height is one token with two readers so the clearance cannot drift
+   * away from the thing it is clearing.
+   */
+  assert.match(css, /--ts-phone-nav-height:\s*\d+px/, "the bar's height is a token");
+  assert.match(css, /body:has\(nav\[data-phone-nav\]\) \.theme-toggle/,
+    "the toggle lifts only where the bar actually exists");
+  assert.match(css, /bottom:\s*calc\(var\(--ts-phone-nav-height\)[^)]*\+[^;]*\)/,
+    "it lifts BY the bar's own height, not by a number that happens to match");
+
+  const panel = read("components/tv/ChartSidePanel.tsx");
+  assert.match(panel, /<nav data-phone-nav/, "the bar announces itself to the rule above");
+  assert.match(panel, /min-h-\[var\(--ts-phone-nav-height\)\]/,
+    "and sizes itself from the same token");
+});
+
+test("CONTRACT — collapsing a legend never makes it taller", () => {
+  /*
+   * `IndicatorLegend` has two branches, collapsed and expanded. The expanded
+   * one was fixed for this once — at 390px a long study name wrapped to three
+   * stacked lines down over the candles — and the collapsed one kept
+   * `flex-wrap`, so hiding a study's values made its legend TALLER than
+   * showing them. A comment guarded the fixed branch and nothing guarded the
+   * other, which is exactly how it came back.
+   */
+  const legend = code(read("components/tv/IndicatorLegend.tsx"));
+  assert.doesNotMatch(legend, /flex-wrap/,
+    "a legend row clips; it never wraps — see docs/TRADING_SCENE_UI_UX_CONTRACT.md §3");
+  assert.equal((legend.match(/whitespace-nowrap/g) ?? []).length, 2,
+    "both the collapsed and the expanded branch hold one line");
+  assert.ok((legend.match(/truncate/g) ?? []).length >= 3,
+    "and the name that no longer fits is truncated, not dropped");
+  // The full text stays reachable rather than being lost to the clip.
+  assert.match(legend, /title=\{groups\.map\(\(group\) => group\.title\)\.join/,
+    "the collapsed row carries its full contents in a title");
+});
+
+test("CONTRACT — a transient notice never covers the permanent legend", () => {
+  /*
+   * The degraded-feed badge is z-20 and centred; the pane legend is z-3 and
+   * left-aligned. On a desktop pane they miss each other, and at 390px the
+   * badge sat squarely on the symbol and the last price — a message about the
+   * feed hiding the number the user came for.
+   */
+  const pane = read("components/tv/ChartPane.tsx");
+  const notice = /role="status"[\s\S]{0,900}?className="([^"]+)"/.exec(pane)?.[1] ?? "";
+  assert.ok(notice.includes("bottom-2"), "on a phone it sits at the foot of the pane");
+  assert.ok(notice.includes("sm:top-2") && notice.includes("sm:bottom-auto"),
+    "and returns to the top only where there is room for it");
 });

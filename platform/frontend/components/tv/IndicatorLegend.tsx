@@ -80,15 +80,26 @@ export function IndicatorLegend({
       )}
       <div className={`pointer-events-none min-w-0 ${collapsible ? "pt-[3px]" : ""}`}>
         {collapsed ? (
-          <div className="flex flex-wrap items-baseline gap-x-2 text-ink-muted">
+          /*
+            Collapsed is the SAME rule as expanded below: one row, clipped.
+
+            This branch kept `flex-wrap` after the expanded one was fixed, so
+            collapsing a study to hide its values made the legend taller
+            instead of shorter — at 390px "Relative Strength Index" alone
+            wrapped to three stacked lines across the top of its own pane.
+            Collapsing must never cost vertical space.
+          */
+          <div
+            title={groups.map((group) => group.title).join(" · ")}
+            className="flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap text-ink-muted">
             {groups.map((group, index) => (
-              <span key={`${group.title}:${index}`} className="inline-flex items-center gap-1">
+              <span key={`${group.title}:${index}`} className="inline-flex min-w-0 items-center gap-1">
                 <span
                   aria-hidden="true"
-                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ backgroundColor: group.plots[0]?.color }}
                 />
-                <span className="font-semibold text-ink">{group.title}</span>
+                <span className="truncate font-semibold text-ink">{group.title}</span>
               </span>
             ))}
           </div>

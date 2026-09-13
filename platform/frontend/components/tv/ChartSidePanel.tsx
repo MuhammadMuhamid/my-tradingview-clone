@@ -319,7 +319,13 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
     </div>
 
     {/* ── phone action bar (TradingView keeps its controls at the thumb) ── */}
-    <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
+    {/*
+      `data-phone-nav` is not decoration: the floating theme toggle is fixed to
+      the same corner, and globals.css uses this attribute to lift it clear of
+      the bar. Both read `--ts-phone-nav-height`, so the two cannot drift.
+    */}
+    <nav data-phone-nav
+      className="fixed inset-x-0 bottom-0 z-30 flex min-h-[var(--ts-phone-nav-height)] items-stretch justify-around border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
       {([
         ["tools", "Draw", props.toolsOpen, () => { props.onToolsOpen(!props.toolsOpen); props.onClosePanel(); },
           <path d="M4 20l4-1 9-9-3-3-9 9zM15 5l3 3 2-2-3-3z" />],

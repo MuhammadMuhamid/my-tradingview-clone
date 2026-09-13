@@ -864,8 +864,19 @@ function ChartPaneImpl(props: ChartPaneProps) {
           <div
             role="status"
             title={history.errorDetail ?? undefined}
-            className="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center
-              gap-1.5 rounded border border-warn/40 bg-warn/15 px-2 py-0.5 text-[11px] text-warn backdrop-blur-sm"
+            /*
+              Top-centre on a desktop pane, bottom-centre on a phone.
+
+              This notice is z-20 and the pane legend is z-3, so at 390px the
+              centred badge landed squarely on top of the legend and hid the
+              symbol and the last price behind a message about the feed. The
+              legend is permanent and the notice is transient; the notice is
+              the one that moves. Below `sm` it sits over the volume histogram
+              instead, which carries far less of what is being read.
+            */
+            className="pointer-events-auto absolute bottom-2 left-1/2 z-20 flex -translate-x-1/2
+              items-center gap-1.5 rounded border border-warn/40 bg-warn/15 px-2 py-0.5 text-[11px]
+              text-warn backdrop-blur-sm sm:bottom-auto sm:top-2"
           >
             <span>{history.error}</span>
             {history.errorDetail && <span aria-hidden="true" className="opacity-60">&#9432;</span>}

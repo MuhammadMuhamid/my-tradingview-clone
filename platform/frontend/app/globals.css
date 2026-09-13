@@ -107,6 +107,16 @@
   --ts-workstation-menu-row-height: 40px;
   --ts-workstation-popover-padding: 6px;
   --ts-workstation-radius: 6px;
+  /*
+   * The phone action bar's height, declared once because two rules need it:
+   * the bar sizes itself by it, and the floating theme toggle clears it.
+   *
+   * It used to be neither. The toggle is `position: fixed; bottom: 12px`, and
+   * at 390x844 that put a 44px button squarely on top of "Automate" — the
+   * last tab of the primary navigation was unreachable on a phone, hidden
+   * under a control for changing the colour scheme.
+   */
+  --ts-phone-nav-height: 52px;
 
   /*
    * Control state, as two neutrals.
@@ -477,6 +487,17 @@ body {
 }
 .theme-toggle:hover { background: var(--ts-surface-2); color: var(--ts-ink); }
 @media (max-width: 640px) { .theme-toggle { width: 44px; height: 44px; } }
+/*
+ * On a phone the chart workstation owns the bottom edge, so the toggle sits
+ * above the action bar rather than on it. Scoped by `:has()` to pages that
+ * actually render the bar — everywhere else the toggle keeps the bottom
+ * corner it has.
+ */
+@media (max-width: 767px) {
+  body:has(nav[data-phone-nav]) .theme-toggle {
+    bottom: calc(var(--ts-phone-nav-height) + env(safe-area-inset-bottom) + 12px);
+  }
+}
 
 /* Recessive scrollbars for the dark surfaces */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
