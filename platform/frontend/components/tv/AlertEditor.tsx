@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button } from "@/components/ui";
+import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { api, type MaAlert } from "@/lib/api";
@@ -729,9 +729,7 @@ export function AlertEditor({
   );
 }
 
-const BOX =
-  "w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-ink " +
-  "outline-none focus:border-accent";
+const BOX = `w-full ${FIELD}`;
 
 const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div className="grid grid-cols-[104px_1fr] items-center gap-3">

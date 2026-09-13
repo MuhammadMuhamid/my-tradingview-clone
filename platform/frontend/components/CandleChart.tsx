@@ -2679,10 +2679,8 @@ export function CandleChart({
                 onClick={() => applyScale(togglePriceScaleMode(scale))}
                 aria-pressed={scale.mode === "logarithmic"}
                 title="Logarithmic price scale — equal percentage moves take equal vertical space"
-                className={`rounded px-1.5 py-0.5 transition-colors ${
-                  scale.mode === "logarithmic"
-                    ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
+                className={`tvc-control rounded px-1.5 py-0.5 ${
+                  scale.mode === "logarithmic" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >
                 log
@@ -2698,10 +2696,8 @@ export function CandleChart({
                 onClick={() => applyScale(togglePercentScale(scale))}
                 aria-pressed={scale.mode === "percentage"}
                 title="Percent price scale — movement since the first bar in view"
-                className={`rounded px-1.5 py-0.5 transition-colors ${
-                  scale.mode === "percentage"
-                    ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
+                className={`tvc-control rounded px-1.5 py-0.5 ${
+                  scale.mode === "percentage" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >
                 %
@@ -2711,10 +2707,8 @@ export function CandleChart({
                 onClick={() => applyScale(togglePriceScaleAuto(scale))}
                 aria-pressed={scale.autoScale}
                 title="Auto-fit the price scale to the bars in view"
-                className={`rounded px-1.5 py-0.5 transition-colors ${
-                  scale.autoScale
-                    ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
+                className={`tvc-control rounded px-1.5 py-0.5 ${
+                  scale.autoScale ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >
                 auto

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { nativeOnlyNotice, storedIntervalFor } from "@/lib/timeframes";
 import { type Resolution } from "@/lib/resolution";
 import { Modal } from "@/components/Modal";
-import { Button } from "@/components/ui";
+import { Button, FIELD } from "@/components/ui";
 import { api } from "@/lib/api";
 import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Strategy, StrategyParams } from "@/lib/types";
@@ -96,7 +96,7 @@ export function AlertModal({
       {children}
     </div>
   );
-  const box = "w-full rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink outline-none focus:border-accent";
+  const box = `w-full ${FIELD}`;
 
   return (
     <Modal open={open} onClose={onClose}

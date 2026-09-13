@@ -168,7 +168,7 @@ export function StrategyTester({
           value={strategy?.key ?? ""}
           onChange={(e) => onStrategyChange(e.target.value)}
           aria-label="Strategy"
-          className="h-7 rounded-md border border-border bg-surface-2 px-2 text-sm font-medium text-ink outline-none focus:border-accent"
+          className="h-7 rounded-md border border-control-border bg-transparent px-2 text-sm font-medium text-ink outline-none focus:border-accent"
         >
           {strategies.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
         </select>

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button, StatusBadge } from "@/components/ui";
+import { Button, FIELD, StatusBadge } from "@/components/ui";
 import { TradeOrderTimeline } from "@/components/TradeOrderTimeline";
 import { api, type ManualAccount, type ManualAccountStateView, type ManualOrder,
   type ManualPosition, type ManualTradingState } from "@/lib/api";
@@ -578,7 +578,7 @@ export function ManualTradingPanel({
             setConfirming(kept.confirming);
             setArmedAccountId(null);
           }}
-          className="w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent">
+          className={`w-full ${FIELD}`}>
           {sandboxAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} · sandbox</option>)}
         </select>
       </div>
@@ -637,7 +637,7 @@ export function ManualTradingPanel({
           <select id="manual-position" value={positionId}
             onChange={(e) => { arm(setPositionId)(e.target.value);
               const p = activePositions.find((x) => x.id === e.target.value); if (p) setAmount(String(p.quantity)); }}
-            className="w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent">
+            className={`w-full ${FIELD}`}>
             <option value="">Unassociated wallet sell</option>
             {activePositions.map((p) => <option key={p.id} value={p.id}>
               {p.quantity} {base} · entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"}</option>)}
@@ -754,10 +754,10 @@ export function ManualTradingPanel({
           <div className="grid grid-cols-2 gap-2">
             <input aria-label="Take profit" placeholder="TP" value={values.tp} inputMode="decimal"
               onChange={(e) => setEdit((old) => ({ ...old, [p.id]: { ...values, tp: e.target.value } }))}
-              className="min-w-0 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs tabular text-ink outline-none focus:border-accent" />
+              className="min-w-0 rounded-md border border-control-border bg-transparent px-2 py-1 text-xs tabular text-ink outline-none focus:border-accent" />
             <input aria-label="Stop loss" placeholder="SL" value={values.sl} inputMode="decimal"
               onChange={(e) => setEdit((old) => ({ ...old, [p.id]: { ...values, sl: e.target.value } }))}
-              className="min-w-0 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs tabular text-ink outline-none focus:border-accent" />
+              className="min-w-0 rounded-md border border-control-border bg-transparent px-2 py-1 text-xs tabular text-ink outline-none focus:border-accent" />
           </div>
           <div className="flex gap-2"><Button disabled={pending} onClick={() => void protection(p)}>Save TP/SL</Button>
             <Button variant="ghost" disabled={pending} onClick={() => void protection(p, true)}>Remove</Button></div>

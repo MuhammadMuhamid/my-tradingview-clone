@@ -223,7 +223,7 @@ export function PineEditor({
             value={scriptId ?? ""}
             onChange={(e) => void open(e.target.value)}
             aria-label="Saved Pine script"
-            className="h-7 shrink-0 rounded-md border border-border bg-surface-2 px-2 text-xs text-ink outline-none focus:border-accent"
+            className="h-7 shrink-0 rounded-md border border-control-border bg-transparent px-2 text-xs text-ink outline-none focus:border-accent"
           >
             <option value="">+ New script</option>
             {scripts.map((s) => (
@@ -234,7 +234,7 @@ export function PineEditor({
             value={name}
             onChange={(e) => setName(e.target.value)}
             aria-label="Script name"
-            className="h-7 w-40 shrink-0 rounded-md border border-border bg-surface-2 px-2 text-xs text-ink outline-none focus:border-accent"
+            className="h-7 w-40 shrink-0 rounded-md border border-control-border bg-transparent px-2 text-xs text-ink outline-none focus:border-accent"
             placeholder="Script name"
           />
           <button onClick={() => void save()} className={btn} title="⌘S">Save</button>

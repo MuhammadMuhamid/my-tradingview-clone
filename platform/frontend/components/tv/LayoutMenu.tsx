@@ -252,11 +252,16 @@ export function LayoutMenu({
                 </div>
                 <div className="max-h-56 overflow-y-auto">
                   {layouts.map((l) => (
-                    <div key={l.id} className="group flex items-center hover:bg-state-hover">
+                    <div key={l.id} className="group flex items-center">
                       <button
                         onClick={() => selectLayout(l.id, l.name)}
                         aria-current={l.id === currentId ? "true" : undefined}
-                        className="flex-1 px-3.5 py-1.5 text-left"
+                        /*
+                          `Item` above already uses `.tvc-menu-row`; this list
+                          was the one part of the same popover that did not,
+                          so its rows were ~28px in a 40px menu.
+                        */
+                        className="tvc-menu-row flex-1 px-3.5 text-left"
                       >
                         <div className={`text-[13px] text-ink ${l.id === currentId ? "font-semibold" : ""}`}>
                           {l.name}{l.id === currentId ? " — open" : ""}

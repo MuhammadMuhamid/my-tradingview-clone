@@ -30,10 +30,9 @@ import {
 import type { AppliedNativeStudy, PlotStyleOverride } from "@/lib/native/compute";
 import type { SourceOption } from "@/lib/native/graph";
 import { PALETTE } from "@/lib/drawings";
+import { FIELD as SHARED_FIELD } from "@/components/ui";
 
-const FIELD =
-  "w-full rounded border border-border bg-surface-2 px-2 py-1 text-sm text-ink " +
-  "outline-none focus:border-accent";
+const FIELD = `w-full ${SHARED_FIELD}`;
 
 const PLOT_STYLES: { value: PlotDef["style"]; label: string }[] = [
   { value: "line", label: "Line" },

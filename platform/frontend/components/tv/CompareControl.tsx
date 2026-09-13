@@ -10,14 +10,12 @@
  */
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button } from "@/components/ui";
+import { Button, FIELD as SHARED_FIELD } from "@/components/ui";
 import { DEFAULT_BENCHMARK, isSelfCompare } from "@/lib/compare";
 import { tryStoredSymbol } from "@/lib/instrument";
 import { DEFAULT_COMPARE_LENGTH, type PaneCompare } from "@/lib/workspace";
 
-const FIELD =
-  "w-full rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink " +
-  "outline-none focus:border-accent";
+const FIELD = `w-full ${SHARED_FIELD}`;
 
 const MODES: { value: PaneCompare["mode"]; label: string; hint: string }[] = [
   {

@@ -51,6 +51,7 @@ import {
   CATEGORY_LABELS, loadFavourites, loadRecents, searchStudies, toggleFavourite,
 } from "@/lib/native/catalog";
 import type { NativeStudyDef } from "@/lib/native/registry";
+import { FIELD } from "@/components/ui";
 
 type Category =
   | "builtin" | "favourites" | "recents"
@@ -397,7 +398,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         }}
         placeholder="Search this installation’s scripts and templates…"
         aria-label="Search indicators"
-        className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+        className={`w-full ${FIELD}`}
       />
       <p className="mt-1 text-[11px] text-ink-faint">
         Press Enter to add the first result.

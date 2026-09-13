@@ -5,6 +5,7 @@ import {
 } from "@/lib/api";
 import { FREQUENCY_HELP, FREQUENCY_LABELS, INTRABAR_WARNING } from "@/lib/alerts";
 import type { Interval } from "@/lib/types";
+import { FIELD } from "@/components/ui";
 
 const ORDER: AlertFrequency[] = [
   "once_per_bar_close", "once_per_bar", "once_per_minute", "once_only",
@@ -46,7 +47,7 @@ export function FrequencyField({
   const explanation = option?.explanation ?? FREQUENCY_HELP[value];
   const warning = option ? option.warning : (isIntrabarFrequency(value) ? INTRABAR_WARNING : null);
 
-  const box = "w-full rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink outline-none focus:border-accent";
+  const box = `w-full ${FIELD}`;
 
   return (
     <>

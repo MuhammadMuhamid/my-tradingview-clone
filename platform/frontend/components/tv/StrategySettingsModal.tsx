@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button } from "@/components/ui";
+import { Button, FIELD } from "@/components/ui";
 import { ParamForm } from "@/components/ParamForm";
 import { groupsFor, defaultParamsFor } from "@/lib/paramSchema";
 import type { StrategyParams } from "@/lib/types";
@@ -130,7 +130,7 @@ export function StrategySettingsModal({
               value={jsonDraft}
               onChange={(e) => setJsonDraft(e.target.value)}
               rows={16}
-              className="w-full rounded-md border border-border bg-surface-2 p-2 font-mono text-xs text-ink outline-none focus:border-accent"
+              className={`w-full p-2 font-mono !text-xs ${FIELD}`}
             />
             {jsonErr && <p className="text-xs text-down">{jsonErr}</p>}
           </div>
@@ -141,17 +141,17 @@ export function StrategySettingsModal({
             <span className="text-xs text-ink-muted">Initial capital (USDT)</span>
             <input type="number" value={props.initialCapital}
               onChange={(e) => setProps({ ...props, initialCapital: num(e.target.value) })}
-              className="rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent" />
+              className={FIELD} />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs text-ink-muted">Order size</span>
             <div className="flex gap-2">
               <input type="number" value={props.qtyValue ?? props.qtyCash}
                 onChange={(e) => setProps({ ...props, qtyValue: num(e.target.value) })}
-                className="min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent" />
+                className={`min-w-0 flex-1 ${FIELD}`} />
               <select value={props.qtyType ?? "cash"}
                 onChange={(e) => setProps({ ...props, qtyType: e.target.value as "cash" | "percent_of_equity" })}
-                className="rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent">
+                className={FIELD}>
                 <option value="percent_of_equity">% of equity</option>
                 <option value="cash">USDT cash</option>
               </select>
@@ -161,13 +161,13 @@ export function StrategySettingsModal({
             <span className="text-xs text-ink-muted">Commission (% per fill)</span>
             <input type="number" step={0.01} value={props.commissionPct}
               onChange={(e) => setProps({ ...props, commissionPct: num(e.target.value) })}
-              className="rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent" />
+              className={FIELD} />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs text-ink-muted">Slippage (ticks)</span>
             <input type="number" value={props.slippageTicks}
               onChange={(e) => setProps({ ...props, slippageTicks: num(e.target.value) })}
-              className="rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent" />
+              className={FIELD} />
           </label>
           <p className="col-span-2 text-xs text-ink-faint">
             These mirror the Pine strategy() header: cash or percent-of-equity sizing, commission and tick slippage —

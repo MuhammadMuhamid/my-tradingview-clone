@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { safeNextPath } from "@/lib/safeRedirect";
 import { Suspense } from "react";
+import { FIELD } from "@/components/ui";
 
 function LoginForm() {
   const params = useSearchParams();
@@ -38,7 +39,7 @@ function LoginForm() {
     }
   };
 
-  const box = "w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent";
+  const box = `w-full ${FIELD}`;
 
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-16">

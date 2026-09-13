@@ -557,3 +557,30 @@ test("CONTRACT — presentation never re-subscribes the feed or remounts the cha
   assert.match(chart, /volumeBarColorRef\.current\(/,
     "the live tick reads the palette through a ref, not a closure");
 });
+
+test("CONTRACT — a menu that adopts the popover also adopts the ROW", () => {
+  /*
+   * `.tvc-menu` is the container: #1f1f1f, radius 6, 6px of padding. It is
+   * cheap to adopt and two menus adopted only that — the layout selector's
+   * arrangement list and the layout menu's "Open a layout" list — leaving
+   * hand-rolled `px-2 py-1.5` rows at about 28px inside a popover whose whole
+   * contract is 40px. Half the grammar looks more wrong than none of it,
+   * because the padding is right and the rhythm is not.
+   *
+   * The rule: a file that renders `.tvc-menu` must render `.tvc-menu-row` too.
+   *
+   * One principled exception, and it declares itself rather than appearing on
+   * a list here: the drawing style bar is a `role="toolbar"` that borrows the
+   * popover SURFACE — ground, radius, shadow — and has no rows at all, being a
+   * horizontal strip of controls. A toolbar is exempt; a menu is not.
+   */
+  const offenders: string[] = [];
+  for (const file of WORKSTATION) {
+    const src = code(read(file));
+    if (!/\btvc-menu\b/.test(src)) continue;
+    if (/role="toolbar"/.test(src)) continue;
+    if (!/\btvc-menu-row\b/.test(src)) offenders.push(file);
+  }
+  assert.deepEqual(offenders, [],
+    `these open a .tvc-menu and then draw their own rows inside it: ${offenders.join(", ")}`);
+});

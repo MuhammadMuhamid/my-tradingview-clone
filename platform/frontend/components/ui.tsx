@@ -237,7 +237,15 @@ export function Field({ label, children, help }: { label: string; children: Reac
  * `min-h` rather than `h`, because two journal fields raise themselves to 44px
  * for touch and a fixed height would fight them.
  */
-const FIELD = "min-h-[34px] rounded-md border border-control-border bg-transparent px-2.5 "
+/**
+ * The one form-control treatment: an outline on a transparent ground.
+ *
+ * Exported because thirteen files had each written their own copy of the
+ * string it replaced — `border border-border bg-surface-2`, an invisible
+ * hairline over a lighter fill — and a primitive nobody can import is a
+ * primitive that gets retyped slightly differently thirteen times.
+ */
+export const FIELD = "min-h-[34px] rounded-md border border-control-border bg-transparent px-2.5 "
   + "text-sm text-ink outline-none focus:border-accent";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {

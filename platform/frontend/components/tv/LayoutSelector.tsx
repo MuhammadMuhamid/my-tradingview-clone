@@ -219,10 +219,14 @@ export function LayoutSelector({
                   role="menuitemradio"
                   aria-checked={isCurrent}
                   onClick={() => { onChange(preset.id); setOpen(false); }}
-                  className={`flex items-center gap-2.5 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
-                    isCurrent
-                      ? "bg-surface-2 text-ink"
-                      : "text-ink-muted hover:bg-state-hover/60 hover:text-ink"
+                  /*
+                    The row grammar, not a hand-rolled one. These sat at ~28px
+                    inside a popover whose whole contract is 40px rows, and
+                    painted their own selection — `aria-checked` above has been
+                    announcing it all along, so `.tvc-menu-row` can read it.
+                  */
+                  className={`tvc-menu-row gap-2.5 px-2 text-left text-[12px] ${
+                    isCurrent ? "text-ink" : "text-ink-muted"
                   }`}
                 >
                   <span className={isCurrent ? "text-ink" : undefined}>

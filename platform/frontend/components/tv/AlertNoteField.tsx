@@ -1,5 +1,6 @@
 "use client";
 import { NOTE_MAX_LENGTH } from "@/lib/api";
+import { FIELD } from "@/components/ui";
 
 /**
  * The user's own reason for arming an alert.
@@ -40,7 +41,7 @@ export function AlertNoteField({
         rows={2}
         aria-label="Alert note"
         placeholder={placeholder}
-        className="w-full resize-y rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent"
+        className={`w-full resize-y py-2 placeholder:text-ink-faint ${FIELD}`}
       />
       <p className="text-xs text-ink-faint">
         Optional. Shown at the end of the notification, so you know why you set it.

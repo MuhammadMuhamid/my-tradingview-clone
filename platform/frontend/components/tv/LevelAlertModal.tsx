@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
-import { Button } from "@/components/ui";
+import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import {
@@ -128,7 +128,7 @@ export function LevelAlertModal({
     }
   };
 
-  const box = "w-full rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink outline-none focus:border-accent";
+  const box = `w-full ${FIELD}`;
   const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div className="grid grid-cols-[120px_1fr] items-center gap-3">
       <span className="text-sm text-ink-muted">{label}</span>

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { FIELD } from "@/components/ui";
 import {
   FILTER_DEFAULTS,
   type FilterSide, type MaAlert, type MaType, type StAtrMethod,
@@ -137,8 +138,7 @@ export function filterRequestForEdit(f: AlertFilterState): Record<string, unknow
   };
 }
 
-const BOX =
-  "rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm text-ink outline-none focus:border-accent";
+const BOX = FIELD;
 
 export function AlertFiltersField({
   value, onChange,
