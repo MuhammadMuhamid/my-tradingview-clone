@@ -42,8 +42,8 @@ function LoginForm() {
   const box = `w-full ${FIELD}`;
 
   return (
-    <div className="flex min-h-full items-center justify-center px-4 py-16">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-lg border border-border bg-surface p-6 shadow-2xl">
+    <div className="ts-app flex min-h-full items-center justify-center px-4 py-16">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-md border border-border bg-surface p-6 shadow-2xl">
         <h1 className="text-lg font-semibold text-ink">Sign in</h1>
         <p className="mt-1 text-xs text-ink-faint">
           You stay signed in on this device for 90 days.

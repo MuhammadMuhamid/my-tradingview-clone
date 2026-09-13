@@ -5,7 +5,7 @@ function Tile({ label, value, valueClass = "text-ink", sub }: {
   label: string; value: string; valueClass?: string; sub?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-surface px-4 py-3">
+    <div className="rounded-md border border-border bg-surface px-4 py-3">
       <div className="text-xs text-ink-muted">{label}</div>
       <div className={`mt-1 text-xl font-semibold tabular ${valueClass}`}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-ink-faint tabular">{sub}</div>}

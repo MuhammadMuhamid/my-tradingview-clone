@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
-import { Button, Card, CardHeader, Empty, PageShell, Select, TextInput } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, ErrorNotice, Loading, PageShell, Select, TextInput } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { AlertEditor } from "@/components/tv/AlertEditor";
@@ -206,11 +206,8 @@ export default function AlertsPage() {
         </div>
       </div>
 
-      {err && (
-        <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
-          {err}
-        </div>
-      )}
+      {/* TVP8: the raw thrown message was the whole of this banner. */}
+      {err && <ErrorNotice error={err} what="your alerts" />}
 
       <Card>
         <CardHeader
@@ -332,7 +329,7 @@ export default function AlertsPage() {
           </div>
         )}
         {alerts === null ? (
-          <Empty>Loading…</Empty>
+          <Loading>Loading alerts…</Loading>
         ) : alerts.length === 0 ? (
           <Empty>
             No alerts yet. Open a chart, click a price on the scale or the bell next to any SMA or

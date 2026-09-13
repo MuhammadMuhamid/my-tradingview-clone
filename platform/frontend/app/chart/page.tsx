@@ -23,6 +23,7 @@
  * `lib/tradingTarget`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { shortReason } from "@/components/ui";
 import { useAsk } from "@/components/AskDialog";
 import { type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import { ChartPane } from "@/components/tv/ChartPane";
@@ -1849,7 +1850,24 @@ export default function TvWorkspace() {
           onMoreOpen={setMoreOpen}
         />
 
-        {err && <div className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">{err}</div>}
+        {/*
+          TVP8: the raw thrown message WAS this band. Two of the three things
+          that set `err` are `(e as Error).message` straight from `lib/api`, so
+          a failed "apply best config" printed a status line or a URL-encoded
+          route across the top of the chart — which is the exact defect the
+          contract names, on the exact surface it names it for.
+
+          The cause is not discarded: it is the `title`, which is where a bug
+          report gets it from.
+        */}
+        {err && (
+          <div title={err}
+            className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">
+            {err.length > 80 || /\b(4\d\d|5\d\d|fetch|http|\/api\/)/i.test(err)
+              ? `That did not work. ${shortReason(err)}`
+              : err}
+          </div>
+        )}
 
         {/*
           FE-06: a link asked for something. It has not happened yet, and will

@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Card, CardHeader, StatusBadge, Button } from "@/components/ui";
+import { Button, Card, CardHeader, StatusBadge, shortReason } from "@/components/ui";
 import { Metrics } from "@/components/Metrics";
 import { EquityCurve } from "@/components/EquityCurve";
 import { TradeList } from "@/components/TradeList";
@@ -78,7 +78,7 @@ export default function BacktestDetail() {
    * fixed.
    */
   const shell = (body: ReactNode): ReactNode => (
-    <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-4">
+    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
       <div className="flex items-center gap-3">
         <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
         <h1 className="text-lg font-semibold">Backtest</h1>
@@ -115,14 +115,19 @@ export default function BacktestDetail() {
 
       {bt.status !== "done" ? (
         <Card><div className="px-4 py-10 text-center text-ink-faint">
-          {bt.status === "error" ? <span className="text-down">{bt.error}</span> : "Backtest is still running…"}
+          {/* TVP8: `bt.error` was the entire body of this card. */}
+          {bt.status === "error"
+            ? <span className="text-down" title={bt.error ?? undefined}>
+                This backtest failed. {shortReason(bt.error ?? "")}
+              </span>
+            : "Backtest is still running…"}
         </div></Card>
       ) : (
         <>
           {bt.metrics && <Metrics m={bt.metrics} initialCapital={bt.initialCapital} />}
 
           {ot && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs sm:text-sm">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs sm:text-sm">
               <span className="rounded bg-warn/20 px-1.5 py-0.5 text-xs font-semibold text-warn">OPEN TRADE</span>
               <span className="text-ink-muted">Entry <span className="text-ink">{fmtPrice(ot.entryPrice)}</span></span>
               <span className="text-ink-muted">Last <span className="text-ink">{fmtPrice(ot.lastPrice)}</span></span>

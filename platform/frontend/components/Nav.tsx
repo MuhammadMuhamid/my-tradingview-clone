@@ -72,7 +72,16 @@ export function Nav() {
   const tabs = sectionTabsFor(path);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur">
+    /*
+      TVP8: `ts-app` on the nav too.
+      
+      `.tvc-control`, `.tvc-menu` and the 40px menu row are all scoped
+      `:is(.tv-workstation, .ts-app)`, and the nav sits OUTSIDE `<main>` — above
+      every page including the chart. So the theme toggle's `tvc-control` was
+      dead on every route in the product, and the nav's own `role="menu"`
+      adopted none of the popover grammar it was written against.
+    */
+    <header className="ts-app sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur">
       {/*
         A 40px bar, not 52. This sits above every page including the chart, and
         a trading workspace's vertical budget is spent on data — the extra

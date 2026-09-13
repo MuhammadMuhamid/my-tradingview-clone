@@ -172,7 +172,7 @@ export default function ScannerPage() {
   if (unavailable) {
     const unconfigured = /not configured/i.test(error);
     return (
-      <div className="scanner-workspace flex h-full min-h-0 flex-col bg-bg">
+      <div className="ts-app scanner-workspace flex h-full min-h-0 flex-col bg-bg">
         <header className="border-b border-border bg-surface px-3 py-2">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-semibold text-ink">Market Screener</h1>
@@ -209,7 +209,7 @@ export default function ScannerPage() {
   }
 
   return (
-    <div className="scanner-workspace flex h-full min-h-0 flex-col bg-bg">
+    <div className="ts-app scanner-workspace flex h-full min-h-0 flex-col bg-bg">
       <header className="border-b border-border bg-surface px-3 py-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
           <div className="mr-1 min-w-[220px]">

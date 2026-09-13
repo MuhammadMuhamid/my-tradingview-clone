@@ -120,7 +120,7 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
+    <div className="rounded-md border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold text-ink">{title}</h3>
       <div className="mt-2 space-y-2 text-sm leading-6 text-ink-muted">{children}</div>
     </div>
@@ -152,7 +152,7 @@ function Callout({
     critical: "text-down",
   }[tone];
   return (
-    <div className={`rounded-lg border p-3 ${box}`}>
+    <div className={`rounded-md border p-3 ${box}`}>
       <p className={`text-sm font-semibold ${heading}`}>{title}</p>
       <div className="mt-1 space-y-2 text-sm leading-6 text-ink-muted">{children}</div>
     </div>
@@ -190,7 +190,7 @@ function Flow({ label, steps }: { label: string; steps: readonly string[] }) {
 /** Term / meaning pairs. A description list, because that is what it is. */
 function Terms({ rows }: { rows: readonly (readonly [string, ReactNode])[] }) {
   return (
-    <dl className="divide-y divide-border rounded-lg border border-border bg-surface">
+    <dl className="divide-y divide-border rounded-md border border-border bg-surface">
       {rows.map(([term, meaning]) => (
         <div
           key={term}
@@ -206,7 +206,7 @@ function Terms({ rows }: { rows: readonly (readonly [string, ReactNode])[] }) {
 
 function Detail({ summary, children }: { summary: string; children: ReactNode }) {
   return (
-    <details className="rounded-lg border border-border bg-surface px-4 py-3">
+    <details className="rounded-md border border-border bg-surface px-4 py-3">
       <summary className="cursor-pointer text-sm font-medium text-ink">{summary}</summary>
       <div className="mt-2 space-y-2 text-sm leading-6 text-ink-muted">{children}</div>
     </details>
@@ -240,7 +240,7 @@ function A({ href, children }: { href: string; children: ReactNode }) {
 
 export default function GettingStarted() {
   return (
-    <div className="mx-auto max-w-[1100px] px-3 py-4 sm:px-4">
+    <div className="ts-app mx-auto w-full max-w-[1100px] space-y-4 px-3 py-4 sm:px-4">
       <header className="max-w-3xl">
         <h1 className="text-lg font-semibold text-ink">Manual</h1>
         <p className="mt-1 text-sm leading-6 text-ink-muted">
@@ -256,7 +256,7 @@ export default function GettingStarted() {
       </header>
 
       {/* ── Start here: the loop, before the reference ── */}
-      <section id="start" aria-labelledby="start-heading" className="mt-5 scroll-mt-14 rounded-lg border border-accent/30 bg-surface p-4">
+      <section id="start" aria-labelledby="start-heading" className="mt-5 scroll-mt-14 rounded-md border border-accent/30 bg-surface p-4">
         <h2 id="start-heading" className="text-base font-semibold text-ink">Start here — the five-minute loop</h2>
         <p className="mt-1 text-sm leading-6 text-ink-muted">
           Find → inspect → alert → Paper, automate or trade by hand → review. Six steps, each on the
@@ -939,7 +939,7 @@ export default function GettingStarted() {
                   <>The interface can lose its connection while the exchange is perfectly fine. Never resubmit on the strength of a screen that stopped updating: open the order&rsquo;s <C>Timeline</C>, check the <A href="/journal">Journal</A> and Operations&rsquo; delivery state, and if it is still unclear, check the exchange.</>,
                 ],
               ].map(([lead, body], i) => (
-                <li key={i} className="flex gap-3 rounded-lg border border-border bg-surface p-3">
+                <li key={i} className="flex gap-3 rounded-md border border-border bg-surface p-3">
                   <span aria-hidden="true" className="tabular shrink-0 text-sm font-semibold text-ink-faint">
                     {i + 1}
                   </span>

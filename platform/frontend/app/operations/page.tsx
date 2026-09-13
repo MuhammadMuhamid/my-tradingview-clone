@@ -6,7 +6,7 @@ import { api as scannerApi } from "@/lib/scanner/api";
 import {
   buildOperationsOverview, formatDuration, type HealthTone, type ScannerEvidence,
 } from "@/lib/operationsHealth";
-import { Button, Card, CardHeader, Empty, Field, TextInput } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, ErrorNotice, Field, Loading, TextInput } from "@/components/ui";
 
 /**
  * The operator console.
@@ -193,7 +193,7 @@ export default function OperationsPage() {
   // announce as the page's subject, and the Phase 6 QA measures exactly that.
   if (!status) {
     return (
-      <div className="mx-auto max-w-[1100px] space-y-4 px-4 py-6">
+      <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
         <div>
           <h1 className="text-lg font-semibold text-ink">Operations</h1>
           <p className="text-xs text-ink-faint">
@@ -201,9 +201,14 @@ export default function OperationsPage() {
           </p>
         </div>
         <Card>
-          <div role={error ? "alert" : "status"}>
-            <Empty>{error ? `Unable to read authoritative operations status: ${error}` : "Loading operator status…"}</Empty>
-          </div>
+          {/*
+            TVP8: this was one `<Empty>` doing three jobs — the error, the
+            error's raw cause, and the loading state. `Empty` means "there is
+            nothing here", which is not what either of the other two says.
+          */}
+          {error
+            ? <ErrorNotice error={error} what="operator status" />
+            : <Loading>Reading operator status…</Loading>}
         </Card>
       </div>
     );

@@ -154,9 +154,19 @@ test("loading and API error states are explicit and halt/resume confirmations st
 
   const page = fs.readFileSync(path.join(ROOT, "app", "operations", "page.tsx"), "utf8");
   const api = fs.readFileSync(path.join(ROOT, "lib", "api.ts"), "utf8");
-  assert.match(page, /Unable to read authoritative operations status/);
-  assert.match(page, /error \? "alert" : "status"/);
-  assert.match(page, /role="alert"/);
+  /*
+   * TVP8: this used to be one `<Empty>` doing three jobs — the failure, the
+   * failure's RAW cause, and the loading state, with `role` switched between
+   * them. `Empty` means "there is nothing here", which is neither of the other
+   * two, and the raw cause was the most prominent text on the page.
+   *
+   * The roles now come from the shared primitives, so this asserts those and
+   * that the raw message is not the headline.
+   */
+  assert.match(page, /<ErrorNotice error=\{error\} what="operator status" \/>/);
+  assert.match(page, /<Loading>Reading operator status…<\/Loading>/);
+  assert.doesNotMatch(page, /<Empty>\{error/,
+    "a backend's own words are never this page's headline");
   assert.match(page, /setConfirmResume\(true\)/);
   assert.match(page, /Yes, resume trading/);
   assert.match(api, /confirmation: "HALT_TRADING"/);

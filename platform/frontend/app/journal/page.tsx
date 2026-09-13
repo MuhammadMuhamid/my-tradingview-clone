@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Button, Card, Empty, Field, PageShell, Select, TextInput } from "@/components/ui";
+import { Button, Card, Empty, ErrorNotice, Field, Loading, PageShell, Select, TextInput } from "@/components/ui";
 import {
   api, type JournalResponse, type JournalRow, type JournalSource,
   type JournalSummarySlice,
@@ -211,8 +211,9 @@ export default function JournalPage() {
         </form>
       </Card>
 
-      {error && <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</div>}
-      {loading && !data && <div role="status" className="rounded-md border border-border bg-surface px-4 py-10 text-center text-sm text-ink-muted">Loading Journal evidence…</div>}
+      {/* TVP8: the raw thrown message was the whole of this banner. */}
+      {error && <ErrorNotice error={error} what="the Journal evidence" />}
+      {loading && !data && <Loading>Loading Journal evidence…</Loading>}
 
       {data && <>
         <Card>
@@ -258,7 +259,7 @@ export default function JournalPage() {
           </Card>
         </div>}
 
-        <details className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-ink-muted">
+        <details className="rounded-md border border-border bg-surface px-4 py-3 text-xs text-ink-muted">
           <summary className="cursor-pointer font-medium text-ink">Evidence limits</summary>
           <ul className="mt-2 list-disc space-y-1 pl-5">{data.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
         </details>

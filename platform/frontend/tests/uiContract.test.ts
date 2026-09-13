@@ -717,3 +717,40 @@ test("CONTRACT — the product never asks through the browser's own dialog", () 
   assert.match(read("app/layout.tsx"), /<AskProvider>/,
     "the dialog has to be mounted above every page that asks");
 });
+
+test("CONTRACT — every page renders inside the shared grammar", () => {
+  /*
+   * TVP8. `.tvc-control`, `.tvc-menu`, the 40px menu row, `font-size: inherit`
+   * on controls and the 1px focus offset are all scoped in `globals.css` as
+   * `:is(.tv-workstation, .ts-app)`. A page outside both selectors does not
+   * get any of them — and five routes plus the nav were outside.
+   *
+   * It is not subtle once you know: `<Button>` paints hover and selection on a
+   * `::before` chip that only exists inside those selectors, so the four
+   * buttons on Operations and the two on a Research detail had NO hover state
+   * at all, and `variant="ghost"` rendered as bare text. The nav is worse than
+   * a page, because it sits above every route including the chart: the theme
+   * toggle's `tvc-control` was dead everywhere in the product.
+   *
+   * `PageShell` puts the class on for the pages that use it. The four that own
+   * their own full-bleed layout — the Screener's grid, sign-in, and the two
+   * with their own max-width — carry it themselves, which is what this checks.
+   */
+  const ROUTES = sourceFiles("app").filter((f) => f.endsWith("page.tsx"));
+  const offenders: string[] = [];
+  for (const route of ROUTES) {
+    const src = read(route);
+    // A redirect-only route renders nothing to style.
+    if (/redirect\(/.test(src) && !/return \(/.test(src)) continue;
+    const inside = /\bts-app\b/.test(src)
+      || /\btv-workstation\b/.test(src)
+      || /<PageShell\b/.test(src);
+    if (!inside) offenders.push(route);
+  }
+  assert.deepEqual(offenders, [],
+    `outside .ts-app / .tv-workstation, so the control grammar does not apply: ${offenders.join(", ")}`);
+
+  // And the nav, which is above every one of them.
+  assert.match(read("components/Nav.tsx"), /className="ts-app /,
+    "the nav sits outside <main>, so it needs the class itself");
+});

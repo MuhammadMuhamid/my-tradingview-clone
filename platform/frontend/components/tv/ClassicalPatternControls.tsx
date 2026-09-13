@@ -43,7 +43,7 @@ export function ClassicalPatternControls(props: {
   return (
     <details ref={detailsRef} name="chart-pattern-controls"
       className="fixed inset-x-2 bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] z-50 max-h-[60dvh]
-        overflow-auto rounded-lg border border-border bg-surface text-base text-ink shadow-2xl
+        overflow-auto rounded-md border border-border bg-surface text-base text-ink shadow-2xl
         sm:static sm:w-80 sm:max-w-full sm:rounded sm:bg-surface/95 sm:text-xs sm:shadow-xl">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 font-medium">
         <span>Chart patterns · {counts.total}</span>

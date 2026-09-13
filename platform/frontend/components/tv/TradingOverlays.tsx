@@ -58,7 +58,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
       {data && data.items.length > 0 && <span className="rounded-full bg-accent/15 px-1.5 text-[10px] font-semibold text-accent">{data.items.length}</span>}
     </button>
     {open && <div ref={menuRef} role="menu" aria-label="Trading overlay visibility" onKeyDown={onMenuKeyDown}
-      className="absolute right-0 top-full z-50 mt-1 w-[min(19rem,calc(100vw-1rem))] rounded-lg border border-border bg-surface p-3 shadow-xl">
+      className="absolute right-0 top-full z-50 mt-1 w-[min(19rem,calc(100vw-1rem))] rounded-md border border-border bg-surface p-3 shadow-xl">
       <div className="flex items-start justify-between gap-3">
         <div><p className="text-xs font-semibold text-ink">Read-only trading overlays</p>
           <p className="mt-0.5 text-[11px] leading-4 text-ink-faint">Display preferences only. No chart execution.</p></div>
@@ -100,7 +100,7 @@ export function TradingOverlayDetails({ item, onClose }: {
 }) {
   const time = item.eventTime ?? item.observedAt;
   return <aside aria-label="Selected trading overlay evidence"
-    className="fixed bottom-16 left-2 right-2 z-30 max-h-[55%] overflow-auto rounded-lg border border-border bg-surface/95 p-3 shadow-xl backdrop-blur sm:absolute sm:bottom-2 sm:right-auto sm:w-[390px]">
+    className="fixed bottom-16 left-2 right-2 z-30 max-h-[55%] overflow-auto rounded-md border border-border bg-surface/95 p-3 shadow-xl backdrop-blur sm:absolute sm:bottom-2 sm:right-auto sm:w-[390px]">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <div className="flex flex-wrap gap-1.5 text-[10px] font-semibold">

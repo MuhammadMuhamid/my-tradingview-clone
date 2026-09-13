@@ -138,6 +138,48 @@ export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
   );
 }
 
+/**
+ * A backend failure, said the way a reader needs it.
+ *
+ * TVP8: lifted out of `app/shariah/page.tsx`, which was the one page doing
+ * this correctly. `lib/api.ts` sets `Error.message` to the raw status line or
+ * to whatever the backend put in its `error` field, and eight places rendered
+ * that straight out as the most prominent words on the page — a URL-encoded
+ * route path, a 500, or "fixture server has no route for GET /api/…" as a
+ * page's headline. The contract has forbidden that on the chart for a campaign
+ * and nowhere else, because the rule was scoped to the chart.
+ *
+ * The raw cause is kept: it is the tooltip, and it is what a support request
+ * needs. It is just not the headline.
+ */
+export function shortReason(raw: string): string {
+  if (/\b(401|403|unauthor|forbidden)/i.test(raw)) return "You may need to sign in again.";
+  if (/\b(404|no route)/i.test(raw)) return "This environment does not serve it.";
+  if (/\b(5\d\d|timeout|fetch failed|network)/i.test(raw)) return "The service did not answer. Try again shortly.";
+  return "Hover for the reason reported.";
+}
+
+/**
+ * What went wrong, in the reader's words, with the cause on hover.
+ *
+ * One component so that every page says it the same way and none of them has
+ * to remember to pass the raw text to `title` rather than to the body.
+ */
+export function ErrorNotice({ error, what }: {
+  /** The thrown message, as `lib/api` produced it. */
+  error: string;
+  /** What could not be loaded: "the screener", "this backtest". */
+  what: string;
+}) {
+  return (
+    <Notice tone="error" role="alert">
+      <span title={error}>
+        Could not load {what}. {shortReason(error)}
+      </span>
+    </Notice>
+  );
+}
+
 export function Button({
   children, onClick, variant = "default", disabled, type = "button", className = "",
   label, title, pressed,

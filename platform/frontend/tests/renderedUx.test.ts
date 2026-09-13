@@ -176,9 +176,16 @@ test("a placeholder stops claiming that an answer is coming", () => {
 });
 
 test("the optimizer page cannot shrink-wrap wider than a phone viewport", () => {
+  /*
+   * TVP8: both roots now carry `ts-app` and `PageShell`'s own measurements —
+   * `space-y-4 px-3 py-4 sm:px-4` rather than a private `px-4 py-6`. The width
+   * constraint is the point of this test and is unchanged; the class it is
+   * written in is the shared one, and the page is now inside the control
+   * grammar it had been rendering outside of.
+   */
   const optimizers = read("app/optimizers/page.tsx");
   const constrainedRoots = optimizers.match(
-    /className="mx-auto w-full max-w-\[1400px\] px-4 py-6 space-y-4"/g,
+    /className="ts-app mx-auto w-full max-w-\[1400px\] space-y-4 px-3 py-4 sm:px-4"/g,
   );
   assert.equal(constrainedRoots?.length, 2,
     "both the empty and populated optimizer roots need an explicit width inside the flex main");

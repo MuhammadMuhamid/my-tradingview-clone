@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type OptimizerLeaderboard, type OptimizerTree } from "@/lib/api";
-import { Card, CardHeader, Empty, Select } from "@/components/ui";
+import { Card, CardHeader, Empty, ErrorNotice, Loading, Select } from "@/components/ui";
 
 type Metric = "score" | "net" | "dd" | "wr" | "pf" | "trades"
   | "oos" | "oosdd" | "ooswr" | "oostrades" | "held" | "sl" | "oossl";
@@ -205,7 +205,7 @@ export default function OptimizersPage() {
    */
   if (trees && trees.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-[1400px] px-4 py-6 space-y-4">
+      <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
         <div>
           <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
           <p className="text-xs text-ink-faint">
@@ -223,7 +223,7 @@ export default function OptimizersPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 space-y-4">
+    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
       <div>
         <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
         <p className="text-xs text-ink-faint">
@@ -306,10 +306,16 @@ export default function OptimizersPage() {
           halves are green: <span className="text-down">FAILED</span> means the edge did not survive
           on unseen data.
         </p>
-        {treesError ? <Empty>{treesError}</Empty> :
-          error ? <Empty>{error}</Empty> :
+        {/*
+          TVP8: the first two were `<Empty>{rawProviderMessage}</Empty>` — the
+          backend's own words as the page's headline, AND framed as "you have
+          none of these" rather than as a failure. The fourth was `Empty` used
+          for a loading state.
+        */}
+        {treesError ? <ErrorNotice error={treesError} what="the optimizer trees" /> :
+          error ? <ErrorNotice error={error} what="the optimizer results" /> :
           trees?.length === 0 ? <Empty>No optimizer tree is registered on this server.</Empty> :
-          !data ? <Empty>Loading optimizer results…</Empty> :
+          !data ? <Loading>Loading optimizer results…</Loading> :
           data.resultsAvailable === false
             ? <Empty>{`${data.tree.id} is registered but has not produced any results on this machine yet.`}</Empty> :
           rows.length === 0 ? <Empty>No completed results yet.</Empty> : (

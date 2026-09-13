@@ -48,6 +48,18 @@ test("Journal layout adapts without making the page a wide desktop table", () =>
   assert.match(page, /sm:grid-cols-2/);
   assert.doesNotMatch(page, /<table/);
   assert.match(page, /min-h-11/);
-  assert.match(page, /role="alert"/);
-  assert.match(page, /role="status"/);
+  /*
+   * TVP8: the alert and status roles moved INTO the shared primitives —
+   * `ErrorNotice` renders `<Notice role="alert">` and `Loading` renders
+   * `role="status"`. Asserting the raw attribute here would now push the page
+   * back to hand-rolling both, which is the opposite of what this campaign is
+   * for, so the assertion is on the primitives and on the roles they carry.
+   */
+  assert.match(page, /<ErrorNotice error=\{error\}/);
+  assert.match(page, /<Loading>/);
+  const ui = fs.readFileSync(path.join(ROOT, "components", "ui.tsx"), "utf8");
+  assert.match(ui, /<Notice tone="error" role="alert">/,
+    "ErrorNotice is what now carries the alert role for this page");
+  assert.match(ui, /export function Loading\([\s\S]*?role="status"/,
+    "Loading is what now carries the status role");
 });

@@ -148,7 +148,7 @@ export function ChartSettingsModal({
                 two-neutral rule exists precisely for this, and `aria-selected`
                 is already announced, so the chip reads it.
               */
-              className={`tvc-control mb-0.5 flex h-10 w-full items-center rounded-lg px-3 text-left text-sm ${
+              className={`tvc-control mb-0.5 flex h-10 w-full items-center rounded-md px-3 text-left text-sm ${
                 tab === item.id ? "text-ink" : "text-ink-muted hover:text-ink"
               }`}>
               {item.label}
