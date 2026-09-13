@@ -67,6 +67,29 @@ function cssToken(name: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
+/*
+ * The same read, memoised, for the paint paths.
+ *
+ * `getComputedStyle` is a style recalculation, and the drawing layer asks for
+ * the surface once per anchor handle per frame — on a chart with thirty marks
+ * that is a recalc per handle at 60fps. The cache is cleared by the same theme
+ * event every other canvas listens to, and never filled before there is a
+ * document to read, so an SSR fallback cannot poison it.
+ */
+const tokenCache = new Map<string, string>();
+if (typeof window !== "undefined") {
+  window.addEventListener("trading-scene-theme", () => tokenCache.clear());
+}
+
+function cachedToken(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const hit = tokenCache.get(name);
+  if (hit !== undefined) return hit;
+  const value = cssToken(name, fallback);
+  tokenCache.set(name, value);
+  return value;
+}
+
 /**
  * The volume histogram's two colours.
  *
@@ -150,6 +173,114 @@ export function volumePalette(up: string, down: string): (open: number, close: n
 /** The neutral a histogram falls back to before any direction is known. */
 export function chartMuted(): string {
   return cssToken("--ts-chart-muted", CHART_MUTED);
+}
+
+/*
+ * ── What a canvas has to ask for, because it cannot wear a class ───────────
+ *
+ * TVP8 round two: the light theme had never been rendered in this campaign,
+ * and rendering it found eight canvas literals that were only ever correct on
+ * black — every anchor handle filled `#0f0f0f`, a pin's head dot, a watermark
+ * at `rgba(255,255,255,0.06)`, the footprint cells' white numerals, and the
+ * position tool's entry rule, TP and SL in the DARK theme's greys and hues. On
+ * white the handles are ink blots; the watermark and the numerals are
+ * invisible, so the watermark setting appeared to do nothing at all.
+ *
+ * `baseChartOptions` already reads its colours from the tokens. These are the
+ * same idea for the things drawn by hand rather than by the library.
+ */
+
+/**
+ * The pane's own ground.
+ *
+ * What a handle's interior, or any punched-out hole in a mark, should be
+ * filled with so the coloured ring around it reads as a ring rather than as a
+ * disc with a rim.
+ */
+export function chartSurface(): string {
+  return cachedToken("--ts-surface", CHART_SURFACE);
+}
+
+/** Text drawn directly onto the canvas, at full strength. */
+export function chartInk(): string {
+  return cachedToken("--ts-ink", CHART_TEXT_STRONG);
+}
+
+/** A secondary rule or label on the canvas — a position tool's entry line. */
+export function chartInkMuted(): string {
+  return cachedToken("--ts-ink-muted", CHART_TEXT);
+}
+
+/**
+ * What GREEN and RED mean on this canvas, in this theme.
+ *
+ * Not `CHART_UP` / `CHART_DOWN`: those are the DEFAULT CANDLE colours, which
+ * the user can change in chart settings, and a measurement tool reading +2.4%
+ * should not turn purple because somebody recoloured their candles. These are
+ * the theme's own semantics — `#2ebd85` on black, `#089981` on white, the
+ * second being both the reference's light-theme green and 3.57:1 against it
+ * where the dark value manages 2.40:1.
+ */
+export function chartPositive(): string {
+  return cachedToken("--ts-positive", CHART_UP);
+}
+
+export function chartNegative(): string {
+  return cachedToken("--ts-negative", CHART_DOWN);
+}
+
+/**
+ * Ink for text sitting on a chip of `background`.
+ *
+ * The drawing layer's little labels — a measurement's `+2.4% · 3h`, a position
+ * tool's `R:R 2.10` — paint a chip in the DRAWING's colour and write on it,
+ * and that colour is the user's, not the theme's. The text was the literal
+ * `#0f0f0f`, which is right on a bright chip and a smear on a dark one: on
+ * navy, on the position tool's own `--ts-ink-muted` grey, on any of the eight
+ * swatches below the middle of the palette.
+ *
+ * Chosen rather than declared, because there is nothing to declare it from —
+ * and chosen by MEASURING both candidates rather than by thresholding the
+ * chip's lightness. The first version of this did threshold, at luma 0.5, and
+ * it got `#089981` wrong: that colour sits at 0.47, so the rule picked white
+ * (3.57:1) over black (5.37:1). A threshold is a guess at the answer to a
+ * question that can simply be asked.
+ */
+export function readableOn(background: string): string {
+  const hex = expand(background);
+  if (hex === null) return CHART_TEXT_STRONG;
+  const dark = "#0f0f0f", light = "#ffffff";
+  return contrast(dark, hex) >= contrast(light, hex) ? dark : light;
+}
+
+/** WCAG 2.x relative luminance — the gamma-corrected one, not the raw mean. */
+function relativeLuminance(hex: string): number {
+  const channelLight = (value: number): number => {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channelLight(channel(hex, 1))
+    + 0.7152 * channelLight(channel(hex, 3))
+    + 0.0722 * channelLight(channel(hex, 5));
+}
+
+/** WCAG contrast ratio between two opaque six-digit colours, 1 to 21. */
+export function contrast(a: string, b: string): number {
+  const first = expand(a), second = expand(b);
+  if (first === null || second === null) return 1;
+  const l1 = relativeLuminance(first), l2 = relativeLuminance(second);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+/**
+ * The instrument name behind the bars.
+ *
+ * Ink at 6%, not white at 6%: on a light chart the second is the background.
+ * The token is authored `R G B` precisely so a canvas can take an alpha of it.
+ */
+export function chartWatermarkColor(alpha = 0.06): string {
+  const rgb = cachedToken("--ts-ink-rgb", "219 219 219").replace(/\s+/g, ", ");
+  return `rgba(${rgb}, ${alpha})`;
 }
 
 /**

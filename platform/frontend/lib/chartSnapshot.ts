@@ -26,6 +26,8 @@
  * shared screenshot actually needs.
  */
 
+import { chartSurface } from "./chartTheme";
+
 export interface SnapshotCaption {
   symbol: string;
   interval: string;
@@ -64,7 +66,9 @@ export function compositePane(
    * is usually white.
    */
   const ground = getComputedStyle(host).backgroundColor;
-  ctx.fillStyle = ground && ground !== "rgba(0, 0, 0, 0)" ? ground : "#131313";
+  // The fallback is the THEME's surface, not a dark literal: a transparent
+  // host on a light chart would otherwise hand back a black PNG.
+  ctx.fillStyle = ground && ground !== "rgba(0, 0, 0, 0)" ? ground : chartSurface();
   ctx.fillRect(0, 0, box.width, box.height);
 
   for (const canvas of canvases) {
@@ -91,6 +95,8 @@ function drawCaption(
   ctx.textBaseline = "bottom";
   const pad = 8;
   const measured = ctx.measureText(text).width;
+  // Deliberately theme-INDEPENDENT: the caption paints its own dark chip and
+  // writes on that, so it is legible over a white chart and a black one alike.
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   ctx.fillRect(width - measured - pad * 2, height - 24, measured + pad * 2, 24);
   ctx.fillStyle = "rgba(255,255,255,0.82)";

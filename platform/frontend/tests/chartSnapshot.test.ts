@@ -126,7 +126,18 @@ test("the snapshot paints a ground, or a dark chart arrives white", () => {
    */
   const lib = code("lib/chartSnapshot.ts");
   assert.match(lib, /ctx\.fillRect\(0, 0, box\.width, box\.height\)/);
-  assert.match(lib, /ground && ground !== "rgba\(0, 0, 0, 0\)" \? ground : "#131313"/);
+
+  /*
+   * TVP8 round two: the fallback was the literal `#131313`, which on the LIGHT
+   * theme is the same bug in the other direction — a white chart saved with a
+   * near-black ground. It reads the theme's own surface now, so the assertion
+   * is that no colour literal reaches the ground at all.
+   */
+  assert.match(lib, /\? ground : chartSurface\(\)/);
+  const groundLine = /const ground = [\s\S]{0,400}?fillRect\(0, 0, box\.width, box\.height\)/.exec(lib);
+  assert.ok(groundLine, "the ground is no longer painted where this rule can see it");
+  assert.doesNotMatch(groundLine[0], /#[0-9a-fA-F]{3,8}\b/,
+    "the snapshot's ground must come from the theme, not from a literal");
 
   // Every canvas in the pane, in DOM order: the drawing layer is its own
   // canvas and must land over the candles in the file as it does on screen.

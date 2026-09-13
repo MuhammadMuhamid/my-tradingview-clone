@@ -139,3 +139,9 @@ platform [0-9]*/
 /tv_studies.json
 /tv_study_inputs.json
 /page-*.yml
+/console-*.log
+/*.png
+/*.jpeg
+/*.webp
+/*.har
+/trace-*.zip

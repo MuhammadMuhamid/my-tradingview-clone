@@ -12,6 +12,9 @@ import {
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
 import { cloneDrawing } from "@/lib/drawingHistory";
+import {
+  chartInkMuted, chartNegative, chartPositive, chartSurface, readableOn,
+} from "@/lib/chartTheme";
 import { useAsk } from "@/components/AskDialog";
 
 /** What the text dialog calls itself, per tool. */
@@ -1308,7 +1311,10 @@ function drawOne(
     ctx.globalAlpha = 0.92;
     ctx.fillRect(x, y - 11, tw + pad * 2, 15);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#0f0f0f";
+    // Chosen from the chip, not fixed: `bg` defaults to the DRAWING's own
+    // colour, and on the light theme even the semantic green is dark enough
+    // that black text on it reads at 2.2:1.
+    ctx.fillStyle = readableOn(bg);
     ctx.fillText(text, x + pad, y);
     ctx.fillStyle = color;
   };
@@ -1407,7 +1413,7 @@ function drawOne(
       ctx.setLineDash([]);
       for (const point of q) {
         ctx.beginPath(); ctx.arc(point.x, point.y, HANDLE_PX, 0, Math.PI * 2);
-        ctx.fillStyle = "#0f0f0f"; ctx.fill(); ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = chartSurface(); ctx.fill(); ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
       }
     }
     ctx.restore();
@@ -1623,7 +1629,7 @@ function drawOne(
       const bars = Math.round((d.points[1]!.time - d.points[0]!.time) /
         Math.max(1, Math.abs(d.points[1]!.time - d.points[0]!.time) || 1));
       const up = dp >= 0;
-      const tone = up ? "#2ebd85" : "#f6465d";
+      const tone = up ? chartPositive() : chartNegative();
       ctx.strokeStyle = tone; ctx.fillStyle = tone;
       fillAlpha(() => ctx.fillRect(x, y, rw, rh), 0.14);
       ctx.strokeRect(x, y, rw, rh);
@@ -1648,18 +1654,19 @@ function drawOne(
       const rw = Math.max(6, x2 - x1);
       ctx.setLineDash([]);
       // profit zone (entry → target), risk zone (entry → stop)
-      fillAlpha(() => { ctx.fillStyle = "#2ebd85"; ctx.fillRect(x1, Math.min(pe.y, pt.y), rw, Math.abs(pt.y - pe.y)); }, 0.18);
-      fillAlpha(() => { ctx.fillStyle = "#f6465d"; ctx.fillRect(x1, Math.min(pe.y, ps.y), rw, Math.abs(ps.y - pe.y)); }, 0.18);
-      ctx.strokeStyle = "#a8a8a8";
+      fillAlpha(() => { ctx.fillStyle = chartPositive(); ctx.fillRect(x1, Math.min(pe.y, pt.y), rw, Math.abs(pt.y - pe.y)); }, 0.18);
+      fillAlpha(() => { ctx.fillStyle = chartNegative(); ctx.fillRect(x1, Math.min(pe.y, ps.y), rw, Math.abs(ps.y - pe.y)); }, 0.18);
+      const rule = chartInkMuted();
+      ctx.strokeStyle = rule;
       line({ x: x1, y: pe.y }, { x: x1 + rw, y: pe.y });
       const risk = Math.abs(entry.price - stop.price);
       const reward = Math.abs(target.price - entry.price);
       const rr = risk > 0 ? reward / risk : 0;
-      ctx.fillStyle = "#dbdbdb";
-      label(`${d.tool === "long" ? "LONG" : "SHORT"}  R:R ${rr.toFixed(2)}`, x1 + 4, Math.min(pe.y, pt.y) - 6, "#a8a8a8");
-      ctx.fillStyle = "#2ebd85";
+      // No `fillStyle` here: `label` paints its own chip and its own text.
+      label(`${d.tool === "long" ? "LONG" : "SHORT"}  R:R ${rr.toFixed(2)}`, x1 + 4, Math.min(pe.y, pt.y) - 6, rule);
+      ctx.fillStyle = chartPositive();
       ctx.fillText(`TP ${fmtPrice(target.price)}`, x1 + 4, pt.y + (pt.y < pe.y ? 12 : -4));
-      ctx.fillStyle = "#f6465d";
+      ctx.fillStyle = chartNegative();
       ctx.fillText(`SL ${fmtPrice(stop.price)}`, x1 + 4, ps.y + (ps.y > pe.y ? -4 : 12));
       break;
     }
@@ -1670,7 +1677,7 @@ function drawOne(
       if (d.tool === "pin") {
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x - 8, a.y - 18);
         ctx.lineTo(a.x, a.y - 28); ctx.lineTo(a.x + 8, a.y - 18); ctx.closePath(); ctx.fill();
-        ctx.beginPath(); ctx.arc(a.x, a.y - 18, 3, 0, Math.PI * 2); ctx.fillStyle = "#0f0f0f"; ctx.fill();
+        ctx.beginPath(); ctx.arc(a.x, a.y - 18, 3, 0, Math.PI * 2); ctx.fillStyle = chartSurface(); ctx.fill();
         break;
       }
       if (d.tool === "priceNote") {
@@ -1734,7 +1741,9 @@ function drawOne(
     for (const p of q) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, HANDLE_PX, 0, Math.PI * 2);
-      ctx.fillStyle = "#0f0f0f";
+      // The pane's ground, not black: a handle is a coloured RING around a
+      // hole in the chart, and on a white chart `#0f0f0f` is an ink blot.
+      ctx.fillStyle = chartSurface();
       ctx.fill();
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;

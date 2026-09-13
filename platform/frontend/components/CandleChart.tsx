@@ -16,7 +16,7 @@ import { displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import {
   baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_UP, chartMuted, volumePalette,
-  subscribeChartTheme,
+  chartWatermarkColor, subscribeChartTheme,
 } from "@/lib/chartTheme";
 import {
   createDisposalGuard, useChartMeasuring, useDetachChartObserver,
@@ -1021,7 +1021,7 @@ export function CandleChart({
       watermark: {
         visible: settings.watermark,
         text: displayTicker(symbol),
-        color: "rgba(255,255,255,0.06)",
+        color: chartWatermarkColor(),
         fontSize: 64,
         horzAlign: "center",
         vertAlign: "center",
