@@ -23,7 +23,7 @@ export function AlertFeed({ alerts }: { alerts: Alert[] }) {
         </thead>
         <tbody>
           {alerts.map((a) => (
-            <tr key={a.id} className="border-b border-border/50 hover:bg-state-hover">
+            <tr key={a.id} className="border-b border-border/50 hover:bg-surface-2">
               <td className="px-4 py-2">
                 <span className={`rounded px-1.5 py-0.5 text-xs font-semibold uppercase ${a.action === "buy" ? "bg-up/15 text-up" : "bg-down/15 text-down"}`}>
                   {a.action}

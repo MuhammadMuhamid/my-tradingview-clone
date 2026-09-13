@@ -184,12 +184,12 @@ export function ChartTypeMenu({
       aria-checked={t.value === value}
       title={`${t.label} — ${t.hint}`}
       onClick={() => { onChange(t.value); setOpen(false); }}
-      className="tvc-menu-row gap-2.5 px-2.5 text-left text-ink"
+      className="tvc-menu-row gap-2.5 px-2.5 text-left text-sm text-ink"
     >
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0" aria-hidden="true">
         {ICONS[t.value]}
       </svg>
-      <span className="min-w-0 flex-1 truncate text-[13px]">{t.label}</span>
+      <span className="min-w-0 flex-1 truncate">{t.label}</span>
     </button>
   );
 

@@ -162,7 +162,7 @@ export default function DeploymentsPage() {
               <button
                 onClick={() => setPaper(null)}
                 aria-label="Close paper results"
-                className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-state-hover hover:text-ink"
+                className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
               >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
                   <path d="M1 1l9 9M10 1l-9 9" stroke="currentColor" strokeWidth="1.5" />

@@ -654,9 +654,23 @@ export function DrawingCanvas({
           ref={styleBarRef}
           role="toolbar"
           aria-label="Drawing style"
-          className="absolute z-20 flex items-center gap-1 rounded-md border border-border bg-surface px-1.5 py-1 shadow-xl"
+          /*
+           * The bar is measured, not assumed.
+           *
+           * The right-edge clamp was `clientWidth - 300`, a constant chosen
+           * when every variant of this bar was about 300px wide. The `vprange`
+           * variant grows to roughly 520px with its five profile controls, so
+           * selecting a Fixed Range Volume Profile near the right edge pushed
+           * its own controls off the pane. `styleBarRef` is already on the
+           * element; reading its width is exact for every variant and needs no
+           * constant to keep in sync.
+           */
+          className="tvc-menu absolute z-20 flex items-center gap-1 px-1.5 py-1"
           style={{
-            left: Math.max(4, Math.min(selPx.x, (container?.clientWidth ?? 400) - 300)),
+            left: Math.max(4, Math.min(
+              selPx.x,
+              (container?.clientWidth ?? 400) - (styleBarRef.current?.offsetWidth ?? 300) - 4,
+            )),
             top: Math.max(4, selPx.y - 44),
           }}
         >

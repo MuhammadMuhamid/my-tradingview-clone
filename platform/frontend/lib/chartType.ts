@@ -65,6 +65,11 @@ export interface ChartTypeSpec {
 
 export const CHART_TYPES: readonly ChartTypeSpec[] = [
   {
+    value: "bars", label: "Bars", group: "presentation",
+    renderKind: "bars", transform: null,
+    hint: "Open, high, low and close as an OHLC bar",
+  },
+  {
     value: "candles", label: "Candles", group: "presentation",
     renderKind: "candles", transform: null,
     hint: "Open, high, low and close as a filled body with wicks",
@@ -85,11 +90,6 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     value: "volumeCandles", label: "Volume candles", group: "presentation",
     renderKind: "candles", transform: null,
     hint: "Candles shaded by each bar's traded volume",
-  },
-  {
-    value: "bars", label: "Bars", group: "presentation",
-    renderKind: "bars", transform: null,
-    hint: "Open, high, low and close as an OHLC bar",
   },
   {
     value: "line", label: "Line", group: "presentation",

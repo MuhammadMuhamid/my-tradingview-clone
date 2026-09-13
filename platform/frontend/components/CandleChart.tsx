@@ -1404,7 +1404,18 @@ export function CandleChart({
         ? (tick ? rangeBarsAsOhlc(source, tick * settings.rangeTicks, tick) : [])
         : (tick ? footprintBarsAsOhlc(source, Math.max(60_000, resolutionMs(interval)), tick) : []);
       transformHeadRef.current = null;
-      displayRef.current = kind === "range" ? tradeDisplay : [];
+      /*
+       * Both presentations keep their bars here, footprint included.
+       *
+       * Footprint used to store `[]`, because the bars it hands the SERIES are
+       * a transparent anchor and storing them looked like storing nothing. But
+       * `legendSource("footprint")` is `"tradeBar"`, and the tradeBar legend
+       * reads exactly this array — so the OHLC status line was permanently
+       * blank on a footprint chart even when the footprint itself rendered
+       * perfectly. The two things this array feeds are the legend and the
+       * series, and only the series wanted the transparent version.
+       */
+      displayRef.current = tradeDisplay;
       // Footprint keeps a transparent OHLC anchor solely so lightweight-charts
       // supplies a usable price scale; all visible information is painted by
       // FootprintLayer at its individual bid/ask levels.

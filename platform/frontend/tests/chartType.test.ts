@@ -29,8 +29,17 @@ const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf
 const BAR = { openTime: 1_700_000_000_000, open: 10, high: 12, low: 9, close: 11 };
 
 test("only the types this chart actually implements are offered", () => {
+  /*
+   * `bars` leads, as it does in the reference's own menu.
+   *
+   * This list IS the menu's order — the menu renders `CHART_TYPES` in
+   * sequence — so the order is a product decision and belongs in an
+   * assertion. It is not alphabetical and not arbitrary: bars, candles,
+   * hollow, volume candles are the four price-bar forms, and the reference
+   * puts the plainest first.
+   */
   assert.deepEqual(CHART_TYPES.map((t) => t.value), [
-    "candles", "hollowCandles", "volumeCandles", "bars", "line", "lineWithMarkers",
+    "bars", "candles", "hollowCandles", "volumeCandles", "line", "lineWithMarkers",
     "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo", "range", "footprint",
     "heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure",
   ]);
@@ -52,7 +61,7 @@ test("presentations and transforms are separate, and the split is data", () => {
    * is what keeps "display only" meaning something.
    */
   assert.deepEqual(presentations,
-    ["candles", "hollowCandles", "volumeCandles", "bars", "line", "lineWithMarkers",
+    ["bars", "candles", "hollowCandles", "volumeCandles", "line", "lineWithMarkers",
       "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo", "range", "footprint"]);
   assert.deepEqual(transforms, ["heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure"]);
 

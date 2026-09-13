@@ -176,8 +176,8 @@ export function IconButton({
         danger
           ? "text-ink-faint hover:bg-down/15 hover:text-down"
           : active
-            ? "text-ink"
-            : "text-ink-muted hover:bg-state-hover hover:text-ink"
+            ? "bg-surface-2 text-accent"
+            : "text-ink-muted hover:bg-surface-2 hover:text-ink"
       } ${className}`}
     >
       {children}
