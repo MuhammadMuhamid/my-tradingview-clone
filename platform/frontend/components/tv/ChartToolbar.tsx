@@ -405,6 +405,45 @@ function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => v
 }
 
 /**
+ * Compare, in the two places it has to be.
+ *
+ * ── TVP8 round two: below `sm` it did not exist ───────────────────────────
+ *
+ * The `+` beside the symbol carried `hidden sm:flex` and had no second
+ * placement, no keyboard binding and no palette row — and the palette's own
+ * trigger is hidden below `sm` too. So on a 390px phone, comparing one
+ * instrument against another was not a feature that was hard to reach; it was
+ * a feature that was not there.
+ *
+ * Showing it at every width was tried first and MEASURED: at 320px it pushes
+ * `More` 41px past the right edge, which is the same clipping this file's
+ * `ContextActions` docstring records at 8.7px. The row was already exactly
+ * full.
+ *
+ * So it takes the shape every other control that does not fit takes here — one
+ * component, two placements. Beside the symbol at `sm` and above, where the
+ * reference puts it and where a comparison is started from; in the More strip
+ * below, one tap away, beside Indicators and Replay.
+ */
+function CompareButton(props: ChartToolbarProps & { className: string; labelClass: string }) {
+  return (
+    <button
+      {...ctl("compare")}
+      onClick={props.onOpenCompare}
+      title="Compare this chart with another instrument"
+      aria-label="Compare with another instrument"
+      className={`${props.labelClass ? TOOL_BUTTON : TOOL_ICON_BUTTON} ${props.className}`}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+      {props.labelClass && <span className={props.labelClass}>Compare</span>}
+    </button>
+  );
+}
+
+/**
  * Studies and Replay — chart context, but the two pieces of it a 320px phone
  * has no room for.
  *
@@ -575,18 +614,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           chart when no comparison was on. The reference puts this next to the
           symbol, as a `+`, and so does this.
         */}
-        <button
-          {...ctl("compare")}
-          onClick={props.onOpenCompare}
-          title="Compare this chart with another instrument"
-          aria-label="Compare with another instrument"
-          className={`${TOOL_ICON_BUTTON} hidden sm:flex`}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
+        <CompareButton {...props} className="hidden sm:flex" labelClass="" />
 
         <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
 
@@ -694,6 +722,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
         >
           {/* Phone: studies, replay, the workspace actions and the saved layout. */}
           <ContextActions {...props} className="flex sm:hidden" labelClass={density.label} />
+          <CompareButton {...props} className="flex sm:hidden" labelClass={density.label} />
           <WorkspaceActions {...props} className={density.clusterInMore} labelClass={density.label} />
           <SavedLayoutIdentity {...props} className={density.clusterInMore} />
           <Separator className={density.separatorInMore} />
