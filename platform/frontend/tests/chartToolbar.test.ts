@@ -24,6 +24,7 @@ import { DEFAULT_FAVOURITES, timeframeStrip } from "../lib/timeframes";
 import {
   MANUAL_TICKET_ROW_WIDTH, TOOLBAR_CLUSTER_WIDTH, TOOLBAR_CLUSTER_WIDTH_WITH_TICKET,
   TOOLBAR_CONTROLS, TOOLBAR_LABEL_WIDTH, TOOLBAR_LABEL_WIDTH_WITH_TICKET,
+  TOOLBAR_LABEL_WIDTH_WITH_PANEL, WIDGET_PANEL_ROW_WIDTH,
   controlsInGroup, isPrimaryControl, primaryControls, secondaryControls,
   toolbarControl, toolbarDensity, toolbarGroup, toolbarRowWidth, type ToolbarControlId,
 } from "../lib/toolbarLayout";
@@ -585,4 +586,35 @@ test("fullscreen uses the standard API rather than a fixed-position clone", () =
   assert.match(source, /requestFullscreen/);
   assert.match(source, /exitFullscreen/);
   assert.match(source, /fullscreenchange/);
+});
+
+test("TOOLBAR — a widget panel takes width out of the row, like the ticket", () => {
+  /*
+   * The ticket's 341px was accounted for and the widget panel's 300px was not,
+   * so between 1536 and 1836 the labels turned on against a row 300px narrower
+   * than the number that turned them on. Measured at 1440 with a panel open:
+   * a 1036px row against 940px of content, where the same viewport with the
+   * panel closed has 396px of headroom.
+   */
+  assert.equal(WIDGET_PANEL_ROW_WIDTH, 300);
+  assert.equal(TOOLBAR_LABEL_WIDTH_WITH_PANEL, TOOLBAR_LABEL_WIDTH + WIDGET_PANEL_ROW_WIDTH);
+
+  // The row knows about both, separately and together.
+  assert.equal(toolbarRowWidth(1920, false, true), 1920 - 300);
+  assert.equal(toolbarRowWidth(1920, true, true), 1920 - 341 - 300);
+  assert.equal(toolbarRowWidth(1920, false, false), 1920);
+
+  // Labels wait for the wider viewport when the panel is holding 300px.
+  assert.equal(toolbarDensity(TOOLBAR_LABEL_WIDTH, false, false).labels, true);
+  assert.equal(toolbarDensity(TOOLBAR_LABEL_WIDTH, false, true).labels, false);
+  assert.equal(toolbarDensity(TOOLBAR_LABEL_WIDTH_WITH_PANEL, false, true).labels, true);
+
+  // Below `md` the panel is a fixed overlay and takes nothing out of the row.
+  assert.equal(toolbarRowWidth(390, false, true), 390);
+
+  // And the CSS makes the same decision the function does.
+  const src = fs.readFileSync(
+    path.join(__dirname, "..", "components", "tv", "ChartToolbar.tsx"), "utf8");
+  assert.match(src, new RegExp(`min-\\[${TOOLBAR_LABEL_WIDTH_WITH_PANEL}px\\]:inline`),
+    "the panel-open label breakpoint must be the same number");
 });

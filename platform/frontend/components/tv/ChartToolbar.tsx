@@ -139,25 +139,41 @@ const HISTORY_OPTIONS = [
  * anywhere else emits no CSS. `toolbarDensity` there is the same rule as a
  * function, and chartToolbar.test.ts pins the two against each other.
  */
-export function toolbarDensityClasses(ticketOpen: boolean): {
+export function toolbarDensityClasses(ticketOpen: boolean, panelOpen = false): {
   label: string; cluster: string; clusterInMore: string;
   separator: string; separatorInMore: string;
 } {
-  return ticketOpen
-    ? {
+  if (ticketOpen) {
+    return {
       label: "hidden min-[1877px]:inline",
       cluster: "hidden min-[1109px]:flex",
       clusterInMore: "flex min-[1109px]:hidden",
       separator: "hidden min-[1109px]:inline-block",
       separatorInMore: "min-[1109px]:hidden",
-    }
-    : {
-      label: "hidden 2xl:inline",
+    };
+  }
+  /*
+   * A widget panel takes 300px the same way the ticket takes 341, so the
+   * label decision moves by 300: 1536 + 300 = 1836. The CLUSTER decision does
+   * not move, because below `md` the panel is a fixed overlay rather than a
+   * flex sibling and takes nothing out of the row at all.
+   */
+  if (panelOpen) {
+    return {
+      label: "hidden min-[1836px]:inline",
       cluster: "hidden md:flex",
       clusterInMore: "flex md:hidden",
       separator: "hidden md:inline-block",
       separatorInMore: "md:hidden",
     };
+  }
+  return {
+    label: "hidden 2xl:inline",
+    cluster: "hidden md:flex",
+    clusterInMore: "flex md:hidden",
+    separator: "hidden md:inline-block",
+    separatorInMore: "md:hidden",
+  };
 }
 
 /**
@@ -243,6 +259,13 @@ export interface ChartToolbarProps {
    * are measured against.
    */
   ticketOpen: boolean;
+  /**
+   * A widget panel — Watchlist, Studies, MAs, Automate — is open, so it is
+   * taking its own 300px out of this bar's row. Same reason as `ticketOpen`
+   * above, and it was missing: between 1536 and 1836 the labels turned on
+   * against a row 300px narrower than the number that turned them on.
+   */
+  panelOpen: boolean;
   onOpenStrategy: () => void;
   onApplyBest: () => void;
   loadingBest: boolean;
@@ -454,7 +477,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
   const symbolLabel = displaySymbol(symbol);
   const tickerLabel = displayTicker(symbol);
   const { moreOpen, onMoreOpen } = props;
-  const density = toolbarDensityClasses(props.ticketOpen);
+  const density = toolbarDensityClasses(props.ticketOpen, props.panelOpen);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
 
   // Escape closes the More strip, like every other overlay in the workspace.

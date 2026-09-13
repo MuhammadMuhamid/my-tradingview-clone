@@ -1739,6 +1739,7 @@ export default function TvWorkspace() {
              ticket, and therefore under which the toolbar's row is 341px
              narrower than the viewport it is measured against. */
           ticketOpen={panel === "manual" && !replayActive}
+          panelOpen={panel !== null && panel !== "manual"}
           onOpenStrategy={() => setSettingsOpen(true)}
           onApplyBest={() => void applyBestConfig()}
           loadingBest={loadingBest}

@@ -146,18 +146,40 @@ export const TOOLBAR_CLUSTER_WIDTH = 768;
  */
 export const TOOLBAR_LABEL_WIDTH = 1536;
 
+/**
+ * The widget panel — Watchlist, Studies, MAs, Automate — is the OTHER thing
+ * that takes width out of this row, and it was not accounted for.
+ *
+ * The reasoning above is about the manual ticket, and it is right: open the
+ * ticket and `ChartSidePanel` becomes a flex sibling that shrinks the column
+ * the toolbar lives in. The widget panel does exactly the same thing for 300px
+ * and nothing here knew it. Measured at 1440 with the panel open, the row is
+ * 1036px against 940px of content — 96px of headroom, where the same viewport
+ * with the panel closed has 396px. So between 1536 and 1836 the labels turned
+ * on against a row that was 300px narrower than the number that turned them
+ * on, which is the identical mistake the ticket paragraph describes, one size
+ * up.
+ */
+export const WIDGET_PANEL_ROW_WIDTH = 300;
+
 /** The viewports at which the ROW reaches those widths with the ticket open. */
 export const TOOLBAR_CLUSTER_WIDTH_WITH_TICKET = TOOLBAR_CLUSTER_WIDTH + MANUAL_TICKET_ROW_WIDTH;
 export const TOOLBAR_LABEL_WIDTH_WITH_TICKET = TOOLBAR_LABEL_WIDTH + MANUAL_TICKET_ROW_WIDTH;
+/** And with the widget panel open. */
+export const TOOLBAR_LABEL_WIDTH_WITH_PANEL = TOOLBAR_LABEL_WIDTH + WIDGET_PANEL_ROW_WIDTH;
 
 /**
- * How wide the toolbar's own row is. Below `md` the ticket is a fixed overlay
- * rather than a flex sibling, so it takes no width out of the row.
+ * How wide the toolbar's own row is. Below `md` both the ticket and the widget
+ * panel are fixed overlays rather than flex siblings, so neither takes width
+ * out of the row.
  */
-export function toolbarRowWidth(viewport: number, ticketOpen: boolean): number {
-  return ticketOpen && viewport >= TOOLBAR_CLUSTER_WIDTH
-    ? viewport - MANUAL_TICKET_ROW_WIDTH
-    : viewport;
+export function toolbarRowWidth(
+  viewport: number, ticketOpen: boolean, panelOpen = false
+): number {
+  if (viewport < TOOLBAR_CLUSTER_WIDTH) return viewport;
+  return viewport
+    - (ticketOpen ? MANUAL_TICKET_ROW_WIDTH : 0)
+    - (panelOpen ? WIDGET_PANEL_ROW_WIDTH : 0);
 }
 
 export interface ToolbarDensity {
@@ -172,8 +194,10 @@ export interface ToolbarDensity {
  * screen. `ChartToolbar` expresses exactly this in CSS; this function is what
  * makes it assertable without a browser.
  */
-export function toolbarDensity(viewport: number, ticketOpen: boolean): ToolbarDensity {
-  const row = toolbarRowWidth(viewport, ticketOpen);
+export function toolbarDensity(
+  viewport: number, ticketOpen: boolean, panelOpen = false
+): ToolbarDensity {
+  const row = toolbarRowWidth(viewport, ticketOpen, panelOpen);
   return {
     labels: row >= TOOLBAR_LABEL_WIDTH,
     clusterOnPrimaryRow: row >= TOOLBAR_CLUSTER_WIDTH,
