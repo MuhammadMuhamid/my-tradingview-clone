@@ -6,11 +6,28 @@
  * least once, which is the bar for being in this file — it is not a style
  * guide, it is a list of scars.
  *
- * These assert SEMANTICS, not pixels. A Tailwind class string pinned as a
- * proxy for a behaviour is a CSS snapshot wearing a behaviour's name: it fails
- * when the styling is refactored and passes when the behaviour breaks. Where a
- * literal is unavoidable (a measured token value) it is the value the contract
- * documents, and the contract says where it came from.
+ * ── What these rules can and cannot do ────────────────────────────────────
+ *
+ * Every rule here reads SOURCE TEXT. None of them mounts a component, so none
+ * of them can prove a behaviour — and an earlier version of this header
+ * claimed they assert "SEMANTICS, not pixels", which an adversarial pass
+ * rightly called out: several rules are exactly the class-string proxies that
+ * sentence forbids.
+ *
+ * The honest description is narrower and still worth having. These rules
+ * catch a DECISION being reversed: an accent reappearing in a conditional, a
+ * raw symbol reaching a label, a menu drawing its own rows, a monospace face
+ * on a price. They are cheap, they run in milliseconds, and each one exists
+ * because the thing it names actually regressed.
+ *
+ * What they cannot catch is a control that renders correctly and does nothing.
+ * That needs the DOM suite (`tests/dom/`), which mounts and drives, or a
+ * browser. When a rule here reads like a behaviour ("every settings control
+ * reaches something") it is checking the STRUCTURE that behaviour depends on,
+ * not the behaviour — and where that distinction matters the rule says so.
+ *
+ * Where a literal is unavoidable (a measured token value) it is the value the
+ * contract documents, and the contract says where it came from.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -249,6 +266,16 @@ test("CONTRACT — the shared page primitives exist and the unique pages use the
     assert.match(ui, new RegExp(`export function ${primitive}\\b`),
       `${primitive} is part of the shared system`);
   }
+
+  /*
+   * Exported is not adopted. This rule used to assert only that `PageHeader`
+   * EXISTED, and it did — with zero call sites, while its own doc comment
+   * claimed it had unified seventeen headings. A primitive nobody imports is a
+   * second definition of the thing it was meant to replace.
+   */
+  const callers = [...sourceFiles("app")].filter((f) => /<PageHeader\b/.test(read(f)));
+  assert.ok(callers.length > 0,
+    "PageHeader has no call sites — either use it or delete it");
   // The field primitive is an outline on a transparent ground, like the
   // workstation's — it used to be an invisible border over a lighter fill.
   assert.match(ui, /const FIELD = [^;]*border-control-border/);

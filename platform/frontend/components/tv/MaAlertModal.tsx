@@ -91,6 +91,9 @@ export function MaAlertModal({
       setNearMaxPct(match.nearMaxPct);
       setCooldownMin(match.cooldownMin);
       setFrequency(match.frequency);
+      // Including whether it is currently armed: an untouched Update on a
+      // paused alert used to re-arm it silently.
+      setArmed(match.enabled);
       // Saving here upserts, so the dialog must show what the existing alert
       // actually holds — otherwise an untouched Update would silently strip the
       // gates and the note it was armed with.

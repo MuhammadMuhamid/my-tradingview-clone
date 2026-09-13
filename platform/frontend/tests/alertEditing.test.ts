@@ -553,7 +553,7 @@ test("the history bound is the server's own number", () => {
 
 test("ALERTS — every create dialog can arm, and every control reaches the request", () => {
   /*
-   * The edit dialog has always had "Armed"; none of the five create dialogs
+   * The edit dialog has always had "Armed"; none of the four create dialogs
    * did, so every alert was born live. Setting one up in advance meant
    * creating it armed and then finding it in the panel to pause it, with
    * whatever it fired in between already sent.

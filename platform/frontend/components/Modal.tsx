@@ -171,7 +171,15 @@ export function Modal({
             onClick={onClose}
             aria-label="Close"
             // 40px, so it is reachable with a thumb rather than only a pointer.
-            className="-mr-1.5 flex h-10 w-10 items-center justify-center rounded text-ink-muted hover:bg-state-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-accent"
+            /*
+              The most-clicked control in every dialog, and it was the one
+              still doing what `.tvc-control` was written to replace: a
+              full-bleed 4px tint. The ring went with it — `globals.css` draws
+              one `:focus-visible` outline for the whole product, and this
+              stacked a second on top of it, so keyboard focus here was a
+              double halo nothing else has.
+            */
+            className="tvc-control -mr-1.5 flex h-10 w-10 items-center justify-center rounded-md text-ink-muted hover:text-ink"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" />

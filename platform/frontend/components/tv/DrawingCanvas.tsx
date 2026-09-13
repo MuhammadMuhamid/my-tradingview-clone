@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
 import type { Candle } from "@/lib/types";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
@@ -639,6 +639,27 @@ export function DrawingCanvas({
   const selPx = sel ? toPx(sel.points[0]!) : null;
 
   const styleBarRef = useRef<HTMLDivElement>(null);
+  /*
+   * The bar's real width, measured AFTER it has been laid out.
+   *
+   * Reading `styleBarRef.current?.offsetWidth` inline during render returns
+   * `null` on the render where the bar first mounts — which is the only render
+   * that matters, because that is when a freshly selected drawing decides
+   * where its bar goes. The clamp therefore fell through to its fallback every
+   * single time, and the fallback was the 300px constant the measurement was
+   * supposed to replace. Nothing scheduled a second render, so it stayed there.
+   *
+   * `useLayoutEffect` runs before paint, and the equality guard means this
+   * settles in one extra pass and then stops.
+   */
+  const [styleBarWidth, setStyleBarWidth] = useState(0);
+  useLayoutEffect(() => {
+    const measured = styleBarRef.current?.offsetWidth ?? 0;
+    setStyleBarWidth((previous) => (previous === measured ? previous : measured));
+    // Which controls the bar holds — and so how wide it is — is decided by
+    // WHICH drawing is selected and what kind it is: the profile block, the
+    // Anchored-VWAP band count and the fill toggle are all per-tool.
+  }, [sel?.id, sel?.tool]);
   const styleFocusRef = useRef(styleFocusSignal);
   useEffect(() => {
     if (styleFocusSignal === styleFocusRef.current) return;
@@ -661,15 +682,17 @@ export function DrawingCanvas({
            * when every variant of this bar was about 300px wide. The `vprange`
            * variant grows to roughly 520px with its five profile controls, so
            * selecting a Fixed Range Volume Profile near the right edge pushed
-           * its own controls off the pane. `styleBarRef` is already on the
-           * element; reading its width is exact for every variant and needs no
-           * constant to keep in sync.
+           * its own controls off the pane.
+           *
+           * The measurement comes from `styleBarWidth` — taken in a layout
+           * effect — rather than from `styleBarRef.current` read during render,
+           * which is null on the render that positions a newly selected bar.
            */
           className="tvc-menu absolute z-20 flex items-center gap-1 px-1.5 py-1"
           style={{
             left: Math.max(4, Math.min(
               selPx.x,
-              (container?.clientWidth ?? 400) - (styleBarRef.current?.offsetWidth ?? 300) - 4,
+              (container?.clientWidth ?? 400) - (styleBarWidth || 300) - 4,
             )),
             top: Math.max(4, selPx.y - 44),
           }}

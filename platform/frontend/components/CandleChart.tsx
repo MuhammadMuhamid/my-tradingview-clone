@@ -893,6 +893,9 @@ export function CandleChart({
       crosshair: { mode: settings.showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden },
       rightPriceScale: { visible: placement === "right" || placement === "both" },
       leftPriceScale: { visible: placement === "left" || placement === "both" },
+      // `both` shows the axis on both sides; which side the SERIES is bound to
+      // is the effect below, because hiding an axis does not move anything.
+
       timeScale: {
         rightOffset: settings.rightOffsetBars,
         timeVisible: true,
@@ -918,6 +921,34 @@ export function CandleChart({
     settings.scaleFontSize, settings.scalePlacement, settings.rightOffsetBars,
     settings.timeFormat24h, chartReady,
   ]);
+
+  /**
+   * Which SIDE the price series is bound to.
+   *
+   * The effect above turns the axes on and off, and that is all it ever did:
+   * `leftPriceScale.visible` draws an axis, it does not move anything onto it.
+   * The main series never declared a `priceScaleId`, so it stayed on the
+   * library's default `"right"` — and choosing Left therefore hid the only
+   * scale the candles were attached to and revealed an empty one on the other
+   * side. A control that does the opposite of its label is worse than one that
+   * does nothing, and this dialog's own header forbids both.
+   *
+   * `priceScaleId` is in `SeriesOptionsCommon`, so it can be re-applied to a
+   * live series; the library's own wording ("bind NEW series") describes the
+   * default, not a restriction.
+   *
+   * `both` binds to the right and shows both axes. The left one then labels
+   * the same visible range, which is what the reference shows; the engine
+   * cannot attach one series to two scales, so it is the axis that is
+   * duplicated rather than the data.
+   */
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    const side = settings.scalePlacement === "left" ? "left" : "right";
+    try { series.applyOptions({ priceScaleId: side }); }
+    catch { /* the series went away between render and effect */ }
+  }, [settings.scalePlacement, chartType, chartReady]);
 
   /**
    * Plot margins, in percent of pane height.

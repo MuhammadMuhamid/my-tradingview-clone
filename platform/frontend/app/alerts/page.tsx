@@ -171,7 +171,7 @@ export default function AlertsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-ink">Alerts</h1>
-          <p className="text-xs text-ink-faint">
+          <p className="mt-0.5 max-w-3xl text-sm text-ink-muted">
             Price levels and moving averages, evaluated server-side and pushed to your devices —
             the chart does not need to be open.
           </p>

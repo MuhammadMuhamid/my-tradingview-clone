@@ -28,6 +28,7 @@ import {
   controlsInGroup, isPrimaryControl, primaryControls, secondaryControls,
   toolbarControl, toolbarDensity, toolbarGroup, toolbarRowWidth, type ToolbarControlId,
 } from "../lib/toolbarLayout";
+import { toolbarDensityClasses } from "../components/tv/toolbarDensity";
 import {
   enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen, toggleFullscreen,
   watchFullscreen, type FullscreenDocument, type FullscreenTarget,
@@ -54,6 +55,9 @@ const readCode = (rel: string): string =>
   read(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const TOOLBAR = "components/tv/ChartToolbar.tsx";
+/* The breakpoint literals moved here so a test can import the function that
+   returns them; tailwind still scans it, being under components/. */
+const DENSITY = "components/tv/toolbarDensity.ts";
 
 /** Everything the toolbar declares, in source order, as `ctl("id")` markers. */
 function markersInOrder(source: string): { id: string; at: number }[] {
@@ -238,7 +242,7 @@ test("the classes the bar actually ships are the shifted breakpoints, not a seco
   // tailwind.config.ts scans only app/ and components/, so the class names have
   // to live in the component. This is what keeps them and toolbarLayout's
   // arithmetic from drifting apart.
-  const source = read(TOOLBAR);
+  const source = read(DENSITY);
   assert.equal(TOOLBAR_CLUSTER_WIDTH_WITH_TICKET, 1109);
   assert.equal(TOOLBAR_LABEL_WIDTH_WITH_TICKET, 1877);
   for (const variant of [
@@ -254,8 +258,10 @@ test("the classes the bar actually ships are the shifted breakpoints, not a seco
   assert.match(source, /cluster: "hidden md:flex"/);
 
   // The bar can only make this decision if it is told; the page is the only
-  // place that knows the ticket is open.
-  assert.match(source, /ticketOpen: boolean;/);
+  // place that knows the ticket is open. That prop stays on the component
+  // even though the class table moved out of it.
+  assert.match(read(TOOLBAR), /ticketOpen: boolean;/);
+  assert.match(read(TOOLBAR), /panelOpen: boolean;/);
   assert.match(read("app/chart/page.tsx"),
     /ticketOpen=\{panel === "manual" && !replayActive\}/,
     "the flag must be exactly the condition under which the ticket takes row width");
@@ -588,33 +594,53 @@ test("fullscreen uses the standard API rather than a fixed-position clone", () =
   assert.match(source, /fullscreenchange/);
 });
 
-test("TOOLBAR — a widget panel takes width out of the row, like the ticket", () => {
+test("TOOLBAR — the model and the CSS agree in all four combinations", () => {
   /*
    * The ticket's 341px was accounted for and the widget panel's 300px was not,
    * so between 1536 and 1836 the labels turned on against a row 300px narrower
-   * than the number that turned them on. Measured at 1440 with a panel open:
-   * a 1036px row against 940px of content, where the same viewport with the
-   * panel closed has 396px of headroom.
+   * than the number that turned them on. The first fix for that shifted only
+   * the LABEL decision and left the cluster on `md` — so between 768 and 1068
+   * with a panel open the model said the cluster did not fit and the CSS
+   * showed it anyway, and with BOTH open the CSS shifted by the ticket alone.
+   *
+   * This asserts the whole grid rather than the one literal the previous
+   * version pinned, which is the difference between a claim and a guarantee.
    */
   assert.equal(WIDGET_PANEL_ROW_WIDTH, 300);
   assert.equal(TOOLBAR_LABEL_WIDTH_WITH_PANEL, TOOLBAR_LABEL_WIDTH + WIDGET_PANEL_ROW_WIDTH);
 
-  // The row knows about both, separately and together.
   assert.equal(toolbarRowWidth(1920, false, true), 1920 - 300);
   assert.equal(toolbarRowWidth(1920, true, true), 1920 - 341 - 300);
   assert.equal(toolbarRowWidth(1920, false, false), 1920);
+  // Below `md` both are fixed overlays and take nothing out of the row.
+  assert.equal(toolbarRowWidth(390, true, true), 390);
 
-  // Labels wait for the wider viewport when the panel is holding 300px.
-  assert.equal(toolbarDensity(TOOLBAR_LABEL_WIDTH, false, false).labels, true);
-  assert.equal(toolbarDensity(TOOLBAR_LABEL_WIDTH, false, true).labels, false);
-  assert.equal(toolbarDensity(TOOLBAR_LABEL_WIDTH_WITH_PANEL, false, true).labels, true);
-
-  // Below `md` the panel is a fixed overlay and takes nothing out of the row.
-  assert.equal(toolbarRowWidth(390, false, true), 390);
-
-  // And the CSS makes the same decision the function does.
   const src = fs.readFileSync(
-    path.join(__dirname, "..", "components", "tv", "ChartToolbar.tsx"), "utf8");
-  assert.match(src, new RegExp(`min-\\[${TOOLBAR_LABEL_WIDTH_WITH_PANEL}px\\]:inline`),
-    "the panel-open label breakpoint must be the same number");
+    path.join(__dirname, "..", "components", "tv", "toolbarDensity.ts"), "utf8");
+  const TICKET = 341;
+  const PANEL = WIDGET_PANEL_ROW_WIDTH;
+
+  for (const [ticket, panel] of [[false, false], [true, false], [false, true], [true, true]] as const) {
+    const shift = (ticket ? TICKET : 0) + (panel ? PANEL : 0);
+    const labelAt = TOOLBAR_LABEL_WIDTH + shift;
+    const clusterAt = TOOLBAR_CLUSTER_WIDTH + shift;
+    const name = `ticket=${ticket} panel=${panel}`;
+
+    // The model flips exactly at the arithmetic width, and not before.
+    assert.equal(toolbarDensity(labelAt, ticket, panel).labels, true, `${name}: labels at ${labelAt}`);
+    assert.equal(toolbarDensity(labelAt - 1, ticket, panel).labels, false, `${name}: labels below ${labelAt}`);
+    assert.equal(toolbarDensity(clusterAt, ticket, panel).clusterOnPrimaryRow, true, `${name}: cluster at ${clusterAt}`);
+
+    // And the CSS carries that same number, as a literal Tailwind can emit.
+    const classes = toolbarDensityClasses(ticket, panel);
+    const expectLabel = shift === 0 ? "2xl:inline" : `min-[${labelAt}px]:inline`;
+    const expectCluster = shift === 0 ? "md:flex" : `min-[${clusterAt}px]:flex`;
+    assert.ok(classes.label.includes(expectLabel), `${name}: label class ${classes.label} ≠ ${expectLabel}`);
+    assert.ok(classes.cluster.includes(expectCluster), `${name}: cluster class ${classes.cluster} ≠ ${expectCluster}`);
+    // Tailwind only emits what it can see, so the literal must be in the file.
+    if (shift !== 0) {
+      assert.ok(src.includes(`min-[${labelAt}px]`), `${name}: ${labelAt}px missing from the source`);
+      assert.ok(src.includes(`min-[${clusterAt}px]`), `${name}: ${clusterAt}px missing from the source`);
+    }
+  }
 });

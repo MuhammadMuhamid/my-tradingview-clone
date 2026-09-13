@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardHeader, Empty, PageShell, StatusBadge } from "@/components/ui";
+import { Card, CardHeader, Empty, PageHeader, PageShell, StatusBadge } from "@/components/ui";
 import { BacktestForm } from "@/components/BacktestForm";
 import { api } from "@/lib/api";
 import type { Backtest, SymbolInfo } from "@/lib/types";
@@ -43,14 +43,14 @@ export default function BacktestsPage() {
 
   return (
     <PageShell>
-      <div>
-        <h1 className="text-lg font-semibold text-ink">Quick backtest</h1>
-        <p className="text-xs text-ink-faint">
+      <PageHeader
+        title="Quick backtest"
+        description={<>
           Run the strategy (MA + R:R v9) over one symbol and window and inspect every trade it took.
           Parameter spaces, optimizers, walk-forward and research trees belong to the Backtester
           application; this page is the quick historical check.
-        </p>
-      </div>
+        </>}
+      />
       <BacktestForm symbols={symbols} onQueued={() => refresh()} />
 
       <Card>

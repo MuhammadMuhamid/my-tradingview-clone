@@ -106,12 +106,14 @@ import { ProductMenu } from "@/components/tv/ProductMenu";
 import { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
 import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
+import { toolbarDensityClasses } from "@/components/tv/toolbarDensity";
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import type {
   TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse,
 } from "@/lib/tradingOverlays";
 
 export { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
+export { toolbarDensityClasses } from "@/components/tv/toolbarDensity";
 
 const HISTORY_OPTIONS = [
   { label: "2K", bars: 2000 },
@@ -120,61 +122,6 @@ const HISTORY_OPTIONS = [
   { label: "All", bars: 200000 },
 ];
 
-/**
- * The bar's two collapse decisions, as class names.
- *
- * `md:` and `xl:` ask about the VIEWPORT. This row is not the viewport: open
- * the manual ticket and `ChartSidePanel` becomes a static flex sibling that
- * takes 341px out of this column, so at a 1280px screen the row is 939px wide
- * while `xl:` has already turned every text label on. The row then overflowed
- * its column and the saved-layout identity was painted over the ticket's own
- * instrument header — two live controls, one on top of the other.
- *
- * So when the ticket is open the same two decisions are made against the same
- * two widths shifted by the ticket's own width: `md` at 768+341=1109 and `xl`
- * at 1280+341=1621. With the ticket closed nothing changes at all.
- *
- * The literals live here rather than in `lib/toolbarLayout` because
- * tailwind.config.ts only scans app/ and components/, so a class name written
- * anywhere else emits no CSS. `toolbarDensity` there is the same rule as a
- * function, and chartToolbar.test.ts pins the two against each other.
- */
-export function toolbarDensityClasses(ticketOpen: boolean, panelOpen = false): {
-  label: string; cluster: string; clusterInMore: string;
-  separator: string; separatorInMore: string;
-} {
-  if (ticketOpen) {
-    return {
-      label: "hidden min-[1877px]:inline",
-      cluster: "hidden min-[1109px]:flex",
-      clusterInMore: "flex min-[1109px]:hidden",
-      separator: "hidden min-[1109px]:inline-block",
-      separatorInMore: "min-[1109px]:hidden",
-    };
-  }
-  /*
-   * A widget panel takes 300px the same way the ticket takes 341, so the
-   * label decision moves by 300: 1536 + 300 = 1836. The CLUSTER decision does
-   * not move, because below `md` the panel is a fixed overlay rather than a
-   * flex sibling and takes nothing out of the row at all.
-   */
-  if (panelOpen) {
-    return {
-      label: "hidden min-[1836px]:inline",
-      cluster: "hidden md:flex",
-      clusterInMore: "flex md:hidden",
-      separator: "hidden md:inline-block",
-      separatorInMore: "md:hidden",
-    };
-  }
-  return {
-    label: "hidden 2xl:inline",
-    cluster: "hidden md:flex",
-    clusterInMore: "flex md:hidden",
-    separator: "hidden md:inline-block",
-    separatorInMore: "md:hidden",
-  };
-}
 
 /**
  * The tier marker every control carries.

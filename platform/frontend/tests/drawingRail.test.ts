@@ -144,8 +144,49 @@ test("RAIL — every icon-only control has a NAME, not only a tooltip", () => {
    * accessible name.
    */
   const src = source;
-  const buttons = [...src.matchAll(/<button[\s\S]*?>/g)].map((m) => m[0]);
-  const iconOnly = buttons.filter((b) => !/aria-label/.test(b) && /title=/.test(b));
+  /*
+   * Split on `<button`, not matched with a lazy `[\s\S]*?>`.
+   *
+   * That version stopped at the first `>` in the tag — which for
+   * `onClick={() => …}` is the ARROW. Seven of the nine buttons truncated to
+   * `"<button onClick={() =>"`, contained no `title=`, fell out of the filter,
+   * and the assertion ran against an empty array: the rule passed whether or
+   * not those buttons had a name. Caught by an adversarial pass, and it is
+   * verbatim the failure this campaign's own contract test condemns — a rule
+   * that only catches the formatting it was written against.
+   */
+  const buttons = src.split("<button").slice(1).map((chunk) => {
+    // The tag ends at the first `>` that is not inside braces or quotes.
+    let depth = 0, quote = "";
+    for (let i = 0; i < chunk.length; i++) {
+      const c = chunk[i]!;
+      if (quote) { if (c === quote) quote = ""; continue; }
+      if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+      if (c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (c === ">" && depth === 0) return chunk.slice(0, i);
+    }
+    return chunk;
+  });
+  assert.equal(buttons.length, (src.match(/<button/g) ?? []).length);
+  assert.ok(buttons.length >= 8, `only ${buttons.length} buttons parsed`);
+
+  /*
+   * Icon-only means it has no TEXT to be named by — not that it has no
+   * `aria-label`. The flyout rows carry `<span>{t.label}</span>` and are named
+   * by their content, correctly and without an attribute; the rail's own
+   * buttons hold nothing but an `<Icon>` and must say who they are.
+   */
+  const bodies = src.split("<button").slice(1)
+    .map((chunk) => chunk.slice(0, chunk.indexOf("</button>")));
+  const iconOnly = buttons.filter((tag, i) => {
+    // `tag` is the attribute text, already parsed past the arrow functions —
+    // slicing on the first `>` here would land on one of them again, which is
+    // the same mistake one level down.
+    const inner = bodies[i]!.slice(tag.length + 1);
+    const hasText = /<span|\{[a-zA-Z].*\.label\}|>[A-Za-z0-9]/.test(inner);
+    return !hasText && !/aria-label/.test(tag);
+  });
   assert.deepEqual(iconOnly, [],
     "an icon-only rail button must carry aria-label, not only title:\n"
     + iconOnly.map((b) => b.replace(/\s+/g, " ").slice(0, 90)).join("\n"));

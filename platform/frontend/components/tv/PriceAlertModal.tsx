@@ -42,6 +42,10 @@ const DIRECTION_HELP: Record<PriceDirection, string> = {
  * almost always the one already on screen, and retyping it is both friction and
  * an opportunity to fat-finger a decimal.
  */
+/** The cooldown a fresh price alert opens with, named so the initial value
+ *  and the reopen reset cannot drift apart. */
+const DEFAULT_COOLDOWN_MIN = 60;
+
 export function PriceAlertModal({
   open, onClose, symbol, chartTimeframe, resolutionNotice = null, initialPrice, lastPrice,
   lastPriceNotice, existing,
@@ -75,12 +79,20 @@ export function PriceAlertModal({
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState(true);
-  const [cooldownMin, setCooldownMin] = useState(60);
+  const [cooldownMin, setCooldownMin] = useState(DEFAULT_COOLDOWN_MIN);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Reopening must not inherit the previous level, so everything the dialog
-  // pre-fills is recomputed from the props it opened with.
+  /*
+   * Reopening must not inherit the previous level, so everything the dialog
+   * pre-fills is recomputed from the props it opened with.
+   *
+   * "Everything" once meant five of eight: `frequency`, `armed` and
+   * `cooldownMin` were left behind, so an unticked Armed or an edited cooldown
+   * carried into the next, unrelated alert the user created. The comment was
+   * exactly the kind of stated invariant a later reader trusts instead of
+   * re-checking the list, which is how it stayed wrong.
+   */
   useEffect(() => {
     if (!open) return;
     const seed = initialPrice ?? lastPrice;
@@ -88,6 +100,9 @@ export function PriceAlertModal({
     setTimeframe(chartTimeframe);
     setFilters(emptyFilters());
     setNote("");
+    setFrequency(DEFAULT_ALERT_FREQUENCY);
+    setArmed(true);
+    setCooldownMin(DEFAULT_COOLDOWN_MIN);
     setErr(null);
   }, [open, initialPrice, lastPrice, chartTimeframe]);
 
@@ -102,8 +117,19 @@ export function PriceAlertModal({
   useEffect(() => {
     if (!match) return;
     setFrequency(match.frequency);
-    // Saving upserts onto the matched row, so the dialog must show what that
-    // row holds — otherwise an untouched Update strips its gates and its note.
+    /*
+     * Saving upserts onto the matched row, so the dialog must show what that
+     * row holds — otherwise an untouched Update strips its gates and its note.
+     *
+     * `enabled` and `cooldownMin` belong in that list and were missing. The
+     * consequence was worse than a stale field: opening a PAUSED alert showed
+     * "Armed ☑ — starts watching as soon as it is saved", and pressing the
+     * button labelled Update re-armed it. A control that misreports live state
+     * and then mutates it on an untouched save is worse than the missing
+     * control this one was added to be.
+     */
+    setArmed(match.enabled);
+    setCooldownMin(match.cooldownMin);
     setFilters(filtersFromAlert(match));
     setNote(match.note ?? "");
   }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps

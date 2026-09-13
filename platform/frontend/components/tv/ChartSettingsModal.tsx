@@ -38,8 +38,9 @@ import {
   PRECISIONS, PLACEMENTS, precisionLabel,
   type ChartSettings, type PricePrecision, type ScalePlacement,
 } from "@/lib/chartSettings";
-import { chartTypeLabel, renderKind, type ChartType } from "@/lib/chartType";
+import { chartTransform, chartTypeLabel, renderKind, type ChartType } from "@/lib/chartType";
 import { displaySymbol, displayTicker } from "@/lib/instrument";
+import { Button } from "@/components/ui";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
@@ -99,6 +100,24 @@ export function ChartSettingsModal({
   const seriesColoursApply = renderKind(chartType) === "candles"
     && chartType !== "hollowCandles" && chartType !== "highLow";
 
+  /*
+   * The two colour wells reach further than the three toggles beside them.
+   *
+   * They were gated together, on the reasoning that a Line chart has no body
+   * to colour — true of the toggles, and it stopped being true of the wells
+   * the moment the volume histogram started deriving its palette from them.
+   * On a Line, Area, Baseline or Columns chart the volume under the price is
+   * still drawn and still takes `upColor` / `downColor`, so hiding the wells
+   * there removed the only way to recolour it.
+   *
+   * Volume is not drawn under a transform that invents its own bars — Renko,
+   * Kagi, Point & Figure, Line break — and there the wells genuinely reach
+   * nothing, so they stay hidden.
+   */
+  const transform = chartTransform(chartType);
+  const volumeTakesDirectionColours = transform === null || transform === "heikinAshi";
+  const directionColoursApply = seriesColoursApply || volumeTakesDirectionColours;
+
   const cancel = (): void => {
     if (entry) { onSettings(entry.settings); onScale(entry.scale); }
     onClose();
@@ -112,14 +131,8 @@ export function ChartSettingsModal({
       wide
       footer={
         <div className="flex items-center gap-2">
-          <button onClick={cancel}
-            className="tvc-control flex h-[34px] items-center rounded-md border border-control-border px-4 text-sm text-ink">
-            Cancel
-          </button>
-          <button onClick={onClose}
-            className="flex h-[34px] items-center rounded-md bg-accent px-4 text-sm font-medium text-white hover:brightness-110">
-            Ok
-          </button>
+          <Button onClick={cancel} className="px-4">Cancel</Button>
+          <Button variant="primary" onClick={onClose} className="px-4">Ok</Button>
         </div>
       }
     >
@@ -128,8 +141,15 @@ export function ChartSettingsModal({
           {TABS.map((item) => (
             <button key={item.id} role="tab" aria-selected={tab === item.id}
               onClick={() => setTab(item.id)}
-              className={`mb-0.5 flex h-10 w-full items-center rounded-lg px-3 text-left text-sm ${
-                tab === item.id ? "bg-state-hover text-white" : "text-ink-muted hover:bg-state-hover hover:text-ink"
+              /*
+                Selected was `bg-state-hover` — the HOVER neutral — so hovering
+                any sibling painted it identically to the open tab and the only
+                thing left telling them apart was #fff against #dbdbdb ink. The
+                two-neutral rule exists precisely for this, and `aria-selected`
+                is already announced, so the chip reads it.
+              */
+              className={`tvc-control mb-0.5 flex h-10 w-full items-center rounded-lg px-3 text-left text-sm ${
+                tab === item.id ? "text-ink" : "text-ink-muted hover:text-ink"
               }`}>
               {item.label}
             </button>
@@ -153,8 +173,6 @@ export function ChartSettingsModal({
                 <>
               <Row label="Body">
                 <Toggle checked={settings.candleBody} onChange={(v) => set("candleBody", v)} label="Body" />
-                <Swatch value={settings.upColor} onChange={(v) => set("upColor", v)} label="Up colour" />
-                <Swatch value={settings.downColor} onChange={(v) => set("downColor", v)} label="Down colour" />
               </Row>
               <Row label="Borders">
                 <Toggle checked={settings.candleBorders} onChange={(v) => set("candleBorders", v)} label="Borders" />
@@ -163,6 +181,12 @@ export function ChartSettingsModal({
                 <Toggle checked={settings.candleWicks} onChange={(v) => set("candleWicks", v)} label="Wick" />
               </Row>
                 </>
+              )}
+              {directionColoursApply && (
+                <Row label={seriesColoursApply ? "Up / down" : "Up / down (volume)"}>
+                  <Swatch value={settings.upColor} onChange={(v) => set("upColor", v)} label="Up colour" />
+                  <Swatch value={settings.downColor} onChange={(v) => set("downColor", v)} label="Down colour" />
+                </Row>
               )}
 
               {/*

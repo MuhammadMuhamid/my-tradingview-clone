@@ -273,9 +273,19 @@ eye and trash resolve to the API that owns the study.
 
 ## 7. Unique product pages
 
-Research, Shariah, Screener, Optimizer, Trading, Alerts, Journal, Operations,
-Getting started use the **same** design system and keep their own information
-architecture.
+These pages use the **same** design system and keep their own information
+architecture. Adoption is not uniform, and this section states where it is not
+rather than implying otherwise:
+
+| page | shell | notes |
+|---|---|---|
+| Research, Shariah, Trading, Alerts, Journal | `PageShell` | the five that adopted it; Research uses `PageHeader` |
+| Screener | its own `.scanner-workspace` | a full-bleed grid with a header of live filters, not a page title; `PageShell` would box it |
+| Optimizer, Operations, Getting started | hand-rolled `max-w-[1400px] px-4 py-6` | the same measurements `PageShell` applies, not yet the same component |
+
+The last row is an honest gap, not a decision. It was written here as done
+before it was, which is how it survived: a contract that describes an intention
+as a fact stops anyone checking.
 
 Shared primitives live in `components/ui.tsx`: `PageShell`, `PageHeader`,
 `Card`, `CardHeader`, `Button`, `IconButton`, `Field`, `TextInput`, `Select`,

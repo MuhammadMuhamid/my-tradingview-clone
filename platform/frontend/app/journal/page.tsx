@@ -173,7 +173,7 @@ export default function JournalPage() {
     <PageShell width="narrow">
       <header>
         <h1 className="text-lg font-semibold text-ink">Journal</h1>
-        <p className="mt-0.5 max-w-3xl text-xs leading-5 text-ink-faint">
+        <p className="mt-0.5 max-w-3xl text-sm leading-5 text-ink-muted">
           What happened, newest first — manual orders, automated signals and paper fills, with the fill,
           the position and the result where the record proves them. The sums beneath are known realized
           performance from persisted evidence; Timeline explains what happened to one order. Unknown economics stay unknown.

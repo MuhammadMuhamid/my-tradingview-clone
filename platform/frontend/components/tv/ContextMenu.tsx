@@ -170,7 +170,7 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
       >
         {items.map((entry, index) => {
           if (isSeparator(entry)) {
-            return <div key={entry.id} role="separator" className="my-1 border-t border-border" />;
+            return <div key={entry.id} role="separator" className="tvc-menu-sep" />;
           }
           const focused = index === cursor;
           return (
@@ -213,7 +213,10 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
                 rather than typed: a dingbat renders as a different glyph, or as
                 nothing at all, depending on the font that resolves.
               */}
-              <span className="flex w-3 shrink-0 justify-center text-accent">
+              {/* In ink, not accent: a tick beside "Logarithmic" is the row
+                  saying it is ON, which is selection — and selection in this
+                  product is never blue. */}
+              <span className="flex w-3 shrink-0 justify-center">
                 {entry.checked && (
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor"
                     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

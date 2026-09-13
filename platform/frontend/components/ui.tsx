@@ -162,11 +162,25 @@ export function Button({
   /** Two-state toggle, so the state is announced and not only tinted. */
   pressed?: boolean;
 }) {
+  /*
+   * One button shape, at the control height the contract measured.
+   *
+   * `default` was a FILLED chip — `bg-surface-2` with an invisible
+   * `border-border` outline — which is the same pre-TVP7 idiom the field
+   * primitive already reversed, and at 32px it was a third height beside the
+   * 34px controls in the settings dialog and the ~30px ones in the drawing
+   * dialog. Three Cancel buttons in three dialogs a user opens within a minute
+   * of each other is the clearest internal tell a copy can have, so there is
+   * now one: an outline on a transparent ground, 34px, radius 6.
+   *
+   * `ghost` keeps no background of its own and takes the state chip instead of
+   * a full-bleed tint.
+   */
   const styles = {
-    default: "bg-surface-2 text-ink hover:bg-border border border-border",
+    default: "border border-control-border bg-transparent text-ink tvc-control",
     primary: "bg-accent text-white hover:bg-accent/90",
-    danger: "bg-down/15 text-down hover:bg-down/25 border border-down/30",
-    ghost: "text-ink-muted hover:text-ink hover:bg-state-hover",
+    danger: "border border-down/30 bg-down/15 text-down hover:bg-down/25",
+    ghost: "tvc-control text-ink-muted hover:text-ink",
   }[variant];
   return (
     <button
@@ -176,7 +190,7 @@ export function Button({
       {...(label === undefined ? {} : { "aria-label": label })}
       {...(title === undefined ? {} : { title })}
       {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
-      className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${styles} ${className}`}
+      className={`inline-flex h-[34px] items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed ${styles} ${className}`}
     >
       {children}
     </button>

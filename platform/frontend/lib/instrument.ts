@@ -229,13 +229,19 @@ export function sameInstrument(a: string, b: string): boolean {
 }
 
 /**
- * How an instrument would be named on screen once there is more than one venue.
+ * The instrument's QUALIFIED identity — venue, pair, asset class.
  *
- * Bare while there is exactly one, because a `BINANCE:` prefix on every label
- * is noise that says nothing the header does not already say — which is why no
- * component calls this yet. It exists so that the day a second venue is
- * implemented, the answer is decided here rather than in forty JSX expressions
- * that each grew their own rule.
+ * This once said "no component calls this yet", written when it was a
+ * placeholder for a second venue. It is now the other half of the symbol
+ * display policy and sixteen call sites depend on it: `displayTicker` is what
+ * a CONTROL shows, and this is what a tooltip, an accessible name or a
+ * confirmation says, so the identity is always one hover away from the ticker
+ * without a `BINANCE:` prefix cluttering the bar.
+ *
+ * It still degrades on purpose: with exactly one venue implemented it returns
+ * the bare ticker rather than a prefix that says nothing the header does not
+ * already say. The day a second venue lands, that answer changes here rather
+ * than in sixteen JSX expressions that each grew their own rule.
  */
 export function displaySymbol(raw: string): string {
   const canonical = canonicalDisplayParts(raw);

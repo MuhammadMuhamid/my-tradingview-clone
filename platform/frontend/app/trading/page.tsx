@@ -128,8 +128,8 @@ export default function DeploymentsPage() {
     <PageShell>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold">Automations</h1>
-          <p className="text-sm text-ink-faint">
+          <h1 className="text-lg font-semibold text-ink">Automations</h1>
+          <p className="mt-0.5 max-w-3xl text-sm text-ink-muted">
             {activeCount} running · a strategy watching one symbol and timeframe, acting on each confirmed bar close.
             Paper simulates fills; Live sends real Spot orders to the execution bot. Notification alerts are separate, under Alerts.
           </p>

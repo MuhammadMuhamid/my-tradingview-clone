@@ -4,7 +4,7 @@
  * Whether the alert being created is live the moment it is saved.
  *
  * The edit dialog has always had this — `AlertEditor` calls it "Armed" — and
- * none of the five CREATE dialogs did. Every alert was born armed, so setting
+ * none of the four CREATE dialogs did. Every alert was born armed, so setting
  * one up in advance meant creating it live and then finding it in the panel to
  * pause it, with whatever it would have fired in between already sent.
  *
@@ -13,7 +13,7 @@
  * (`platform/backend/src/api/routes/maAlerts.ts`), so this is a control over
  * something that exists rather than a switch invented in the UI.
  *
- * One component rather than five copies, for the same reason `FrequencyField`
+ * One component rather than four copies, for the same reason `FrequencyField`
  * is one: the word and the sentence under it have to say the same thing in
  * every dialog, and "Armed" means nothing on its own.
  */

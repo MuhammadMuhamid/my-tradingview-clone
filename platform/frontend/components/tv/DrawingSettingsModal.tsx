@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { PALETTE, TEXT_TOOLS, type Drawing } from "@/lib/drawings";
 import { isResolution, NATIVE_RESOLUTIONS, type Resolution } from "@/lib/resolution";
+import { Button } from "@/components/ui";
 
 /*
  * `TEXT_TOOLS` is imported, not re-declared.
@@ -38,7 +39,10 @@ export function DrawingSettingsModal({
   const updatePoint = (index: number, key: "time" | "price", value: number) => setDraft((current) => current ? { ...current, points: current.points.map((point, i) => i === index ? { ...point, [key]: value } : point) } : current);
 
   return <Modal open onClose={onClose} title={`${draft.tool[0]?.toUpperCase() ?? "Drawing"}${draft.tool.slice(1)} settings`} wide
-    footer={<><button onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm text-ink-muted hover:bg-state-hover">Cancel</button><button onClick={() => { onChange(draft); onClose(); }} className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90">Apply</button></>}>
+    footer={<>
+      <Button onClick={onClose}>Cancel</Button>
+      <Button variant="primary" onClick={() => { onChange(draft); onClose(); }}>Apply</Button>
+    </>}>
     <div className="flex min-h-[340px] gap-5">
       <nav aria-label="Drawing settings sections" className="w-36 shrink-0 border-r border-border pr-3">
         {(["style", "text", "coordinates", "visibility"] as Tab[]).map((id) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} disabled={id === "text" && !TEXT_TOOLS.has(draft.tool)} className={`mb-0.5 flex min-h-8 w-full items-center rounded px-2.5 text-left text-sm capitalize ${tab === id ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"}`}>{id}</button>)}
