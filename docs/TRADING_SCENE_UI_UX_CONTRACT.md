@@ -159,6 +159,33 @@ Do not introduce a fourth radius or a third control height.
 
 ---
 
+### Chrome does not float
+
+Nothing in the shell is `position: fixed` over the workspace. The theme toggle
+was, for a while — blurred, drop-shadowed, 10px radius, bottom-right of every
+page, on top of the price axis — and it was the first thing an experienced
+TradingView user noticed, before touching a control. No workstation floats a
+chrome control over its own canvas.
+
+There is always somewhere for it to go: the chart has `ProductMenu` and every
+other page has `Nav`'s control row. Put it there.
+
+### One button, one field, one row
+
+Three primitives, and the rule for each is that a second definition is a bug:
+
+- `Button` in `components/ui.tsx` — 34px, radius 6, an outline on a transparent
+  ground. There were three Cancel buttons in three dialogs at three heights.
+- `FIELD`, same file, exported — thirteen files had retyped the string it
+  replaces. Notice PANELS are a different thing and keep `bg-surface-2`.
+- `.tvc-menu-row` — a popover that adopts `.tvc-menu` adopts the row too. Half
+  the grammar looks more wrong than none, because the padding is right and the
+  rhythm is not.
+
+Icons are drawn, never typed. `×`, `▼` and a fullwidth `＋` were scattered
+across six controls; `CloseGlyph`, `CaretGlyph` and `PlusGlyph` exist so the
+seventh is an import.
+
 ### One face, and where the other one is allowed
 
 The product is set in the UI sans (`--ts-font-ui`). Monospace is a second
@@ -358,6 +385,10 @@ from being lost — §9 has the test:
 |---|---|
 | every colour token a component uses is declared | `tests/theme.test.ts` |
 | the canvas follows the theme: no fixed volume palette, both themes state a weight, the mix matches TradingView's measured bar, shorthand hex included | `tests/uiContract.test.ts` |
+| nothing in globals.css is `position: fixed` over the workspace | `tests/uiContract.test.ts` |
+| a menu that adopts `.tvc-menu` adopts `.tvc-menu-row` too (a `role="toolbar"` borrowing the surface is exempt) | `tests/uiContract.test.ts` |
+| `PageHeader` has real call sites, not just an export | `tests/uiContract.test.ts` |
+| the toolbar model and its CSS agree in all four ticket/panel combinations | `tests/chartToolbar.test.ts` |
 | the indicator engine agrees with TradingView's own numbers on identical bars | `tests/tradingViewNumericParity.test.ts` |
 | presentation never re-subscribes the feed or remounts the chart | `tests/uiContract.test.ts` |
 | a symbol reaches the user through displayTicker/displaySymbol, never raw | `tests/uiContract.test.ts` |
