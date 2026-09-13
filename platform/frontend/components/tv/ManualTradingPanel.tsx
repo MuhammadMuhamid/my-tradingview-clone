@@ -20,6 +20,7 @@ import {
 import {
   manualTradingPollingAllowed, noteManualTradingFailure,
 } from "@/lib/manualTradingPolling";
+import { displayTicker } from "@/lib/instrument";
 
 const newRequestId = (): string => window.crypto.randomUUID();
 const n = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
@@ -347,7 +348,7 @@ export function ManualTradingPanel({
    * MARKET" states nothing and only makes the disabled button taller.
    */
   const orderSummary = amount.trim() === "" ? null
-    : `${amount} ${amountUnit} ${symbol}${
+    : `${amount} ${amountUnit} ${displayTicker(symbol)}${
       orderType === "LIMIT" ? ` @ ${limitPrice || "—"} LIMIT` : " MARKET"}`;
 
   const commandBody = (selected: ManualAccount, requestId: string) => ({ requestId, accountId: selected.id,
@@ -470,7 +471,7 @@ export function ManualTradingPanel({
     */}
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
       <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-warn" />
-      <span className="truncate text-sm font-semibold text-ink">{symbol}</span>
+      <span className="truncate text-sm font-semibold text-ink">{displayTicker(symbol)}</span>
       {lastPrice !== null && (
         <span className="tabular text-[11px] text-ink-muted">{fmtPrice(lastPrice)}</span>
       )}
@@ -542,7 +543,7 @@ export function ManualTradingPanel({
       <div data-testid="manual-ticket-target"
         className="flex items-center justify-between rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5">
         <span className="text-[11px] uppercase tracking-wide text-ink-muted">Trading</span>
-        <span className="text-sm font-semibold text-ink">{symbol}</span>
+        <span className="text-sm font-semibold text-ink">{displayTicker(symbol)}</span>
       </div>
       {/*
         * Held on this instrument while another pane is focused.
@@ -555,7 +556,7 @@ export function ManualTradingPanel({
       {targetNotice && <p role="status" data-testid="manual-ticket-pinned"
         className="text-xs text-warn">{targetNotice}</p>}
       {disarmedFrom && <p role="status" className="text-xs text-warn">
-        Ticket cleared: it was prepared for {disarmedFrom}, and the chart now shows {symbol}.
+        Ticket cleared: it was prepared for {disarmedFrom}, and the chart now shows {displayTicker(symbol)}.
       </p>}
       {staleTicket && <p role="alert" className="text-xs text-down">{staleTicket}</p>}
       {sandboxAccounts.length === 0 && <p role="alert" className="text-xs text-warn">
@@ -616,22 +617,22 @@ export function ManualTradingPanel({
         </button>
       </div>
       {!quote && <p className="text-[11px] text-ink-muted">
-        No live quote for {symbol} right now. The last chart close is
+        No live quote for {displayTicker(symbol)} right now. The last chart close is
         {lastPrice ? ` ${fmtPrice(lastPrice)}` : " unavailable"} — that is a last
         trade, not a bid or an ask.</p>}
-      {/* Order type: the reference's underlined tab row, over the two types
+      {/* Order type: a tab row on the workstation's own selected chip, over the two types
           this product supports. Nothing here offers an unsupported type. */}
       <div className="flex border-b border-border" role="tablist" aria-label="Order type">
         {ORDER_TYPES.map((t) => <button key={t.id} role="tab" aria-selected={orderType === t.id}
           onClick={() => setOrderType(t.id)}
-          className={`-mb-px flex-1 border-b-2 pb-1.5 text-[13px] font-medium transition-colors ${
-            orderType === t.id ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"}`}>
+          className={`tvc-control flex-1 rounded py-1 text-[13px] font-medium ${
+            orderType === t.id ? "text-ink" : "text-ink-muted hover:text-ink"}`}>
           {t.label}</button>)}
       </div>
       {side === "SELL" && activePositions.length > 0 && (
         <div>
           <label htmlFor="manual-position" className="mb-1 block text-[11px] font-medium text-ink-muted">
-            Manual position on {symbol} (required when tracked)
+            Manual position on {displayTicker(symbol)} (required when tracked)
           </label>
           <select id="manual-position" value={positionId}
             onChange={(e) => { arm(setPositionId)(e.target.value);
@@ -821,7 +822,7 @@ export function ManualTradingPanel({
         disabled={pending || !account?.testnet}>{pending ? "Submitting…" : `Confirm ${side}`}</Button></>}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
         <dt className="text-ink-muted">Account</dt><dd>{account?.name ?? "—"}</dd><dt className="text-ink-muted">Mode</dt><dd>{mode}</dd>
-        <dt className="text-ink-muted">Symbol</dt><dd>{symbol}</dd><dt className="text-ink-muted">Side / type</dt><dd>{side} · {orderType}</dd>
+        <dt className="text-ink-muted">Symbol</dt><dd>{displayTicker(symbol)}</dd><dt className="text-ink-muted">Side / type</dt><dd>{side} · {orderType}</dd>
         <dt className="text-ink-muted">Amount</dt><dd>{amount} {side === "BUY" ? "USDT quote" : "base"}</dd>
         {orderType === "LIMIT" && <><dt className="text-ink-muted">Limit price</dt><dd>{limitPrice}</dd></>}
         <dt className="text-ink-muted">TP / SL</dt><dd>{tp || "none"} / {sl || "none"}</dd>

@@ -12,10 +12,19 @@
  *
  * Measured against the live reference, replay is not a banner at all. It is a
  * 38px strip of CHART CHROME below the time axis and above the date-range row:
- * transparent, no border, no radius, no shadow, controls centred as one group
- * with the exit pinned right. The mode is stated by the toolbar's replay
- * button taking the ordinary selected chip — which it already does — not by
- * colouring a row of the workspace blue.
+ * no radius, no shadow, controls centred as one group with the exit pinned
+ * right. The mode is stated by the toolbar's replay button taking the ordinary
+ * selected chip — which it already does — not by colouring a row of the
+ * workspace blue.
+ *
+ * One deliberate difference, and it is a consequence of layout rather than of
+ * taste. The reference's strip floats INSIDE the chart area, so it is
+ * transparent and needs no edge. This one is a sibling row between the pane
+ * grid and the bottom workstation, so it carries `bg-surface` — the same
+ * colour as the chart canvas it continues, which is why it still reads as
+ * chrome — and a `border-t` hairline, which is the same separator the
+ * date-range row below it uses. Transparent here would not look like the
+ * reference; it would look like a row that forgot to paint.
  *
  * Two consequences beyond appearance. The banner pushed every pane down by its
  * own height for the whole session, so entering replay moved the chart. And

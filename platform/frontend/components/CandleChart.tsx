@@ -12,7 +12,7 @@ import { INTERVAL_MS, type Candle, type Trade } from "@/lib/types";
 import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
-import { isCanonicalInstrumentId } from "@/lib/instrument";
+import { displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import {
   baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_UP, chartMuted, volumePalette,
@@ -480,6 +480,8 @@ export function CandleChart({
   onCrosshairMove, crosshairTime,
   onVisibleRangeChange, visibleRange, followEdgeTime,
   onIndicatorPaneAction,
+  canIndicatorAction,
+  hiddenStudies,
   priceScale, onPriceScaleChange, resetSignal, drawingStyleFocusSignal, paneActive,
   chartSettings,
 }: {
@@ -569,6 +571,17 @@ export function CandleChart({
    * rather than controls that would act on somebody else's list.
    */
   onIndicatorPaneAction?: (paneId: string, action: PaneAction) => void;
+  /**
+   * Whether a price-pane overlay is a study the action above can move.
+   *
+   * The price pane's legend also carries the moving-average panel, Anchored
+   * VWAPs and volume-profile drawings, none of which is in a study list. The
+   * owner of those lists answers this; without an answer the legend renders
+   * no actions at all rather than three that do nothing.
+   */
+  canIndicatorAction?: (key: string) => boolean;
+  /** Applied but switched off — see `IndicatorLegend`'s `hidden`. */
+  hiddenStudies?: { id: string; title: string }[];
   /**
    * The price scale's mode, if a surface outside this chart owns it.
    *
@@ -2408,7 +2421,7 @@ export function CandleChart({
           */}
           {identity === undefined && settings.statusSymbol && (
             <>
-              <span className="font-semibold text-ink">{symbol}</span>
+              <span className="font-semibold text-ink">{displayTicker(symbol)}</span>
               <span>· {interval} ·</span>
             </>
           )}
@@ -2490,6 +2503,11 @@ export function CandleChart({
           time={indicatorHoverTime}
           startCollapsed={compact || groupedOverlays.price.length > 6}
           className="max-w-full rounded bg-surface/75 px-1 py-0.5"
+          /* The same key and the same resolver the indicator panes use. */
+          onAction={onIndicatorPaneAction
+            && ((key, action) => onIndicatorPaneAction(`indicator:${key}`, action))}
+          canAction={canIndicatorAction}
+          hidden={hiddenStudies}
         />
       ) : (groupedOverlays.price.length > 0 || groupedOverlays.panes.length > 0
         || (visibleMarkers?.length ?? 0) > 0 || (visibleTrades?.length ?? 0) > 0

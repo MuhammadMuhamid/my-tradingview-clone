@@ -74,7 +74,7 @@ function PresetThumbnail({ preset, size = 18 }: { preset: LayoutPreset; size?: n
  */
 function CurrentMark() {
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
+    <span className="ml-auto flex shrink-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
       <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
         strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M2.5 6.5l2.5 2.5 4.5-5.5" />
@@ -153,14 +153,12 @@ export function LayoutSelector({
         title={defaultPresetFor(n).label}
         className={`tabular flex h-7 shrink-0 items-center justify-center gap-1.5 rounded px-1.5 text-[12px] ${
           withThumbnail ? "min-w-[46px]" : "min-w-[28px]"
-        } ${
-          isBrowsing
-            ? "bg-surface-2 font-semibold text-ink border border-accent/60"
-            : "border border-transparent text-ink-muted hover:bg-state-hover/60 hover:text-ink"
+        } tvc-control ${
+          isBrowsing ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
         }`}
       >
         {withThumbnail && (
-          <span className={isCurrent ? "text-accent" : "text-ink-faint"}>
+          <span className={isCurrent ? "text-ink" : "text-ink-faint"}>
             <PresetThumbnail preset={defaultPresetFor(n)} size={14} />
           </span>
         )}
@@ -227,7 +225,7 @@ export function LayoutSelector({
                       : "text-ink-muted hover:bg-state-hover/60 hover:text-ink"
                   }`}
                 >
-                  <span className={isCurrent ? "text-accent" : undefined}>
+                  <span className={isCurrent ? "text-ink" : undefined}>
                     <PresetThumbnail preset={preset} />
                   </span>
                   {preset.label}

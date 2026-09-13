@@ -16,7 +16,7 @@ import {
  */
 export function IndicatorLegend({
   overlays, time, className = "", startCollapsed = false, collapsible = true,
-  title,
+  title, onAction, canAction, hidden = [],
 }: {
   overlays: ChartOverlay[];
   time: number | null;
@@ -36,6 +36,47 @@ export function IndicatorLegend({
    * two apart is worked out where all the panes are known, and handed down.
    */
   title?: string;
+  /**
+   * Act on one study from its own legend row: hide it, open its settings,
+   * remove it.
+   *
+   * A study in its OWN pane already had these — `IndicatorPane` puts them in
+   * the pane header. A study overlaid on the PRICE pane had none of them
+   * anywhere on the chart: hiding an EMA meant leaving the chart, finding it
+   * in the Studies panel and clicking a gear there. The reference puts them on
+   * the legend row for both kinds, which is the only place a user looks when
+   * the thing they want to act on is the line in front of them.
+   *
+   * The key handed back is the instance's, and it is the same key
+   * `ChartPane.paneAction` already resolves against the native and Pine study
+   * lists — no second lookup, and no second definition of what a study is.
+   */
+  onAction?: (instanceId: string, action: "hide" | "settings" | "remove") => void;
+  /**
+   * Whether this instance is a study that `onAction` can actually move.
+   *
+   * Not every line on the price pane is a study. The moving-average panel, an
+   * Anchored VWAP and a volume-profile drawing all publish overlays through
+   * the same legend, and none of them lives in a study list — wiring a trash
+   * can to them would put three dead controls on the most-used surface in the
+   * product, which is the exact defect this campaign already fixed once on the
+   * indicator panes. Without this predicate the row stays a label.
+   */
+  canAction?: (instanceId: string) => boolean;
+  /**
+   * Studies that are applied but switched off, so the eye is not a one-way door.
+   *
+   * A hidden instance emits no overlays anywhere in this product, so hiding one
+   * removed it from the legend completely — the control that turned it off was
+   * the same control that made it unreachable, and the only way back was the
+   * Studies panel. The reference keeps a hidden study's row exactly where it
+   * was, dimmed, with its eye closed.
+   *
+   * Panes are built from overlays too, so a hidden pane study has no pane left
+   * to sit in either. Its row lands here, which is the one place still on
+   * screen where a user can put it back.
+   */
+  hidden?: { id: string; title: string }[];
 }) {
   const [collapsed, setCollapsed] = useState(startCollapsed && collapsible);
   // Follows the layout when the viewport crosses the phone breakpoint, but
@@ -43,12 +84,14 @@ export function IndicatorLegend({
   useEffect(() => { setCollapsed(startCollapsed && collapsible); }, [startCollapsed, collapsible]);
 
   const groups = useMemo(() => {
-    const byInstance = new Map<string, { title: string; params: string; plots: ChartOverlay[] }>();
+    const byInstance = new Map<string,
+      { id: string; title: string; params: string; plots: ChartOverlay[] }>();
     for (const overlay of overlays) {
       const id = overlay.instanceId ?? overlay.id;
       const existing = byInstance.get(id);
       if (existing) existing.plots.push(overlay);
       else byInstance.set(id, {
+        id,
         title: overlay.instanceTitle || overlay.title,
         params: overlay.instanceParams ?? "",
         plots: [overlay],
@@ -60,7 +103,7 @@ export function IndicatorLegend({
       : list;
   }, [overlays, title]);
 
-  if (groups.length === 0) return null;
+  if (groups.length === 0 && hidden.length === 0) return null;
   return (
     <div className={`flex items-start gap-1 text-[13px] leading-5 tabular ${className}`}>
       {collapsible && (
@@ -118,7 +161,7 @@ export function IndicatorLegend({
             */
             <div key={`${group.title}:${index}`}
               title={group.params ? `${group.title} ${group.params}` : group.title}
-              className="flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
+              className="group/study flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
               <span className="shrink-[3] truncate font-semibold text-ink">{group.title}</span>
               {group.params && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
               {group.plots.map((plot) => (
@@ -135,10 +178,85 @@ export function IndicatorLegend({
                   </span>
                 </span>
               ))}
+              {onAction && canAction?.(group.id) && (
+                /*
+                  Revealed on hover or focus rather than reserving width: the
+                  legend sits over the candles and a permanent three-button
+                  cluster on every study would cover more of the chart than
+                  the names do. `pointer-events-auto` is on the cluster only —
+                  the text above stays transparent to the pointer so a drawing
+                  drag that starts near the top-left still reaches the canvas.
+                */
+                <span className="pointer-events-auto ml-0.5 flex shrink-0 items-center gap-0.5
+                  opacity-0 transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
+                  <StudyButton label={`Hide ${group.title}`}
+                    onClick={() => onAction(group.id, "hide")}>
+                    <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
+                    <circle cx="12" cy="12" r="2.6" />
+                  </StudyButton>
+                  <StudyButton label={`${group.title} settings`}
+                    onClick={() => onAction(group.id, "settings")}>
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                  </StudyButton>
+                  <StudyButton label={`Remove ${group.title}`}
+                    onClick={() => onAction(group.id, "remove")}>
+                    <path d="M5 5l14 14M19 5L5 19" />
+                  </StudyButton>
+                </span>
+              )}
             </div>
           ))
         )}
+        {!collapsed && onAction && hidden.map((study) => (
+          <div key={`hidden:${study.id}`}
+            title={`${study.title} — applied, not drawn`}
+            className="group/study flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
+            <span className="shrink truncate font-semibold text-ink-faint line-through
+              decoration-1">{study.title}</span>
+            <span className="pointer-events-auto flex shrink-0 items-center gap-0.5 opacity-60
+              transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
+              <StudyButton label={`Show ${study.title}`}
+                onClick={() => onAction(study.id, "hide")}>
+                {/* An eye with a stroke through it: the same glyph, switched off. */}
+                <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
+                <path d="M3 3l18 18" />
+              </StudyButton>
+              <StudyButton label={`Remove ${study.title}`}
+                onClick={() => onAction(study.id, "remove")}>
+                <path d="M5 5l14 14M19 5L5 19" />
+              </StudyButton>
+            </span>
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * One action on one study, sized to sit inside a 20px legend row.
+ *
+ * A real `<button>` rather than a span with a handler, so the cluster is
+ * reachable by keyboard — which is also what makes `focus-within` able to
+ * reveal it for someone who never uses a pointer.
+ */
+function StudyButton(
+  { label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }
+) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={(event) => { event.stopPropagation(); onClick(); }}
+      className="flex h-[18px] w-[18px] items-center justify-center rounded text-ink-faint
+        transition-colors hover:bg-state-hover hover:text-ink"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {children}
+      </svg>
+    </button>
   );
 }

@@ -90,7 +90,7 @@ export default function BacktestDetail() {
   if (err && !bt) return shell(
     <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">
       This backtest could not be loaded.
-      <span className="mt-1 block font-mono text-xs text-ink-faint">{err}</span>
+      <span className="mt-1 block text-xs text-ink-faint">{err}</span>
     </div>
   );
   if (!bt) return shell(<div role="status" className="text-ink-faint">Loading…</div>);
@@ -109,7 +109,7 @@ export default function BacktestDetail() {
       {err && (
         <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
           This page stopped updating.
-          <span className="ml-1 font-mono text-ink-faint">{err}</span>
+          <span className="ml-1 text-ink-faint">{err}</span>
         </div>
       )}
 

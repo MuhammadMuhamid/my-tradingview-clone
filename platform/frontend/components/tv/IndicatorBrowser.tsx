@@ -530,6 +530,8 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
           })}
           {category === "onChart" && filtered.map((s) => (
             <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
+              {/* accent-is-meaning: a script KIND — data about the row, which the
+                  contract names as legitimate accent. */}
               <span className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${
                 s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
               }`}>
@@ -563,6 +565,8 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
             const count = appliedCount(s);
             return (
               <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
+                {/* accent-is-meaning: a script KIND — data about the row, which the
+                    contract names as legitimate accent. */}
                 <span className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${
                   s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
                 }`}>

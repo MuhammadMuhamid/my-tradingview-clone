@@ -304,11 +304,8 @@ function InputRow({ input, value, sources, onChange }: {
             aria-checked={value === true}
             aria-label={input.title}
             onClick={() => onChange(!(value === true))}
-            className={`rounded px-3 py-1 text-sm transition-colors ${
-              value === true
-                ? "bg-accent/15 font-medium text-accent"
-                : "bg-surface-2 text-ink-muted"
-            }`}
+            /* `aria-checked` above already announces it; the chip follows that. */
+            className="tvc-control rounded px-3 py-1 text-sm text-ink-muted"
           >
             {value === true ? "On" : "Off"}
           </button>
@@ -337,6 +334,9 @@ function StyleRow({ plot, override, value, onChange }: {
           aria-checked={visible}
           aria-label={`Show ${plot.title}`}
           onClick={() => onChange({ visible: !visible })}
+          // accent-is-meaning: a filled CHECKBOX. An accent tick-box is the
+          // universal convention and the reference's own; it is not the
+          // product's "this row is selected" chip.
           className={`h-4 w-4 shrink-0 rounded-sm border transition-colors ${
             visible ? "border-accent bg-accent" : "border-border bg-surface-2"
           }`}

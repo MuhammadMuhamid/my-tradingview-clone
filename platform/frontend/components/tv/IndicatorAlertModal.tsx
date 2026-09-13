@@ -15,6 +15,7 @@ import {
   type RsiTarget, type StAtrMethod, type StochasticTarget,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
+import { displayTicker } from "@/lib/instrument";
 
 /** The timeframes a level or oscillator alert can be armed on in one pass. */
 const TIMEFRAMES: Interval[] = ["5m", "15m", "1h", "4h"];
@@ -205,7 +206,7 @@ export function IndicatorAlertModal({
         });
       }
       onSaved(
-        `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${symbol} · ` +
+        `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${displayTicker(symbol)} · ` +
         `${timeframes.join(", ")}`
       );
       onClose();
@@ -253,7 +254,7 @@ export function IndicatorAlertModal({
       onClose={onClose}
       title={
         <>
-          {COPY[kind].title} alert on <span className="text-accent">{symbol}</span>
+          {COPY[kind].title} alert on <span className="text-accent">{displayTicker(symbol)}</span>
         </>
       }
       footer={
@@ -466,9 +467,9 @@ export function IndicatorAlertModal({
                 key={tf}
                 type="button"
                 onClick={() => toggleTf(tf)}
-                className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                  on ? "border-accent bg-accent/15 text-accent" : "border-border text-ink-muted hover:text-ink"
-                }`}
+                className="tvc-control rounded-md border border-control-border px-3 py-1.5
+                  text-sm text-ink-muted hover:text-ink"
+                aria-pressed={on}
               >
                 {tf}
               </button>

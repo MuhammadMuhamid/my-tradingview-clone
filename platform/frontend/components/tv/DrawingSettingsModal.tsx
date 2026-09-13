@@ -92,6 +92,11 @@ function VisibilityEditor({ draft, interval, onChange }: {
   const toggle = (resolution: Resolution) => onChange(
     selected.includes(resolution) ? selected.filter((item) => item !== resolution) : [...selected, resolution]
   );
+  /*
+   * accent-is-meaning: "you are here". The accent marks which timeframe the
+   * chart is currently on, among a set of checkboxes — a fact about the
+   * chart, not a statement that this box is ticked. The tick is the tick.
+   */
   return <div className="space-y-3"><h3 className="text-sm font-semibold text-ink">Visibility</h3><p className="text-sm leading-relaxed text-ink-muted">Show this drawing only on selected chart timeframes. Leave every box clear to show it everywhere.</p><div className="grid grid-cols-2 gap-2">{resolutions.map((resolution) => <label key={resolution} className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs ${interval === resolution ? "border-accent/60" : "border-border"}`}><input type="checkbox" checked={selected.includes(resolution)} onChange={() => toggle(resolution)} />{resolution}{interval === resolution ? <span className="text-[10px] text-accent">current</span> : null}</label>)}</div><div className="rounded border border-border bg-surface-2 px-3 py-2 text-xs text-ink-faint">{selected.length === 0 ? "Visibility: Every timeframe" : `Visible on ${selected.length} timeframe${selected.length === 1 ? "" : "s"}`}</div></div>;
 }
 

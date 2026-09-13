@@ -148,6 +148,8 @@ export function SyncMenu({
                       a pill that is simply a different colour when on is state
                       told by colour alone.
                     */}
+                    {/* accent-is-meaning: the word echoes the switch beside it,
+                        which is accent by the same universal convention. */}
                     <span className={`ml-1.5 text-[10px] font-semibold uppercase tracking-wide ${
                       on ? "text-accent" : "text-ink-faint"
                     }`}>
@@ -159,6 +161,7 @@ export function SyncMenu({
                 {/* A switch, not a checkbox: these are continuing states. */}
                 <span
                   aria-hidden
+                  // accent-is-meaning: a SWITCH track.
                   className={`relative h-[18px] w-[32px] shrink-0 rounded-full transition-colors ${
                     on ? "bg-accent" : "bg-border"
                   }`}

@@ -228,6 +228,7 @@ export function IndicatorsPanel({
               >
                 {s.name}
               </button>
+              {/* accent-is-meaning: a script KIND — data about the row. */}
               <span className={`rounded px-1 text-[9px] font-semibold uppercase ${
                 s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
               }`}>

@@ -142,6 +142,8 @@ export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, 
           </button>
         ))}
         <span
+          // accent-is-meaning: the paper-trading badge — data that is
+          // categorically ours, named as legitimate accent by the contract.
           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
             paper ? "bg-accent/15 text-accent" : "border border-warn/40 bg-warn/15 text-warn"
           }`}

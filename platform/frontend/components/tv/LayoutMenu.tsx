@@ -228,6 +228,7 @@ export function LayoutMenu({
             >
               <span className="flex-1">
                 Autosave
+                {/* accent-is-meaning: the word echoes its own switch, as in SyncMenu. */}
                 <span className={`ml-1.5 text-[10px] font-semibold uppercase tracking-wide ${
                   autosave ? "text-accent" : "text-ink-faint"
                 }`}>
@@ -239,6 +240,7 @@ export function LayoutMenu({
                   </span>
                 )}
               </span>
+              {/* accent-is-meaning: a SWITCH track. */}
               <span className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${autosave ? "bg-accent" : "bg-border"}`}>
                 <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${autosave ? "left-[18px]" : "left-0.5"}`} />
               </span>
@@ -256,7 +258,7 @@ export function LayoutMenu({
                         aria-current={l.id === currentId ? "true" : undefined}
                         className="flex-1 px-3.5 py-1.5 text-left"
                       >
-                        <div className={`text-[13px] ${l.id === currentId ? "font-semibold text-accent" : "text-ink"}`}>
+                        <div className={`text-[13px] text-ink ${l.id === currentId ? "font-semibold" : ""}`}>
                           {l.name}{l.id === currentId ? " — open" : ""}
                         </div>
                         <div className="text-xs text-ink-faint">{l.symbol}, {l.interval}</div>

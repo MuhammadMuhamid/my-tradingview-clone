@@ -688,7 +688,9 @@ export function DrawingCanvas({
             <button
               key={wd}
               onClick={() => applyStyle({ width: wd })}
-              className={`px-1 text-[11px] ${sel.style.width === wd ? "text-accent" : "text-ink-muted hover:text-ink"}`}
+              className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
+              aria-pressed={sel.style.width === wd}
+              aria-label={`${wd}px line`}
               title={`${wd}px`}
             >
               {wd}
@@ -707,9 +709,7 @@ export function DrawingCanvas({
                 <button
                   key={n}
                   onClick={() => applyStyle({ bands: n })}
-                  className={`px-1 text-[11px] ${
-                    (sel.style.bands ?? 0) === n ? "text-accent" : "text-ink-muted hover:text-ink"
-                  }`}
+                  className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
                   aria-pressed={(sel.style.bands ?? 0) === n}
                   aria-label={n === 0 ? "No deviation bands" : `${n} standard-deviation band${n === 1 ? "" : "s"}`}
                   title={n === 0 ? "No bands" : `±${n}σ`}
@@ -760,9 +760,7 @@ export function DrawingCanvas({
                 onClick={() => applyProfile({
                   split: profileStyle.split === "upDown" ? "total" : "upDown",
                 })}
-                className={`px-1 text-[11px] ${
-                  profileStyle.split === "upDown" ? "text-accent" : "text-ink-muted hover:text-ink"
-                }`}
+                className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
                 aria-pressed={profileStyle.split === "upDown"}
                 aria-label={profileStyle.split === "upDown"
                   ? "Show total volume per row"
@@ -785,9 +783,7 @@ export function DrawingCanvas({
               </button>
               <button
                 onClick={() => applyProfile({ showPoc: !profileStyle.showPoc })}
-                className={`px-1 text-[11px] ${
-                  profileStyle.showPoc ? "text-accent" : "text-ink-muted hover:text-ink"
-                }`}
+                className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
                 aria-pressed={profileStyle.showPoc}
                 aria-label={profileStyle.showPoc
                   ? "Hide the point-of-control line" : "Show the point-of-control line"}
@@ -799,14 +795,16 @@ export function DrawingCanvas({
           )}
           <button
             onClick={() => applyStyle({ dashed: !sel.style.dashed })}
-            className={`px-1 text-[11px] ${sel.style.dashed ? "text-accent" : "text-ink-muted hover:text-ink"}`}
+            className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
+            aria-pressed={Boolean(sel.style.dashed)}
+            aria-label={sel.style.dashed ? "Draw this solid" : "Draw this dashed"}
             title="Dashed"
           >
             ┄
           </button>
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
-            className={`flex h-5 w-5 items-center justify-center rounded ${sel.style.filled ? "text-accent" : "text-ink-muted hover:bg-state-hover hover:text-ink"}`}
+            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
             title="Fill"
             aria-label={sel.style.filled ? "Remove the fill" : "Fill the shape"}
             aria-pressed={Boolean(sel.style.filled)}
@@ -820,7 +818,7 @@ export function DrawingCanvas({
           <span className="mx-0.5 h-4 w-px bg-border" />
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
-            className={`flex h-5 w-5 items-center justify-center rounded ${sel.locked ? "text-accent" : "text-ink-muted hover:bg-state-hover hover:text-ink"}`}
+            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
             title={sel.locked ? "Unlock" : "Lock"}
             aria-label={sel.locked ? "Unlock this drawing" : "Lock this drawing"}
             aria-pressed={Boolean(sel.locked)}

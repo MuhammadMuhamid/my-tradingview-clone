@@ -13,6 +13,7 @@ import {
   type AlertFrequency, type MaAlertMode, type PivotType, type SrSide,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
+import { displayTicker } from "@/lib/instrument";
 
 /**
  * Arm a support/resistance or pivot-level alert.
@@ -116,7 +117,7 @@ export function LevelAlertModal({
         });
       }
       onSaved(
-        `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${symbol} · ` +
+        `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${displayTicker(symbol)} · ` +
         `${timeframes.join(", ")}`
       );
       onClose();
@@ -139,7 +140,7 @@ export function LevelAlertModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={<>Level alert on <span className="text-accent">{symbol}</span></>}
+      title={<>Level alert on <span className="text-accent">{displayTicker(symbol)}</span></>}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -204,9 +205,9 @@ export function LevelAlertModal({
                 key={tf}
                 type="button"
                 onClick={() => toggleTf(tf)}
-                className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                  on ? "border-accent bg-accent/15 text-accent" : "border-border text-ink-muted hover:text-ink"
-                }`}
+                className="tvc-control rounded-md border border-control-border px-3 py-1.5
+                  text-sm text-ink-muted hover:text-ink"
+                aria-pressed={on}
               >
                 {tf}
               </button>

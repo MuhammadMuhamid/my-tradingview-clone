@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { nativeOnlyNotice, storedIntervalFor } from "@/lib/timeframes";
 import { type Resolution } from "@/lib/resolution";
+import { displaySymbol, displayTicker } from "@/lib/instrument";
 import { EquityCurve } from "@/components/EquityCurve";
 import { TradeList } from "@/components/TradeList";
 import { Separator, StatusBadge } from "@/components/ui";
@@ -183,7 +184,16 @@ export function StrategyTester({
           </svg>
         </button>
         <Separator />
-        <span className="text-xs text-ink-faint">{symbol} {timeframe}</span>
+        {/*
+          The ticker, not the URN. This line printed
+          `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot 15m` across the
+          tester's toolbar — the canonical id as primary copy, which is the
+          one thing the symbol display policy exists to prevent. The
+          qualified identity is the tooltip, as it is everywhere else.
+        */}
+        <span className="text-xs text-ink-faint" title={displaySymbol(symbol)}>
+          {displayTicker(symbol)} {timeframe}
+        </span>
         <input type="date" value={start} aria-label="Backtest start date"
           onChange={(e) => setStart(e.target.value)} className={inputBox} />
         <span aria-hidden="true" className="text-xs text-ink-faint">&rarr;</span>
@@ -202,15 +212,15 @@ export function StrategyTester({
         )}
         {run && <StatusBadge status={run.status} />}
         {err && <span className="text-xs text-down">{err}</span>}
-        <div className="ml-auto flex gap-4" role="tablist" aria-label="Strategy tester results">
+        <div className="ml-auto flex gap-1" role="tablist" aria-label="Strategy tester results">
           {(["overview", "trades"] as const).map((t) => (
             <button
               key={t}
               role="tab"
               aria-selected={tab === t}
               onClick={() => setTab(t)}
-              className={`flex h-7 items-center border-b-2 text-xs font-medium capitalize ${
-                tab === t ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"
+              className={`tvc-control flex h-7 items-center rounded px-2 text-xs font-medium capitalize ${
+                tab === t ? "text-ink" : "text-ink-muted hover:text-ink"
               }`}
             >
               {t === "trades" ? `List of trades${trades.length ? ` (${trades.length})` : ""}` : "Overview"}

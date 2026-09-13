@@ -156,8 +156,14 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
              * selected chip instead of an accent-blue underline. The two INNER
              * strips in this panel (the tester's result tabs, the trading
              * strip's sub-tabs) already carried tab semantics; the outermost
-             * ones — the only three a user meets on load — carried none, and
-             * were the last accent-blue selection in the shell.
+             * ones — the only three a user meets on load — carried none.
+             *
+             * This used to end "and were the last accent-blue selection in the
+             * shell". They were not: the tester's result tabs, the strategy
+             * dialog's tabs and the order-type tabs all kept an accent
+             * underline for another two waves, because the rule that was
+             * supposed to catch them only matched a ternary written on one
+             * line. All three are on this chip now.
              */
             aria-selected={tab === id && !collapsed}
             onClick={() => {

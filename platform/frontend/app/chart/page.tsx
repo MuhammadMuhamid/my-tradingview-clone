@@ -90,7 +90,7 @@ import { datasetKey } from "@/lib/liveDataset";
 import { useCandleHistory } from "@/lib/useCandleHistory";
 import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
-import { isCanonicalInstrumentId, legacyBinanceSpotTicker } from "@/lib/instrument";
+import { displayTicker, isCanonicalInstrumentId, legacyBinanceSpotTicker } from "@/lib/instrument";
 import { alertCapability } from "@/lib/workstation";
 import type { ChartSettings } from "@/lib/chartSettings";
 import {
@@ -832,7 +832,7 @@ export default function TvWorkspace() {
     applyLayout: applyState,
     onRestored: queueAutoBacktest,
     skipRestore: deepLinkOwnsLoad,
-    defaultName: `${symbol} ${interval}`,
+    defaultName: `${displayTicker(symbol)} ${interval}`,
     onToast: setToast,
     onError: setErr,
   });
@@ -863,7 +863,7 @@ export default function TvWorkspace() {
       const net = best.metrics.net_pct;
       const dd = best.metrics.dd_pct;
       setToast(
-        `Best ${symbol} config applied${net != null ? ` · +${net.toFixed(1)}%` : ""}${dd != null ? ` · DD ${dd.toFixed(1)}%` : ""}`
+        `Best ${displayTicker(symbol)} config applied${net != null ? ` · +${net.toFixed(1)}%` : ""}${dd != null ? ` · DD ${dd.toFixed(1)}%` : ""}`
       );
     } catch (e) {
       setErr((e as Error).message);
@@ -1561,7 +1561,7 @@ export default function TvWorkspace() {
     locked: drawLocked, onLocked: setDrawLocked,
     hidden: drawHidden, onHidden: setDrawHidden,
     onDeleteAll: () => {
-      if (window.confirm(`Remove all drawings on ${symbol}?`)) {
+      if (window.confirm(`Remove all drawings on ${displayTicker(symbol)}?`)) {
         if (replayActive) updateReplayDrawings([]); else drawingStore.set(symbol, []);
       }
     },
@@ -1671,7 +1671,7 @@ export default function TvWorkspace() {
           on a page with no top-level heading at all.
         */}
         <h1 className="sr-only">
-          {symbol} {interval} chart{paneCount > 1 ? ` — ${paneCount}-chart layout` : ""}
+          {displayTicker(symbol)} {interval} chart{paneCount > 1 ? ` — ${paneCount}-chart layout` : ""}
         </h1>
 
         <ChartToolbar
@@ -2055,7 +2055,7 @@ export default function TvWorkspace() {
         alertOpen={alertOpen}
         onCloseAlert={() => setAlertOpen(false)}
         onAutomationCreated={(name) => {
-          setToast(`Automation live — ${name} on ${symbol} ${interval}, sending real orders`);
+          setToast(`Automation live — ${name} on ${displayTicker(symbol)} ${interval}, sending real orders`);
           setPanel("alerts");
         }}
         onAlertSaved={(message) => { setToast(message); void refreshMaAlerts(); }}

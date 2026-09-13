@@ -71,7 +71,7 @@ import type { PaneCompare } from "@/lib/workspace";
 import { pricePrecision } from "@/lib/movingAverages";
 import { type Candle, type Trade } from "@/lib/types";
 import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
-import { isCanonicalInstrumentId } from "@/lib/instrument";
+import { displaySymbol, displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
 import { resolvePriceTick } from "@/lib/priceTick";
 import { computeTpoProfile, computeVolumeProfile, DEFAULT_PROFILE_SETTINGS } from "@/lib/volumeProfile";
 import { DEFAULT_CHART_SETTINGS } from "@/lib/chartSettings";
@@ -643,6 +643,33 @@ function ChartPaneImpl(props: ChartPaneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneId, props.onFocusIndicator, props.onEditNative]);
 
+  /*
+   * The other half of `paneAction`: whether a key names a study at all.
+   *
+   * `paneAction` assumes it has been handed one, which is safe for an
+   * indicator PANE — a pane exists because a study made it. The price pane's
+   * legend has no such guarantee, so it asks first.
+   */
+  const studyActionable = useCallback((key: string) =>
+    nativeRef.current.list.some((study) => study.key === key)
+    || indicatorsRef.current.list.some((study) => study.key === key), []);
+
+  /*
+   * Everything applied to this pane that is currently switched off.
+   *
+   * Both kinds are included, and a hidden PANE study lands on the price
+   * legend rather than in its own pane — because with no overlays there is no
+   * pane. Putting it on the price legend is not where it was; it is where the
+   * user can still reach it, which is the property that matters for a control
+   * whose whole job is to be reversible.
+   */
+  const hiddenStudies = useMemo(() => [
+    ...nativeStudies.rows.filter((row) => !row.study.visible)
+      .map((row) => ({ id: row.study.key, title: row.name })),
+    ...indicators.list.filter((instance) => !instance.visible)
+      .map((instance) => ({ id: instance.key, title: instance.name })),
+  ], [nativeStudies.rows, indicators.list]);
+
   const { onCrosshairMove, onVisibleRangeChange, onViewportChange } = props;
   const emitCrosshair = useMemo(
     () => (onCrosshairMove ? (time: number | null) => onCrosshairMove(paneId, time) : undefined),
@@ -825,6 +852,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
       */
       className={`group/pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface ${
         multiPane
+          // accent-is-meaning: a pane is a container, not a control — there is
+          // no chip to give it, and which pane the toolbar acts on is a
+          // high-stakes fact the reference also marks in colour.
           ? `rounded-sm border transition-colors ${active ? "border-accent/70" : "border-border"}`
           : ""
       }`}
@@ -835,7 +865,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
         and this one decides where an order ticket points.
       */}
       <span className="sr-only">
-        {pane.symbol} {pane.interval}{multiPane && active ? " — focused pane" : ""}
+        {displaySymbol(pane.symbol)} {pane.interval}{multiPane && active ? " — focused pane" : ""}
       </span>
       {/*
         ── A degraded feed and a broken one are not the same event ────────────
@@ -916,7 +946,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             aria-live="polite"
             className="pointer-events-none absolute left-2 top-2 z-10 rounded-sm border border-border bg-surface/90 px-2 text-[11px] leading-[18px] text-ink-muted"
           >
-            Loading {pane.symbol} {pane.interval}… showing {history.dataset.symbol} {history.dataset.interval} until it arrives
+            Loading {displayTicker(pane.symbol)} {pane.interval}… showing {displayTicker(history.dataset.symbol)} {history.dataset.interval} until it arrives
           </div>
         )}
         {compared.notice && (
@@ -939,7 +969,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
         )}
         {history.loading && history.candles.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-ink-faint">
-            Loading {pane.symbol} {pane.interval}…
+            Loading {displayTicker(pane.symbol)} {pane.interval}…
           </div>
         ) : (
           <CandleChart
@@ -1030,6 +1060,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
             paneActive={props.active}
             chartSettings={pane.chartSettings}
             onIndicatorPaneAction={paneAction}
+            canIndicatorAction={studyActionable}
+            hiddenStudies={hiddenStudies}
           />
         )}
       </div>

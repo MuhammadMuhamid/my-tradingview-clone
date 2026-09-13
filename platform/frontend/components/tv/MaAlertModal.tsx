@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { ALERT_INTERVAL_VALUES, type Interval } from "@/lib/types";
 import { maColor, maLabel } from "@/lib/movingAverages";
+import { displayTicker } from "@/lib/instrument";
 
 /** Every timeframe the backend supports, in the order the toolbar shows them. */
 
@@ -114,7 +115,7 @@ export function MaAlertModal({
         note: note.trim() || null,
       });
       onSaved(
-        `${match ? "Updated" : "Alert set"} — ${symbol} ${timeframe} ${label} · ${MODE_LABELS[mode].toLowerCase()}`
+        `${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} ${label} · ${MODE_LABELS[mode].toLowerCase()}`
       );
       onClose();
     } catch (e) {
@@ -129,7 +130,7 @@ export function MaAlertModal({
     setBusy(true);
     try {
       await api.deleteMaAlert(match.id);
-      onSaved(`Alert removed — ${symbol} ${timeframe} ${label}`);
+      onSaved(`Alert removed — ${displayTicker(symbol)} ${timeframe} ${label}`);
       onClose();
     } catch (e) {
       setErr((e as Error).message);
@@ -154,7 +155,7 @@ export function MaAlertModal({
         <span className="flex items-center gap-2">
           <span className="inline-block h-2.5 w-5 rounded-sm" style={{ background: maColor(maLength) }} />
           Alert on {label}
-          <span className="text-accent">{symbol}</span>
+          <span className="text-accent">{displayTicker(symbol)}</span>
         </span>
       }
       footer={

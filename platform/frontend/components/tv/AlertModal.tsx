@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Strategy, StrategyParams } from "@/lib/types";
 import { defaultParamsFor } from "@/lib/paramSchema";
+import { displayTicker } from "@/lib/instrument";
 
 /**
  * Start automated trading on a strategy.
@@ -99,7 +100,7 @@ export function AlertModal({
 
   return (
     <Modal open={open} onClose={onClose}
-      title={<>Automate trading on <span className="text-accent">{symbol}</span></>}
+      title={<>Automate trading on <span className="text-accent">{displayTicker(symbol)}</span></>}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>

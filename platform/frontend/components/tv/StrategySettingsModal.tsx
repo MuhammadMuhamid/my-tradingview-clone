@@ -101,13 +101,16 @@ export function StrategySettingsModal({
         </>
       }
     >
-      <div className="mb-4 flex gap-5 border-b border-border">
+      <div className="mb-4 flex gap-1 border-b border-border pb-1"
+        role="tablist" aria-label="Strategy settings">
         {(["inputs", "properties"] as const).map((t) => (
           <button
             key={t}
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
-            className={`-mb-px border-b-2 pb-2 text-sm font-medium capitalize transition-colors ${
-              tab === t ? "border-accent text-ink" : "border-transparent text-ink-muted hover:text-ink"
+            className={`tvc-control rounded px-2.5 py-1 text-sm font-medium capitalize ${
+              tab === t ? "text-ink" : "text-ink-muted hover:text-ink"
             }`}
           >
             {t}

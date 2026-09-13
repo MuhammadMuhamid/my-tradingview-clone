@@ -5,6 +5,7 @@ import { api, type PineInputDef, type PineRunResult, type PineScript } from "@/l
 import { PINE_TEMPLATE, TOKEN_COLOR, highlightLine } from "@/lib/pineHighlight";
 import { fmtNum, fmtPct, signClass } from "@/lib/format";
 import { Separator } from "@/components/ui";
+import { displayTicker } from "@/lib/instrument";
 
 /** What the editor hands the chart when you press "Add to chart". */
 export interface PineChartPayload {
@@ -259,6 +260,7 @@ export function PineEditor({
               {appliedCount} on chart
             </span>
           )}
+          {/* accent-is-meaning: a script KIND, not a selection. */}
           {result?.meta?.kind && (
             <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
               result.meta.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-surface-2 text-ink-muted"
@@ -266,7 +268,7 @@ export function PineEditor({
               {result.meta.kind}
             </span>
           )}
-          <span className="ml-auto text-[11px] text-ink-faint">{symbol} · {timeframe}</span>
+          <span className="ml-auto text-[11px] text-ink-faint">{displayTicker(symbol)} · {timeframe}</span>
         </div>
 
         {/* code surface */}

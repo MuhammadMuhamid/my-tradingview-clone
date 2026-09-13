@@ -58,7 +58,7 @@ export default function BacktestsPage() {
         {error && rows.length === 0 ? (
           <div role="alert" className="px-4 py-8 text-center text-sm text-down">
             The backtest list could not be loaded, so this is not a statement that you have none.
-            <span className="mt-1 block font-mono text-xs text-ink-faint">{error}</span>
+            <span className="mt-1 block text-xs text-ink-faint">{error}</span>
           </div>
         ) : !loaded ? (
           <div role="status" className="px-4 py-8 text-center text-sm text-ink-faint">Loading backtests…</div>

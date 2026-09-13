@@ -49,23 +49,23 @@ function SummaryCard({ title, scope, paper = false }: {
             paper ? sourceStyle.PAPER : "border-border bg-surface-2 text-ink-muted"
           }`}>{paper ? "PAPER" : "REAL"}</span>
         </div>
-        <p className={`mt-2 font-mono text-2xl font-semibold ${known ? signClass(scope.knownRealizedPnl) : "text-ink-muted"}`}>
+        <p className={`mt-2 tabular text-2xl font-semibold ${known ? signClass(scope.knownRealizedPnl) : "text-ink-muted"}`}>
           {known ? money(scope.knownRealizedPnl) : "Unknown"}
         </p>
         <p className="mt-1 text-xs text-ink-faint">
           {paper ? "Known realized net" : "Known realized P&L"} · {scope.knownRealizedRows} known outcome{scope.knownRealizedRows === 1 ? "" : "s"}
         </p>
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-          <div><dt className="text-ink-faint">Known fees</dt><dd className="mt-0.5 font-mono text-ink">
+          <div><dt className="text-ink-faint">Known fees</dt><dd className="mt-0.5 tabular text-ink">
             {scope.feeKnownRows > 0 ? `$${fmtNum(scope.knownFees)}` : "Unknown"}
           </dd></div>
-          <div><dt className="text-ink-faint">Wins / losses</dt><dd className="mt-0.5 font-mono text-ink">
+          <div><dt className="text-ink-faint">Wins / losses</dt><dd className="mt-0.5 tabular text-ink">
             {scope.wins} / {scope.losses}
           </dd></div>
-          <div><dt className="text-ink-faint">Incomplete rows</dt><dd className="mt-0.5 font-mono text-ink">
+          <div><dt className="text-ink-faint">Incomplete rows</dt><dd className="mt-0.5 tabular text-ink">
             {scope.incompleteRows}
           </dd></div>
-          <div><dt className="text-ink-faint">Average duration</dt><dd className="mt-0.5 font-mono text-ink">
+          <div><dt className="text-ink-faint">Average duration</dt><dd className="mt-0.5 tabular text-ink">
             {duration(scope.averageDurationMs)}
           </dd></div>
         </dl>
@@ -76,7 +76,7 @@ function SummaryCard({ title, scope, paper = false }: {
 
 function Metric({ label, value, unknown = false }: { label: string; value: string; unknown?: boolean }) {
   return <div><dt className="text-[11px] uppercase tracking-wide text-ink-faint">{label}</dt>
-    <dd className={`mt-0.5 font-mono text-xs ${unknown ? "text-ink-muted" : "text-ink"}`}>{value}</dd></div>;
+    <dd className={`mt-0.5 tabular text-xs ${unknown ? "text-ink-muted" : "text-ink"}`}>{value}</dd></div>;
 }
 
 function JournalItem({ row }: { row: JournalRow }) {
@@ -102,7 +102,7 @@ function JournalItem({ row }: { row: JournalRow }) {
           <p className="mt-0.5 text-xs text-ink-faint">{fmtDateTime(row.occurredAt)}{row.side ? ` · ${row.side}` : ""}</p>
         </div>
         <div className="text-right">
-          <p className={`font-mono text-base font-semibold ${pnlKnown ? signClass(row.realizedPnl) : "text-ink-muted"}`}>
+          <p className={`tabular text-base font-semibold ${pnlKnown ? signClass(row.realizedPnl) : "text-ink-muted"}`}>
             {money(row.realizedPnl)}
           </p>
           <p className="text-[11px] text-ink-faint">known realized P&amp;L</p>
@@ -243,7 +243,7 @@ export default function JournalPage() {
           </h2></div><div className="divide-y divide-border">
             {data.summary.byPeriod.slice(0, 12).map((item) => <div key={`${item.bucket}-${item.source}`} className="flex items-center justify-between gap-3 px-4 py-2 text-xs">
               <span className="text-ink-muted">{item.bucket} · {item.source}</span>
-              <span className={`font-mono ${item.summary.knownRealizedRows ? signClass(item.summary.knownRealizedPnl) : "text-ink-muted"}`}>
+              <span className={`tabular ${item.summary.knownRealizedRows ? signClass(item.summary.knownRealizedPnl) : "text-ink-muted"}`}>
                 {item.summary.knownRealizedRows ? money(item.summary.knownRealizedPnl) : "Unknown"}
               </span>
             </div>)}
@@ -251,7 +251,7 @@ export default function JournalPage() {
           <Card><div className="border-b border-border px-4 py-3"><h2 className="text-sm font-semibold text-ink">Per symbol</h2></div>
             <div className="divide-y divide-border">{data.summary.bySymbol.slice(0, 12).map((item) => <div key={`${item.symbol}-${item.source}`} className="flex items-center justify-between gap-3 px-4 py-2 text-xs">
               <span className="text-ink-muted">{item.symbol} · {item.source}</span>
-              <span className={`font-mono ${item.summary.knownRealizedRows ? signClass(item.summary.knownRealizedPnl) : "text-ink-muted"}`}>
+              <span className={`tabular ${item.summary.knownRealizedRows ? signClass(item.summary.knownRealizedPnl) : "text-ink-muted"}`}>
                 {item.summary.knownRealizedRows ? money(item.summary.knownRealizedPnl) : "Unknown"}
               </span>
             </div>)}</div>

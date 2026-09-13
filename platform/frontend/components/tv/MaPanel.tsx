@@ -143,6 +143,8 @@ function FamilyRow({
         disabled={disabled}
         title={disabled ? "Exit Replay to create live alerts" : count ? `${count} alert(s) — click to add another` : hint}
         aria-label={count ? `Add another ${label} alert (${count} armed)` : hint}
+        // accent-is-meaning: there are ARMED alerts here. A count, not a
+        // selection — the bell is never "the chosen one of several".
         className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
           count ? "text-accent" : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
         }`}
@@ -250,6 +252,7 @@ export function MaPanel({
               ? `Add another alert on ${maLabel(line.type, line.length)} (${armed.length} armed)`
               : `Add alert on ${maLabel(line.type, line.length)}`
           }
+          // accent-is-meaning: there are ARMED alerts on this line.
           className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
             armed.length
               ? "text-accent"
@@ -396,6 +399,9 @@ export function MaPanel({
               {alertInactiveReason(a) && (
                 <span className="shrink-0 text-[10px] text-ink-faint">{alertInactiveReason(a)}</span>
               )}
+              {/* accent-is-meaning: "you are here" — this alert is on the
+                  timeframe currently shown, which is a fact about the alert
+                  rather than a selection among options. */}
               <span className={`shrink-0 text-[10px] ${a.timeframe === timeframe ? "text-accent" : "text-ink-faint"}`}>
                 {a.timeframe}
               </span>

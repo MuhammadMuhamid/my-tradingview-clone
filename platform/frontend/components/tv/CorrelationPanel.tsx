@@ -25,6 +25,7 @@ import {
 } from "@/lib/correlationMatrix";
 import { MAX_CORRELATION_SYMBOLS, useCorrelationSet } from "@/lib/useCorrelationSet";
 import type { Resolution } from "@/lib/resolution";
+import { displaySymbol } from "@/lib/instrument";
 
 /** Windows offered. Bars, so their meaning follows the chart's resolution. */
 const WINDOWS = [30, 60, 120, 250, 500];
@@ -106,7 +107,7 @@ export function CorrelationPanel({
                     key={symbol}
                     scope="col"
                     className="pb-1 text-center font-normal text-ink-faint"
-                    title={symbol}
+                    title={displaySymbol(symbol)}
                   >
                     {shortName(symbol)}
                   </th>

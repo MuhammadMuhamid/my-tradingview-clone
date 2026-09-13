@@ -175,6 +175,8 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
           {(alert !== null || firstRun) && (
             <span
               aria-hidden="true"
+              // accent-is-meaning: a notification dot. "Something is here",
+              // not "this one is chosen".
               className={`absolute -right-1 -top-1 h-2 w-2 rounded-full ring-2 ring-surface ${
                 alert ?? "bg-accent"
               }`}

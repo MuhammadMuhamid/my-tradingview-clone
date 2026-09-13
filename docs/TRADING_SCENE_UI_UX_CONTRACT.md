@@ -159,6 +159,30 @@ Do not introduce a fourth radius or a third control height.
 
 ---
 
+### One face, and where the other one is allowed
+
+The product is set in the UI sans (`--ts-font-ui`). Monospace is a second
+voice, and it says "this is machine text". It earns its place on:
+
+- **code** — the Pine editor, the strategy input, the Shariah review JSON;
+- **opaque machine identifiers** — a deployment id, a lease holder, a content
+  hash, an exchange order id, an issue code.
+
+It does **not** earn its place on prose, on a name, or on a number. A figure
+that needs to line up in a column gets `.tabular`
+(`font-variant-numeric: tabular-nums`) on the product's own face — that is the
+whole job monospace was being used for, done without changing what the product
+sounds like.
+
+Both halves had drifted. The Journal set nine figures in a typewriter face, so
+its headline P&L read as a code token and the "Unknown" beside it read as a
+literal; the Screener and Research printed service error SENTENCES in it,
+which is prose wearing the costume of a stack trace. The allowed list is
+enumerated in `tests/uiContract.test.ts`, so adding to it is a decision rather
+than a drift.
+
+---
+
 ## 4. Interaction grammar
 
 ### `.tvc-control` — the one state primitive
@@ -287,6 +311,10 @@ re-derive them.
 |---|---|
 | every colour token a component uses is declared | `tests/theme.test.ts` |
 | the canvas follows the theme: no fixed volume palette, both themes state a weight, the mix matches TradingView's measured bar, shorthand hex included | `tests/uiContract.test.ts` |
+| monospace appears only on code and machine identifiers; the Journal's figures use `.tabular` | `tests/uiContract.test.ts` |
+| the phone action bar's height is one token; the theme toggle clears it | `tests/uiContract.test.ts` |
+| a legend clips rather than wraps, collapsed and expanded alike | `tests/uiContract.test.ts` |
+| a transient notice never sits on the permanent pane legend | `tests/uiContract.test.ts` |
 | every drawing tool is reachable from exactly one rail group; group ids are the reference's; no group deeper than 20; every icon key exists | `tests/drawingRail.test.ts` |
 | the toolbar's control registry and tier assignment | `tests/chartToolbar.test.ts` |
 | chart-type list, order, and settings-driven transform parameters | `tests/chartType.test.ts` |

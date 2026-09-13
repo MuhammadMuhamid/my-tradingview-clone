@@ -151,24 +151,51 @@ test("CONTRACT — accent never means 'this one is selected' in the workstation"
    * toggles on used to read as a row of blue lights.
    */
   /*
-   * Two documented exemptions, both accent-as-MEANING rather than
-   * accent-as-selection:
+   * Matched by SHAPE, not by the name of the condition.
    *
-   *   the focused PANE's border in a multi-pane layout. A pane is a container,
-   *   not a control, so there is no chip to give it — and which pane the
-   *   toolbar acts on is a high-stakes fact the reference also marks in colour.
+   * The first version of this rule required a predicate from a fixed word
+   * list — selected|isActive|active|open|checked|current — to appear on the
+   * SAME LINE as the accent class. Three menus slipped past it and stayed
+   * blue for a whole campaign: `isBrowsing` had its ternary wrapped onto the
+   * previous line, and `isCurrent` did not match `\bcurrent\b` at all. A rule
+   * that only catches the formatting it was written against is not a rule.
    *
-   *   a FAVOURITE star. "I keep this one" is data about the row, not a
-   *   statement that the row is currently chosen.
+   * So: an accent class sitting in a branch of a conditional is the defect,
+   * whatever the condition is called and however the line is wrapped.
    */
-  const EXEMPT = /focused pane|multiPane|favourite/i;
+  /*
+   * Exemption is a MARKER AT THE SITE, not a pattern in this file.
+   *
+   * The exemptions used to be a regex over the surrounding lines — "focused
+   * pane", "favourite". Widening the rule surfaced a dozen more legitimate
+   * uses (a script-kind badge, a paper-trading badge, a switch track, a
+   * notification dot), and growing that regex to cover them would have made
+   * the rule guess at intent from nearby words, exempting real defects that
+   * happened to sit near an innocent one.
+   *
+   * So a legitimate accent says so, in a comment within three lines above it:
+   *
+   *     a JSX comment reading `accent-is-meaning: <why>`
+   *
+   * That costs one line at the site and buys two things — the reason is
+   * written where the next person reads it, and every accent that is NOT
+   * marked is a defect, with no judgement left in this test.
+   */
+  const EXEMPT = /accent-is-meaning/;
+  const ACCENT = String.raw`(?:bg-accent(?:\/\d+)?|text-accent|border-accent(?:\/\d+)?)`;
+  const CONDITIONAL = new RegExp(String.raw`(?:\?|&&)\s*"[^"]*\b${ACCENT}\b`);
   const offenders: string[] = [];
   for (const file of WORKSTATION) {
     const lines = read(file).split("\n");
     for (const [i, line] of lines.entries()) {
-      if (!/\b(bg-accent\/\d+|text-accent|border-accent)\b/.test(line)) continue;
-      if (!/\b(selected|isActive|active|open|checked|current)\b\s*(\?|&&)/.test(line)) continue;
-      const context = lines.slice(Math.max(0, i - 4), i + 2).join(" ");
+      if (!new RegExp(String.raw`\b${ACCENT}\b`).test(line)) continue;
+      // The conditional may open on an earlier line than the class it chooses.
+      const window = lines.slice(Math.max(0, i - 2), i + 1).join(" ");
+      if (!CONDITIONAL.test(window)) continue;
+      // Five lines, because a marker that explains itself properly runs to
+      // three and must still clear the class it excuses. It has to sit
+      // immediately above — this is not a licence to excuse the whole block.
+      const context = lines.slice(Math.max(0, i - 5), i + 1).join(" ");
       if (EXEMPT.test(context)) continue;
       offenders.push(`${file}:${i + 1}`);
     }
@@ -342,8 +369,17 @@ test("CONTRACT — collapsing a legend never makes it taller", () => {
   const legend = code(read("components/tv/IndicatorLegend.tsx"));
   assert.doesNotMatch(legend, /flex-wrap/,
     "a legend row clips; it never wraps — see docs/TRADING_SCENE_UI_UX_CONTRACT.md §3");
-  assert.equal((legend.match(/whitespace-nowrap/g) ?? []).length, 2,
-    "both the collapsed and the expanded branch hold one line");
+  /*
+   * Every legend row, not a count of them — the first version of this pinned
+   * the number 2 and failed the moment a third row was added, which is a test
+   * measuring the file rather than the rule.
+   */
+  const rows = [...legend.matchAll(/className="((?:group\/study )?flex[^"]*items-baseline[^"]*)"/g)]
+    .map((match) => match[1]!);
+  assert.ok(rows.length >= 3, `expected collapsed, expanded and hidden rows, saw ${rows.length}`);
+  for (const row of rows) {
+    assert.match(row, /whitespace-nowrap/, `a legend row that can wrap: ${row}`);
+  }
   assert.ok((legend.match(/truncate/g) ?? []).length >= 3,
     "and the name that no longer fits is truncated, not dropped");
   // The full text stays reachable rather than being lost to the clip.
@@ -363,4 +399,125 @@ test("CONTRACT — a transient notice never covers the permanent legend", () => 
   assert.ok(notice.includes("bottom-2"), "on a phone it sits at the foot of the pane");
   assert.ok(notice.includes("sm:top-2") && notice.includes("sm:bottom-auto"),
     "and returns to the top only where there is room for it");
+});
+
+test("CONTRACT — monospace is for code and machine identifiers, nothing else", () => {
+  /*
+   * `lib/chartTheme.ts` states the rule for the canvas: monospace earns its
+   * place on code, not on prose, not on a name, and not on a price — a number
+   * that needs to line up in a column gets `tabular` on the product's own
+   * face instead. The rule is the product's, not the chart's, and the rest of
+   * the product had drifted from it:
+   *
+   *   the Journal set nine figures — realized P&L, fees, wins/losses,
+   *   durations — in a typewriter face, so its headline number read as a code
+   *   token and the word "Unknown" beside it read as a literal;
+   *
+   *   the Screener and Research printed service ERROR SENTENCES in it, which
+   *   is prose wearing the costume of a stack trace.
+   *
+   * What legitimately keeps it: the Pine editor and the strategy/Shariah JSON
+   * inputs (code), and opaque machine identifiers — a deployment id, a lease
+   * holder, a content hash, an exchange order id, an issue code. Those are
+   * enumerated here so that adding a new one is a decision rather than a
+   * drift.
+   */
+  const ALLOWED = new Set([
+    "components/tv/PineEditor.tsx",           // Pine source
+    "components/tv/StrategySettingsModal.tsx", // strategy input JSON
+    "app/shariah/page.tsx",                    // review-results JSON + content hash
+    "app/operations/page.tsx",                 // process, lease, version, issue codes
+    "components/TradeOrderTimeline.tsx",       // exchange order identifiers
+    "components/tv/TradingOverlays.tsx",       // exchange order identifiers
+    "components/scanner/CalibrationPanel.tsx", // fingerprint
+  ]);
+  const offenders: string[] = [];
+  for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {
+    if (ALLOWED.has(file)) continue;
+    if (/font-mono/.test(code(read(file)))) offenders.push(file);
+  }
+  assert.deepEqual(offenders, [],
+    "these set something in a code face that is not code — use `tabular` for "
+    + "figures and the plain face for prose; see docs/TRADING_SCENE_UI_UX_CONTRACT.md §3");
+
+  // And the Journal specifically uses the alignment primitive it needs.
+  assert.match(read("app/journal/page.tsx"), /\btabular\b/,
+    "the Journal's figures still line up — on the product's own face");
+});
+
+test("CONTRACT — a study can be acted on from the row that names it", () => {
+  /*
+   * A study in its own pane had hide / settings / remove in the pane header.
+   * A study overlaid on the PRICE pane had none of them anywhere on the chart:
+   * hiding an EMA meant leaving the chart, finding it in the Studies panel and
+   * clicking a gear there. The reference puts the actions on the legend row
+   * for both kinds.
+   *
+   * Two things make this safe rather than decorative, and both are the point:
+   */
+  const legend = read("components/tv/IndicatorLegend.tsx");
+
+  // 1. Nothing is wired to a line that is not a study. The price legend also
+  //    carries the moving-average panel, Anchored VWAPs and volume-profile
+  //    drawings; none is in a study list, and a trash can on them would be
+  //    three dead controls on the busiest surface in the product.
+  assert.match(legend, /canAction\?:\s*\(instanceId: string\) => boolean/);
+  assert.match(legend, /onAction && canAction\?\.\(group\.id\)/,
+    "the cluster renders only for an instance the owner confirms it can move");
+  const pane = read("components/tv/ChartPane.tsx");
+  assert.match(pane, /nativeRef\.current\.list\.some[\s\S]{0,120}indicatorsRef\.current\.list\.some/,
+    "and the owner answers from the same two lists paneAction resolves against");
+
+  // 2. The eye is not a one-way door. A hidden instance emits no overlays, so
+  //    hiding one used to delete its own row; the study stays listed, dimmed.
+  assert.match(legend, /hidden\?:\s*\{ id: string; title: string \}\[\]/);
+  assert.match(legend, /Show \$\{study\.title\}/, "the dimmed row turns it back on");
+  assert.match(pane, /rows\.filter\(\(row\) => !row\.study\.visible\)/);
+  assert.match(pane, /list\.filter\(\(instance\) => !instance\.visible\)/,
+    "both study kinds are listed, not just the built-ins");
+
+  // The key handed back is the instance key the existing resolver expects.
+  assert.match(read("components/CandleChart.tsx"), /onIndicatorPaneAction\(`indicator:\$\{key\}`, action\)/);
+});
+
+test("CONTRACT — no workstation surface renders a raw symbol variable", () => {
+  /*
+   * The symbol-display rule, enforced by SHAPE rather than by naming the
+   * surfaces that had broken it.
+   *
+   * The earlier rule named four files — the toolbar, the pane legend, the
+   * settings dialog, the indicator browser — and each was fixed. Meanwhile the
+   * Strategy Tester printed `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot 15m`
+   * across its own toolbar; the manual ticket said "No live quote for
+   * instrument:v1:… right now"; three alert dialogs put it in their
+   * confirmation toasts; and a screen reader announced the whole URN as the
+   * focused pane's name. A rule that lists its own known failures only ever
+   * covers the past.
+   *
+   * So: a symbol reaches the user through `displayTicker` (the control) or
+   * `displaySymbol` (the qualified identity, for a tooltip or an accessible
+   * name). Interpolating the variable itself is the defect.
+   */
+  // `{ symbol }` with spaces is object shorthand, not JSX — `{symbol}` is.
+  const RAW = /(?:\{(?:props\.|pane\.|history\.dataset\.)?symbol\}|\$\{\s*(?:props\.|pane\.)?symbol\s*\})/;
+  const offenders: string[] = [];
+  for (const file of WORKSTATION) {
+    const lines = code(read(file)).split("\n");
+    for (const [i, line] of lines.entries()) {
+      if (!RAW.test(line)) continue;
+      /*
+       * Three shapes that are not a render, and each is genuinely present:
+       *   `symbol={symbol}` / `baseSymbol={symbol}` hands the value DOWN to a
+       *     component that will display it properly itself;
+       *   `key={symbol}` and `value={symbol}` are React and form plumbing;
+       *   a lookup or a comparison is not text at all.
+       */
+      if (/\w+=\{(?:props\.|pane\.)?symbol\}/.test(line)) continue;
+      if (/\[(?:props\.|pane\.)?symbol\]|===|!==/.test(line)) continue;
+      offenders.push(`${file}:${i + 1}  ${line.trim().slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "a symbol must reach the user through displayTicker/displaySymbol:\n"
+    + offenders.join("\n"));
 });

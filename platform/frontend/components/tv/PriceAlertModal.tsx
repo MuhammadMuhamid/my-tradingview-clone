@@ -16,6 +16,7 @@ import {
 import { describeAlert } from "@/lib/alerts";
 import { fmtPrice } from "@/lib/format";
 import { ALERT_INTERVAL_VALUES, type Interval } from "@/lib/types";
+import { displayTicker } from "@/lib/instrument";
 
 /** Every timeframe the backend supports, in the order the toolbar shows them. */
 
@@ -125,7 +126,7 @@ export function PriceAlertModal({
         ...filterRequest(filters),
         note: note.trim() || null,
       });
-      onSaved(`${match ? "Updated" : "Alert set"} — ${symbol} ${timeframe} · ${describeAlert(row)}`);
+      onSaved(`${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} · ${describeAlert(row)}`);
       onClose();
     } catch (e) {
       setErr((e as Error).message);
@@ -139,7 +140,7 @@ export function PriceAlertModal({
     setBusy(true);
     try {
       await api.deleteMaAlert(match.id);
-      onSaved(`Alert removed — ${symbol} ${fmtPrice(match.targetPrice)}`);
+      onSaved(`Alert removed — ${displayTicker(symbol)} ${fmtPrice(match.targetPrice)}`);
       onClose();
     } catch (e) {
       setErr((e as Error).message);
@@ -160,7 +161,7 @@ export function PriceAlertModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={<span className="flex items-center gap-2">Price alert <span className="text-accent">{symbol}</span></span>}
+      title={<span className="flex items-center gap-2">Price alert <span className="text-accent">{displayTicker(symbol)}</span></span>}
       footer={
         <>
           {match && <Button onClick={remove} disabled={busy} className="mr-auto text-down">Delete</Button>}
