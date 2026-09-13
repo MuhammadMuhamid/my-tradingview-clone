@@ -6,7 +6,7 @@ import { api as scannerApi } from "@/lib/scanner/api";
 import {
   buildOperationsOverview, formatDuration, type HealthTone, type ScannerEvidence,
 } from "@/lib/operationsHealth";
-import { Button, Card, CardHeader, Empty, ErrorNotice, Field, Loading, TextInput, PageShell, PageHeader } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, ErrorNotice, Field, Loading, TextInput, PageShell, PageHeader, Notice } from "@/components/ui";
 
 /**
  * The operator console.
@@ -247,19 +247,21 @@ export default function OperationsPage() {
           {notice}
         </p>
       )}
+      {/*
+        TVP8 round two: both of these were `text-ink` body copy on a red box —
+        which `Notice`'s own docstring names as the hardest of the nine error
+        treatments to scan — and the first carried a hand-rolled underlined
+        "Dismiss" link where the primitive has a dismiss button.
+      */}
       {actionError && (
-        <p role="alert" className="rounded border border-down/30 bg-down/10 px-3 py-2 text-sm text-ink">
+        <Notice tone="error" role="alert" onDismiss={() => setActionError("")}>
           That control did not take effect: {actionError}
-          <button onClick={() => setActionError("")}
-            className="ml-2 rounded text-xs text-ink-muted underline underline-offset-2 hover:text-ink">
-            Dismiss
-          </button>
-        </p>
+        </Notice>
       )}
       {error && (
-        <p role="alert" className="rounded border border-down/30 bg-down/10 px-3 py-2 text-sm text-ink">
+        <Notice tone="error" role="alert">
           Operator status is not updating: {error}
-        </p>
+        </Notice>
       )}
 
       {/* Dense first-glance health. Each claim names the evidence behind it. */}
@@ -300,11 +302,11 @@ export default function OperationsPage() {
         <div className="space-y-3 px-4 pb-4">
           {risk.tradingHalted ? (
             <>
-              <p className="rounded border border-down/30 bg-down/10 px-3 py-2 text-sm text-ink">
+              <Notice tone="error">
                 <strong>Halted</strong>{risk.haltedBy ? ` by ${risk.haltedBy}` : ""}
                 {risk.haltedAt ? ` at ${when(risk.haltedAt)}` : ""}.
                 {risk.haltedReason ? ` Reason: ${risk.haltedReason}` : ""}
-              </p>
+              </Notice>
               {confirmResume ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm text-ink">
@@ -394,9 +396,9 @@ export default function OperationsPage() {
               <dd className="text-right text-ink">{when(status.bot.status.time)}</dd>
             </dl>
             {status.bot.status.execution.haltedReason && (
-              <p className="rounded border border-down/30 bg-down/10 px-3 py-2 text-xs text-ink">
+              <Notice tone="error">
                 Bot halt reason: {status.bot.status.execution.haltedReason}
-              </p>
+              </Notice>
             )}
           </div>
         ) : (

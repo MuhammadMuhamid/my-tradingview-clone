@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
-  Button, Card, CardHeader, PageHeader, PageShell, StatusBadge, shortReason,
+  Button, Card, CardHeader, Notice, PageHeader, PageShell, StatusBadge, shortReason,
 } from "@/components/ui";
 import { Metrics } from "@/components/Metrics";
 import { EquityCurve } from "@/components/EquityCurve";
@@ -90,10 +90,10 @@ export default function BacktestDetail() {
   );
 
   if (err && !bt) return shell(
-    <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">
+    <Notice tone="error" role="alert">
       This backtest could not be loaded.
       <span className="mt-1 block text-xs text-ink-faint">{err}</span>
-    </div>
+    </Notice>
   );
   if (!bt) return shell(<div role="status" className="text-ink-faint">Loading…</div>);
 
@@ -111,10 +111,10 @@ export default function BacktestDetail() {
       />
 
       {err && (
-        <div role="alert" className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
+        <Notice tone="error" role="alert">
           This page stopped updating.
           <span className="ml-1 text-ink-faint">{err}</span>
-        </div>
+        </Notice>
       )}
 
       {bt.status !== "done" ? (

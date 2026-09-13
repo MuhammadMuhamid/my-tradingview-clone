@@ -380,3 +380,66 @@ test("EVERY PAGE NAMES ITSELF THROUGH THE SHARED HEADER", () => {
   assert.ok(callers.length >= 6,
     `only ${callers.length} pages render PageHeader — it had one caller before this rule`);
 });
+
+test("A PAGE'S ERROR BOXES ARE THE SHARED NOTICE", () => {
+  /*
+   * ── TVP8 round two ─────────────────────────────────────────────────────
+   *
+   * `Notice` had one caller. Its own docstring says it exists because there
+   * were "nine distinct error treatments and four more for warnings and
+   * successes — differing in radius, padding, type size, and in one case using
+   * `text-ink` body copy on a red box, which is the hardest of the nine to
+   * scan."
+   *
+   * That last one was still there, twice, on the Operations page — with a
+   * hand-rolled underlined "Dismiss" link beside it where the primitive has a
+   * dismiss button. Four more page-level boxes carried three different
+   * paddings, two border alphas and three type sizes between them.
+   *
+   * ── Why this is `app/` and not the workstation ─────────────────────────
+   *
+   * The chart's panels are a DIFFERENT DENSITY by contract — 11px and 12px
+   * notices inside an order ticket and a study browser, where `Notice`'s
+   * `text-sm px-3 py-2` would be a banner. Converting them would be adopting
+   * a primitive by making the product worse, which is the opposite of the
+   * point. They are out of scope here, deliberately and in writing, rather
+   * than quietly left out.
+   *
+   * Inline FIELD errors are not notices either — a `<p class="text-xs
+   * text-down">` under an input is not a box and must not become one — so the
+   * rule looks for the box: a bordered, tinted, padded block.
+   */
+  const BOX = /role="alert"[^>]*className="[^"]*\bborder-(?:down|warn)\/\d+[^"]*\bbg-(?:down|warn)\/\d+/;
+  const offenders: string[] = [];
+  for (const file of sourceFiles("app")) {
+    const src = read(file);
+    for (const m of src.matchAll(/<(?:div|p)[^>]*role="alert"[^>]*>/g)) {
+      if (BOX.test(m[0])) offenders.push(`${file}: ${m[0].replace(/\s+/g, " ").slice(0, 96)}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "these paint their own error box instead of rendering Notice:\n  " + offenders.join("\n  "));
+
+  /*
+   * And nothing writes body-colour copy on an ERROR ground, which is the
+   * specific treatment the primitive's docstring names as the hardest of the
+   * nine to scan: red says urgent and grey copy undercuts it, so the box
+   * carries two messages.
+   *
+   * `warn` is deliberately NOT included. An amber box with an amber `<strong>`
+   * lead and body-colour explanation beneath it — which is what the Operations
+   * risk notes and the Optimizer methodology caveats are — is a paragraph the
+   * reader is meant to READ, and colouring three lines of it amber would be
+   * shouting. The first version of this rule caught all eight of those and it
+   * was the rule that was wrong, not the product.
+   */
+  const inkOnRed = sourceFiles("app").filter((f) =>
+    /bg-down\/\d+[^"]*\btext-ink\b/.test(read(f)));
+  assert.deepEqual(inkOnRed, [],
+    `body copy on a tinted error ground is the hardest treatment to read: ${inkOnRed.join(", ")}`);
+
+  const callers = [...sourceFiles("app"), ...sourceFiles("components")]
+    .filter((f) => /<Notice[\s/>]/.test(read(f)));
+  assert.ok(callers.length >= 4,
+    `only ${callers.length} files render Notice — it had one caller before this rule`);
+});

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useAsk } from "@/components/AskDialog";
-import { Button, Card, CardHeader, Empty, PageShell, StatusBadge, PageHeader } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, PageShell, StatusBadge, PageHeader, Notice } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { DeploymentForm } from "@/components/DeploymentForm";
 import { AlertFeed } from "@/components/AlertFeed";
@@ -146,15 +146,9 @@ export default function DeploymentsPage() {
 
       <StaleNotice state={freshness} />
       {actionError && (
-        <div role="alert" className="flex items-start gap-3 rounded-md border border-down/40 bg-down/10 px-3 py-2 text-xs text-down">
-          <span className="min-w-0 flex-1">{actionError}</span>
-          <button onClick={() => setActionError(null)} aria-label="Dismiss"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-down/15 hover:text-ink">
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-              <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-          </button>
-        </div>
+        <Notice tone="error" role="alert" onDismiss={() => setActionError(null)}>
+          {actionError}
+        </Notice>
       )}
 
       {showForm && <DeploymentForm symbols={symbols} onCreated={() => { setShowForm(false); void refresh(); }} />}
