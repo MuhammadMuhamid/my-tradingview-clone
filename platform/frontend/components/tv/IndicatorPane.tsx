@@ -7,7 +7,8 @@ import {
   type WhitespaceData,
 } from "lightweight-charts";
 import {
-  planSeriesMutation, plotValueAt, type ChartDecoration, type ChartOverlay, type ChartPoint,
+  canUpdateTail, planSeriesMutation, plotValueAt,
+  type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { baseChartOptions, subscribeChartTheme } from "@/lib/chartTheme";
 import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
@@ -95,7 +96,18 @@ function replaceData(entry: SeriesEntry, points: ChartPoint[]): void {
   entry.data = points;
 }
 
-function updateData(entry: SeriesEntry, point: ChartPoint): void {
+/**
+ * The same seam as `updateOverlayData` in `CandleChart`, for the plots that
+ * live in their own pane — which is where the owner-found P0 was actually
+ * thrown, because a study's reference levels are pane series.
+ *
+ * A point behind the series' own tail is applied as the replacement it is.
+ * `update()` cannot move a bar backwards; it throws, and the throw reaches the
+ * route's error boundary from inside this effect.
+ */
+function updateData(entry: SeriesEntry, points: ChartPoint[]): void {
+  const point = points[points.length - 1]!;
+  if (!canUpdateTail(entry.data, point.time)) { replaceData(entry, points); return; }
   if (entry.kind === "Line") entry.api.update(lineDatum(point));
   else if (entry.kind === "Histogram") entry.api.update(histogramDatum(point));
   else if (entry.kind === "Area") entry.api.update(areaDatum(point));
@@ -348,7 +360,7 @@ export function IndicatorPane({
       const points = overlay.data.filter((point) => Number.isFinite(point.time) && point.time > 0);
       const plan = planSeriesMutation(entry.data, points);
       if (plan === "replace") replaceData(entry, points);
-      else if (plan === "update") updateData(entry, points[points.length - 1]!);
+      else if (plan === "update") updateData(entry, points);
     }
     onReady(id, chart);
   }, [id, onReady, overlays, ready]);

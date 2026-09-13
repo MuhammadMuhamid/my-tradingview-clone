@@ -273,10 +273,45 @@ function planAlignedMutation<T>(
   for (let i = 0; i < next.length - 1; i++) {
     if (!same(previous[offset + i]!, next[i]!)) return "replace";
   }
-  if (next.length === shared && same(previous[previous.length - 1]!, next[next.length - 1]!)) {
-    return "none";
+  /*
+   * ── TVP8, found by the owner on the production build ──────────────────────
+   *
+   * An identical prefix is not enough to earn an `update()`. That call can
+   * express exactly two things — REWRITE the bar the series already ends on,
+   * or APPEND one after it — and lightweight-charts refuses anything else at
+   * the door:
+   *
+   *   Error: Cannot update oldest data, last time=…, new time=…
+   *
+   * which is thrown out of `DataLayer._updateSeriesData`, escapes the effect
+   * that made the call, and replaces the entire chart page with the route's
+   * error boundary. Zooming was enough to do it.
+   *
+   * The shape this used to mis-answer is a tail that moved BACKWARDS while
+   * everything before it stayed identical. A native study's reference level is
+   * exactly that: two points, `[first bar, last bar]` of the study's window, at
+   * one constant value. The window is sized from the VIEWPORT, so a zoom that
+   * shortens it leaves the first point and the value untouched and pulls the
+   * last point back by hundreds of bars — same length, same prefix, tail in the
+   * past. The planner said "update"; the library said no; the page died.
+   *
+   * A tail that moved backwards is a REPLACEMENT, and `setData` is the call
+   * that expresses one. Saying so here rather than at each of the six call
+   * sites is the point: every writer goes through a plan, so no writer can
+   * promise `update()` something it cannot do.
+   */
+  const previousTail = timeOf(previous[previous.length - 1]!);
+  const nextTail = timeOf(next[next.length - 1]!);
+  if (next.length === shared) {
+    // Index-aligned. The tail is being rewritten in place, and that is only
+    // what it looks like while it is still the SAME bar.
+    if (nextTail !== previousTail) return "replace";
+    return same(previous[previous.length - 1]!, next[next.length - 1]!) ? "none" : "update";
   }
-  return "update";
+  // One point longer. The prefix check above already proved `next[length - 2]`
+  // is the bar the series ends on, so the new point may rewrite that bar or
+  // start the next one — but it may not predate either.
+  return nextTail >= previousTail ? "update" : "replace";
 }
 
 /**
@@ -290,6 +325,37 @@ export function planSeriesMutation(
   previous: ChartPoint[], next: ChartPoint[]
 ): SeriesMutation {
   return planAlignedMutation(previous, next, (p) => p.time, samePoint);
+}
+
+/**
+ * Whether a series that was last given `held` may be handed `time` through
+ * `update()` at all.
+ *
+ * ── TVP8, owner-found P0 ──────────────────────────────────────────────────
+ *
+ * The planner above is the authority on WHAT to do, and it now refuses to
+ * answer "update" for a tail that moved backwards. This is the second half of
+ * the same rule, stated at the seam every series writer passes through, so the
+ * rule is a property of the chart rather than of one function: `update()` can
+ * rewrite the bar a series ends on or append one after it, and a call that is
+ * neither throws
+ *
+ *   Error: Cannot update oldest data, last time=…, new time=…
+ *
+ * out of the effect that made it and into the route's error boundary — the
+ * whole chart page replaced because one series was handed a row it was past.
+ *
+ * A caller told `false` here applies its points with `setData` instead, which
+ * is the call that expresses a replacement. Nothing is dropped and nothing is
+ * swallowed; the same bars are drawn through the API that can draw them.
+ *
+ * `held` is each writer's mirror of what its series was last given, and it is
+ * exact: lightweight-charts keeps `_seriesLastTimePoint` by the same two rules
+ * — `setData` sets it to the last row, `update` advances it.
+ */
+export function canUpdateTail(held: readonly ChartPoint[], time: number): boolean {
+  const head = held.length > 0 ? held[held.length - 1]!.time : null;
+  return head === null || time >= head;
 }
 
 function sameCandle(a: Candle, b: Candle): boolean {

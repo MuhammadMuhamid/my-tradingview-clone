@@ -32,7 +32,8 @@ import { FootprintLayer } from "@/components/tv/FootprintLayer";
 import type { PineDrawings } from "@/lib/api";
 import type { Drawing, DrawingTool } from "@/lib/drawings";
 import {
-  groupChartOverlays, planColoredCandleMutation, planOhlcMutation, planSeriesMutation,
+  canUpdateTail, groupChartOverlays, planColoredCandleMutation, planOhlcMutation,
+  planSeriesMutation,
   type ChartBarColor, type ChartDecoration, type ChartOverlay, type ChartPoint,
   type ChartProfileDecoration,
 } from "@/lib/chartSeries";
@@ -535,7 +536,26 @@ function replaceOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): vo
   entry.data = points;
 }
 
-function updateOverlayData(entry: OverlaySeriesEntry, point: ChartPoint): void {
+/**
+ * Extend or rewrite an overlay's tail — or repaint it, when that is what the
+ * incoming points actually are.
+ *
+ * ── TVP8, owner-found P0 ──────────────────────────────────────────────────
+ *
+ * `planSeriesMutation` is the authority and now refuses to answer "update" for
+ * a tail that moved backwards. This is the seam that makes the rule a property
+ * of the CHART rather than of one planner: the last point the series was given
+ * is compared with the point about to be written, and a point behind it is
+ * applied as the replacement it is instead of being handed to `update()`,
+ * which throws and takes the whole route down with it.
+ *
+ * `entry.data` is an exact mirror of the series' own head — `setData` sets it,
+ * `update` advances it, and lightweight-charts keeps `_seriesLastTimePoint` by
+ * the same two rules — so no separate watermark is needed here.
+ */
+function updateOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): void {
+  const point = points[points.length - 1]!;
+  if (!canUpdateTail(entry.data, point.time)) { replaceOverlayData(entry, points); return; }
   if (entry.kind === "Line") entry.api.update(lineDatum(point));
   else if (entry.kind === "Histogram") entry.api.update(histogramDatum(point));
   else if (entry.kind === "Area") entry.api.update(areaDatum(point));
@@ -766,6 +786,16 @@ export function CandleChart({
    */
   const volumeDrawnRef = useRef(false);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  /**
+   * The newest bar time the VOLUME series has been given.
+   *
+   * The price series has had `mainHeadRef` since the first half of this crash
+   * family was repaired; volume had nothing, and it has the same two writers —
+   * the data effect and the live-tick path — so it has the same way of being
+   * handed a bar it is already past. Tracked here rather than inferred, because
+   * `setData` moves the head backwards on purpose and `update` may not.
+   */
+  const volHeadRef = useRef<number | null>(null);
   const overlayRefs = useRef<Map<string, OverlaySeriesEntry>>(new Map());
   const paneChartRefs = useRef<Map<string, IChartApi>>(new Map());
   const datasetKeyRef = useRef<string | null>(null);
@@ -1834,12 +1864,27 @@ export function CandleChart({
       if (volumeDrawnRef.current) {
         vol.setData([]);
         volumeDrawnRef.current = false;
+        volHeadRef.current = null;
       }
     } else if (mutation === "replace" || !volumeDrawnRef.current) {
-      vol.setData(candles.map(volumeDatum));
+      const rows = candles.map(volumeDatum);
+      vol.setData(rows);
       volumeDrawnRef.current = true;
+      volHeadRef.current = rows.length > 0 ? rows[rows.length - 1]!.time : null;
     } else if (mutation === "update" && candles.length > 0) {
-      vol.update(volumeDatum(candles[candles.length - 1]!));
+      const row = volumeDatum(candles[candles.length - 1]!);
+      // A bar behind what volume already holds is a repaint of the window, not
+      // an increment of it — the same rule the price series follows, applied to
+      // the one series that had no head of its own.
+      if (volHeadRef.current !== null && row.time < volHeadRef.current) {
+        const rows = candles.map(volumeDatum);
+        vol.setData(rows);
+        volHeadRef.current = rows.length > 0 ? rows[rows.length - 1]!.time : null;
+      } else {
+        vol.update(row);
+        volHeadRef.current = volHeadRef.current === null
+          ? row.time : Math.max(volHeadRef.current, row.time);
+      }
     }
 
     if (transform === null && (kind === "range" || kind === "footprint")) {
@@ -2239,7 +2284,7 @@ export function CandleChart({
         Number.isFinite(point.time) && point.time >= first && point.time <= lastTime);
       const plan = planSeriesMutation(entry.data, points);
       if (plan === "replace") replaceOverlayData(entry, points);
-      else if (plan === "update") updateOverlayData(entry, points[points.length - 1]!);
+      else if (plan === "update") updateOverlayData(entry, points);
     }
   }, [groupedOverlays.price, chartReady, candles, compact, timeAnchored]);
 
@@ -2365,11 +2410,22 @@ export function CandleChart({
         }
         displayRef.current = display;
       }
-      if (transform !== "renko") {
+      /*
+       * Volume takes the same refusal the price series takes one branch above.
+       * A live frame for a bar the volume histogram is already past has nothing
+       * to say that the current bar will not say a moment later, and handing it
+       * to `update()` throws out of this handler into the route's error
+       * boundary. `volumeDrawnRef` is false only under a non-time transform,
+       * where volume is deliberately empty and any head would be a fiction.
+       */
+      if (transform !== "renko"
+        && !(volHeadRef.current !== null && timeSec < volHeadRef.current)) {
         vol.update({
           time, value: tick.volume,
           color: volumeBarColorRef.current(tick.open, tick.close),
         });
+        volHeadRef.current = volHeadRef.current === null
+          ? timeSec : Math.max(volHeadRef.current, timeSec);
       }
 
       const hover = hoverTimeRef.current;
