@@ -19,7 +19,7 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { advance, closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
 import { clickAt, drag, mountChart, press, selectTool } from "./harness/chart";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { drawingStore } from "@/lib/drawingStore";
 import { loadDrawings } from "@/lib/drawings";
 
@@ -228,18 +228,13 @@ test("a reload does not push a deletion back up from this device's own storage",
 
 test("advanced families create their declared anchors through the real flyout", async () => {
   const chart = await mountChart();
-  const chooseAdvanced = async (label: string): Promise<void> => {
-    const more = chart.container.querySelector<HTMLButtonElement>('button[aria-label="More advanced tools"]');
-    assert.ok(more, "advanced flyout is not reachable");
-    fireEvent.click(more);
-    const item = screen.getByText(label);
-    const flyout = item.closest("div");
-    assert.ok(flyout, `missing ${label} in advanced flyout`);
-    fireEvent.click(within(flyout).getByText(label));
-    await advance(1);
-  };
+  // These families used to share one `advanced` group; they are now spread
+  // across trend-line, gann-and-fibonacci, patterns and
+  // prediction-and-measurement. `selectTool` opens whichever flyout holds the
+  // tool, so this test asserts the anchors rather than the rail's taxonomy.
   const make = async (label: string, points: [number, number][]): Promise<void> => {
-    await chooseAdvanced(label);
+    await selectTool(chart.container, label);
+    await advance(1);
     for (const [x, y] of points) await clickAt(chart.plot, x, y);
   };
   await make("Schiff pitchfork", [[220, 300], [360, 240], [360, 360]]);

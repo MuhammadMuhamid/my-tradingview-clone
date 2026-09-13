@@ -249,6 +249,7 @@
 }
 .tv-workstation .tvc-control[aria-pressed="true"]::before,
 .tv-workstation .tvc-control[aria-checked="true"]::before,
+.tv-workstation .tvc-control[aria-selected="true"]::before,
 .tv-workstation .tvc-control[aria-expanded="true"]::before,
 .tv-workstation .tvc-control[data-active="true"]::before {
   background-color: var(--ts-state-active);

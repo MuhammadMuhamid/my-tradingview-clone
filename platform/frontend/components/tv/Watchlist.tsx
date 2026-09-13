@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import type { SymbolInfo } from "@/lib/types";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { api, type ServerWatchlist } from "@/lib/api";
 import { useWatchlistTickers } from "@/lib/useWatchlistTickers";
 import { describeStreamState } from "@/lib/marketStream";
@@ -86,7 +87,15 @@ export function Watchlist({
    */
   const [addOpen, setAddOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  /*
+   * TVP7: this was `useState(false)` — a private open flag beside a popover,
+   * which is exactly the shape `lib/popoverGroup` exists to prevent. It went
+   * unnoticed because the switcher was a hand-rolled box with no `role`;
+   * giving it the menu role it always deserved is what surfaced it. It can now
+   * no longer be open at the same time as the timeframe, chart-type, layout or
+   * sync menus.
+   */
+  const [menuOpen, setMenuOpen] = useExclusivePopover("watchlist-lists");
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   /**
@@ -362,7 +371,7 @@ export function Watchlist({
       */}
       <div className="relative border-b border-border px-2 py-1.5">
         <div className="flex items-center gap-0.5">
-          <button onClick={() => setMenuOpen((v) => !v)} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-state-hover">
+          <button onClick={() => setMenuOpen(!menuOpen)} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-state-hover">
             {priceState && (
               <span
                 role="status"
@@ -397,10 +406,13 @@ export function Watchlist({
           <span className="w-6 shrink-0 text-right text-[11px] text-ink-faint">{visibleSymbols.length}</span>
         </div>
         {menuOpen && lists && (
-          <div className="absolute left-2 right-2 top-[44px] z-50 rounded-md border border-border bg-surface py-1 shadow-xl">
-            <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">My watchlists</div>
+          <div role="menu" aria-label="My watchlists"
+            className="absolute left-2 right-2 top-[44px] z-50 tvc-menu">
+            <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-ink-faint">My watchlists</div>
             {lists.map((l) => (
-              <button key={l.id} onClick={() => { setActiveId(l.id); setMenuOpen(false); }} className={`flex w-full justify-between px-3 py-2 text-left text-xs hover:bg-state-hover ${l.id === activeId ? "text-accent" : "text-ink"}`}>
+              <button key={l.id} role="menuitemradio" aria-checked={l.id === activeId}
+                onClick={() => { setActiveId(l.id); setMenuOpen(false); }}
+                className="tvc-menu-row w-full justify-between px-2.5 text-left text-sm text-ink">
                 <span className="truncate">{l.name}</span><span className="text-ink-faint">{l.symbols.length}</span>
               </button>
             ))}

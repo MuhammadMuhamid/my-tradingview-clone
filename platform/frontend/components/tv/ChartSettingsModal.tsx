@@ -38,7 +38,7 @@ import {
   PRECISIONS, PLACEMENTS, precisionLabel,
   type ChartSettings, type PricePrecision, type ScalePlacement,
 } from "@/lib/chartSettings";
-import { chartTypeLabel, type ChartType } from "@/lib/chartType";
+import { chartTypeLabel, renderKind, type ChartType } from "@/lib/chartType";
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
@@ -95,6 +95,10 @@ export function ChartSettingsModal({
   const set = <K extends keyof ChartSettings>(key: K, value: ChartSettings[K]): void =>
     onSettings({ ...settings, [key]: value });
 
+  /** The same condition `CandleChart`'s series-appearance effect applies. */
+  const seriesColoursApply = renderKind(chartType) === "candles"
+    && chartType !== "hollowCandles" && chartType !== "highLow";
+
   const cancel = (): void => {
     if (entry) { onSettings(entry.settings); onScale(entry.scale); }
     onClose();
@@ -136,6 +140,17 @@ export function ChartSettingsModal({
           {tab === "symbol" && (
             <>
               <Head>{chartTypeLabel(chartType)}</Head>
+              {/*
+                Body / Borders / Wick only for the presentations that HAVE
+                them. They were rendered for every chart type, so a Line or a
+                Kagi chart offered three toggles and two colour wells whose
+                applying effect returns early — controls that move nothing,
+                which is the exact thing this dialog's own header forbids.
+                Hollow candles and High-low are excluded for a different
+                reason: their identity IS those colour slots.
+              */}
+              {seriesColoursApply && (
+                <>
               <Row label="Body">
                 <Toggle checked={settings.candleBody} onChange={(v) => set("candleBody", v)} label="Body" />
                 <Swatch value={settings.upColor} onChange={(v) => set("upColor", v)} label="Up colour" />
@@ -147,16 +162,71 @@ export function ChartSettingsModal({
               <Row label="Wick">
                 <Toggle checked={settings.candleWicks} onChange={(v) => set("candleWicks", v)} label="Wick" />
               </Row>
+                </>
+              )}
 
+              {/*
+                ── A chart type's own parameters, filed under the chart type ──
+                `rangeTicks` used to sit under "Canvas" — a parameter of ONE
+                presentation, on the tab about the drawing surface, visible on
+                the twenty charts that ignore it. The other four were not
+                anywhere: Renko's ATR period, Line break's count, Kagi's
+                reversal and Point & figure's box and reversal were constants
+                welded into the chart-type token AND into its label, so the
+                menu read "Renko · ATR(14)" and no user could make it say
+                anything else. The transform functions accepted all five as
+                arguments the whole time.
+              */}
               {chartType === "range" && (
                 <>
                   <Head>Range</Head>
-                  {/* A chart type's own parameter, filed under the chart type —
-                      it used to sit under Canvas, on every chart, including
-                      the twenty that ignore it. */}
                   <Row label="Range size (ticks)">
                     <NumberField value={settings.rangeTicks} min={1} max={10000}
                       onChange={(v) => set("rangeTicks", v)} label="Range size in ticks" />
+                  </Row>
+                </>
+              )}
+
+              {chartType === "renko" && (
+                <>
+                  <Head>Renko</Head>
+                  <Row label="ATR length">
+                    <NumberField value={settings.renkoAtrPeriod} min={2} max={200}
+                      onChange={(v) => set("renkoAtrPeriod", v)} label="Renko ATR length" />
+                  </Row>
+                </>
+              )}
+
+              {chartType === "lineBreak" && (
+                <>
+                  <Head>Line break</Head>
+                  <Row label="Number of lines">
+                    <NumberField value={settings.lineBreakLines} min={2} max={10}
+                      onChange={(v) => set("lineBreakLines", v)} label="Line break count" />
+                  </Row>
+                </>
+              )}
+
+              {chartType === "kagi" && (
+                <>
+                  <Head>Kagi</Head>
+                  <Row label="Reversal" suffix="%">
+                    <NumberField value={settings.kagiReversalPercent} min={0.1} max={50} step={0.1}
+                      onChange={(v) => set("kagiReversalPercent", v)} label="Kagi reversal percent" />
+                  </Row>
+                </>
+              )}
+
+              {chartType === "pointAndFigure" && (
+                <>
+                  <Head>Point &amp; figure</Head>
+                  <Row label="Box size" suffix="%">
+                    <NumberField value={settings.pnfBoxPercent} min={0.1} max={50} step={0.1}
+                      onChange={(v) => set("pnfBoxPercent", v)} label="Point and figure box size percent" />
+                  </Row>
+                  <Row label="Reversal (boxes)">
+                    <NumberField value={settings.pnfReversalBoxes} min={1} max={10}
+                      onChange={(v) => set("pnfReversalBoxes", v)} label="Point and figure reversal in boxes" />
                   </Row>
                 </>
               )}
@@ -376,11 +446,12 @@ function Select({ value, onChange, options, label }: {
   );
 }
 
-function NumberField({ value, onChange, min, max, label }: {
-  value: number; onChange: (value: number) => void; min: number; max: number; label: string;
+function NumberField({ value, onChange, min, max, step = 1, label }: {
+  value: number; onChange: (value: number) => void;
+  min: number; max: number; step?: number; label: string;
 }) {
   return (
-    <input type="number" value={value} min={min} max={max} step={1} aria-label={label}
+    <input type="number" value={value} min={min} max={max} step={step} aria-label={label}
       onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || 0)))}
       className="h-[34px] w-[86px] rounded-md border border-control-border bg-transparent px-2 text-sm tabular text-ink" />
   );

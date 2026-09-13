@@ -125,12 +125,31 @@ export function armedInterval(container: HTMLElement): string | null {
   return pressed ?? null;
 }
 
-/** Arm a drawing tool through its toolbar button, as a user would. */
+/**
+ * Arm a drawing tool the way a user does.
+ *
+ * A rail button shows the ONE tool its group is currently on, so most of the
+ * 87 tools are reachable only through their group's flyout. This takes the
+ * direct button when there is one and otherwise opens each group's "More …"
+ * caret until the tool's row appears — which is also what makes it survive a
+ * regrouping of the rail rather than encoding one.
+ */
 export async function selectTool(container: HTMLElement, title: string): Promise<void> {
-  const button = container.querySelector<HTMLElement>(`button[title="${title}"]`);
-  if (!button) throw new Error(`no drawing-tool button titled ${JSON.stringify(title)}`);
-  fireEvent.click(button);
-  await settle();
+  const direct = container.querySelector<HTMLElement>(`button[title="${title}"]`);
+  if (direct) { fireEvent.click(direct); await settle(); return; }
+
+  const carets = [...container.querySelectorAll<HTMLElement>("button")]
+    .filter((b) => /^More .* tools$/.test(b.getAttribute("aria-label") ?? ""));
+  for (const caret of carets) {
+    fireEvent.click(caret);
+    await settle();
+    const row = [...container.querySelectorAll<HTMLElement>("button")]
+      .find((b) => (b.textContent ?? "").trim() === title);
+    if (row) { fireEvent.click(row); await settle(); return; }
+    fireEvent.click(caret); // close it again before trying the next group
+    await settle();
+  }
+  throw new Error(`no drawing-tool button titled ${JSON.stringify(title)}`);
 }
 
 /** A keystroke aimed at whatever currently has focus. */

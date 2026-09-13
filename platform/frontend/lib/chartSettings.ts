@@ -95,6 +95,21 @@ export interface ChartSettings {
    * the chart type, and so does the dialog now.
    */
   rangeTicks: number;
+
+  /**
+   * The four display transforms' own parameters.
+   *
+   * These were constants baked into the chart-type token, on the reasoning
+   * that "the token IS the parameter set" — which is a coherent design right
+   * up until a user wants a 20-brick Renko. `chartTransforms` already accepts
+   * every one of them as an argument; only the path from a control to the
+   * call was missing. The reference exposes all four.
+   */
+  renkoAtrPeriod: number;
+  lineBreakLines: number;
+  kagiReversalPercent: number;
+  pnfBoxPercent: number;
+  pnfReversalBoxes: number;
 }
 
 export const DEFAULT_CHART_SETTINGS: ChartSettings = {
@@ -128,6 +143,12 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   showEvents: true,
 
   rangeTicks: 20,
+
+  renkoAtrPeriod: 14,
+  lineBreakLines: 3,
+  kagiReversalPercent: 1,
+  pnfBoxPercent: 1,
+  pnfReversalBoxes: 3,
 };
 
 const PRECISIONS: readonly PricePrecision[] = ["auto", 0, 1, 2, 3, 4, 5, 6, 7, 8];
@@ -193,6 +214,13 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
 
     rangeTicks: typeof value.rangeTicks === "number" && Number.isFinite(value.rangeTicks)
       && value.rangeTicks >= 1 ? Math.min(10000, Math.round(value.rangeTicks)) : 20,
+
+    renkoAtrPeriod: Math.round(num(value.renkoAtrPeriod, 14, 2, 200)),
+    lineBreakLines: Math.round(num(value.lineBreakLines, 3, 2, 10)),
+    // A reversal percentage, so it keeps a decimal; the others are counts.
+    kagiReversalPercent: Math.round(num(value.kagiReversalPercent, 1, 0.1, 50) * 10) / 10,
+    pnfBoxPercent: Math.round(num(value.pnfBoxPercent, 1, 0.1, 50) * 10) / 10,
+    pnfReversalBoxes: Math.round(num(value.pnfReversalBoxes, 3, 1, 10)),
   };
 }
 

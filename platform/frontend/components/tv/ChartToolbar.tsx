@@ -99,6 +99,7 @@ import { LayoutMenu } from "@/components/tv/LayoutMenu";
 import { SyncMenu } from "@/components/tv/SyncMenu";
 import { TradingOverlayMenu } from "@/components/tv/TradingOverlays";
 import type { ChartType } from "@/lib/chartType";
+import type { ChartSettings } from "@/lib/chartSettings";
 import type { SyncOptions } from "@/lib/paneSync";
 import type { Layout } from "@/lib/layouts";
 import { ProductMenu } from "@/components/tv/ProductMenu";
@@ -189,6 +190,8 @@ export interface ChartToolbarProps {
 
   chartType: ChartType;
   onChartType: (type: ChartType) => void;
+  /** The focused pane's settings, for the chart-type trigger's disclosure text. */
+  chartSettings?: ChartSettings;
 
   presetId: string;
   onPreset: (presetId: string) => void;
@@ -563,7 +566,8 @@ export function ChartToolbar(props: ChartToolbarProps) {
           bar only decides where the control sits and what tier it is in.
         */}
         <div {...ctl("chartType")} className="flex shrink-0 items-center">
-          <ChartTypeMenu value={props.chartType} onChange={props.onChartType} />
+          <ChartTypeMenu value={props.chartType} onChange={props.onChartType}
+            settings={props.chartSettings} />
         </div>
 
         <Separator className={`${SEPARATOR} hidden sm:inline-block`} />

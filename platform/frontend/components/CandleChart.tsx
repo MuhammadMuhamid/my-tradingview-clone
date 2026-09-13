@@ -724,6 +724,52 @@ export function CandleChart({
   /* Read out so the precision effect can depend on the value rather than on
      the whole settings object, which changes identity on every keystroke. */
   const precision = settings.precision;
+  /*
+   * Just the five numbers the display transforms read.
+   *
+   * The data effects must re-run when a Renko period changes and must NOT
+   * re-run when a grid line is toggled — depending on the whole settings
+   * object would rebuild every bar on any edit, and depending on nothing was
+   * how these parameters stayed unreachable in the first place.
+   */
+  const transformSettings = useMemo(() => ({
+    renkoAtrPeriod: settings.renkoAtrPeriod,
+    lineBreakLines: settings.lineBreakLines,
+    kagiReversalPercent: settings.kagiReversalPercent,
+    pnfBoxPercent: settings.pnfBoxPercent,
+    pnfReversalBoxes: settings.pnfReversalBoxes,
+  }), [settings.renkoAtrPeriod, settings.lineBreakLines, settings.kagiReversalPercent,
+    settings.pnfBoxPercent, settings.pnfReversalBoxes]);
+  /**
+   * Why this presentation is drawing nothing, or null when it is fine.
+   *
+   * One function rather than a condition per type, so a presentation added
+   * later cannot quietly join the set that fails in silence.
+   */
+  const chartUnavailable = useMemo((): string | null => {
+    const tickKnown = priceTick !== null && priceTick !== undefined && priceTick > 0;
+    const trades = marketTrades?.length ?? 0;
+    if (chartType === "footprint") {
+      if (marketTradesError) return marketTradesError;
+      if (!tickKnown) return "Volume footprint unavailable: provider tick size is not known.";
+      if (trades === 0) return "Volume footprint has no executions in the requested window.";
+      return null;
+    }
+    if (chartType === "range") {
+      if (marketTradesError) return marketTradesError;
+      if (!tickKnown) return "Range bars unavailable: provider tick size is not known.";
+      if (trades === 0) return "Range bars have no executions in the requested window.";
+      return null;
+    }
+    if (chartType === "kagi" && !tickKnown) {
+      return "Kagi unavailable: provider tick size is not known.";
+    }
+    if (chartType === "pointAndFigure" && !tickKnown) {
+      return "Point & Figure unavailable: provider tick size is not known.";
+    }
+    return null;
+  }, [chartType, priceTick, marketTrades, marketTradesError]);
+
   const visiblePriceLines = useMemo(() => settings.showTrading ? (priceLines ?? []) : [], [settings.showTrading, priceLines]);
   const visibleTrades = useMemo(() => settings.showTrading ? (trades ?? []) : [], [settings.showTrading, trades]);
   const visibleMarkers = useMemo(() => (markers ?? []).filter((marker) =>
@@ -1394,7 +1440,7 @@ export function CandleChart({
        * everything downstream of this component; only the bars handed to the
        * price series are derived.
        */
-      const params = transformParams(kind, tick ?? 0);
+      const params = transformParams(kind, tick ?? 0, transformSettings);
       const rebuilt = rebuildTransform(transform, params, candles);
       transformHeadRef.current = rebuilt.head;
       const display = rebuilt.display;
@@ -1429,7 +1475,7 @@ export function CandleChart({
       { symbol: heldSymbol, interval: heldInterval }, last ? last.openTime : null);
     if (pending) applyTickRef.current?.(pending);
   }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady,
-    marketTrades, priceTick, interval, settings.rangeTicks]);
+    marketTrades, priceTick, interval, settings.rangeTicks, transformSettings]);
 
 
   /**
@@ -1821,7 +1867,7 @@ export function CandleChart({
       } else if (transform !== null) {
         if ((transform === "kagi" || transform === "pointAndFigure")
           && !(priceTick && priceTick > 0)) return;
-        const params = transformParams(kind, priceTick ?? undefined);
+        const params = transformParams(kind, priceTick ?? undefined, transformSettings);
         const advanced = advanceTransform(
           transformHeadRef.current, transform, params, list
         );
@@ -1878,7 +1924,7 @@ export function CandleChart({
       if (applyTickRef.current === applyTick) applyTickRef.current = null;
       setFeedState(IDLE_FEED);
     };
-  }, [symbol, interval, live, latestLegend, legendAtCanonical, priceTick]);
+  }, [symbol, interval, live, latestLegend, legendAtCanonical, priceTick, transformSettings]);
 
   /**
    * Mirror another pane's crosshair.
@@ -2266,21 +2312,33 @@ export function CandleChart({
         nothing on them to say so. Absent for every canonical presentation —
         a label that appears on ordinary candles stops carrying a warning.
       */}
-      {syntheticDisclosure(chartType) && (
+      {syntheticDisclosure(chartType, settings) && !chartUnavailable && (
         <div
           title={SYNTHETIC_DISCLOSURE_HINT}
           className="rounded-sm border border-warn/40 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-warn"
         >
           <span aria-hidden="true">◆ </span>
-          {syntheticDisclosure(chartType)}
+          {syntheticDisclosure(chartType, settings)}
           <span className="sr-only"> — {SYNTHETIC_DISCLOSURE_HINT}</span>
         </div>
       )}
-      {chartType === "footprint" && (marketTradesError || !priceTick || (marketTrades?.length ?? 0) === 0) && (
+      {/*
+        ── Why a chart type that draws nothing has to SAY so ──────────────────
+        Four of the five trade- and profile-driven presentations cleared their
+        series and returned when their input was missing: Range and Kagi and
+        Point & Figure when the instrument's tick size is unknown, Range again
+        when the execution feed returns nothing. Only Volume footprint said
+        anything. The rest rendered an empty plot under an amber chip reading
+        "Kagi · 1% reversal" — a label asserting a presentation that is not
+        there, which is worse than silence.
+
+        The data behaviour was already right and is untouched: none of these
+        manufactures a tick or a trade it does not have. What was missing was
+        the sentence.
+      */}
+      {chartUnavailable && (
         <div role="status" className="rounded-sm border border-warn/40 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-warn">
-          {marketTradesError ?? (!priceTick
-            ? "Volume footprint unavailable: provider tick size is not known."
-            : "Volume footprint has no executions in the requested window.")}
+          {chartUnavailable}
         </div>
       )}
       {settings.showStatusLine && legend && (

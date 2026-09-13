@@ -20,6 +20,10 @@ const ICONS: Record<string, JSX.Element> = {
   dot: <circle cx="12" cy="12" r="3" fill="currentColor" />,
   eraser: <><path d="M4 16l7-7 6 6-4 4H7z" /><path d="M3 21h18" /></>,
   trend: <><circle cx="6" cy="18" r="1.6" /><circle cx="18" cy="6" r="1.6" /><path d="M7.3 16.7l9.4-9.4" /></>,
+  /* TVP7: `barsPattern` asked for an icon key that did not exist (`bars`), so
+     `Icon`'s fallback drew a trend line on it — one of 87 tools wearing
+     another tool's glyph, with nothing to report the mismatch. */
+  barsPattern: <><path d="M6 7v10M10 5v14M14 8v8M18 6v12" /><path d="M4 9h2M10 8h2M12 12h2M16 10h2" /></>,
   trendAngle: <><path d="M4 19L20 5" /><path d="M8 19a8 8 0 018-8" /></>,
   infoline: <><path d="M4 19L20 5" /><path d="M4 19h16M4 19V5" /></>,
   ray: <><circle cx="6" cy="17" r="1.6" /><path d="M7.4 15.9L21 4" /><circle cx="13" cy="10" r="1.6" /></>,
@@ -86,7 +90,39 @@ const Icon = ({ name, size = 28 }: { name: string; size?: number }) => (
 
 interface ToolDef { tool: DrawingTool; icon: string; label: string }
 
-/** Tool groups, mirroring the TradingView rail order. */
+/**
+ * Tool groups, in the reference's rail order.
+ *
+ * ── Why this was regrouped ─────────────────────────────────────────────────
+ *
+ * Every one of the 87 tools was reachable before this, and a prior review that
+ * called whole families "missing" was wrong about that. What it was right
+ * about is that 38 of them — the entire Gann, Fibonacci-beyond-retracement,
+ * harmonic-pattern, Elliott, cycle, forecast and measurement-projection set —
+ * lived in ONE group called `advanced`, behind one rail button, in one flyout.
+ *
+ * Two things follow from that, and the second is not cosmetic:
+ *
+ *   A trader reaching for XABCD finds it behind a caret it shares with Gann
+ *   squares and sine lines. Rail muscle memory is entirely group-POSITION
+ *   based, so a 38-item catch-all is the same as no grouping at all.
+ *
+ *   The flyout is a fixed-width box with no height cap. 38 rows at 40px is
+ *   1520px; in a 900px viewport roughly the bottom sixteen tools rendered
+ *   below the fold with nothing to scroll. They were not merely hard to find,
+ *   they could not be clicked.
+ *
+ * The groups below are TradingView's own, taken from its live rail:
+ * cursors, trend-line, gann-and-fibonacci, patterns,
+ * prediction-and-measurement, geometric-shapes, annotation — with `anchored`
+ * kept as a Trading Scene group after them, because Anchored VWAP and the two
+ * volume profiles compute a series from a point rather than describing a
+ * shape, and TradingView files those elsewhere entirely.
+ *
+ * No tool was removed, renamed or re-iconed by this change; the flyout also
+ * gained a height cap and scrolling, so a long group stays reachable however
+ * short the window is.
+ */
 const GROUPS: { id: string; tools: ToolDef[] }[] = [
   {
     id: "cursors",
@@ -97,7 +133,7 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
     ],
   },
   {
-    id: "lines",
+    id: "trend-line",
     tools: [
       { tool: "trend", icon: "trend", label: "Trend line" },
       { tool: "trendAngle", icon: "trendAngle", label: "Trend angle" },
@@ -105,33 +141,26 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
       { tool: "ray", icon: "ray", label: "Ray" },
       { tool: "extended", icon: "extended", label: "Extended line" },
       { tool: "arrow", icon: "arrow", label: "Arrow" },
-    ],
-  },
-  {
-    id: "levels",
-    tools: [
       { tool: "hline", icon: "hline", label: "Horizontal line" },
       { tool: "hray", icon: "hray", label: "Horizontal ray" },
       { tool: "vline", icon: "vline", label: "Vertical line" },
       { tool: "crossline", icon: "crossline", label: "Crossline" },
-    ],
-  },
-  {
-    id: "channels",
-    tools: [
       { tool: "parallel", icon: "parallel", label: "Parallel channel" },
       { tool: "disjointChannel", icon: "disjointChannel", label: "Disjoint channel" },
-      { tool: "pitchfork", icon: "pitchfork", label: "Pitchfork" },
-    ],
-  },
-  {
-    id: "advanced",
-    tools: [
-      { tool: "regression", icon: "trend", label: "Regression trend" },
       { tool: "flatTopBottom", icon: "parallel", label: "Flat top/bottom" },
+      { tool: "regression", icon: "trend", label: "Regression trend" },
+      { tool: "pitchfork", icon: "pitchfork", label: "Pitchfork" },
       { tool: "schiffPitchfork", icon: "pitchfork", label: "Schiff pitchfork" },
       { tool: "modifiedSchiffPitchfork", icon: "pitchfork", label: "Modified Schiff pitchfork" },
       { tool: "insidePitchfork", icon: "pitchfork", label: "Inside pitchfork" },
+      { tool: "pitchfan", icon: "pitchfork", label: "Pitchfan" },
+    ],
+  },
+  {
+    id: "gann-and-fibonacci",
+    tools: [
+      { tool: "fib", icon: "fib", label: "Fib retracement" },
+      { tool: "fibext", icon: "fibext", label: "Trend-based fib extension" },
       { tool: "fibChannel", icon: "fib", label: "Fib channel" },
       { tool: "fibTimeZone", icon: "fib", label: "Fib time zone" },
       { tool: "trendFibTime", icon: "fibext", label: "Trend-based Fib time" },
@@ -140,11 +169,15 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
       { tool: "fibCircles", icon: "circle", label: "Fib circles" },
       { tool: "fibSpiral", icon: "arc", label: "Fib spiral" },
       { tool: "fibWedge", icon: "triangle", label: "Fib wedge" },
-      { tool: "pitchfan", icon: "pitchfork", label: "Pitchfan" },
       { tool: "gannBox", icon: "rect", label: "Gann box" },
       { tool: "gannSquareFixed", icon: "rect", label: "Gann square fixed" },
       { tool: "gannSquare", icon: "rect", label: "Gann square" },
       { tool: "gannFan", icon: "trend", label: "Gann fan" },
+    ],
+  },
+  {
+    id: "patterns",
+    tools: [
       { tool: "xabcd", icon: "polyline", label: "XABCD pattern" },
       { tool: "cypher", icon: "polyline", label: "Cypher pattern" },
       { tool: "headAndShoulders", icon: "polyline", label: "Head and shoulders" },
@@ -156,49 +189,44 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
       { tool: "elliottTriangle", icon: "triangle", label: "Elliott triangle" },
       { tool: "elliottDoubleCombo", icon: "polyline", label: "Elliott double combo" },
       { tool: "elliottTripleCombo", icon: "polyline", label: "Elliott triple combo" },
+    ],
+  },
+  {
+    id: "prediction-and-measurement",
+    tools: [
+      { tool: "ruler", icon: "ruler", label: "Measure" },
+      { tool: "pricerange", icon: "pricerange", label: "Price range" },
+      { tool: "daterange", icon: "daterange", label: "Date range" },
+      { tool: "datePriceRange", icon: "ruler", label: "Date and price range" },
+      { tool: "long", icon: "long", label: "Long position" },
+      { tool: "short", icon: "short", label: "Short position" },
+      { tool: "positionForecast", icon: "arrow", label: "Position forecast" },
+      { tool: "barsPattern", icon: "barsPattern", label: "Bars pattern" },
       { tool: "cyclicLines", icon: "daterange", label: "Cyclic lines" },
       { tool: "timeCycles", icon: "daterange", label: "Time cycles" },
       { tool: "sineLine", icon: "curve", label: "Sine line" },
-      { tool: "positionForecast", icon: "arrow", label: "Position forecast" },
-      { tool: "barsPattern", icon: "bars", label: "Bars pattern" },
-      { tool: "sector", icon: "arc", label: "Sector" },
-      { tool: "rotatedRectangle", icon: "rect", label: "Rotated rectangle" },
-      { tool: "table", icon: "rect", label: "Table" },
     ],
   },
   {
-    id: "fib",
-    tools: [
-      { tool: "fib", icon: "fib", label: "Fib retracement" },
-      { tool: "fibext", icon: "fibext", label: "Trend-based fib extension" },
-    ],
-  },
-  {
-    id: "shapes",
+    id: "geometric-shapes",
     tools: [
       { tool: "rect", icon: "rect", label: "Rectangle" },
+      { tool: "rotatedRectangle", icon: "rect", label: "Rotated rectangle" },
       { tool: "ellipse", icon: "ellipse", label: "Ellipse" },
       { tool: "circle", icon: "circle", label: "Circle" },
       { tool: "triangle", icon: "triangle", label: "Triangle" },
-      { tool: "path", icon: "path", label: "Path — click points, double-click to finish" },
-      { tool: "polyline", icon: "polyline", label: "Polyline — click points, double-click to finish" },
       { tool: "arc", icon: "arc", label: "Arc" },
       { tool: "curve", icon: "curve", label: "Curve" },
       { tool: "doubleCurve", icon: "doubleCurve", label: "Double curve" },
-    ],
-  },
-  {
-    id: "brush",
-    tools: [
+      { tool: "sector", icon: "arc", label: "Sector" },
+      { tool: "path", icon: "path", label: "Path — click points, double-click to finish" },
+      { tool: "polyline", icon: "polyline", label: "Polyline — click points, double-click to finish" },
       { tool: "brush", icon: "brush", label: "Brush — freehand" },
       { tool: "highlighter", icon: "highlighter", label: "Highlighter — translucent freehand" },
-      { tool: "arrowMarker", icon: "arrowMarker", label: "Arrow marker" },
-      { tool: "arrowUp", icon: "arrowUp", label: "Arrow mark up" },
-      { tool: "arrowDown", icon: "arrowDown", label: "Arrow mark down" },
     ],
   },
   {
-    id: "text",
+    id: "annotation",
     tools: [
       { tool: "text", icon: "text", label: "Text" },
       { tool: "note", icon: "note", label: "Note" },
@@ -209,14 +237,20 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
       { tool: "pricelabel", icon: "pricelabel", label: "Price label" },
       { tool: "signpost", icon: "signpost", label: "Signpost" },
       { tool: "flagMark", icon: "flagMark", label: "Flag mark" },
+      { tool: "table", icon: "rect", label: "Table" },
+      { tool: "arrowMarker", icon: "arrowMarker", label: "Arrow marker" },
+      { tool: "arrowUp", icon: "arrowUp", label: "Arrow mark up" },
+      { tool: "arrowDown", icon: "arrowDown", label: "Arrow mark down" },
     ],
   },
   {
     /*
      * Anchored VWAP is a drawing tool, not a study, because its input is a
      * point on the chart: click the bar to start from, drag to move it. It
-     * gets its own group rather than joining "levels" because it is the only
-     * drawing here that computes a series rather than describing a shape.
+     * gets its own group rather than joining the trend family because it is
+     * the only drawing here that computes a series rather than describing a
+     * shape — and TradingView files its equivalents somewhere else entirely,
+     * so there is no rail position to borrow.
      */
     id: "anchored",
     tools: [
@@ -226,17 +260,6 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
         label: "Fixed Range Volume Profile — drag across the bars to profile",
       },
       { tool: "avprofile", icon: "avprofile", label: "Anchored Volume Profile — click a bar to anchor" },
-    ],
-  },
-  {
-    id: "measure",
-    tools: [
-      { tool: "ruler", icon: "ruler", label: "Measure" },
-      { tool: "pricerange", icon: "pricerange", label: "Price range" },
-      { tool: "daterange", icon: "daterange", label: "Date range" },
-      { tool: "datePriceRange", icon: "ruler", label: "Date and price range" },
-      { tool: "long", icon: "long", label: "Long position" },
-      { tool: "short", icon: "short", label: "Short position" },
     ],
   },
 ];
@@ -397,7 +420,7 @@ export function DrawingToolbar({
               </button>
             )}
             {flyout === group.id && (
-              <div className="absolute left-[51px] top-0 z-50 w-[264px] tvc-menu">
+              <div className="absolute left-[51px] top-0 z-50 max-h-[calc(100vh-120px)] w-[264px] overflow-y-auto tvc-menu">
                 {group.tools.map((t) => {
                   const starred = favourites.includes(t.tool);
                   return (

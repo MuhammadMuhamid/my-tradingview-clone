@@ -145,10 +145,21 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
 
   return (
     <div className="shrink-0 border-t border-border bg-surface">
-      <div className="flex items-center gap-4 border-b border-border px-3 py-1">
+      <div role="tablist" aria-label="Bottom workstation"
+        className="flex items-center gap-1 border-b border-border px-2">
         {([["trading", "Positions & Orders"], ["tester", "Strategy Tester"], ["pine", "Pine Editor"]] as const).map(([id, label]) => (
           <button
             key={id}
+            role="tab"
+            /*
+             * TVP7: `role="tab"` and `aria-selected`, and the workstation's own
+             * selected chip instead of an accent-blue underline. The two INNER
+             * strips in this panel (the tester's result tabs, the trading
+             * strip's sub-tabs) already carried tab semantics; the outermost
+             * ones — the only three a user meets on load — carried none, and
+             * were the last accent-blue selection in the shell.
+             */
+            aria-selected={tab === id && !collapsed}
             onClick={() => {
               userChoseTab.current = true;
               // Clicking the active tab while collapsed reopens it, which
@@ -163,10 +174,8 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
             // 22px measured on a phone. The tab strip is also the handle
             // that brings a collapsed panel back, so it has to be pressable
             // with a thumb, not only clickable with a pointer.
-            className={`flex min-h-[32px] items-end border-b-2 pb-1.5 text-xs font-medium ${
-              tab === id && !collapsed
-                ? "border-accent text-ink"
-                : "border-transparent text-ink-muted hover:text-ink"
+            className={`tvc-control flex min-h-[32px] items-center px-2 text-[13px] font-medium ${
+              tab === id && !collapsed ? "text-ink" : "text-ink-muted hover:text-ink"
             }`}
           >
             {label}

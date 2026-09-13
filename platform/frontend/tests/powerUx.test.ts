@@ -652,6 +652,10 @@ test("every toolbar popover goes through the registry rather than its own state"
   assert.deepEqual([...registered].sort(), [
     "chart-type", "drawing-flyout", "layout-preset", "nav-system", "pane-sync",
     "product-menu", "saved-layouts", "timeframe", "trading-overlays",
+    // TVP7: the watchlist's list switcher. It kept a private `useState(false)`
+    // and escaped this inventory because it was a hand-rolled box with no
+    // `role="menu"` for the rule below to catch.
+    "watchlist-lists",
   ]);
   assert.equal(new Set(registered).size, registered.length, "two popovers share an id");
 

@@ -1681,6 +1681,7 @@ export default function TvWorkspace() {
           onOpenCompare={() => setComparePaneId(active.id)}
           onInterval={(i) => changePaneInterval(active.id, i)}
           chartType={active.chartType}
+          chartSettings={paneChartSettings(workspace, workspace.activePaneId)}
           onChartType={changeChartType}
           presetId={workspace.presetId}
           onPreset={changePreset}

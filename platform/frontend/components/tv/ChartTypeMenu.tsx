@@ -2,7 +2,8 @@
 import { useEffect, useRef } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
-  CHART_TYPES, SYNTHETIC_DISCLOSURE_HINT, syntheticDisclosure, type ChartType,
+  CHART_TYPES, SYNTHETIC_DISCLOSURE_HINT, syntheticDisclosure,
+  type ChartType, type TransformSettings,
 } from "@/lib/chartType";
 import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
@@ -109,10 +110,15 @@ const TRANSFORMS = CHART_TYPES.filter((t) => t.group === "transform");
  * their public execution feed is temporarily unavailable by drawing no data.
  */
 export function ChartTypeMenu({
-  value, onChange,
+  value, onChange, settings,
 }: {
   value: ChartType;
   onChange: (next: ChartType) => void;
+  /**
+   * The focused pane's settings, so the trigger's disclosure text names the
+   * parameters actually in force rather than the build's defaults.
+   */
+  settings?: TransformSettings;
 }) {
   // One popover open at a time across the whole toolbar — these menus
   // hang off buttons a few pixels apart, so two open at once overlap and
@@ -156,7 +162,7 @@ export function ChartTypeMenu({
   };
 
   const active = CHART_TYPES.find((t) => t.value === value) ?? CHART_TYPES[0]!;
-  const synthetic = syntheticDisclosure(active.value);
+  const synthetic = syntheticDisclosure(active.value, settings);
 
   /*
    * ── Why the hint moved into the tooltip ───────────────────────────────────

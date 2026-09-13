@@ -292,7 +292,12 @@ test("the toolbar acts on the focused pane, never on a pane it resolves itself",
 
 test("the toolbar keeps the chart-type control as a slot it does not implement", () => {
   const source = read(TOOLBAR);
-  assert.match(source, /<ChartTypeMenu value=\{props\.chartType\} onChange=\{props\.onChartType\} \/>/);
+  // The slot also hands the control the FOCUSED pane's settings, so its
+  // disclosure text can name the transform parameters actually in force
+  // rather than the build's defaults. Still a slot: the bar passes state
+  // through and implements none of it.
+  assert.match(source,
+    /<ChartTypeMenu value=\{props\.chartType\} onChange=\{props\.onChartType\}\s*\n?\s*settings=\{props\.chartSettings\} \/>/);
   assert.doesNotMatch(source, /heikin|renko|kagi/i,
     "presentation types belong to the chart-type system, not to this bar");
 });

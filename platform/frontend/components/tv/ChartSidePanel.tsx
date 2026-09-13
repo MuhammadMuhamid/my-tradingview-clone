@@ -121,7 +121,17 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
    * the chart as one workstation surface.
    */
   const railBtn = (isActive: boolean): string =>
-    `flex h-[38px] w-[45px] items-center justify-center ${
+    /*
+     * TVP7: the same grammar and the same width as the left rail.
+     *
+     * This was 45px wide with 21px glyphs and painted NOTHING for hover or for
+     * the panel that is currently open — the only rail in the workstation not
+     * on `.tvc-control`, sitting opposite one that is 52px with 28px glyphs.
+     * Two rails on one screen built to two different rules read as two
+     * products, and the open panel had no marker at all beyond a slightly
+     * brighter glyph.
+     */
+    `tvc-control flex h-[38px] w-[52px] items-center justify-center ${
       isActive ? "text-ink" : "text-ink-muted hover:text-ink"
     }`;
 
@@ -226,7 +236,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
     )}
 
     {/* ── far-right icon rail (TV-style) ── */}
-    <div className="hidden w-[45px] shrink-0 flex-col items-center border-l border-border bg-surface py-1 md:flex">
+    <div className="hidden w-[52px] shrink-0 flex-col items-center border-l border-border bg-surface py-1 md:flex">
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}
@@ -234,7 +244,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Watchlist"
         aria-pressed={props.panel === "watchlist"}
       >
-        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 6h16M4 12h16M4 18h10" />
         </svg>
       </button>
@@ -246,7 +256,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
         aria-pressed={props.panel === "manual"}
       >
-        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
         </svg>
       </button>
@@ -257,7 +267,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Indicators"
         aria-pressed={props.panel === "indicators"}
       >
-        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
         </svg>
         {props.indicatorCount > 0 && (
@@ -273,7 +283,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Moving averages"
         aria-pressed={props.panel === "ma"}
       >
-        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
         </svg>
         {props.maAlerts.length > 0 && (
@@ -289,7 +299,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Correlation"
         aria-pressed={props.panel === "correlation"}
       >
-        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
           <path d="M9 3.5v17M15 3.5v17M3.5 9h17M3.5 15h17" />
         </svg>
@@ -302,7 +312,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations"}
         aria-pressed={props.panel === "alerts"}
       >
-        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
         </svg>
       </button>

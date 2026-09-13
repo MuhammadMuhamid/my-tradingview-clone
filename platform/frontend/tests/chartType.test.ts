@@ -19,7 +19,7 @@ import path from "node:path";
 import {
   CHART_TYPES, chartTransform, chartTypeLabel, chartTypeOrDefault, DEFAULT_RENKO_ATR_PERIOD,
   drawsOhlc, isChartType, isSyntheticChartType, mainSeriesDatum, renderKind, renkoParams,
-  syntheticDisclosure, SYNTHETIC_DISCLOSURE_HINT,
+  syntheticDisclosure, SYNTHETIC_DISCLOSURE_HINT, transformParams, transformParamSummary,
   type ChartType,
 } from "../lib/chartType";
 
@@ -78,14 +78,54 @@ test("a synthetic type is disclosed and a canonical one never is", () => {
   assert.match(SYNTHETIC_DISCLOSURE_HINT, /canonical exchange candles/);
 });
 
-test("Renko's parameters are ATR(14), and they belong to the chart type", () => {
+test("Renko's parameters default to ATR(14) and are read from the pane's settings", () => {
   assert.equal(DEFAULT_RENKO_ATR_PERIOD, 14);
+  // No settings: the documented default, so every caller that has not been
+  // given one keeps its old behaviour to the digit.
   assert.deepEqual(renkoParams("renko"), { atrPeriod: 14 });
-  // The label carries the period, so what is persisted is also what is shown.
-  assert.equal(chartTypeLabel("renko"), "Renko · ATR(14)");
+  assert.deepEqual(renkoParams("renko", {}), { atrPeriod: 14 });
+  assert.deepEqual(renkoParams("renko", { renkoAtrPeriod: 20 }), { atrPeriod: 20 });
+
+  /*
+   * The LABEL no longer carries the period.
+   *
+   * It used to, on the reasoning that what is persisted should be what is
+   * shown — which was true while the period could not change. It is used in
+   * six places (menu row, toolbar disclosure, on-chart chip, settings
+   * heading, screen-reader name, tooltip), so once the period became editable
+   * the baked-in "· ATR(14)" was a stale number in all six. The parameters
+   * are now `transformParamSummary`, computed from the same settings the
+   * transform reads, and the reference's own menu says "Renko" too.
+   */
+  assert.equal(chartTypeLabel("renko"), "Renko");
+  assert.equal(transformParamSummary("renko"), "ATR(14)");
+  assert.equal(transformParamSummary("renko", { renkoAtrPeriod: 20 }), "ATR(20)");
+  assert.equal(transformParamSummary("candles"), null);
+
+  // The disclosure chip still states both, so nothing a user could read got
+  // quieter — it just stopped lying when the period changed.
+  assert.equal(syntheticDisclosure("renko"), "Renko · ATR(14)");
+  assert.equal(syntheticDisclosure("renko", { renkoAtrPeriod: 20 }), "Renko · ATR(20)");
+  assert.equal(syntheticDisclosure("candles"), null);
+
   for (const other of ["candles", "bars", "line", "area", "heikinAshi"] as ChartType[]) {
     assert.equal(renkoParams(other), null);
   }
+});
+
+test("every transform reads its parameters from the pane rather than a constant", () => {
+  assert.equal(transformParams("lineBreak", 0.01).lineBreakLines, 3);
+  assert.equal(transformParams("lineBreak", 0.01, { lineBreakLines: 5 }).lineBreakLines, 5);
+  assert.equal(transformParams("kagi", 0.01).kagiReversalPercent, 1);
+  assert.equal(transformParams("kagi", 0.01, { kagiReversalPercent: 2.5 }).kagiReversalPercent, 2.5);
+  const pnf = transformParams("pointAndFigure", 0.01, { pnfBoxPercent: 0.5, pnfReversalBoxes: 2 });
+  assert.equal(pnf.pnfBoxPercent, 0.5);
+  assert.equal(pnf.pnfReversalBoxes, 2);
+  // A parameter belonging to another transform is never smuggled in.
+  assert.equal(transformParams("kagi", 0.01, { lineBreakLines: 5 }).lineBreakLines, undefined);
+  // `latestCloseSizing` is a property of the transform, not of the settings.
+  assert.equal(transformParams("kagi", 0.01).latestCloseSizing, true);
+  assert.equal(transformParams("lineBreak", 0.01).latestCloseSizing, undefined);
 });
 
 test("an unknown or damaged persisted type falls back to canonical candles", () => {
@@ -123,8 +163,12 @@ test("THE MENU OFFERS NO TYPE THE RENDERER CANNOT DRAW", () => {
   assert.ok(!/disabled/.test(menu), "the menu grew an entry that cannot be chosen");
   assert.match(menu, /Transforms · display only/, "the transform group lost its heading");
   // And the chart discloses the transform on the chart itself, not only in the
-  // toolbar — sixteen panes, one toolbar.
-  assert.match(chart, /syntheticDisclosure\(chartType\)/);
+  // toolbar — sixteen panes, one toolbar. It passes the pane's settings, so
+  // the chip names the parameters actually in force.
+  assert.match(chart, /syntheticDisclosure\(chartType, settings\)/);
+  // The chip stands down while the unavailable notice is speaking: a label
+  // asserting "Kagi · 1% reversal" over a blank plot is worse than silence.
+  assert.match(chart, /syntheticDisclosure\(chartType, settings\) && !chartUnavailable/);
 });
 
 test("isChartType rejects anything that is not a mode", () => {

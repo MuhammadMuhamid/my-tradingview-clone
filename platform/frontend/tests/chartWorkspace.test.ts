@@ -30,6 +30,7 @@ import {
   crosshairForPane, DEFAULT_SYNC, followEdgeForPane, SYNC_LABELS, visibleRangeForPane,
   type SyncOptions,
 } from "../lib/paneSync";
+import { DEFAULT_CHART_SETTINGS } from "../lib/chartSettings";
 import { chartTypeLabel } from "../lib/chartType";
 
 const ROOT = path.join(__dirname, "..");
@@ -703,9 +704,20 @@ test("A SYNTHETIC PANE SURVIVES A RELOAD, AND A DAMAGED ONE DOES NOT COME BACK W
   assert.deepEqual(restored.workspace.panes.map((p) => p.chartType),
     ["candles", "heikinAshi", "renko"]);
 
-  // Renko's only parameter is fixed at ATR(14) and is carried by the type, so
-  // restoring the type restores the parameters — there is nothing else to lose.
-  assert.equal(chartTypeLabel(restored.workspace.panes[2]!.chartType), "Renko · ATR(14)");
+  /*
+   * Renko's period is no longer carried by the TYPE.
+   *
+   * It used to be, and that was the reason the label said "Renko · ATR(14)":
+   * the token was the whole parameter set, so restoring the token restored
+   * everything. The period is now a field of the pane's own `ChartSettings`,
+   * which is persisted on the same pane record — so the parameter still
+   * round-trips, it simply round-trips beside the type rather than inside it.
+   */
+  assert.equal(chartTypeLabel(restored.workspace.panes[2]!.chartType), "Renko");
+  assert.equal(
+    restored.workspace.panes[2]!.chartSettings?.renkoAtrPeriod
+      ?? DEFAULT_CHART_SETTINGS.renkoAtrPeriod,
+    14);
 
   // A record naming an unsupported chart type is a damaged record, and a
   // damaged record lands on a clean canonical pane rather than half restoring.

@@ -162,22 +162,22 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "Averaged bars — display only, not traded prices",
   },
   {
-    value: "renko", label: `Renko · ATR(${DEFAULT_RENKO_ATR_PERIOD})`, group: "transform",
+    value: "renko", label: "Renko", group: "transform",
     renderKind: "candles", transform: "renko",
     hint: `Bricks of one ATR(${DEFAULT_RENKO_ATR_PERIOD}) — display only, no time axis`,
   },
   {
-    value: "lineBreak", label: `${DEFAULT_LINE_BREAK_LINES}-line Break`, group: "transform",
+    value: "lineBreak", label: "Line break", group: "transform",
     renderKind: "line", transform: "lineBreak",
     hint: `${DEFAULT_LINE_BREAK_LINES}-line close-break transform — display only`,
   },
   {
-    value: "kagi", label: `Kagi · ${DEFAULT_KAGI_REVERSAL_PERCENT}% reversal`, group: "transform",
+    value: "kagi", label: "Kagi", group: "transform",
     renderKind: "line", transform: "kagi",
     hint: "Close-driven Kagi line with a fixed percentage reversal",
   },
   {
-    value: "pointAndFigure", label: `Point & Figure · ${DEFAULT_PNF_BOX_PERCENT}% / ${DEFAULT_PNF_REVERSAL_BOXES} boxes`, group: "transform",
+    value: "pointAndFigure", label: "Point & figure", group: "transform",
     renderKind: "line", transform: "pointAndFigure",
     hint: `Price columns using ${DEFAULT_PNF_BOX_PERCENT}% boxes and ${DEFAULT_PNF_REVERSAL_BOXES}-box reversals`,
   },
@@ -231,34 +231,79 @@ export function isSyntheticChartType(type: ChartType): boolean {
 }
 
 /**
- * Renko's active parameters for a chart type, or null for every other type.
+ * Where a transform reads its parameters from.
  *
- * V1 has exactly one parameter and it is fixed at ATR(14): the chart-type
- * token IS the parameter set, which is the smallest per-pane representation
- * that persists it — a pane storing `"renko"` restores ATR(14) and nothing
- * else has to round-trip. There is deliberately no settings subsystem; if a
- * period ever becomes adjustable, this is the one function that has to learn
- * where to read it from.
+ * These were constants: "the chart-type token IS the parameter set", which is
+ * the smallest thing that persists and was the right call while nothing could
+ * change them. The comment that used to sit here said that if a period ever
+ * became adjustable this is the one function that would have to learn where
+ * to read it from. It has.
+ *
+ * The source is the pane's own `ChartSettings`, so a parameter round-trips
+ * with the workspace exactly as `rangeTicks` already did, and an absent
+ * settings object still yields the documented defaults — every caller that
+ * has not been given one keeps its old behaviour to the digit.
  */
-export function renkoParams(type: ChartType): RenkoParams | null {
+export interface TransformSettings {
+  renkoAtrPeriod?: number;
+  lineBreakLines?: number;
+  kagiReversalPercent?: number;
+  pnfBoxPercent?: number;
+  pnfReversalBoxes?: number;
+}
+
+export function renkoParams(type: ChartType, settings?: TransformSettings): RenkoParams | null {
   return chartTransform(type) === "renko"
-    ? { atrPeriod: DEFAULT_RENKO_ATR_PERIOD }
+    ? { atrPeriod: settings?.renkoAtrPeriod ?? DEFAULT_RENKO_ATR_PERIOD }
     : null;
 }
 
 /** Parameters for every implemented display transform. */
-export function transformParams(type: ChartType, tickSize = 0.01): TransformParams {
+export function transformParams(
+  type: ChartType, tickSize = 0.01, settings?: TransformSettings
+): TransformParams {
   const transform = chartTransform(type);
   return {
-    atrPeriod: DEFAULT_RENKO_ATR_PERIOD,
-    ...(transform === "lineBreak" ? { lineBreakLines: DEFAULT_LINE_BREAK_LINES } : {}),
-    ...(transform === "kagi" ? { kagiReversalPercent: DEFAULT_KAGI_REVERSAL_PERCENT } : {}),
+    atrPeriod: settings?.renkoAtrPeriod ?? DEFAULT_RENKO_ATR_PERIOD,
+    ...(transform === "lineBreak"
+      ? { lineBreakLines: settings?.lineBreakLines ?? DEFAULT_LINE_BREAK_LINES } : {}),
+    ...(transform === "kagi"
+      ? { kagiReversalPercent: settings?.kagiReversalPercent ?? DEFAULT_KAGI_REVERSAL_PERCENT } : {}),
     ...(transform === "pointAndFigure" ? {
-      pnfBoxPercent: DEFAULT_PNF_BOX_PERCENT, pnfReversalBoxes: DEFAULT_PNF_REVERSAL_BOXES,
+      pnfBoxPercent: settings?.pnfBoxPercent ?? DEFAULT_PNF_BOX_PERCENT,
+      pnfReversalBoxes: settings?.pnfReversalBoxes ?? DEFAULT_PNF_REVERSAL_BOXES,
     } : {}),
     ...(transform === "kagi" || transform === "pointAndFigure" ? { latestCloseSizing: true } : {}),
     tickSize,
   };
+}
+
+/**
+ * The active parameters of a transform, as a short phrase, or null.
+ *
+ * Split out of `label` because the label is used in six places — the menu row,
+ * the toolbar's disclosure text, the on-chart amber chip, the settings
+ * heading, the screen-reader announcement and the tooltip — and baking
+ * "· ATR(14)" into it meant a user who changed the period read a stale number
+ * in all six. The reference's menu says "Renko"; the parameters belong beside
+ * the controls that set them.
+ */
+export function transformParamSummary(
+  type: ChartType, settings?: TransformSettings
+): string | null {
+  switch (chartTransform(type)) {
+    case "renko":
+      return `ATR(${settings?.renkoAtrPeriod ?? DEFAULT_RENKO_ATR_PERIOD})`;
+    case "lineBreak":
+      return `${settings?.lineBreakLines ?? DEFAULT_LINE_BREAK_LINES} lines`;
+    case "kagi":
+      return `${settings?.kagiReversalPercent ?? DEFAULT_KAGI_REVERSAL_PERCENT}% reversal`;
+    case "pointAndFigure":
+      return `${settings?.pnfBoxPercent ?? DEFAULT_PNF_BOX_PERCENT}% / `
+        + `${settings?.pnfReversalBoxes ?? DEFAULT_PNF_REVERSAL_BOXES} boxes`;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -268,8 +313,15 @@ export function transformParams(type: ChartType, tickSize = 0.01): TransformPara
  * Null for every presentation is the load-bearing half: a canonical chart must
  * not carry a synthetic label, or the label stops meaning anything.
  */
-export function syntheticDisclosure(type: ChartType): string | null {
-  return isSyntheticChartType(type) ? spec(type).label : null;
+export function syntheticDisclosure(
+  type: ChartType, settings?: TransformSettings
+): string | null {
+  if (!isSyntheticChartType(type)) return null;
+  const params = transformParamSummary(type, settings);
+  // The chip names the transform and its ACTIVE parameters, so a user who
+  // changed the Renko period reads their own number rather than the default
+  // that used to be welded into the label.
+  return params ? `${spec(type).label} · ${params}` : spec(type).label;
 }
 
 /** Spelt out for screen readers and the badge's tooltip. */
