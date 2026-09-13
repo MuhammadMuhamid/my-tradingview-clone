@@ -1629,6 +1629,7 @@ export default function TvWorkspace() {
         classicalOverlay={classicalOverlays[pane.id]}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
+        onEditNative={setEditingNativeKey}
         compact={isMobile}
       />
     );

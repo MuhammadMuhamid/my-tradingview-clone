@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Button, Card, Empty, Field, Select, TextInput } from "@/components/ui";
+import { Button, Card, Empty, Field, PageShell, Select, TextInput } from "@/components/ui";
 import {
   api, type JournalResponse, type JournalRow, type JournalSource,
   type JournalSummarySlice,
@@ -170,7 +170,7 @@ export default function JournalPage() {
   const submit = (event: FormEvent) => { event.preventDefault(); void load(1); };
 
   return (
-    <div className="mx-auto max-w-[1200px] space-y-4 px-3 py-4 sm:px-4">
+    <PageShell width="narrow">
       <header>
         <h1 className="text-lg font-semibold text-ink">Journal</h1>
         <p className="mt-0.5 max-w-3xl text-xs leading-5 text-ink-faint">
@@ -263,6 +263,6 @@ export default function JournalPage() {
           <ul className="mt-2 list-disc space-y-1 pl-5">{data.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
         </details>
       </>}
-    </div>
+    </PageShell>
   );
 }

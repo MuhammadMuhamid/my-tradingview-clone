@@ -168,13 +168,24 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       const wanted = new Set(favourites);
       return matched.filter((d) => wanted.has(d.id));
     }
+    /*
+     * "On this chart" counted built-ins and then listed only Pine scripts.
+     * With three built-ins applied and no scripts the chip read `3` over an
+     * empty list — the exact mismatch the comment further down was written to
+     * prevent, reproduced one category along. The built-ins now appear in the
+     * list they were already being counted in.
+     */
+    if (category === "onChart") {
+      const appliedNative = new Set((props.nativeStudies?.list ?? []).map((study) => study.defId));
+      return matched.filter((d) => appliedNative.has(d.id));
+    }
     if (category === "recents") {
       const order = new Map(recents.map((id, i) => [id, i]));
       return matched.filter((d) => order.has(d.id))
         .sort((a, b) => order.get(a.id)! - order.get(b.id)!);
     }
     return matched;
-  }, [q, category, favourites, recents]);
+  }, [q, category, favourites, recents, props.nativeStudies?.list]);
 
   /** How many instances of this built-in are on the focused chart. */
   const nativeCount = useCallback((id: string): number =>
@@ -444,15 +455,28 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         </p>
       )}
 
-      {category === "builtin" || category === "favourites" || category === "recents" ? (
+      {/*
+        `onChart` is the one category that spans both kinds — it means "what is
+        applied", and a built-in and a script are both applicable. It used to
+        COUNT both and LIST only scripts, so three built-ins and no scripts read
+        "On this chart 3" over an empty panel. It now renders both lists, the
+        built-ins first.
+      */}
+      {category === "builtin" || category === "favourites" || category === "recents"
+        || category === "onChart" ? (
         <div className="mt-3 flex flex-col gap-1">
-          {nativeList.length === 0 && (
+          {nativeList.length === 0 && category !== "onChart" && (
             <p className="py-6 text-center text-[12px] text-ink-faint">
               {category === "favourites"
                 ? "No favourites yet. Star a built-in study to keep it here."
                 : category === "recents"
                   ? "Nothing added yet. Studies you apply appear here."
                   : "No built-in study matches that search."}
+            </p>
+          )}
+          {category === "onChart" && nativeList.length === 0 && filtered.length === 0 && (
+            <p className="py-6 text-center text-[12px] text-ink-faint">
+              Nothing on this chart yet. Add a built-in study or a script.
             </p>
           )}
           {nativeList.map((def) => {
@@ -496,6 +520,19 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
               </div>
             );
           })}
+          {category === "onChart" && filtered.map((s) => (
+            <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
+              <span className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${
+                s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
+              }`}>
+                {s.kind === "strategy" ? "Str" : "Ind"}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{s.name}</span>
+              <span className="shrink-0 text-[11px] text-ink-faint">
+                {appliedCount(s)} instance{appliedCount(s) === 1 ? "" : "s"}
+              </span>
+            </div>
+          ))}
         </div>
       ) : category === "templates" ? (
         <TemplateList

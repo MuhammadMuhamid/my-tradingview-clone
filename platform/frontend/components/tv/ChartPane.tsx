@@ -188,6 +188,8 @@ export interface ChartPaneProps {
   onIndicatorList: (paneId: string, list: AppliedIndicator[]) => void;
   /** The pane opens the workspace Indicators panel on one instance. */
   onFocusIndicator: (paneId: string, key: string) => void;
+  /** Open a built-in study's own settings dialog, by instance key. */
+  onEditNative?: (key: string) => void;
 
   /** Force the smallest chrome regardless of measured size (phones). */
   compact?: boolean;
@@ -604,14 +606,42 @@ function ChartPaneImpl(props: ChartPaneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history.mergeLiveBars, indicators.rerunAll]);
 
+  /**
+   * A study pane's own header controls.
+   *
+   * ── The defect this repairs ──────────────────────────────────────────────
+   *
+   * Built-in studies and Pine studies both name their pane `indicator:<key>`
+   * (`lib/native/compute.ts` and `lib/indicators.ts`), so this handler stripped
+   * the prefix and handed EVERY key to the Pine API. `useIndicators.remove`
+   * filters a list that never contains a `nat_…` key and `toggleVisible` maps
+   * with no match — so both returned quietly having done nothing.
+   *
+   * The result: the eye and the trash on the pane header of every separate-pane
+   * built-in — RSI, MACD, Stochastic, ADX, all thirty-five of them — looked
+   * live, responded to the pointer, and did not hide or remove anything. A
+   * control that moves nothing is the one thing this campaign's own settings
+   * rule forbids, and here it was on the most-used studies in the product.
+   *
+   * The key decides which API owns it. `nativeRef` was already in scope.
+   */
   const paneAction = useCallback((subPaneId: string, action: PaneAction) => {
     const key = subPaneId.replace(/^indicator:/, "");
-    if (action === "hide") { indicatorsRef.current.toggleVisible(key); return; }
-    if (action === "remove") { indicatorsRef.current.remove(key); return; }
+    const isNative = nativeRef.current.list.some((study) => study.key === key);
+    const api = isNative ? nativeRef.current : indicatorsRef.current;
+    if (action === "hide") { api.toggleVisible(key); return; }
+    if (action === "remove") { api.remove(key); return; }
+    /*
+     * Settings. A built-in opens its own dialog directly; a Pine study still
+     * goes through the panel, which is where its source and inputs live.
+     * The gear used to open the side panel for both, so retuning an RSI meant
+     * finding it in a list and clicking a second gear.
+     */
+    if (isNative && props.onEditNative) { props.onEditNative(key); return; }
     props.onFocusIndicator(paneId, key);
-    // `props.onFocusIndicator` is stable in the workspace.
+    // `props.onFocusIndicator` and `props.onEditNative` are stable in the workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, props.onFocusIndicator]);
+  }, [paneId, props.onFocusIndicator, props.onEditNative]);
 
   const { onCrosshairMove, onVisibleRangeChange, onViewportChange } = props;
   const emitCrosshair = useMemo(

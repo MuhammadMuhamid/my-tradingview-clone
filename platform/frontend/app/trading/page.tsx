@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { Card, CardHeader, Button, StatusBadge, Empty } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, PageShell, StatusBadge } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { DeploymentForm } from "@/components/DeploymentForm";
 import { AlertFeed } from "@/components/AlertFeed";
@@ -125,7 +125,7 @@ export default function DeploymentsPage() {
   const activeCount = deps.filter((d) => d.status === "active").length;
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-6">
+    <PageShell>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold">Automations</h1>
@@ -391,6 +391,6 @@ export default function DeploymentsPage() {
         onClose={() => setEditing(null)}
         onSaved={() => { void refresh(); }}
       />
-    </div>
+    </PageShell>
   );
 }

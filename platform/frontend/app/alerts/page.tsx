@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Card, CardHeader, Button, Empty, Select, TextInput } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, PageShell, Select, TextInput } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { AlertEditor } from "@/components/tv/AlertEditor";
@@ -167,7 +167,7 @@ export default function AlertsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-4 px-3 py-4 sm:px-4">
+    <PageShell width="narrow">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-ink">Alerts</h1>
@@ -528,6 +528,6 @@ export default function AlertsPage() {
           {toast}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

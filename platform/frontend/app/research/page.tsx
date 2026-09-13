@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardHeader, StatusBadge, Empty } from "@/components/ui";
+import { Card, CardHeader, Empty, PageShell, StatusBadge } from "@/components/ui";
 import { BacktestForm } from "@/components/BacktestForm";
 import { api } from "@/lib/api";
 import type { Backtest, SymbolInfo } from "@/lib/types";
@@ -42,7 +42,7 @@ export default function BacktestsPage() {
   }, [rows]);
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-6 space-y-6">
+    <PageShell>
       <div>
         <h1 className="text-lg font-semibold text-ink">Quick backtest</h1>
         <p className="text-xs text-ink-faint">
@@ -126,6 +126,6 @@ export default function BacktestsPage() {
           </div>
         )}
       </Card>
-    </div>
+    </PageShell>
   );
 }

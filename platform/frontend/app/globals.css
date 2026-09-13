@@ -184,25 +184,45 @@
   --ts-menu-selected-ink: #ffffff;
 }
 
-/* Scope the compact grammar to the chart only; marketing and research pages
-   keep their more spacious application typography. */
+/*
+ * ── Two scopes, one grammar ────────────────────────────────────────────────
+ *
+ * `.tv-workstation` is the CHART's density: 14px at 1.35, a leading tight
+ * enough for a legend sitting over candles. That stays chart-only.
+ *
+ * `.ts-app` is every other first-party page: the same 14px type, at a reading
+ * leading. The two used to differ in a way nobody chose — the workstation
+ * declared 14px and the rest of the product declared nothing, so it ran at the
+ * browser's 16px root and authors compensated with `text-xs` on 180 elements.
+ * The product was therefore 16px where it was unstyled and 12px where it was
+ * styled, with the 14px system reachable from neither.
+ *
+ * Everything BELOW this pair — the control-state chip, the menu grammar, the
+ * focus offset — is shared by both, because a button should not hover
+ * differently depending on which page it is on. That is the whole of what the
+ * owner means by "one product".
+ */
 .tv-workstation {
   font-size: var(--ts-workstation-font-size);
   line-height: 1.35;
 }
-.tv-workstation button,
-.tv-workstation input,
-.tv-workstation select,
-.tv-workstation textarea {
+.ts-app {
+  font-size: var(--ts-workstation-font-size);
+  line-height: 1.5;
+}
+:is(.tv-workstation, .ts-app) button,
+:is(.tv-workstation, .ts-app) input,
+:is(.tv-workstation, .ts-app) select,
+:is(.tv-workstation, .ts-app) textarea {
   font-size: inherit;
 }
-.tv-workstation [role="menu"] {
+:is(.tv-workstation, .ts-app) [role="menu"] {
   border-radius: var(--ts-workstation-radius);
 }
-.tv-workstation [role="menu"] > button,
-.tv-workstation [role="menu"] > [role="menuitem"],
-.tv-workstation [role="menu"] > [role="menuitemcheckbox"],
-.tv-workstation [role="menu"] > [role="menuitemradio"] {
+:is(.tv-workstation, .ts-app) [role="menu"] > button,
+:is(.tv-workstation, .ts-app) [role="menu"] > [role="menuitem"],
+:is(.tv-workstation, .ts-app) [role="menu"] > [role="menuitemcheckbox"],
+:is(.tv-workstation, .ts-app) [role="menu"] > [role="menuitemradio"] {
   min-height: var(--ts-workstation-menu-row-height);
 }
 
@@ -231,7 +251,7 @@
  * `> *` gets `position: relative` so content sits above the chip without every
  * call site having to add `relative z-10`.
  */
-.tv-workstation .tvc-control {
+:is(.tv-workstation, .ts-app) .tvc-control {
   position: relative;
   /*
    * `isolation: isolate` is load-bearing, not defensive.
@@ -251,7 +271,7 @@
   isolation: isolate;
   background-color: transparent;
 }
-.tv-workstation .tvc-control::before {
+:is(.tv-workstation, .ts-app) .tvc-control::before {
   content: "";
   position: absolute;
   z-index: -1;
@@ -260,24 +280,24 @@
   background-color: transparent;
   pointer-events: none;
 }
-.tv-workstation .tvc-control:hover:not(:disabled):not([aria-disabled="true"])::before {
+:is(.tv-workstation, .ts-app) .tvc-control:hover:not(:disabled):not([aria-disabled="true"])::before {
   background-color: var(--ts-state-hover);
 }
-.tv-workstation .tvc-control[aria-pressed="true"]::before,
-.tv-workstation .tvc-control[aria-checked="true"]::before,
-.tv-workstation .tvc-control[aria-selected="true"]::before,
-.tv-workstation .tvc-control[aria-expanded="true"]::before,
-.tv-workstation .tvc-control[data-active="true"]::before {
+:is(.tv-workstation, .ts-app) .tvc-control[aria-pressed="true"]::before,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-checked="true"]::before,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-selected="true"]::before,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-expanded="true"]::before,
+:is(.tv-workstation, .ts-app) .tvc-control[data-active="true"]::before {
   background-color: var(--ts-state-active);
 }
 /* A rail button's chip is narrower than its 52px hit zone, so the rail reads
    as a column of 34px squares rather than as a filled strip. Scoped to the
    rail's own root so a rail button does not have to declare it. */
-.tv-workstation [data-drawing-rail="true"] .tvc-control::before {
+:is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control::before {
   inset: 2px 9px;
 }
-.tv-workstation .tvc-control:disabled,
-.tv-workstation .tvc-control[aria-disabled="true"] {
+:is(.tv-workstation, .ts-app) .tvc-control:disabled,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.4;
 }
@@ -290,13 +310,13 @@
  * is an inverted light chip (#f2f2f2 on #0f0f0f text) — TradingView does not
  * tint menu selection blue either.
  */
-.tv-workstation .tvc-menu {
+:is(.tv-workstation, .ts-app) .tvc-menu {
   background-color: var(--ts-popover);
   border-radius: var(--ts-workstation-radius);
   box-shadow: var(--ts-popover-shadow);
   padding: var(--ts-workstation-popover-padding) 0;
 }
-.tv-workstation .tvc-menu-row {
+:is(.tv-workstation, .ts-app) .tvc-menu-row {
   position: relative;
   /* Block-level flex, so the row fills the menu minus its own gutters. A
      `w-full` here would be width:100% and would ignore them. */
@@ -308,19 +328,19 @@
   border-radius: var(--ts-workstation-radius);
   background-color: transparent;
 }
-.tv-workstation .tvc-menu-row:hover:not(:disabled):not([aria-disabled="true"]),
-.tv-workstation .tvc-menu-row[data-highlighted="true"] {
+:is(.tv-workstation, .ts-app) .tvc-menu-row:hover:not(:disabled):not([aria-disabled="true"]),
+:is(.tv-workstation, .ts-app) .tvc-menu-row[data-highlighted="true"] {
   background-color: var(--ts-state-hover);
 }
-.tv-workstation .tvc-menu-row[aria-checked="true"],
-.tv-workstation .tvc-menu-row[aria-selected="true"],
-.tv-workstation .tvc-menu-row[data-active="true"] {
+:is(.tv-workstation, .ts-app) .tvc-menu-row[aria-checked="true"],
+:is(.tv-workstation, .ts-app) .tvc-menu-row[aria-selected="true"],
+:is(.tv-workstation, .ts-app) .tvc-menu-row[data-active="true"] {
   background-color: var(--ts-menu-selected-bg);
   color: var(--ts-menu-selected-ink);
 }
 /* The separator between groups of rows: a hairline inset to the rows' own
    gutter, with the same 6px of air above and below that the menu has. */
-.tv-workstation .tvc-menu-sep {
+:is(.tv-workstation, .ts-app) .tvc-menu-sep {
   height: 1px;
   margin: var(--ts-workstation-popover-padding);
   background-color: var(--ts-line-strong);
@@ -461,7 +481,7 @@ body {
  * there are 38px and adjacent, so a 2px offset on one of them overlapped its
  * neighbour's hit zone and the ring read as belonging to both.
  */
-.tv-workstation :focus-visible {
+:is(.tv-workstation, .ts-app) :focus-visible {
   outline-offset: 1px;
 }
 
