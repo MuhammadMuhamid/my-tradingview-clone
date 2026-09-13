@@ -33,7 +33,8 @@ export type ShortcutAction =
   | "tool:text" | "magnet" | "stay-in-drawing-mode" | "lock-drawings" | "hide-drawings"
   | "symbol-search" | "indicators" | "chart-settings" | "shortcuts-sheet"
   | "command-palette" | "snapshot-save" | "snapshot-copy"
-  | "fullscreen" | "replay-step-back" | "replay-step-forward" | "replay-play-pause"
+  | "fullscreen" | "replay-toggle"
+  | "replay-step-back" | "replay-step-forward" | "replay-play-pause"
   | "reset-view" | "toggle-log" | "toggle-auto";
 
 export interface KeyEventLike {
@@ -200,6 +201,16 @@ export const BINDINGS: readonly Binding[] = [
   { action: "toggle-log", key: "l", mod: true, shift: true, label: "Logarithmic scale", group: "Chart" },
   { action: "toggle-auto", key: "a", mod: true, shift: true, label: "Auto scale", group: "Chart" },
 
+  /*
+   * TVP8 round two: the three Replay actions were all `replayOnly`, so there
+   * was no keyboard or palette route INTO a session and none out of one. The
+   * only way to leave was a 12px × at the end of a strip below the chart.
+   *
+   * `b` for Bar Replay: bare, because entering and leaving a replay is exactly
+   * as reversible as `r` for reset-view, which this table gives a bare key on
+   * the same reasoning. Not `replayOnly`, because it is the way in.
+   */
+  { action: "replay-toggle", key: "b", label: "Bar Replay", group: "Replay" },
   { action: "replay-step-back", key: "ArrowLeft", replayOnly: true, label: "Step back", group: "Replay" },
   { action: "replay-step-forward", key: "ArrowRight", replayOnly: true, label: "Step forward", group: "Replay" },
   { action: "replay-play-pause", key: " ", replayOnly: true, label: "Play / pause", group: "Replay" },

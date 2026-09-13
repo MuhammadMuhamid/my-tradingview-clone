@@ -105,6 +105,74 @@ export function reconcileReplay(
       };
 }
 
+/**
+ * Whether the session's point exists in the bars this context has loaded.
+ *
+ * ── The blank chart ────────────────────────────────────────────────────────
+ *
+ * TVP8 round two. Start a replay on 1d at a point sixty days back, then switch
+ * the pane to 1m. The 1m window loads the most recent bars — at the default
+ * depth, about a week of them — and every one of them closes AFTER the
+ * session's T. `reconcileReplay` finds no bar at or before it, returns the
+ * session unchanged with `playing: false`, and `replayCandles` slices nothing:
+ * a white pane, Prev / Next / Play all disabled, and not one word anywhere
+ * about why. The session is still perfectly valid; it is the WINDOW that
+ * cannot show it.
+ *
+ * This is the question the strip has to be able to ask, so it is here with the
+ * rest of the replay arithmetic rather than inferred from an empty array at
+ * the call site — "no bars" and "no bars AT T" want different sentences, and
+ * only the second one has a way out.
+ */
+export type ReplayCoverage = "covered" | "before-history" | "no-bars";
+
+export function replayCoverage(
+  session: ReplaySession,
+  candles: readonly Candle[],
+): ReplayCoverage {
+  if (candles.length === 0) return "no-bars";
+  const at = lastBarIndexAtOrBefore(
+    candles,
+    session.horizonCloseTime,
+    session.availableThroughCloseTime,
+  );
+  return at < 0 ? "before-history" : "covered";
+}
+
+/**
+ * How deep this window would have to load for the session's point to be in it.
+ *
+ * The answer is often absurd — sixty days at 1m is 86,400 bars — and that is
+ * the useful part: a caller can compare it against what it is willing to
+ * request and offer either a button or an explanation, rather than silently
+ * firing a request that will take a minute and may still not arrive.
+ *
+ * Counted from the NEWEST loaded bar rather than from now, because that is
+ * where the window's far edge actually is, plus `CONTEXT_BARS` so the point
+ * lands with some history behind it instead of against the left edge.
+ */
+export const REPLAY_CONTEXT_BARS = 300;
+
+export function barsToCoverReplay(
+  session: ReplaySession,
+  candles: readonly Candle[],
+  intervalMs: number,
+): number | null {
+  const newest = candles[candles.length - 1];
+  if (!newest || intervalMs <= 0) return null;
+  /*
+   * Nothing to ask for when the window already reaches the point. Asked as
+   * COVERAGE rather than as a time comparison: a window whose newest bar is
+   * later than T tells you nothing on its own, since that is true of every
+   * window that already contains T.
+   */
+  if (replayCoverage(session, candles) === "covered") return null;
+  const target = Math.min(session.horizonCloseTime, session.availableThroughCloseTime);
+  if (newest.closeTime <= target) return null;
+  const span = Math.ceil((newest.closeTime - target) / intervalMs);
+  return span + REPLAY_CONTEXT_BARS;
+}
+
 export function stepReplay(
   session: ReplaySession,
   candles: readonly Candle[],

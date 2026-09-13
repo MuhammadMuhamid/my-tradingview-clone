@@ -24,7 +24,9 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, screen, within } from "@testing-library/react";
-import { advance, closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
+import {
+  advance, assertAbsent, closeBrowser, compactSeries, resetBrowser, server, settle,
+} from "./harness/env";
 import {
   drag, menuItems, mountChart, rightClickAt, selectTool, type MountedChart,
 } from "./harness/chart";
@@ -201,4 +203,103 @@ test("leaving a Replay restores the instrument's own drawings", async () => {
 
   assert.deepEqual(drawingStore.get(SYMBOL).map((d) => d.id), before,
     "the session's drawings vanish with it, and the instrument's do not");
+});
+
+/**
+ * The Replay chip, by its accessible name rather than its label text — on a
+ * narrow shell the toolbar draws it without one.
+ */
+function replayChip(chart: MountedChart): HTMLElement {
+  const chip = chart.container.querySelector<HTMLElement>('button[aria-label="Bar Replay"]');
+  assert.ok(chip, "the toolbar has no Replay control");
+  return chip;
+}
+
+test("THE REPLAY CHIP UN-PRESSES, AND SO DOES THE KEYBOARD", async () => {
+  /*
+   * TVP8 round two. `onToggleReplayPicker` was
+   *
+   *   () => setReplayPickerOpen((open) => replayActive ? open : !open)
+   *
+   * — so once a session was running the chip did nothing at all, while still
+   * drawing itself `aria-pressed`. Every other pressed control in this toolbar
+   * releases. The only way out was a 12px × at the far right of a strip below
+   * the chart, and there was no keyboard route into a session or out of one:
+   * all three Replay bindings were `replayOnly`.
+   */
+  const chart = await mountChart();
+  assert.equal(replayChip(chart).getAttribute("aria-pressed"), "false");
+
+  await startReplay(chart);
+  assert.equal(replayChip(chart).getAttribute("aria-pressed"), "true",
+    "a running session must show on the control that started it");
+  assert.ok(screen.queryByRole("button", { name: "Exit Replay" }));
+
+  // Pressing the pressed chip leaves.
+  fireEvent.click(replayChip(chart));
+  await settle();
+  assertAbsent(screen.queryByRole("button", { name: "Exit Replay" }),
+    "pressing a pressed toggle must release it");
+  assert.equal(replayChip(chart).getAttribute("aria-pressed"), "false");
+
+  // And `b` is the same action, from the keyboard — in, and out again.
+  fireEvent.keyDown(window, { key: "b" });
+  await settle();
+  assert.ok(screen.queryByRole("button", { name: "Start Replay" }),
+    "`b` must open the picker — there was no keyboard route into a session");
+
+  fireEvent.keyDown(window, { key: "b" });
+  await settle();
+  assertAbsent(screen.queryByRole("button", { name: "Start Replay" }),
+    "and close it again");
+});
+
+test("ESCAPE CLOSES THE REPLAY PICKER, AND A TYPED KEY DOES NOT", async () => {
+  /*
+   * TVP8 round two: the page passed `enabled: !replayPickerOpen`, so opening
+   * the picker switched the ENTIRE keyboard off for as long as it was open.
+   * Escape did not close it, `?` did not open the shortcut sheet, and `b`
+   * could open it but never close it.
+   *
+   * The picker is a 38px strip, not a modal. Its only text input lives inside
+   * the calendar popover, and `isTypingTarget` has always governed that from
+   * the event's own target — which is what this asserts, because removing the
+   * blanket guard is only correct if the narrow one really does hold.
+   */
+  await mountChart();
+  fireEvent.keyDown(window, { key: "b" });
+  await settle();
+  assert.ok(screen.queryByRole("button", { name: "Start Replay" }));
+
+  // A keystroke aimed at a text field belongs to the field.
+  const typing = document.createElement("input");
+  document.body.appendChild(typing);
+  fireEvent.keyDown(typing, { key: "b" });
+  await settle();
+  assert.ok(screen.queryByRole("button", { name: "Start Replay" }),
+    "typing `b` into a field must not close the panel around it");
+  typing.remove();
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  await settle();
+  assertAbsent(screen.queryByRole("button", { name: "Start Replay" }),
+    "Escape unwinds the outermost layer, and here that is the picker");
+});
+
+test("THE ISOLATION WARNING IS NOT HIDDEN AT THE WIDTH PEOPLE USE", async () => {
+  /*
+   * TVP8 round two: the sentence carried `hidden … lg:inline`. Entering replay
+   * hides every saved drawing on the chart, and this was the only place that
+   * said so — invisible on any window under 1024px.
+   */
+  const chart = await mountChart();
+  fireEvent.click(replayChip(chart));
+  await settle();
+
+  const notice = [...chart.container.querySelectorAll<HTMLElement>("span")]
+    .find((el) => /Saved drawings and live actions are isolated/.test(el.textContent ?? ""));
+  assert.ok(notice, "the picker must say what entering a session does to the chart");
+  assert.equal(/(^|\s)hidden(\s|$)/.test(notice.className), false,
+    `a mode that removes the user's own work must announce it at every width: ${notice.className}`);
+  assert.equal(/\blg:inline\b/.test(notice.className), false);
 });

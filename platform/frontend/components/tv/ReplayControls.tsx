@@ -46,15 +46,28 @@
  * genuinely quarantined during a session, and that is worth one line of
  * screen once, at the moment the user commits to it.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarField } from "./CalendarField";
 import {
   REPLAY_SPEEDS,
+  barsToCoverReplay,
   canStepReplay,
+  replayCoverage,
   type ReplaySession,
   type ReplaySpeed,
 } from "@/lib/replay";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 import type { Candle } from "@/lib/types";
+
+/**
+ * The deepest window this strip will offer to fetch in one press.
+ *
+ * Sixty days of 1m is 86,400 bars, and a button that quietly asks for that is
+ * a button that appears to hang. Past this the strip stops offering and starts
+ * explaining, which is the honest answer to "this interval does not reach that
+ * far back".
+ */
+export const REPLAY_MAX_DEEPEN_BARS = 50_000;
 
 
 
@@ -64,6 +77,8 @@ const CTL = "tvc-control flex h-[30px] shrink-0 items-center px-1.5 text-[13px] 
 
 export function ReplayControls({
   candles,
+  interval,
+  bars,
   session,
   pickerOpen,
   onStart,
@@ -72,9 +87,15 @@ export function ReplayControls({
   onNext,
   onPlaying,
   onSpeed,
+  onDeepen,
+  onRepick,
   onExit,
 }: {
   candles: Candle[];
+  /** This pane's resolution — the strip reports coverage in its terms. */
+  interval: Resolution;
+  /** Its current history depth, so "load more" can say how much more. */
+  bars: number;
   session: ReplaySession | null;
   pickerOpen: boolean;
   onStart: (requestedTime: number) => void;
@@ -83,17 +104,38 @@ export function ReplayControls({
   onNext: () => void;
   onPlaying: (playing: boolean) => void;
   onSpeed: (speed: ReplaySpeed) => void;
+  /** Ask this window to load `bars` deep, so the session's point is in it. */
+  onDeepen: (bars: number) => void;
+  /** Reopen the picker, keeping the session until a new point is chosen. */
+  onRepick: () => void;
   onExit: () => void;
 }) {
   const completed = candles.filter((bar) => bar.closeTime <= Date.now());
   const first = completed[0];
   const last = completed[completed.length - 1];
-  const suggested = completed[Math.max(0, completed.length - 100)] ?? first;
   const [requested, setRequested] = useState<number | null>(null);
 
+  /*
+   * ── TVP8 round two: the date the user picked did not stay picked ──────────
+   *
+   * This effect depended on `suggested`, which was `completed[len - 100]`
+   * recomputed every render from a freshly filtered array. Two things then
+   * overwrote the user's choice while they were still looking at it: a new
+   * object identity on each poll, and — once a new bar arrived — a genuinely
+   * different bar a hundred back from a longer array. On a 1m chart the field
+   * reset itself every minute, and on a canonical instrument, which ticks,
+   * continuously.
+   *
+   * A suggestion is for the moment the picker OPENS. After that the field
+   * belongs to the user, so the seed is read through a ref and the effect
+   * depends on nothing else.
+   */
+  const suggestionRef = useRef<number | null>(null);
+  suggestionRef.current =
+    (completed[Math.max(0, completed.length - 100)] ?? first)?.closeTime ?? null;
   useEffect(() => {
-    if (pickerOpen && suggested) setRequested(suggested.closeTime);
-  }, [pickerOpen, suggested]);
+    if (pickerOpen) setRequested(suggestionRef.current);
+  }, [pickerOpen]);
 
   if (!pickerOpen && !session) return null;
 
@@ -129,7 +171,20 @@ export function ReplayControls({
           Start
         </button>
         <button className={CTL} onClick={onCancel}>Cancel</button>
-        <span className="ml-2 hidden truncate text-[11px] text-ink-faint lg:inline">
+        {/*
+          TVP8 round two: this was `hidden … lg:inline`.
+
+          Entering replay hides every saved drawing on the chart, and this
+          sentence was the only place that said so — invisible on any window
+          under 1024px, which is every phone and a docked laptop half-screen.
+          A mode that removes the user's own work has to announce it at the
+          width they are actually at. It truncates rather than hides, and the
+          `title` carries the whole of it.
+        */}
+        <span
+          className="ml-2 min-w-0 flex-1 truncate text-[11px] text-ink-faint"
+          title="Saved drawings and live actions are isolated while replay is active."
+        >
           Saved drawings and live actions are isolated while replay is active.
         </span>
         <button
@@ -146,6 +201,60 @@ export function ReplayControls({
   }
 
   /* ── an active session ────────────────────────────────────────────────── */
+
+  /*
+   * ── TVP8 round two: the blank pane ────────────────────────────────────────
+   *
+   * Start a replay on 1d sixty days back, then switch the pane to 1m. Every
+   * loaded 1m bar closes after the session's point, `reconcileReplay` finds
+   * nothing at or before it, and `replayCandles` slices an empty array: a
+   * blank pane with Prev, Next and Play all disabled and not one word about
+   * why. The session was never invalid — the WINDOW could not show it.
+   *
+   * So the strip says which point, in which interval, and offers the only two
+   * things that can actually resolve it: fetch a window deep enough to contain
+   * it, or choose a new point in the bars that are here. Exit stays where it
+   * has always been.
+   */
+  const coverage = replayCoverage(session, candles);
+  if (coverage !== "covered") {
+    const needed = barsToCoverReplay(session, candles, resolutionMs(interval));
+    const reachable = needed !== null && needed <= REPLAY_MAX_DEEPEN_BARS && needed > bars;
+    const at = new Date(session.horizonCloseTime).toLocaleString();
+    return (
+      <div
+        role="group"
+        aria-label="Bar replay"
+        className="flex h-[38px] shrink-0 items-center gap-1.5 border-t border-border bg-surface px-2"
+      >
+        <p role="status" className="min-w-0 flex-1 truncate text-[12px] text-ink-muted">
+          {coverage === "no-bars"
+            ? `No bars are loaded, so the replay at ${at} has nothing to stand on.`
+            : `No ${interval} bar has loaded at or before ${at}.`}
+        </p>
+        {reachable && (
+          <button
+            className={CTL}
+            onClick={() => onDeepen(needed)}
+            title={`Load ${needed.toLocaleString()} bars, back past the replay point`}
+          >
+            Load more history
+          </button>
+        )}
+        <button className={CTL} onClick={onRepick}>Pick a new point</button>
+        <button
+          className={`${CTL} w-[30px] justify-center px-0 hover:!text-down`}
+          onClick={onExit}
+          aria-label="Exit Replay"
+          title="Exit Replay and return to live"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+            strokeWidth="1.6" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg>
+        </button>
+      </div>
+    );
+  }
+
   const atEnd = !canStepReplay(session, candles, 1);
   return (
     <div

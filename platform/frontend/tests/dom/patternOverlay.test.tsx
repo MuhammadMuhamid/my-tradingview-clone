@@ -1,7 +1,7 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
-import { render } from "./harness/env";
+import { assertAbsent, render } from "./harness/env";
 import { PatternOverlayControls } from "@/components/tv/PatternOverlayControls";
 import type { PatternAnalysis } from "@/lib/candleOverlay";
 import type { CandleOverlayState, PatternAnalysisState } from "@/lib/useCandleOverlay";
@@ -47,7 +47,7 @@ test("catalog search and exact selection call the shared overlay state", () => {
   })} result={result} symbol="BTCUSDT" timeframe="1h" />);
   fireEvent.click(screen.getByText(/Patterns/));
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "hammer" } });
-  assert.equal(screen.queryByText("Doji"), null);
+  assertAbsent(screen.queryByText("Doji"), "expected nothing to match");
   assert.ok(screen.getByText("Hammer - Bullish"));
   fireEvent.click(screen.getByRole("checkbox", { name: "All catalog patterns" }));
   assert.deepEqual(selections, [[]]);

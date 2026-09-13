@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import React from "react";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
-import { render } from "./harness/env";
+import { assertAbsent, render } from "./harness/env";
 import { ClassicalPatternControls } from "@/components/tv/ClassicalPatternControls";
 import type { ClassicalCatalog } from "@/lib/classicalPatterns";
 import type { ClassicalOverlayState } from "@/lib/useClassicalPatterns";
@@ -57,7 +57,7 @@ test("search and catalog selection call the canonical id setters", () => {
     result={{ analysis: null, loading: false, error: null }} symbol="BTCUSDT" timeframe="1h" />);
   fireEvent.click(screen.getByText(/Chart patterns/));
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "triangle" } });
-  assert.equal(screen.queryByText("Double Top"), null);
+  assertAbsent(screen.queryByText("Double Top"), "expected nothing to match");
   fireEvent.click(screen.getByRole("checkbox", { name: /All 16/ }));
   assert.deepEqual(selected, []);
 });

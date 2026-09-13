@@ -12,7 +12,8 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { CorrelationPanel } from "@/components/tv/CorrelationPanel";
 import { drawingStore } from "@/lib/drawingStore";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace";
-import { render,
+import {
+  assertAbsent, render,
   advance, closeBrowser, compactSeries, resetBrowser, server, settle,
  } from "./harness/env";
 import { drag, mountChart } from "./harness/chart";
@@ -132,7 +133,7 @@ test("the pane Compare modal closes from its portaled backdrop", async () => {
   const modalRoot = dialog.parentElement as HTMLElement;
   const backdrop = modalRoot.firstElementChild as HTMLElement;
   fireEvent.click(backdrop);
-  assert.equal(screen.queryByRole("dialog"), null);
+  assertAbsent(screen.queryByRole("dialog"), "expected nothing to match");
 });
 
 test("percent comparison keeps candles on price and declares a dedicated percent pane", async () => {
@@ -151,7 +152,7 @@ test("choosing two charts closes layout and leaves pane two immediately operable
   fireEvent.click(screen.getByRole("button", { name: /^Chart layout/ }));
   fireEvent.click(screen.getByRole("button", { name: /^2 charts/ }));
   await settle();
-  assert.equal(screen.queryByRole("menu", { name: "Chart layout" }), null);
+  assertAbsent(screen.queryByRole("menu", { name: "Chart layout" }), "expected nothing to match");
   const second = chart.pane(1);
   fireEvent.click(within(second).getByRole("button", {
     name: /Timeframe for this pane/,
@@ -208,7 +209,7 @@ test("correlation clears old-interval values while the new interval is loading",
   );
   await settle();
   assert.ok(screen.getByText("Log returns on 15m bars"));
-  assert.equal(screen.queryByRole("button", { name: /^SOLUSDT against BTCUSDT:/ }), null,
+  assertAbsent(screen.queryByRole("button", { name: /^SOLUSDT against BTCUSDT:/ }),
     "the 1h value is never rendered under the 15m provenance label");
   assert.ok(screen.getByText(/Loading these instruments/));
   release();

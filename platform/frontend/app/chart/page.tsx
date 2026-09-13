@@ -1176,6 +1176,21 @@ export default function TvWorkspace() {
   const exitReplay = useCallback(() => {
     setReplay(null); setReplayPickerOpen(false); setReplayDrawings([]);
   }, []);
+
+  /**
+   * The toolbar's Replay chip, and the `b` key, and the palette row.
+   *
+   * TVP8 round two: this was `setReplayPickerOpen(open => replayActive ? open
+   * : !open)` — a control drawn with `aria-pressed={replayActive}` that could
+   * be pressed but never un-pressed. Every other pressed chip in this toolbar
+   * releases, and the only way out of a session was a 12px × at the far right
+   * of a strip below the chart. A toggle that will not toggle is the kind of
+   * thing a user tries twice and then stops trusting.
+   */
+  const toggleReplay = useCallback(() => {
+    if (replayActive) { exitReplay(); return; }
+    setReplayPickerOpen((open) => !open);
+  }, [replayActive, exitReplay]);
   const setReplayPlaying = useCallback((playing: boolean) => {
     setReplay((current) => current ? { ...current, playing } : null);
   }, []);
@@ -1664,7 +1679,16 @@ export default function TvWorkspace() {
           // false leaves that path alone rather than deleting twice.
           return false;
         }
-        case "tool:cursor": setTool("cursor"); return true;
+        case "tool:cursor":
+          /*
+           * Escape unwinds one layer at a time, outward. The replay picker is
+           * the outermost thing Escape can reach here — `CalendarField`'s own
+           * popover stops the event at the capture phase while it is open — so
+           * a first Escape closes the calendar and a second closes the picker.
+           */
+          if (replayPickerOpen) { setReplayPickerOpen(false); return true; }
+          setTool("cursor");
+          return true;
         case "tool:trend": setTool("trend"); return true;
         case "tool:horizontal": setTool("hline"); return true;
         case "tool:vertical": setTool("vline"); return true;
@@ -1685,6 +1709,7 @@ export default function TvWorkspace() {
           if (!fullscreen.supported) return false;
           fullscreen.toggle();
           return true;
+        case "replay-toggle": toggleReplay(); return true;
         case "replay-step-back":
           setReplay((current) => (current ? stepReplay(current, candles, -1) : null));
           return true;
@@ -1704,7 +1729,21 @@ export default function TvWorkspace() {
   const shortcuts = useShortcuts({
     onAction: runShortcutAction,
     onInterval: (next) => changePaneInterval(workspace.activePaneId, next),
-  }, { replayActive, enabled: !replayPickerOpen });
+    /*
+     * ── TVP8 round two: the picker used to switch the keyboard off ───────────
+     *
+     * This was `enabled: !replayPickerOpen`, written when the picker WAS an
+     * `<input type="datetime-local">` and the whole strip therefore wanted the
+     * keyboard. It is a `CalendarField` now: a button, with its only text
+     * input inside a popover that `isTypingTarget` already covers from the
+     * event's own target.
+     *
+     * A 38px strip is not a modal, and turning off every shortcut for it cost
+     * more than it protected — Escape did not close the picker, `?` did not
+     * open the shortcut sheet, and once Replay had a key of its own, `b` could
+     * open the picker but never close it.
+     */
+  }, { replayActive });
 
   const drawingToolbarProps = {
     tool, onTool: setTool,
@@ -1876,7 +1915,7 @@ export default function TvWorkspace() {
           }}
           replayActive={replayActive}
           replayPickerOpen={replayPickerOpen}
-          onToggleReplayPicker={() => setReplayPickerOpen((open) => replayActive ? open : !open)}
+          onToggleReplayPicker={toggleReplay}
           replayBlocksLiveActions={replayBlocksLiveActions}
           fullscreen={fullscreen.active}
           fullscreenSupported={fullscreen.supported}
@@ -2019,11 +2058,14 @@ export default function TvWorkspace() {
           control.
         */}
         <ReplayControls
-          candles={candles} session={replay} pickerOpen={replayPickerOpen}
+          candles={candles} interval={interval} bars={bars}
+          session={replay} pickerOpen={replayPickerOpen}
           onStart={beginReplay} onCancel={() => setReplayPickerOpen(false)}
           onPrevious={() => setReplay((current) => current ? stepReplay(current, candles, -1) : null)}
           onNext={() => setReplay((current) => current ? stepReplay(current, candles, 1) : null)}
-          onPlaying={setReplayPlaying} onSpeed={setReplaySpeed} onExit={exitReplay}
+          onPlaying={setReplayPlaying} onSpeed={setReplaySpeed}
+          onDeepen={changeBars} onRepick={() => setReplayPickerOpen(true)}
+          onExit={exitReplay}
         />
 
         <ChartBottomPanel

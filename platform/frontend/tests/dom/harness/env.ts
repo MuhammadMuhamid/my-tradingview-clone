@@ -8,6 +8,7 @@
  *
  * Nothing here mocks a component, a hook or a store. Those are the subject.
  */
+import assert from "node:assert/strict";
 import { act, cleanup, render as rtlRender } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { AskProvider } from "@/components/AskDialog";
@@ -201,4 +202,32 @@ export function render(
   ui: ReactElement, options?: Parameters<typeof rtlRender>[1],
 ): ReturnType<typeof rtlRender> {
   return rtlRender(ui, { wrapper: AskProvider, ...options });
+}
+
+/**
+ * ── Never hand a DOM node to an assertion ──────────────────────────────────
+ *
+ * `assert.equal(screen.queryByRole("button", { name: "Exit" }), null)` reads
+ * perfectly and is a trap. When it PASSES, nothing happens. When it fails,
+ * node:test builds a diff of the actual value — a jsdom `HTMLElement`, whose
+ * `ownerDocument` reaches the whole document, which reaches every node, which
+ * reaches back. The process stops answering and the runner kills it, so the
+ * suite reports
+ *
+ *   ✖ tests/dom/replay.test.tsx (30691ms)  'test failed'
+ *
+ * with no assertion, no message and no line number. Found while proving a new
+ * test could fail: three deliberate regressions all produced that, and looked
+ * for a while like three vacuous assertions.
+ *
+ * So the node never reaches the assertion. What is compared is a boolean, and
+ * the sentence comes from the caller.
+ */
+export function assertAbsent(found: Element | null, what: string): void {
+  assert.equal(found === null, true, what);
+}
+
+export function assertPresent(found: Element | null, what: string): Element {
+  assert.equal(found !== null, true, what);
+  return found!;
 }
