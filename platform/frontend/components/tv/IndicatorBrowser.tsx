@@ -36,6 +36,7 @@
  * library; that panel is the chart. They act on the same list.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { type Resolution } from "@/lib/resolution";
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import { Modal } from "@/components/Modal";
@@ -92,6 +93,7 @@ const ACTION =
 
 export function IndicatorBrowser(props: IndicatorBrowserProps) {
   const { open, onClose, indicators } = props;
+  const ask = useAsk();
   const [library, setLibrary] = useState<PineScript[]>([]);
   const [templates, setTemplates] = useState<IndicatorTemplate[]>([]);
   const [category, setCategory] = useState<Category>("builtin");
@@ -270,7 +272,11 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
   };
 
   const removeScript = async (s: PineScript): Promise<void> => {
-    if (!window.confirm(`Delete “${s.name}” from the library? Studies already on a chart stay.`)) return;
+    if (!await ask.confirm({
+      title: `Delete “${s.name}” from the library?`,
+      body: "Studies already on a chart stay where they are.",
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     try {
       await api.deletePineScript(s.id);
       await refresh();
@@ -308,7 +314,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
 
   // ── templates ────────────────────────────────────────────────────────────
 
-  const saveTemplate = (): void => {
+  const saveTemplate = async (): Promise<void> => {
     const name = templateName.trim();
     if (name.length === 0 || applied.length === 0) return;
     const template = templateFromIndicators(name, applied);
@@ -316,7 +322,11 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     if (!result.ok && result.reason === "exists") {
       // Overwriting a template the operator built earlier is a decision, not a
       // side effect of reusing a name.
-      if (!window.confirm(`A template called “${name}” already exists. Replace it?`)) return;
+      if (!await ask.confirm({
+        title: `A template called “${name}” already exists`,
+        body: "Replacing it overwrites the studies and settings it holds.",
+        confirmLabel: "Replace", tone: "danger",
+      })) return;
       result = upsertTemplate(templates, template, { overwrite: true });
     }
     if (!result.ok) {
@@ -337,14 +347,16 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
    * `replace` clears what is there first and says so before doing it. Adding is
    * the default because it cannot lose anything.
    */
-  const applyTemplate = (template: IndicatorTemplate, replace: boolean): void => {
+  const applyTemplate = async (template: IndicatorTemplate, replace: boolean): Promise<void> => {
     if (!indicators) return;
     if (replace && applied.length > 0) {
-      const ok = window.confirm(
-        `Replace the ${applied.length} stud${applied.length === 1 ? "y" : "ies"} on `
-        + `${ticker} ${props.interval} with the ${template.indicators.length} in `
-        + `“${template.name}”?`
-      );
+      const ok = await ask.confirm({
+        title: `Replace the ${applied.length} stud${applied.length === 1 ? "y" : "ies"} on `
+          + `${ticker} ${props.interval}?`,
+        body: `“${template.name}” has ${template.indicators.length}. `
+          + "The studies on the chart now are removed.",
+        confirmLabel: "Replace", tone: "danger",
+      });
       if (!ok) return;
       indicators.clear();
     }
@@ -359,8 +371,12 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     setStatus(`Applied “${template.name}” to ${ticker} ${props.interval}`);
   };
 
-  const removeTemplate = (template: IndicatorTemplate): void => {
-    if (!window.confirm(`Delete the template “${template.name}”? Studies on the chart stay.`)) return;
+  const removeTemplate = async (template: IndicatorTemplate): Promise<void> => {
+    if (!await ask.confirm({
+      title: `Delete the template “${template.name}”?`,
+      body: "Studies on the chart stay where they are.",
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     persistTemplates(deleteTemplate(templates, template.name));
     setStatus(`Deleted template “${template.name}”`);
   };

@@ -73,7 +73,8 @@ test("opening another layout over unsaved changes asks first", () => {
   const select = source.slice(source.indexOf("const selectLayout"), source.indexOf("const Item ="));
   assert.match(select, /id !== currentId && dirty && !autosave/,
     "autosave will write the drift, so it only asks when nothing else will");
-  assert.match(select, /window\.confirm/);
+  // TVP8: the product's own dialog, not the browser's.
+  assert.match(select, /await ask\.confirm\(/);
   assert.match(select, /discards them/);
   assert.match(select, /if \(!ok\) return;/, "cancelling must not open the other layout");
 });

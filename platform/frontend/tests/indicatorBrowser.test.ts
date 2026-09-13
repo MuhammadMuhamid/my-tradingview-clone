@@ -153,10 +153,16 @@ test("a library that cannot be read says so instead of looking empty", () => {
 
 test("destructive actions in the browser are named and confirmed", () => {
   const source = read(BROWSER);
-  assert.match(source, /window\.confirm\(`Delete “\$\{s\.name\}” from the library\?/);
-  assert.match(source, /window\.confirm\(`Delete the template “\$\{template\.name\}”\?/);
+  // TVP8: through the product's own dialog, not the browser's — see AskDialog.
+  assert.match(source, /title: `Delete “\$\{s\.name\}” from the library\?`/);
+  assert.match(source, /title: `Delete the template “\$\{template\.name\}”\?`/);
   assert.match(source, /Replace the \$\{applied\.length\} stud/,
     "clearing a chart's studies must say how many it is replacing");
+  // And each of them is dressed as destructive, which `window.confirm` could
+  // not do: its one button said OK for deleting a library script and for
+  // dismissing a note alike.
+  assert.equal((source.match(/tone: "danger"/g) ?? []).length, 4,
+    "every destructive confirmation in the browser carries the danger tone");
 });
 
 // ── templates: what they hold ──────────────────────────────────────────────

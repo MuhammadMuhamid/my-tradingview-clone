@@ -30,7 +30,7 @@
 export type ShortcutAction =
   | "undo" | "redo" | "clone" | "copy" | "paste" | "delete"
   | "tool:cursor" | "tool:trend" | "tool:horizontal" | "tool:vertical" | "tool:fib"
-  | "tool:text" | "magnet" | "lock-drawings" | "hide-drawings"
+  | "tool:text" | "magnet" | "stay-in-drawing-mode" | "lock-drawings" | "hide-drawings"
   | "symbol-search" | "indicators" | "chart-settings" | "shortcuts-sheet"
   | "fullscreen" | "replay-step-back" | "replay-step-forward" | "replay-play-pause"
   | "reset-view" | "toggle-log" | "toggle-auto";
@@ -158,6 +158,7 @@ export const BINDINGS: readonly Binding[] = [
   { action: "tool:fib", key: "f", label: "Fibonacci retracement", group: "Drawing tools" },
   { action: "tool:text", key: "x", label: "Text", group: "Drawing tools" },
   { action: "magnet", key: "m", label: "Magnet", group: "Drawing tools" },
+  { action: "stay-in-drawing-mode", key: "d", label: "Stay in drawing mode", group: "Drawing tools" },
   { action: "lock-drawings", key: "l", label: "Lock drawings", group: "Drawing tools" },
   { action: "hide-drawings", key: "j", label: "Hide drawings", group: "Drawing tools" },
 

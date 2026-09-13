@@ -8,7 +8,9 @@
  *
  * Nothing here mocks a component, a hook or a store. Those are the subject.
  */
-import { act, cleanup } from "@testing-library/react";
+import { act, cleanup, render as rtlRender } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { AskProvider } from "@/components/AskDialog";
 import { installFetch, server, type CompactBar } from "./server";
 import { candleHistory } from "@/lib/candleHistory";
 import { drawingStore } from "@/lib/drawingStore";
@@ -179,3 +181,24 @@ export function lastClose(bars: CompactBar[]): number {
 }
 
 export { server };
+
+/**
+ * Render inside the providers `app/layout.tsx` mounts.
+ *
+ * TVP8: the product's confirmations and text entry moved off `window.confirm`
+ * and `window.prompt` into `AskProvider`, which the root layout mounts above
+ * every page (see `components/AskDialog.tsx`). These tests render a page or a
+ * pane directly, so they render BELOW that provider's position in the real
+ * tree and `useAsk` — which throws rather than silently falling back to the
+ * browser's own sheet — took the whole suite down.
+ *
+ * Re-exported from here rather than fixed at 33 call sites, so a provider the
+ * layout gains next is added once and every DOM test is inside it. That is
+ * also the honest arrangement: a test that renders a page should see the tree
+ * the page actually runs in.
+ */
+export function render(
+  ui: ReactElement, options?: Parameters<typeof rtlRender>[1],
+): ReturnType<typeof rtlRender> {
+  return rtlRender(ui, { wrapper: AskProvider, ...options });
+}

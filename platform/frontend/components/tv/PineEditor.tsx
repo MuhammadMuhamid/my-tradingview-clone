@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { type Resolution } from "@/lib/resolution";
 import { api, type PineInputDef, type PineRunResult, type PineScript } from "@/lib/api";
 import { PINE_TEMPLATE, TOKEN_COLOR, highlightLine } from "@/lib/pineHighlight";
@@ -42,6 +43,7 @@ export function PineEditor({
   /** Apply replaces an existing chart instance instead of adding another. */
   editingApplied?: boolean;
 }) {
+  const ask = useAsk();
   const [scripts, setScripts] = useState<PineScript[]>([]);
   const [scriptId, setScriptId] = useState<string | null>(null);
   const [name, setName] = useState("My Strategy");
@@ -167,7 +169,12 @@ export function PineEditor({
   };
 
   const remove = async () => {
-    if (!scriptId || !window.confirm(`Delete “${name}”?`)) return;
+    if (!scriptId) return;
+    if (!await ask.confirm({
+      title: `Delete “${name}”?`,
+      body: "The script is removed from your library. Charts already running it keep the copy they have.",
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     await api.deletePineScript(scriptId);
     setScriptId(null);
     await refresh();

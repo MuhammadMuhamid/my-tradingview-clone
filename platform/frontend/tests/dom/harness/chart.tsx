@@ -15,9 +15,9 @@
  * the pointer's price, which is the distinction a whole class of menu defects
  * lived in.
  */
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import TvWorkspace from "@/app/chart/page";
-import { settle } from "./env";
+import { render, settle  } from "./env";
 
 export interface MountedChart {
   container: HTMLElement;

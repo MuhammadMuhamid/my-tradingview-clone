@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { EMPTY_FILTERS, FilterPanel, countActive, type Filters } from "@/components/scanner/FilterPanel";
 import { ScreenerTable } from "@/components/scanner/ScreenerTable";
 import { COLUMNS } from "@/lib/scanner/columns";
@@ -15,6 +16,7 @@ function message(error: unknown): string {
 }
 
 export default function ScannerPage() {
+  const ask = useAsk();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -117,9 +119,13 @@ export default function ScannerPage() {
     return next;
   });
   const removeSymbol = (symbol: string) => {
-    if (window.confirm(`Remove ${symbol} from the shared Scanner watchlist?`)) {
-      void run(`Removing ${symbol}`, () => api.removeSymbol(symbol));
-    }
+    void ask.confirm({
+      title: `Remove ${symbol} from the Scanner watchlist?`,
+      body: "The list is shared, so it is removed for everyone using this Scanner.",
+      confirmLabel: "Remove", tone: "danger",
+    }).then((ok) => {
+      if (ok) void run(`Removing ${symbol}`, () => api.removeSymbol(symbol));
+    });
   };
 
   const state = useMemo(() => {
@@ -312,13 +318,23 @@ export default function ScannerPage() {
             <button className="scanner-control" disabled={!selectedPreset || busy !== null}
               onClick={() => void run("Loading preset", () => api.loadPreset(selectedPreset))}>Load</button>
             <button className="scanner-control" disabled={busy !== null} onClick={() => {
-              const name = window.prompt("Save current Scanner indicator configuration as:");
-              if (name?.trim()) void run("Saving preset", () => api.savePreset(name.trim()), () => setSelectedPreset(name.trim()));
+              void ask.promptFor({
+                title: "Save Scanner preset",
+                label: "Save the current indicator configuration as",
+                placeholder: "Preset name", confirmLabel: "Save",
+              }).then((name) => {
+                const trimmed = name?.trim();
+                if (trimmed) void run("Saving preset", () => api.savePreset(trimmed), () => setSelectedPreset(trimmed));
+              });
             }}>Save</button>
             <button className="scanner-control" disabled={!selectedPreset || busy !== null} onClick={() => {
-              if (window.confirm(`Delete Scanner preset “${selectedPreset}”?`)) {
-                void run("Deleting preset", () => api.deletePreset(selectedPreset), () => setSelectedPreset(""));
-              }
+              void ask.confirm({
+                title: `Delete Scanner preset “${selectedPreset}”?`,
+                body: "The preset is shared, so it is deleted for everyone.",
+                confirmLabel: "Delete", tone: "danger",
+              }).then((ok) => {
+                if (ok) void run("Deleting preset", () => api.deletePreset(selectedPreset), () => setSelectedPreset(""));
+              });
             }}>Delete</button>
           </span>
           </>}

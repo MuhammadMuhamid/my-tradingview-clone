@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import type { SymbolInfo } from "@/lib/types";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { api, type ServerWatchlist } from "@/lib/api";
@@ -74,6 +75,7 @@ export function Watchlist({
   canOpenNewPane?: boolean;
   replayActive?: boolean;
 }) {
+  const ask = useAsk();
   const [adding, setAdding] = useState("");
   /** The add-symbol field is opened from the header, not permanently reserved. */
   // When the panel is opened from the compact rail, put the add field in the
@@ -328,7 +330,10 @@ export function Watchlist({
   };
 
   const createList = async () => {
-    const name = window.prompt("New watchlist name", "New Watchlist")?.trim();
+    const name = (await ask.promptFor({
+      title: "New watchlist", label: "Name", defaultValue: "New Watchlist",
+      confirmLabel: "Create",
+    }))?.trim();
     if (!name || !lists) return;
     setMenuOpen(false);
     try {
@@ -336,15 +341,22 @@ export function Watchlist({
       await reload(created.id);
     } catch (e) { setErr((e as Error).message); }
   };
-  const renameList = () => {
+  const renameList = async () => {
     if (!active) return;
-    const name = window.prompt("Rename watchlist", active.name)?.trim();
+    const name = (await ask.promptFor({
+      title: "Rename watchlist", label: "Name", defaultValue: active.name,
+      confirmLabel: "Rename",
+    }))?.trim();
     if (name) updateActive((l) => ({ ...l, name }));
     setMenuOpen(false);
   };
   const deleteList = async () => {
     if (!lists || !active || lists.length === 1) return;
-    if (!window.confirm(`Delete “${active.name}”?`)) return;
+    if (!await ask.confirm({
+      title: `Delete “${active.name}”?`,
+      body: "The list and its order go; the symbols themselves are untouched.",
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     setMenuOpen(false);
     try {
       await api.deleteWatchlist(active.id);

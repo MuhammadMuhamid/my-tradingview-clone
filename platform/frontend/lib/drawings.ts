@@ -123,6 +123,23 @@ export function drawingVisibleOnTimeframe(drawing: Drawing, interval: Resolution
 }
 
 /** How many anchors each tool takes. `0` = freeform (finish explicitly). */
+/**
+ * The tools that have an interior, and therefore a Fill.
+ *
+ * TVP8: the selected-drawing toolbar offered Fill on every one of the 87 tools
+ * and five of them read it. Toggling it on a trend line, a Fibonacci
+ * retracement or a piece of text did nothing at all, silently — and a control
+ * that does nothing is worse than a missing one, because it costs the user the
+ * time to find out. The reference shows a background control only on shapes
+ * that have a background.
+ *
+ * `sector` is here because it drew a fill unconditionally, which was the same
+ * bug from the other side: a shape whose fill could not be turned off.
+ */
+export const FILLABLE_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>([
+  "rect", "rotatedRectangle", "ellipse", "circle", "triangle", "sector",
+]);
+
 export const TOOL_POINTS: Record<DrawingTool, number> = {
   cursor: 0, eraser: 0,
   dot: 1,

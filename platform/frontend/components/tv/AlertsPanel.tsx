@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { StaleNotice } from "@/components/StaleNotice";
 import { api } from "@/lib/api";
 import { freshAt, type Freshness } from "@/lib/freshness";
@@ -20,6 +21,7 @@ import { EditAlertModal } from "./EditAlertModal";
  * everything in here places orders.
  */
 export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
+  const ask = useAsk();
   const [tab, setTab] = useState<"alerts" | "log">("alerts");
   const [deps, setDeps] = useState<Deployment[]>([]);
   const [log, setLog] = useState<Alert[]>([]);
@@ -76,8 +78,12 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
     act(d, d.status === "active" ? "pause" : "activate",
       () => (d.status === "active" ? api.pauseDeployment(d.id) : api.activateDeployment(d.id)));
 
-  const remove = (d: Deployment) => {
-    if (!window.confirm(`Stop and delete the automation on ${d.symbol} ${d.timeframe}?`)) return;
+  const remove = async (d: Deployment) => {
+    if (!await ask.confirm({
+      title: `Stop the automation on ${d.symbol} ${d.timeframe}?`,
+      body: "It stops evaluating and is deleted. Alerts it has already sent are kept.",
+      confirmLabel: "Stop and delete", tone: "danger",
+    })) return;
     void act(d, "delete", () => api.deleteDeployment(d.id));
   };
 

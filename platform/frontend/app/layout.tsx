@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
+import { AskProvider } from "@/components/AskDialog";
 
 export const metadata: Metadata = {
   title: "Trading Scene",
@@ -35,6 +36,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body>
         <Script src="/theme-init.js" strategy="beforeInteractive" />
+        {/*
+          TVP8: the product's own confirmation and text entry, mounted once so
+          no page has to reach for `window.confirm` — see `AskDialog`.
+        */}
+        <AskProvider>
         <div className="flex h-[100dvh] flex-col">
           {/* Visible only when focused; see .skip-link in globals.css. */}
           <a href="#main" className="skip-link">Skip to content</a>
@@ -66,6 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </main>
         </div>
+        </AskProvider>
       </body>
     </html>
   );

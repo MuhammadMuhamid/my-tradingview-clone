@@ -1,10 +1,10 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
-import { act, render } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { api, type MarketTrade } from "@/lib/api";
 import { useMarketTrades } from "@/lib/useMarketTrades";
-import { FakeSocket, closeBrowser, resetBrowser, settle } from "./harness/env";
+import { render, FakeSocket, closeBrowser, resetBrowser, settle  } from "./harness/env";
 
 type Deferred = { promise: Promise<MarketTrade[]>; resolve: (rows: MarketTrade[]) => void };
 function deferred(): Deferred {

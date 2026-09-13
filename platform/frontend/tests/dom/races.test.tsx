@@ -15,8 +15,8 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { act, render } from "@testing-library/react";
-import { closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
+import { act } from "@testing-library/react";
+import { render, closeBrowser, compactSeries, resetBrowser, server, settle  } from "./harness/env";
 import { useCompareSeries, type CompareSeries } from "@/lib/compare";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
 import type { Candle, Interval } from "@/lib/types";

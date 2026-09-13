@@ -14,8 +14,8 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { useState } from "react";
-import { act, render } from "@testing-library/react";
-import { advance, closeBrowser, resetBrowser, settle } from "./harness/env";
+import { act } from "@testing-library/react";
+import { render, advance, closeBrowser, resetBrowser, settle  } from "./harness/env";
 import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
 import { loadStoredNative } from "@/lib/native/storage";
 import { MAX_SOURCE_DEPTH, studySourceToken } from "@/lib/native/graph";

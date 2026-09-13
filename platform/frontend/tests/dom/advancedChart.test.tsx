@@ -8,13 +8,13 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { CorrelationPanel } from "@/components/tv/CorrelationPanel";
 import { drawingStore } from "@/lib/drawingStore";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace";
-import {
+import { render,
   advance, closeBrowser, compactSeries, resetBrowser, server, settle,
-} from "./harness/env";
+ } from "./harness/env";
 import { drag, mountChart } from "./harness/chart";
 
 const SYMBOL = "SOLUSDT";

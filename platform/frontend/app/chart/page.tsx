@@ -23,6 +23,7 @@
  * `lib/tradingTarget`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import { ChartPane } from "@/components/tv/ChartPane";
 import { ChartToolbar } from "@/components/tv/ChartToolbar";
@@ -169,6 +170,7 @@ function optimizerRange(
 }
 
 export default function TvWorkspace() {
+  const ask = useAsk();
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
 
   // ── the workspace: panes, layout, focus ──
@@ -1011,7 +1013,20 @@ export default function TvWorkspace() {
     setWorkspace((ws) => setActivePane(ws, paneId));
   }, []);
 
-  const clearDrawingTool = useCallback(() => setTool("cursor"), []);
+  /*
+   * TVP8: stay in drawing mode.
+   *
+   * Finishing a drawing dropped the rail back to the cursor, every time. The
+   * reference has a toggle for exactly this, and it is the difference between
+   * marking up a chart with eight trend lines in one pass and going back to
+   * the rail eight times. Off by default, which is the reference's default too.
+   */
+  const [stayInDrawingMode, setStayInDrawingMode] = useState(false);
+  const stayRef = useRef(stayInDrawingMode);
+  stayRef.current = stayInDrawingMode;
+  const clearDrawingTool = useCallback(() => {
+    if (!stayRef.current) setTool("cursor");
+  }, []);
 
   /**
    * Change the layout, and copy the focused pane's studies into any pane the
@@ -1529,6 +1544,7 @@ export default function TvWorkspace() {
         case "tool:fib": setTool("fib"); return true;
         case "tool:text": setTool("text"); return true;
         case "magnet": setMagnet((v) => !v); return true;
+        case "stay-in-drawing-mode": setStayInDrawingMode((v) => !v); return true;
         case "lock-drawings": setDrawLocked((v) => !v); return true;
         case "hide-drawings": setDrawHidden((v) => !v); return true;
         case "symbol-search": setSearchPaneId(workspace.activePaneId); return true;
@@ -1558,12 +1574,19 @@ export default function TvWorkspace() {
   const drawingToolbarProps = {
     tool, onTool: setTool,
     magnet, onMagnet: setMagnet,
+    stayInDrawingMode, onStayInDrawingMode: setStayInDrawingMode,
     locked: drawLocked, onLocked: setDrawLocked,
     hidden: drawHidden, onHidden: setDrawHidden,
     onDeleteAll: () => {
-      if (window.confirm(`Remove all drawings on ${displayTicker(symbol)}?`)) {
+      const count = replayActive ? replayDrawings.length : activeDrawings.length;
+      void ask.confirm({
+        title: `Remove all drawings on ${displayTicker(symbol)}?`,
+        body: `${count} drawing${count === 1 ? "" : "s"} on this symbol. Undo brings them back.`,
+        confirmLabel: "Remove all", tone: "danger",
+      }).then((ok) => {
+        if (!ok) return;
         if (replayActive) updateReplayDrawings([]); else drawingStore.set(symbol, []);
-      }
+      });
     },
     count: replayActive ? replayDrawings.length : activeDrawings.length,
   };

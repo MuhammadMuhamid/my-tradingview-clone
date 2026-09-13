@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { render } from "./harness/env";
 import { ClassicalPatternControls } from "@/components/tv/ClassicalPatternControls";
 import type { ClassicalCatalog } from "@/lib/classicalPatterns";
 import type { ClassicalOverlayState } from "@/lib/useClassicalPatterns";

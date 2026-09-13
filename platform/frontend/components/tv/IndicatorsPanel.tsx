@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { api, type PineScript } from "@/lib/api";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi, NativeStudyRow } from "@/lib/useNativeStudies";
@@ -36,6 +37,7 @@ export function IndicatorsPanel({
    */
   focusKey?: string | null;
 }) {
+  const ask = useAsk();
   const [library, setLibrary] = useState<PineScript[]>([]);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string | null>(null);
@@ -167,7 +169,11 @@ export function IndicatorsPanel({
   };
 
   const removeFromLibrary = async (s: PineScript) => {
-    if (!window.confirm(`Delete “${s.name}” from the library? Studies already on the chart stay.`)) return;
+    if (!await ask.confirm({
+      title: `Delete “${s.name}” from the library?`,
+      body: "Studies already on the chart stay where they are.",
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     try {
       await api.deletePineScript(s.id);
       await refresh();

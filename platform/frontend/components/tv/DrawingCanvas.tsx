@@ -6,11 +6,18 @@ import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { fmtPrice } from "@/lib/format";
 import { isTypingTarget } from "@/lib/shortcuts";
 import {
-  DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
+  DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
   distToEllipse, distToLine, distToRay, distToRect, drawingVisibleOnTimeframe, distToSegment, newId,
   type Anchor, type Drawing, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
+import { useAsk } from "@/components/AskDialog";
+
+/** What the text dialog calls itself, per tool. */
+const TEXT_TOOL_TITLES: Partial<Record<DrawingTool, string>> = {
+  text: "Text", note: "Note", callout: "Callout", comment: "Comment",
+  priceNote: "Price note", signpost: "Signpost", flagMark: "Flag",
+};
 import {
   barsPatternGeometry, fibChannelGeometry, gannSquareGeometry, patternLabels, positionForecastGeometry,
   pitchforkGeometry, regression as regressionGeometry, timeProjection,
@@ -167,6 +174,9 @@ export function DrawingCanvas({
   onChangeRef.current = onChange;
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
+  const ask = useAsk();
+  const askRef = useRef(ask);
+  askRef.current = ask;
   const onToolDoneRef = useRef(onToolDone);
   onToolDoneRef.current = onToolDone;
 
@@ -256,27 +266,48 @@ export function DrawingCanvas({
       const risk = (points[1]!.price - points[0]!.price) / 2;
       pts = [...points, { time: points[1]!.time, price: points[0]!.price - risk }];
     }
-    let text: string | undefined;
-    if (TEXT_TOOLS.has(tl)) {
-      const input = window.prompt(tl === "callout" ? "Callout text:" : `${tl} text:`, "");
-      if (input === null) { draftRef.current = null; onToolDoneRef.current(); return; }
-      text = input;
-    }
-    const d: Drawing = {
-      id: newId(),
-      tool: tl,
-      points: pts,
-      style: { ...styleRef.current, ...(text !== undefined ? { text } : {}) },
+    const place = (text?: string): void => {
+      const d: Drawing = {
+        id: newId(),
+        tool: tl,
+        points: pts,
+        style: { ...styleRef.current, ...(text !== undefined ? { text } : {}) },
+      };
+      // Measurement tools are one-at-a-time, like TV's measure.
+      const kept = EPHEMERAL_TOOLS.has(tl)
+        ? drawingsRef.current.filter((x) => x.tool !== tl)
+        : drawingsRef.current;
+      onChangeRef.current([...kept, d]);
+      draftRef.current = null;
+      previewRef.current = null;
+      setSelected(d.id);
+      onToolDoneRef.current();
     };
-    // Measurement tools are one-at-a-time, like TV's measure.
-    const kept = EPHEMERAL_TOOLS.has(tl)
-      ? drawingsRef.current.filter((x) => x.tool !== tl)
-      : drawingsRef.current;
-    onChangeRef.current([...kept, d]);
-    draftRef.current = null;
-    previewRef.current = null;
-    setSelected(d.id);
-    onToolDoneRef.current();
+
+    /*
+     * TVP8: the text tools used to open `window.prompt`.
+     *
+     * Placing a piece of text on a chart is one of the most ordinary things
+     * the annotation rail is for, and it dropped a native browser sheet from
+     * the top of the window with "localhost:3000 says" printed above it. It is
+     * the loudest tell in the product, and it froze the live chart behind it
+     * until the user answered. `useAsk` is the product's own, through the same
+     * `Modal` as every other dialog.
+     */
+    if (TEXT_TOOLS.has(tl)) {
+      void askRef.current.promptFor({
+        title: TEXT_TOOL_TITLES[tl] ?? "Text",
+        label: "Text",
+        placeholder: tl === "callout" ? "What this points at" : "",
+        multiline: tl === "note" || tl === "callout",
+        confirmLabel: "Place",
+      }).then((input) => {
+        if (input === null) { draftRef.current = null; onToolDoneRef.current(); return; }
+        place(input);
+      });
+      return;
+    }
+    place();
   }, []);
 
   // Switching tools clears an unfinished draft and any ephemeral measurement.
@@ -357,8 +388,21 @@ export function DrawingCanvas({
       if (t === "eraser") {
         const hit = hitTest(p);
         if (hit) {
-          onChangeRef.current(drawingsRef.current.filter((d) => d.id !== hit.id));
-          setSelected(null);
+          /*
+           * TVP8: the eraser was the one way past a lock.
+           *
+           * Dragging checks `lockedRef` and the drawing's own `locked`, and so
+           * does Delete — but the eraser deleted anything it touched, so "Lock
+           * all drawings" protected a drawing from being nudged and not from
+           * being destroyed. That is the wrong way round.
+           */
+          const target = drawingsRef.current.find((d) => d.id === hit.id);
+          if (!lockedRef.current && target && !target.locked) {
+            onChangeRef.current(drawingsRef.current.filter((d) => d.id !== hit.id));
+            setSelected(null);
+          } else {
+            setSelected(hit.id);
+          }
         }
         e.stopPropagation(); e.preventDefault();
         return;
@@ -489,6 +533,63 @@ export function DrawingCanvas({
 
     const onLeave = (): void => { previewRef.current = null; };
 
+    /*
+     * ── TVP8: touch ────────────────────────────────────────────────────────
+     *
+     * Every listener below was a `mouse*` one, and there was not a single
+     * `touch*` or `pointer*` handler in this file. The phone build ships the
+     * drawing rail in a drawer (`DrawingToolbar`'s phone path), so a tablet or
+     * phone user could pick a tool, watch it arm, and then find that no amount
+     * of dragging on the chart drew anything: a rail that cannot draw.
+     *
+     * The handlers only ever read `clientX`, `clientY` and `button`, so a
+     * touch is adapted into that shape and sent through exactly the same code
+     * — placement, magnet, drag, commit and undo stay in one implementation
+     * rather than growing a second one that drifts.
+     *
+     * What is deliberately NOT forwarded: a two-finger gesture, and a
+     * single-finger touch while the cursor tool is active with nothing under
+     * it. Both belong to the chart, which is how a phone user still pans and
+     * pinch-zooms; `onDown` already leaves that case alone for the mouse.
+     */
+    const asMouse = (e: TouchEvent, touch: Touch): MouseEvent => ({
+      button: 0, clientX: touch.clientX, clientY: touch.clientY,
+      shiftKey: false, altKey: false, ctrlKey: false, metaKey: false,
+      stopPropagation: () => e.stopPropagation(),
+      preventDefault: () => { if (e.cancelable) e.preventDefault(); },
+    } as unknown as MouseEvent);
+
+    /** True while this gesture is ours, so move and end know not to hand back. */
+    let touchDrawing = false;
+
+    const onTouchStart = (e: TouchEvent): void => {
+      if (e.touches.length !== 1) { touchDrawing = false; return; }
+      const touch = e.touches[0]!;
+      // A finger is blunter than a pointer: without this, the only tool a
+      // phone could use reliably was one that needs no accuracy at all.
+      const before = draftRef.current;
+      onDown(asMouse(e, touch));
+      touchDrawing = draftRef.current !== before
+        || dragRef.current !== null
+        || (toolRef.current !== "cursor" && toolRef.current !== "eraser");
+    };
+    const onTouchMove = (e: TouchEvent): void => {
+      if (!touchDrawing || e.touches.length !== 1) return;
+      onMove(asMouse(e, e.touches[0]!));
+      // Stop the page from scrolling out from under a drawing in progress.
+      if (e.cancelable) e.preventDefault();
+    };
+    const onTouchEnd = (e: TouchEvent): void => {
+      if (!touchDrawing) return;
+      const touch = e.changedTouches[0];
+      if (touch) onUp(asMouse(e, touch));
+      touchDrawing = false;
+    };
+
+    container.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+    container.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    container.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+    container.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
     container.addEventListener("mousedown", onDown, true);
     container.addEventListener("contextmenu", onContext, true);
     container.addEventListener("mousemove", onMove, true);
@@ -498,6 +599,10 @@ export function DrawingCanvas({
     // A drag that ends outside the chart must still finish cleanly.
     window.addEventListener("mouseup", onUp, true);
     return () => {
+      container.removeEventListener("touchstart", onTouchStart, true);
+      container.removeEventListener("touchmove", onTouchMove, true);
+      container.removeEventListener("touchend", onTouchEnd, true);
+      container.removeEventListener("touchcancel", onTouchEnd, true);
       container.removeEventListener("mousedown", onDown, true);
       container.removeEventListener("contextmenu", onContext, true);
       container.removeEventListener("mousemove", onMove, true);
@@ -825,6 +930,7 @@ export function DrawingCanvas({
           >
             ┄
           </button>
+          {FILLABLE_TOOLS.has(sel.tool) && (
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
             className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
@@ -838,6 +944,7 @@ export function DrawingCanvas({
                 stroke="currentColor" strokeWidth="1.2" />
             </svg>
           </button>
+          )}
           <span className="mx-0.5 h-4 w-px bg-border" />
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
@@ -1184,16 +1291,24 @@ function drawOne(
       if (geometry.polygons[0]) { ctx.globalAlpha = 0.08; ctx.beginPath(); geometry.polygons[0]!.forEach((point, i) => i ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y)); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1; }
     } else if (d.tool === "sector") {
       const c = q[2] ?? b; const r = Math.hypot(b.x - a.x, b.y - a.y); const start = Math.atan2(b.y - a.y, b.x - a.x); const end = Math.atan2(c.y - a.y, c.x - a.x);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.arc(a.x, a.y, r, start, end); ctx.closePath(); fillAlpha(() => ctx.fill(), 0.12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.arc(a.x, a.y, r, start, end); ctx.closePath();
+      if (d.style.filled) fillAlpha(() => ctx.fill(), 0.12);
+      ctx.stroke();
     } else if (d.tool === "table") {
       const width = Math.max(90, Math.abs(b.x - a.x)); const rows = 4; for (let i = 0; i <= rows; i++) line({ x: a.x, y: a.y + i * 20 }, { x: a.x + width, y: a.y + i * 20 }); line({ x: a.x, y: a.y }, { x: a.x, y: a.y + rows * 20 }); line({ x: a.x + width / 2, y: a.y }, { x: a.x + width / 2, y: a.y + rows * 20 });
-    } else {
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y); ctx.stroke();
-    }
-    if (d.tool === "rotatedRectangle" && q.length >= 3) {
+    } else if (d.tool === "rotatedRectangle" && q.length >= 3) {
+      /*
+       * TVP8: this used to sit AFTER the generic `else`, not inside the ladder,
+       * so a rotated rectangle was stroked twice — once as an open polyline
+       * through its three anchors and again as the closed parallelogram. On a
+       * translucent or thick line the doubled edges were visibly darker than
+       * every other shape's, and the stray open path ran where no edge is.
+       */
       const c = q[2]!; const d4 = { x: a.x + c.x - b.x, y: a.y + c.y - b.y };
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d4.x, d4.y); ctx.closePath();
       if (d.style.filled) fillAlpha(() => ctx.fill(), 0.12); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); for (let i = 1; i < q.length; i++) ctx.lineTo(q[i]!.x, q[i]!.y); ctx.stroke();
     }
     if (selected) {
       ctx.setLineDash([]);

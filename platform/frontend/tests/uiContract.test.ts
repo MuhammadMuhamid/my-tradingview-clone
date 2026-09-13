@@ -686,3 +686,34 @@ test("CONTRACT — a menu that adopts the popover also adopts the ROW", () => {
   assert.deepEqual(offenders, [],
     `these open a .tvc-menu and then draw their own rows inside it: ${offenders.join(", ")}`);
 });
+
+test("CONTRACT — the product never asks through the browser's own dialog", () => {
+  /*
+   * TVP8: there were seventeen `window.confirm` / `window.prompt` calls.
+   *
+   * A native sheet drops from the top of the browser window in the OS's font
+   * with the ORIGIN printed above it — "localhost:3000 says". Nothing else in
+   * the product looks anything like it, and placing one piece of text on a
+   * chart, the most ordinary use of the annotation rail, produced one. It also
+   * blocks the main thread, which on a page built around a live chart stops
+   * every tick and every animation until the user answers.
+   *
+   * `components/AskDialog.tsx` is the replacement, through the same `Modal` as
+   * every other dialog — so it inherits the focus trap, Escape, restore-focus
+   * and `role="dialog"` that `Modal` exists to guarantee, and it can say which
+   * list it is about and paint a destructive button as destructive.
+   *
+   * `AskDialog` itself is exempt: it is the thing that replaced them, and it
+   * names them in its own documentation.
+   */
+  const NATIVE = /\bwindow\.(confirm|prompt|alert)\s*\(/;
+  const offenders = PRODUCT
+    .filter((f) => !f.endsWith("AskDialog.tsx"))
+    .filter((f) => NATIVE.test(read(f)));
+  assert.deepEqual(offenders, [],
+    `ask through <AskProvider>'s useAsk(), not the browser: ${offenders.join(", ")}`);
+
+  // And the provider is actually mounted, or `useAsk` throws on first use.
+  assert.match(read("app/layout.tsx"), /<AskProvider>/,
+    "the dialog has to be mounted above every page that asks");
+});

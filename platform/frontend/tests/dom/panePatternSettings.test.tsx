@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { render } from "./harness/env";
 import { usePaneCandleOverlays } from "@/lib/useCandleOverlay";
 import { usePaneClassicalOverlays } from "@/lib/useClassicalPatterns";
 

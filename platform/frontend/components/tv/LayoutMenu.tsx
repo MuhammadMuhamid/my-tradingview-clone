@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { Layout } from "@/lib/layouts";
 import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
@@ -61,6 +62,7 @@ export function LayoutMenu({
   // hang off buttons a few pixels apart, so two open at once overlap and
   // compete for the same clicks. See `lib/popoverGroup`.
   const [open, setOpen] = useExclusivePopover("saved-layouts");
+  const ask = useAsk();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const current = layouts.find((l) => l.id === currentId) ?? null;
@@ -121,12 +123,13 @@ export function LayoutMenu({
    * Opening another layout replaces the focused chart's state. When the current
    * one has drift that autosave will not write, say so before discarding it.
    */
-  const selectLayout = (id: string, name: string): void => {
+  const selectLayout = async (id: string, name: string): Promise<void> => {
     if (id !== currentId && dirty && !autosave && current) {
-      const ok = window.confirm(
-        `“${current.name}” has unsaved changes. Opening “${name}” discards them.\n\n`
-        + "Cancel, then use Save layout first if you want to keep them."
-      );
+      const ok = await ask.confirm({
+        title: `“${current.name}” has unsaved changes`,
+        body: `Opening “${name}” discards them. Cancel, then Save layout first if you want to keep them.`,
+        confirmLabel: `Discard and open “${name}”`, tone: "danger",
+      });
       if (!ok) return;
     }
     onSelect(id);

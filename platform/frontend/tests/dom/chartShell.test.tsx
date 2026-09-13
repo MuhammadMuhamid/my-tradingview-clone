@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { fireEvent, screen } from "@testing-library/react";
 import { closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
 import { armedInterval, mountChart } from "./harness/chart";
-import { render } from "@testing-library/react";
+import { render } from "./harness/env";
 import TvWorkspace from "@/app/chart/page";
 
 const renderWorkspace = () => render(<TvWorkspace />);

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
@@ -41,6 +42,7 @@ export function AlertEditor({
   /** Omit to hide Delete — the chart rail offers it, a bulk list need not. */
   onDeleted?: (deleted: MaAlert, message: string) => void;
 }) {
+  const ask = useAsk();
   const [form, setForm] = useState<AlertEditForm | null>(null);
   const [busy, setBusy] = useState<"save" | "delete" | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -90,9 +92,11 @@ export function AlertEditor({
 
   const remove = async (): Promise<void> => {
     if (!onDeleted) return;
-    if (!window.confirm(
-      `Delete this alert on ${alert.symbol}?\n\n${describeAlert(alert)}\n\nThis cannot be undone.`
-    )) return;
+    if (!await ask.confirm({
+      title: `Delete this alert on ${alert.symbol}?`,
+      body: <>{describeAlert(alert)}<br />This cannot be undone.</>,
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     setBusy("delete");
     setErr(null);
     try {

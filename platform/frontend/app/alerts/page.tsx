@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { Button, Card, CardHeader, Empty, PageShell, Select, TextInput } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
@@ -29,6 +30,7 @@ import { displaySymbol } from "@/lib/instrument";
  * is armed, what fired, and whether it actually reached a phone.
  */
 export default function AlertsPage() {
+  const ask = useAsk();
   const [alerts, setAlerts] = useState<MaAlert[] | null>(null);
   const [events, setEvents] = useState<MaAlertEvent[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -150,7 +152,11 @@ export default function AlertsPage() {
     if (!request) return;
     const { ids } = request;
     const message = selectionConfirmation(action, ids.length, filteredAlerts.length);
-    if (message && !window.confirm(message)) return;
+    if (message && !await ask.confirm({
+      title: message,
+      confirmLabel: action === "delete" ? "Delete" : "Confirm",
+      tone: action === "delete" ? "danger" : "default",
+    })) return;
     setBusy(`bulk-${action}`);
     try {
       const result = await api.bulkMaAlerts(request.action, request.ids);

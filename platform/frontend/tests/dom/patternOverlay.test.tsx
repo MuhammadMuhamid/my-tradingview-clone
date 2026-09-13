@@ -1,6 +1,7 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { render } from "./harness/env";
 import { PatternOverlayControls } from "@/components/tv/PatternOverlayControls";
 import type { PatternAnalysis } from "@/lib/candleOverlay";
 import type { CandleOverlayState, PatternAnalysisState } from "@/lib/useCandleOverlay";

@@ -16,9 +16,9 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { NextRequest } from "next/server";
-import { closeBrowser, resetBrowser, server, settle } from "./harness/env";
+import { render, closeBrowser, resetBrowser, server, settle  } from "./harness/env";
 import { proxy } from "@/proxy";
 import { DEFAULT_AFTER_LOGIN, safeNextPath } from "@/lib/safeRedirect";
 import LoginPage from "@/app/login/page";

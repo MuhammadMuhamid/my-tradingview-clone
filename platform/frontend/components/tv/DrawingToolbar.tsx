@@ -74,6 +74,8 @@ const ICONS: Record<string, JSX.Element> = {
   long: <><rect x="4" y="5" width="16" height="6" /><rect x="4" y="13" width="16" height="6" /><path d="M12 19v-14" /></>,
   short: <><rect x="4" y="5" width="16" height="6" /><rect x="4" y="13" width="16" height="6" /><path d="M12 5v14" /></>,
   magnet: <><path d="M7 4v8a5 5 0 0010 0V4" /><path d="M7 8h4M13 8h4" /></>,
+  // A pencil with a repeat arc under it: the tool stays armed.
+  stayInDrawingMode: <><path d="M4 16l9-9 3 3-9 9H4z" /><path d="M14 4l2-2 3 3-2 2" /><path d="M4 21h16" /></>,
   lock: <><rect x="5" y="11" width="14" height="9" rx="1.5" /><path d="M8 11V8a4 4 0 018 0v3" /></>,
   unlock: <><rect x="5" y="11" width="14" height="9" rx="1.5" /><path d="M8 11V8a4 4 0 017-2.6" /></>,
   eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" /><circle cx="12" cy="12" r="2.5" /></>,
@@ -269,13 +271,17 @@ const GROUPS: { id: string; tools: ToolDef[] }[] = [
  * rail shows that icon and a caret opens the rest — TradingView's behaviour.
  */
 export function DrawingToolbar({
-  tool, onTool, magnet, onMagnet, locked, onLocked, hidden, onHidden, onDeleteAll, count,
+  tool, onTool, magnet, onMagnet, stayInDrawingMode, onStayInDrawingMode,
+  locked, onLocked, hidden, onHidden, onDeleteAll, count,
   floating = false, onClose,
 }: {
   tool: DrawingTool;
   onTool: (t: DrawingTool) => void;
   magnet: boolean;
   onMagnet: (v: boolean) => void;
+  /** Keep the armed tool after a drawing is finished, instead of dropping to the cursor. */
+  stayInDrawingMode: boolean;
+  onStayInDrawingMode: (v: boolean) => void;
   locked: boolean;
   onLocked: (v: boolean) => void;
   hidden: boolean;
@@ -467,6 +473,15 @@ export function DrawingToolbar({
         aria-label={magnet ? "Turn the magnet off" : "Turn the magnet on"}
         title={magnet ? "Magnet on — anchors snap to OHLC" : "Magnet off"}>
         <Icon name="magnet" />
+      </button>
+      <button onClick={() => onStayInDrawingMode(!stayInDrawingMode)}
+        className={btn(stayInDrawingMode)} aria-pressed={stayInDrawingMode}
+        aria-label={stayInDrawingMode
+          ? "Turn off staying in drawing mode" : "Stay in drawing mode"}
+        title={stayInDrawingMode
+          ? "Staying in drawing mode — the tool stays armed after each drawing"
+          : "Stay in drawing mode"}>
+        <Icon name="stayInDrawingMode" />
       </button>
       <button onClick={() => onLocked(!locked)} className={btn(locked)} aria-pressed={locked}
         aria-label={locked ? "Unlock all drawings" : "Lock all drawings"}

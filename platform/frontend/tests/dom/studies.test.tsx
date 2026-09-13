@@ -19,8 +19,8 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { act, render } from "@testing-library/react";
-import { advance, closeBrowser, resetBrowser, server, settle } from "./harness/env";
+import { act } from "@testing-library/react";
+import { render, advance, closeBrowser, resetBrowser, server, settle  } from "./harness/env";
 import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
 import { loadStoredNative, nativeStorageKey } from "@/lib/native/storage";
