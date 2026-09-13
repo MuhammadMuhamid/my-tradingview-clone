@@ -110,6 +110,34 @@ export interface ChartSettings {
   kagiReversalPercent: number;
   pnfBoxPercent: number;
   pnfReversalBoxes: number;
+
+  /**
+   * Session Volume Profile and TPO, which had no settings at all.
+   *
+   * `VolumeProfileSettings` already carries every one of these and
+   * `VolumeProfileLayer` already branches on them — `side`, `split`,
+   * `showPoc`, `widthRatio`, `valueAreaPercent`, `rowSize`, `allocation` — so
+   * the renderer was fully parameterised and the pane passed it literals.
+   *
+   * The asymmetry that made this obvious: the DRAWING-based Fixed Range Volume
+   * Profile has a five-control quick bar for rows, value-area %, split, side
+   * and POC. The CHART-TYPE profiles, reading the same type through the same
+   * function, offered none of it.
+   */
+  profileRows: number;
+  profileValueAreaPercent: number;
+  /** Volume spread across a bar's whole range, or all of it at the close. */
+  profileAllocation: "range" | "close";
+  /** Which side of the plot the profile is drawn from. */
+  profileSide: "left" | "right";
+  /** One total bar per row, or up and down volume split apart. */
+  profileSplit: "total" | "upDown";
+  profileShowPoc: boolean;
+  profileShowValueArea: boolean;
+  /** How far across the plot the widest row reaches, in percent. */
+  profileWidthPercent: number;
+  /** TPO letter-block duration in minutes. */
+  tpoBlockMinutes: number;
 }
 
 export const DEFAULT_CHART_SETTINGS: ChartSettings = {
@@ -149,6 +177,16 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   kagiReversalPercent: 1,
   pnfBoxPercent: 1,
   pnfReversalBoxes: 3,
+
+  profileRows: 24,
+  profileValueAreaPercent: 70,
+  profileAllocation: "range",
+  profileSide: "right",
+  profileSplit: "total",
+  profileShowPoc: true,
+  profileShowValueArea: true,
+  profileWidthPercent: 30,
+  tpoBlockMinutes: 30,
 };
 
 const PRECISIONS: readonly PricePrecision[] = ["auto", 0, 1, 2, 3, 4, 5, 6, 7, 8];
@@ -221,6 +259,18 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     kagiReversalPercent: Math.round(num(value.kagiReversalPercent, 1, 0.1, 50) * 10) / 10,
     pnfBoxPercent: Math.round(num(value.pnfBoxPercent, 1, 0.1, 50) * 10) / 10,
     pnfReversalBoxes: Math.round(num(value.pnfReversalBoxes, 3, 1, 10)),
+
+    // Bounds mirror MIN_ROWS/MAX_ROWS and MIN_VALUE_AREA/MAX_VALUE_AREA in
+    // `lib/volumeProfile`, which is what actually enforces them downstream.
+    profileRows: Math.round(num(value.profileRows, 24, 4, 400)),
+    profileValueAreaPercent: Math.round(num(value.profileValueAreaPercent, 70, 30, 100)),
+    profileAllocation: value.profileAllocation === "close" ? "close" : "range",
+    profileSide: value.profileSide === "left" ? "left" : "right",
+    profileSplit: value.profileSplit === "upDown" ? "upDown" : "total",
+    profileShowPoc: bool(value.profileShowPoc, true),
+    profileShowValueArea: bool(value.profileShowValueArea, true),
+    profileWidthPercent: Math.round(num(value.profileWidthPercent, 30, 5, 90)),
+    tpoBlockMinutes: Math.round(num(value.tpoBlockMinutes, 30, 1, 1440)),
   };
 }
 

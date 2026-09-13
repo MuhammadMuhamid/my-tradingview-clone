@@ -74,6 +74,7 @@ import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
 import { isCanonicalInstrumentId } from "@/lib/instrument";
 import { resolvePriceTick } from "@/lib/priceTick";
 import { computeTpoProfile, computeVolumeProfile, DEFAULT_PROFILE_SETTINGS } from "@/lib/volumeProfile";
+import { DEFAULT_CHART_SETTINGS } from "@/lib/chartSettings";
 import { PROFILE_COLORS } from "@/lib/native/profile";
 
 export interface ChartPaneProps {
@@ -484,12 +485,46 @@ function ChartPaneImpl(props: ChartPaneProps) {
     })),
   }] : [], [pane.chartType, paneId, visibleCandles]);
 
+  /*
+   * Only the nine fields the two profile presentations read.
+   *
+   * Recomputing a session profile is not free, and depending on the whole
+   * settings object would redo it whenever a grid line was toggled.
+   */
+  const cs = pane.chartSettings;
+  const profileSettings = useMemo(() => ({
+    profileRows: cs?.profileRows ?? DEFAULT_CHART_SETTINGS.profileRows,
+    profileValueAreaPercent: cs?.profileValueAreaPercent ?? DEFAULT_CHART_SETTINGS.profileValueAreaPercent,
+    profileAllocation: cs?.profileAllocation ?? DEFAULT_CHART_SETTINGS.profileAllocation,
+    profileSide: cs?.profileSide ?? DEFAULT_CHART_SETTINGS.profileSide,
+    profileSplit: cs?.profileSplit ?? DEFAULT_CHART_SETTINGS.profileSplit,
+    profileShowPoc: cs?.profileShowPoc ?? DEFAULT_CHART_SETTINGS.profileShowPoc,
+    profileShowValueArea: cs?.profileShowValueArea ?? DEFAULT_CHART_SETTINGS.profileShowValueArea,
+    profileWidthPercent: cs?.profileWidthPercent ?? DEFAULT_CHART_SETTINGS.profileWidthPercent,
+    tpoBlockMinutes: cs?.tpoBlockMinutes ?? DEFAULT_CHART_SETTINGS.tpoBlockMinutes,
+  }), [cs?.profileRows, cs?.profileValueAreaPercent, cs?.profileAllocation, cs?.profileSide,
+    cs?.profileSplit, cs?.profileShowPoc, cs?.profileShowValueArea, cs?.profileWidthPercent,
+    cs?.tpoBlockMinutes]);
+
   const sessionProfileDecorations = useMemo(() => {
     if (pane.chartType !== "sessionVolumeProfile" || visibleCandles.length === 0) return [];
     const latest = visibleCandles[visibleCandles.length - 1]!;
     const dayStart = Math.floor(latest.openTime / 86_400_000) * 86_400_000;
     const session = visibleCandles.filter((c) => c.openTime >= dayStart);
-    const profile = computeVolumeProfile(session, DEFAULT_PROFILE_SETTINGS, pane.interval, "chart");
+    /*
+     * The pane's own settings, not `DEFAULT_PROFILE_SETTINGS`.
+     *
+     * Every literal below used to be written here — 24 rows, 70% value area,
+     * total split, right side, 0.3 width — while `VolumeProfileLayer` already
+     * branched on all of them. The renderer was fully parameterised and the
+     * only thing missing was a way to say what the parameters should be.
+     */
+    const profile = computeVolumeProfile(session, {
+      ...DEFAULT_PROFILE_SETTINGS,
+      rowSize: profileSettings.profileRows,
+      valueAreaPercent: profileSettings.profileValueAreaPercent,
+      allocation: profileSettings.profileAllocation,
+    }, pane.interval, "chart");
     if (profile.rows.length === 0 || profile.from === null || profile.to === null) return [];
     return [{
       kind: "profile" as const, id: `session-profile:${paneId}`, paneId: "price",
@@ -498,20 +533,29 @@ function ChartPaneImpl(props: ChartPaneProps) {
       basisNotice: `UTC session estimate from ${profile.bars} ${profile.sourceInterval} bars`,
       from: Math.floor(profile.from / 1000), to: Math.floor(profile.to / 1000) + 1,
       rows: profile.rows, pocIndex: profile.pocIndex, valueAreaRows: profile.valueAreaRows,
-      peakVolume: profile.peakVolume, split: "total" as const, showValueArea: true,
-      showPoc: true, showRange: false, side: "right" as const, widthRatio: 0.3,
+      peakVolume: profile.peakVolume,
+      split: profileSettings.profileSplit,
+      showValueArea: profileSettings.profileShowValueArea,
+      showPoc: profileSettings.profileShowPoc,
+      showRange: false,
+      side: profileSettings.profileSide,
+      widthRatio: profileSettings.profileWidthPercent / 100,
       colors: { ...PROFILE_COLORS },
     }];
-  }, [pane.chartType, pane.interval, paneId, visibleCandles]);
+  }, [pane.chartType, pane.interval, paneId, visibleCandles, profileSettings]);
 
   const tpoDecorations = useMemo(() => {
     if (pane.chartType !== "tpo" || visibleCandles.length === 0) return [];
     const latest = visibleCandles[visibleCandles.length - 1]!;
     const dayStart = Math.floor(latest.openTime / 86_400_000) * 86_400_000;
     const session = visibleCandles.filter((c) => c.openTime >= dayStart);
-    const profile = computeTpoProfile(
-      session, { ...DEFAULT_PROFILE_SETTINGS, tpoBlockMinutes: 30 }, pane.interval, "chart",
-    );
+    const profile = computeTpoProfile(session, {
+      ...DEFAULT_PROFILE_SETTINGS,
+      rowSize: profileSettings.profileRows,
+      valueAreaPercent: profileSettings.profileValueAreaPercent,
+      allocation: profileSettings.profileAllocation,
+      tpoBlockMinutes: profileSettings.tpoBlockMinutes,
+    }, pane.interval, "chart");
     if (profile.rows.length === 0 || profile.from === null || profile.to === null) return [];
     return [{
       kind: "profile" as const, id: `tpo:${paneId}`, paneId: "price",
@@ -521,11 +565,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
       from: Math.floor(profile.from / 1000), to: Math.floor(profile.to / 1000) + 1,
       rows: profile.rows, pocIndex: profile.pocIndex, valueAreaRows: profile.valueAreaRows,
       labels: profile.tpoLabels,
-      peakVolume: profile.peakVolume, split: "total" as const, showValueArea: true,
-      showPoc: true, showRange: false, side: "right" as const, widthRatio: 0.3,
+      peakVolume: profile.peakVolume,
+      split: profileSettings.profileSplit,
+      showValueArea: profileSettings.profileShowValueArea,
+      showPoc: profileSettings.profileShowPoc,
+      showRange: false,
+      side: profileSettings.profileSide,
+      widthRatio: profileSettings.profileWidthPercent / 100,
       colors: { ...PROFILE_COLORS, total: "#a855f7", valueArea: "#a855f7" },
     }];
-  }, [pane.chartType, pane.interval, paneId, visibleCandles]);
+  }, [pane.chartType, pane.interval, paneId, visibleCandles, profileSettings]);
 
   const baseOverlays = useMemo(
     () => [

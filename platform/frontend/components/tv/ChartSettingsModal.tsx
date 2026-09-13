@@ -231,6 +231,69 @@ export function ChartSettingsModal({
                 </>
               )}
 
+              {(chartType === "sessionVolumeProfile" || chartType === "tpo") && (
+                <>
+                  <Head>{chartType === "tpo" ? "Time price opportunity" : "Session volume profile"}</Head>
+                  {/*
+                    The renderer branched on every one of these already —
+                    `side`, `split`, `showPoc`, `widthRatio`, `rowSize`,
+                    `valueAreaPercent`, `allocation`. The pane passed literals,
+                    so a fully parameterised profile had no parameters. The
+                    asymmetry that made it obvious: the DRAWING-based Fixed
+                    Range Volume Profile has a five-control quick bar for the
+                    same knobs, reading the same type through the same
+                    function.
+                  */}
+                  <Row label="Rows">
+                    <NumberField value={settings.profileRows} min={4} max={400}
+                      onChange={(v) => set("profileRows", v)} label="Profile row count" />
+                  </Row>
+                  <Row label="Value area" suffix="%">
+                    <NumberField value={settings.profileValueAreaPercent} min={30} max={100}
+                      onChange={(v) => set("profileValueAreaPercent", v)} label="Value area percent" />
+                  </Row>
+                  {chartType === "tpo" && (
+                    <Row label="Block duration" suffix="min">
+                      <NumberField value={settings.tpoBlockMinutes} min={1} max={1440}
+                        onChange={(v) => set("tpoBlockMinutes", v)} label="TPO block duration in minutes" />
+                    </Row>
+                  )}
+                  <Row label="Volume placement">
+                    <Select value={settings.profileAllocation} label="How a bar's volume is placed"
+                      onChange={(v) => set("profileAllocation", v as "range" | "close")}
+                      options={[
+                        { value: "range", label: "Across the bar's range" },
+                        { value: "close", label: "All at the close" },
+                      ]} />
+                  </Row>
+                  <Row label="Rows show">
+                    <Select value={settings.profileSplit} label="Row split"
+                      onChange={(v) => set("profileSplit", v as "total" | "upDown")}
+                      options={[
+                        { value: "total", label: "Total volume" },
+                        { value: "upDown", label: "Up and down apart" },
+                      ]} />
+                  </Row>
+                  <Row label="Placement">
+                    <Select value={settings.profileSide} label="Which side the profile is drawn from"
+                      onChange={(v) => set("profileSide", v as "left" | "right")}
+                      options={[{ value: "right", label: "Right" }, { value: "left", label: "Left" }]} />
+                  </Row>
+                  <Row label="Width" suffix="%">
+                    <NumberField value={settings.profileWidthPercent} min={5} max={90}
+                      onChange={(v) => set("profileWidthPercent", v)} label="Profile width percent" />
+                  </Row>
+                  <Row label="Point of control">
+                    <Toggle checked={settings.profileShowPoc}
+                      onChange={(v) => set("profileShowPoc", v)} label="Point of control" />
+                  </Row>
+                  <Row label="Value area shading">
+                    <Toggle checked={settings.profileShowValueArea}
+                      onChange={(v) => set("profileShowValueArea", v)} label="Value area shading" />
+                  </Row>
+                </>
+              )}
+
               <Head>Data modification</Head>
               <Row label="Precision">
                 <Select value={String(settings.precision)} label="Price precision"
