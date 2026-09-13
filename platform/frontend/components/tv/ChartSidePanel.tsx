@@ -342,7 +342,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           className={`relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] ${
             props.replayBlocksLiveActions && id === "alerts"
               ? "cursor-not-allowed text-ink-faint opacity-40"
-              : isActive ? "text-accent" : "text-ink-muted"
+              : isActive ? "font-medium text-ink" : "text-ink-muted"
           }`}
         >
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"

@@ -83,7 +83,7 @@ export interface IndicatorBrowserProps {
 // TradingView's category strip is a compact tab row, not pill-shaped tags.
 // Keeping a fixed 32px row also prevents the browser from jumping when a
 // category is changed or a search result count appears.
-const CHIP = "h-8 rounded-sm border-b-2 px-2.5 py-1 text-[12px] transition-colors";
+const CHIP = "tvc-control flex h-8 items-center rounded-md px-2.5 text-[13px]";
 const ACTION =
   "shrink-0 rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-ink " +
   "transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-40";
@@ -439,7 +439,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
               onClick={() => setCategory(c.id)}
               aria-pressed={active}
               className={`${CHIP} ${
-                active ? "border-accent font-medium text-accent" : "border-transparent text-ink-muted hover:border-border hover:text-ink"
+                active ? "font-medium text-ink" : "text-ink-muted hover:text-ink"
               }`}
             >
               {c.label}

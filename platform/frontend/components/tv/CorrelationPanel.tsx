@@ -120,7 +120,7 @@ export function CorrelationPanel({
                     <button
                       onClick={() => onSelect(rowSymbol)}
                       className={`truncate ${
-                        rowSymbol === selected ? "text-accent" : "text-ink-muted hover:text-ink"
+                        rowSymbol === selected ? "font-medium text-ink" : "text-ink-muted hover:text-ink"
                       }`}
                       title={`Open ${rowSymbol} on the chart`}
                     >

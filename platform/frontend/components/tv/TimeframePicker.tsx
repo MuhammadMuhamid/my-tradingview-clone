@@ -197,12 +197,22 @@ function PickerRow({
         aria-pressed={favourite}
         title={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         aria-label={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
+        /*
+         * The star INHERITS the row's colour when the row is selected.
+         *
+         * It used to hard-code `text-white`, which was right while a selected
+         * resolution was a blue fill. The selected menu row is now an inverted
+         * light chip (`--ts-menu-selected-bg` on `-ink`), so white-on-near-white
+         * made the star of the armed resolution invisible — the one row where
+         * knowing whether it is a favourite matters most.
+         *
+         * Amber, not accent, for a favourite: a star is a keep-this mark, and
+         * accent in this product is an action or a link.
+         */
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity ${
-          selected ? "hover:bg-white/20" : "hover:bg-state-hover"
-        } ${
           favourite
-            ? `opacity-100 ${selected ? "text-white" : "text-accent"}`
-            : `opacity-0 focus:opacity-100 group-hover:opacity-100 ${selected ? "text-white/70" : "text-ink-faint"}`
+            ? `opacity-100 ${selected ? "" : "text-warn"}`
+            : `opacity-0 focus:opacity-100 group-hover:opacity-100 ${selected ? "opacity-70" : "text-ink-faint"}`
         }`}
       >
         <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"
