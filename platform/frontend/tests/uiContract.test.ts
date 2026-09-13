@@ -16,6 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { mixToward } from "../lib/chartTheme";
 
 const ROOT = path.join(__dirname, "..");
 const read = (p: string): string => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -220,4 +221,77 @@ test("CONTRACT — the shared page primitives exist and the unique pages use the
     assert.match(read(page), /<PageShell/,
       `${page} must use the shared shell — see the contract §7`);
   }
+});
+
+test("CONTRACT — the canvas is themed too, not just the DOM", () => {
+  /*
+   * A real light-theme defect, found by USING the product in light mode rather
+   * than by inverting tokens on paper: the volume histogram painted very dark
+   * bars across a white chart. Its two colours were the literals `#1c3a30` and
+   * `#3a1c24`, and a canvas cannot read a custom property, so nothing about
+   * switching the theme could ever have reached them.
+   *
+   * The rule that replaced them: a canvas colour that should change with the
+   * theme is MIXED at render time between a value the user chose and a token
+   * read off the document. This test guards the two halves of that — that the
+   * literals are gone, and that both themes actually define the weight.
+   */
+  const theme = read("lib/chartTheme.ts");
+  assert.doesNotMatch(theme, /CHART_VOLUME_(UP|DOWN)\s*=/,
+    "volume must be derived from the series colour, not a second fixed palette");
+  assert.match(theme, /cssToken\("--ts-surface"/,
+    "the mix target is the surface the bars are drawn on");
+
+  // Both themes define the weight; a token defined only in dark is how the
+  // original defect would come back.
+  const alpha = [...css.matchAll(/--ts-chart-volume-alpha:\s*([\d.]+)/g)].map((m) => Number(m[1]));
+  assert.equal(alpha.length, 2, "dark and light each state their own weight");
+  assert.ok(alpha.every((a) => a > 0 && a <= 1), alpha.join(", "));
+  assert.ok(Math.max(...alpha) > Math.min(...alpha),
+    "the same weight in both themes is the bug, not the fix: what recedes on "
+    + "black disappears on white");
+
+  // The muted fallback is themed for the same reason.
+  assert.equal([...css.matchAll(/--ts-chart-muted:/g)].length, 2);
+});
+
+test("CONTRACT — the volume weight is TradingView's own, measured", () => {
+  /*
+   * Sampling the live TradingView light chart canvas (BINANCE:BTCUSDT,
+   * `getImageData` across the volume band) returns rgb(131,204,192) as the
+   * dominant bar colour. TradingView's light up colour is `#089981` — which is
+   * also this product's measured `--ts-positive` for light — so their bar is
+   * that colour at half strength over white, and half strength is what the
+   * light token says.
+   *
+   * Asserted to within one step per channel: their compositor and this mix
+   * round a .5 in opposite directions, and that is not a difference anyone can
+   * see. Anything larger means the rule drifted.
+   */
+  const mixed = mixToward("#089981", "#ffffff", 0.5);
+  const channels = [1, 3, 5].map((at) => parseInt(mixed.slice(at, at + 2), 16));
+  const measured = [131, 204, 192];
+  channels.forEach((value, i) => {
+    assert.ok(Math.abs(value - measured[i]!) <= 1,
+      `channel ${i}: mixed ${value} vs TradingView's measured ${measured[i]} (${mixed})`);
+  });
+
+  // The ends of the range mean what they say.
+  assert.equal(mixToward("#2ebd85", "#0f0f0f", 1), "#2ebd85");
+  assert.equal(mixToward("#2ebd85", "#0f0f0f", 0), "#0f0f0f");
+  // A non-hex series colour is returned untouched rather than mangled.
+  assert.equal(mixToward("rgba(0,0,0,0)", "#ffffff", 0.5), "rgba(0,0,0,0)");
+
+  /*
+   * Shorthand hex, which is not hypothetical.
+   *
+   * `--ts-surface` is authored `#ffffff`, but the CSS pipeline shortens it and
+   * `getComputedStyle` returns `#fff` at runtime. The first version of this
+   * mix accepted six digits only, so in the browser it fell through to
+   * "return the colour unmixed" — a full-strength volume bar on white, which
+   * is the defect wearing a passing unit test. Found by reading the live
+   * document, not by reading the stylesheet.
+   */
+  assert.equal(mixToward("#2ebd85", "#fff", 0.5), mixToward("#2ebd85", "#ffffff", 0.5));
+  assert.notEqual(mixToward("#2ebd85", "#fff", 0.5), "#2ebd85");
 });

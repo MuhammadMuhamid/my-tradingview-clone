@@ -37,6 +37,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Resolution } from "@/lib/resolution";
+import { displaySymbol, displayTicker } from "@/lib/instrument";
 import { Modal } from "@/components/Modal";
 import { api, type PineScript } from "@/lib/api";
 import type { AppliedIndicator } from "@/lib/indicators";
@@ -97,6 +98,13 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
   const [recents, setRecents] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  /*
+   * Every user-visible string in this dialog names the instrument by TICKER.
+   * Eight of them interpolated `props.symbol`, which for a canonical id is
+   * `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` — a URN in a status
+   * message, in an Add tooltip, and in the footer.
+   */
+  const ticker = displayTicker(props.symbol);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -196,8 +204,8 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     if (!props.nativeStudies) return;
     props.nativeStudies.add(def.id);
     setRecents(loadRecents());
-    setStatus(`Added ${def.name} to ${props.symbol} ${props.interval}`);
-  }, [props.nativeStudies, props.symbol, props.interval]);
+    setStatus(`Added ${def.name} to ${ticker} ${props.interval}`);
+  }, [props.nativeStudies, props.interval, ticker]);
 
   /**
    * How many rows a category would show, with the current search applied.
@@ -252,7 +260,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       // in another tab is applied as it stands now.
       const full = await api.getPineScript(s.id);
       indicators.add({ scriptId: full.id, name: full.name, source: full.source });
-      setStatus(`Added “${full.name}” to ${props.symbol} ${props.interval}`);
+      setStatus(`Added “${full.name}” to ${ticker} ${props.interval}`);
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
@@ -333,7 +341,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     if (replace && applied.length > 0) {
       const ok = window.confirm(
         `Replace the ${applied.length} stud${applied.length === 1 ? "y" : "ies"} on `
-        + `${props.symbol} ${props.interval} with the ${template.indicators.length} in `
+        + `${ticker} ${props.interval} with the ${template.indicators.length} in `
         + `“${template.name}”?`
       );
       if (!ok) return;
@@ -347,7 +355,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       // restores it hidden.
       if (!row.visible) indicators.toggleVisible(key);
     }
-    setStatus(`Applied “${template.name}” to ${props.symbol} ${props.interval}`);
+    setStatus(`Applied “${template.name}” to ${ticker} ${props.interval}`);
   };
 
   const removeTemplate = (template: IndicatorTemplate): void => {
@@ -512,7 +520,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
                   disabled={!props.nativeStudies}
                   className={ACTION}
                   title={props.nativeStudies
-                    ? `Add ${def.name} to ${props.symbol} ${props.interval}`
+                    ? `Add ${def.name} to ${ticker} ${props.interval}`
                     : "The focused chart is still loading"}
                 >
                   Add
@@ -578,7 +586,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
                   disabled={busy || !indicators}
                   className={ACTION}
                   title={indicators
-                    ? `Add “${s.name}” to ${props.symbol} ${props.interval}`
+                    ? `Add “${s.name}” to ${ticker} ${props.interval}`
                     : "The focused chart is still preparing"}
                 >
                   Add
@@ -633,7 +641,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         <p className="mt-1 text-[11px] text-ink-faint">
           {applied.length === 0
             ? "Nothing is on this chart yet, so there is nothing to save."
-            : `${applied.length} stud${applied.length === 1 ? "y" : "ies"} on ${props.symbol} ${props.interval}.`}
+            : `${applied.length} stud${applied.length === 1 ? "y" : "ies"} on ${ticker} ${props.interval}.`}
           {nameTaken && " That name already exists — saving asks before replacing it."}
         </p>
       </div>
@@ -652,8 +660,15 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       )}
 
       <div className="mt-3 border-t border-border pt-3 text-[11px] text-ink-faint">
-        Adds land on the focused chart — <span className="font-semibold text-ink-muted">
-          {props.symbol} {props.interval}</span>.
+        {/*
+          The ticker, not the canonical id. This line printed
+          `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot 15m` at the user —
+          the URN as primary dialog copy, which is the regression the symbol
+          display policy exists to prevent. The identity is the title.
+        */}
+        Adds land on the focused chart — <span className="font-semibold text-ink-muted"
+          title={displaySymbol(props.symbol)}>
+          {ticker} {props.interval}</span>.
         <button
           onClick={() => fileRef.current?.click()}
           disabled={busy}

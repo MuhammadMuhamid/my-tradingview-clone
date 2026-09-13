@@ -81,6 +81,42 @@ ink `#0f0f0f`. An index-mirror of the dark ramp gives `#ebebeb`/`#dbdbdb`,
 which is a visibly heavier chip than the reference's. If you change one theme,
 **measure** the other; do not derive it.
 
+### The canvas is themed too
+
+lightweight-charts draws to a canvas, which cannot read a custom property, so
+`lib/chartTheme.ts` holds the canvas's copy of the palette. That file is part
+of the token system, not an exception to it, and it must read the document
+rather than carry a second fixed palette:
+
+| role | source |
+|---|---|
+| grid / crosshair / axis label / muted | `--ts-chart-*`, read per call |
+| candle up / down | the user's `upColor` / `downColor` chart setting |
+| volume bar | that same setting, **mixed toward `--ts-surface`** by `--ts-chart-volume-alpha` |
+
+The volume weight is `0.28` dark and `0.5` light. It is a token per theme
+because a bar that recedes properly on black disappears on white — the same
+weight in both is the bug, not the fix. The light weight is measured:
+`getImageData` over TradingView's own light volume band returns
+rgb(131,204,192), which is their `#089981` at exactly half strength over white.
+
+Two rules follow, and both have already been broken once:
+
+1. **A canvas colour that should follow the theme is never a literal.** The
+   volume pair used to be `#1c3a30` / `#3a1c24`, so light mode painted nearly
+   black bars across a white chart and no amount of theme switching could
+   reach them.
+2. **A theme change must repaint the data, not just the options.** A histogram
+   carries one colour per bar; `applyOptions` cannot recolour bars already
+   drawn. `CandleChart` listens for `trading-scene-theme`, marks the main
+   series dirty and takes its `replace` path.
+
+When you touch either, verify by sampling the live canvas — read the tokens
+off `document.documentElement` and the pixels out of `getImageData`. The
+authored stylesheet is not what runs: `--ts-surface` is written `#ffffff` and
+arrives as `#fff`, and the first version of this mix silently no-opped on it
+while its unit test passed.
+
 ### The neutral rule
 
 Every surface, border and muted label is **R = G = B**. Chromatic colour means
@@ -250,6 +286,7 @@ re-derive them.
 | rule | test |
 |---|---|
 | every colour token a component uses is declared | `tests/theme.test.ts` |
+| the canvas follows the theme: no fixed volume palette, both themes state a weight, the mix matches TradingView's measured bar, shorthand hex included | `tests/uiContract.test.ts` |
 | every drawing tool is reachable from exactly one rail group; group ids are the reference's; no group deeper than 20; every icon key exists | `tests/drawingRail.test.ts` |
 | the toolbar's control registry and tier assignment | `tests/chartToolbar.test.ts` |
 | chart-type list, order, and settings-driven transform parameters | `tests/chartType.test.ts` |

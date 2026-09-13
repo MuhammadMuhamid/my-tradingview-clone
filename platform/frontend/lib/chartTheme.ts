@@ -57,9 +57,6 @@ export const CHART_UP = "#2ebd85";
 export const CHART_DOWN = "#f6465d";
 export const CHART_ACCENT = "#4f8cff";
 export const CHART_CAUTION = "#f0b90b";
-/** Volume bars: the same hues at histogram strength, under the candles. */
-export const CHART_VOLUME_UP = "#1c3a30";
-export const CHART_VOLUME_DOWN = "#3a1c24";
 /** A series with no direction yet (an empty volume histogram, a muted line). */
 export const CHART_MUTED = "#3a3a3a";
 export const CHART_CROSSHAIR = "#5c5c5c";
@@ -70,9 +67,89 @@ function cssToken(name: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
-/** The volume histogram's colour for one bar. */
-export function volumeColor(open: number, close: number): string {
-  return close >= open ? CHART_VOLUME_UP : CHART_VOLUME_DOWN;
+/**
+ * The volume histogram's two colours.
+ *
+ * These were the literals `#1c3a30` and `#3a1c24` — picked by eye against the
+ * dark surface and, being literals on a canvas, unreachable by the theme. In
+ * light mode they painted very nearly black bars across a white chart, which
+ * is the one thing a volume histogram must never do: it sits UNDER the price
+ * series and has to recede.
+ *
+ * They are now derived rather than chosen, from two things that are already
+ * true:
+ *
+ *   - the direction colour is the user's own `upColor` / `downColor` chart
+ *     setting, so recolouring the candles recolours the volume beneath them
+ *     instead of leaving it on a palette the user never picked;
+ *   - the mix is toward the chart surface, so the same rule produces a sunk
+ *     teal on black and a pale one on white with nothing theme-specific in
+ *     the code.
+ *
+ * The rule and the light weight are measured, not invented. Sampling the live
+ * TradingView canvas in light mode (BINANCE:BTCUSDT, `getImageData` over the
+ * volume band) returns rgb(131,204,192) as the dominant bar colour, which is
+ * exactly their up colour `#089981` at 0.5 over white — and `#089981` is
+ * already this product's measured `--ts-positive` for light. The dark weight
+ * is 0.28 because that reproduces the previous hand-picked `#1c3a30` to
+ * within a shade (`#184030`) while putting both directions on one footing;
+ * the old pair did not, being 0.25 on the green and 0.19 on the red.
+ */
+export const CHART_VOLUME_ALPHA_DARK = 0.28;
+
+/**
+ * `#abc` and `#aabbcc` are the same colour, and both reach this file.
+ *
+ * The tokens are AUTHORED six-digit in `app/globals.css`, but what
+ * `getComputedStyle` hands back is whatever survived the CSS pipeline, and
+ * that shortens `#ffffff` to `#fff`. A six-digit-only guard here does not
+ * throw — it returns the colour unmixed, which in light mode means a full
+ * strength volume bar and looks like the bug this was written to fix.
+ */
+function expand(hex: string): string | null {
+  const value = hex.trim();
+  if (/^#[0-9a-f]{6}$/i.test(value)) return value;
+  if (/^#[0-9a-f]{3}$/i.test(value)) {
+    return `#${value.slice(1).split("").map((c) => c + c).join("")}`;
+  }
+  return null;
+}
+
+function channel(hex: string, at: number): number {
+  return parseInt(hex.slice(at, at + 2), 16);
+}
+
+/** `color` sunk toward `surface`; `alpha` is how much of `color` survives. */
+export function mixToward(color: string, surface: string, alpha: number): string {
+  const from = expand(color);
+  const to = expand(surface);
+  if (from === null || to === null) return color;
+  const weight = Math.max(0, Math.min(1, alpha));
+  const mixed = [1, 3, 5].map((at) => {
+    const value = channel(to, at) + (channel(from, at) - channel(to, at)) * weight;
+    return Math.round(value).toString(16).padStart(2, "0");
+  });
+  return `#${mixed.join("")}`;
+}
+
+/**
+ * The volume colour pair for the current theme and the current chart colours.
+ *
+ * Resolved once per data pass rather than once per bar: a full series is ten
+ * thousand candles and `getComputedStyle` is not free.
+ */
+export function volumePalette(up: string, down: string): (open: number, close: number) => string {
+  const surface = cssToken("--ts-surface", CHART_SURFACE);
+  const alpha = Number(cssToken("--ts-chart-volume-alpha", String(CHART_VOLUME_ALPHA_DARK)));
+  const weight = Number.isFinite(alpha) ? alpha : CHART_VOLUME_ALPHA_DARK;
+  const upBar = mixToward(up, surface, weight);
+  const downBar = mixToward(down, surface, weight);
+  return (open, close) => (close >= open ? upBar : downBar);
+}
+
+/** The neutral a histogram falls back to before any direction is known. */
+export function chartMuted(): string {
+  return cssToken("--ts-chart-muted", CHART_MUTED);
 }
 
 /**

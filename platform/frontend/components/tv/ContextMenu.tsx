@@ -166,7 +166,7 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
           // Invisible until measured, so it is never seen at the wrong place.
           visibility: placement ? "visible" : "hidden",
         }}
-        className="fixed z-[91] min-w-[200px] max-w-[280px] overflow-y-auto tvc-menu outline-none"
+        className="fixed z-[91] min-w-[200px] max-w-[280px] overflow-y-auto tvc-menu tvc-menu--compact outline-none"
       >
         {items.map((entry, index) => {
           if (isSeparator(entry)) {

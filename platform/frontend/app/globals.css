@@ -70,6 +70,17 @@
   --ts-chart-grid: #1e1e1e;
   --ts-chart-crosshair: #5c5c5c;
   --ts-chart-label: #3d3d3d;
+  --ts-chart-muted: #3a3a3a;
+  /*
+   * How much of the direction colour survives in a volume bar.
+   *
+   * Volume is drawn UNDER the price series, so it has to recede. On the dark
+   * surface a little of the hue is plenty; on white the same weight would be
+   * invisible, which is why this is a token and not a constant. See
+   * `volumePalette` in `lib/chartTheme.ts` — the canvas mixes the user's own
+   * up/down colour toward `--ts-surface` by this much.
+   */
+  --ts-chart-volume-alpha: 0.28;
 
   /*
    * Dense chart-workstation contract.
@@ -154,6 +165,17 @@
   --ts-chart-grid: #f0f0f0;
   --ts-chart-crosshair: #9c9c9c;
   --ts-chart-label: #5c5c5c;
+  --ts-chart-muted: #d1d1d1;
+  /*
+   * MEASURED, like the rest of this block — the WEIGHT is what was measured,
+   * not the colour. Sampling TradingView's own light chart canvas
+   * (BINANCE:BTCUSDT, `getImageData` over the volume band) returns
+   * rgb(131,204,192) as the dominant bar colour, which is their up colour
+   * `#089981` at exactly half strength over white. So light volume is half
+   * strength; the hue stays the user's own `upColor` / `downColor` chart
+   * setting, so the bars keep matching the candles they sit under.
+   */
+  --ts-chart-volume-alpha: 0.5;
 
   /*
    * The same two-neutral state contract, MEASURED rather than mirrored.
@@ -338,6 +360,19 @@
   background-color: var(--ts-menu-selected-bg);
   color: var(--ts-menu-selected-ink);
 }
+/*
+ * A CONTEXT menu is denser than a picker.
+ *
+ * Measured live, TradingView's dropdown rows are 40px and its context-menu
+ * rows are 32px — and the difference is not arbitrary. A picker is something
+ * you browse; a context menu is a list of verbs you already know the name of,
+ * opened at the pointer, and it has to stay near the thing it acts on. The
+ * chart's own menu is fifteen rows: at 40px it is 600px of screen.
+ */
+:is(.tv-workstation, .ts-app) .tvc-menu--compact .tvc-menu-row {
+  min-height: 32px;
+}
+
 /* The separator between groups of rows: a hairline inset to the rows' own
    gutter, with the same 6px of air above and below that the menu has. */
 :is(.tv-workstation, .ts-app) .tvc-menu-sep {

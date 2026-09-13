@@ -15,7 +15,7 @@ import { describeStreamState } from "@/lib/marketStream";
 import { isCanonicalInstrumentId } from "@/lib/instrument";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import {
-  baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_MUTED, CHART_UP, volumeColor,
+  baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_UP, chartMuted, volumePalette,
   subscribeChartTheme,
 } from "@/lib/chartTheme";
 import {
@@ -706,6 +706,25 @@ export function CandleChart({
   /** bumped only when the chart itself is (re)created, so the series effect
    *  can depend on it without re-triggering itself through `chartReady`. */
   const [chartCreated, setChartCreated] = useState(0);
+  /**
+   * Bumped on a theme change, so the canvas can repaint what CSS cannot reach.
+   *
+   * `subscribeChartTheme` re-applies the chart-level options (grid, crosshair,
+   * axis text), but a series' colours are baked into its data: the volume
+   * histogram carries one colour PER BAR, and no amount of `applyOptions` will
+   * change bars that are already drawn. So the theme also marks the main
+   * series dirty, which makes the data effect below take its `replace` path
+   * and hand the histogram a freshly coloured set.
+   */
+  const [themeTick, setThemeTick] = useState(0);
+  useEffect(() => {
+    const onTheme = (): void => {
+      mainSeriesDirtyRef.current = true;
+      setThemeTick((tick) => tick + 1);
+    };
+    window.addEventListener("trading-scene-theme", onTheme);
+    return () => window.removeEventListener("trading-scene-theme", onTheme);
+  }, []);
   const groupedOverlays = useMemo(
     () => groupChartOverlays(overlays ?? [], decorations ?? []),
     [overlays, decorations]
@@ -1119,7 +1138,7 @@ export function CandleChart({
     const vol = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "vol",
-      color: CHART_MUTED,
+      color: chartMuted(),
       // Volume has its own hidden scale, so its last-value badge landed in the
       // price column on top of whatever level sat nearest the low — "4.47K"
       // was printed over the S1 support label. The figure is in the legend.
@@ -1273,6 +1292,31 @@ export function CandleChart({
    * that fills itself in is no longer a hollow candle.
    */
   const { upColor, downColor, candleBody, candleBorders, candleWicks } = settings;
+
+  /**
+   * The volume histogram's colours, resolved once rather than once per bar.
+   *
+   * They follow the user's own candle colours toward the chart surface, so
+   * recolouring the series recolours the volume under it, and a theme change
+   * re-mixes against the new surface instead of leaving dark-theme literals on
+   * a white chart. `themeTick` is the dependency that makes the second half of
+   * that true — the tokens it reads live on the document, not in React.
+   */
+  const volumeBarColor = useMemo(
+    () => volumePalette(upColor, downColor),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- themeTick IS the input
+    [upColor, downColor, themeTick]
+  );
+  /*
+   * The live tick path reads the palette through a ref, not a closure.
+   *
+   * Putting `volumeBarColor` in the market-feed effect's dependencies would
+   * tear down and re-open the websocket subscription every time the user
+   * changed a candle colour or flipped the theme. The feed's identity depends
+   * on the symbol and the interval; the colour of the bar it paints does not.
+   */
+  const volumeBarColorRef = useRef(volumeBarColor);
+  volumeBarColorRef.current = volumeBarColor;
   useEffect(() => {
     const series = seriesRef.current;
     if (!series || renderKind(chartType) !== "candles") return;
@@ -1373,7 +1417,7 @@ export function CandleChart({
     const volumeDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       value: c.volume,
-      color: volumeColor(c.open, c.close),
+      color: volumeBarColor(c.open, c.close),
     });
 
     /*
@@ -1486,7 +1530,8 @@ export function CandleChart({
       { symbol: heldSymbol, interval: heldInterval }, last ? last.openTime : null);
     if (pending) applyTickRef.current?.(pending);
   }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady,
-    marketTrades, priceTick, interval, settings.rangeTicks, transformSettings]);
+    marketTrades, priceTick, interval, settings.rangeTicks, transformSettings,
+    volumeBarColor]);
 
 
   /**
@@ -1902,7 +1947,7 @@ export function CandleChart({
       if (transform !== "renko") {
         vol.update({
           time, value: tick.volume,
-          color: volumeColor(tick.open, tick.close),
+          color: volumeBarColorRef.current(tick.open, tick.close),
         });
       }
 
