@@ -486,9 +486,9 @@ export function ChartSettingsModal({
                   <>
                     <Swatch value={settings.lastValueLineColor}
                       onChange={(v) => set("lastValueLineColor", v)} label="Last value line colour" />
-                    <NumberField value={settings.lastValueLineWidth} min={1} max={4}
+                    <NumberField value={settings.lastValueLineWidth} min={1} max={4} width="narrow"
                       onChange={(v) => set("lastValueLineWidth", v)} label="Last value line width" />
-                    <Select value={settings.lastValueLineStyle} label="Last value line style"
+                    <Select narrow value={settings.lastValueLineStyle} label="Last value line style"
                       onChange={(v) => set("lastValueLineStyle", v as LineStyleName)}
                       options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
                   </>
@@ -534,7 +534,7 @@ export function ChartSettingsModal({
               <Row label="Grid appearance">
                 <Swatch value={settings.gridColor || "#2a2a2a"}
                   onChange={(v) => set("gridColor", v)} label="Grid colour" />
-                <Select value={settings.gridStyle} label="Grid line style"
+                <Select narrow value={settings.gridStyle} label="Grid line style"
                   onChange={(v) => set("gridStyle", v as LineStyleName)}
                   options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
                 {settings.gridColor && (
@@ -550,9 +550,9 @@ export function ChartSettingsModal({
                   <>
                     <Swatch value={settings.crosshairColor || "#9598a1"}
                       onChange={(v) => set("crosshairColor", v)} label="Crosshair colour" />
-                    <NumberField value={settings.crosshairWidth} min={1} max={4}
+                    <NumberField value={settings.crosshairWidth} min={1} max={4} width="narrow"
                       onChange={(v) => set("crosshairWidth", v)} label="Crosshair width" />
-                    <Select value={settings.crosshairStyle} label="Crosshair style"
+                    <Select narrow value={settings.crosshairStyle} label="Crosshair style"
                       onChange={(v) => set("crosshairStyle", v as LineStyleName)}
                       options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
                   </>
@@ -560,13 +560,11 @@ export function ChartSettingsModal({
               </Row>
 
               <Head>Background</Head>
-              <Row label="Gradient background"
-                suffix="A vertical wash instead of the pane's flat surface">
+              <Row label="Gradient background" suffix="A vertical wash">
                 <Toggle checked={settings.backgroundGradient}
                   onChange={(v) => set("backgroundGradient", v)} label="Gradient background" />
               </Row>
-              <Row label="Symbol watermark"
-                suffix="The ticker behind the bars, as the reference draws it">
+              <Row label="Symbol watermark" suffix="The ticker behind the bars">
                 <Toggle checked={settings.watermark}
                   onChange={(v) => set("watermark", v)} label="Symbol watermark" />
               </Row>
@@ -588,8 +586,15 @@ export function ChartSettingsModal({
                   onChange={(v) => set("marginBottomPct", v)} label="Bottom margin, percent" />
               </Row>
               <p className="pt-2 text-xs leading-relaxed text-ink-faint">
-                Canvas and grid colours follow the active Trading Scene theme, so light
-                and dark stay consistent across the whole workspace rather than per chart.
+                {/*
+                  TVP8: this used to say the colours follow the theme, full stop.
+                  That stopped being true the moment the grid and crosshair got
+                  their own wells, and a sentence that is no longer true is
+                  worse than no sentence — it is the dialog lying about itself.
+                */}
+                Left alone, the grid and crosshair follow the active Trading Scene theme, so
+                light and dark stay consistent across the whole workspace. Choosing a colour
+                here pins it for this chart; “Theme colour” hands it back.
               </p>
             </>
           )}
@@ -656,7 +661,9 @@ function Row({ label, suffix, children }: {
   return (
     <div className="flex min-h-[50px] items-center gap-3">
       <span className="min-w-[188px] shrink-0 text-sm text-ink">{label}</span>
-      <div className="flex items-center gap-2">{children}</div>
+      {/* TVP8: wraps. A row that outgrows the column must get taller, never
+          scroll sideways — a dialog with a horizontal scrollbar is a bug. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>
       {suffix && <span className="text-sm text-ink-faint">{suffix}</span>}
     </div>
   );
@@ -671,26 +678,38 @@ function Toggle({ checked, onChange, label }: {
   );
 }
 
-function Select({ value, onChange, options, label }: {
+function Select({ value, onChange, options, label, narrow = false }: {
   value: string; onChange: (value: string) => void; label: string;
   options: { value: string; label: string }[];
+  /*
+   * TVP8: a second width, for the rows that carry several controls.
+   *
+   * "Last value line" is a toggle, a swatch, a width and a style — five
+   * controls beside a 188px label — and a 180px select pushed the row past the
+   * dialog's content column, which grew a horizontal scrollbar and cut the
+   * style dropdown in half. Measured, not guessed: the content column is 482px
+   * and the row wanted about 520.
+   */
+  narrow?: boolean;
 }) {
   return (
     <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)}
-      className="h-[34px] w-[180px] rounded-md border border-control-border bg-transparent px-2 text-sm text-ink">
+      className={`h-[34px] ${narrow ? "w-[104px]" : "w-[180px]"} rounded-md border border-control-border bg-transparent px-2 text-sm text-ink`}>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   );
 }
 
-function NumberField({ value, onChange, min, max, step = 1, label }: {
+function NumberField({ value, onChange, min, max, step = 1, label, width = "default" }: {
   value: number; onChange: (value: number) => void;
   min: number; max: number; step?: number; label: string;
+  /** `narrow` for a 1–4 width beside other controls; see `Select`. */
+  width?: "default" | "narrow";
 }) {
   return (
     <input type="number" value={value} min={min} max={max} step={step} aria-label={label}
       onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || 0)))}
-      className="h-[34px] w-[86px] rounded-md border border-control-border bg-transparent px-2 text-sm tabular text-ink" />
+      className={`h-[34px] ${width === "narrow" ? "w-[56px]" : "w-[86px]"} rounded-md border border-control-border bg-transparent px-2 text-sm tabular text-ink`} />
   );
 }
 

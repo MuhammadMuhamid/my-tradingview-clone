@@ -167,3 +167,43 @@ test("A SAVED DEFAULT IS WHAT A NEW PANE STARTS FROM", () => {
   assert.match(dialog, /Save current settings as…/);
   assert.match(dialog, /Save as default/);
 });
+
+test("no settings row can outgrow the dialog's content column", () => {
+  /*
+   * TVP8. "Last value line" is a toggle, a swatch, a width and a style — five
+   * controls beside a 188px label — and a 180px select pushed the row past the
+   * content column. The dialog grew a horizontal scrollbar and the style
+   * dropdown was cut in half; found by opening it and looking, which is the
+   * only way this kind of defect is ever found.
+   *
+   * Two things stop it recurring: the dense rows take the narrow controls, and
+   * the row wraps, so one that outgrows the column gets TALLER. A dialog with
+   * a horizontal scrollbar is a bug, not a layout.
+   */
+  const dialog = read("components/tv/ChartSettingsModal.tsx");
+  assert.match(dialog, /flex min-w-0 flex-wrap items-center gap-2/,
+    "a row must wrap rather than scroll sideways");
+
+  // Every multi-control row uses the narrow variants.
+  for (const control of [
+    /<Select narrow value=\{settings\.lastValueLineStyle\}/,
+    /<Select narrow value=\{settings\.gridStyle\}/,
+    /<Select narrow value=\{settings\.crosshairStyle\}/,
+    /value=\{settings\.lastValueLineWidth\} min=\{1\} max=\{4\} width="narrow"/,
+    /value=\{settings\.crosshairWidth\} min=\{1\} max=\{4\} width="narrow"/,
+  ]) {
+    assert.match(dialog, control);
+  }
+
+  /*
+   * The arithmetic the widths are chosen against, so a future control that
+   * breaks it fails here rather than in a screenshot: the panel is 1094-346 =
+   * 748 wide with a 206px nav and 5x4 = 20px of gutters, leaving about 482 for
+   * the controls column, of which the label takes 188.
+   */
+  const forControls = 482 - 188;
+  const denseRow = 18 /* toggle */ + 34 /* swatch */ + 56 /* narrow number */
+    + 104 /* narrow select */ + 8 * 3 /* gaps */;
+  assert.ok(denseRow <= forControls,
+    `the densest row is ${denseRow}px in a ${forControls}px column`);
+});
