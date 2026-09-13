@@ -82,6 +82,18 @@ export interface NativeStudiesApi {
   overlays: ChartOverlay[];
   decorations: ChartDecoration[];
   add: (defId: string, params?: NativeParams) => string | null;
+  /**
+   * A second copy of one study, with its tuning and its styling.
+   *
+   * TVP8: the reference has Duplicate on every study's legend menu, and this
+   * had no route to two of anything — an RSI(14) beside an RSI(50), or two
+   * Bollingers at different multipliers, meant adding the second from the
+   * browser and retyping every input. `add(defId, params)` already existed;
+   * what was missing was carrying the STYLES across, which is most of what a
+   * duplicate is for: the copy has to be visually distinguishable from the
+   * original, and it starts identical so the user can change one thing.
+   */
+  duplicate: (key: string) => string | null;
   remove: (key: string) => void;
   clear: () => void;
   toggleVisible: (key: string) => void;
@@ -399,6 +411,33 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
     return study.key;
   }, []);
 
+  const duplicate = useCallback((key: string): string | null => {
+    let created: string | null = null;
+    setList((current) => {
+      const index = current.findIndex((s) => s.key === key);
+      const source = current[index];
+      if (!source) return current;
+      const def = studyById(source.defId);
+      if (!def) return current;
+      created = newStudyKey();
+      const copy = {
+        ...source,
+        key: created,
+        // Params and styles are copied BY VALUE: sharing either object would
+        // make retuning the copy retune the original, which is the one thing
+        // a duplicate must never do.
+        params: { ...source.params },
+        styles: Object.fromEntries(
+          Object.entries(source.styles).map(([plot, style]) => [plot, { ...style }])),
+        visible: true,
+      };
+      // Immediately after the study it came from, not at the end of the list:
+      // that is where the reference puts it and where the eye expects it.
+      return [...current.slice(0, index + 1), copy, ...current.slice(index + 1)];
+    });
+    return created;
+  }, []);
+
   const remove = useCallback((key: string) => {
     cache.current.forget(key);
     setList((current) => current.filter((s) => s.key !== key));
@@ -467,9 +506,9 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
 
   return useMemo(() => ({
     list, rows, overlays, decorations,
-    add, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
+    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
     sourceOptions, issues: graph.issues,
   }), [list, rows, overlays, decorations,
-    add, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
+    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
     sourceOptions, graph.issues]);
 }

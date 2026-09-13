@@ -45,6 +45,7 @@ const applied = (over: Partial<AppliedIndicator> = {}): AppliedIndicator => ({
 const template = (over: Partial<IndicatorTemplate> = {}): IndicatorTemplate => ({
   name: "Scalping", createdAt: "2026-09-03T00:00:00.000Z",
   indicators: [{ scriptId: "s1", name: "RSI", source: "src", params: { length: 14 }, visible: true }],
+  studies: [],
   ...over,
 });
 
@@ -177,7 +178,9 @@ test("a template holds study configuration and nothing about the workspace", () 
   // a saved layout owns those, and a second half-restoring thing would be a trap.
   const keys = Object.keys(t.indicators[0]!).sort();
   assert.deepEqual(keys, ["name", "params", "scriptId", "source", "visible"]);
-  assert.deepEqual(Object.keys(t).sort(), ["createdAt", "indicators", "name"]);
+  // TVP8: `studies` joins them — the 57 built-ins, which templates used to
+  // drop silently while the ledger recorded "Indicator templates … MATCH".
+  assert.deepEqual(Object.keys(t).sort(), ["createdAt", "indicators", "name", "studies"]);
 });
 
 test("run output is never captured into a template", () => {
@@ -329,4 +332,77 @@ test("applying a template restores a study that was saved hidden", () => {
   const source = read(BROWSER);
   // `add` always starts a study visible, so a hidden one has to be toggled back.
   assert.match(source, /if \(!row\.visible\) indicators\.toggleVisible\(key\)/);
+});
+
+// ── TVP8 ───────────────────────────────────────────────────────────────────
+
+test("A TEMPLATE HOLDS THE BUILT-IN STUDIES TOO, NOT ONLY THE PINE ONES", () => {
+  /*
+   * Templates held Pine studies only and silently dropped all 57 built-ins.
+   * Saving one from a chart carrying RSI, MACD and Bollinger Bands produced
+   * NOTHING — `saveTemplate` refused, because the Pine list was empty — and a
+   * chart with one Pine study and three built-ins produced a template that
+   * promised four studies and restored one.
+   *
+   * `docs/TRADINGVIEW_CHART_PARITY_LEDGER.md` recorded "Indicator templates …
+   * MATCH", which is what made it worth looking at.
+   */
+  const t = templateFromIndicators("Momentum", [], new Date("2026-09-13T00:00:00Z"), [
+    { defId: "rsi", params: { length: 50 }, visible: true, styles: { rsi: { color: "#ff0000", width: 3 } } },
+    { defId: "macd", params: { fast: 14, slow: 21, signal: 7 }, visible: false, styles: {} },
+  ]);
+  assert.equal(t.studies.length, 2);
+  assert.deepEqual(t.studies[0], {
+    defId: "rsi", params: { length: 50 }, visible: true,
+    styles: { rsi: { color: "#ff0000", width: 3 } },
+  });
+  assert.equal(t.studies[1]!.visible, false, "a hidden study restores hidden");
+
+  // Styles are part of it: a template restores how the chart LOOKED, and a
+  // template that put an RSI back in the default colour after the user had
+  // recoloured it is a template that lost half its point.
+  assert.deepEqual(t.studies[0]!.styles.rsi, { color: "#ff0000", width: 3 });
+
+  // Round trip, through the parser that every read goes through.
+  const back = parseTemplates(serializeTemplates([t]));
+  assert.deepEqual(back[0]!.studies, t.studies);
+
+  // And a template written before this existed still reads, with no studies.
+  const legacy = parseTemplates(JSON.stringify([{
+    name: "Old", createdAt: "", indicators: [
+      { scriptId: "s1", name: "X", source: "//", params: {}, visible: true },
+    ],
+  }]));
+  assert.equal(legacy.length, 1);
+  assert.deepEqual(legacy[0]!.studies, []);
+
+  // A template of ONLY built-ins is valid — that is the common case and the
+  // one that used to be refused.
+  const nativeOnly = parseTemplates(JSON.stringify([{
+    name: "Built-ins", createdAt: "", indicators: [],
+    studies: [{ defId: "rsi", params: { length: 14 }, visible: true, styles: {} }],
+  }]));
+  assert.equal(nativeOnly.length, 1);
+  assert.equal(nativeOnly[0]!.studies.length, 1);
+
+  // A malformed study row is dropped, not repaired into something plausible.
+  const bad = parseTemplates(JSON.stringify([{
+    name: "Bad", createdAt: "", indicators: [],
+    studies: [{ params: {} }, { defId: "", params: {} }, { defId: "rsi", params: {} }],
+  }]));
+  assert.equal(bad[0]!.studies.length, 1);
+  assert.equal(bad[0]!.studies[0]!.defId, "rsi");
+});
+
+test("THE BROWSER ACTUALLY SAVES AND RESTORES THE BUILT-INS", () => {
+  const browser = read(BROWSER)
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.match(browser, /templateFromIndicators\(name, applied, new Date\(\), nativeList\)/,
+    "saving must pass the built-ins, or the template is Pine-only again");
+  assert.match(browser, /applied\.length === 0 && nativeList\.length === 0/,
+    "a chart of built-ins alone must be saveable");
+  assert.match(browser, /for \(const study of template\.studies\)/,
+    "applying must restore them");
+  assert.match(browser, /props\.nativeStudies\?\.setStyle\(key, plot,/,
+    "and restore their styling");
 });

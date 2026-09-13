@@ -316,8 +316,18 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
 
   const saveTemplate = async (): Promise<void> => {
     const name = templateName.trim();
-    if (name.length === 0 || applied.length === 0) return;
-    const template = templateFromIndicators(name, applied);
+    /*
+     * TVP8: built-in studies count.
+     *
+     * A template used to hold Pine studies only and silently drop all 57
+     * built-ins, so saving one from a chart carrying RSI, MACD and Bollinger
+     * Bands produced nothing at all — the guard below refused, because
+     * `applied` was empty. Both lists are the template now, and either one is
+     * enough to have something worth saving.
+     */
+    const nativeList = props.nativeStudies?.list ?? [];
+    if (name.length === 0 || (applied.length === 0 && nativeList.length === 0)) return;
+    const template = templateFromIndicators(name, applied, new Date(), nativeList);
     let result = upsertTemplate(templates, template);
     if (!result.ok && result.reason === "exists") {
       // Overwriting a template the operator built earlier is a decision, not a
@@ -337,8 +347,8 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     }
     persistTemplates(result.list);
     setTemplateName("");
-    setStatus(`Saved template “${name}” — ${template.indicators.length} stud${
-      template.indicators.length === 1 ? "y" : "ies"}`);
+    const saved = template.indicators.length + template.studies.length;
+    setStatus(`Saved template “${name}” — ${saved} stud${saved === 1 ? "y" : "ies"}`);
   };
 
   /**
@@ -353,12 +363,22 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       const ok = await ask.confirm({
         title: `Replace the ${applied.length} stud${applied.length === 1 ? "y" : "ies"} on `
           + `${ticker} ${props.interval}?`,
-        body: `“${template.name}” has ${template.indicators.length}. `
+        body: `“${template.name}” has ${template.indicators.length + template.studies.length}. `
           + "The studies on the chart now are removed.",
         confirmLabel: "Replace", tone: "danger",
       });
       if (!ok) return;
       indicators.clear();
+      props.nativeStudies?.clear();
+    }
+    // TVP8: the built-ins, restored with their tuning AND their styling.
+    for (const study of template.studies) {
+      const key = props.nativeStudies?.add(study.defId, study.params);
+      if (!key) continue;
+      for (const [plot, style] of Object.entries(study.styles)) {
+        props.nativeStudies?.setStyle(key, plot, style as Record<string, never>);
+      }
+      if (!study.visible) props.nativeStudies?.toggleVisible(key);
     }
     for (const row of template.indicators) {
       const key = indicators.add({

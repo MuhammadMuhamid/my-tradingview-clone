@@ -59,7 +59,7 @@ export function IndicatorsPanel({
 
   const openStudyMenu = useCallback((
     event: React.MouseEvent, kind: "native" | "pine",
-    ctx: { key: string; name: string; visible: boolean; first: boolean; last: boolean; hasSource: boolean }
+    ctx: { key: string; name: string; visible: boolean; first: boolean; last: boolean; hasSource: boolean; canDuplicate: boolean }
   ) => {
     event.preventDefault();
     setStudyMenuAt({
@@ -69,6 +69,7 @@ export function IndicatorsPanel({
       key: ctx.key,
       entries: studyMenu({
         visible: ctx.visible, first: ctx.first, last: ctx.last, hasSource: ctx.hasSource,
+        canDuplicate: ctx.canDuplicate,
       }),
     });
   }, []);
@@ -88,6 +89,15 @@ export function IndicatorsPanel({
       case "study:toggle-visible":
         if (native) native.toggleVisible(open.key);
         else indicators.toggleVisible(open.key);
+        return;
+      case "study:duplicate":
+        /*
+         * TVP8: built-ins only. A Pine study's copy would need its script and
+         * its inputs cloned through a different API, and offering it here and
+         * doing nothing would be worse than the payload disabling it — which
+         * it does, by reporting a Pine study as having no native instance.
+         */
+        native?.duplicate(open.key);
         return;
       case "study:move-up":
         // Only built-ins carry an order; the payload disables this for a Pine
@@ -300,7 +310,7 @@ export function IndicatorsPanel({
               onContextMenu={(e) => openStudyMenu(e, "native", {
                 key: row.study.key, name: row.name, visible: row.study.visible,
                 first: index === 0, last: index === (nativeStudies?.rows.length ?? 1) - 1,
-                hasSource: false,
+                hasSource: false, canDuplicate: true,
               })}
             />
           ))}
@@ -317,7 +327,7 @@ export function IndicatorsPanel({
                 // A Pine study is not layered by this panel, so both move
                 // controls are off — reported as "first and last", which is
                 // the payload's own vocabulary for "there is nowhere to go".
-                first: true, last: true, hasSource: true,
+                first: true, last: true, hasSource: true, canDuplicate: false,
               })}
             />
           ))}

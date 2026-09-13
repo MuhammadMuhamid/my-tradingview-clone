@@ -226,10 +226,19 @@ export interface StudyMenuContext {
   last: boolean;
   /** Pine studies have source to open; built-ins do not. */
   hasSource: boolean;
+  /**
+   * A built-in, which is what can be duplicated.
+   *
+   * A Pine study's copy would need its script and its inputs cloned through a
+   * different API. Offering Duplicate and doing nothing would be worse than
+   * saying so, which is the same reasoning as `hasSource` above.
+   */
+  canDuplicate: boolean;
 }
 
 export const STUDY_MENU_IDS = [
-  "study:settings", "study:toggle-visible", "study:move-up", "study:move-down",
+  "study:settings", "study:toggle-visible", "study:duplicate",
+  "study:move-up", "study:move-down",
   "study:open-source", "study:remove",
 ] as const;
 export type StudyMenuId = (typeof STUDY_MENU_IDS)[number];
@@ -238,6 +247,17 @@ export function studyMenu(ctx: StudyMenuContext): MenuEntry[] {
   return [
     { id: "study:settings", label: "Settings…" },
     { id: "study:toggle-visible", label: "Visible", checked: ctx.visible },
+    /*
+     * TVP8: the reference has Duplicate on this menu and there was no route to
+     * two of anything — an RSI(14) beside an RSI(50) meant adding the second
+     * from the browser and retyping every input. The copy carries the tuning
+     * AND the styling, which is most of what a duplicate is for.
+     */
+    {
+      id: "study:duplicate", label: "Duplicate",
+      disabled: !ctx.canDuplicate,
+      disabledReason: "A Pine study is duplicated from the editor",
+    },
     { id: "sep-order", separator: true },
     {
       id: "study:move-up", label: "Move up",

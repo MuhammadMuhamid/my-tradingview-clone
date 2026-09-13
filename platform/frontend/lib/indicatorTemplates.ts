@@ -50,10 +50,33 @@ export interface TemplateIndicator {
   visible: boolean;
 }
 
+/**
+ * A BUILT-IN study in a template.
+ *
+ * TVP8: templates held Pine studies only, and silently dropped all 57
+ * built-ins. Saving a template from a chart carrying RSI, MACD and Bollinger
+ * Bands produced an empty template — or, once one Pine study was also applied,
+ * a template that promised the lot and restored one. `docs/…PARITY_LEDGER.md`
+ * recorded "Indicator templates … MATCH", which is what made it worth finding.
+ *
+ * `defId` rather than a script: a built-in is identified by which study it is,
+ * and an id this build does not know degrades to nothing rather than throwing,
+ * which is the same contract `AppliedNativeStudy` already has.
+ */
+export interface TemplateNativeStudy {
+  defId: string;
+  params: PineParams;
+  visible: boolean;
+  /** Per-plot style overrides, so a template restores how it LOOKED too. */
+  styles: Record<string, Record<string, Primitive>>;
+}
+
 export interface IndicatorTemplate {
   name: string;
   createdAt: string;
   indicators: TemplateIndicator[];
+  /** Built-in studies. Optional so a template written before TVP8 still reads. */
+  studies: TemplateNativeStudy[];
 }
 
 type Primitive = number | string | boolean;
@@ -101,17 +124,42 @@ function parseTemplate(raw: unknown): IndicatorTemplate | null {
   const indicators = row.indicators
     .map(parseIndicator)
     .filter((i): i is TemplateIndicator => i !== null);
+  const studies = Array.isArray(row.studies)
+    ? row.studies.map(parseNativeStudy).filter((x): x is TemplateNativeStudy => x !== null)
+    : [];
   /*
    * An empty template is dropped rather than kept. It is not a useful state —
    * applying it does nothing — and keeping it would let a template whose rows
    * were ALL malformed survive as a name that promises studies it cannot
    * deliver, which is exactly the failure this parser exists to prevent.
    */
-  if (indicators.length === 0) return null;
+  if (indicators.length === 0 && studies.length === 0) return null;
   return {
     name,
     createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
     indicators,
+    studies,
+  };
+}
+
+/** One built-in study row, or null when it is not well-formed. */
+function parseNativeStudy(raw: unknown): TemplateNativeStudy | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const defId = typeof row.defId === "string" ? row.defId.trim() : "";
+  if (defId.length === 0) return null;
+  const styles: Record<string, Record<string, Primitive>> = {};
+  if (row.styles && typeof row.styles === "object" && !Array.isArray(row.styles)) {
+    for (const [plot, value] of Object.entries(row.styles as Record<string, unknown>)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      styles[plot] = normalizeParams(value as Record<string, unknown>);
+    }
+  }
+  return {
+    defId,
+    params: normalizeParams(row.params),
+    visible: row.visible !== false,
+    styles,
   };
 }
 
@@ -154,6 +202,17 @@ export function serializeTemplates(list: readonly IndicatorTemplate[]): string {
       params: normalizeParams(i.params),
       visible: i.visible,
     })),
+    // TVP8: the built-ins. Written in the same fixed key order as everything
+    // else here, because "the same input gives the same bytes" is what this
+    // function's name promises and a round-trip test depends on.
+    studies: t.studies.map((study) => ({
+      defId: study.defId,
+      params: normalizeParams(study.params),
+      visible: study.visible,
+      styles: Object.fromEntries(
+        Object.keys(study.styles).sort()
+          .map((plot) => [plot, normalizeParams(study.styles[plot] ?? {})])),
+    })),
   })));
 }
 
@@ -161,7 +220,11 @@ export function serializeTemplates(list: readonly IndicatorTemplate[]): string {
 export function templateFromIndicators(
   name: string,
   list: readonly AppliedIndicator[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  studies: readonly {
+    defId: string; params: Record<string, unknown>; visible: boolean;
+    styles: Readonly<Record<string, object>>;
+  }[] = [],
 ): IndicatorTemplate {
   return {
     name: name.trim(),
@@ -172,6 +235,14 @@ export function templateFromIndicators(
       source: i.source,
       params: normalizeParams(i.params),
       visible: i.visible,
+    })),
+    studies: studies.map((s) => ({
+      defId: s.defId,
+      params: normalizeParams(s.params),
+      visible: s.visible,
+      styles: Object.fromEntries(
+        Object.entries(s.styles).map(
+          ([plot, style]) => [plot, normalizeParams(style as Record<string, unknown>)])),
     })),
   };
 }

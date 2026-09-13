@@ -283,7 +283,9 @@ test("only a level can carry a price alert, and not during Replay", () => {
 });
 
 test("a built-in study has no source to open, and says so", () => {
-  const builtin = studyMenu({ visible: true, first: true, last: false, hasSource: false });
+  const builtin = studyMenu({
+    visible: true, first: true, last: false, hasSource: false, canDuplicate: true,
+  });
   const open = byId(builtin, "study:open-source")!;
   assert.equal((open as { disabled?: boolean }).disabled, true);
   assert.match((open as { disabledReason?: string }).disabledReason ?? "", /built-in/i);
@@ -291,9 +293,25 @@ test("a built-in study has no source to open, and says so", () => {
     "the first study has nothing above it");
   assert.notEqual((byId(builtin, "study:move-down") as { disabled?: boolean }).disabled, true);
 
-  const pine = studyMenu({ visible: false, first: false, last: true, hasSource: true });
+  const pine = studyMenu({
+    visible: false, first: false, last: true, hasSource: true, canDuplicate: false,
+  });
   assert.notEqual((byId(pine, "study:open-source") as { disabled?: boolean }).disabled, true);
   assert.equal((byId(pine, "study:toggle-visible") as { checked?: boolean }).checked, false);
+
+  /*
+   * TVP8: Duplicate, which the reference has on this menu and which there was
+   * no route to at all — an RSI(14) beside an RSI(50) meant adding the second
+   * from the browser and retyping every input.
+   *
+   * A built-in can be copied; a Pine study's copy would need its script and
+   * inputs cloned through a different API, so it says so rather than doing
+   * nothing, which is the same bargain `hasSource` makes one row down.
+   */
+  assert.notEqual((byId(builtin, "study:duplicate") as { disabled?: boolean }).disabled, true);
+  assert.equal((byId(pine, "study:duplicate") as { disabled?: boolean }).disabled, true);
+  assert.match((byId(pine, "study:duplicate") as { disabledReason?: string }).disabledReason ?? "",
+    /editor/i);
 });
 
 test("the price axis and watchlist menus state their own preconditions", () => {
