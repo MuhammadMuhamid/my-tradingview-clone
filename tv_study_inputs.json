@@ -1,0 +1,690 @@
+{
+  "ldK0OR": {
+    "text": {
+      "name": "ILScript"
+    },
+    "pineId": {
+      "name": "pineId"
+    },
+    "pineVersion": {
+      "name": "pineVersion"
+    },
+    "pineFeatures": {
+      "name": "pineFeatures"
+    },
+    "in_0": {
+      "name": "Confirm HTF values on close"
+    },
+    "in_1": {
+      "name": "If a module timeframe is below the chart timeframe"
+    },
+    "in_2": {
+      "name": "Show drawing-object debug table"
+    },
+    "in_3": {
+      "name": "Show"
+    },
+    "in_4": {
+      "name": "Enable RSI"
+    },
+    "in_5": {
+      "name": "Length"
+    },
+    "in_6": {
+      "name": "Source"
+    },
+    "in_7": {
+      "name": "Timeframe"
+    },
+    "in_8": {
+      "name": "Colour"
+    },
+    "in_9": {
+      "name": "Show 70 / 50 / 30 bands"
+    },
+    "in_10": {
+      "name": "Smoothing MA"
+    },
+    "in_11": {
+      "name": "MA length"
+    },
+    "in_12": {
+      "name": "BB StdDev"
+    },
+    "in_13": {
+      "name": "Enable ADX"
+    },
+    "in_14": {
+      "name": "ADX smoothing"
+    },
+    "in_15": {
+      "name": "DI length"
+    },
+    "in_16": {
+      "name": "Timeframe"
+    },
+    "in_17": {
+      "name": "ADX"
+    },
+    "in_18": {
+      "name": "+DI"
+    },
+    "in_19": {
+      "name": "-DI"
+    },
+    "in_20": {
+      "name": "Show +DI / -DI"
+    },
+    "in_21": {
+      "name": "Enable VFI"
+    },
+    "in_22": {
+      "name": "VFI length"
+    },
+    "in_23": {
+      "name": "Timeframe"
+    },
+    "in_24": {
+      "name": "Cutoff coefficient"
+    },
+    "in_25": {
+      "name": "Max volume cutoff"
+    },
+    "in_26": {
+      "name": "Signal length"
+    },
+    "in_27": {
+      "name": "Smooth VFI"
+    },
+    "in_28": {
+      "name": "Show VFI - signal histogram"
+    },
+    "in_29": {
+      "name": "VFI"
+    },
+    "in_30": {
+      "name": "Signal"
+    },
+    "in_31": {
+      "name": "Normalise to 0-100"
+    },
+    "in_32": {
+      "name": "Normalisation window (bars)"
+    },
+    "in_33": {
+      "name": "Enable MACD"
+    },
+    "in_34": {
+      "name": "Source"
+    },
+    "in_35": {
+      "name": "Timeframe"
+    },
+    "in_36": {
+      "name": "Fast length"
+    },
+    "in_37": {
+      "name": "Slow length"
+    },
+    "in_38": {
+      "name": "Signal length"
+    },
+    "in_39": {
+      "name": "Oscillator MA type"
+    },
+    "in_40": {
+      "name": "Signal MA type"
+    },
+    "in_41": {
+      "name": "MACD"
+    },
+    "in_42": {
+      "name": "Signal"
+    },
+    "in_43": {
+      "name": "Show histogram"
+    },
+    "in_44": {
+      "name": "Normalise to 0-100"
+    },
+    "in_45": {
+      "name": "Normalisation window (bars)"
+    },
+    "in_46": {
+      "name": "Alert on histogram flips"
+    },
+    "__fast_calc": {
+      "name": "Fast calculation"
+    },
+    "__profile": {
+      "name": ""
+    }
+  },
+  "HIT8xM": {
+    "text": {
+      "name": "ILScript"
+    },
+    "pineId": {
+      "name": "pineId"
+    },
+    "pineVersion": {
+      "name": "pineVersion"
+    },
+    "pineFeatures": {
+      "name": "pineFeatures"
+    },
+    "in_0": {
+      "name": "Confirm HTF values on close"
+    },
+    "in_1": {
+      "name": "If a module timeframe is below the chart timeframe"
+    },
+    "in_2": {
+      "name": "Show drawing-object debug table"
+    },
+    "in_3": {
+      "name": "Enable moving averages"
+    },
+    "in_4": {
+      "name": "SMA 1"
+    },
+    "in_5": {
+      "name": ""
+    },
+    "in_6": {
+      "name": ""
+    },
+    "in_7": {
+      "name": ""
+    },
+    "in_8": {
+      "name": ""
+    },
+    "in_9": {
+      "name": ""
+    },
+    "in_10": {
+      "name": ""
+    },
+    "in_11": {
+      "name": "SMA 2"
+    },
+    "in_12": {
+      "name": ""
+    },
+    "in_13": {
+      "name": ""
+    },
+    "in_14": {
+      "name": ""
+    },
+    "in_15": {
+      "name": ""
+    },
+    "in_16": {
+      "name": ""
+    },
+    "in_17": {
+      "name": ""
+    },
+    "in_18": {
+      "name": "SMA 3"
+    },
+    "in_19": {
+      "name": ""
+    },
+    "in_20": {
+      "name": ""
+    },
+    "in_21": {
+      "name": ""
+    },
+    "in_22": {
+      "name": ""
+    },
+    "in_23": {
+      "name": ""
+    },
+    "in_24": {
+      "name": ""
+    },
+    "in_25": {
+      "name": "SMA 4"
+    },
+    "in_26": {
+      "name": ""
+    },
+    "in_27": {
+      "name": ""
+    },
+    "in_28": {
+      "name": ""
+    },
+    "in_29": {
+      "name": ""
+    },
+    "in_30": {
+      "name": ""
+    },
+    "in_31": {
+      "name": ""
+    },
+    "in_32": {
+      "name": "EMA 1"
+    },
+    "in_33": {
+      "name": ""
+    },
+    "in_34": {
+      "name": ""
+    },
+    "in_35": {
+      "name": ""
+    },
+    "in_36": {
+      "name": ""
+    },
+    "in_37": {
+      "name": ""
+    },
+    "in_38": {
+      "name": ""
+    },
+    "in_39": {
+      "name": "EMA 2"
+    },
+    "in_40": {
+      "name": ""
+    },
+    "in_41": {
+      "name": ""
+    },
+    "in_42": {
+      "name": ""
+    },
+    "in_43": {
+      "name": ""
+    },
+    "in_44": {
+      "name": ""
+    },
+    "in_45": {
+      "name": ""
+    },
+    "in_46": {
+      "name": "EMA 3"
+    },
+    "in_47": {
+      "name": ""
+    },
+    "in_48": {
+      "name": ""
+    },
+    "in_49": {
+      "name": ""
+    },
+    "in_50": {
+      "name": ""
+    },
+    "in_51": {
+      "name": ""
+    },
+    "in_52": {
+      "name": ""
+    },
+    "in_53": {
+      "name": "EMA 4"
+    },
+    "in_54": {
+      "name": ""
+    },
+    "in_55": {
+      "name": ""
+    },
+    "in_56": {
+      "name": ""
+    },
+    "in_57": {
+      "name": ""
+    },
+    "in_58": {
+      "name": ""
+    },
+    "in_59": {
+      "name": ""
+    },
+    "in_60": {
+      "name": "Enable Supertrend"
+    },
+    "in_61": {
+      "name": "ST 1"
+    },
+    "in_62": {
+      "name": ""
+    },
+    "in_63": {
+      "name": ""
+    },
+    "in_64": {
+      "name": ""
+    },
+    "in_65": {
+      "name": ""
+    },
+    "in_66": {
+      "name": ""
+    },
+    "in_67": {
+      "name": "ST 2"
+    },
+    "in_68": {
+      "name": ""
+    },
+    "in_69": {
+      "name": ""
+    },
+    "in_70": {
+      "name": ""
+    },
+    "in_71": {
+      "name": ""
+    },
+    "in_72": {
+      "name": ""
+    },
+    "in_73": {
+      "name": "ST 3"
+    },
+    "in_74": {
+      "name": ""
+    },
+    "in_75": {
+      "name": ""
+    },
+    "in_76": {
+      "name": ""
+    },
+    "in_77": {
+      "name": ""
+    },
+    "in_78": {
+      "name": ""
+    },
+    "in_79": {
+      "name": "Source"
+    },
+    "in_80": {
+      "name": "Use ta.atr (off = SMA of true range)"
+    },
+    "in_81": {
+      "name": "Show flip markers"
+    },
+    "in_82": {
+      "name": "Highlight trend fill (ST 1 only)"
+    },
+    "in_83": {
+      "name": "Enable VWAP"
+    },
+    "in_84": {
+      "name": "Anchor period"
+    },
+    "in_85": {
+      "name": "Source"
+    },
+    "in_86": {
+      "name": "Timeframe"
+    },
+    "in_87": {
+      "name": "Offset"
+    },
+    "in_88": {
+      "name": "Hide VWAP on 1D or above"
+    },
+    "in_89": {
+      "name": "VWAP colour"
+    },
+    "in_90": {
+      "name": "Bands calculation mode"
+    },
+    "in_91": {
+      "name": "Band"
+    },
+    "in_92": {
+      "name": ""
+    },
+    "in_93": {
+      "name": ""
+    },
+    "in_94": {
+      "name": "Enable pivot points"
+    },
+    "in_95": {
+      "name": "Type"
+    },
+    "in_96": {
+      "name": "Pivots timeframe"
+    },
+    "in_97": {
+      "name": "Max pivot sets"
+    },
+    "in_98": {
+      "name": "Show level names"
+    },
+    "in_99": {
+      "name": "Show prices"
+    },
+    "in_100": {
+      "name": "Line width"
+    },
+    "in_101": {
+      "name": "Colour"
+    },
+    "in_102": {
+      "name": "Enable support & resistance"
+    },
+    "in_103": {
+      "name": "Pivot length"
+    },
+    "in_104": {
+      "name": "Strength"
+    },
+    "in_105": {
+      "name": "Invalidation"
+    },
+    "in_106": {
+      "name": "Expand lines & zones"
+    },
+    "in_107": {
+      "name": "Show invalidated"
+    },
+    "in_108": {
+      "name": "Max zones"
+    },
+    "in_109": {
+      "name": "Max retest labels per zone"
+    },
+    "in_110": {
+      "name": "TF 1"
+    },
+    "in_111": {
+      "name": ""
+    },
+    "in_112": {
+      "name": "TF 2"
+    },
+    "in_113": {
+      "name": ""
+    },
+    "in_114": {
+      "name": "TF 3"
+    },
+    "in_115": {
+      "name": ""
+    },
+    "in_116": {
+      "name": "Show breaks"
+    },
+    "in_117": {
+      "name": "Show retests"
+    },
+    "in_118": {
+      "name": "Avoid false breaks"
+    },
+    "in_119": {
+      "name": "Break volume threshold"
+    },
+    "in_120": {
+      "name": "Inverse colour after broken"
+    },
+    "in_121": {
+      "name": "Style"
+    },
+    "in_122": {
+      "name": "Line style"
+    },
+    "in_123": {
+      "name": "Line width"
+    },
+    "in_124": {
+      "name": "Zone width"
+    },
+    "in_125": {
+      "name": "Support"
+    },
+    "in_126": {
+      "name": "Resistance"
+    },
+    "in_127": {
+      "name": "Break"
+    },
+    "in_128": {
+      "name": "Text"
+    },
+    "in_129": {
+      "name": "Retest alerts"
+    },
+    "in_130": {
+      "name": "Break alerts"
+    },
+    "in_131": {
+      "name": "Enable Bollinger bands"
+    },
+    "in_132": {
+      "name": "Length"
+    },
+    "in_133": {
+      "name": "StdDev"
+    },
+    "in_134": {
+      "name": "Source"
+    },
+    "in_135": {
+      "name": "Timeframe"
+    },
+    "in_136": {
+      "name": "Basis"
+    },
+    "in_137": {
+      "name": "Upper"
+    },
+    "in_138": {
+      "name": "Lower"
+    },
+    "in_139": {
+      "name": "Background fill"
+    },
+    "in_140": {
+      "name": "Enable trendlines"
+    },
+    "in_141": {
+      "name": "Pivot lookback"
+    },
+    "in_142": {
+      "name": "Use wicks (off = candle bodies)"
+    },
+    "in_143": {
+      "name": "Only falling-high and rising-low lines"
+    },
+    "in_144": {
+      "name": "Extend to the right"
+    },
+    "in_145": {
+      "name": "Max lines per timeframe"
+    },
+    "in_146": {
+      "name": "Rising lows"
+    },
+    "in_147": {
+      "name": "Falling highs"
+    },
+    "in_148": {
+      "name": "TF 1"
+    },
+    "in_149": {
+      "name": ""
+    },
+    "in_150": {
+      "name": "TF 2"
+    },
+    "in_151": {
+      "name": ""
+    },
+    "in_152": {
+      "name": "TF 3"
+    },
+    "in_153": {
+      "name": ""
+    },
+    "in_154": {
+      "name": "Enable auto fib"
+    },
+    "in_155": {
+      "name": "Deviation"
+    },
+    "in_156": {
+      "name": "Depth"
+    },
+    "in_157": {
+      "name": "Timeframe"
+    },
+    "in_158": {
+      "name": "Reverse"
+    },
+    "in_159": {
+      "name": "Extend left"
+    },
+    "in_160": {
+      "name": "Extend right"
+    },
+    "in_161": {
+      "name": "Show levels"
+    },
+    "in_162": {
+      "name": ""
+    },
+    "in_163": {
+      "name": "Show prices"
+    },
+    "in_164": {
+      "name": "Labels position"
+    },
+    "in_165": {
+      "name": "Show the zigzag leg"
+    },
+    "in_166": {
+      "name": "Fill between levels"
+    },
+    "in_167": {
+      "name": "Fill transparency"
+    },
+    "in_168": {
+      "name": "Alert on level crossings"
+    },
+    "__fast_calc": {
+      "name": "Fast calculation"
+    },
+    "__profile": {
+      "name": ""
+    }
+  }
+}
