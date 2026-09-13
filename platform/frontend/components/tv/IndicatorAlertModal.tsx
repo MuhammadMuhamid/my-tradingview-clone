@@ -5,6 +5,7 @@ import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
   AlertFiltersField, emptyFilters, filterRequest, type AlertFilterState,
 } from "@/components/tv/AlertFiltersField";
@@ -107,6 +108,7 @@ export function IndicatorAlertModal({
 
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
+  const [armed, setArmed] = useState(true);
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
@@ -203,6 +205,7 @@ export function IndicatorAlertModal({
                     : { stPeriod, stMultiplier, stAtrMethod }),
           ...filterRequest(filters),
           note: note.trim() || null,
+          enabled: armed,
         });
       }
       onSaved(
@@ -531,6 +534,8 @@ export function IndicatorAlertModal({
         <div className="my-1 border-t border-border" />
 
         <AlertNoteField value={note} onChange={setNote} />
+
+        <AlertArmedField value={armed} onChange={setArmed} />
 
         <FrequencyField
           value={frequency}

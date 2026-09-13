@@ -550,3 +550,39 @@ test("the history bound is the server's own number", () => {
   assert.equal(Number(match![1]), ALERT_HISTORY_BARS,
     "the dialog would name a limit the runner does not have");
 });
+
+test("ALERTS — every create dialog can arm, and every control reaches the request", () => {
+  /*
+   * The edit dialog has always had "Armed"; none of the five create dialogs
+   * did, so every alert was born live. Setting one up in advance meant
+   * creating it armed and then finding it in the panel to pause it, with
+   * whatever it fired in between already sent.
+   *
+   * This asserts the two halves that make it real rather than decorative: the
+   * field is present, and its value reaches `createMaAlert`. A checkbox that
+   * does not reach the request is the defect this campaign keeps finding.
+   */
+  const dialogs = [
+    "components/tv/PriceAlertModal.tsx",
+    "components/tv/LevelAlertModal.tsx",
+    "components/tv/MaAlertModal.tsx",
+    "components/tv/IndicatorAlertModal.tsx",
+  ];
+  for (const file of dialogs) {
+    const src = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
+    assert.match(src, /<AlertArmedField value=\{armed\} onChange=\{setArmed\} \/>/, `${file}: no armed field`);
+    assert.match(src, /enabled: armed,/, `${file}: the armed state never reaches the request`);
+  }
+
+  // The server side of that, so the control is over something real.
+  const route = fs.readFileSync(
+    path.join(__dirname, "..", "..", "backend", "src", "api", "routes", "maAlerts.ts"), "utf8");
+  assert.match(route, /enabled: b\.enabled === undefined \? true : Boolean\(b\.enabled\)/,
+    "the create route must read `enabled` from the body, or the checkbox is a lie");
+
+  // Price alerts were the one family with no cooldown at all — and the family
+  // most likely to sit on a level that price chops through.
+  const price = fs.readFileSync(path.join(__dirname, "..", "components/tv/PriceAlertModal.tsx"), "utf8");
+  assert.match(price, /Cooldown/, "the price dialog offers a cooldown");
+  assert.match(price, /frequency, cooldownMin,/, "and sends it");
+});

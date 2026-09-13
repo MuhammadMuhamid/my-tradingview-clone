@@ -1475,6 +1475,8 @@ export const api = {
     frequency?: AlertFrequency;
     nearMinPct?: number; nearMaxPct?: number;
     cooldownMin?: number; note?: string | null;
+    /* The route defaults this to true; sending false creates a paused alert. */
+    enabled?: boolean;
   }) => req<MaAlert>("/api/ma-alerts", { method: "POST", body: JSON.stringify(body) }),
   createPatternAlert: (body: {
     symbol: string; timeframe: Interval; patternId: string;

@@ -5,6 +5,7 @@ import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
   AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
   type AlertFilterState,
@@ -73,6 +74,8 @@ export function PriceAlertModal({
   const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
+  const [armed, setArmed] = useState(true);
+  const [cooldownMin, setCooldownMin] = useState(60);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -122,9 +125,10 @@ export function PriceAlertModal({
     try {
       const row = await api.createMaAlert({
         symbol, timeframe, conditionKind: "price",
-        targetPrice: target, priceDirection: direction, frequency,
+        targetPrice: target, priceDirection: direction, frequency, cooldownMin,
         ...filterRequest(filters),
         note: note.trim() || null,
+        enabled: armed,
       });
       onSaved(`${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} · ${describeAlert(row)}`);
       onClose();
@@ -246,8 +250,26 @@ export function PriceAlertModal({
         <div className="my-1 border-t border-border" />
         <AlertNoteField value={note} onChange={setNote} />
 
+        <AlertArmedField value={armed} onChange={setArmed} />
+
         <div className="my-1 border-t border-border" />
         <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} />
+
+        {/*
+          Cooldown, which this dialog alone did not offer.
+          Level, MA and indicator alerts have all had it; a price alert is the
+          one most likely to sit on a level that price chops through, so the
+          family that needed it most was the family without it. The server has
+          always accepted `cooldownMin` on creation.
+        */}
+        <Row label="Cooldown">
+          <div className="flex items-center gap-2">
+            <input type="number" min="0" step="5" value={cooldownMin}
+              aria-label="Cooldown in minutes"
+              onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))} className={box} />
+            <span className="whitespace-nowrap text-sm text-ink-muted">minutes</span>
+          </div>
+        </Row>
 
         {match && (
           <p className="text-xs text-accent">

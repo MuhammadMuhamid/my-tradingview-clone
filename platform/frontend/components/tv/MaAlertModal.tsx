@@ -5,6 +5,7 @@ import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
   AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
   type AlertFilterState,
@@ -68,6 +69,7 @@ export function MaAlertModal({
   const [frequency, setFrequency] = useState<AlertFrequency>(DEFAULT_ALERT_FREQUENCY);
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
+  const [armed, setArmed] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -113,6 +115,7 @@ export function MaAlertModal({
         nearMinPct, nearMaxPct, cooldownMin, frequency,
         ...filterRequest(filters),
         note: note.trim() || null,
+        enabled: armed,
       });
       onSaved(
         `${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} ${label} · ${MODE_LABELS[mode].toLowerCase()}`
@@ -218,6 +221,8 @@ export function MaAlertModal({
 
         <div className="my-1 border-t border-border" />
         <AlertNoteField value={note} onChange={setNote} />
+
+        <AlertArmedField value={armed} onChange={setArmed} />
 
         <div className="my-1 border-t border-border" />
         <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} />
