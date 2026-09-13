@@ -31,6 +31,7 @@ import { ChartWorkspace } from "@/components/tv/ChartWorkspace";
 import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
 import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel";
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
+import { GoToDateModal } from "@/components/tv/GoToDateModal";
 import { NativeStudySettings } from "@/components/tv/NativeStudySettings";
 import { ChartSettingsModal } from "@/components/tv/ChartSettingsModal";
 import { DrawingSettingsModal } from "@/components/tv/DrawingSettingsModal";
@@ -58,7 +59,7 @@ import { drawingStore } from "@/lib/drawingStore";
 import { cloneDrawing } from "@/lib/drawingHistory";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import type { MenuEntry } from "@/lib/contextMenu";
-import { chartMenu, drawingMenu, priceAxisMenu } from "@/lib/menuPayloads";
+import { chartMenu, drawingMenu, priceAxisMenu, timeAxisMenu } from "@/lib/menuPayloads";
 import { useShortcuts } from "@/lib/useShortcuts";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
@@ -404,6 +405,14 @@ export default function TvWorkspace() {
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
+  /*
+   * TVP8: "Go to…" on the time axis.
+   *
+   * `goTo` is a counter alongside the time, so asking for the same date twice
+   * still scrolls back to it — the pane compares the counter, not the moment.
+   */
+  const [goToOpen, setGoToOpen] = useState(false);
+  const [goTo, setGoTo] = useState<{ time: number; signal: number } | null>(null);
   const [drawingSettingsOpen, setDrawingSettingsOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
   /** Which pane the symbol dialog will retarget, or null when it is closed. */
@@ -1215,7 +1224,7 @@ export default function TvWorkspace() {
   const [menu, setMenu] = useState<
     | null
     | { at: { x: number; y: number }; label: string; entries: MenuEntry[];
-        kind: "chart" | "drawing" | "axis"; paneId: string; price: number | null;
+        kind: "chart" | "drawing" | "axis" | "time"; paneId: string; price: number | null;
         drawingId: string | null }
   >(null);
   /**
@@ -1302,14 +1311,26 @@ export default function TvWorkspace() {
     paneId: string,
     event: {
       x: number; y: number; drawingId: string | null; price: number | null;
-      /** Which strip was clicked: the plot, or the price axis. */
-      region: "plot" | "axis";
+      /** Which strip was clicked: the plot, the price axis, or the time axis. */
+      region: "plot" | "axis" | "time";
     }
   ) => {
     activatePane(paneId);
     const pane = paneById(workspace, paneId);
     const paneSymbol = pane?.symbol ?? symbol;
     const drawings = replayActive ? replayDrawings : drawingStore.get(paneSymbol);
+    if (event.region === "time") {
+      setMenu({
+        at: { x: event.x, y: event.y },
+        label: "Time scale",
+        kind: "time",
+        paneId,
+        price: null,
+        drawingId: null,
+        entries: timeAxisMenu(),
+      });
+      return;
+    }
     if (event.region === "axis") {
       // The price axis's own short menu. It used to show Chrome's instead:
       // the canvas returned before `preventDefault` for anything outside the
@@ -1420,7 +1441,10 @@ export default function TvWorkspace() {
       case "chart:toggle-classical-patterns":
         classicalOverlays[paneId]?.setEnabled(!classicalOverlays[paneId]?.enabled);
         return;
+      case "time:chart-settings": setChartSettingsOpen(true); return;
+      case "time:go-to": setGoToOpen(true); return;
       case "chart:reset-view":
+      case "time:reset-view":
       case "axis:reset":
         setPaneScale(paneId, resetPriceScale());
         setPaneResets((current) => ({ ...current, [paneId]: (current[paneId] ?? 0) + 1 }));
@@ -1640,6 +1664,7 @@ export default function TvWorkspace() {
         priceScale={paneScale(pane.id)}
         onPriceScaleChange={setPaneScale}
         resetSignal={paneResets[pane.id] ?? 0}
+        goTo={pane.id === workspace.activePaneId ? goTo : null}
         drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
         onCompareChange={changePaneCompare}
         comparePaneId={comparePaneId}
@@ -1662,7 +1687,7 @@ export default function TvWorkspace() {
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
-    paneScale, setPaneScale, paneResets, paneStyleFocus, changePaneCompare,
+    paneScale, setPaneScale, paneResets, goTo, paneStyleFocus, changePaneCompare,
     maAlerts, candleOverlays, classicalOverlays, resolutions]);
 
   return (
@@ -2014,6 +2039,19 @@ export default function TvWorkspace() {
         sourceOptions={(key) => activeNativeStudies?.sourceOptions(key) ?? []}
       />
 
+      {/*
+        TVP8: "Go to…", from the time-axis menu. The reference puts a date
+        picker on exactly this menu; the calendar is the same one Replay uses
+        to choose its starting bar.
+      */}
+      <GoToDateModal
+        open={goToOpen}
+        onClose={() => setGoToOpen(false)}
+        onGo={(time) => {
+          setGoTo((current) => ({ time, signal: (current?.signal ?? 0) + 1 }));
+          setGoToOpen(false);
+        }}
+      />
       <ChartSettingsModal
         open={chartSettingsOpen}
         onClose={() => setChartSettingsOpen(false)}

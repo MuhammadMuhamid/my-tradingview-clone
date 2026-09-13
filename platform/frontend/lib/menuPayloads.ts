@@ -304,6 +304,40 @@ export interface WatchlistMenuContext {
   canOpenNewPane: boolean;
 }
 
+/*
+ * ── The time axis ──────────────────────────────────────────────────────────
+ *
+ * TVP8: right-clicking the time scale opened CHROME's menu over the chart.
+ *
+ * `DrawingCanvas` returned early for that strip, with a comment saying the
+ * time scale "is the one strip with nothing to offer". That had stopped being
+ * true: resetting the view, locking the price-to-bar ratio and the settings
+ * dialog are all things the reference puts on exactly this menu, and all three
+ * already exist here. The result was that one of the three strips of the chart
+ * fell out of the product and into the browser — Inspect, Save as, Translate —
+ * which is the single loudest tell a copy can have.
+ */
+export const TIME_AXIS_MENU_IDS = [
+  "time:reset-view", "time:go-to", "time:chart-settings",
+] as const;
+export type TimeAxisMenuId = (typeof TIME_AXIS_MENU_IDS)[number];
+
+/**
+ * The reference also offers "Lock price to bar ratio" here. It is absent for
+ * the same reason `lib/chartSettings.ts` gives for leaving it out of the
+ * settings model: lightweight-charts 4.2 exposes no equivalent, and this
+ * product does not ship switches that do nothing.
+ */
+export function timeAxisMenu(): MenuEntry[] {
+  return [
+    { id: "time:reset-view", label: "Reset chart view" },
+    { id: "sep-goto", separator: true },
+    { id: "time:go-to", label: "Go to…" },
+    { id: "sep-settings", separator: true },
+    { id: "time:chart-settings", label: "Chart settings…" },
+  ];
+}
+
 export const WATCHLIST_MENU_IDS = [
   "watchlist:open-focused", "watchlist:open-new-pane", "watchlist:add-alert", "watchlist:remove",
 ] as const;

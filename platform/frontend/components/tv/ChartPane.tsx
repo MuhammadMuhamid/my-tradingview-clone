@@ -129,7 +129,7 @@ export interface ChartPaneProps {
     event: {
       x: number; y: number; drawingId: string | null; price: number | null;
       /** Which strip was clicked: the plot, or the price axis. */
-      region: "plot" | "axis";
+      region: "plot" | "axis" | "time";
     }
   ) => void;
   /** The active pane reports its viewport so evidence can be fetched for it. */
@@ -145,6 +145,7 @@ export interface ChartPaneProps {
   onPriceScaleChange?: (paneId: string, next: PriceScaleState) => void;
   /** Bumped by the workspace to refit this pane. */
   resetSignal?: number;
+  goTo?: { time: number; signal: number } | null;
   /** Bumped to move focus into the selected drawing's style bar. */
   drawingStyleFocusSignal?: number;
   /** This pane's comparison changed. Never synced to other panes. */
@@ -1056,6 +1057,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
               props.onPriceScaleChange
                 ? (next) => props.onPriceScaleChange?.(paneId, next) : undefined}
             resetSignal={props.resetSignal}
+            goTo={props.goTo}
             drawingStyleFocusSignal={props.drawingStyleFocusSignal}
             paneActive={props.active}
             chartSettings={pane.chartSettings}

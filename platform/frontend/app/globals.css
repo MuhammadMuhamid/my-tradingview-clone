@@ -342,6 +342,22 @@
  * is an inverted light chip (#f2f2f2 on #0f0f0f text) — TradingView does not
  * tint menu selection blue either.
  */
+/*
+ * TVP8: `.tvc-popover` is the SURFACE half on its own — ground, radius,
+ * shadow — for the things that float on the workstation's popover material
+ * without being lists of rows: the calendar the time axis and Replay share,
+ * and the drawing style bar.
+ *
+ * Naming it is what lets the "a menu adopts the row too" rule stay strict.
+ * Without it, anything that wanted this ground had to take `.tvc-menu`, and
+ * then either grow 40px rows it has no rows for or be written onto an
+ * exception list in the test — which is how a rule stops meaning anything.
+ */
+:is(.tv-workstation, .ts-app) .tvc-popover {
+  background-color: var(--ts-popover);
+  border-radius: var(--ts-workstation-radius);
+  box-shadow: var(--ts-popover-shadow);
+}
 :is(.tv-workstation, .ts-app) .tvc-menu {
   background-color: var(--ts-popover);
   border-radius: var(--ts-workstation-radius);

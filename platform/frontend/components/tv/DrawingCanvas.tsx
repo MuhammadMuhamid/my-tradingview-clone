@@ -120,7 +120,7 @@ export function DrawingCanvas({
   onContextMenu?: (event: {
     x: number; y: number; drawingId: string | null; price: number | null;
     /** Which strip was clicked, so the workspace knows which menu to build. */
-    region: "plot" | "axis";
+    region: "plot" | "axis" | "time";
   }) => void;
   /**
    * Bumped to move focus into the selected drawing's style bar.
@@ -355,10 +355,30 @@ export function DrawingCanvas({
       if (!handler) return;
       const p = rectOf(e);
       const region = regionOf(p);
-      // The time scale is the one strip with nothing to offer, so it keeps the
-      // browser's own menu rather than being given an empty product one.
-      if (region === "time") return;
       e.preventDefault();
+      /*
+       * TVP8: and claim the event.
+       *
+       * `CandleChart` now has its own `onContextMenu` on the same element, so
+       * that the four transform chart types — which do not mount this layer at
+       * all — still get a product menu instead of Chrome's. This listener is
+       * in the CAPTURE phase, so without stopping propagation the React
+       * handler below still ran and replaced the drawing menu with the chart
+       * menu: right-clicking a trend line opened "SOLUSDT chart".
+       */
+      e.stopPropagation();
+      if (region === "time") {
+        /*
+         * TVP8: this used to `return` before `preventDefault`, on the grounds
+         * that the time scale is "the one strip with nothing to offer". That
+         * had stopped being true — resetting the view, going to a date and the
+         * settings dialog are all things the reference puts on exactly this
+         * menu and all three exist here — so one of the chart's three strips
+         * fell out of the product and into Chrome's Inspect/Save-as/Translate.
+         */
+        handler({ x: e.clientX, y: e.clientY, drawingId: null, price: null, region: "time" });
+        return;
+      }
       if (region === "axis") {
         // The price axis has its own short menu — scale mode and reset — and
         // no drawing under it. It used to return BEFORE `preventDefault`, so

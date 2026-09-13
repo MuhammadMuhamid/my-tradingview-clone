@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { screen } from "@testing-library/react";
 import { closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
 import {
-  chooseMenuItem, clickAt, menuItems, menuLabel, mountChart, openMenu, press,
+  chooseMenuItem, clickAt, menuItems, menuLabel, mountChart, press,
   rightClickAt, selectTool,
 } from "./harness/chart";
 import { drawingStore } from "@/lib/drawingStore";
@@ -75,9 +75,20 @@ test("each strip of the chart opens its own menu, and the time axis opens none",
     ]);
   await press("Escape");
 
+  /*
+   * TVP8: this used to assert `openMenu() === null` — "the time scale has
+   * nothing to offer, so it keeps the browser's own menu". That had stopped
+   * being true. Resetting the view, going to a date and the settings dialog
+   * are what the reference puts on exactly this menu, and all three exist
+   * here, so one of the chart's three strips was falling out of the product
+   * and into Chrome's Back / Save as / Inspect.
+   */
   await rightClickAt(chart.plot, PLOT.x, TIME_Y);
-  assert.equal(openMenu(), null,
-    "the time scale has nothing to offer, so it keeps the browser's own menu");
+  assert.equal(menuLabel(), "Time scale");
+  assert.deepEqual(
+    menuItems().map((i) => i.label.replace(/\s+/g, " ").trim()),
+    ["Reset chart view", "Go to…", "Chart settings…"]);
+  await press("Escape");
 });
 
 test("the chart menu names the price it opened at, and copies that same price", async () => {

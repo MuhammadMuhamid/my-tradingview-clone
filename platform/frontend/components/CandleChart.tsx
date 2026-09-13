@@ -514,7 +514,7 @@ export function CandleChart({
   onIndicatorPaneAction,
   canIndicatorAction,
   hiddenStudies,
-  priceScale, onPriceScaleChange, resetSignal, drawingStyleFocusSignal, paneActive,
+  priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, paneActive,
   chartSettings,
 }: {
   symbol: string;
@@ -558,8 +558,8 @@ export function CandleChart({
   onChartContextMenu?: (
     event: {
       x: number; y: number; drawingId: string | null; price: number | null;
-      /** Which strip was clicked: the plot, or the price axis. */
-      region: "plot" | "axis";
+      /** Which strip was clicked: the plot, the price axis, or the time axis. */
+      region: "plot" | "axis" | "time";
     }
   ) => void;
   magnet?: boolean;
@@ -634,6 +634,14 @@ export function CandleChart({
    * Any change of value performs one reset; the initial value never does.
    */
   resetSignal?: number;
+  /**
+   * Scroll the view so a moment is on screen, without changing the zoom.
+   *
+   * TVP8: the time axis's "Go to…". `signal` is a counter rather than the time
+   * itself, so asking for the same date twice still moves the chart back to it
+   * — which is exactly what a user who has since panned away expects.
+   */
+  goTo?: { time: number; signal: number } | null;
   /** Bumped to move focus into the selected drawing's style bar. */
   drawingStyleFocusSignal?: number;
   /** Whether this pane has the workspace's focus; gates Delete and Escape. */
@@ -1050,6 +1058,31 @@ export function CandleChart({
    * saved range must keep it. `useRef` seeded from the prop is what makes the
    * initial value inert.
    */
+  const goToSignalRef = useRef(goTo?.signal ?? 0);
+  useEffect(() => {
+    const signal = goTo?.signal ?? 0;
+    if (signal === goToSignalRef.current || !goTo) return;
+    goToSignalRef.current = signal;
+    const chart = chartRef.current;
+    if (!chart) return;
+    try {
+      // Keep the span the user is on and move it, rather than framing an
+      // arbitrary window around the date: "go to" is a scroll, not a zoom.
+      const current = chart.timeScale().getVisibleRange();
+      const span = current ? Number(current.to) - Number(current.from) : 0;
+      const centre = Math.floor(goTo.time / 1000);
+      if (span > 0) {
+        chart.timeScale().setVisibleRange({
+          from: (centre - span / 2) as UTCTimestamp,
+          to: (centre + span / 2) as UTCTimestamp,
+        });
+      }
+    } catch { /* the range is not loaded; the view stays where it is */ }
+  }, [goTo]);
+
+  const onChartContextMenuRef = useRef(onChartContextMenu);
+  onChartContextMenuRef.current = onChartContextMenu;
+
   const resetSignalRef = useRef(resetSignal);
   useEffect(() => {
     if (resetSignal === resetSignalRef.current) return;
@@ -2355,7 +2388,46 @@ export function CandleChart({
         className={`relative bg-surface ${priceHidden ? "hidden" : "min-h-0 flex-1"}`}
         {...(priceHidden ? { "aria-hidden": true } : {})}
       >
-      <div ref={containerRef} className="absolute inset-0 z-[1]" />
+      <div
+        ref={containerRef}
+        className="absolute inset-0 z-[1]"
+        /*
+         * TVP8: the chart's own right-click menu, wherever the drawing layer
+         * is not.
+         *
+         * The ONLY `onContextMenu` on this chart used to be `DrawingCanvas`'s,
+         * and that layer mounts inside `timeAnchored && !priceHidden &&
+         * drawings && onDrawingsChange`. So on Renko, Line break, Kagi and
+         * Point & figure — every transform, because none of them is
+         * time-anchored — right-clicking the chart opened Chrome's menu:
+         * Back, Reload, Save as, Inspect, over a trading chart. Four of the
+         * twenty-one chart types had no product menu at all.
+         *
+         * This handler sits on the plot itself and runs only when nothing
+         * above it claimed the event — `DrawingCanvas` listens in the capture
+         * phase and stops propagation, so on an ordinary candle chart the
+         * drawing-aware menu still wins and this never fires.
+         */
+        onContextMenu={(e) => {
+          const handler = onChartContextMenuRef.current;
+          if (!handler) return;
+          e.preventDefault();
+          const host = containerRef.current;
+          if (!host) return;
+          const rect = host.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const chart = chartRef.current;
+          const scaleWidth = chart?.priceScale("right").width() ?? 0;
+          const timeHeight = chart?.timeScale().height() ?? 0;
+          const region = x > host.clientWidth - scaleWidth ? "axis"
+            : y > host.clientHeight - timeHeight ? "time" : "plot";
+          const price = region === "plot" && seriesRef.current
+            ? seriesRef.current.coordinateToPrice(y) ?? null
+            : null;
+          handler({ x: e.clientX, y: e.clientY, drawingId: null, price, region });
+        }}
+      />
       {/*
         Everything below is anchored to a canonical bar time, and under sparse
         transforms none of it is drawn — synthetic points are not those bars. See

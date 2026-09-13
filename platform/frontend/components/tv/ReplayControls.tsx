@@ -47,6 +47,7 @@
  * screen once, at the moment the user commits to it.
  */
 import { useEffect, useState } from "react";
+import { CalendarField } from "./CalendarField";
 import {
   REPLAY_SPEEDS,
   canStepReplay,
@@ -55,11 +56,7 @@ import {
 } from "@/lib/replay";
 import type { Candle } from "@/lib/types";
 
-function localDateTimeValue(time: number): string {
-  const date = new Date(time);
-  const shifted = new Date(time - date.getTimezoneOffset() * 60_000);
-  return shifted.toISOString().slice(0, 16);
-}
+
 
 /** The strip's own controls: 38px, transparent, state on the ::before chip. */
 const CTL = "tvc-control flex h-[30px] shrink-0 items-center px-1.5 text-[13px] "
@@ -92,11 +89,10 @@ export function ReplayControls({
   const first = completed[0];
   const last = completed[completed.length - 1];
   const suggested = completed[Math.max(0, completed.length - 100)] ?? first;
-  const [requested, setRequested] = useState("");
+  const [requested, setRequested] = useState<number | null>(null);
 
   useEffect(() => {
-    if (pickerOpen && suggested)
-      setRequested(localDateTimeValue(suggested.closeTime));
+    if (pickerOpen && suggested) setRequested(suggested.closeTime);
   }, [pickerOpen, suggested]);
 
   if (!pickerOpen && !session) return null;
@@ -109,23 +105,25 @@ export function ReplayControls({
         aria-label="Choose a replay point"
         className="flex h-[38px] shrink-0 flex-wrap items-center gap-1.5 border-t border-border bg-surface px-2"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="1.7" className="shrink-0 text-ink-faint" aria-hidden="true">
-          <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" />
-        </svg>
-        <input
-          type="datetime-local"
+        {/*
+          TVP8: this was `<input type="datetime-local">` — the BROWSER's
+          control. Chrome drew its own calendar in the platform's font and
+          Safari drew a stepper with no calendar at all, and neither could know
+          which days this chart actually has bars for. `CalendarField` dims the
+          days outside the loaded window instead of leaving it to `min`/`max`.
+        */}
+        <CalendarField
+          id="replay-start"
+          label="Historical replay date and time"
           value={requested}
-          min={first ? localDateTimeValue(first.closeTime) : undefined}
-          max={last ? localDateTimeValue(last.closeTime) : undefined}
-          onChange={(event) => setRequested(event.target.value)}
-          aria-label="Historical replay date and time"
-          className="h-[26px] rounded border border-control-border bg-transparent px-1.5 text-[13px] text-ink outline-none"
+          onChange={setRequested}
+          min={first?.closeTime}
+          max={last?.closeTime}
         />
         <button
           className="flex h-[26px] shrink-0 items-center rounded bg-accent px-2.5 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-40"
-          disabled={!requested || !last}
-          onClick={() => onStart(new Date(requested).getTime())}
+          disabled={requested === null || !last}
+          onClick={() => { if (requested !== null) onStart(requested); }}
           aria-label="Start Replay"
         >
           Start
