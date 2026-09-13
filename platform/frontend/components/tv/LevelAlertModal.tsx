@@ -11,7 +11,7 @@ import {
 } from "@/components/tv/AlertFiltersField";
 import {
   api,
-  type AlertFrequency, type MaAlertMode, type PivotType, type SrSide,
+  type AlertFrequency, type MaAlert, type MaAlertMode, type PivotType, type SrSide,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { displayTicker } from "@/lib/instrument";
@@ -49,7 +49,7 @@ const MODES: { id: MaAlertMode; label: string }[] = [
 
 export function LevelAlertModal({
   open, onClose, symbol, defaultTimeframe, resolutionNotice = null,
-  initialKind = "sr_zone", onSaved,
+  initialKind = "sr_zone", existing = [], onSaved,
 }: {
   open: boolean;
   onClose: () => void;
@@ -59,6 +59,8 @@ export function LevelAlertModal({
   resolutionNotice?: string | null;
   /** Which of the two level families to open on, when the caller already knows. */
   initialKind?: "sr_zone" | "pivot_level";
+  /** The alerts already on this symbol, so Save cannot silently re-arm one. */
+  existing?: readonly MaAlert[];
   onSaved: (message: string) => void;
 }) {
   const [kind, setKind] = useState<"sr_zone" | "pivot_level">(initialKind);
@@ -73,11 +75,39 @@ export function LevelAlertModal({
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState(true);
+  /*
+   * TVP8: which existing alerts this dialog's Save would land on.
+   *
+   * `api.createMaAlert` is an UPSERT — `ON CONFLICT (symbol, timeframe,
+   * sr_side, mode) DO UPDATE SET enabled = EXCLUDED.enabled` — so "creating"
+   * an alert whose condition already exists overwrites that row. This dialog
+   * armed at `true` unconditionally and never looked, which meant opening it
+   * on a condition the user had deliberately PAUSED and pressing Save re-armed
+   * it, silently. `PriceAlertModal` and `MaAlertModal` already prefill from
+   * the matched row and say why (`PriceAlertModal.tsx`, the comment on
+   * `setArmed(match.enabled)`); these two were the pair that did not.
+   *
+   * It covers several timeframes at once, so there can be several matches.
+   * Arming follows them only when they AGREE — a mixed selection has no one
+   * truthful value, and the notice below says so instead of picking one.
+   */
+  const matches = existing.filter((a) =>
+    a.conditionKind === kind
+    && a.mode === mode
+    && timeframes.includes(a.timeframe)
+    && (kind === "sr_zone" ? a.srSide === srSide : a.pivotLevelName === levelName));
+  const matchedArmed = matches.length > 0 && matches.every((a) => a.enabled === matches[0]!.enabled)
+    ? matches[0]!.enabled : null;
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Follow the matched rows, so an untouched Save cannot change what they hold.
+  useEffect(() => {
+    if (matchedArmed !== null) setArmed(matchedArmed);
+  }, [matchedArmed]);
 
   useEffect(() => {
     // Reopening from a specific rail row should land on that family, not on

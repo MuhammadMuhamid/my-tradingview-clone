@@ -156,6 +156,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
       defaultTimeframe={alertTimeframe}
       resolutionNotice={alertNotice}
       initialKind={props.levelKind ?? "sr_zone"}
+      existing={maAlerts}
       onSaved={onAlertSaved}
     />
     <IndicatorAlertModal
@@ -165,6 +166,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
       defaultTimeframe={alertTimeframe}
       resolutionNotice={alertNotice}
       kind={props.oscillatorKind ?? "rsi"}
+      existing={maAlerts}
       onSaved={onAlertSaved}
     />
     <AlertEditor

@@ -586,3 +586,54 @@ test("ALERTS — every create dialog can arm, and every control reaches the requ
   assert.match(price, /Cooldown/, "the price dialog offers a cooldown");
   assert.match(price, /frequency, cooldownMin,/, "and sends it");
 });
+
+test("ALERTS — NO CREATE DIALOG CAN SILENTLY RE-ARM A PAUSED ALERT", () => {
+  /*
+   * TVP8. `api.createMaAlert` is an UPSERT: the repository's
+   * `ON CONFLICT <condition key> DO UPDATE SET … enabled = EXCLUDED.enabled`
+   * means "creating" an alert whose condition already exists overwrites that
+   * row, `enabled` included.
+   *
+   * Two of the four create dialogs did `useState(true)` and never looked at
+   * what was already there. Opening one on a condition the user had
+   * deliberately PAUSED showed "Armed ☑" and pressing Save re-armed it —
+   * silently, with no edit and no warning. `PriceAlertModal` and
+   * `MaAlertModal` had been fixed for exactly this; `LevelAlertModal` and
+   * `IndicatorAlertModal` had not.
+   *
+   * The test that was supposed to cover the Armed field could not see this: it
+   * asserts the field exists and that `enabled: armed` reaches the request,
+   * both of which were true the whole time. So this asks the other question —
+   * does the dialog READ the state it is about to overwrite?
+   */
+  const dialogs = [
+    "components/tv/PriceAlertModal.tsx",
+    "components/tv/LevelAlertModal.tsx",
+    "components/tv/MaAlertModal.tsx",
+    "components/tv/IndicatorAlertModal.tsx",
+  ];
+  /*
+   * Comments stripped first, and that is not fussiness: the first version of
+   * this matched `setArmed(match.enabled)` inside the very comment this fix
+   * added to explain itself, so deleting the real line left it green. A rule
+   * that its own documentation can satisfy is not a rule.
+   */
+  const code = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  for (const file of dialogs) {
+    const src = code(fs.readFileSync(path.join(__dirname, "..", file), "utf8"));
+    // Every one of them takes the alerts already on this symbol …
+    assert.match(src, /\bexisting\b/,
+      `${file}: cannot know what it would overwrite — it is not given the existing alerts`);
+    // … and arms from the matched row rather than from a literal.
+    assert.match(src, /setArmed\((?:match\.enabled|matchedArmed)\)/,
+      `${file}: arms from a literal, so an untouched Save can re-arm a paused alert`);
+  }
+
+  // And the upsert this is about is real, not assumed.
+  const repo = fs.readFileSync(
+    path.join(__dirname, "..", "..", "backend", "src", "repositories", "maAlerts.ts"), "utf8");
+  assert.match(repo, /ON CONFLICT \$\{CONFLICT_TARGET\[kind\]\} DO UPDATE SET/);
+  assert.match(repo, /enabled\s*=\s*EXCLUDED\.enabled/,
+    "if the upsert stopped writing `enabled`, this whole rule would be moot");
+});

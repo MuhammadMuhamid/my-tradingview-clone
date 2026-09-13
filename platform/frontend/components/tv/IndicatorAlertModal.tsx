@@ -12,7 +12,7 @@ import {
 import {
   api, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
-  type AlertFrequency, type BollingerBand, type MacdTarget, type MaAlertMode,
+  type AlertFrequency, type BollingerBand, type MacdTarget, type MaAlert, type MaAlertMode,
   type RsiTarget, type StAtrMethod, type StochasticTarget,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
@@ -53,7 +53,8 @@ const PRICE_LINE_KINDS: readonly IndicatorKind[] = ["bollinger"];
  * showing one would imply the alert could do something it cannot.
  */
 export function IndicatorAlertModal({
-  open, onClose, symbol, defaultTimeframe, resolutionNotice = null, kind, onSaved,
+  open, onClose, symbol, defaultTimeframe, resolutionNotice = null, kind,
+  existing = [], onSaved,
 }: {
   open: boolean;
   onClose: () => void;
@@ -62,6 +63,8 @@ export function IndicatorAlertModal({
   /** Why the chart's resolution is not this alert's timeframe, or null. */
   resolutionNotice?: string | null;
   kind: IndicatorKind;
+  /** The alerts already on this symbol, so Save cannot silently re-arm one. */
+  existing?: readonly MaAlert[];
   onSaved: (message: string) => void;
 }) {
   const [timeframes, setTimeframes] = useState<Interval[]>([defaultTimeframe]);
@@ -109,6 +112,28 @@ export function IndicatorAlertModal({
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState(true);
+  /*
+   * TVP8: which existing alerts this dialog's Save would land on.
+   *
+   * `api.createMaAlert` is an UPSERT keyed on the condition, so "creating" an
+   * alert whose condition already exists overwrites that row — including its
+   * `enabled`. This dialog armed at `true` unconditionally and never looked,
+   * so opening it on a condition the user had deliberately PAUSED and pressing
+   * Save re-armed it, silently. `PriceAlertModal` and `MaAlertModal` already
+   * prefill from the matched row and say why; this and `LevelAlertModal` were
+   * the pair that did not.
+   *
+   * Matched on family and timeframe rather than on every parameter: that is
+   * what a user recognises as "the same alert", and arming follows the matched
+   * rows only when they AGREE — a mixed set has no one truthful value.
+   */
+  const matches = existing.filter((a) =>
+    a.conditionKind === kind && timeframes.includes(a.timeframe));
+  const matchedArmed = matches.length > 0 && matches.every((a) => a.enabled === matches[0]!.enabled)
+    ? matches[0]!.enabled : null;
+  useEffect(() => {
+    if (matchedArmed !== null) setArmed(matchedArmed);
+  }, [matchedArmed]);
 
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
