@@ -19,7 +19,7 @@ import {
 } from "@/lib/ta/core";
 import type { NativeStudyDef } from "@/lib/native/registry";
 import {
-  ACCENT, AMBER, DOWN, MUTED, UP, VIOLET, lengthInput, num, ohlcv, resolveSource,
+  ACCENT, AMBER, bool, DOWN, MUTED, UP, VIOLET, lengthInput, num, ohlcv, resolveSource,
   sourceInput, str, zeroLevel,
 } from "@/lib/native/shared";
 
@@ -323,7 +323,12 @@ export const dpoStudy: NativeStudyDef = {
   category: "momentum",
   overlay: false,
   description: "Price minus a displaced average — a cycle tool, not a signal.",
-  inputs: [lengthInput(21), sourceInput],
+  inputs: [
+    lengthInput(21), sourceInput,
+    // TVP8: the reference has this input and defaults it off. Without it the
+    // study offered only one of the two definitions — and computed the other.
+    { kind: "boolean", key: "centered", title: "Centered", defval: false },
+  ],
   plots: [{ id: "dpo", title: "DPO", style: "line", color: ACCENT, width: 2 }],
   levels: [zeroLevel],
   precision: null,
@@ -331,7 +336,8 @@ export const dpoStudy: NativeStudyDef = {
   compute: ({ candles, params, sources }) => ({
     plots: {
       dpo: detrendedPriceOscillator(
-        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 21)),
+        resolveSource(candles, str(params, "source", "close"), sources), num(params, "length", 21),
+        bool(params, "centered", false)),
     },
   }),
 };

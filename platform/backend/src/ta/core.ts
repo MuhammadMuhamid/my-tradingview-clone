@@ -942,16 +942,25 @@ export function logReturns(src: number[]): number[] {
 /**
  * Annualised close-to-close historical volatility, in percent.
  *
- * `barsPerYear` is supplied by the caller because it is a property of the
- * TIMEFRAME, not of the maths: 1m bars and 1d bars annualise by wildly
- * different factors, and a constant here would be wrong on ten of the eleven
- * intervals this product serves.
+ * `annualFactor` is supplied by the caller because it is a property of the
+ * TIMEFRAME, not of the maths.
+ *
+ * TVP8: it used to be bars-per-year — a true annualisation, and not the
+ * reference's. The reference's Historical Volatility is
+ *
+ *     hv = 100 * stdev(log(close / close[1]), length) * sqrt(annual / per)
+ *
+ * with `annual = 365` and `per` 1 on intraday and daily bars, 7 above them.
+ * On 4h that is sqrt(365) ≈ 19.1 against bars-per-year's sqrt(2190) ≈ 46.8 —
+ * the same series scaled by 2.45, and on 1m by about 38. Both are defensible
+ * as statistics and only one of them is the number a TradingView user is
+ * comparing against, which is what this study is for. See `hvStudy`.
  */
 export function historicalVolatility(
-  close: number[], len: number, barsPerYear: number
+  close: number[], len: number, annualFactor: number
 ): number[] {
   const sd = stdev(logReturns(close), len);
-  const k = Math.sqrt(Math.max(0, barsPerYear));
+  const k = Math.sqrt(Math.max(0, annualFactor));
   return sd.map((v) => (Number.isNaN(v) ? NaN : finite(v * k * 100)));
 }
 
@@ -1359,16 +1368,38 @@ export function chandeMomentum(src: number[], len: number): number[] {
  * does not, and the difference matters: a non-causal series on a chart a
  * backtest reads would be reading the future.
  */
-export function detrendedPriceOscillator(src: number[], len: number): number[] {
+export function detrendedPriceOscillator(
+  src: number[], len: number, centered = false
+): number[] {
+  /*
+   * TVP8: this computed only the CENTERED variant, and plotted it uncentered.
+   *
+   * The reference's DPO has an `isCentered` input and defaults it OFF:
+   *
+   *     barsback = length / 2 + 1
+   *     dpo = isCentered ? close[barsback] - ma : close - ma[barsback]
+   *
+   * The default compares THIS bar's price against an average taken
+   * `barsback` bars ago. What was here compared the price `barsback` bars ago
+   * against THIS bar's average — the centered formula — and then drew it on
+   * this bar rather than shifted back, which is neither variant. Both are now
+   * available and the default is the reference's.
+   *
+   * Both remain causal: the centered branch reads an OLD price against a
+   * current average, so it looks ahead at nothing. (An earlier comment here
+   * called that variant "non-causal"; that describes plotting the result
+   * BACKWARD by the displacement, which this has never done.)
+   */
   const displacement = Math.floor(len / 2) + 1;
   const mean = sma(src, len);
   const n = src.length;
   const out = new Array<number>(n).fill(NaN);
   for (let i = 0; i < n; i++) {
-    const m = mean[i]!;
-    const v = src[i - displacement];
-    if (Number.isNaN(m) || v === undefined || Number.isNaN(v)) continue;
-    out[i] = finite(v - m);
+    const price = centered ? src[i - displacement] : src[i];
+    const average = centered ? mean[i] : mean[i - displacement];
+    if (price === undefined || average === undefined) continue;
+    if (Number.isNaN(price) || Number.isNaN(average)) continue;
+    out[i] = finite(price - average);
   }
   return out;
 }

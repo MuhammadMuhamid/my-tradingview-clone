@@ -140,13 +140,12 @@ export const donchianStudy: NativeStudyDef = {
 };
 
 /**
- * Annualised close-to-close volatility.
+ * Annualised close-to-close volatility, on the reference's convention.
  *
- * `barsPerYear` is derived from the chart's own interval rather than being an
- * input, because it is a property of the TIMEFRAME and not a preference: 1m
- * bars and 1d bars annualise by factors that differ by more than twenty-fold,
- * and a constant would be wrong on ten of the eleven intervals this product
- * serves.
+ * The annualisation factor is derived from the chart's own interval rather
+ * than being an input, because it is a property of the TIMEFRAME and not a
+ * preference. TVP8 changed WHICH derivation: see `historicalVolatility` in
+ * `lib/ta/core.ts`. The default length moved 20 → 10 for the same reason.
  */
 export const historicalVolatilityStudy: NativeStudyDef = {
   id: "hv",
@@ -155,16 +154,26 @@ export const historicalVolatilityStudy: NativeStudyDef = {
   category: "statistics",
   overlay: false,
   description: "Annualised close-to-close volatility, in percent.",
-  inputs: [lengthInput(20)],
+  inputs: [lengthInput(10)],
   plots: [{ id: "hv", title: "HV", style: "line", color: AMBER, width: 2 }],
   precision: 2,
-  warmup: (p) => num(p, "length", 20) * 3,
+  warmup: (p) => num(p, "length", 10) * 3,
   compute: ({ candles, params, interval }) => {
     const { close } = ohlcv(candles);
-    // Crypto spot trades continuously, so a year is simply how many bars of
-    // this size fit into one.
-    const barsPerYear = (365 * 24 * 60 * 60 * 1000) / resolutionMs(interval);
-    return { plots: { hv: historicalVolatility(close, num(params, "length", 20), barsPerYear) } };
+    /*
+     * TVP8: the reference's annualisation, not a true one.
+     *
+     *     annual = 365
+     *     per    = intraday or 1d ? 1 : 7
+     *     hv     = 100 * stdev(log(close/close[1]), length) * sqrt(annual/per)
+     *
+     * This used to divide a year by the bar size — defensible, and 2.45x the
+     * reference's number on 4h, 38x on 1m. A study whose entire purpose is to
+     * be read against the same study elsewhere has to agree with it.
+     */
+    const weekOrLonger = resolutionMs(interval) > 24 * 60 * 60 * 1000;
+    const annualFactor = 365 / (weekOrLonger ? 7 : 1);
+    return { plots: { hv: historicalVolatility(close, num(params, "length", 10), annualFactor) } };
   },
 };
 

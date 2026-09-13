@@ -626,16 +626,35 @@ test("the Chande Momentum Oscillator is +100 on a pure rise and -100 on a pure f
   assert.ok(Math.abs(down[59]! + 100) < 1e-9, `got ${down[59]}`);
 });
 
-test("the Detrended Price Oscillator is the price a half-window back, less the average", () => {
+test("the Detrended Price Oscillator has both of the reference's two definitions", () => {
   const s = series(200);
   const len = 21;
-  const dpo = core.detrendedPriceOscillator(s.close, len);
   const sma = core.sma(s.close, len);
   const back = Math.floor(len / 2) + 1;
   const i = 150;
-  // The displacement is what makes it DETRENDED: comparing today's price with
-  // today's average would leave the trend in.
-  assert.ok(Math.abs(dpo[i]! - (s.close[i - back]! - sma[i]!)) < 1e-9);
+
+  /*
+   * TVP8: the default is the UNCENTERED one, and it used to be neither.
+   *
+   *     barsback = length / 2 + 1
+   *     dpo = isCentered ? close[barsback] - ma : close - ma[barsback]
+   *
+   * What shipped computed the centered formula — an old price against today's
+   * average — and then drew it on today's bar rather than shifted back, which
+   * is not what either branch means. The displacement is what makes it
+   * DETRENDED either way; which side carries it is the difference between the
+   * two, and the reference defaults to the average carrying it.
+   */
+  const dpo = core.detrendedPriceOscillator(s.close, len);
+  assert.ok(Math.abs(dpo[i]! - (s.close[i]! - sma[i - back]!)) < 1e-9,
+    `default is uncentered: close[i] - sma[i - ${back}]`);
+
+  const centered = core.detrendedPriceOscillator(s.close, len, true);
+  assert.ok(Math.abs(centered[i]! - (s.close[i - back]! - sma[i]!)) < 1e-9,
+    `centered is close[i - ${back}] - sma[i]`);
+
+  // They are genuinely different series, or the input would be decorative.
+  assert.ok(Math.abs(dpo[i]! - centered[i]!) > 1e-9);
 });
 
 test("the Coppock Curve is a weighted average of two rates of change", () => {

@@ -118,9 +118,19 @@ export const ichimokuStudy: NativeStudyDef = {
         conversion: i.conversion, base: i.base,
         spanA: i.spanA, spanB: i.spanB, lagging: i.lagging,
       },
-      // Displacement is a DRAWING decision, applied by the plot definition.
+      /*
+       * Displacement is a DRAWING decision, applied by the plot definition.
+       *
+       * TVP8: off by one bar. The reference plots the two lead lines at
+       * `offset = displacement - 1` and the lagging span at
+       * `offset = -displacement + 1`, because the bar the cloud is drawn FROM
+       * counts as the first of the displacement. Shifting by the full
+       * displacement put the whole cloud one bar further into the future than
+       * every other Ichimoku on the market, which is exactly the kind of
+       * difference that is invisible until someone lines the two up.
+       */
       plotOffsets: {
-        spanA: displacement, spanB: displacement, lagging: -displacement,
+        spanA: displacement - 1, spanB: displacement - 1, lagging: -displacement + 1,
       },
     };
   },
