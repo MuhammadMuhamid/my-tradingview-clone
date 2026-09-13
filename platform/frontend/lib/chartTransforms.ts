@@ -55,6 +55,24 @@ export const DEFAULT_RENKO_ATR_PERIOD = 14;
 export interface RenkoParams {
   /** Wilder ATR period that sets the brick size. */
   atrPeriod: number;
+  /**
+   * One brick height for the whole series, overriding the per-bar ATR.
+   *
+   * TVP8: bricks were sized by the ATR *at each bar*, so a window whose
+   * volatility changed drew bricks of visibly different heights — and equal
+   * height is the entire point of Renko. It is what makes the chart readable
+   * as "price moved N boxes" rather than as a squashed candle chart, and the
+   * per-brick `size` in the legend was the tell.
+   *
+   * The reference sizes every brick from the CURRENT ATR and repaints history
+   * when it moves. That repaint is not a new idea here — `latestCloseSizing`
+   * is exactly the same bargain, already made for Kagi and Point & figure, and
+   * `advanceTransform` already routes it to a full deterministic rebuild. So
+   * Renko joins them rather than growing a mechanism of its own, and the fold
+   * stays causal when nobody asks for the repaint, which is what the replay
+   * and look-ahead tests exercise.
+   */
+  fixedSize?: number;
 }
 
 export type TransformKind = "heikinAshi" | "renko" | "lineBreak" | "kagi" | "pointAndFigure";
@@ -268,7 +286,11 @@ export function foldRenko(
 ): { state: RenkoState; bricks: RenkoBrick[] } {
   const period = Math.max(1, Math.floor(params.atrPeriod));
   const atr = foldAtr(state.atr, bar, period);
-  const size = atr.value;
+  // An explicit height sizes every brick in the series identically; without
+  // one the fold is causal and each bar uses the ATR known at that bar.
+  const size = params.fixedSize !== undefined
+    && Number.isFinite(params.fixedSize) && params.fixedSize > 0
+    ? params.fixedSize : atr.value;
 
   if (size === null || !Number.isFinite(size) || size <= 0) {
     // No usable brick size yet (or a degenerate one): carry the ATR forward and
@@ -329,9 +351,34 @@ export function foldRenko(
   };
 }
 
+/**
+ * Wilder ATR over a whole window, read at its last bar: the single brick
+ * height a repainting Renko uses. Null while ATR is still seeding, which is
+ * the one case where there is honestly no size yet.
+ */
+export function renkoSize(
+  bars: readonly OhlcBar[], atrPeriod: number
+): number | null {
+  const period = Math.max(1, Math.floor(atrPeriod));
+  let atr: AtrState = { count: 0, seedSum: 0, value: null, previousClose: null };
+  for (const bar of bars) atr = foldAtr(atr, bar, period);
+  return atr.value !== null && Number.isFinite(atr.value) && atr.value > 0 ? atr.value : null;
+}
+
+/** The window's one size, when the caller asked for the repaint and has none. */
+function renkoRepaintSize(
+  bars: readonly OhlcBar[], params: TransformParams | RenkoParams
+): TransformParams | RenkoParams {
+  const p = params as TransformParams;
+  if (!p.latestCloseSizing || p.fixedSize !== undefined) return params;
+  const fixed = renkoSize(bars, p.atrPeriod);
+  return fixed === null ? params : { ...params, fixedSize: fixed };
+}
+
 export function renkoBricks(
   bars: readonly OhlcBar[], params: RenkoParams
 ): RenkoBrick[] {
+  params = renkoRepaintSize(bars, params) as RenkoParams;
   let state = createRenkoState();
   const out: RenkoBrick[] = [];
   for (const bar of bars) {
@@ -376,7 +423,15 @@ export function foldLineBreak(
   const previousLines = state.lines.slice(-window);
   const high = Math.max(...previousLines.map((line) => line.high));
   const low = Math.min(...previousLines.map((line) => line.low));
-  if (state.lines.length >= window && bar.close <= high && bar.close >= low) {
+  /*
+   * TVP8: the `state.lines.length >= window` prefix made the first `window-1`
+   * lines unconditional, so a chart opened with two or three lines that were
+   * not breaks at all — including zero-height ones, when consecutive closes
+   * were equal. The comparison window is simply however many lines exist
+   * (`previousLines` is already `slice(-window)`), and a close inside it is
+   * not a break whether there are two prior lines or ten.
+   */
+  if (bar.close <= high && bar.close >= low) {
     return { state, emitted: [] };
   }
   const next: OhlcBar = {
@@ -579,12 +634,21 @@ export function foldPointFigure(
     else if (current - low >= box) direction = -1;
     else return { state, emitted: [] };
   }
+  /*
+   * TVP8: a reversal column was truncated to exactly `rev` boxes.
+   *
+   * The reversal TEST is "has price moved `rev` boxes against the column" —
+   * but once it passes, the new column runs to the furthest whole box price
+   * actually reached, exactly as a continuation does. Emitting `rev * box` and
+   * stopping meant a violent reversal drew the same short column as a bare
+   * three-box one, which is the single thing a P&F reader is looking at.
+   */
   if (direction === 1) {
     if (high >= current + box) emit(current + Math.floor((high - current) / box) * box, 1, hadColumn);
-    else if (current - low >= rev * box) emit(current - rev * box, -1);
+    else if (current - low >= rev * box) emit(current - Math.floor((current - low) / box) * box, -1);
   } else {
     if (low <= current - box) emit(current - Math.floor((current - low) / box) * box, -1, hadColumn);
-    else if (high - current >= rev * box) emit(current + rev * box, 1);
+    else if (high - current >= rev * box) emit(current + Math.floor((high - current) / box) * box, 1);
   }
   return {
     state: {
@@ -695,6 +759,7 @@ function mergeTransformOutput(output: OhlcBar[], emitted: readonly OhlcBar[]): v
 export function transformAll(
   kind: TransformKind, bars: readonly OhlcBar[], params?: TransformParams
 ): { cursor: TransformCursor; output: OhlcBar[] } {
+  if (kind === "renko" && params) params = renkoRepaintSize(bars, params) as TransformParams;
   let cursor = createTransformCursor(kind, params);
   const output: OhlcBar[] = [];
   for (const bar of bars) {

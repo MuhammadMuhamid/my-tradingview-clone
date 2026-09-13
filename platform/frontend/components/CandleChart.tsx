@@ -37,7 +37,7 @@ import {
   type ChartProfileDecoration,
 } from "@/lib/chartSeries";
 import {
-  chartTransform, legendSource, mainSeriesDatum, renderKind, transformParams,
+  chartTransform, isSyntheticTimeBase, legendSource, mainSeriesDatum, renderKind, transformParams,
   syntheticDisclosure, timeAnchoredVisualsTruthful,
   RENKO_ALIGNMENT_NOTE, SYNTHETIC_DISCLOSURE_HINT,
   type ChartRenderKind, type ChartType, type LegendSource, type MainSeriesDatum,
@@ -258,9 +258,41 @@ type MainSeriesApi =
   | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
   | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | ISeriesApi<"Histogram">;
 
+/*
+ * TVP8: a PRICE histogram cannot be based at zero.
+ *
+ * `base: 0` is what makes a histogram read as a column rather than a floating
+ * block, and for volume — which starts at zero — it is simply right. Columns
+ * plots price. The library folds the base into autoscale, so on anything that
+ * does not trade near zero the axis ran 0 to 77,000 and every column collapsed
+ * into a stripe across the top of the pane: the price axis was unreadable and
+ * the columns had no shape at all.
+ *
+ * The reference scales its Columns chart to the prices in view like every
+ * other type. So the base moves to just under the lowest value drawn, which
+ * keeps the columns grounded AND the axis describing the price range. It is
+ * applied where the data is, because it is a property of the data.
+ */
+function applyColumnBase(api: MainSeriesApi, rows: MainSeriesDatum[]): void {
+  const values = rows
+    .map((row) => (row as { value?: number }).value)
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (values.length === 0) return;
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  // A flat series would otherwise base exactly on its own value and draw
+  // nothing; one percent of the price is a visible column with no axis cost.
+  const span = high - low;
+  const base = low - (span > 0 ? span * 0.08 : Math.abs(low) * 0.01 || 1);
+  try {
+    (api as ISeriesApi<"Histogram">).applyOptions({ base });
+  } catch { /* the series went away between render and effect */ }
+}
+
 function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[]): void {
   const data = rows as unknown;
   const kind = renderKind(type);
+  if (kind === "histogram" && type === "columns") applyColumnBase(api, rows);
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).setData(data as CandlestickData<Time>[]);
   else if (kind === "bars") (api as ISeriesApi<"Bar">).setData(data as BarData<Time>[]);
   else if (kind === "area") (api as ISeriesApi<"Area">).setData(data as AreaData<Time>[]);
@@ -643,6 +675,24 @@ export function CandleChart({
    * that assumes the previous series is still on screen.
    */
   const mainSeriesDirtyRef = useRef(true);
+  /*
+   * TVP8: which TRANSFORM the chart last drew, so a change of time base can
+   * refit and a change of presentation cannot.
+   *
+   * Preserving the viewport across a presentation change is the right
+   * behaviour and is why candles → bars → line does not jump: they are the
+   * same bars drawn differently. Renko, Line break, Kagi and Point & figure
+   * are not. Their series has a different length and a synthetic time base, so
+   * the preserved range landed somewhere that series does not occupy — the
+   * first thing a user saw on choosing Line break was four fifths of an empty
+   * pane, with the chart perfectly correct off to the right. `reset` fixed it,
+   * which is not an answer; the reference refits and so does this.
+   *
+   * Heikin Ashi keeps the canonical times, so it is deliberately NOT in this
+   * set — switching to it holds the viewport, which is what makes it readable
+   * as the same chart smoothed.
+   */
+  const drawnTransformRef = useRef<ReturnType<typeof chartTransform>>(null);
   /**
    * Chart-only transform state. `headRef` is the fold over every closed bar;
    * `displayRef` is what is currently drawn, so the next update can be planned
@@ -1406,14 +1456,32 @@ export function CandleChart({
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
-    if (precision === "auto") return;
-    const digits = precision;
     try {
+      if (precision === "auto") {
+        /*
+         * TVP8: this used to `return` here, so Default was one-way. Pinning 5
+         * digits and then choosing Default again left the series formatted to
+         * 5 until something else happened to rebuild it — the control moved
+         * back and the chart did not, which is the worst kind of setting.
+         *
+         * Default means the instrument's own tick, which is exactly what the
+         * series would have derived for itself from the data.
+         */
+        const tick = priceTick && priceTick > 0 ? priceTick : null;
+        const digits = tick === null
+          ? 2
+          : Math.max(0, Math.min(10, Math.ceil(-Math.log10(tick) - 1e-9)));
+        series.applyOptions({
+          priceFormat: { type: "price", precision: digits, minMove: tick ?? 0.01 },
+        });
+        return;
+      }
+      const digits = precision;
       series.applyOptions({
         priceFormat: { type: "price", precision: digits, minMove: 1 / 10 ** digits },
       });
     } catch { /* the series went away between render and effect */ }
-  }, [precision, chartType, chartReady]);
+  }, [precision, chartType, chartReady, priceTick]);
 
   // Load candles without rebuilding all 10,000 points for a last-bar update.
   useEffect(() => {
@@ -1575,7 +1643,11 @@ export function CandleChart({
     // Refreshed only now: a transform's legend reads the bars it just drew,
     // so it cannot be computed before `displayRef` has been brought up to date.
     setLegend(latestLegend());
-    if (datasetKeyRef.current !== datasetKey) {
+    const drawnTransform = chartTransform(chartType);
+    const timeBaseChanged = drawnTransform !== drawnTransformRef.current
+      && (isSyntheticTimeBase(drawnTransform) || isSyntheticTimeBase(drawnTransformRef.current));
+    drawnTransformRef.current = drawnTransform;
+    if (datasetKeyRef.current !== datasetKey || timeBaseChanged) {
       datasetKeyRef.current = datasetKey;
       chartRef.current?.timeScale().fitContent();
       shortcutRangeRef.current = null;

@@ -168,7 +168,12 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
   },
   {
     value: "lineBreak", label: "Line break", group: "transform",
-    renderKind: "line", transform: "lineBreak",
+    // TVP8: a line-break chart is a column of BLOCKS, and `foldLineBreak`
+    // already emits one OHLC bar per line — open at the previous line's close,
+    // close at the breaking close. Rendering that as `line` threw the block
+    // away and drew a polyline through the closes, while the disclosure chip
+    // underneath still said "3 lines". Same for Point & figure below.
+    renderKind: "candles", transform: "lineBreak",
     hint: `${DEFAULT_LINE_BREAK_LINES}-line close-break transform — display only`,
   },
   {
@@ -178,7 +183,7 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
   },
   {
     value: "pointAndFigure", label: "Point & figure", group: "transform",
-    renderKind: "line", transform: "pointAndFigure",
+    renderKind: "candles", transform: "pointAndFigure",
     hint: `Price columns using ${DEFAULT_PNF_BOX_PERCENT}% boxes and ${DEFAULT_PNF_REVERSAL_BOXES}-box reversals`,
   },
 ];
@@ -221,6 +226,19 @@ export function hasHlcComponents(type: ChartType): boolean { return type === "hl
 export function isHighLow(type: ChartType): boolean { return type === "highLow"; }
 
 /** The transform to run before drawing, or null when the candles are drawn as-is. */
+/**
+ * Whether a transform draws on a time base of its own.
+ *
+ * Renko bricks, line-break lines, Kagi segments and P&F columns are not time
+ * bars: their count and their spacing come from price, so a viewport that was
+ * right for the candles is not right for them. Heikin Ashi is the exception —
+ * one smoothed bar per canonical bar, same times — which is why switching to
+ * it holds the viewport and switching to the other four refits.
+ */
+export function isSyntheticTimeBase(transform: TransformKind | null): boolean {
+  return transform !== null && transform !== "heikinAshi";
+}
+
 export function chartTransform(type: ChartType): TransformKind | null {
   return spec(type).transform;
 }
@@ -273,7 +291,11 @@ export function transformParams(
       pnfBoxPercent: settings?.pnfBoxPercent ?? DEFAULT_PNF_BOX_PERCENT,
       pnfReversalBoxes: settings?.pnfReversalBoxes ?? DEFAULT_PNF_REVERSAL_BOXES,
     } : {}),
-    ...(transform === "kagi" || transform === "pointAndFigure" ? { latestCloseSizing: true } : {}),
+    // TVP8: Renko joins the two percentage transforms in sizing from the
+    // latest bar. Equal brick height is Renko's defining property, and the
+    // reference buys it with exactly this repaint.
+    ...(transform === "kagi" || transform === "pointAndFigure" || transform === "renko"
+      ? { latestCloseSizing: true } : {}),
     tickSize,
   };
 }

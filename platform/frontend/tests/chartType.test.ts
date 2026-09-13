@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   CHART_TYPES, chartTransform, chartTypeLabel, chartTypeOrDefault, DEFAULT_RENKO_ATR_PERIOD,
-  drawsOhlc, isChartType, isSyntheticChartType, mainSeriesDatum, renderKind, renkoParams,
+  drawsOhlc, isChartType, isSyntheticChartType, isSyntheticTimeBase, mainSeriesDatum, renderKind, renkoParams,
   syntheticDisclosure, SYNTHETIC_DISCLOSURE_HINT, transformParams, transformParamSummary,
   type ChartType,
 } from "../lib/chartType";
@@ -157,9 +157,37 @@ test("transforms are drawn by a candlestick series, not by a series of their own
   assert.equal(renderKind("columns"), "histogram");
   assert.equal(renderKind("highLow"), "candles");
   assert.equal(renderKind("sessionVolumeProfile"), "candles");
-  assert.equal(renderKind("lineBreak"), "line");
+  // TVP8: line break and P&F draw blocks, not a polyline through the closes.
+  assert.equal(renderKind("lineBreak"), "candles");
+  assert.equal(renderKind("pointAndFigure"), "candles");
+  // Kagi is genuinely a LINE — one continuous path whose width changes at the
+  // shoulder. It is the one transform a candlestick series cannot express.
   assert.equal(renderKind("kagi"), "line");
-  assert.equal(renderKind("pointAndFigure"), "line");
+});
+
+test("A TRANSFORM THAT EMITS A BLOCK IS NEVER DRAWN AS A LINE", () => {
+  /*
+   * The rule the assertion above is a table of.
+   *
+   * Line break and Point & figure each spent a campaign as `renderKind: "line"`
+   * while their folds emitted a full OHLC block, so `mainSeriesDatum` reduced
+   * every one of them to `{ time, value: close }` and the chart drew a polyline
+   * under a chip reading "3 lines" or "1% / 3 boxes". A table of expected
+   * strings could not catch that, because the table was equally happy to be
+   * wrong. This asks the pair of them directly: if the transform's own output
+   * distinguishes open from close, the renderer has to keep both.
+   */
+  const block = {
+    openTime: 1_700_000_000_000, open: 100, high: 110, low: 99, close: 108,
+  };
+  for (const type of CHART_TYPES.filter((t) => t.group === "transform")) {
+    const datum = mainSeriesDatum(type.value, block) as unknown as Record<string, number>;
+    if (type.value === "kagi") continue;  // a line by definition, see above
+    assert.ok("open" in datum && "close" in datum,
+      `${type.value} transforms OHLC but is rendered as a line — its open is discarded`);
+    assert.equal(datum.open, 100, `${type.value} lost its open`);
+    assert.equal(datum.close, 108, `${type.value} lost its close`);
+  }
 });
 
 test("THE MENU OFFERS NO TYPE THE RENDERER CANNOT DRAW", () => {
@@ -302,4 +330,40 @@ test("HLC area uses the shared fill decoration between high and low overlays", (
   assert.match(pane, /firstId: `hlc:\$\{paneId\}:high`/);
   assert.match(pane, /secondId: `hlc:\$\{paneId\}:low`/);
   assert.match(pane, /kind: "fill"/);
+});
+
+test("A CHANGE OF TIME BASE REFITS; A CHANGE OF PRESENTATION DOES NOT", () => {
+  /*
+   * Candles → bars → line are the same bars drawn differently, and holding the
+   * viewport across that is what stops the chart jumping under the user.
+   *
+   * Renko, Line break, Kagi and P&F are not the same bars. Their series has a
+   * different length and its spacing comes from price, so the held range
+   * landed on times that series does not occupy: choosing Line break showed
+   * four fifths of an empty pane with a perfectly correct chart off to the
+   * right, until the user found `reset`.
+   *
+   * Heikin Ashi is one smoothed bar per canonical bar at the same times, so it
+   * stays on the viewport-preserving side — which is what makes it read as the
+   * same chart, smoothed.
+   */
+  assert.equal(isSyntheticTimeBase(null), false);
+  assert.equal(isSyntheticTimeBase("heikinAshi"), false);
+  for (const t of ["renko", "lineBreak", "kagi", "pointAndFigure"] as const) {
+    assert.equal(isSyntheticTimeBase(t), true, `${t} has a time base of its own`);
+  }
+
+  // Every transform is accounted for above, so a new one cannot join silently.
+  const transforms = new Set(CHART_TYPES.flatMap((t) => {
+    const k = chartTransform(t.value);
+    return k === null ? [] : [k];
+  }));
+  assert.deepEqual([...transforms].sort(),
+    ["heikinAshi", "kagi", "lineBreak", "pointAndFigure", "renko"]);
+
+  // And the chart actually acts on it, rather than only exporting the rule.
+  const chart = read("components/CandleChart.tsx");
+  assert.match(chart, /isSyntheticTimeBase\(drawnTransform\)/,
+    "the time-base change must reach the refit");
+  assert.match(chart, /timeBaseChanged/);
 });

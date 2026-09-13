@@ -19,9 +19,10 @@ import path from "node:path";
 import {
   createRenkoState, createTransformCursor, DEFAULT_RENKO_ATR_PERIOD, foldRenko,
   heikinAshiBar, heikinAshiBars, kagiBars, lineBreakBars,
-  pointFigureColumns, renkoBricks, transformAll, transformStep,
+  pointFigureColumns, renkoBricks, renkoSize, transformAll, transformStep,
   type OhlcBar,
 } from "../lib/chartTransforms";
+import { transformParams } from "../lib/chartType";
 
 const ROOT = path.join(__dirname, "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -601,4 +602,83 @@ test("NO TRADING, ALERT, STRATEGY OR SCIENTIFIC PATH DRAWS FROM A TRANSFORM", ()
   assert.match(chart, /canonicalOpenTime\(brick\)/);
   assert.equal(/onCrosshairRef\.current\?\.\(\s*(param|raw)?\.?time/.test(chart), false,
     "the raw axis position must not be published while a transform is active");
+});
+
+// ── TVP8: the shapes these transforms are supposed to have ─────────────────
+
+test("RENKO AS SHIPPED DRAWS ONE BRICK HEIGHT, NOT A HEIGHT PER BAR", () => {
+  /*
+   * Equal brick height is the whole of Renko. A chart whose bricks are ATR-at
+   * -each-bar tall is a candle chart with the time squeezed out of it, and it
+   * reads as one — which is what it looked like for a whole campaign, with the
+   * differing `size` printed in the legend next to each brick.
+   *
+   * `transformParams` is asked for the real shipped parameters rather than a
+   * literal, so this fails if Renko is ever quietly taken back out of the
+   * repaint mode that buys the uniformity.
+   */
+  const volatile = series(400, (i) =>
+    // Calm for the first half, then four times the range: the exact window
+    // that produced visibly different bricks at the two ends of one chart.
+    100 + Math.sin(i / 7) * (i < 200 ? 2 : 8) + i * 0.05);
+
+  const shipped = transformParams("renko", 0.01);
+  assert.equal(shipped.latestCloseSizing, true,
+    "Renko is sized from the latest bar — without that there is no one size");
+
+  const bricks = renkoBricks(volatile, shipped);
+  assert.ok(bricks.length > 20, "the fixture must actually produce a chart");
+  const sizes = new Set(bricks.map((b) => b.size));
+  assert.equal(sizes.size, 1,
+    `every brick is the same height; got ${[...sizes].length} distinct sizes`);
+
+  // And that one height is the ATR of the window, not of its first bars.
+  assert.ok(Math.abs([...sizes][0]! - renkoSize(volatile, shipped.atrPeriod)!) < 1e-9);
+
+  // The causal fold is still there for whoever does not want the repaint, and
+  // it is still the thing Replay steps through.
+  const causal = renkoBricks(volatile, { atrPeriod: shipped.atrPeriod });
+  assert.ok(new Set(causal.map((b) => b.size)).size > 1,
+    "without the repaint the fold stays per-bar, which is what keeps replay a prefix");
+});
+
+test("A LINE BREAK LINE IS A BREAK, INCLUDING THE FIRST ONES", () => {
+  /*
+   * `state.lines.length >= window &&` made the first `window - 1` lines
+   * unconditional: a chart opened with two lines that had broken nothing, and
+   * if the opening closes were equal, with two lines of zero height.
+   */
+  const flat = series(12, () => 100);
+  assert.deepEqual(lineBreakBars(flat).length, 1,
+    "a series that never moves is one line, not one per bar until the window fills");
+
+  // A real break still opens one, from the very first comparison.
+  const step = series(6, (i) => (i === 0 ? 100 : 100 + i));
+  const lines = lineBreakBars(step, 3);
+  assert.ok(lines.every((l) => l.high > l.low || l === lines[0]),
+    "no line after the first has zero height");
+  for (let i = 1; i < lines.length; i++) {
+    assert.equal(lines[i]!.open, lines[i - 1]!.close, "a line opens where the last one closed");
+  }
+});
+
+test("A POINT & FIGURE REVERSAL RUNS TO THE BOX IT REACHED", () => {
+  /*
+   * The reversal TEST is "`rev` boxes against the column". Once it passes, the
+   * new column runs to the furthest whole box price actually reached — like a
+   * continuation does. Emitting exactly `rev * box` and stopping drew the same
+   * short column for a collapse as for a bare three-box pullback, which is the
+   * one thing a P&F reader is looking at.
+   */
+  const up = series(30, (i) => 100 + i * 2);
+  const crash = [...up, {
+    openTime: T0 + 30 * MINUTE, open: 158, high: 158, low: 100, close: 100,
+  }];
+  const columns = pointFigureColumns(crash, 1, 3, false, 0.01);
+  const last = columns[columns.length - 1]!;
+  assert.equal(last.direction, -1, "the crash bar reverses the column");
+  assert.ok(last.boxes > 3,
+    `a 58-point reversal is more than the 3-box minimum; got ${last.boxes} boxes`);
+  assert.ok(last.low <= 102,
+    `the column runs down to the box price reached, not ${last.low}`);
 });
