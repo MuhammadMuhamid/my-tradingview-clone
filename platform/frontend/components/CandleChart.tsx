@@ -1643,7 +1643,10 @@ export function CandleChart({
     // Refreshed only now: a transform's legend reads the bars it just drew,
     // so it cannot be computed before `displayRef` has been brought up to date.
     setLegend(latestLegend());
-    const drawnTransform = chartTransform(chartType);
+    // `mainKindRef` is the type the SERIES was built from, which is how the
+    // rest of this effect reads it — the effect re-runs on `chartReady`, which
+    // the series-creating effect bumps.
+    const drawnTransform = chartTransform(mainKindRef.current);
     const timeBaseChanged = drawnTransform !== drawnTransformRef.current
       && (isSyntheticTimeBase(drawnTransform) || isSyntheticTimeBase(drawnTransformRef.current));
     drawnTransformRef.current = drawnTransform;
