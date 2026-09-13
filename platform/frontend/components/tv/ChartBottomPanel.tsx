@@ -54,6 +54,25 @@ const bottomKey = (): string =>
  * and then giving it back.
  */
 const HEIGHT_KEY = "tv.bottomHeight";
+
+/**
+ * Which tab was open.
+ *
+ * TVP8 round two: the panel remembered whether it was collapsed and how tall
+ * it was, and not which of its three tabs the user was working in. Somebody
+ * halfway through a Pine script reloads and lands on Positions & Orders. The
+ * reference remembers; so does every editor this panel is shaped like.
+ *
+ * Not split by form factor the way the collapsed preference is: a phone and a
+ * desktop want different OPENING HEIGHTS, but the tab is what the user is
+ * doing, and that does not change with the window.
+ */
+const TAB_KEY = "tv.bottomTab";
+
+function storedTab(): BottomTab | null {
+  const raw = recall(TAB_KEY);
+  return raw === "trading" || raw === "tester" || raw === "pine" ? raw : null;
+}
 const MIN_HEIGHT = 140;
 const DEFAULT_HEIGHT = 380;
 /** Never take the whole window: the chart must stay legible behind it. */
@@ -108,6 +127,11 @@ export interface ChartBottomPanelProps {
 export type BottomTab = "trading" | "tester" | "pine";
 
 export function ChartBottomPanel(props: ChartBottomPanelProps) {
+  /*
+   * "trading" until the stored choice is read, because `storedTab` touches
+   * `window` and the server renders this too. The restore is an effect below,
+   * beside the height and collapsed ones.
+   */
   const [tab, setTab] = useState<BottomTab>("trading");
   /** Collapsed to just its tab strip, so the chart gets the full height. */
   const [collapsed, setCollapsed] = useState(false);
@@ -132,6 +156,25 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
     if (userChoseTab.current || tradingStateFreshness(manualState, manualUnavailable) !== "unavailable") return;
     setTab((current) => (current === "trading" ? "tester" : current));
   }, [manualState, manualUnavailable]);
+
+  /*
+   * The stored tab, restored WITHOUT claiming the user just chose it — so the
+   * availability rule above still gets to move a stored "trading" to the
+   * tester when there is no trading state to show. A stored "pine" it leaves
+   * alone, which is the whole point.
+   */
+  useEffect(() => {
+    const stored = storedTab();
+    if (stored) setTab(stored);
+  }, []);
+
+  // Persisted whenever it changes, including the programmatic move that opens
+  // a script in the editor: that is where the user now is.
+  const tabRestored = useRef(false);
+  useEffect(() => {
+    if (!tabRestored.current) { tabRestored.current = true; return; }
+    remember(TAB_KEY, tab);
+  }, [tab]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

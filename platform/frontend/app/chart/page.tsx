@@ -1144,8 +1144,17 @@ export default function TvWorkspace() {
 
   const changeChartType = useCallback((next: ChartType) => {
     setWorkspace((ws) => updatePane(ws, ws.activePaneId, { chartType: next }));
-    // Also the default for panes created later, which is what a workspace-level
-    // presentation preference has always meant here.
+    /*
+     * The FIRST-RUN default, and only that.
+     *
+     * This comment used to say "also the default for panes created later",
+     * which is not true and has not been since panes were added: `setPreset`
+     * grows the workspace with `clonePane(activePane)`, so a new pane inherits
+     * the pane it was split from — which is the behaviour a user expects and
+     * the one the reference has. `tv.chartType` seeds `loadWorkspace` on a
+     * browser that has no stored workspace at all, so somebody who prefers
+     * Heikin Ashi gets it on a new machine rather than candles.
+     */
     saveChartType(next);
   }, []);
 
