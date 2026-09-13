@@ -25,11 +25,14 @@
  */
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { createChart, type IChartApi, type ISeriesApi } from "lightweight-charts";
 import { resetBrowser } from "./harness/env";
+import { planSeriesMutation, type ChartPoint, type SeriesMutation } from "@/lib/chartSeries";
 import {
-  canUpdateTail, planSeriesMutation, type ChartPoint, type SeriesMutation,
-} from "@/lib/chartSeries";
+  replaceOverlayData, setMainSeriesData, updateMainSeries, updateOverlayData,
+  type OverlaySeriesEntry, type SeriesHead,
+} from "@/components/CandleChart";
+import { replaceData, updateData, type SeriesEntry } from "@/components/tv/IndicatorPane";
 import { computeWindow } from "@/lib/native/compute";
 import type { Candle } from "@/lib/types";
 
@@ -61,44 +64,45 @@ const plot = (times: readonly number[]): ChartPoint[] =>
   times.map((time, i) => ({ time, value: 50 + Math.sin(i / 7) * 20 }));
 
 /**
- * The chart's write seam, verbatim: plan against what the series was last
- * given, then make exactly the call the plan names.
+ * The chart's write seam — THE PRODUCTION ONE.
  *
- * `held` mirrors `entry.data` in `CandleChart.updateOverlayData` and
- * `IndicatorPane.updateData`, which is what those two compare the incoming
- * point against before they will call `update()` at all.
+ * `replace`/`update` are `CandleChart`'s and `IndicatorPane`'s own exported
+ * functions, called on an entry holding a real lightweight-charts series. An
+ * earlier version of this file re-implemented them, and a review deleted the
+ * `canUpdateTail` guard from both components and watched every DOM test stay
+ * green. So the seam is imported now, and deleting it from either component
+ * fails this file.
  */
-function writer(
-  api: ISeriesApi<"Line">,
+function writer<E extends { data: ChartPoint[] }>(
+  entry: E,
+  replace: (entry: E, points: ChartPoint[]) => void,
+  update: (entry: E, points: ChartPoint[]) => void,
   plan: (previous: ChartPoint[], next: ChartPoint[]) => SeriesMutation = planSeriesMutation,
 ) {
-  let held: ChartPoint[] = [];
-  const rows = (points: ChartPoint[]) =>
-    points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value ?? undefined }));
   return {
     apply(next: ChartPoint[]): SeriesMutation {
-      const planned = plan(held, next);
-      if (planned === "replace") {
-        api.setData(rows(next));
-        held = [...next];
-      } else if (planned === "update") {
-        const point = next[next.length - 1]!;
-        // The seam, verbatim: the shared refusal both components consult
-        // before they will call `update()` at all.
-        if (!canUpdateTail(held, point.time)) {
-          api.setData(rows(next));
-          held = [...next];
-          return "replace";
-        }
-        api.update({ time: point.time as UTCTimestamp, value: point.value ?? undefined });
-        held = held.length > 0 && held[held.length - 1]!.time === point.time
-          ? [...held.slice(0, -1), point] : [...held, point];
-      }
+      const planned = plan(entry.data, next);
+      if (planned === "replace") replace(entry, next);
+      else if (planned === "update") update(entry, next);
       return planned;
     },
-    held: () => held,
+    held: () => entry.data,
   };
 }
+
+/** A price-pane overlay entry, as `CandleChart` builds one. */
+const priceWriter = (
+  api: ISeriesApi<"Line">,
+  plan?: (previous: ChartPoint[], next: ChartPoint[]) => SeriesMutation,
+) => writer<OverlaySeriesEntry>(
+  { kind: "Line", api, data: [] }, replaceOverlayData, updateOverlayData, plan);
+
+/** An indicator-pane plot entry, as `IndicatorPane` builds one. */
+const paneWriter = (
+  api: ISeriesApi<"Line">,
+  plan?: (previous: ChartPoint[], next: ChartPoint[]) => SeriesMutation,
+) => writer<SeriesEntry>(
+  { kind: "Line", api, data: [] }, replaceData, updateData, plan);
 
 let chart: IChartApi | null = null;
 
@@ -113,8 +117,10 @@ test("ZOOMING A STUDY'S WINDOW BACKWARDS DOES NOT THROW OUT OF THE LIBRARY", () 
   document.body.appendChild(host);
   chart = createChart(host, { width: 1280, height: 320 });
 
-  const plotWriter = writer(chart.addLineSeries());
-  const levels = [70, 50, 30].map(() => writer(chart!.addLineSeries()));
+  // The study's plot goes through the price-overlay seam and its three levels
+  // through the indicator-pane seam, so both production writers are exercised.
+  const plotWriter = priceWriter(chart.addLineSeries());
+  const levels = [70, 50, 30].map(() => paneWriter(chart!.addLineSeries()));
 
   const draw = (visibleBars: number, firstVisibleIndex: number) => {
     const times = timesFor(visibleBars, firstVisibleIndex);
@@ -195,19 +201,29 @@ test("THE SEAM HOLDS EVEN WHEN THE PLANNER IS WRONG", () => {
   chart = createChart(host, { width: 1280, height: 320 });
 
   const alwaysUpdate = (): SeriesMutation => "update";
-  const level70 = writer(chart.addLineSeries(), alwaysUpdate);
+  const level70 = paneWriter(chart.addLineSeries(), alwaysUpdate);
+  const level30 = priceWriter(chart.addLineSeries(), alwaysUpdate);
 
-  level70.apply(level(timesFor(1_400, 0)));
+  for (const w of [level70, level30]) w.apply(level(timesFor(1_400, 0)));
   // A tail 400 bars in the past, offered as an "update" by a broken planner.
-  assert.equal(level70.apply(level(timesFor(800, 0))), "replace",
-    "the seam did not convert a backwards update into the replacement it is");
+  // The OUTCOME is what is asserted: the seam is inside the production
+  // `update` functions, so what it did shows in what the series now holds,
+  // not in the plan it was handed.
+  const narrow = level(timesFor(800, 0));
+  for (const w of [level70, level30]) {
+    w.apply(narrow);
+    assert.deepEqual(w.held(), narrow,
+      "the seam did not convert a backwards update into the replacement it is");
+  }
 
   for (const bars of [1_400, 600, 1_000, 400, 1_200, 200, 800]) {
-    for (const first of [0, 200, 600, 0]) level70.apply(level(timesFor(bars, first)));
+    for (const first of [0, 200, 600, 0]) {
+      for (const w of [level70, level30]) w.apply(level(timesFor(bars, first)));
+    }
   }
 
   const settled = timesFor(1_400, 0);
-  level70.apply(level(settled));
+  for (const w of [level70, level30]) w.apply(level(settled));
 
   /*
    * A broken planner still draws a wrong PICTURE — told "update" for a window
@@ -221,6 +237,54 @@ test("THE SEAM HOLDS EVEN WHEN THE PLANNER IS WRONG", () => {
   for (let i = 1; i < rows.length; i++) {
     assert.ok(rows[i]!.time > rows[i - 1]!.time, "the seam let the series go out of order");
   }
+
+  host.remove();
+});
+
+test("A MAIN-SERIES ROW BEHIND THE HEAD IS REPAINTED, NOT DROPPED", () => {
+  /*
+   * The other half of the same rule, on the price series.
+   *
+   * `updateMainSeries` has refused a backwards row since the first repair in
+   * this family — but it refused by returning `false`, and all four of its
+   * callers ignored the return. Two of them then wrote `displayRef.current =
+   * display`, so the component's record claimed a bar the series had never
+   * been given; the next plan, computed from that record, could answer
+   * "update" for a bar that was never drawn and leave the series short.
+   *
+   * A refusal now runs the caller's own repaint. This drives the real
+   * function against a real series and checks BOTH halves: the row is refused,
+   * and the content that row belonged to is on the chart anyway.
+   */
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  chart = createChart(host, { width: 1280, height: 320 });
+  const api = chart.addLineSeries();
+  const head: SeriesHead = { current: null };
+
+  const rows = timesFor(1_400, 0).map((time, i) => ({ time, value: 100 + i }));
+  setMainSeriesData(api, "line", rows, head);
+  assert.equal(head.current, rows[rows.length - 1]!.time);
+
+  // A row 400 bars behind the head, with the shorter window it belongs to.
+  const shorter = timesFor(800, 0).map((time, i) => ({ time, value: 200 + i }));
+  const behind = shorter[shorter.length - 1]!;
+  assert.ok(behind.time < head.current!);
+
+  let repainted = false;
+  const accepted = updateMainSeries(api, "line", behind, head, () => {
+    repainted = true;
+    setMainSeriesData(api, "line", shorter, head);
+  });
+
+  assert.equal(accepted, false, "a row behind the head was written through update()");
+  assert.ok(repainted, "the refusal dropped the row instead of repainting it");
+  assert.equal(head.current, behind.time, "the repaint did not move the head to the new window");
+
+  // And the series took it: a forward row against the NEW head is an ordinary
+  // update, which it could not be if the repaint had not happened.
+  const next = { time: behind.time + 86_400, value: 999 };
+  assert.equal(updateMainSeries(api, "line", next, head), true);
 
   host.remove();
 });

@@ -16,7 +16,7 @@ import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicat
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 
-type SeriesEntry =
+export type SeriesEntry =
   | { kind: "Line"; api: ISeriesApi<"Line">; data: ChartPoint[] }
   | { kind: "Histogram"; api: ISeriesApi<"Histogram">; data: ChartPoint[] }
   | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] }
@@ -87,7 +87,7 @@ function barDatum(point: ChartPoint): BarData<Time> | WhitespaceData<Time> {
     : { time: point.time as UTCTimestamp };
 }
 
-function replaceData(entry: SeriesEntry, points: ChartPoint[]): void {
+export function replaceData(entry: SeriesEntry, points: ChartPoint[]): void {
   if (entry.kind === "Line") entry.api.setData(points.map(lineDatum));
   else if (entry.kind === "Histogram") entry.api.setData(points.map(histogramDatum));
   else if (entry.kind === "Area") entry.api.setData(points.map(areaDatum));
@@ -105,7 +105,16 @@ function replaceData(entry: SeriesEntry, points: ChartPoint[]): void {
  * `update()` cannot move a bar backwards; it throws, and the throw reaches the
  * route's error boundary from inside this effect.
  */
-function updateData(entry: SeriesEntry, points: ChartPoint[]): void {
+/*
+ * Exported for `tests/dom/studyWindowZoom.test.tsx`, which drives THIS function
+ * against a real lightweight-charts series.
+ *
+ * The first version of that test re-implemented the seam instead of calling it,
+ * and a review proved the point by deleting the guard from this file and
+ * watching all 106 DOM tests stay green. A regression test that re-implements
+ * the code it is protecting protects nothing.
+ */
+export function updateData(entry: SeriesEntry, points: ChartPoint[]): void {
   const point = points[points.length - 1]!;
   if (!canUpdateTail(entry.data, point.time)) { replaceData(entry, points); return; }
   if (entry.kind === "Line") entry.api.update(lineDatum(point));

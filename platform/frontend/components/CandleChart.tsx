@@ -146,7 +146,7 @@ export interface ChartMarker {
   category?: "alert" | "event";
 }
 
-type OverlaySeriesEntry =
+export type OverlaySeriesEntry =
   | { kind: "Line"; api: ISeriesApi<"Line">; data: ChartPoint[] }
   | { kind: "Histogram"; api: ISeriesApi<"Histogram">; data: ChartPoint[] }
   | { kind: "Area"; api: ISeriesApi<"Area">; data: ChartPoint[] }
@@ -255,7 +255,7 @@ function customCandleDatum(point: ChartPoint): CandlestickData<Time> | Whitespac
  * Ashi and Renko are both drawn by a candlestick series; what differs about
  * them is the bars they are handed, not the series that receives them.
  */
-type MainSeriesApi =
+export type MainSeriesApi =
   | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar"> | ISeriesApi<"Line">
   | ISeriesApi<"Area"> | ISeriesApi<"Baseline"> | ISeriesApi<"Histogram">;
 
@@ -316,9 +316,9 @@ function applyColumnBase(api: MainSeriesApi, rows: MainSeriesDatum[]): void {
  * bar the series is already past has nothing to say that the bar after it will
  * not say a moment later.
  */
-type SeriesHead = { current: number | null };
+export type SeriesHead = { current: number | null };
 
-function setMainSeriesData(
+export function setMainSeriesData(
   api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[], head?: SeriesHead,
 ): void {
   const data = rows as unknown;
@@ -335,11 +335,30 @@ function setMainSeriesData(
   if (head) head.current = rows.length > 0 ? rows[rows.length - 1]!.time : null;
 }
 
-/** Returns false when the row was refused for being behind the series. */
-function updateMainSeries(
+/**
+ * Write one row to the main series, repainting instead when it is behind.
+ *
+ * ── TVP8 round three ──────────────────────────────────────────────────────
+ *
+ * The refusal used to be a DROP: this returned `false` and every one of its
+ * four callers ignored it. Two of them then set `displayRef.current = display`,
+ * so the component's record claimed a bar the series had never been given — and
+ * the next plan, computed from that record, could answer "update" for a bar
+ * that was never drawn, leaving the series permanently one short.
+ *
+ * `repaint` is the caller's own full-replacement for the same content, and it
+ * is a thunk rather than an array because building one is the ten-thousand-row
+ * map the planner exists to avoid. So the cheap path stays cheap and the
+ * refusal draws the bars rather than silently losing them.
+ */
+export function updateMainSeries(
   api: MainSeriesApi, type: ChartType, row: MainSeriesDatum, head?: SeriesHead,
+  repaint?: () => void,
 ): boolean {
-  if (head && head.current !== null && row.time < head.current) return false;
+  if (head && head.current !== null && row.time < head.current) {
+    repaint?.();
+    return false;
+  }
   const datum = row as unknown;
   const kind = renderKind(type);
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).update(datum as CandlestickData<Time>);
@@ -527,7 +546,7 @@ function customBarDatum(point: ChartPoint): BarData<Time> | WhitespaceData<Time>
     : { time: point.time as UTCTimestamp };
 }
 
-function replaceOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): void {
+export function replaceOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): void {
   if (entry.kind === "Line") entry.api.setData(points.map(lineDatum));
   else if (entry.kind === "Histogram") entry.api.setData(points.map(histogramDatum));
   else if (entry.kind === "Area") entry.api.setData(points.map(areaDatum));
@@ -553,7 +572,16 @@ function replaceOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): vo
  * `update` advances it, and lightweight-charts keeps `_seriesLastTimePoint` by
  * the same two rules — so no separate watermark is needed here.
  */
-function updateOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): void {
+/*
+ * Exported for `tests/dom/studyWindowZoom.test.tsx`, which drives THIS function
+ * against a real lightweight-charts series.
+ *
+ * The first version of that test re-implemented the seam instead of calling it,
+ * and a review proved the point by deleting the guard from this file and
+ * watching all 106 DOM tests stay green. A regression test that re-implements
+ * the code it is protecting protects nothing.
+ */
+export function updateOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[]): void {
   const point = points[points.length - 1]!;
   if (!canUpdateTail(entry.data, point.time)) { replaceOverlayData(entry, points); return; }
   if (entry.kind === "Line") entry.api.update(lineDatum(point));
@@ -1930,7 +1958,10 @@ export function CandleChart({
       } else if (mutation === "update" && candles.length > 0) {
         const last = candles[candles.length - 1]!;
         updateMainSeries(series, kind, kind === "columns"
-          ? { time: last.openTime / 1000, value: last.close } : candleDatum(last), mainHeadRef);
+          ? { time: last.openTime / 1000, value: last.close } : candleDatum(last), mainHeadRef,
+          () => setMainSeriesData(series, kind, kind === "columns"
+            ? candles.map((c) => ({ time: c.openTime / 1000, value: c.close }))
+            : candles.map(candleDatum), mainHeadRef));
       }
     } else if ((transform === "kagi" || transform === "pointAndFigure") && !tick) {
       transformHeadRef.current = null;
@@ -1958,7 +1989,8 @@ export function CandleChart({
         setMainSeriesData(series, kind, display.map(transformedDatum), mainHeadRef);
         mainSeriesDirtyRef.current = false;
       } else if (plan === "update" && display.length > 0) {
-        updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!), mainHeadRef);
+        updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!), mainHeadRef,
+          () => setMainSeriesData(series, kind, display.map(transformedDatum), mainHeadRef));
       }
       displayRef.current = display;
     }
@@ -2406,19 +2438,28 @@ export function CandleChart({
         if (plan === "replace") {
           setMainSeriesData(series, kind, display.map(transformedDatum), mainHeadRef);
         } else if (plan === "update" && display.length > 0) {
-          updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!), mainHeadRef);
+          updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!), mainHeadRef,
+            () => setMainSeriesData(series, kind, display.map(transformedDatum), mainHeadRef));
         }
         displayRef.current = display;
       }
       /*
-       * Volume takes the same refusal the price series takes one branch above.
-       * A live frame for a bar the volume histogram is already past has nothing
-       * to say that the current bar will not say a moment later, and handing it
-       * to `update()` throws out of this handler into the route's error
-       * boundary. `volumeDrawnRef` is false only under a non-time transform,
-       * where volume is deliberately empty and any head would be a fiction.
+       * Volume, under the same two rules.
+       *
+       * DROPPED when the frame is behind the histogram's own head — and dropped
+       * rather than repainted, because this is the live path: a frame for a bar
+       * the chart is already past has nothing to say that the current bar will
+       * not say a moment later, which is the rule `lib/liveDataset` states for
+       * the price series. Handing it to `update()` throws out of this handler
+       * into the route's error boundary.
+       *
+       * SKIPPED entirely when the histogram is deliberately empty. Kagi, Point
+       * & Figure and Line Break are not drawn on a time axis, so the data
+       * effect clears volume under them (`vol.setData([])`); writing a tick
+       * into it here put one stray bar back on a chart that is showing none.
+       * Renko is the same omission and was the only one this branch knew about.
        */
-      if (transform !== "renko"
+      if (transform !== "renko" && volumeDrawnRef.current
         && !(volHeadRef.current !== null && timeSec < volHeadRef.current)) {
         vol.update({
           time, value: tick.volume,
