@@ -235,3 +235,49 @@ test("no settings row can outgrow the dialog's content column", () => {
     `the densest row is ${denseRow}px in a ${forControls}px column `
     + `(select ${narrowSelect}, number ${narrowNumber}, label ${labelColumn})`);
 });
+
+test("THIN BARS REACHES THE BARS SERIES, AND ONLY IT", () => {
+  /*
+   * ── TVP8 round two ─────────────────────────────────────────────────────
+   *
+   * The reference's Symbol tab offers "Thin bars" on its Bars chart. This
+   * product had no such setting, and could not have had one: `thinBars: false`
+   * was hard-coded at the moment the series was created, which is the only
+   * place lightweight-charts was ever told about it. So a zoomed-in Bars chart
+   * here was a row of fat ticks where the reference's stays hairline, with no
+   * control anywhere to say otherwise.
+   *
+   * The default is `true` — the library's own, and the reference's.
+   */
+  assert.equal(DEFAULT_CHART_SETTINGS.thinBars, true);
+  assert.equal(normalizeChartSettings({}).thinBars, true);
+  assert.equal(normalizeChartSettings({ thinBars: false }).thinBars, false);
+  // A setting that is not a boolean must not disable a feature by accident.
+  assert.equal(normalizeChartSettings({ thinBars: "no" }).thinBars, true);
+  assert.equal(normalizeChartSettings({ thinBars: 0 }).thinBars, true);
+
+  const chart = read("components/CandleChart.tsx");
+
+  /*
+   * Applied by its own effect, gated on the RENDER KIND. It cannot share the
+   * candle effect: `applyOptions({ thinBars })` on a candlestick series is an
+   * option that series does not have, and lightweight-charts ignores it in
+   * silence rather than complaining — so an effect that covered both would do
+   * nothing on 20 of the 21 chart types and look like it worked.
+   */
+  assert.match(chart, /if \(!series \|\| renderKind\(chartType\) !== "bars"\) return;/);
+  assert.match(chart, /\(series as ISeriesApi<"Bar">\)\.applyOptions\(\{\s*thinBars: settings\.thinBars,/);
+  assert.match(chart, /\}, \[chartType, chartReady, settings\.thinBars, upColor, downColor\]\);/);
+
+  // And the creation path no longer welds it shut.
+  assert.match(chart, /chart\.addBarSeries\(\{ upColor: CHART_UP, downColor: CHART_DOWN \}\)/);
+  assert.doesNotMatch(chart, /addBarSeries\(\{[^}]*thinBars/,
+    "a value set at creation is a value no setting can change");
+
+  // The control is offered on the one chart type that has a bar to thin, and
+  // gated on the render kind so a second bar-drawn type inherits it.
+  const modal = read("components/tv/ChartSettingsModal.tsx");
+  assert.match(modal, /const thinBarsApplies = renderKind\(chartType\) === "bars";/);
+  assert.match(modal, /\{thinBarsApplies && \(/);
+  assert.match(modal, /set\("thinBars", v\)/);
+});

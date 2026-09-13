@@ -12,6 +12,8 @@
  * as "everything changed" and repaint 10,000 points per pane per series.
  */
 import { test } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
 import assert from "node:assert/strict";
 import { datasetKey, LiveTickGate } from "../lib/liveDataset";
 import { heldWindow, mergeLiveBarsInto } from "../lib/useCandleHistory";
@@ -188,4 +190,97 @@ test("a trim the planner cannot honour is still a repaint", () => {
   assert.equal(planCandleMutation(before, before.slice(1, -1)), "replace");
   // A trim deeper than a live boundary produces is a new window.
   assert.equal(planCandleMutation(before, before.slice(50)), "replace");
+});
+
+test("A FRAME THAT ARRIVES BEHIND THE DRAWN BAR IS DROPPED, NOT DRAWN", () => {
+  /*
+   * ── TVP8 round two, found live on the production build ─────────────────
+   *
+   * The gate refused ticks from the wrong DATASET and had nothing to say
+   * about a tick from the right dataset that was simply OLD. Those went
+   * straight to `series.update()`, which lightweight-charts answers with
+   *
+   *   Error: Cannot update oldest data, last time=… new time=…
+   *
+   * and that throw is not caught at the series call. It escapes the tick
+   * handler and reaches the route's error boundary, so the ENTIRE chart page
+   * is replaced by "This page stopped working" because one websocket frame
+   * arrived out of order. A reconnect that replays, a slow frame that is
+   * overtaken, a venue that relabels — all of them are ordinary, and the only
+   * correct response is to drop the frame.
+   */
+  const gate = new LiveTickGate();
+  const ds = { symbol: "BTCUSDT", interval: "15m" as const };
+  const tick = (openTime: number) => ({ ...ds, openTime });
+
+  gate.adopt(ds, 1_000);
+
+  // The bar currently forming ticks many times a second at the SAME openTime
+  // with a moving close. Equal is not stale, or the live bar would freeze.
+  assert.equal(gate.decide(tick(1_000)), "apply");
+  assert.equal(gate.decide(tick(1_000)), "apply");
+
+  // Forward is fine, and moves the watermark.
+  assert.equal(gate.decide(tick(1_900)), "apply");
+
+  // Behind it is refused — and refused as `stale`, which is a different answer
+  // from `hold`: a held tick is waiting for its dataset, a stale one is
+  // waiting for nothing.
+  assert.equal(gate.decide(tick(1_000)), "stale");
+  assert.equal(gate.decide(tick(900)), "stale");
+  assert.equal(gate.staleTicks, 2);
+  // And nothing was held — these were not somebody else's bars.
+  assert.equal(gate.heldTicks, 0);
+
+  // The next real frame still applies; one bad frame does not wedge the chart.
+  assert.equal(gate.decide(tick(2_800)), "apply");
+});
+
+test("THE STALE WATERMARK IS THE DATASET'S OWN, NOT THE PREVIOUS ONE'S", () => {
+  /*
+   * The trap in the repair above: carrying the watermark across a symbol
+   * change would refuse every tick of an instrument whose history happens to
+   * end earlier than the last one's — which is most of them, on a chart
+   * switched from a 1m to a 1d window.
+   */
+  const gate = new LiveTickGate();
+  const btc = { symbol: "BTCUSDT", interval: "1m" as const };
+  const sol = { symbol: "SOLUSDT", interval: "1d" as const };
+
+  gate.adopt(btc, 9_000_000);
+  assert.equal(gate.decide({ ...btc, openTime: 9_000_000 }), "apply");
+
+  // A different instrument, whose newest bar is far older in absolute terms.
+  gate.adopt(sol, 5_000_000);
+  assert.equal(gate.decide({ ...sol, openTime: 5_000_000 }), "apply",
+    "the previous dataset's watermark must not reach this one");
+  assert.equal(gate.decide({ ...sol, openTime: 4_000_000 }), "stale");
+
+  // And the old instrument's frames are still HELD, not dropped as stale:
+  // they belong to a dataset this chart no longer shows.
+  assert.equal(gate.decide({ ...btc, openTime: 9_100_000 }), "hold");
+});
+
+test("a reset forgets the watermark along with everything else", () => {
+  const gate = new LiveTickGate();
+  const ds = { symbol: "BTCUSDT", interval: "15m" as const };
+  gate.adopt(ds, 5_000);
+  assert.equal(gate.decide({ ...ds, openTime: 4_000 }), "stale");
+  gate.reset();
+  gate.adopt(ds, 1_000);
+  assert.equal(gate.decide({ ...ds, openTime: 4_000 }), "apply",
+    "a torn-down chart carries nothing into its replacement");
+});
+
+test("THE CHART DROPS EVERYTHING THAT IS NOT `apply`", () => {
+  /*
+   * Asserted in the component, because the gate returning three answers is
+   * only half a repair if the caller still tests for one of them by name.
+   * `!== "apply"` is the shape that cannot go wrong when a fourth answer is
+   * added; `=== "hold"` is the shape that was there and let `stale` through.
+   */
+  const chart = fs.readFileSync(
+    path.join(__dirname, "..", "components", "CandleChart.tsx"), "utf8");
+  assert.match(chart, /if \(tickGateRef\.current\.decide\(tick\) !== "apply"\) return;/);
+  assert.doesNotMatch(chart, /decide\(tick\) === "hold"/);
 });

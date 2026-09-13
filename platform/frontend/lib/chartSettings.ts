@@ -43,6 +43,16 @@ export interface ChartSettings {
   candleBorders: boolean;
   /** Candle wicks. */
   candleWicks: boolean;
+  /**
+   * Bars drawn at one pixel, whatever the zoom.
+   *
+   * The reference's Symbol tab offers this for its Bars chart and this product
+   * did not — it shipped the library's `thinBars: false`, which widens every
+   * bar with the bar spacing, so a zoomed-in Bars chart here was a row of fat
+   * ticks where the reference's stays hairline. It only reaches the Bars
+   * series; nothing else in the registry has a thickness to thin.
+   */
+  thinBars: boolean;
   /** Up colour, as a hex literal — a canvas cannot read a custom property. */
   upColor: string;
   /** Down colour, as a hex literal. */
@@ -184,6 +194,9 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   candleBody: true,
   candleBorders: true,
   candleWicks: true,
+  // The library's own default, and the reference's: a Bars chart is hairline
+  // until somebody asks for otherwise.
+  thinBars: true,
   upColor: "#2ebd85",
   downColor: "#f6465d",
   precision: "auto",
@@ -367,6 +380,7 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     candleBody: bool(value.candleBody, true),
     candleBorders: bool(value.candleBorders, true),
     candleWicks: bool(value.candleWicks, true),
+    thinBars: bool(value.thinBars, true),
     upColor: typeof value.upColor === "string" && HEX.test(value.upColor)
       ? value.upColor : DEFAULT_CHART_SETTINGS.upColor,
     downColor: typeof value.downColor === "string" && HEX.test(value.downColor)

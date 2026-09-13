@@ -289,7 +289,37 @@ function applyColumnBase(api: MainSeriesApi, rows: MainSeriesDatum[]): void {
   } catch { /* the series went away between render and effect */ }
 }
 
-function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[]): void {
+/**
+ * The newest bar time a main series has actually been given.
+ *
+ * ── TVP8 round two, found live on the production build ─────────────────────
+ *
+ * lightweight-charts refuses an `update()` older than the series' last bar:
+ *
+ *   Error: Cannot update oldest data, last time=… new time=…
+ *
+ * The throw is not caught at the call and reaches the route's error boundary,
+ * so the whole chart page becomes "This page stopped working".
+ *
+ * `planOhlcMutation` is sound and cannot produce that on its own — it only
+ * answers "update" when the new bars match the old up to the last one. The
+ * flaw is what it compares AGAINST: `displayRef`, this component's record of
+ * what IT last drew. The series has two writers. The live-tick path advances
+ * it to a new bar, and in the untransformed case does not touch `displayRef`;
+ * the data effect then runs before the history has caught up, plans an
+ * "update" against a record that is one bar behind, and replays a bar the
+ * series has already moved past.
+ *
+ * So the guard lives at the one place every writer goes through, rather than
+ * in each of the six call sites, and it is a REFUSAL rather than a repair: a
+ * bar the series is already past has nothing to say that the bar after it will
+ * not say a moment later.
+ */
+type SeriesHead = { current: number | null };
+
+function setMainSeriesData(
+  api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[], head?: SeriesHead,
+): void {
   const data = rows as unknown;
   const kind = renderKind(type);
   if (kind === "histogram" && type === "columns") applyColumnBase(api, rows);
@@ -299,9 +329,16 @@ function setMainSeriesData(api: MainSeriesApi, type: ChartType, rows: MainSeries
   else if (kind === "histogram") (api as ISeriesApi<"Histogram">).setData(data as HistogramData<Time>[]);
   else if (kind === "baseline") (api as ISeriesApi<"Baseline">).setData(data as LineData<Time>[]);
   else (api as ISeriesApi<"Line">).setData(data as LineData<Time>[]);
+  // `setData` REPLACES, so the head is whatever was just written — including
+  // backwards, which is the whole point of a repaint.
+  if (head) head.current = rows.length > 0 ? rows[rows.length - 1]!.time : null;
 }
 
-function updateMainSeries(api: MainSeriesApi, type: ChartType, row: MainSeriesDatum): void {
+/** Returns false when the row was refused for being behind the series. */
+function updateMainSeries(
+  api: MainSeriesApi, type: ChartType, row: MainSeriesDatum, head?: SeriesHead,
+): boolean {
+  if (head && head.current !== null && row.time < head.current) return false;
   const datum = row as unknown;
   const kind = renderKind(type);
   if (kind === "candles") (api as ISeriesApi<"Candlestick">).update(datum as CandlestickData<Time>);
@@ -310,6 +347,8 @@ function updateMainSeries(api: MainSeriesApi, type: ChartType, row: MainSeriesDa
   else if (kind === "histogram") (api as ISeriesApi<"Histogram">).update(datum as HistogramData<Time>);
   else if (kind === "baseline") (api as ISeriesApi<"Baseline">).update(datum as LineData<Time>);
   else (api as ISeriesApi<"Line">).update(datum as LineData<Time>);
+  if (head) head.current = head.current === null ? row.time : Math.max(head.current, row.time);
+  return true;
 }
 
 /** Create the main series for a presentation, in the shared price palette. */
@@ -357,7 +396,12 @@ function addMainSeries(
     });
   }
   if (kind === "bars") {
-    return chart.addBarSeries({ upColor: CHART_UP, downColor: CHART_DOWN, thinBars: false });
+    /*
+     * `thinBars` is applied by its own effect below, from the setting. It was
+     * hard-coded `false` here, which is why the setting could not exist: the
+     * creation path is the only place it was ever set.
+     */
+    return chart.addBarSeries({ upColor: CHART_UP, downColor: CHART_DOWN });
   }
   if (kind === "area") {
     return chart.addAreaSeries({
@@ -793,6 +837,13 @@ export function CandleChart({
    * series dirty, which makes the data effect below take its `replace` path
    * and hand the histogram a freshly coloured set.
    */
+  /**
+   * The newest bar time the MAIN SERIES holds — see `updateMainSeries`.
+   *
+   * A ref rather than state: it is written from an effect and from a websocket
+   * frame, and nothing renders from it.
+   */
+  const mainHeadRef = useRef<number | null>(null);
   const [themeTick, setThemeTick] = useState(0);
   useEffect(() => {
     const onTheme = (): void => {
@@ -1633,6 +1684,26 @@ export function CandleChart({
   }, [chartType, chartReady, upColor, downColor, candleBody, candleBorders, candleWicks]);
 
   /**
+   * Bars: hairline, or as wide as the bar spacing allows.
+   *
+   * Separate from the candle effect above because it reaches a different
+   * SERIES TYPE — `applyOptions({ thinBars })` on a candlestick series is an
+   * option the series does not have, and lightweight-charts does not complain,
+   * it simply ignores it. An effect that silently does nothing on 20 of the 21
+   * chart types is worse than one that says which one it is for.
+   */
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || renderKind(chartType) !== "bars") return;
+    try {
+      (series as ISeriesApi<"Bar">).applyOptions({
+        thinBars: settings.thinBars,
+        upColor, downColor,
+      });
+    } catch { /* the series went away between render and effect */ }
+  }, [chartType, chartReady, settings.thinBars, upColor, downColor]);
+
+  /**
    * Price precision.
    *
    * `auto` leaves the series formatting the library derives from the data,
@@ -1782,7 +1853,7 @@ export function CandleChart({
         wickColor: "rgba(0,0,0,0)", borderColor: "rgba(0,0,0,0)",
       })) : [];
       setMainSeriesData(series, kind, kind === "range"
-        ? tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)) : footprintAnchor);
+        ? tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)) : footprintAnchor, mainHeadRef);
       mainSeriesDirtyRef.current = false;
     } else if (transform === null) {
       transformHeadRef.current = null;
@@ -1791,17 +1862,17 @@ export function CandleChart({
         const rows = kind === "columns"
           ? candles.map((c) => ({ time: c.openTime / 1000, value: c.close }))
           : candles.map(candleDatum);
-        setMainSeriesData(series, kind, rows);
+        setMainSeriesData(series, kind, rows, mainHeadRef);
         mainSeriesDirtyRef.current = false;
       } else if (mutation === "update" && candles.length > 0) {
         const last = candles[candles.length - 1]!;
         updateMainSeries(series, kind, kind === "columns"
-          ? { time: last.openTime / 1000, value: last.close } : candleDatum(last));
+          ? { time: last.openTime / 1000, value: last.close } : candleDatum(last), mainHeadRef);
       }
     } else if ((transform === "kagi" || transform === "pointAndFigure") && !tick) {
       transformHeadRef.current = null;
       displayRef.current = [];
-      setMainSeriesData(series, kind, []);
+      setMainSeriesData(series, kind, [], mainHeadRef);
     } else {
       /*
        * A chart-only transform. The canonical candles above are untouched and
@@ -1821,10 +1892,10 @@ export function CandleChart({
       );
       const plan = forced ? "replace" : planOhlcMutation(displayRef.current, display);
       if (plan === "replace") {
-        setMainSeriesData(series, kind, display.map(transformedDatum));
+        setMainSeriesData(series, kind, display.map(transformedDatum), mainHeadRef);
         mainSeriesDirtyRef.current = false;
       } else if (plan === "update" && display.length > 0) {
-        updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!));
+        updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!), mainHeadRef);
       }
       displayRef.current = display;
     }
@@ -2251,7 +2322,7 @@ export function CandleChart({
         updateMainSeries(series, kind, kind === "columns"
           ? { time: timeSec, value: tick.close }
           : mainSeriesDatum(kind, liveOhlc, override
-            ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)));
+            ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)), mainHeadRef);
       } else if (transform !== null) {
         if ((transform === "kagi" || transform === "pointAndFigure")
           && !(priceTick && priceTick > 0)) return;
@@ -2270,9 +2341,9 @@ export function CandleChart({
         // prefix test and get a full repaint instead of a wrong one.
         const plan = planOhlcMutation(displayRef.current, display);
         if (plan === "replace") {
-          setMainSeriesData(series, kind, display.map(transformedDatum));
+          setMainSeriesData(series, kind, display.map(transformedDatum), mainHeadRef);
         } else if (plan === "update" && display.length > 0) {
-          updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!));
+          updateMainSeries(series, kind, transformedDatum(display[display.length - 1]!), mainHeadRef);
         }
         displayRef.current = display;
       }
@@ -2299,7 +2370,14 @@ export function CandleChart({
      * applied by the data effect the moment that history lands.
      */
     const onTick = (tick: KlineTick): void => {
-      if (tickGateRef.current.decide(tick) === "hold") return;
+      /*
+       * `hold` and `stale` are both "do not draw this", for opposite reasons:
+       * one is waiting for its dataset, the other is behind the bar already
+       * drawn. Applying the second throws inside lightweight-charts and the
+       * throw escapes to the route's error boundary — one out-of-order frame
+       * replaced the whole chart page with "This page stopped working".
+       */
+      if (tickGateRef.current.decide(tick) !== "apply") return;
       applyTick(tick);
     };
 

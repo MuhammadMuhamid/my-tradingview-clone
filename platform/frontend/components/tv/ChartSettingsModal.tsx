@@ -106,6 +106,17 @@ export function ChartSettingsModal({
     && chartType !== "hollowCandles" && chartType !== "highLow";
 
   /*
+   * Thin bars reaches exactly one chart type.
+   *
+   * The reference offers it on its Bars chart and nowhere else, for the good
+   * reason that nothing else in the registry has a bar thickness to thin.
+   * Gated on the RENDER KIND rather than on the type's name, so the day a
+   * second bar-drawn type exists it gets the control without anyone
+   * remembering to add it here.
+   */
+  const thinBarsApplies = renderKind(chartType) === "bars";
+
+  /*
    * The two colour wells reach further than the three toggles beside them.
    *
    * They were gated together, on the reasoning that a Line chart has no body
@@ -267,6 +278,11 @@ export function ChartSettingsModal({
                 <Toggle checked={settings.candleWicks} onChange={(v) => set("candleWicks", v)} label="Wick" />
               </Row>
                 </>
+              )}
+              {thinBarsApplies && (
+                <Row label="Thin bars">
+                  <Toggle checked={settings.thinBars} onChange={(v) => set("thinBars", v)} label="Thin bars" />
+                </Row>
               )}
               {directionColoursApply && (
                 <Row label={seriesColoursApply ? "Up / down" : "Up / down (volume)"}>
