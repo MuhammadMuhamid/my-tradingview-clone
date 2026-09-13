@@ -127,7 +127,7 @@ function FamilyRow({
   disabled?: boolean;
 }) {
   return (
-    <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-surface-2/60">
+    <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-state-hover/60">
       <span className="flex h-4 w-4 items-center justify-center">
         <span
           className="inline-block h-[3px] w-4 rounded-full"
@@ -218,13 +218,13 @@ export function MaPanel({
     const value = values[id];
     const armed = byLine.get(id) ?? [];
     return (
-      <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-surface-2/60">
+      <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-state-hover/60">
         <button
           onClick={() => onToggle(line.type, line.length)}
           title={line.visible ? "Hide line" : "Show line"}
           aria-label={`${line.visible ? "Hide" : "Show"} ${maLabel(line.type, line.length)}`}
           aria-pressed={line.visible}
-          className="flex h-5 w-5 items-center justify-center rounded hover:bg-surface-2"
+          className="flex h-5 w-5 items-center justify-center rounded hover:bg-state-hover"
         >
           <span
             className="inline-block h-[3px] w-4 rounded-full"
@@ -281,7 +281,7 @@ export function MaPanel({
         <span className="text-sm font-semibold">Moving averages</span>
         <button
           onClick={() => onToggleAll(!allVisible)}
-          className="flex h-6 items-center rounded px-2 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+          className="flex h-6 items-center rounded px-2 text-[11px] text-ink-muted hover:bg-state-hover hover:text-ink"
         >
           {allVisible ? "Hide all" : "Show all"}
         </button>
@@ -358,7 +358,7 @@ export function MaPanel({
             onClick={onArmPrice}
             disabled={liveActionsDisabled}
             title="Alert on a price level"
-            className="flex h-6 items-center rounded px-1.5 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+            className="flex h-6 items-center rounded px-1.5 text-[11px] text-ink-muted hover:bg-state-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
           >
             + Price
           </button>
@@ -377,7 +377,7 @@ export function MaPanel({
               disabled={liveActionsDisabled}
               title={`Edit — ${describeAlert(a)} · ${FREQUENCY_LABELS[a.frequency]}`}
               aria-label={`Edit alert — ${alertLineLabel(a)}, ${describeAlert(a)}, ${a.timeframe}`}
-              className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-surface-2/60 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex w-full items-center gap-2 px-3 py-[7px] text-left text-xs hover:bg-state-hover/60 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span
                 className="inline-block h-[3px] w-3 shrink-0 rounded-full"

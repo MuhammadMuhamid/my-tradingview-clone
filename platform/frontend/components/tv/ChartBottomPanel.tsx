@@ -189,7 +189,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
             // 20x20 measured below the 24x24 minimum a pointer target
             // needs, and it is the control that hides the panel covering
             // the chart — the one a phone user reaches for most.
-            className="flex h-7 w-7 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
+            className="flex h-7 w-7 items-center justify-center rounded text-ink-faint hover:bg-state-hover hover:text-ink"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
               {collapsed ? <path d="M6 15l6-6 6 6" /> : <path d="M6 9l6 6 6-6" />}

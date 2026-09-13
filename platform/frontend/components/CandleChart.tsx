@@ -2372,7 +2372,7 @@ export function CandleChart({
                 className={`rounded-sm px-1.5 text-[12px] leading-5 ${
                   activeRange === shortcut.id
                     ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
                 }`}
               >
                 {shortcut.label}
@@ -2428,7 +2428,7 @@ export function CandleChart({
                 className={`rounded px-1.5 py-0.5 transition-colors ${
                   scale.mode === "logarithmic"
                     ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
                 }`}
               >
                 log
@@ -2447,7 +2447,7 @@ export function CandleChart({
                 className={`rounded px-1.5 py-0.5 transition-colors ${
                   scale.mode === "percentage"
                     ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
                 }`}
               >
                 %
@@ -2460,7 +2460,7 @@ export function CandleChart({
                 className={`rounded px-1.5 py-0.5 transition-colors ${
                   scale.autoScale
                     ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
                 }`}
               >
                 auto
@@ -2469,7 +2469,7 @@ export function CandleChart({
                 type="button"
                 onClick={resetView}
                 title="Reset — fit every loaded bar and return the price scale to linear auto"
-                className="rounded px-1.5 py-0.5 text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                className="rounded px-1.5 py-0.5 text-ink-muted transition-colors hover:bg-state-hover hover:text-ink"
               >
                 reset
               </button>

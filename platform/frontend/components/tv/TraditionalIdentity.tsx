@@ -37,7 +37,7 @@ export function TraditionalIdentity({ symbol, dense }: { symbol: string; dense: 
       className="absolute left-0 top-6 z-50 w-[min(470px,calc(100vw-24px))] rounded-md border border-border bg-surface p-3 text-[11px] text-ink shadow-2xl max-sm:fixed max-sm:left-3 max-sm:right-3 max-sm:top-28 max-sm:w-auto">
       <div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{identity.base}/{identity.quote} · {type} · {identity.venue}</p>
         <p className="mt-0.5 text-ink-faint">Provider {metadata?.providerId ?? "pending"} · {metadata?.providerSymbol ?? "metadata pending"}</p></div>
-        <button onClick={() => setOpen(false)} aria-label="Close market details" className="h-7 w-7 rounded text-ink-muted hover:bg-surface-2">×</button></div>
+        <button onClick={() => setOpen(false)} aria-label="Close market details" className="h-7 w-7 rounded text-ink-muted hover:bg-state-hover">×</button></div>
       {fx && <><dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t border-border pt-2 text-ink-muted">
         <dt>Market structure</dt><dd className="text-right font-medium text-ink">OTC provider quote · not consolidated</dd>
         <dt>Chart / backtest basis</dt><dd className="text-right font-medium text-ink">MID (explicit)</dd>

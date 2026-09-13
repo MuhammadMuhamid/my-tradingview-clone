@@ -71,15 +71,59 @@
   --ts-chart-crosshair: #5c5c5c;
   --ts-chart-label: #3d3d3d;
 
-  /* Dense chart-workstation contract (TradingView measured at 1440px). */
+  /*
+   * Dense chart-workstation contract.
+   *
+   * TVP7: every number below was re-measured from the LIVE TradingView DOM at
+   * 1440x900 / dark / DPR 1 (getBoundingClientRect + getComputedStyle), not
+   * from a screenshot. Three of them were wrong and the errors were systemic
+   * rather than cosmetic:
+   *
+   *   toolbar-height was 42. The live header row is 38, and the 38px controls
+   *   inside it are full-bleed, so the extra 4px was pure air above the first
+   *   candle on every chart.
+   *
+   *   radius was 3. TradingView does not round its toolbar controls at all —
+   *   it paints state on a ::before pseudo-element inset 2px with a 6px
+   *   radius, which is why its hover reads as a chip INSIDE the hit zone
+   *   rather than as the hit zone lighting up. See `.tvc-control` below.
+   *
+   *   menu-row-height was 36. Live dropdown rows are 40.
+   */
   --ts-workstation-font-size: 14px;
-  /* TradingView's desktop header is 42px; controls remain 38px hit zones
-     centered within it so the drawing rail and chart begin on the same row. */
-  --ts-workstation-toolbar-height: 42px;
+  --ts-workstation-toolbar-height: 38px;
   --ts-workstation-rail-width: 52px;
-  --ts-workstation-menu-row-height: 36px;
+  --ts-workstation-menu-row-height: 40px;
   --ts-workstation-popover-padding: 6px;
-  --ts-workstation-radius: 3px;
+  --ts-workstation-radius: 6px;
+
+  /*
+   * Control state, as two neutrals.
+   *
+   * The single most visible difference between this workstation and
+   * TradingView's was not a colour value but WHICH colour means "selected".
+   * This product reached for `--ts-accent` at 15% and for `text-accent`
+   * wherever a control was active, so a toolbar with a couple of toggles on
+   * read as a row of blue lights. TradingView selects with grey — one step
+   * lighter than hover, both of them pure neutrals — and spends blue only on
+   * the primary action of a dialog and on data. Measured live:
+   *   hover    #2e2e2e (cold-gray-800)
+   *   selected #3d3d3d (cold-gray-750)
+   */
+  --ts-state-hover: #2e2e2e;
+  --ts-state-active: #3d3d3d;
+
+  /* Popovers sit one step lighter than the bar they open from (#1f1f1f on
+     #0f0f0f), so a menu reads as raised without needing a border. */
+  --ts-popover: #1f1f1f;
+  --ts-popover-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+
+  /* Outlined form controls inside dialogs: 1px solid, cold-gray-650. */
+  --ts-control-border: #575757;
+
+  /* A selected row in a dropdown is an INVERTED chip, not a tinted one. */
+  --ts-menu-selected-bg: #f2f2f2;
+  --ts-menu-selected-ink: #0f0f0f;
 }
 
 :root[data-theme="light"] {
@@ -111,6 +155,17 @@
   --ts-chart-grid: #f0f0f0;
   --ts-chart-crosshair: #9c9c9c;
   --ts-chart-label: #5c5c5c;
+
+  /* The same two-neutral state contract, one step darker than the surface
+     rather than one step lighter. Popovers stay white and earn their lift
+     from the shadow, which is what TradingView's light theme does. */
+  --ts-state-hover: #ebebeb;
+  --ts-state-active: #dbdbdb;
+  --ts-popover: #ffffff;
+  --ts-popover-shadow: 0 2px 4px rgba(0, 0, 0, 0.16);
+  --ts-control-border: #c9c9c9;
+  --ts-menu-selected-bg: #2e2e2e;
+  --ts-menu-selected-ink: #ffffff;
 }
 
 /* Scope the compact grammar to the chart only; marketing and research pages
@@ -133,6 +188,125 @@
 .tv-workstation [role="menu"] > [role="menuitemcheckbox"],
 .tv-workstation [role="menu"] > [role="menuitemradio"] {
   min-height: var(--ts-workstation-menu-row-height);
+}
+
+/*
+ * ── `.tvc-control`: the workstation's one state grammar ────────────────────
+ *
+ * Every chrome control — toolbar button, drawing-rail button, timeframe chip,
+ * menu trigger — paints hover and selection the same way, and it is the way
+ * TradingView does it: the control itself stays transparent and a ::before
+ * pseudo-element inset 2px with a 6px radius carries the colour.
+ *
+ * Why a pseudo-element rather than `hover:bg-…` on the button, which is what
+ * this bar used to do. A full-bleed 38x38 tint butts against its neighbour, so
+ * hovering along a row of icon buttons drags one continuous block of grey
+ * across the bar and the individual control never resolves. Inset by two
+ * pixels there is always a hairline of bar between two lit controls, which is
+ * what makes a dense row of them still read as discrete targets. It also means
+ * the hit zone stays 38px while the visible chip is 34 — a bigger target than
+ * it looks, which is the right way round.
+ *
+ * Selection is declared, not styled: a control is active when it carries
+ * `aria-pressed`, `aria-checked`, `aria-expanded` or `data-active`. So the
+ * accessible state and the visible state cannot disagree, and no component has
+ * to remember which utility class meant "on".
+ *
+ * `> *` gets `position: relative` so content sits above the chip without every
+ * call site having to add `relative z-10`.
+ */
+.tv-workstation .tvc-control {
+  position: relative;
+  /*
+   * `isolation: isolate` is load-bearing, not defensive.
+   *
+   * The chip has to sit BEHIND the control's content, and a control's content
+   * is often a bare text node — `{interval}` on a timeframe chip, the word
+   * `Best config` — which cannot be given a stacking order of its own. Lifting
+   * every ELEMENT child with `position: relative` therefore left the text
+   * nodes underneath, and the armed timeframe rendered as a solid grey
+   * rectangle with its label painted out.
+   *
+   * Making the control its own stacking context lets `z-index: -1` put the
+   * chip behind all of that content at once, while `isolate` stops it
+   * escaping further back than the control — without it the chip would land
+   * behind the toolbar's own background and never be seen at all.
+   */
+  isolation: isolate;
+  background-color: transparent;
+}
+.tv-workstation .tvc-control::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 2px;
+  border-radius: var(--ts-workstation-radius);
+  background-color: transparent;
+  pointer-events: none;
+}
+.tv-workstation .tvc-control:hover:not(:disabled):not([aria-disabled="true"])::before {
+  background-color: var(--ts-state-hover);
+}
+.tv-workstation .tvc-control[aria-pressed="true"]::before,
+.tv-workstation .tvc-control[aria-checked="true"]::before,
+.tv-workstation .tvc-control[aria-expanded="true"]::before,
+.tv-workstation .tvc-control[data-active="true"]::before {
+  background-color: var(--ts-state-active);
+}
+/* A rail button's chip is narrower than its 52px hit zone, so the rail reads
+   as a column of 34px squares rather than as a filled strip. Scoped to the
+   rail's own root so a rail button does not have to declare it. */
+.tv-workstation [data-drawing-rail="true"] .tvc-control::before {
+  inset: 2px 9px;
+}
+.tv-workstation .tvc-control:disabled,
+.tv-workstation .tvc-control[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/*
+ * ── `.tvc-menu` / `.tvc-menu-row`: the one dropdown grammar ────────────────
+ *
+ * Measured live: menu #1f1f1f, radius 6, shadow 0 2px 4px rgba(0,0,0,.4),
+ * 6px of padding, rows 40px tall inset 6px with a 6px radius. A selected row
+ * is an inverted light chip (#f2f2f2 on #0f0f0f text) — TradingView does not
+ * tint menu selection blue either.
+ */
+.tv-workstation .tvc-menu {
+  background-color: var(--ts-popover);
+  border-radius: var(--ts-workstation-radius);
+  box-shadow: var(--ts-popover-shadow);
+  padding: var(--ts-workstation-popover-padding) 0;
+}
+.tv-workstation .tvc-menu-row {
+  position: relative;
+  /* Block-level flex, so the row fills the menu minus its own gutters. A
+     `w-full` here would be width:100% and would ignore them. */
+  display: flex;
+  width: auto;
+  align-items: center;
+  min-height: var(--ts-workstation-menu-row-height);
+  margin: 0 var(--ts-workstation-popover-padding);
+  border-radius: var(--ts-workstation-radius);
+  background-color: transparent;
+}
+.tv-workstation .tvc-menu-row:hover:not(:disabled):not([aria-disabled="true"]),
+.tv-workstation .tvc-menu-row[data-highlighted="true"] {
+  background-color: var(--ts-state-hover);
+}
+.tv-workstation .tvc-menu-row[aria-checked="true"],
+.tv-workstation .tvc-menu-row[aria-selected="true"],
+.tv-workstation .tvc-menu-row[data-active="true"] {
+  background-color: var(--ts-menu-selected-bg);
+  color: var(--ts-menu-selected-ink);
+}
+/* The separator between groups of rows: a hairline inset to the rows' own
+   gutter, with the same 6px of air above and below that the menu has. */
+.tv-workstation .tvc-menu-sep {
+  height: 1px;
+  margin: var(--ts-workstation-popover-padding);
+  background-color: var(--ts-line-strong);
 }
 
 /*

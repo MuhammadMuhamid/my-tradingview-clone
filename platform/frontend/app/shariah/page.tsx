@@ -423,7 +423,7 @@ export default function ShariahPage() {
                   key={asset.assetId}
                   onClick={() => setSelected(asset.assetId)}
                   aria-current={selected === asset.assetId ? "true" : undefined}
-                  className={`flex w-full items-center justify-between gap-2 border-b border-border px-3 py-2 text-left text-sm hover:bg-surface-2 ${
+                  className={`flex w-full items-center justify-between gap-2 border-b border-border px-3 py-2 text-left text-sm hover:bg-state-hover ${
                     selected === asset.assetId ? "bg-surface-2" : ""
                   }`}
                 >

@@ -107,12 +107,12 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
                   ? `Test sent to ${r.sent} device${r.sent === 1 ? "" : "s"}`
                   : "No device received the test — try enabling again");
               })}
-              className="rounded border border-border px-2 py-1 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40">
+              className="rounded border border-border px-2 py-1 text-[11px] text-ink-muted hover:bg-state-hover hover:text-ink disabled:opacity-40">
               Test
             </button>
             <button disabled={busy}
               onClick={() => void run(async () => { await disablePush(); onMessage("Notifications disabled on this device"); })}
-              className="rounded border border-border px-2 py-1 text-[11px] text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40">
+              className="rounded border border-border px-2 py-1 text-[11px] text-ink-muted hover:bg-state-hover hover:text-ink disabled:opacity-40">
               Off
             </button>
           </div>

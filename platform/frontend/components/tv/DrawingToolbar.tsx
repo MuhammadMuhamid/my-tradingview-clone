@@ -77,7 +77,7 @@ const ICONS: Record<string, JSX.Element> = {
   trash: <><path d="M4 7h16" /><path d="M9 7V5h6v2" /><path d="M6 7l1 13h10l1-13" /></>,
 };
 
-const Icon = ({ name, size = 24 }: { name: string; size?: number }) => (
+const Icon = ({ name, size = 28 }: { name: string; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     {ICONS[name] ?? ICONS.trend}
@@ -334,8 +334,8 @@ export function DrawingToolbar({
    * hover transition, for the reason given on the toolbar.
    */
   const btn = (on: boolean): string =>
-    `flex h-[38px] w-[52px] items-center justify-center ${
-      on ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+    `tvc-control flex h-[38px] w-[52px] items-center justify-center ${
+      on ? "text-ink" : "text-ink-muted hover:text-ink"
     }`;
 
   return (
@@ -352,7 +352,7 @@ export function DrawingToolbar({
         <button
           onClick={onClose}
           aria-label="Close drawing tools"
-          className="mb-1 flex h-[38px] w-[52px] items-center justify-center text-ink-faint hover:bg-surface-2 hover:text-ink"
+          className="mb-1 flex h-[38px] w-[52px] items-center justify-center text-ink-faint hover:bg-state-hover hover:text-ink"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M4 4l16 16M20 4L4 20" />
@@ -397,11 +397,11 @@ export function DrawingToolbar({
               </button>
             )}
             {flyout === group.id && (
-              <div className="absolute left-[51px] top-0 z-50 w-[248px] rounded-sm border border-border bg-surface py-1 shadow-2xl">
+              <div className="absolute left-[51px] top-0 z-50 w-[264px] tvc-menu">
                 {group.tools.map((t) => {
                   const starred = favourites.includes(t.tool);
                   return (
-                    <div key={t.tool} className={`flex w-full items-center hover:bg-surface-2 ${t.tool === tool ? "text-accent" : "text-ink"}`}>
+                    <div key={t.tool} className={`flex w-full items-center hover:bg-state-hover ${t.tool === tool ? "text-accent" : "text-ink"}`}>
                       <button
                         onClick={() => { onTool(t.tool); setActive((a) => ({ ...a, [group.id]: t.tool })); setFlyout(null); }}
                         className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 text-left text-sm"
@@ -432,15 +432,15 @@ export function DrawingToolbar({
 
       <div className="my-1 h-px w-8 bg-border" />
 
-      <button onClick={() => onMagnet(!magnet)} className={btn(magnet)}
+      <button onClick={() => onMagnet(!magnet)} className={btn(magnet)} aria-pressed={magnet}
         title={magnet ? "Magnet on — anchors snap to OHLC" : "Magnet off"}>
         <Icon name="magnet" />
       </button>
-      <button onClick={() => onLocked(!locked)} className={btn(locked)}
+      <button onClick={() => onLocked(!locked)} className={btn(locked)} aria-pressed={locked}
         title={locked ? "Drawings locked" : "Lock all drawings"}>
         <Icon name={locked ? "lock" : "unlock"} />
       </button>
-      <button onClick={() => onHidden(!hidden)} className={btn(hidden)}
+      <button onClick={() => onHidden(!hidden)} className={btn(hidden)} aria-pressed={hidden}
         title={hidden ? "Drawings hidden" : "Hide all drawings"}>
         <Icon name={hidden ? "eyeOff" : "eye"} />
       </button>

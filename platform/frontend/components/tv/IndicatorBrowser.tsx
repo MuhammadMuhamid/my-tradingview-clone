@@ -460,7 +460,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
             const starred = favourites.includes(def.id);
             return (
               <div key={def.id}
-                className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-surface-2">
+                className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
                 <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">
                   Built-in
                 </span>
@@ -517,7 +517,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
           {filtered.map((s) => {
             const count = appliedCount(s);
             return (
-              <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-surface-2">
+              <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
                 <span className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${
                   s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
                 }`}>
@@ -650,7 +650,7 @@ function LibraryNavButton({
       onClick={onClick}
       aria-pressed={active}
       className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[12px] ${
-        active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+        active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"
       }`}
     >
       <span className="truncate">{label}</span>
@@ -680,7 +680,7 @@ function TemplateList({
   return (
     <div className="mt-3 flex flex-col gap-1">
       {templates.map((t) => (
-        <div key={t.name} className="flex items-center gap-2 rounded border border-border px-2 py-1.5 hover:bg-surface-2">
+        <div key={t.name} className="flex items-center gap-2 rounded border border-border px-2 py-1.5 hover:bg-state-hover">
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] text-ink">{t.name}</span>
             <span className="block truncate text-[11px] text-ink-faint">

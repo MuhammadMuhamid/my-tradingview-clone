@@ -51,7 +51,7 @@ export function ReplayControls({
   if (!pickerOpen && !session) return null;
   const button =
     "flex h-7 items-center rounded-md border border-border bg-surface px-2 text-xs " +
-    "text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40";
+    "text-ink hover:bg-state-hover disabled:cursor-not-allowed disabled:opacity-40";
 
   if (!session) {
     return (

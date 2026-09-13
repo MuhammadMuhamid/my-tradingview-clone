@@ -71,7 +71,7 @@ export function IndicatorLegend({
         aria-label={collapsed
           ? `Show values for ${groups.length} indicator${groups.length === 1 ? "" : "s"}`
           : "Hide indicator values"}
-        className="pointer-events-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink"
+        className="pointer-events-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-state-hover hover:text-ink"
       >
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
           {collapsed ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}

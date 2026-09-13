@@ -564,7 +564,7 @@ function PaneButton({
         disabled ? "cursor-default text-ink-faint/30"
           : danger ? "text-ink-faint hover:bg-down/20 hover:text-down"
           : pressed ? "bg-surface-2 text-ink"
-          : "text-ink-faint hover:bg-surface-2 hover:text-ink"
+          : "text-ink-faint hover:bg-state-hover hover:text-ink"
       }`}
     >
       <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor"

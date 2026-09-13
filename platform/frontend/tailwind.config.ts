@@ -31,6 +31,24 @@ const config: Config = {
          * carries small text.
          */
         warn: token("caution"),
+        /*
+         * TVP7. `surface-3` was referenced by `hover:bg-surface-3` on the
+         * symbol pill and by a handful of panels but was never declared here,
+         * so Tailwind emitted no rule and those hovers did nothing at all.
+         *
+         * The four below it are the workstation's state contract, declared so
+         * a component can say `bg-state-active` instead of carrying a raw
+         * `var()` in a class string. They are plain `var()` rather than
+         * `<alpha-value>` triples deliberately: a state colour is used at full
+         * opacity or not at all — it is the alpha-blended `accent/15` idiom
+         * these replace that made selection read as a blue wash.
+         */
+        "surface-3": "var(--ts-surface-3)",
+        "state-hover": "var(--ts-state-hover)",
+        "state-active": "var(--ts-state-active)",
+        popover: "var(--ts-popover)",
+        "border-strong": "var(--ts-line-strong)",
+        "control-border": "var(--ts-control-border)",
       },
       /*
        * FC2-H2: `sans` is declared, not inherited from Tailwind's default, so

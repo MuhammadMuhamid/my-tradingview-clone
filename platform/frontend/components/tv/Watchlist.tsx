@@ -355,7 +355,7 @@ export function Watchlist({
       */}
       <div className="relative border-b border-border px-2 py-1.5">
         <div className="flex items-center gap-0.5">
-          <button onClick={() => setMenuOpen((v) => !v)} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-2">
+          <button onClick={() => setMenuOpen((v) => !v)} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-state-hover">
             {priceState && (
               <span
                 role="status"
@@ -375,14 +375,14 @@ export function Watchlist({
             aria-expanded={addOpen}
             title="Add a symbol to this list"
             aria-label="Add a symbol to this list"
-            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink"
+            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-state-hover hover:text-ink"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
           <button onClick={() => void createList()} title="Create watchlist" aria-label="Create watchlist"
-            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink">
+            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-state-hover hover:text-ink">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M4 6h10M4 12h7M4 18h7" /><path d="M17 10v8M13 14h8" />
             </svg>
@@ -393,14 +393,14 @@ export function Watchlist({
           <div className="absolute left-2 right-2 top-[44px] z-50 rounded-md border border-border bg-surface py-1 shadow-xl">
             <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-ink-faint">My watchlists</div>
             {lists.map((l) => (
-              <button key={l.id} onClick={() => { setActiveId(l.id); setMenuOpen(false); }} className={`flex w-full justify-between px-3 py-2 text-left text-xs hover:bg-surface-2 ${l.id === activeId ? "text-accent" : "text-ink"}`}>
+              <button key={l.id} onClick={() => { setActiveId(l.id); setMenuOpen(false); }} className={`flex w-full justify-between px-3 py-2 text-left text-xs hover:bg-state-hover ${l.id === activeId ? "text-accent" : "text-ink"}`}>
                 <span className="truncate">{l.name}</span><span className="text-ink-faint">{l.symbols.length}</span>
               </button>
             ))}
             <div className="my-1 border-t border-border" />
-            <button onClick={() => void createList()} className="w-full px-3 py-1.5 text-left text-xs hover:bg-surface-2">＋ Create new</button>
-            <button onClick={renameList} className="w-full px-3 py-1.5 text-left text-xs hover:bg-surface-2">Rename current</button>
-            <button disabled={lists.length === 1} onClick={() => void deleteList()} className="w-full px-3 py-1.5 text-left text-xs text-down hover:bg-surface-2 disabled:opacity-30">Delete current</button>
+            <button onClick={() => void createList()} className="w-full px-3 py-1.5 text-left text-xs hover:bg-state-hover">＋ Create new</button>
+            <button onClick={renameList} className="w-full px-3 py-1.5 text-left text-xs hover:bg-state-hover">Rename current</button>
+            <button disabled={lists.length === 1} onClick={() => void deleteList()} className="w-full px-3 py-1.5 text-left text-xs text-down hover:bg-state-hover disabled:opacity-30">Delete current</button>
           </div>
         )}
       </div>
@@ -524,7 +524,7 @@ export function Watchlist({
               three pulled the same way: the list read as looser and less
               scannable than the reference while occupying the same width.
             */
-            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[29px] md:grid-cols-[minmax(0,1fr)_18px] ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-surface-2"}`}>
+            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[29px] md:grid-cols-[minmax(0,1fr)_18px] ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-state-hover"}`}>
             <button onClick={() => onSelect(s.symbol)}
               className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 text-left">
               <span className="flex min-w-0 items-center font-medium text-ink" title={displaySymbol(s.symbol)}>

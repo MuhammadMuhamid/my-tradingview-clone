@@ -150,7 +150,7 @@ export function Modal({
             onClick={onClose}
             aria-label="Close"
             // 40px, so it is reachable with a thumb rather than only a pointer.
-            className="-mr-1.5 flex h-10 w-10 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent"
+            className="-mr-1.5 flex h-10 w-10 items-center justify-center rounded text-ink-muted hover:bg-state-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-accent"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" />

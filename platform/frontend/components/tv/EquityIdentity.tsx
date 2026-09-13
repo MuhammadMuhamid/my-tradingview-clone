@@ -49,7 +49,7 @@ export function EquityIdentity({ symbol, dense }: { symbol: string; dense: boole
             <div><p className="font-semibold">{identity.base} · {type} · {identity.venue}</p>
               <p className="mt-0.5 text-ink-faint">USD · primary listing {equity?.primaryListing.mic ?? "MIC pending"}</p></div>
             <button onClick={() => setOpen(false)} aria-label="Close equity details"
-              className="h-7 w-7 rounded text-ink-muted hover:bg-surface-2">×</button>
+              className="h-7 w-7 rounded text-ink-muted hover:bg-state-hover">×</button>
           </div>
           <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t border-border pt-2 text-ink-muted">
             <dt>Chart session</dt><dd className="text-right font-medium text-ink">Regular · 09:30–16:00 ET</dd>

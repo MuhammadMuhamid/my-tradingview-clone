@@ -318,7 +318,7 @@ export function PineEditor({
           <button
             onClick={() => setShowConsole((v) => !v)}
             aria-expanded={showConsole}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] text-ink-muted hover:bg-state-hover/60 hover:text-ink"
           >
             <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true"
               className="shrink-0">

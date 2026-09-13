@@ -476,7 +476,7 @@ export function ManualTradingPanel({
       )}
       {onClose && (
         <button onClick={onClose} aria-label="Close the trading panel" title="Close"
-          className="ml-auto flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink">
+          className="ml-auto flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-state-hover hover:text-ink">
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
             <path d="M2 2l8 8M10 2l-8 8" />
           </svg>
@@ -595,7 +595,7 @@ export function ManualTradingPanel({
         role="group" aria-label="Order side">
         <button onClick={() => { setSide("SELL"); setPositionId(""); }} aria-pressed={side === "SELL"}
           className={`flex flex-col items-center py-1.5 transition-colors ${side === "SELL"
-            ? "bg-down/20 text-down" : "bg-surface text-ink-muted hover:bg-surface-2 hover:text-ink"}`}>
+            ? "bg-down/20 text-down" : "bg-surface text-ink-muted hover:bg-state-hover hover:text-ink"}`}>
           <span className="text-sm font-semibold">SELL</span>
           <span data-testid="manual-bid" className="text-[11px] tabular-nums">
             {quote ? fmtPrice(quote.bid) : "—"}</span>
@@ -609,7 +609,7 @@ export function ManualTradingPanel({
         </div>
         <button onClick={() => { setSide("BUY"); setPositionId(""); }} aria-pressed={side === "BUY"}
           className={`flex flex-col items-center py-1.5 transition-colors ${side === "BUY"
-            ? "bg-up/20 text-up" : "bg-surface text-ink-muted hover:bg-surface-2 hover:text-ink"}`}>
+            ? "bg-up/20 text-up" : "bg-surface text-ink-muted hover:bg-state-hover hover:text-ink"}`}>
           <span className="text-sm font-semibold">BUY</span>
           <span data-testid="manual-ask" className="text-[11px] tabular-nums">
             {quote ? fmtPrice(quote.ask) : "—"}</span>
@@ -694,7 +694,7 @@ export function ManualTradingPanel({
           {QUICK_FILL_PERCENTS.map((pct) => (
             <button key={pct} type="button" data-testid={`manual-quickfill-${pct}`}
               onClick={() => arm(setAmount)(quickFillAmount(accountState, side, pct))}
-              className="bg-surface py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
+              className="bg-surface py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-state-hover hover:text-ink">
               {pct}%
             </button>
           ))}
@@ -769,7 +769,7 @@ export function ManualTradingPanel({
           <button key={f.id} role="tab" aria-selected={orderFilter === f.id}
             onClick={() => setOrderFilter(f.id)}
             className={`flex h-6 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-medium transition-colors ${
-              orderFilter === f.id ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"}`}>
+              orderFilter === f.id ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-state-hover/60 hover:text-ink"}`}>
             {f.label}
             {counts[f.id] > 0 && <span className="tabular text-ink-faint">{counts[f.id]}</span>}
           </button>

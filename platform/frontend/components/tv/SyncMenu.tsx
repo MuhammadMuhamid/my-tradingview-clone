@@ -105,7 +105,7 @@ export function SyncMenu({
           ? "Add a second chart to synchronise it"
           : "What every chart in this layout follows"}
         className={`${TOOL_BUTTON} disabled:opacity-40 ${
-          open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+          open ? "text-ink" : "text-ink-muted hover:text-ink"
         }`}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -121,7 +121,7 @@ export function SyncMenu({
 
       {open && (
         <div ref={menuRef} role="menu" aria-label="Sync across charts" onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-full z-50 w-[300px] rounded-sm border border-border bg-surface py-1 shadow-2xl">
+          className="absolute right-0 top-full z-50 w-[300px] tvc-menu">
           <div className="px-3 pb-1 pt-2">
             <div className="text-[10px] uppercase tracking-wide text-ink-faint">
               Sync across charts
@@ -138,7 +138,7 @@ export function SyncMenu({
                 role="switch"
                 aria-checked={on}
                 onClick={() => onChange({ ...value, [o.id]: !on })}
-                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-2"
+                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-state-hover"
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] text-ink">
@@ -177,7 +177,7 @@ export function SyncMenu({
               type="button"
               onClick={() => setShowAdvanced(true)}
               aria-expanded={false}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-ink-muted hover:bg-state-hover hover:text-ink"
             >
               <span aria-hidden="true">＋</span>
               Advanced — {advanced.map((o) => o.label.toLowerCase()).join(", ")}

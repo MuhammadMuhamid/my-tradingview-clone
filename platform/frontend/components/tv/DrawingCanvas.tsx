@@ -792,7 +792,7 @@ export function DrawingCanvas({
           </button>
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
-            className={`flex h-5 w-5 items-center justify-center rounded ${sel.style.filled ? "text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
+            className={`flex h-5 w-5 items-center justify-center rounded ${sel.style.filled ? "text-accent" : "text-ink-muted hover:bg-state-hover hover:text-ink"}`}
             title="Fill"
             aria-label={sel.style.filled ? "Remove the fill" : "Fill the shape"}
             aria-pressed={Boolean(sel.style.filled)}
@@ -806,7 +806,7 @@ export function DrawingCanvas({
           <span className="mx-0.5 h-4 w-px bg-border" />
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
-            className={`flex h-5 w-5 items-center justify-center rounded ${sel.locked ? "text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
+            className={`flex h-5 w-5 items-center justify-center rounded ${sel.locked ? "text-accent" : "text-ink-muted hover:bg-state-hover hover:text-ink"}`}
             title={sel.locked ? "Unlock" : "Lock"}
             aria-label={sel.locked ? "Unlock this drawing" : "Lock this drawing"}
             aria-pressed={Boolean(sel.locked)}

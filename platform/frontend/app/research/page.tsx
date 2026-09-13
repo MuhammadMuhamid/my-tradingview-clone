@@ -88,7 +88,7 @@ export default function BacktestsPage() {
                     <tr
                       key={r.id}
                       onClick={() => clickable && router.push(`/research/${r.id}`)}
-                      className={`border-b border-border/50 ${clickable ? "hover:bg-surface-2 cursor-pointer" : ""}`}
+                      className={`border-b border-border/50 ${clickable ? "hover:bg-state-hover cursor-pointer" : ""}`}
                     >
                       {/*
                         The symbol is the link, not just the row.

@@ -48,7 +48,7 @@ export function Button({
     default: "bg-surface-2 text-ink hover:bg-border border border-border",
     primary: "bg-accent text-white hover:bg-accent/90",
     danger: "bg-down/15 text-down hover:bg-down/25 border border-down/30",
-    ghost: "text-ink-muted hover:text-ink hover:bg-surface-2",
+    ghost: "text-ink-muted hover:text-ink hover:bg-state-hover",
   }[variant];
   return (
     <button
@@ -176,8 +176,8 @@ export function IconButton({
         danger
           ? "text-ink-faint hover:bg-down/15 hover:text-down"
           : active
-            ? "bg-surface-2 text-accent"
-            : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+            ? "text-ink"
+            : "text-ink-muted hover:bg-state-hover hover:text-ink"
       } ${className}`}
     >
       {children}

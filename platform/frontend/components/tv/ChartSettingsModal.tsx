@@ -38,13 +38,13 @@ export function ChartSettingsModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Chart settings" wide
-      footer={<button onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm text-ink hover:bg-surface-2">Done</button>}>
+      footer={<button onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm text-ink hover:bg-state-hover">Done</button>}>
       <div className="flex min-h-[420px] gap-5">
         <nav aria-label="Chart settings sections" className="w-40 shrink-0 border-r border-border pr-3">
           {TABS.map((item) => (
             <button key={item.id} role="tab" aria-selected={tab === item.id}
               onClick={() => setTab(item.id)}
-              className={`mb-0.5 flex min-h-8 w-full items-center rounded px-2.5 text-left text-sm ${tab === item.id ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}>
+              className={`mb-0.5 flex min-h-8 w-full items-center rounded px-2.5 text-left text-sm ${tab === item.id ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"}`}>
               {item.label}
             </button>
           ))}
@@ -74,7 +74,7 @@ export function ChartSettingsModal({
             </label>
             <Toggle label="Auto scale" checked={scale.autoScale} onChange={(checked) => onScale({ ...scale, autoScale: checked })} />
             <Toggle label="Invert scale" checked={scale.invert === true} onChange={(checked) => onScale({ ...scale, invert: checked })} />
-            <button onClick={onReset} className="rounded border border-border px-3 py-1.5 text-sm text-ink-muted hover:bg-surface-2 hover:text-ink">Reset scale</button>
+            <button onClick={onReset} className="rounded border border-border px-3 py-1.5 text-sm text-ink-muted hover:bg-state-hover hover:text-ink">Reset scale</button>
           </div>}
         </section>
       </div>

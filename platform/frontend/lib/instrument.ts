@@ -245,3 +245,31 @@ export function displaySymbol(raw: string): string {
   if (!id) return String(raw ?? "").toUpperCase();
   return Object.keys(VENUES).length > 1 ? formatInstrumentId(id) : id.ticker;
 }
+
+/**
+ * The instrument as a WORKSTATION would name it: the ticker, and nothing else.
+ *
+ * `displaySymbol` above is the qualified identity — venue, pair, asset class,
+ * expiry — and it is the right answer for a tooltip, a symbol dialog row, a
+ * watchlist detail header or an export. It is the wrong answer for the toolbar
+ * pill, which is why this exists as a second function rather than as a flag on
+ * the first one.
+ *
+ * A canonical FX id rendered through `displaySymbol` reads
+ * `OANDA:EUR/USD · FX`: 184px of chrome spent restating three things the chart
+ * header already says, in a control whose job is to say WHICH instrument. The
+ * same id here is `EUR/USD`. Dated series keep their expiry, because two
+ * contracts on the same underlying are genuinely different instruments and a
+ * bare `BTC/USD` would name both.
+ *
+ * Legacy bare tickers are unchanged: `BTCUSDT` was already the ticker.
+ */
+export function displayTicker(raw: string): string {
+  const canonical = canonicalDisplayParts(raw);
+  if (canonical) {
+    const pair = `${canonical.base}/${canonical.quote}`;
+    return canonical.expiry ? `${pair} ${canonical.expiry}` : pair;
+  }
+  const id = tryResolveInstrument(raw);
+  return id ? id.ticker : String(raw ?? "").toUpperCase();
+}

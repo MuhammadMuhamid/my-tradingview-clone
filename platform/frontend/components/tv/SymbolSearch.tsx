@@ -316,7 +316,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
               currently showing <span className="font-semibold text-ink">{currentLabel}</span>.
             </p>
           </div>
-          <button onClick={onClose} className="shrink-0 rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink" title="Close" aria-label="Close">
+          <button onClick={onClose} className="shrink-0 rounded p-1 text-ink-muted hover:bg-state-hover hover:text-ink" title="Close" aria-label="Close">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
@@ -370,7 +370,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           {venueChips.map((item) => (
             <button key={item.id} onClick={() => setVenue(item.id)} aria-pressed={venue === item.id}
               className={`shrink-0 rounded px-2 py-1 text-xs ${venue === item.id
-                ? "bg-accent/15 font-medium text-accent" : "text-ink-faint hover:bg-surface-2 hover:text-ink"}`}>
+                ? "bg-accent/15 font-medium text-accent" : "text-ink-faint hover:bg-state-hover hover:text-ink"}`}>
               {item.label}
             </button>
           ))}
@@ -382,7 +382,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
               ["commodity", "COMMODITY"], ["stock", "STOCK"], ["etf", "ETF"] ] as const).map(([value, label]) => (
               <button key={value} onClick={() => setType(value)} aria-pressed={type === value}
                 className={`rounded px-2 py-1 text-[11px] font-semibold ${type === value
-                  ? "bg-accent/15 text-accent" : "text-ink-faint hover:bg-surface-2 hover:text-ink"}`}>
+                  ? "bg-accent/15 text-accent" : "text-ink-faint hover:bg-state-hover hover:text-ink"}`}>
                 {label}
               </button>
             ))}
@@ -433,7 +433,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                 onClick={() => void choose(r)}
                 aria-current={isCurrent ? "true" : undefined}
                 className={`flex w-full items-center gap-2 border-b border-border/60 px-3 py-3 text-left sm:gap-4 sm:px-6 ${
-                  i === cursor ? "bg-surface-2" : "hover:bg-surface-2/50"
+                  i === cursor ? "bg-surface-2" : "hover:bg-state-hover/50"
                 } ${isCurrent ? "border-l-2 border-l-accent" : "border-l-2 border-l-transparent"}`}
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-bold text-ink-muted">

@@ -34,7 +34,7 @@ function themeTokens(): Set<string> {
   const block = config.slice(config.indexOf("colors: {"), config.indexOf("fontFamily"));
   const tokens = new Set<string>();
   for (const m of block.matchAll(
-    /^\s*"?([a-z][a-z0-9-]*)"?:\s*(?:token\("[a-z0-9-]+"\)|"(?:#|rgb\())/gm
+    /^\s*"?([a-z][a-z0-9-]*)"?:\s*(?:token\("[a-z0-9-]+"\)|"(?:#|rgb\(|var\())/gm
   )) tokens.add(m[1]!);
   return tokens;
 }

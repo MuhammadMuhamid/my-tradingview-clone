@@ -157,7 +157,7 @@ function PickerRow({
       reading.
     */
     <div className={`group flex items-center gap-1 rounded-sm pr-1 ${
-      selected ? "bg-accent text-white" : "hover:bg-surface-2"
+      selected ? "bg-accent text-white" : "hover:bg-state-hover"
     }`}>
       <button
         role="menuitemradio"
@@ -184,7 +184,7 @@ function PickerRow({
           title={`Remove the custom ${resolution} resolution`}
           aria-label={`Remove the custom ${resolution} resolution`}
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100 ${
-            selected ? "text-white/70 hover:bg-white/20 hover:text-white" : "text-ink-faint hover:bg-surface-2 hover:text-ink"
+            selected ? "text-white/70 hover:bg-white/20 hover:text-white" : "text-ink-faint hover:bg-state-hover hover:text-ink"
           }`}
         >
           <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -198,7 +198,7 @@ function PickerRow({
         title={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         aria-label={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity ${
-          selected ? "hover:bg-white/20" : "hover:bg-surface-2"
+          selected ? "hover:bg-white/20" : "hover:bg-state-hover"
         } ${
           favourite
             ? `opacity-100 ${selected ? "text-white" : "text-accent"}`
@@ -407,8 +407,7 @@ function useMenuKeys(
  * Both are here; nothing about the structure moved.
  */
 const MENU_BOX =
-  "absolute z-50 max-h-[70vh] w-[212px] overflow-y-auto rounded-sm border " +
-  "border-border bg-surface p-1 shadow-2xl";
+  "absolute z-50 max-h-[70vh] w-[212px] overflow-y-auto tvc-menu";
 
 export interface LegendTimeframeProps {
   /** The pane's id, so two panes' menus cannot both be open. */
@@ -450,7 +449,7 @@ export function LegendTimeframe(props: LegendTimeframeProps) {
         aria-haspopup="menu"
         title={`${explainResolution(props.interval)} — change this pane's timeframe`}
         aria-label={`Timeframe for this pane — currently ${props.interval}`}
-        className="flex h-5 items-center gap-0.5 rounded px-1 text-[11px] font-semibold text-ink hover:bg-surface-2/80"
+        className="flex h-5 items-center gap-0.5 rounded px-1 text-[11px] font-semibold text-ink hover:bg-state-hover/80"
       >
         {props.interval}
         <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -547,10 +546,8 @@ export function TimeframePicker(props: TimeframePickerProps) {
           <button key={i} onClick={() => pick(i)}
             aria-pressed={interval === i}
             title={explainResolution(i)}
-            className={`flex h-[38px] shrink-0 items-center px-1.5 text-sm ${
-              interval === i
-                ? "bg-surface-2 font-semibold text-ink"
-                : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+            className={`tvc-control flex h-[38px] shrink-0 items-center px-1.5 text-sm ${
+              interval === i ? "text-ink" : "text-ink-muted hover:text-ink"
             }`}>
             {i}
           </button>
@@ -567,16 +564,26 @@ export function TimeframePicker(props: TimeframePickerProps) {
           onClick={() => setOpen(!open)}
           aria-expanded={open}
           aria-haspopup="menu"
-          aria-pressed={!strip.currentInQuick}
+          aria-pressed={strip.currentInQuick ? undefined : true}
           title="All timeframes"
-          aria-label={strip.currentInQuick
-            ? "All timeframes"
-            : `Timeframe — currently ${interval}. All timeframes`}
-          className={`flex h-[38px] shrink-0 items-center gap-1 px-1.5 text-sm ${
-            strip.currentInQuick
-              ? "text-ink-muted hover:bg-surface-2 hover:text-ink"
-              : "bg-surface-2 font-semibold text-ink"
-          } sm:font-normal`}
+          /*
+           * `aria-pressed` only when this button IS the armed chip.
+           *
+           * It used to be present unconditionally, as `!currentInQuick`, so on
+           * an ordinary chart the control announced itself as an unpressed
+           * toggle as well as a menu button — two contradictory roles. It is
+           * neither when the strip already shows the armed resolution: then
+           * this is purely the way into the rest of the catalogue, and the
+           * pressed state belongs to the strip button that is actually on.
+           *
+           * When the armed resolution is NOT a favourite, nothing in the strip
+           * can carry it and this button becomes the chip that does — which is
+           * what the attribute is for.
+           */
+          aria-label={`Timeframe — currently ${interval}. All timeframes`}
+          className={`tvc-control flex h-[38px] shrink-0 items-center gap-1 px-1.5 text-sm ${
+            strip.currentInQuick ? "text-ink-muted hover:text-ink" : "font-semibold text-ink"
+          } sm:px-0 sm:font-normal`}
         >
           {/*
             Below `sm` the favourites strip is not rendered, so this control is
@@ -593,14 +600,12 @@ export function TimeframePicker(props: TimeframePickerProps) {
             them and an accessibility tree is not styled.
           */}
           {strip.currentInQuick ? (
-            <>
-              <span className="font-semibold sm:hidden">{interval}</span>
-              <span className="hidden sm:inline">{strip.menuLabel}</span>
-            </>
+            <span aria-hidden="true" className="font-semibold sm:hidden">{interval}</span>
           ) : (
-            <span className="font-semibold">{strip.menuLabel}</span>
+            <span aria-hidden="true" className="font-semibold">{strip.menuLabel}</span>
           )}
-          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none"
+            className="shrink-0 text-ink-faint sm:mx-[7.5px]" aria-hidden="true">
             <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>

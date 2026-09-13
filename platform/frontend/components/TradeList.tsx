@@ -32,7 +32,7 @@ export function TradeList({ trades }: { trades: Trade[] }) {
             const open = t.exitTime === null;
             return (
             <tr key={t.tradeNo}
-                className={`border-b border-border/50 hover:bg-surface-2 ${open ? "bg-warn/5" : ""}`}>
+                className={`border-b border-border/50 hover:bg-state-hover ${open ? "bg-warn/5" : ""}`}>
               <td className="px-3 py-1.5 text-ink-faint">{t.tradeNo}</td>
               <td className="px-3 py-1.5 text-ink-muted">{fmtDateTime(t.entryTime)}</td>
               <td className="px-3 py-1.5 text-right">{fmtPrice(t.entryPrice)}</td>

@@ -48,7 +48,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
   return <div ref={boxRef} className="relative shrink-0">
     <button ref={buttonRef} onClick={() => onOpen(!open)} aria-expanded={open} aria-haspopup="menu"
       className={`flex h-11 items-center gap-1.5 rounded-md px-2 text-[13px] transition-colors md:h-7 ${
-        open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+        open ? "text-ink" : "text-ink-muted hover:text-ink"
       }`} title="Show or hide read-only trading evidence">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
         <path d="M4 7h10M4 17h16M14 4v6M10 14v6" />
@@ -65,7 +65,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         {(Object.keys(LABELS) as Array<keyof TradingOverlayPreferences>).map((key) => <label key={key}
-          className="flex min-h-11 cursor-pointer items-center gap-2 rounded border border-border px-2 text-xs text-ink-muted hover:bg-surface-2">
+          className="flex min-h-11 cursor-pointer items-center gap-2 rounded border border-border px-2 text-xs text-ink-muted hover:bg-state-hover">
           <input type="checkbox" checked={value[key]} onChange={() => toggle(key)} />{LABELS[key]}
         </label>)}
       </div>
@@ -74,7 +74,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
         <summary className="cursor-pointer text-xs text-ink-muted">Evidence in range ({items.length})</summary>
         <div className="mt-1 max-h-44 overflow-y-auto">
           {items.map((item) => <button key={item.id} onClick={() => { onSelect(item.id); onOpen(false); }}
-            className="flex min-h-11 w-full items-center justify-between gap-2 border-b border-border/60 px-1 text-left text-[11px] last:border-b-0 hover:bg-surface-2">
+            className="flex min-h-11 w-full items-center justify-between gap-2 border-b border-border/60 px-1 text-left text-[11px] last:border-b-0 hover:bg-state-hover">
             <span className="min-w-0 truncate text-ink">{item.source} · {item.side ?? "POSITION"}</span>
             <span className={item.environment === "PAPER" ? "shrink-0 text-warn" : "shrink-0 text-ink-faint"}>{item.environment}</span>
           </button>)}
@@ -110,7 +110,7 @@ export function TradingOverlayDetails({ item, onClose }: {
         </div>
         <h2 className="mt-1.5 text-sm font-semibold text-ink">{item.evidenceKind.replaceAll("_", " ")}</h2>
       </div>
-      <button onClick={onClose} aria-label="Close overlay details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-2 hover:text-ink md:h-8 md:w-8">×</button>
+      <button onClick={onClose} aria-label="Close overlay details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-state-hover hover:text-ink md:h-8 md:w-8">×</button>
     </div>
     <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
       <div><dt className="text-ink-faint">Price</dt><dd className="tabular text-ink">{item.price.toLocaleString(undefined, { maximumFractionDigits: 8 })}</dd></div>

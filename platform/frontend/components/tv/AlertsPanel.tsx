@@ -110,7 +110,7 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
         </div>
       )}
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <button onClick={onCreateAlert} className="rounded p-1 text-ink-muted hover:bg-surface-2 hover:text-ink" title="Automate a strategy — sends live orders">
+        <button onClick={onCreateAlert} className="rounded p-1 text-ink-muted hover:bg-state-hover hover:text-ink" title="Automate a strategy — sends live orders">
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2v11M2 7.5h11" stroke="currentColor" strokeWidth="1.5" /></svg>
         </button>
         <span className="text-xs text-ink-faint">
@@ -138,7 +138,7 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
             </div>
           ) : (
             deps.map((d) => (
-              <div key={d.id} className="group border-b border-border/50 px-3 py-2.5 hover:bg-surface-2/60">
+              <div key={d.id} className="group border-b border-border/50 px-3 py-2.5 hover:bg-state-hover/60">
                 <div className="flex items-center justify-between">
                   <span className="text-[13px] font-medium text-ink">{d.symbol} <span className="text-ink-faint">· {d.timeframe}</span></span>
                   <StatusBadge status={d.status} />

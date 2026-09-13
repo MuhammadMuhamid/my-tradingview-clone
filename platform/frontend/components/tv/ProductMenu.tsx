@@ -156,7 +156,7 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
         aria-label={`${PRODUCT_NAME} — go to another part of the application`}
         title={`${PRODUCT_NAME} — Screener, Trading, Alerts, Research, Operations`}
         className={`${buttonClass} gap-1 pl-2 pr-1.5 text-ink ${
-          open ? "bg-surface-2" : "hover:bg-surface-2"
+          open ? "bg-surface-2" : "hover:bg-state-hover"
         }`}
       >
         {/*
@@ -201,7 +201,7 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
           role="menu"
           aria-label={PRODUCT_NAME}
           onKeyDown={onMenuKeyDown}
-          className="absolute left-0 top-full z-50 w-72 border border-border bg-surface py-1 shadow-2xl"
+          className="absolute left-0 top-full z-50 w-72 tvc-menu"
         >
           <div className="px-3 pb-1.5 pt-1.5">
             <div className="text-sm font-semibold text-ink">{PRODUCT_NAME}</div>
@@ -250,7 +250,7 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
                 role="menuitem"
                 onClick={signOut}
                 title={`Signed in as ${username}`}
-                className="flex w-full items-center px-3 py-1.5 text-left text-[13px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+                className="flex w-full items-center px-3 py-1.5 text-left text-[13px] text-ink-muted hover:bg-state-hover hover:text-ink"
               >
                 Sign out
               </button>
@@ -280,7 +280,7 @@ function MenuLink(
       role="menuitem"
       aria-current={current ? "page" : undefined}
       onClick={onDone}
-      className={`flex items-center justify-between gap-3 py-1.5 pr-3 text-[13px] hover:bg-surface-2 ${
+      className={`flex items-center justify-between gap-3 py-1.5 pr-3 text-[13px] hover:bg-state-hover ${
         nested ? "pl-6 text-[12px]" : "pl-3"
       } ${
         current ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:text-ink"

@@ -122,7 +122,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
    */
   const railBtn = (isActive: boolean): string =>
     `flex h-[38px] w-[45px] items-center justify-center ${
-      isActive ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+      isActive ? "text-ink" : "text-ink-muted hover:text-ink"
     }`;
 
   /** Phone drawers are mutually exclusive — two overlays at once hides the chart. */

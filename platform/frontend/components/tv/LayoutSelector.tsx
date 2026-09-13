@@ -156,7 +156,7 @@ export function LayoutSelector({
         } ${
           isBrowsing
             ? "bg-surface-2 font-semibold text-ink border border-accent/60"
-            : "border border-transparent text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+            : "border border-transparent text-ink-muted hover:bg-state-hover/60 hover:text-ink"
         }`}
       >
         {withThumbnail && (
@@ -179,7 +179,7 @@ export function LayoutSelector({
         aria-expanded={open}
         aria-haspopup="menu"
         className={`${TOOL_BUTTON} ${
-          open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+          open ? "text-ink" : "text-ink-muted hover:text-ink"
         }`}
       >
         <span className="text-ink-muted"><PresetThumbnail preset={current} /></span>
@@ -190,7 +190,7 @@ export function LayoutSelector({
 
       {open && (
         <div ref={menuRef} role="menu" aria-label="Chart layout"
-          className="absolute right-0 top-full z-50 w-[276px] rounded-sm border border-border bg-surface p-2 shadow-2xl">
+          className="absolute right-0 top-full z-50 w-[276px] tvc-menu px-2">
           <div className="px-1 pb-1.5 text-[10px] uppercase tracking-wide text-ink-faint">
             Charts in this layout
           </div>
@@ -224,7 +224,7 @@ export function LayoutSelector({
                   className={`flex items-center gap-2.5 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
                     isCurrent
                       ? "bg-surface-2 text-ink"
-                      : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+                      : "text-ink-muted hover:bg-state-hover/60 hover:text-ink"
                   }`}
                 >
                   <span className={isCurrent ? "text-accent" : undefined}>

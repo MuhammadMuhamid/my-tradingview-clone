@@ -219,7 +219,7 @@ export function IndicatorsPanel({
             </div>
           )}
           {filtered.map((s) => (
-            <div key={s.id} className="group flex items-center gap-1.5 rounded px-1 py-1 hover:bg-surface-2">
+            <div key={s.id} className="group flex items-center gap-1.5 rounded px-1 py-1 hover:bg-state-hover">
               <button
                 onClick={() => void addToChart(s)}
                 disabled={busy}

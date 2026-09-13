@@ -356,7 +356,7 @@ export default function AlertsPage() {
                 </div>
                 {list.map((a) => (
                   <div key={a.id}
-                    className={`group flex items-center gap-2 pl-4 pr-2 text-[13px] hover:bg-surface-2/40 ${
+                    className={`group flex items-center gap-2 pl-4 pr-2 text-[13px] hover:bg-state-hover/40 ${
                       selected.has(a.id) ? "bg-accent/5" : ""}`}>
                     <input
                       type="checkbox"
@@ -407,7 +407,7 @@ export default function AlertsPage() {
                         type="button"
                         onClick={() => setEditing(a)}
                         aria-label={`Edit ${a.symbol} ${alertLineLabel(a)}`}
-                        className="rounded px-2 py-1 text-[11px] text-ink-faint opacity-0 transition-opacity hover:bg-surface-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                        className="rounded px-2 py-1 text-[11px] text-ink-faint opacity-0 transition-opacity hover:bg-state-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
                       >
                         Edit
                       </button>

@@ -105,7 +105,7 @@ import { ProductMenu } from "@/components/tv/ProductMenu";
 import { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
 import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
-import { displaySymbol } from "@/lib/instrument";
+import { displaySymbol, displayTicker } from "@/lib/instrument";
 import type {
   TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse,
 } from "@/lib/tradingOverlays";
@@ -306,6 +306,8 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
         <span className={TOOL_LABEL}>Trade</span>
       </button>
 
+      <Separator className={SEPARATOR} />
+
       <div {...ctl("layout")} className="flex shrink-0 items-center">
         <LayoutSelector presetId={props.presetId} onChange={props.onPreset} />
       </div>
@@ -320,6 +322,8 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
         `fullscreenEnabled` is false for reasons the page cannot fix (an iframe
         without the permission, a locked-down policy).
       */}
+      <Separator className={SEPARATOR} />
+
       {props.fullscreenSupported && (
         <button
           {...ctl("fullscreen")}
@@ -327,7 +331,7 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
           aria-pressed={props.fullscreen}
           title={props.fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen the chart workspace"}
           aria-label={props.fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          className={`${TOOL_ICON_BUTTON} ${props.fullscreen ? "bg-surface-2 text-accent" : ""}`}
+          className={TOOL_ICON_BUTTON}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -390,7 +394,7 @@ function ContextActions(props: ChartToolbarProps & { className: string; labelCla
         aria-pressed={replayActive || props.replayPickerOpen}
         aria-label="Bar Replay"
         title={replayActive ? "Replay is active" : "Start Bar Replay from a historical point"}
-        className={`${TOOL_BUTTON} ${replayActive || props.replayPickerOpen ? "bg-accent/15 text-accent" : ""}`}
+        className={TOOL_BUTTON}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
           <path d="M8 5v14l11-7z" /><path d="M4 5v14" />
@@ -429,7 +433,21 @@ function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
 
 export function ChartToolbar(props: ChartToolbarProps) {
   const { symbol, interval, replayActive } = props;
+  /*
+   * TVP7. The pill used to read `OANDA:EUR/USD · FX` — a venue, a
+   * separator and an asset-class tag, in the one control a user aims at first.
+   * That is the canonical identity, and it is genuinely useful, but it is not
+   * what names an instrument on a workstation: TradingView's pill says
+   * `BTCUSDT` and the venue, the product type and the long name live in the
+   * chart's status line and in the symbol dialog, where there is room to read
+   * them.
+   *
+   * So the pill carries the ticker and the FULL identity stays in the
+   * control's tooltip and accessible name. Nothing is hidden; the technical
+   * form is one hover away instead of occupying 184px of the toolbar.
+   */
   const symbolLabel = displaySymbol(symbol);
+  const tickerLabel = displayTicker(symbol);
   const { moreOpen, onMoreOpen } = props;
   const density = toolbarDensityClasses(props.ticketOpen);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
@@ -487,9 +505,9 @@ export function ChartToolbar(props: ChartToolbarProps) {
           onClick={props.onOpenSearch}
           title="Change symbol (/)"
           aria-label={`Change symbol — currently ${symbolLabel}`}
-          className="mx-0.5 flex h-7 min-w-[44px] shrink items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-sm font-semibold text-ink hover:bg-surface-3 sm:mx-1 sm:shrink-0"
+          className="mx-0.5 flex h-7 min-w-[44px] shrink items-center gap-1.5 rounded-full bg-state-active px-3 text-sm font-semibold text-ink hover:brightness-110 sm:mx-1 sm:shrink-0"
         >
-          <span className="min-w-0 truncate">{symbolLabel}</span>
+          <span className="min-w-0 truncate">{tickerLabel}</span>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0 text-ink-faint">
             <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
           </svg>
@@ -524,7 +542,11 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <ChartTypeMenu value={props.chartType} onChange={props.onChartType} />
         </div>
 
+        <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
+
         <ContextActions {...props} className="hidden sm:flex" labelClass={density.label} />
+
+        <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
 
         <div className="flex shrink-0 items-center" aria-label="Edit history">
           <button
@@ -565,7 +587,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           aria-controls="chart-toolbar-more"
           aria-label={moreOpen ? "Fewer controls" : "More controls"}
           title={moreOpen ? "Fewer controls" : "History depth, overlays, automation, strategy"}
-          className={`${TOOL_ICON_BUTTON} ${moreOpen ? "bg-surface-2 text-accent" : ""}`}
+          className={TOOL_ICON_BUTTON}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
             <circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" />
@@ -608,10 +630,8 @@ export function ChartToolbar(props: ChartToolbarProps) {
               <button key={h.label} onClick={() => props.onBars(h.bars)}
                 title={`Show up to ${h.bars.toLocaleString()} bars`}
                 aria-pressed={props.bars === h.bars}
-                className={`flex h-7 items-center rounded px-2 text-[13px] ${
-                  props.bars === h.bars
-                    ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                className={`tvc-control flex h-[30px] items-center px-2 text-[13px] ${
+                  props.bars === h.bars ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
                 }`}>
                 {h.label}
               </button>

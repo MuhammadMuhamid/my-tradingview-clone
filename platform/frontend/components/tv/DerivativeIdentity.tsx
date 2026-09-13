@@ -83,7 +83,7 @@ export function DerivativeIdentity({ symbol, dense }: { symbol: string; dense: b
             <div><p className="font-semibold">{identity.base}/{identity.quote} · {badge} · {identity.venue}</p>
               <p className="mt-0.5 text-ink-faint">Settles {settlement}{terms ? ` · ${terms.settlement}` : ""}
                 {terms?.maturity.kind === "dated" ? ` · expires ${new Date(terms.maturity.expiresAt).toLocaleString()}` : ""}</p></div>
-            <button onClick={() => setOpen(false)} aria-label="Close derivative details" className="h-7 w-7 rounded text-ink-muted hover:bg-surface-2">×</button>
+            <button onClick={() => setOpen(false)} aria-label="Close derivative details" className="h-7 w-7 rounded text-ink-muted hover:bg-state-hover">×</button>
           </div>
           {terms && <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-2 text-ink-muted">
             <dt>Contract size</dt><dd className="text-right text-ink">{terms.contractSize.value} {terms.contractSize.unit}</dd>

@@ -158,30 +158,48 @@ export function ChartTypeMenu({
   const active = CHART_TYPES.find((t) => t.value === value) ?? CHART_TYPES[0]!;
   const synthetic = syntheticDisclosure(active.value);
 
+  /*
+   * ── Why the hint moved into the tooltip ───────────────────────────────────
+   *
+   * Every row used to be two lines: the type's name, and a sentence of prose
+   * under it explaining what it draws. Twenty-one of those made a 900px-tall
+   * menu that did not fit the viewport it opens in, and turned a control a
+   * trader uses reflexively into something that has to be read.
+   *
+   * The prose is genuinely useful and none of it is gone — it is the row's
+   * `title`, which is where a workstation puts an explanation it does not
+   * want in the way. The rows are now 40px, single-line, icon-then-label,
+   * which is the measured shape of TradingView's own.
+   */
   const row = (t: typeof CHART_TYPES[number]) => (
     <button
       key={t.value}
       role="menuitemradio"
       aria-checked={t.value === value}
+      title={`${t.label} — ${t.hint}`}
       onClick={() => { onChange(t.value); setOpen(false); }}
-      className={`flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left hover:bg-surface-2 ${
-        t.value === value ? "text-accent" : "text-ink"
-      }`}
+      className="tvc-menu-row gap-2.5 px-2.5 text-left text-ink"
     >
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="shrink-0" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0" aria-hidden="true">
         {ICONS[t.value]}
       </svg>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] leading-tight">{t.label}</span>
-        <span className="block text-[11px] leading-tight text-ink-faint">{t.hint}</span>
-      </span>
-      {t.value === value && (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0" aria-hidden="true">
-          <path d="M4 12l5 5L20 6" />
-        </svg>
-      )}
+      <span className="min-w-0 flex-1 truncate text-[13px]">{t.label}</span>
     </button>
   );
+
+  /*
+   * The presentation shelf, divided the way TradingView divides it: price
+   * bars, then line forms, then filled forms, then discrete forms, then the
+   * trade-driven profiles. A hairline and no heading — the shapes of the
+   * glyphs already say what each group is, and five headings in a menu this
+   * size would cost more rows than they explain.
+   */
+  const SHELF_BREAKS = new Set(["line", "area", "columns", "sessionVolumeProfile"]);
+  const presentationRows = PRESENTATIONS.flatMap((t) => (
+    SHELF_BREAKS.has(t.value)
+      ? [<div key={`sep-${t.value}`} className="tvc-menu-sep" role="separator" />, row(t)]
+      : [row(t)]
+  ));
 
   return (
     <div ref={boxRef} className="relative shrink-0">
@@ -196,9 +214,7 @@ export function ChartTypeMenu({
           : `Chart type — currently ${active.label}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`${TOOL_BUTTON} gap-1 ${
-          open ? "bg-surface-2 text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
-        }`}
+        className={`${TOOL_BUTTON} gap-1`}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
           {ICONS[value]}
@@ -219,19 +235,27 @@ export function ChartTypeMenu({
           role="menu"
           aria-label="Chart type"
           onKeyDown={onMenuKeyDown}
-          className="absolute left-0 top-full z-50 w-[248px] rounded-sm border border-border bg-surface py-1 shadow-2xl"
+          className="absolute left-0 top-full z-50 max-h-[calc(100vh-52px)] w-[264px] overflow-y-auto tvc-menu"
         >
-          {PRESENTATIONS.map(row)}
-          <div className="mt-1 border-t border-border pt-1">
-            <div className="px-2.5 pb-0.5 text-[10px] uppercase leading-tight tracking-wide text-ink-faint">
-              Transforms · display only
-            </div>
-            <p className="px-2.5 pb-1 text-[10px] leading-tight text-ink-faint">
-              Derived bars. Orders, alerts, strategies and backtests keep using
-              the exchange&rsquo;s own candles.
-            </p>
-            {TRANSFORMS.map(row)}
+          {presentationRows}
+          {/*
+            The transform shelf keeps its heading where the presentation
+            shelves do not, and that asymmetry is the point: a Kagi chart is
+            not another way of drawing the market's bars, it is bars that never
+            traded. The sentence that used to sit under this heading is now its
+            tooltip — one line of chrome instead of three, with the disclosure
+            itself still on screen and the full statement one hover away. The
+            trigger button also grows a written label whenever a transform is
+            active, which is the disclosure that cannot be missed.
+          */}
+          <div className="tvc-menu-sep" role="separator" />
+          <div
+            title="Derived bars. Orders, alerts, strategies and backtests keep using the exchange's own candles."
+            className="px-2.5 pb-0.5 pt-1 text-[10px] uppercase leading-tight tracking-wide text-ink-faint"
+          >
+            Transforms · display only
           </div>
+          {TRANSFORMS.map(row)}
         </div>
       )}
     </div>

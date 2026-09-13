@@ -112,7 +112,7 @@ export function PaneLegend(props: PaneLegendProps) {
         className="pointer-events-none flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5"
       >
         <button
-          {...{ className: `${HIT} flex h-5 shrink-0 items-center rounded px-1 text-xs font-semibold text-ink hover:bg-surface-2/80` }}
+          {...{ className: `${HIT} flex h-5 shrink-0 items-center rounded px-1 text-xs font-semibold text-ink hover:bg-state-hover/80` }}
           onClick={() => props.onOpenSymbolSearch(paneId)}
           title={`Change this pane's symbol — currently ${symbolLabel} · ${props.bars.toLocaleString()} bars loaded`}
           aria-label={`Change symbol for the ${symbolLabel} pane`}
@@ -149,7 +149,7 @@ export function PaneLegend(props: PaneLegendProps) {
         */}
         <button
           {...{ className: `${HIT} flex h-5 shrink-0 items-center rounded px-1 text-[11px] ${
-            compare ? "bg-surface-2/80 font-semibold text-ink" : "text-ink-faint hover:bg-surface-2/80 hover:text-ink"
+            compare ? "bg-surface-2/80 font-semibold text-ink" : "text-ink-faint hover:bg-state-hover/80 hover:text-ink"
           }` }}
           onClick={() => setCompareOpen(true)}
           title={compare
@@ -191,7 +191,7 @@ export function PaneLegend(props: PaneLegendProps) {
         <div className="pointer-events-none absolute right-2 top-1.5 z-30 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
           {props.canMaximize && (
             <button
-              {...{ className: `${HIT} flex h-5 w-5 items-center justify-center rounded bg-surface/70 text-ink-faint hover:bg-surface-2 hover:text-ink` }}
+              {...{ className: `${HIT} flex h-5 w-5 items-center justify-center rounded bg-surface/70 text-ink-faint hover:bg-state-hover hover:text-ink` }}
               onClick={() => props.onToggleMaximize(paneId)}
               title={props.maximized ? "Restore the layout" : "Maximize this pane"}
               aria-label={props.maximized ? "Restore the layout" : "Maximize this pane"}
@@ -207,7 +207,7 @@ export function PaneLegend(props: PaneLegendProps) {
           )}
           {props.canClose && (
             <button
-              {...{ className: `${HIT} flex h-5 w-5 items-center justify-center rounded bg-surface/70 text-ink-faint hover:bg-surface-2 hover:text-ink` }}
+              {...{ className: `${HIT} flex h-5 w-5 items-center justify-center rounded bg-surface/70 text-ink-faint hover:bg-state-hover hover:text-ink` }}
               onClick={() => props.onClose(paneId)}
               title="Close this pane"
               aria-label={`Close the ${symbol} pane`}

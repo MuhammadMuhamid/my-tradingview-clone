@@ -204,7 +204,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
         <button
           onClick={props.onDismissToast}
           aria-label="Dismiss"
-          className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-surface-2 hover:text-ink"
+          className="flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-state-hover hover:text-ink"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
             <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.5" />

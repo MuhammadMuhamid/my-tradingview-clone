@@ -139,7 +139,7 @@ export function LayoutMenu({
     <button
       onClick={() => { if (!disabled) { onClick(); setOpen(false); } }}
       disabled={disabled}
-      className="flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2 disabled:opacity-40"
+      className="flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left text-[13px] text-ink hover:bg-state-hover disabled:opacity-40"
     >
       {children}
     </button>
@@ -201,7 +201,7 @@ export function LayoutMenu({
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div ref={menuRef} role="menu" aria-label="Saved layouts" onKeyDown={onMenuKeyDown}
-            className="absolute right-0 top-full z-40 mt-1 w-72 rounded-lg border border-border bg-surface py-1.5 shadow-2xl">
+            className="absolute right-0 top-full z-40 mt-1 w-72 tvc-menu">
             <div className="px-3.5 pb-2 pt-1">
               <div className="truncate text-[13px] font-semibold text-ink">
                 {current?.name ?? "Unnamed layout"}
@@ -224,7 +224,7 @@ export function LayoutMenu({
               onClick={onToggleAutosave}
               role="switch"
               aria-checked={autosave}
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink transition-colors hover:bg-surface-2"
+              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink transition-colors hover:bg-state-hover"
             >
               <span className="flex-1">
                 Autosave
@@ -250,7 +250,7 @@ export function LayoutMenu({
                 </div>
                 <div className="max-h-56 overflow-y-auto">
                   {layouts.map((l) => (
-                    <div key={l.id} className="group flex items-center hover:bg-surface-2">
+                    <div key={l.id} className="group flex items-center hover:bg-state-hover">
                       <button
                         onClick={() => selectLayout(l.id, l.name)}
                         aria-current={l.id === currentId ? "true" : undefined}

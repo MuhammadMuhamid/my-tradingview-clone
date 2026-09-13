@@ -55,7 +55,16 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
 
   const strip = chart.container.querySelector<HTMLElement>('[role="group"][aria-label="Timeframe"]');
   assert.ok(strip, "the toolbar has no timeframe group");
+  /*
+   * The picker's own trigger lives inside this group and is excluded: at
+   * desktop widths it is a bare caret, but below `sm` the strip is not
+   * rendered at all and the trigger names the armed resolution instead, so its
+   * text IS a resolution in the DOM. jsdom applies no CSS and cannot tell the
+   * two widths apart. `aria-haspopup` is the thing that actually separates a
+   * favourite from the way into the catalogue.
+   */
   const stripButtons = [...strip.querySelectorAll<HTMLElement>("button")]
+    .filter((b) => b.getAttribute("aria-haspopup") !== "menu")
     .map((b) => (b.textContent ?? "").trim())
     .filter((t) => /^\d+[smhd]$/.test(t));
   assert.deepEqual(stripButtons, ["1m", "5m", "15m", "1h", "4h", "1d"],
