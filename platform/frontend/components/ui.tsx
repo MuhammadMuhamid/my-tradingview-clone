@@ -47,15 +47,36 @@ export function CardHeader({ title, right }: { title: ReactNode; right?: ReactNo
  * `.tvc-menu` were scoped to the chart, so a button on Research could not hover
  * the way the same button hovers on the chart even if it asked to.
  */
-export function PageShell({ children, width = "wide", className = "" }: {
+export function PageShell({
+  children, width = "wide", className = "", role, "aria-label": ariaLabel,
+}: {
   children: ReactNode;
   /** `narrow` for reading pages; `full` for the Screener's own grid. */
   width?: "wide" | "narrow" | "full";
   className?: string;
+  /*
+   * TVP8 round two. Six pages hand-rolled this component's exact markup —
+   * `ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4`, letter
+   * for letter — while five used the component, so the product had one page
+   * shell with two implementations and `PageShell` had a single caller's worth
+   * of authority over a measurement eleven pages depend on.
+   *
+   * `journal/loading.tsx` was one of them and could not have used it: a
+   * loading shell announces itself, and there was no way to put `role` and a
+   * label on the element. That is the whole reason these two exist here, and
+   * the reason they are named rather than spread — a shell that accepts
+   * arbitrary props is a `<div>` with extra steps.
+   */
+  role?: string;
+  "aria-label"?: string;
 }) {
   const max = width === "full" ? "" : width === "narrow" ? "max-w-[1100px]" : "max-w-[1400px]";
   return (
-    <div className={`ts-app mx-auto w-full ${max} space-y-4 px-3 py-4 sm:px-4 ${className}`}>
+    <div
+      role={role}
+      aria-label={ariaLabel}
+      className={`ts-app mx-auto w-full ${max} space-y-4 px-3 py-4 sm:px-4 ${className}`}
+    >
       {children}
     </div>
   );

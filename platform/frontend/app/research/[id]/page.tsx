@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Button, Card, CardHeader, StatusBadge, shortReason } from "@/components/ui";
+import { Button, Card, CardHeader, StatusBadge, shortReason, PageShell } from "@/components/ui";
 import { Metrics } from "@/components/Metrics";
 import { EquityCurve } from "@/components/EquityCurve";
 import { TradeList } from "@/components/TradeList";
@@ -78,13 +78,13 @@ export default function BacktestDetail() {
    * fixed.
    */
   const shell = (body: ReactNode): ReactNode => (
-    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
+    <PageShell>
       <div className="flex items-center gap-3">
         <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
         <h1 className="text-lg font-semibold">Backtest</h1>
       </div>
       {body}
-    </div>
+    </PageShell>
   );
 
   if (err && !bt) return shell(
@@ -96,7 +96,7 @@ export default function BacktestDetail() {
   if (!bt) return shell(<div role="status" className="text-ink-faint">Loading…</div>);
 
   return (
-    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
+    <PageShell>
       <div className="flex items-center gap-3">
         <Link href="/research"><Button variant="ghost">← Backtests</Button></Link>
         <h1 className="text-lg font-semibold">{bt.symbol} · {bt.timeframe}</h1>
@@ -196,6 +196,6 @@ export default function BacktestDetail() {
           </Card>
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

@@ -6,7 +6,7 @@ import { api as scannerApi } from "@/lib/scanner/api";
 import {
   buildOperationsOverview, formatDuration, type HealthTone, type ScannerEvidence,
 } from "@/lib/operationsHealth";
-import { Button, Card, CardHeader, Empty, ErrorNotice, Field, Loading, TextInput } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, ErrorNotice, Field, Loading, TextInput, PageShell } from "@/components/ui";
 
 /**
  * The operator console.
@@ -193,7 +193,7 @@ export default function OperationsPage() {
   // announce as the page's subject, and the Phase 6 QA measures exactly that.
   if (!status) {
     return (
-      <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
+      <PageShell>
         <div>
           <h1 className="text-lg font-semibold text-ink">Operations</h1>
           <p className="text-xs text-ink-faint">
@@ -210,7 +210,7 @@ export default function OperationsPage() {
             ? <ErrorNotice error={error} what="operator status" />
             : <Loading>Reading operator status…</Loading>}
         </Card>
-      </div>
+      </PageShell>
     );
   }
 
@@ -236,7 +236,7 @@ export default function OperationsPage() {
   const overview = buildOperationsOverview(status, scanner);
 
   return (
-    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
+    <PageShell>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-ink">Operations</h1>
@@ -603,6 +603,6 @@ export default function OperationsPage() {
           )}
         </Card>
       </div>
-    </div>
+    </PageShell>
   );
 }

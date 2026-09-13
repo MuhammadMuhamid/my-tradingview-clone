@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { PageShell } from "@/components/ui";
 
 /**
  * The in-product manual.
@@ -240,7 +241,7 @@ function A({ href, children }: { href: string; children: ReactNode }) {
 
 export default function GettingStarted() {
   return (
-    <div className="ts-app mx-auto w-full max-w-[1100px] space-y-4 px-3 py-4 sm:px-4">
+    <PageShell width="narrow">
       <header className="max-w-3xl">
         <h1 className="text-lg font-semibold text-ink">Manual</h1>
         <p className="mt-1 text-sm leading-6 text-ink-muted">
@@ -1088,6 +1089,6 @@ export default function GettingStarted() {
           </div>
         </nav>
       </div>
-    </div>
+    </PageShell>
   );
 }

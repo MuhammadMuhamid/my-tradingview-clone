@@ -24,6 +24,16 @@ import type { Trade } from "../lib/types";
 const ROOT = path.join(__dirname, "..");
 const read = (f: string): string => fs.readFileSync(path.join(ROOT, f), "utf8");
 
+/** Every `.tsx` under a directory, relative to the frontend root. */
+function sourceFiles(dir: string, out: string[] = []): string[] {
+  for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = path.join(dir, entry.name);
+    if (entry.isDirectory()) sourceFiles(rel, out);
+    else if (entry.name.endsWith(".tsx")) out.push(rel);
+  }
+  return out;
+}
+
 // ── The chart workspace ─────────────────────────────────────────────────────
 
 test("a pane fills the workspace cell it was given", () => {
@@ -175,20 +185,38 @@ test("a placeholder stops claiming that an answer is coming", () => {
     "a failed read is not a total of zero");
 });
 
-test("the optimizer page cannot shrink-wrap wider than a phone viewport", () => {
+test("EVERY PAGE ROOT IS THE SHELL, AND THE SHELL IS BOUNDED", () => {
   /*
-   * TVP8: both roots now carry `ts-app` and `PageShell`'s own measurements —
-   * `space-y-4 px-3 py-4 sm:px-4` rather than a private `px-4 py-6`. The width
-   * constraint is the point of this test and is unchanged; the class it is
-   * written in is the shared one, and the page is now inside the control
-   * grammar it had been rendering outside of.
+   * The optimizer page sits inside a flex `main` and will shrink-wrap to its
+   * content without an explicit width — which is what this test has always
+   * been about. TVP8: it asserted the literal
+   *
+   *   className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4"
+   *
+   * twice, which was the right constraint written against a COPY of it. Six
+   * pages had that string letter for letter while five used `PageShell`, so
+   * the product had one page shell with two implementations and the component
+   * had a single caller's worth of authority over a measurement eleven pages
+   * depend on.
+   *
+   * The width is now asserted where it lives, and every root is asserted to be
+   * the component — which is strictly stronger, because a page that copies the
+   * string again fails rather than passes.
    */
+  const ui = read("components/ui.tsx");
+  assert.match(ui, /width === "narrow" \? "max-w-\[1100px\]" : "max-w-\[1400px\]"/,
+    "the shell's own width, which is what the constraint actually is");
+  assert.match(ui, /ts-app mx-auto w-full \$\{max\} space-y-4 px-3 py-4 sm:px-4/);
+
   const optimizers = read("app/optimizers/page.tsx");
-  const constrainedRoots = optimizers.match(
-    /className="ts-app mx-auto w-full max-w-\[1400px\] space-y-4 px-3 py-4 sm:px-4"/g,
-  );
-  assert.equal(constrainedRoots?.length, 2,
+  assert.equal((optimizers.match(/<PageShell/g) ?? []).length, 2,
     "both the empty and populated optimizer roots need an explicit width inside the flex main");
+
+  // And nothing anywhere re-implements it.
+  const copies = sourceFiles("app")
+    .filter((f) => /className="ts-app mx-auto w-full max-w-\[/.test(read(f)));
+  assert.deepEqual(copies, [],
+    `these hand-roll PageShell instead of rendering it: ${copies.join(", ")}`);
 });
 
 test("a backtest that is still running is asked about again", () => {

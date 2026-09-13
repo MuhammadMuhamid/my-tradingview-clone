@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type OptimizerLeaderboard, type OptimizerTree } from "@/lib/api";
-import { Card, CardHeader, Empty, ErrorNotice, Loading, Select } from "@/components/ui";
+import { Card, CardHeader, Empty, ErrorNotice, Loading, Select, PageShell } from "@/components/ui";
 
 type Metric = "score" | "net" | "dd" | "wr" | "pf" | "trades"
   | "oos" | "oosdd" | "ooswr" | "oostrades" | "held" | "sl" | "oossl";
@@ -205,7 +205,7 @@ export default function OptimizersPage() {
    */
   if (trees && trees.length === 0) {
     return (
-      <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
+      <PageShell>
         <div>
           <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
           <p className="text-xs text-ink-faint">
@@ -218,12 +218,12 @@ export default function OptimizersPage() {
             explored in the Backtester application; register a tree here to read its results.
           </Empty>
         </Card>
-      </div>
+      </PageShell>
     );
   }
 
   return (
-    <div className="ts-app mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-4">
+    <PageShell>
       <div>
         <h1 className="text-lg font-semibold text-ink">Optimizer results</h1>
         <p className="text-xs text-ink-faint">
@@ -388,6 +388,6 @@ export default function OptimizersPage() {
           </div>
         )}
       </Card>
-    </div>
+    </PageShell>
   );
 }
