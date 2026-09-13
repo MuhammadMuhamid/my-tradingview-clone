@@ -34,6 +34,9 @@ import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel"
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
 import { GoToDateModal } from "@/components/tv/GoToDateModal";
 import { CommandPalette } from "@/components/tv/CommandPalette";
+import {
+  compositePane, copyCanvasToClipboard, downloadCanvas, snapshotFilename,
+} from "@/lib/chartSnapshot";
 import { NativeStudySettings } from "@/components/tv/NativeStudySettings";
 import { ChartSettingsModal } from "@/components/tv/ChartSettingsModal";
 import { DrawingSettingsModal } from "@/components/tv/DrawingSettingsModal";
@@ -420,6 +423,35 @@ export default function TvWorkspace() {
    * not-applicable. See `components/tv/CommandPalette.tsx`.
    */
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  /*
+   * TVP8: a picture of the chart.
+   *
+   * The reference has a camera in this toolbar — Save chart image, Copy chart
+   * image — and this had none of it, so the only way to share a chart was the
+   * operating system's screen capture, which takes the browser chrome and the
+   * desktop with it. See `lib/chartSnapshot.ts` for what a pane's several
+   * canvases composite into and what deliberately does not.
+   */
+  const snapshot = useCallback(async (mode: "save" | "copy") => {
+    const host = document.querySelector<HTMLElement>(
+      `[data-pane-id="${workspace.activePaneId}"]`);
+    if (!host) { setToast("There is no chart to capture yet."); return; }
+    const canvas = compositePane(host, { symbol: displayTicker(symbol), interval });
+    if (!canvas) { setToast("The chart has not finished drawing."); return; }
+    try {
+      if (mode === "copy") {
+        await copyCanvasToClipboard(canvas);
+        setToast("Chart image copied.");
+      } else {
+        await downloadCanvas(canvas, snapshotFilename(displayTicker(symbol), interval));
+        setToast("Chart image saved.");
+      }
+    } catch (e) {
+      // These throw a sentence rather than a DOMException, on purpose.
+      setToast((e as Error).message);
+    }
+  }, [workspace.activePaneId, symbol, interval]);
   const [goTo, setGoTo] = useState<{ time: number; signal: number } | null>(null);
   const [drawingSettingsOpen, setDrawingSettingsOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
@@ -1605,6 +1637,8 @@ export default function TvWorkspace() {
         case "chart-settings": setChartSettingsOpen(true); return true;
         case "shortcuts-sheet": setShortcutsOpen(true); return true;
         case "command-palette": setPaletteOpen(true); return true;
+        case "snapshot-save": void snapshot("save"); return true;
+        case "snapshot-copy": void snapshot("copy"); return true;
         case "fullscreen":
           if (!fullscreen.supported) return false;
           fullscreen.toggle();
@@ -1807,6 +1841,7 @@ export default function TvWorkspace() {
           onToggleFullscreen={fullscreen.toggle}
           onOpenChartSettings={() => setChartSettingsOpen(true)}
           onOpenCommandPalette={() => setPaletteOpen(true)}
+          onSnapshot={snapshot}
           overlayMenuOpen={overlays.menuOpen}
           onOverlayMenuOpen={overlays.setMenuOpen}
           overlayPrefs={overlays.prefs}

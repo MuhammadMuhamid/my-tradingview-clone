@@ -187,6 +187,8 @@ export interface ChartToolbarProps {
   onToggleFullscreen: () => void;
   onOpenChartSettings: () => void;
   onOpenCommandPalette: () => void;
+  /** Save or copy a picture of the focused chart. */
+  onSnapshot: (mode: "save" | "copy") => void;
 
   overlayMenuOpen: boolean;
   onOverlayMenuOpen: (open: boolean) => void;
@@ -317,6 +319,22 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
           </svg>
         </button>
       )}
+      {/*
+        TVP8: a picture of the chart, where the reference puts it — the camera
+        beside the fullscreen control. Click saves; Alt-click copies, which is
+        the pair of actions the reference offers from its own camera menu,
+        without a two-item dropdown in a bar this dense.
+      */}
+      <button {...ctl("snapshot")}
+        onClick={(e) => props.onSnapshot(e.altKey ? "copy" : "save")}
+        title="Save a chart image — hold Alt to copy it instead"
+        aria-label="Save a chart image" className={TOOL_ICON_BUTTON}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 8.5A1.5 1.5 0 014.5 7h2L8 5h8l1.5 2h2A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z" />
+          <circle cx="12" cy="13" r="3.4" />
+        </svg>
+      </button>
       {/*
         TVP8: the command palette, where the reference puts it — the magnifier
         immediately before the chart-settings gear.
