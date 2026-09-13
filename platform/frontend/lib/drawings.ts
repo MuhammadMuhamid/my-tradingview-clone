@@ -8,6 +8,7 @@
  * canvas extrapolates coordinates for those using the interval length.
  */
 
+import { recallJson, rememberJson } from "./browserStorage";
 import { tryStoredSymbol } from "./instrument";
 import { isResolution, type Resolution } from "./resolution";
 
@@ -256,13 +257,36 @@ const KEY = "srtrend.drawings.v2";
 
 interface Store { [symbol: string]: Drawing[] }
 
+/**
+ * The whole store, or an empty one.
+ *
+ * ── Why the shape is checked and the CONTENTS are not ──────────────────────
+ *
+ * This was `JSON.parse(...) as Store` — an unchecked cast on a value that
+ * comes from the user's own disk. `saveDrawings` then reads the result,
+ * assigns one symbol's list into it and writes the whole thing back, so
+ * anything that is not a plain object destroys every OTHER symbol's drawings:
+ * a stored `null` throws on `delete store[key]`, and a stored `5` swallows the
+ * assignment silently and writes `5` back over the lot. Neither needs a
+ * malicious actor — a truncated write during a crash produces the first.
+ *
+ * What is deliberately NOT done here is filtering the drawings themselves.
+ * `isValidDrawing` rejects any tool this build does not know, so filtering on
+ * the way THROUGH `saveDrawings` would mean an older build permanently deletes
+ * a drawing made by a newer one, simply by the user saving something else on
+ * another symbol. Validation belongs where the drawings are RENDERED —
+ * `loadDrawings` — where rejecting one costs a frame, not the drawing.
+ */
 function readStore(): Store {
-  if (typeof window === "undefined") return {};
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "{}") as Store;
-  } catch {
-    return {};
+  const raw = recallJson<unknown>(KEY, {});
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const store: Store = {};
+  for (const [symbol, list] of Object.entries(raw as Record<string, unknown>)) {
+    // A symbol whose value is not a list is dropped rather than carried
+    // forward: nothing can read it, and keeping it would write it back.
+    if (Array.isArray(list)) store[symbol] = list as Drawing[];
   }
+  return store;
 }
 
 /**
@@ -316,7 +340,7 @@ export function saveDrawings(symbol: string, drawings: Drawing[]): void {
   const key = drawingKey(symbol);
   if (drawings.length === 0) delete store[key];
   else store[key] = drawings;
-  try {
-    localStorage.setItem(KEY, JSON.stringify(store));
-  } catch { /* quota — drawings stay in memory for this session */ }
+  // Quota, or a browser that refuses to store: the drawings stay in memory for
+  // this session rather than taking the page down. See `lib/browserStorage`.
+  rememberJson(KEY, store);
 }
