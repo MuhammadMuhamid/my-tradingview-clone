@@ -143,7 +143,27 @@ export interface CandleHistoryState {
    */
   dataset: HistoryRequest;
   loading: boolean;
+  /**
+   * What to TELL the user, in the user's own vocabulary.
+   *
+   * TVP7: this used to carry a provider's raw exception text straight to a
+   * full-width red band across the top of the chart, so a perfectly working
+   * chart could be captioned "Streaming unavailable; using REST refresh.
+   * fixture server has no route for GET /api/market/v1/stream/instrument%3Av1
+   * %3ABINANCE%3Aspot%3ABTC%3AUSDT%3AUSDT%3Aspot". Two things were wrong with
+   * that and only one of them was the wording: a stream that has fallen back
+   * to polling is a DEGRADED state, not a failure, and painting it the same
+   * red as "this chart has no data" teaches a trader to ignore both.
+   *
+   * So the sentence here is the one a user can act on, `errorDetail` carries
+   * the technical cause for the tooltip and for a bug report, and `errorLevel`
+   * says which of the two this is. Nothing is hidden — it moved.
+   */
   error: string | null;
+  /** The provider's own words, for a tooltip and for diagnostics. */
+  errorDetail: string | null;
+  /** `error` means the chart cannot be trusted; `notice` means it is degraded. */
+  errorLevel: "error" | "notice" | null;
   /**
    * The newest bar held is slots behind the interval grid and the repair could
    * not close the distance — the window is real but behind the market.
@@ -251,7 +271,8 @@ export function useCandleHistory(
     () => heldWindow(candleHistory.peek(request) ?? [], { symbol, interval, bars }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [streamWarning, setStreamWarning] = useState<string | null>(null);
+  const [streamWarning, setStreamWarning] =
+    useState<{ message: string; detail: string | null } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
   const requestSeq = useRef(new LatestRequest());
@@ -375,7 +396,14 @@ export function useCandleHistory(
         if (stopped || tail.length === 0) return;
         const current = tail[tail.length - 1]!;
         mergeLiveBars(tail.length > 1 ? tail[tail.length - 2]! : null, current);
-      } catch (cause) { if (!isAbortError(cause)) setStreamWarning(`Live tail unavailable: ${(cause as Error).message}`); }
+      } catch (cause) {
+        if (!isAbortError(cause)) {
+          setStreamWarning({
+            message: "The latest bars could not be refreshed.",
+            detail: (cause as Error).message,
+          });
+        }
+      }
     };
     void api.marketStream(symbol, "candle", interval, controller.signal).then((config) => {
       if (stopped) return;
@@ -388,12 +416,21 @@ export function useCandleHistory(
         onState: (state) => {
           if (state.status === "live") setStreamWarning(null);
           else if (state.status === "stale" || (state.status === "reconnecting" && state.everLive)) {
-            setStreamWarning("Provider stream is stale; REST tail refresh remains active.");
+            setStreamWarning({
+              message: "Live updates are behind — refreshing on a timer.",
+              detail: "The provider's stream went stale. The REST tail refresh remains active, "
+                + "so bars keep arriving, just less promptly.",
+            });
           }
         },
       });
     }).catch((cause) => {
-      if (!isAbortError(cause)) setStreamWarning(`Streaming unavailable; using REST refresh. ${(cause as Error).message}`);
+      if (!isAbortError(cause)) {
+        setStreamWarning({
+          message: "Live updates unavailable — refreshing on a timer.",
+          detail: (cause as Error).message,
+        });
+      }
     });
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 15_000);
@@ -403,7 +440,11 @@ export function useCandleHistory(
   return useMemo(
     () => ({
       candles: held.candles, dataset: held.dataset, stale: held.stale,
-      loading, error: error ?? streamWarning, mergeLiveBars, reload,
+      loading,
+      error: error ?? streamWarning?.message ?? null,
+      errorDetail: error ? null : streamWarning?.detail ?? null,
+      errorLevel: error ? "error" : streamWarning ? "notice" : null,
+      mergeLiveBars, reload,
     }),
     [held, loading, error, streamWarning, mergeLiveBars, reload]
   );

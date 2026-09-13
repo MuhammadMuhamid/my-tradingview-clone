@@ -755,13 +755,40 @@ function ChartPaneImpl(props: ChartPaneProps) {
       <span className="sr-only">
         {pane.symbol} {pane.interval}{multiPane && active ? " — focused pane" : ""}
       </span>
-      {history.error && (
-        <div className="border-b border-down/30 bg-down/10 px-2 py-1 text-[11px] text-down">
-          {history.error}
+      {/*
+        ── A degraded feed and a broken one are not the same event ────────────
+        Both used to be one full-width red band above the chart, captioned with
+        the provider's raw exception. A stream that has fallen back to polling
+        is the chart still WORKING, on a slower path; painting it the same red
+        as "this chart has no data" teaches a trader to ignore both, and taking
+        a permanent row of height for it moves every candle down.
+
+        A hard error keeps the band, because a chart you cannot trust should
+        cost a row. The degraded case is a chip floating over the plot, which
+        is where TradingView puts a transient chart notice.
+      */}
+      {history.error && history.errorLevel !== "notice" && (
+        <div
+          title={history.errorDetail ?? undefined}
+          className="flex items-center gap-1.5 border-b border-down/30 bg-down/10 px-2 py-1 text-[11px] text-down"
+        >
+          <span>{history.error}</span>
+          {history.errorDetail && <span aria-hidden="true" className="opacity-60">&#9432;</span>}
         </div>
       )}
 
       <div className="relative min-h-0 flex-1">
+        {history.error && history.errorLevel === "notice" && (
+          <div
+            role="status"
+            title={history.errorDetail ?? undefined}
+            className="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center
+              gap-1.5 rounded border border-warn/40 bg-warn/15 px-2 py-0.5 text-[11px] text-warn backdrop-blur-sm"
+          >
+            <span>{history.error}</span>
+            {history.errorDetail && <span aria-hidden="true" className="opacity-60">&#9432;</span>}
+          </div>
+        )}
         {!replayActive && active
           && (props.candleOverlay?.enabled || props.classicalOverlay?.enabled) && (
           <div className="absolute right-2 top-2 z-20 flex max-h-[calc(100%-1rem)]

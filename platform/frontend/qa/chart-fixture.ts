@@ -173,6 +173,55 @@ fixture.routes.set("/api/market/v1/tickers", async (_body, url) => {
   return { providers: [{ providerId: "qa-fixture", observations }], errors: [], missing: [] };
 });
 
+/*
+ * Watchlists, in memory for the life of this process.
+ *
+ * `GET /api/watchlists` already answered `[]` through the shared harness, so
+ * the panel rendered its empty state and every attempt to leave it — the seed
+ * chips, "Add all eight", typing a symbol — posted into a 404 and silently
+ * did nothing. The populated watchlist was therefore the one right-rail state
+ * that had never been seen at all.
+ */
+interface QaWatchlist { id: string; name: string; symbols: string[]; position: number; updatedAt: string }
+const watchlists = new Map<string, QaWatchlist>();
+let watchlistSeq = 0;
+
+function watchlistRequest(url: URL, method: string, body: unknown): unknown | undefined {
+  if (!url.pathname.startsWith("/api/watchlists")) return undefined;
+  const id = url.pathname.slice("/api/watchlists".length).replace(/^\//, "");
+  const patch = (body ?? {}) as Partial<QaWatchlist>;
+  if (method === "GET" && !id) {
+    return [...watchlists.values()].sort((a, b) => a.position - b.position);
+  }
+  if (method === "POST" && !id) {
+    const existing = [...watchlists.values()].find((w) => w.name === patch.name);
+    const row: QaWatchlist = {
+      id: existing?.id ?? `qa-wl-${++watchlistSeq}`,
+      name: patch.name ?? "Watchlist",
+      symbols: patch.symbols ?? [],
+      position: patch.position ?? existing?.position ?? watchlists.size,
+      updatedAt: new Date().toISOString(),
+    };
+    watchlists.set(row.id, row);
+    return row;
+  }
+  if (method === "PATCH" && id) {
+    const row = watchlists.get(id);
+    if (!row) return null;
+    const next: QaWatchlist = {
+      ...row,
+      name: patch.name ?? row.name,
+      symbols: patch.symbols ?? row.symbols,
+      position: patch.position ?? row.position,
+      updatedAt: new Date().toISOString(),
+    };
+    watchlists.set(id, next);
+    return next;
+  }
+  if (method === "DELETE" && id) { watchlists.delete(id); return {}; }
+  return undefined;
+}
+
 createServer(async (req, res) => {
   try {
     const chunks: Buffer[] = [];
@@ -196,6 +245,16 @@ createServer(async (req, res) => {
       };
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       res.end(JSON.stringify(payload));
+      return;
+    }
+    const watchlistResult = watchlistRequest(
+      requestUrl,
+      (req.method ?? "GET").toUpperCase(),
+      chunks.length ? JSON.parse(Buffer.concat(chunks).toString() || "null") : null,
+    );
+    if (watchlistResult !== undefined) {
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify(watchlistResult));
       return;
     }
     const response = await fixture.handle(req.url ?? "/", {

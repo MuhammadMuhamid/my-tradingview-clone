@@ -17,7 +17,7 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { advance, closeBrowser, compactSeries, resetBrowser, server } from "./harness/env";
+import { advance, closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
 import { clickAt, drag, mountChart, press, selectTool } from "./harness/chart";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { drawingStore } from "@/lib/drawingStore";
@@ -115,10 +115,14 @@ test("Delete is refused while the user is typing, and taken when they are not", 
   await drag(chart.plot, [300, 260], [520, 380]);
 
   // The watchlist's "add a pair" box is a real input on this page. It opens
-  // from the `+` beside the list name (FC2-L3 took it out of the header row).
+  // from the `+` beside the list name, inside the panel the rail opens.
+  const panel = chart.container.querySelector<HTMLElement>('button[aria-label="Watchlist"]');
+  assert.ok(panel, "the right rail offers no watchlist");
+  if (panel.getAttribute("aria-pressed") !== "true") { fireEvent.click(panel); await settle(); }
   const open = chart.container.querySelector<HTMLElement>('button[aria-label="Add a symbol to this list"]');
   assert.ok(open, "the watchlist offers no way to add a symbol");
   fireEvent.click(open);
+  await settle();
   const input = chart.container.querySelector<HTMLInputElement>('input[type="text"], input:not([type])');
   assert.ok(input, "the workspace renders no text input to test the guard with");
   input.focus();

@@ -273,3 +273,27 @@ export function displayTicker(raw: string): string {
   const id = tryResolveInstrument(raw);
   return id ? id.ticker : String(raw ?? "").toUpperCase();
 }
+
+/**
+ * The venue as a reader would say it: `Binance`, `Nasdaq`, `S&P` — not
+ * `BINANCE`.
+ *
+ * TradingView's status line ends `· Binance`, in the same muted weight as the
+ * interval beside it, because which exchange you are looking at is context
+ * rather than identity. A shouted `BINANCE:` welded to the front of the ticker
+ * is neither.
+ *
+ * Returns null for a legacy bare ticker, where there is exactly one venue and
+ * naming it says nothing — the same rule `displaySymbol` already applies.
+ */
+export function displayVenue(raw: string): string | null {
+  const canonical = canonicalDisplayParts(raw);
+  const venue = canonical?.venue ?? (Object.keys(VENUES).length > 1
+    ? tryResolveInstrument(raw)?.venue ?? null
+    : null);
+  if (!venue) return null;
+  const known = VENUES[venue];
+  if (known) return known.label;
+  // Acronyms stay shouted; anything word-shaped is title-cased.
+  return venue.length <= 3 ? venue : venue[0]! + venue.slice(1).toLowerCase();
+}

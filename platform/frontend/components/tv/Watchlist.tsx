@@ -77,7 +77,14 @@ export function Watchlist({
   // When the panel is opened from the compact rail, put the add field in the
   // first tab order position. It keeps the empty state actionable without
   // reserving permanent vertical chrome on the chart.
-  const [addOpen, setAddOpen] = useState(true);
+  /*
+   * TVP7: closed. This field was open on load, so the panel spent a permanent
+   * 34px row — above the column headers, above the first quote — on a control
+   * that duplicates the `+` beside it. TradingView's watchlist begins at its
+   * rows. The `+` still opens this, still autofocuses it, and Escape still
+   * closes it; only the default changed.
+   */
+  const [addOpen, setAddOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);
@@ -341,7 +348,7 @@ export function Watchlist({
   };
 
   return (
-    <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[279px]">
+    <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
       {/*
         FC2-L3: one header row, not three.
 
@@ -426,12 +433,13 @@ export function Watchlist({
         order, so a sort is never a one-way door out of an arrangement they
         spent time on.
       */}
-      <div className="grid grid-cols-[1fr_auto_auto_18px] gap-x-2 border-b border-border px-3 py-1 text-[11px] text-ink-faint">
-        {([["symbol", "Symbol", ""], ["last", "Last", ""],
-           ["change", "Chg%", "w-[64px] text-right"]] as [SortColumn, string, string][])
+      <div className="grid grid-cols-[minmax(0,1fr)_62px_50px_50px_14px] gap-x-1 border-b border-border px-3 py-1 text-ink-faint">
+        {([["symbol", "Symbol", ""], ["last", "Last", "text-right"],
+           ["change", "Chg", "text-right"],
+           ["change", "Chg%", "text-right"]] as [SortColumn, string, string][])
           .map(([column, label, extra]) => (
             <button
-              key={column}
+              key={label}
               onClick={() => setSort((current) => nextSort(current, column))}
               aria-label={sort.column === column
                 ? `Sorted by ${label}, ${sort.direction === "asc" ? "ascending" : "descending"}. Click to change.`
@@ -524,24 +532,40 @@ export function Watchlist({
               three pulled the same way: the list read as looser and less
               scannable than the reference while occupying the same width.
             */
-            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[29px] md:grid-cols-[minmax(0,1fr)_18px] ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-state-hover"}`}>
+            /*
+             * TVP7: 31px and four columns, both measured off the live product.
+             * The row used to carry `· SPOT · BINANCE` after the ticker, which
+             * on a 279px panel left the price with nowhere to go and made
+             * every row of an all-Binance-spot list end in the same eleven
+             * characters. The venue moved into the row's tooltip; the TYPE
+             * badge stays for anything that is not spot, because a perpetual
+             * and its spot pair are different instruments with the same name
+             * and that distinction is worth the width.
+             */
+            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[31px] md:grid-cols-[minmax(0,1fr)_14px] ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-state-hover"}`}>
             <button onClick={() => onSelect(s.symbol)}
-              className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 text-left">
-              <span className="flex min-w-0 items-center font-medium text-ink" title={displaySymbol(s.symbol)}>
+              className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_62px_50px_50px] items-center gap-x-1 text-left">
+              <span className="flex min-w-0 items-center font-medium text-ink"
+                title={`${displaySymbol(s.symbol)}${s.venue ? ` · ${s.venue}` : ""}`}>
                 <span className="truncate">{s.baseAsset}<span className="text-ink-faint">/{s.quoteAsset}</span></span>
-                {identity && <span className={`ml-1 shrink-0 text-[9px] font-bold ${identity.type === "spot" ? "text-ink-faint" : "text-accent"}`}>
-                  · {instrumentTypeLabel(identity.type)}{identity.expiry ? ` ${identity.expiry.slice(2)}` : ""} · {s.venue}
-                </span>}
+                {identity && identity.type !== "spot" && (
+                  <span className="ml-1 shrink-0 text-[9px] font-bold text-accent">
+                    {instrumentTypeLabel(identity.type)}{identity.expiry ? ` ${identity.expiry.slice(2)}` : ""}
+                  </span>
+                )}
               </span>
-              <span className={`text-right ${t ? (t.stale ? "text-warn" : up ? "text-up" : "text-down") : "text-ink-faint"}`}
+              <span className={`truncate text-right ${t ? (t.stale ? "text-warn" : "text-ink") : "text-ink-faint"}`}
                 title={selectedRow && replayQuote ? "Replay price at the current historical horizon" : undefined}>
                 {t ? px(t.last) : "—"}
               </span>
-              <span className={`w-[64px] text-right ${t && t.changeKnown !== false ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t && t.changeKnown !== false ? `${up ? "+" : ""}${t.chgPct.toFixed(2)}%` : "—"}</span>
+              <span className={`truncate text-right ${t && t.changeKnown !== false ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>
+                {t && t.changeKnown !== false ? `${up ? "+" : ""}${px(t.chg)}` : "—"}
+              </span>
+              <span className={`truncate text-right ${t && t.changeKnown !== false ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t && t.changeKnown !== false ? `${up ? "+" : ""}${t.chgPct.toFixed(2)}%` : "—"}</span>
             </button>
             <button title="Remove from watchlist" aria-label={`Remove ${displaySymbol(s.symbol)} from watchlist`}
               onClick={() => updateActive((l) => ({ ...l, symbols: l.symbols.filter((x) => x !== s.symbol) }))}
-              className="flex h-11 w-11 items-center justify-center text-ink-faint hover:text-down md:invisible md:h-[29px] md:w-[18px] md:group-hover:visible">×</button>
+              className="flex h-11 w-11 items-center justify-center text-ink-faint hover:text-down md:invisible md:h-[31px] md:w-[14px] md:group-hover:visible">×</button>
           </div>;
         })}
       </div>

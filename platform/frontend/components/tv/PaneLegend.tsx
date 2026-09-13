@@ -41,7 +41,7 @@ import { CompareControl } from "@/components/tv/CompareControl";
 import { LegendTimeframe, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { Resolution } from "@/lib/resolution";
 import type { PaneCompare } from "@/lib/workspace";
-import { displaySymbol } from "@/lib/instrument";
+import { displaySymbol, displayTicker, displayVenue } from "@/lib/instrument";
 import { DerivativeIdentity } from "@/components/tv/DerivativeIdentity";
 import { EquityIdentity } from "@/components/tv/EquityIdentity";
 import { TraditionalIdentity } from "@/components/tv/TraditionalIdentity";
@@ -83,7 +83,21 @@ const HIT = "pointer-events-auto";
 
 export function PaneLegend(props: PaneLegendProps) {
   const { paneId, symbol, interval, compare, dense } = props;
+  /*
+   * TVP7. The legend led with `BINANCE:BTC/USDT · SPOT` — a venue, a
+   * colon, a pair and an asset-class word, before any price. TradingView's
+   * status line is `Bitcoin / TetherUS · 4h · Binance`: the
+   * instrument first, then the context, in descending weight.
+   *
+   * So the button is the ticker, the venue trails it in muted type beside the
+   * interval, and the qualified identity — which is the thing a support
+   * request needs — is the control's tooltip and accessible name. The asset
+   * class keeps its own badge (`DerivativeIdentity` and friends below), which
+   * says more than the word SPOT did and is Trading Scene's own.
+   */
   const symbolLabel = displaySymbol(symbol);
+  const tickerLabel = displayTicker(symbol);
+  const venueLabel = displayVenue(symbol);
   const [compareOpen, setCompareOpen] = useState(false);
 
   const pickInterval = useCallback((next: Resolution) => {
@@ -117,7 +131,7 @@ export function PaneLegend(props: PaneLegendProps) {
           title={`Change this pane's symbol — currently ${symbolLabel} · ${props.bars.toLocaleString()} bars loaded`}
           aria-label={`Change symbol for the ${symbolLabel} pane`}
         >
-          {symbolLabel}
+          {tickerLabel}
         </button>
 
         <DerivativeIdentity symbol={symbol} dense={dense} />
@@ -139,6 +153,12 @@ export function PaneLegend(props: PaneLegendProps) {
           onInterval={pickInterval}
           preferences={props.resolutions}
         />
+
+        {venueLabel && !dense && (
+          <span className="shrink-0 text-[11px] text-ink-faint" title={symbolLabel}>
+            &middot; {venueLabel}
+          </span>
+        )}
 
         {/*
           The comparison, stated on the pane it belongs to.

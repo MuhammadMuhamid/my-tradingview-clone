@@ -182,7 +182,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 focusKey={props.indicatorFocusKey}
               />
             ) : (
-              <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 items-center justify-center border-l border-border bg-surface p-4 text-xs text-ink-faint md:w-[279px]">
+              <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 items-center justify-center border-l border-border bg-surface p-4 text-xs text-ink-faint md:w-[300px]">
                 Preparing this pane&apos;s studies…
               </aside>
             )
@@ -199,7 +199,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 onClose={props.onClosePanel}
                 onStateChange={props.onManualState} />)}
           {props.panel === "ma" && (
-            <aside className="flex h-full w-[85vw] max-w-[294px] shrink-0 flex-col border-l border-border bg-surface md:w-[279px]">
+            <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
               <MaPanel
                 lines={props.maLines}
                 values={props.maValues}
@@ -231,7 +231,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}
         title="Watchlist"
-        aria-label={props.panel === null ? "Add a symbol to this list" : "Watchlist"}
+        aria-label="Watchlist"
         aria-pressed={props.panel === "watchlist"}
       >
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

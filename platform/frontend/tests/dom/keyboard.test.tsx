@@ -40,10 +40,21 @@ after(closeBrowser);
  * TradingView's 118px — and put it behind the `+` affordance beside the list
  * name. Clicking that is what a user does, so it is what this does.
  */
-function textInput(container: HTMLElement): HTMLInputElement {
+/*
+ * The watchlist's add-a-symbol box is a real text input on this page, and it
+ * is what the typing guards are tested against. Reaching it is now two
+ * deliberate clicks — open the panel, open the field — because the field is a
+ * disclosure that starts closed, and because the rail button that opens the
+ * panel no longer borrows the field's own accessible name to be findable.
+ */
+async function textInput(container: HTMLElement): Promise<HTMLInputElement> {
+  const panel = container.querySelector<HTMLElement>('button[aria-label="Watchlist"]');
+  assert.ok(panel, "the right rail offers no watchlist");
+  if (panel.getAttribute("aria-pressed") !== "true") { fireEvent.click(panel); await settle(); }
   const open = container.querySelector<HTMLElement>('button[aria-label="Add a symbol to this list"]');
   assert.ok(open, "the watchlist offers no way to add a symbol");
   fireEvent.click(open);
+  await settle();
   const input = container.querySelector<HTMLInputElement>("input:not([type='checkbox'])");
   assert.ok(input, "the workspace renders no text input");
   return input;
@@ -63,7 +74,7 @@ test("a bare letter arms its tool when nothing is focused", async () => {
 
 test("no shortcut fires while the user is typing, and the field keeps the key", async () => {
   const chart = await mountChart();
-  const input = textInput(chart.container);
+  const input = await textInput(chart.container);
   input.focus();
 
   fireEvent.change(input, { target: { value: "BT" } });
