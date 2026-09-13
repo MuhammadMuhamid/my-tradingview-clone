@@ -43,7 +43,7 @@ import {
   isDefaultPriceScale, normalizePriceScale, resetPriceScale, type PriceScaleState,
 } from "./priceScale";
 import {
-  isDefaultChartSettings, normalizeChartSettings, type ChartSettings,
+  isDefaultChartSettings, normalizeChartSettings, type ChartSettings, userDefaultChartSettings,
 } from "./chartSettings";
 import { canonicalizeLegacySpotSymbol } from "./instrument";
 
@@ -413,9 +413,19 @@ export function setPaneChartSettings(
   };
 }
 
+/**
+ * This pane's settings, or the user's own default.
+ *
+ * TVP8: a pane with nothing stored used to fall to `DEFAULT_CHART_SETTINGS`
+ * through `normalizeChartSettings`, so the "Save as default" the settings
+ * dialog gained would have applied to nothing. `userDefaultChartSettings`
+ * returns the product's defaults when the user has not saved one, so the
+ * behaviour is unchanged for anyone who never opens that button.
+ */
 export function paneChartSettings(ws: ChartWorkspace, id: PaneId): ChartSettings {
   const pane = ws.panes.find((p) => p.id === id);
-  return normalizeChartSettings(pane?.chartSettings);
+  if (pane?.chartSettings === undefined) return userDefaultChartSettings();
+  return normalizeChartSettings(pane.chartSettings);
 }
 
 export function setPaneCompare(

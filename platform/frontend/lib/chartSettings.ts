@@ -26,6 +26,15 @@ export type PricePrecision = "auto" | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 /** Which side of the plot the price axis is drawn on. */
 export type ScalePlacement = "right" | "left" | "both" | "none";
 
+/** A line's dash pattern, in the reference's own vocabulary. */
+export type LineStyleName = "solid" | "dotted" | "dashed";
+
+/** How the axis writes a date. */
+export type DateFormatName = "dd MMM yy" | "MMM dd, yyyy" | "yyyy-MM-dd" | "dd/MM/yyyy" | "MM/dd/yyyy";
+export const DATE_FORMATS: readonly DateFormatName[] = [
+  "dd MMM yy", "MMM dd, yyyy", "yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy",
+];
+
 export interface ChartSettings {
   // ── Series appearance (the reference's "Symbol" tab) ──────────────────────
   /** Candle bodies are filled; off draws them hollow. */
@@ -59,14 +68,45 @@ export interface ChartSettings {
   scalePlacement: ScalePlacement;
   /** 24-hour axis labels; off is 12-hour with am/pm. */
   timeFormat24h: boolean;
+  /**
+   * TVP8: the tab literally named "Scales and lines" contained no line
+   * controls at all — seven of them, and every one was a scale. These are the
+   * lines it is named for, and each is a lightweight-charts 4.2 series or
+   * chart option, so none of them is a switch that does nothing.
+   */
+  /** The dashed line at the last price, running back across the plot. */
+  lastValueLine: boolean;
+  lastValueLineColor: string;
+  lastValueLineWidth: number;
+  lastValueLineStyle: LineStyleName;
+  /** The price tag on the scale itself. */
+  lastValueLabel: boolean;
+  /** How the time axis writes a date. */
+  dateFormat: DateFormatName;
 
   // ── Canvas ────────────────────────────────────────────────────────────────
   /** Vertical grid lines. */
   gridVertical: boolean;
   /** Horizontal grid lines. */
   gridHorizontal: boolean;
+  /** TVP8: the grid had a pair of on/off switches and no appearance at all. */
+  gridColor: string;
+  gridStyle: LineStyleName;
   /** Lightweight-charts crosshair. */
   showCrosshair: boolean;
+  /** TVP8: same — visible or not, and nothing else. */
+  crosshairColor: string;
+  crosshairWidth: number;
+  crosshairStyle: LineStyleName;
+  /**
+   * TVP8: the instrument's name behind the bars, as the reference draws it.
+   *
+   * Off by default. It is the one canvas control that changes what a
+   * SCREENSHOT of this chart says it is, which is most of what it is for.
+   */
+  watermark: boolean;
+  /** Solid ground, or the reference's vertical gradient. */
+  backgroundGradient: boolean;
   /** Axis label size in px. */
   scaleFontSize: number;
   /** Empty space above the highest bar, as a percentage of pane height. */
@@ -157,10 +197,23 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
 
   scalePlacement: "right",
   timeFormat24h: true,
+  lastValueLine: true,
+  lastValueLineColor: "#758696",
+  lastValueLineWidth: 1,
+  lastValueLineStyle: "dashed",
+  lastValueLabel: true,
+  dateFormat: "dd MMM yy",
 
   gridVertical: true,
   gridHorizontal: true,
+  gridColor: "",
+  gridStyle: "solid",
   showCrosshair: true,
+  crosshairColor: "",
+  crosshairWidth: 1,
+  crosshairStyle: "dashed",
+  watermark: false,
+  backgroundGradient: false,
   scaleFontSize: 12,
   marginTopPct: 10,
   marginBottomPct: 8,
@@ -197,10 +250,103 @@ function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+const LINE_STYLES: readonly LineStyleName[] = ["solid", "dotted", "dashed"];
+
+function lineStyle(value: unknown, fallback: LineStyleName): LineStyleName {
+  return LINE_STYLES.includes(value as LineStyleName) ? value as LineStyleName : fallback;
+}
+
+/** A hex colour, or the fallback. `""` is a legal value meaning "the theme's". */
+function hex(value: unknown, fallback: string): string {
+  if (value === "") return "";
+  return typeof value === "string" && HEX.test(value) ? value : fallback;
+}
+
 function num(value: unknown, fallback: number, min: number, max: number): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(max, Math.max(min, value))
     : fallback;
+}
+
+/*
+ * ── TVP8: defaults and templates ───────────────────────────────────────────
+ *
+ * The reference's chart-settings dialog has a "Template" dropdown and a
+ * "Defaults" button (Save as default / Reset settings) in its footer. This
+ * dialog had Cancel and Ok, and was the only settings dialog in the product
+ * without a Defaults — `StrategySettingsModal` and `NativeStudySettings` both
+ * have one.
+ *
+ * A per-user default matters more here than it looks. Every new pane starts
+ * from `DEFAULT_CHART_SETTINGS`, so a trader who wants a 3px crosshair and no
+ * grid was re-setting it on every pane they opened, for ever.
+ */
+export const CHART_SETTINGS_DEFAULT_KEY = "tv.chartSettings.default";
+export const CHART_SETTINGS_TEMPLATES_KEY = "tv.chartSettings.templates.v1";
+
+export interface ChartSettingsTemplate {
+  name: string;
+  settings: ChartSettings;
+}
+
+/** The user's own default, or the product's when they have not saved one. */
+export function userDefaultChartSettings(): ChartSettings {
+  if (typeof window === "undefined") return { ...DEFAULT_CHART_SETTINGS };
+  try {
+    const raw = window.localStorage.getItem(CHART_SETTINGS_DEFAULT_KEY);
+    if (raw === null) return { ...DEFAULT_CHART_SETTINGS };
+    return normalizeChartSettings(JSON.parse(raw));
+  } catch { return { ...DEFAULT_CHART_SETTINGS }; }
+}
+
+export function saveUserDefaultChartSettings(settings: ChartSettings): void {
+  try {
+    window.localStorage.setItem(CHART_SETTINGS_DEFAULT_KEY, JSON.stringify(settings));
+  } catch { /* private window: the settings still apply, they just do not persist */ }
+}
+
+export function clearUserDefaultChartSettings(): void {
+  try { window.localStorage.removeItem(CHART_SETTINGS_DEFAULT_KEY); }
+  catch { /* nothing to clear */ }
+}
+
+export function loadChartSettingsTemplates(): ChartSettingsTemplate[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CHART_SETTINGS_TEMPLATES_KEY);
+    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((row): ChartSettingsTemplate[] => {
+      const r = row as { name?: unknown; settings?: unknown };
+      return typeof r.name === "string" && r.name.trim() !== ""
+        ? [{ name: r.name, settings: normalizeChartSettings(r.settings) }]
+        : [];
+    });
+  } catch { return []; }
+}
+
+/** Upsert by name, so saving over a template replaces it rather than doubling it. */
+export function saveChartSettingsTemplate(
+  templates: readonly ChartSettingsTemplate[], name: string, settings: ChartSettings,
+): ChartSettingsTemplate[] {
+  const trimmed = name.trim();
+  const without = templates.filter((t) => t.name !== trimmed);
+  const next = [...without, { name: trimmed, settings }]
+    .sort((a, b) => a.name.localeCompare(b.name));
+  try {
+    window.localStorage.setItem(CHART_SETTINGS_TEMPLATES_KEY, JSON.stringify(next));
+  } catch { /* private window */ }
+  return next;
+}
+
+export function deleteChartSettingsTemplate(
+  templates: readonly ChartSettingsTemplate[], name: string,
+): ChartSettingsTemplate[] {
+  const next = templates.filter((t) => t.name !== name);
+  try {
+    window.localStorage.setItem(CHART_SETTINGS_TEMPLATES_KEY, JSON.stringify(next));
+  } catch { /* private window */ }
+  return next;
 }
 
 /**
@@ -237,10 +383,26 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     scalePlacement: PLACEMENTS.includes(value.scalePlacement as ScalePlacement)
       ? value.scalePlacement as ScalePlacement : "right",
     timeFormat24h: bool(value.timeFormat24h, true),
+    lastValueLine: bool(value.lastValueLine, true),
+    lastValueLineColor: hex(value.lastValueLineColor, DEFAULT_CHART_SETTINGS.lastValueLineColor),
+    lastValueLineWidth: Math.round(num(value.lastValueLineWidth, 1, 1, 4)),
+    lastValueLineStyle: lineStyle(value.lastValueLineStyle, "dashed"),
+    lastValueLabel: bool(value.lastValueLabel, true),
+    dateFormat: DATE_FORMATS.includes(value.dateFormat as DateFormatName)
+      ? value.dateFormat as DateFormatName : "dd MMM yy",
 
     gridVertical: bool(value.gridVertical, legacyGrid),
     gridHorizontal: bool(value.gridHorizontal, legacyGrid),
+    // Empty means "the theme's own", which is what every chart had before
+    // these controls existed and what Reset returns them to.
+    gridColor: hex(value.gridColor, ""),
+    gridStyle: lineStyle(value.gridStyle, "solid"),
     showCrosshair: bool(value.showCrosshair, true),
+    crosshairColor: hex(value.crosshairColor, ""),
+    crosshairWidth: Math.round(num(value.crosshairWidth, 1, 1, 4)),
+    crosshairStyle: lineStyle(value.crosshairStyle, "dashed"),
+    watermark: bool(value.watermark, false),
+    backgroundGradient: bool(value.backgroundGradient, false),
     scaleFontSize: Math.round(num(value.scaleFontSize, 12, 8, 20)),
     marginTopPct: Math.round(num(value.marginTopPct, 10, 0, 50)),
     marginBottomPct: Math.round(num(value.marginBottomPct, 8, 0, 50)),

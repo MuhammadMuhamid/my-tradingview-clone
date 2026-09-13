@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
-  SeriesMarker, MouseEventParams, LineStyle, LineType, PriceScaleMode,
+  SeriesMarker, MouseEventParams, ColorType, LineStyle, LineType, PriceScaleMode,
   CrosshairMode,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type LineData, type WhitespaceData,
@@ -378,6 +378,12 @@ function addMainSeries(
     // the price at one instant, not a path between two of them.
     lineType: type === "stepLine" ? LineType.WithSteps : LineType.Simple,
   });
+}
+
+/** A style NAME from the settings model into the library's enum. */
+function lineStyleOf(style: "solid" | "dotted" | "dashed"): LineStyle {
+  return style === "solid" ? LineStyle.Solid
+    : style === "dotted" ? LineStyle.Dotted : LineStyle.Dashed;
 }
 
 function volumeCandleColor(candle: Candle, max: number): string {
@@ -958,11 +964,52 @@ export function CandleChart({
     const placement = settings.scalePlacement;
     chart.applyOptions({
       layout: { fontSize: settings.scaleFontSize },
+      /*
+       * TVP8: the grid and the crosshair had one on/off switch each and no
+       * appearance at all, while the tab they live under is the one the
+       * reference gives colour, width and style for. An empty colour means
+       * "the theme's own", which is what every chart had before these existed
+       * and what Reset returns them to — so the theme keeps deciding unless
+       * the user has said otherwise.
+       */
       grid: {
-        vertLines: { visible: settings.gridVertical },
-        horzLines: { visible: settings.gridHorizontal },
+        vertLines: {
+          visible: settings.gridVertical,
+          ...(settings.gridColor ? { color: settings.gridColor } : {}),
+          style: lineStyleOf(settings.gridStyle),
+        },
+        horzLines: {
+          visible: settings.gridHorizontal,
+          ...(settings.gridColor ? { color: settings.gridColor } : {}),
+          style: lineStyleOf(settings.gridStyle),
+        },
       },
-      crosshair: { mode: settings.showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden },
+      crosshair: {
+        mode: settings.showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden,
+        vertLine: {
+          width: settings.crosshairWidth as 1 | 2 | 3 | 4,
+          style: lineStyleOf(settings.crosshairStyle),
+          ...(settings.crosshairColor ? { color: settings.crosshairColor } : {}),
+        },
+        horzLine: {
+          width: settings.crosshairWidth as 1 | 2 | 3 | 4,
+          style: lineStyleOf(settings.crosshairStyle),
+          ...(settings.crosshairColor ? { color: settings.crosshairColor } : {}),
+        },
+      },
+      /*
+       * TVP8: the instrument's name behind the bars, as the reference draws
+       * it. Off by default — it is the one canvas control that changes what a
+       * screenshot of this chart SAYS it is, which is most of what it is for.
+       */
+      watermark: {
+        visible: settings.watermark,
+        text: displayTicker(symbol),
+        color: "rgba(255,255,255,0.06)",
+        fontSize: 64,
+        horzAlign: "center",
+        vertAlign: "center",
+      },
       rightPriceScale: { visible: placement === "right" || placement === "both" },
       leftPriceScale: { visible: placement === "left" || placement === "both" },
       // `both` shows the axis on both sides; which side the SERIES is bound to
@@ -986,12 +1033,18 @@ export function CandleChart({
           const hour = h % 12 === 0 ? 12 : h % 12;
           return `${hour}:${String(d.getUTCMinutes()).padStart(2, "0")} ${suffix}`;
         },
+        // TVP8: the reference offers five, and a reader who writes dates
+        // day-first should not have to read an axis that writes them
+        // month-first. `dateFormat` is a library option, so this is one line.
+        dateFormat: settings.dateFormat,
       },
     });
   }, [
     settings.gridVertical, settings.gridHorizontal, settings.showCrosshair,
     settings.scaleFontSize, settings.scalePlacement, settings.rightOffsetBars,
-    settings.timeFormat24h, chartReady,
+    settings.timeFormat24h, settings.gridColor, settings.gridStyle,
+    settings.crosshairColor, settings.crosshairWidth, settings.crosshairStyle,
+    settings.watermark, settings.dateFormat, symbol, chartReady,
   ]);
 
   /**
@@ -1082,6 +1135,63 @@ export function CandleChart({
 
   const onChartContextMenuRef = useRef(onChartContextMenu);
   onChartContextMenuRef.current = onChartContextMenu;
+
+  /*
+   * ── TVP8: the lines the "Scales and lines" tab is named for ──────────────
+   *
+   * That tab had seven controls and every one of them was a SCALE. The
+   * reference's equivalent is mostly about lines: the dashed last-price line
+   * running back across the plot, the price tag on the scale, and the colour,
+   * width and style of each. All three are series options here, so the
+   * controls are real rather than decorative — which is the standard
+   * `lib/chartSettings.ts` sets for adding one at all.
+   *
+   * Applied in an effect rather than at creation because a settings change
+   * must not rebuild the series: rebuilding is a remount, and a remount is the
+   * flicker this chart is built to avoid.
+   */
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    try {
+      series.applyOptions({
+        priceLineVisible: settings.lastValueLine,
+        priceLineColor: settings.lastValueLineColor,
+        priceLineWidth: settings.lastValueLineWidth as 1 | 2 | 3 | 4,
+        priceLineStyle: lineStyleOf(settings.lastValueLineStyle),
+        lastValueVisible: settings.lastValueLabel,
+      });
+    } catch { /* the series went away between render and effect */ }
+  }, [
+    settings.lastValueLine, settings.lastValueLineColor, settings.lastValueLineWidth,
+    settings.lastValueLineStyle, settings.lastValueLabel, chartType, chartReady,
+  ]);
+
+  /*
+   * TVP8: the canvas ground.
+   *
+   * Transparent by default, so the pane's own surface shows through and the
+   * theme keeps deciding — that is what every chart had and it is the right
+   * default. The gradient is the reference's, and it is the one canvas choice
+   * that changes how a chart reads in a screenshot.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    try {
+      chart.applyOptions({
+        layout: settings.backgroundGradient
+          ? {
+              background: {
+                type: ColorType.VerticalGradient,
+                topColor: "rgba(41,98,255,0.06)",
+                bottomColor: "rgba(0,0,0,0)",
+              },
+            }
+          : { background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" } },
+      });
+    } catch { /* disposed */ }
+  }, [settings.backgroundGradient, chartReady]);
 
   const resetSignalRef = useRef(resetSignal);
   useEffect(() => {

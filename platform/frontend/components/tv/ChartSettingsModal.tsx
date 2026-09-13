@@ -35,12 +35,17 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { Resolution } from "@/lib/resolution";
 import {
-  PRECISIONS, PLACEMENTS, precisionLabel,
-  type ChartSettings, type PricePrecision, type ScalePlacement,
+  clearUserDefaultChartSettings, DATE_FORMATS, DEFAULT_CHART_SETTINGS,
+  deleteChartSettingsTemplate, loadChartSettingsTemplates, PRECISIONS, PLACEMENTS,
+  precisionLabel, saveChartSettingsTemplate, saveUserDefaultChartSettings,
+  type ChartSettingsTemplate,
+  type ChartSettings, type DateFormatName, type LineStyleName,
+  type PricePrecision, type ScalePlacement,
 } from "@/lib/chartSettings";
 import { chartTransform, chartTypeLabel, renderKind, type ChartType } from "@/lib/chartType";
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import { Button } from "@/components/ui";
+import { useAsk } from "@/components/AskDialog";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
@@ -123,6 +128,42 @@ export function ChartSettingsModal({
     onClose();
   };
 
+  /*
+   * TVP8: Template and Defaults, which the reference puts in this footer and
+   * which this was the only settings dialog in the product without —
+   * `StrategySettingsModal` and `NativeStudySettings` both have a Defaults.
+   *
+   * A per-user default reaches further than it looks: every new pane starts
+   * from the product's defaults, so a trader who wants a 3px crosshair and no
+   * grid was setting it again on every pane they opened.
+   */
+  const ask = useAsk();
+  const [templates, setTemplates] = useState<ChartSettingsTemplate[]>([]);
+  useEffect(() => { if (open) setTemplates(loadChartSettingsTemplates()); }, [open]);
+
+  const applyTemplate = (name: string): void => {
+    const found = templates.find((t) => t.name === name);
+    if (found) onSettings(found.settings);
+  };
+
+  const saveTemplate = async (): Promise<void> => {
+    const name = (await ask.promptFor({
+      title: "Save chart settings as a template",
+      label: "Name", placeholder: "Dark, no grid", confirmLabel: "Save",
+    }))?.trim();
+    if (!name) return;
+    setTemplates(saveChartSettingsTemplate(templates, name, settings));
+  };
+
+  const removeTemplate = async (name: string): Promise<void> => {
+    if (!await ask.confirm({
+      title: `Delete the template “${name}”?`,
+      body: "Charts already using these settings keep them.",
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
+    setTemplates(deleteChartSettingsTemplate(templates, name));
+  };
+
   return (
     <Modal
       open={open}
@@ -130,7 +171,43 @@ export function ChartSettingsModal({
       title="Chart settings"
       wide
       footer={
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2">
+          {/* TVP8: Template and Defaults, on the left as the reference has them. */}
+          <Select
+            value=""
+            label="Chart settings template"
+            onChange={(v) => {
+              if (v === "__save") void saveTemplate();
+              else if (v.startsWith("__delete:")) void removeTemplate(v.slice("__delete:".length));
+              else if (v) applyTemplate(v);
+            }}
+            options={[
+              { value: "", label: "Template" },
+              ...templates.map((t) => ({ value: t.name, label: t.name })),
+              { value: "__save", label: "Save current settings as…" },
+              ...templates.map((t) => ({ value: `__delete:${t.name}`, label: `Delete “${t.name}”` })),
+            ]}
+          />
+          <Button
+            onClick={() => void (async () => {
+              if (!await ask.confirm({
+                title: "Chart defaults",
+                body: "Save these settings as the defaults every new pane starts from, "
+                  + "or reset this chart back to the product's own.",
+                confirmLabel: "Save as default",
+                cancelLabel: "Reset this chart",
+              })) {
+                clearUserDefaultChartSettings();
+                onSettings(DEFAULT_CHART_SETTINGS);
+                return;
+              }
+              saveUserDefaultChartSettings(settings);
+            })()}
+            className="px-3"
+          >
+            Defaults
+          </Button>
+          <span className="flex-1" />
           <Button onClick={cancel} className="px-4">Cancel</Button>
           <Button variant="primary" onClick={onClose} className="px-4">Ok</Button>
         </div>
@@ -395,7 +472,39 @@ export function ChartSettingsModal({
                 </button>
               </Row>
 
+              {/*
+                TVP8: the tab named "Scales and lines" had seven controls and
+                every one of them was a scale. These are the lines it is named
+                for, and each maps to a lightweight-charts series option, so
+                none of them is a switch that moves nothing.
+              */}
+              <Head>Lines</Head>
+              <Row label="Last value line">
+                <Toggle checked={settings.lastValueLine} onChange={(v) => set("lastValueLine", v)}
+                  label="Last value line" />
+                {settings.lastValueLine && (
+                  <>
+                    <Swatch value={settings.lastValueLineColor}
+                      onChange={(v) => set("lastValueLineColor", v)} label="Last value line colour" />
+                    <NumberField value={settings.lastValueLineWidth} min={1} max={4}
+                      onChange={(v) => set("lastValueLineWidth", v)} label="Last value line width" />
+                    <Select value={settings.lastValueLineStyle} label="Last value line style"
+                      onChange={(v) => set("lastValueLineStyle", v as LineStyleName)}
+                      options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
+                  </>
+                )}
+              </Row>
+              <Row label="Last price label">
+                <Toggle checked={settings.lastValueLabel} onChange={(v) => set("lastValueLabel", v)}
+                  label="Last price label on the scale" />
+              </Row>
+
               <Head>Time scale</Head>
+              <Row label="Date format">
+                <Select value={settings.dateFormat} label="Date format"
+                  onChange={(v) => set("dateFormat", v as DateFormatName)}
+                  options={DATE_FORMATS.map((f) => ({ value: f, label: f }))} />
+              </Row>
               <Row label="Time hours format">
                 <Select value={settings.timeFormat24h ? "24" : "12"} label="Time hours format"
                   onChange={(v) => set("timeFormat24h", v === "24")}
@@ -417,8 +526,49 @@ export function ChartSettingsModal({
               <Row label="Horizontal grid lines">
                 <Toggle checked={settings.gridHorizontal} onChange={(v) => set("gridHorizontal", v)} label="Horizontal grid lines" />
               </Row>
+              {/*
+                TVP8: the grid had two on/off switches and no appearance at
+                all. An empty colour means the theme's own, which is what every
+                chart had before this existed.
+              */}
+              <Row label="Grid appearance">
+                <Swatch value={settings.gridColor || "#2a2a2a"}
+                  onChange={(v) => set("gridColor", v)} label="Grid colour" />
+                <Select value={settings.gridStyle} label="Grid line style"
+                  onChange={(v) => set("gridStyle", v as LineStyleName)}
+                  options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
+                {settings.gridColor && (
+                  <button onClick={() => set("gridColor", "")}
+                    className="tvc-control flex h-[26px] items-center rounded px-2 text-xs text-ink-muted hover:text-ink">
+                    Theme colour
+                  </button>
+                )}
+              </Row>
               <Row label="Crosshair">
                 <Toggle checked={settings.showCrosshair} onChange={(v) => set("showCrosshair", v)} label="Crosshair" />
+                {settings.showCrosshair && (
+                  <>
+                    <Swatch value={settings.crosshairColor || "#9598a1"}
+                      onChange={(v) => set("crosshairColor", v)} label="Crosshair colour" />
+                    <NumberField value={settings.crosshairWidth} min={1} max={4}
+                      onChange={(v) => set("crosshairWidth", v)} label="Crosshair width" />
+                    <Select value={settings.crosshairStyle} label="Crosshair style"
+                      onChange={(v) => set("crosshairStyle", v as LineStyleName)}
+                      options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
+                  </>
+                )}
+              </Row>
+
+              <Head>Background</Head>
+              <Row label="Gradient background"
+                suffix="A vertical wash instead of the pane's flat surface">
+                <Toggle checked={settings.backgroundGradient}
+                  onChange={(v) => set("backgroundGradient", v)} label="Gradient background" />
+              </Row>
+              <Row label="Symbol watermark"
+                suffix="The ticker behind the bars, as the reference draws it">
+                <Toggle checked={settings.watermark}
+                  onChange={(v) => set("watermark", v)} label="Symbol watermark" />
               </Row>
 
               <Head>Scales</Head>
