@@ -398,11 +398,28 @@ export function setVolumeData(
  * behind the drawn bar has nothing to say that the next frame will not, which
  * is the rule `lib/liveDataset` states for the price series.
  *
- * Those two watermarks are kept apart today only by ORDER, not by
- * construction: `LiveTickGate.adopt` re-anchors its own `newest` from the
- * history in the same effect run that `setVolumeData` re-anchors this one, so
- * the gate refuses a stale frame before it can reach here. Move either and the
- * gap opens — which is why this guard exists rather than trusting the gate.
+ * ── Why this guard exists rather than trusting `LiveTickGate` ─────────────
+ *
+ * On the ordinary path the two watermarks are kept together only by ORDER:
+ * `LiveTickGate.adopt` re-anchors its `newest` from the history in the same
+ * effect run that `setVolumeData` re-anchors this one, so the gate refuses a
+ * stale frame before it can reach here. Reorder those and the gap opens.
+ *
+ * But the gate could not stand in for this guard even then, because the two
+ * do not move alike. On the SAME dataset `adopt` never moves `newest`
+ * backwards — `Math.max(this.newest ?? lastOpenTime, lastOpenTime)` — while
+ * `setVolumeData` moves this one backwards deliberately, which is the whole
+ * point of a repaint. A same-dataset window that shrinks (Replay, a shorter
+ * backfill) genuinely separates them. It happens to separate them in the safe
+ * direction, but that is the direction's luck, not the ordering's.
+ *
+ * ── Why this one DROPS and the price series REPAINTS ──────────────────────
+ *
+ * Not two answers to the same fact. `applyTick` writes the bar into
+ * `candlesRef.current` before the price write, so a drop there would leave a
+ * RECORD claiming a bar the series does not have, and the next plan is
+ * computed from that record. Volume keeps no record — only this watermark —
+ * so dropping leaves it consistent with what is drawn.
  */
 export function updateVolumeSeries(
   api: ISeriesApi<"Histogram">, row: VolumeRow, head: SeriesHead, repaint?: () => void,

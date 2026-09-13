@@ -289,6 +289,32 @@ test("A MAIN-SERIES ROW BEHIND THE HEAD IS REPAINTED, NOT DROPPED", () => {
   const next = { time: behind.time + 86_400, value: 999 };
   assert.equal(updateMainSeries(api, "line", next, head), true);
 
+  /*
+   * ── The watermark must ADVANCE, or the guard above is decorative ─────────
+   *
+   * A reviewer deleted the one line that advances `head.current` after an
+   * accepted `update()` and the whole suite stayed green — while the deletion
+   * was load-bearing: with the head stuck where `setData` left it, an appended
+   * bar moves the SERIES forward and the watermark does not, so the next frame
+   * between the two passes a guard that is measuring the wrong thing and
+   * reaches `update()` on a series whose last bar is newer. That is the P0's
+   * own exception, reached through the guard meant to prevent it.
+   *
+   * This is that exact sequence. It throws out of the seam without the line.
+   */
+  assert.equal(head.current, next.time, "an accepted append did not move the head");
+  const sameBar = { time: next.time, value: 1_000 };
+  assert.equal(updateMainSeries(api, "line", sameBar, head), true);
+  assert.equal(head.current, next.time, "a rewrite in place moved the head");
+
+  const stale = { time: next.time - 43_200, value: -1 };
+  let rescued = false;
+  assert.equal(
+    updateMainSeries(api, "line", stale, head, () => { rescued = true; }),
+    false,
+    "a frame between the old head and the appended bar was written through update()");
+  assert.ok(rescued, "the stale frame was neither drawn nor repainted");
+
   host.remove();
 });
 

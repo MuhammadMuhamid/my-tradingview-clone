@@ -17,10 +17,24 @@
  *
  * So this reads them. The rule, stated once:
  *
- *   A writer that can refuse a row must be handed the replacement for the
- *   content that row belonged to — and the live-tick volume write is the one
- *   documented exception, because a frame behind the drawn bar has nothing to
- *   say that the next frame will not (`lib/liveDataset`).
+ *   A writer that can refuse a row must be handed a repaint argument that
+ *   really calls the replacing writer — and the live-tick volume write is the
+ *   one documented exception, because a frame behind the drawn bar has nothing
+ *   to say that the next frame will not (`lib/liveDataset`).
+ *
+ * ── What this cannot prove, stated so nobody reads more into it ────────────
+ *
+ * That the repaint draws THE SAME CONTENT the refused row belonged to. That is
+ * not decidable from source text: a repaint can call the right writer with a
+ * shortened list, or behind a condition that is never true, and this file will
+ * pass it. A second reviewer demonstrated both. What it does catch is the
+ * whole class that actually happened — an argument emptied, dropped, hidden
+ * behind `?.()`, moved to another module, or a new call site added without one
+ * — and it catches an `[]` repaint, which is worse than the bug it replaces
+ * because it blanks the series.
+ *
+ * The behavioural half lives in `tests/dom/studyWindowZoom.test.tsx`, which
+ * drives the writers themselves against real lightweight-charts series.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -28,7 +42,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..");
-const CHART = readFileSync(join(ROOT, "components/CandleChart.tsx"), "utf8");
+
+/**
+ * Comments are removed first, and that is not cosmetic: a reviewer defeated
+ * the first version of this file by commenting a guard out and writing
+ * `if (true)` under it, and by hiding `setMainSeriesData(` inside a `/* … *\/`
+ * so the substring check found a name that no longer ran.
+ */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+const CHART = stripComments(readFileSync(join(ROOT, "components/CandleChart.tsx"), "utf8"));
 
 /**
  * The argument list of every call to `name(`, split at top-level commas.
@@ -67,10 +92,31 @@ function callArguments(source: string, name: string): string[][] {
   return calls;
 }
 
-/** A thunk that does nothing is the mutation this file exists to catch. */
-const isRealRepaint = (arg: string | undefined, writer: string): boolean =>
-  arg !== undefined && arg.includes("=>") && arg.includes(`${writer}(`)
-  && !/=>\s*\{\s*\}\s*$/.test(arg);
+/**
+ * Whether an argument is a repaint that will actually redraw something.
+ *
+ * An identifier is followed to its declaration in the same file, because
+ * hoisting a thunk to a `const` is an ordinary refactor and a test that forbids
+ * it is a test somebody deletes.
+ */
+function isRealRepaint(arg: string | undefined, writer: string, source: string): boolean {
+  if (arg === undefined) return false;
+  let body = arg;
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(arg.trim())) {
+    const declared = new RegExp(`\\bconst\\s+${arg.trim()}\\s*=([\\s\\S]{0,600}?);\\n`).exec(source);
+    if (!declared) return false;
+    body = declared[1]!;
+  }
+  if (!body.includes("=>") || !body.includes(`${writer}(`)) return false;
+  // An empty thunk, or one whose only statement is unreachable.
+  if (/=>\s*\{\s*\}\s*$/.test(body)) return false;
+  // `setData([])` satisfies every name check and blanks the series — worse
+  // than the silent drop this whole rule exists to replace.
+  for (const call of callArguments(body, writer)) {
+    if (call.some((a) => a === "[]")) return false;
+  }
+  return true;
+}
 
 test("EVERY MAIN-SERIES WRITE THAT CAN REFUSE IS GIVEN THE REPAINT FOR ITS OWN CONTENT", () => {
   const calls = callArguments(CHART, "updateMainSeries");
@@ -82,7 +128,7 @@ test("EVERY MAIN-SERIES WRITE THAT CAN REFUSE IS GIVEN THE REPAINT FOR ITS OWN C
       `updateMainSeries call ${i + 1} passes ${args.length} arguments: a writer that can refuse a row `
       + "must be handed the replacement for the content that row belonged to, or the refusal is a "
       + "silent drop and `displayRef`/`candlesRef` go on claiming a bar the series never got");
-    assert.ok(isRealRepaint(args[4], "setMainSeriesData"),
+    assert.ok(isRealRepaint(args[4], "setMainSeriesData", CHART),
       `updateMainSeries call ${i + 1} was given "${args[4]}" as its repaint. It must actually call `
       + "`setMainSeriesData`; an empty thunk satisfies the signature and loses the bar");
   }
@@ -97,15 +143,16 @@ test("THE VOLUME HISTOGRAM REPAINTS IN THE DATA EFFECT AND DROPS ON THE LIVE PAT
   const without = calls.filter((args) => args.length === 3);
   assert.equal(withRepaint.length + without.length, calls.length,
     "an updateVolumeSeries call takes either 3 arguments (a documented drop) or 4 (a repaint)");
-  assert.ok(withRepaint.length >= 1,
-    "the data effect's volume write must repaint: its window can move backwards, and a dropped "
-    + "bar there is a histogram that disagrees with the candles above it");
+  assert.equal(withRepaint.length, 1,
+    "exactly one volume write repaints — the data effect's, whose window can move backwards, and "
+    + "where a dropped bar is a histogram that disagrees with the candles above it");
   for (const args of withRepaint) {
-    assert.ok(isRealRepaint(args[3], "setVolumeData"),
+    assert.ok(isRealRepaint(args[3], "setVolumeData", CHART),
       `a volume repaint was given "${args[3]}"; it must actually call \`setVolumeData\``);
   }
-  assert.ok(without.length <= 1,
-    "only the live-tick write may drop. Every other volume writer owns a window it can redraw");
+  assert.equal(without.length, 1,
+    "exactly one volume write drops — the live tick's. Giving it a repaint would silently invert "
+    + "the policy this test exists to state, and `<= 1` could not tell the difference");
 });
 
 test("THE LIVE VOLUME WRITE IS STILL SKIPPED WHERE THE HISTOGRAM IS DELIBERATELY EMPTY", () => {
