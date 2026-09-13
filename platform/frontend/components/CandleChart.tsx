@@ -371,6 +371,52 @@ export function updateMainSeries(
   return true;
 }
 
+/** One bar of the volume histogram. */
+export type VolumeRow = HistogramData<Time>;
+
+/**
+ * Replace the volume histogram, moving its head to whatever was written.
+ *
+ * The histogram has the same two writers the price series has — the data
+ * effect and the live-tick handler — and until TVP8 round three it had no head
+ * at all, which is the one thing that makes a backwards `update()` detectable.
+ * These two functions exist so that the rule is written once and so a test can
+ * drive it; the writes used to be inline in two effects, where nothing could.
+ */
+export function setVolumeData(
+  api: ISeriesApi<"Histogram">, rows: VolumeRow[], head: SeriesHead,
+): void {
+  api.setData(rows);
+  head.current = rows.length > 0 ? (rows[rows.length - 1]!.time as number) : null;
+}
+
+/**
+ * Extend the volume histogram, or refuse a bar it is already past.
+ *
+ * `repaint` is the data effect's full replacement, for the case where the
+ * window itself moved back. The LIVE path passes none deliberately: a frame
+ * behind the drawn bar has nothing to say that the next frame will not, which
+ * is the rule `lib/liveDataset` states for the price series.
+ *
+ * Those two watermarks are kept apart today only by ORDER, not by
+ * construction: `LiveTickGate.adopt` re-anchors its own `newest` from the
+ * history in the same effect run that `setVolumeData` re-anchors this one, so
+ * the gate refuses a stale frame before it can reach here. Move either and the
+ * gap opens — which is why this guard exists rather than trusting the gate.
+ */
+export function updateVolumeSeries(
+  api: ISeriesApi<"Histogram">, row: VolumeRow, head: SeriesHead, repaint?: () => void,
+): boolean {
+  const time = row.time as number;
+  if (head.current !== null && time < head.current) {
+    repaint?.();
+    return false;
+  }
+  api.update(row);
+  head.current = head.current === null ? time : Math.max(head.current, time);
+  return true;
+}
+
 /** Create the main series for a presentation, in the shared price palette. */
 function addMainSeries(
   chart: IChartApi, type: ChartType, baselineValue = 0
@@ -1895,24 +1941,14 @@ export function CandleChart({
         volHeadRef.current = null;
       }
     } else if (mutation === "replace" || !volumeDrawnRef.current) {
-      const rows = candles.map(volumeDatum);
-      vol.setData(rows);
+      setVolumeData(vol, candles.map(volumeDatum), volHeadRef);
       volumeDrawnRef.current = true;
-      volHeadRef.current = rows.length > 0 ? rows[rows.length - 1]!.time : null;
     } else if (mutation === "update" && candles.length > 0) {
-      const row = volumeDatum(candles[candles.length - 1]!);
       // A bar behind what volume already holds is a repaint of the window, not
       // an increment of it — the same rule the price series follows, applied to
       // the one series that had no head of its own.
-      if (volHeadRef.current !== null && row.time < volHeadRef.current) {
-        const rows = candles.map(volumeDatum);
-        vol.setData(rows);
-        volHeadRef.current = rows.length > 0 ? rows[rows.length - 1]!.time : null;
-      } else {
-        vol.update(row);
-        volHeadRef.current = volHeadRef.current === null
-          ? row.time : Math.max(volHeadRef.current, row.time);
-      }
+      updateVolumeSeries(vol, volumeDatum(candles[candles.length - 1]!), volHeadRef,
+        () => setVolumeData(vol, candles.map(volumeDatum), volHeadRef));
     }
 
     if (transform === null && (kind === "range" || kind === "footprint")) {
@@ -2414,10 +2450,26 @@ export function CandleChart({
           openTime: tick.openTime, open: tick.open, high: tick.high,
           low: tick.low, close: tick.close,
         };
+        const liveDatum = (c: Candle) => kind === "columns"
+          ? { time: c.openTime / 1000, value: c.close }
+          : mainSeriesDatum(kind, c, barColorRef.current.get(c.openTime / 1000)
+            ?? (isVolumeCandle(kind) ? volumeCandleColor(c, maxVolume) : null));
+        /*
+         * The repaint is not optional here either.
+         *
+         * `applyTick` has ALREADY written this bar into `candlesRef.current`,
+         * above, so a refusal that only dropped the row would leave the
+         * canonical record claiming a bar the series was never given — the
+         * exact defect the transform branch below was repaired for. The two
+         * live branches therefore take the same answer, and `list` is the
+         * record that was just updated, so the repaint draws what the chart
+         * believes it holds.
+         */
         updateMainSeries(series, kind, kind === "columns"
           ? { time: timeSec, value: tick.close }
           : mainSeriesDatum(kind, liveOhlc, override
-            ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)), mainHeadRef);
+            ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)), mainHeadRef,
+          () => setMainSeriesData(series, kind, list.map(liveDatum), mainHeadRef));
       } else if (transform !== null) {
         if ((transform === "kagi" || transform === "pointAndFigure")
           && !(priceTick && priceTick > 0)) return;
@@ -2459,14 +2511,11 @@ export function CandleChart({
        * into it here put one stray bar back on a chart that is showing none.
        * Renko is the same omission and was the only one this branch knew about.
        */
-      if (transform !== "renko" && volumeDrawnRef.current
-        && !(volHeadRef.current !== null && timeSec < volHeadRef.current)) {
-        vol.update({
+      if (transform !== "renko" && volumeDrawnRef.current) {
+        updateVolumeSeries(vol, {
           time, value: tick.volume,
           color: volumeBarColorRef.current(tick.open, tick.close),
-        });
-        volHeadRef.current = volHeadRef.current === null
-          ? timeSec : Math.max(volHeadRef.current, timeSec);
+        }, volHeadRef);
       }
 
       const hover = hoverTimeRef.current;

@@ -25,11 +25,14 @@
  */
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { createChart, type IChartApi, type ISeriesApi } from "lightweight-charts";
+import {
+  createChart, type IChartApi, type ISeriesApi, type UTCTimestamp,
+} from "lightweight-charts";
 import { resetBrowser } from "./harness/env";
 import { planSeriesMutation, type ChartPoint, type SeriesMutation } from "@/lib/chartSeries";
 import {
-  replaceOverlayData, setMainSeriesData, updateMainSeries, updateOverlayData,
+  replaceOverlayData, setMainSeriesData, setVolumeData, updateMainSeries,
+  updateOverlayData, updateVolumeSeries,
   type OverlaySeriesEntry, type SeriesHead,
 } from "@/components/CandleChart";
 import { replaceData, updateData, type SeriesEntry } from "@/components/tv/IndicatorPane";
@@ -285,6 +288,57 @@ test("A MAIN-SERIES ROW BEHIND THE HEAD IS REPAINTED, NOT DROPPED", () => {
   // update, which it could not be if the repaint had not happened.
   const next = { time: behind.time + 86_400, value: 999 };
   assert.equal(updateMainSeries(api, "line", next, head), true);
+
+  host.remove();
+});
+
+test("THE VOLUME HISTOGRAM REFUSES A BAR IT IS ALREADY PAST", () => {
+  /*
+   * The volume series had two writers and no watermark until this repair, and
+   * then a watermark that no test touched: a reviewer deleted both of its
+   * crash guards and all 1,228 tests stayed green. No test in the repo wrote
+   * to the histogram at all.
+   *
+   * This drives the real helpers against a real histogram series, so removing
+   * either guard restores a `vol.update()` at a backwards time and fails here
+   * with the library's own exception.
+   */
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  chart = createChart(host, { width: 1280, height: 320 });
+  const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" } });
+  const head: SeriesHead = { current: null };
+
+  const bars = (n: number) => CANDLES.slice(0, n).map((c) => ({
+    time: (c.openTime / 1000) as UTCTimestamp, value: c.volume,
+  }));
+
+  setVolumeData(vol, bars(1_200), head);
+  assert.equal(head.current, CANDLES[1_199]!.openTime / 1000);
+
+  // The data effect's case: the window itself moved back, so the histogram is
+  // repainted at its new span rather than nudged.
+  const shorter = bars(800);
+  let repainted = false;
+  assert.equal(
+    updateVolumeSeries(vol, shorter[shorter.length - 1]!, head, () => {
+      repainted = true;
+      setVolumeData(vol, shorter, head);
+    }),
+    false,
+    "a volume bar behind the head was written through update()");
+  assert.ok(repainted, "the refusal dropped the bar instead of repainting the window");
+  assert.equal(head.current, CANDLES[799]!.openTime / 1000);
+
+  // The live path's case: no repaint, so the frame is dropped — and dropped
+  // without throwing, which is the whole point.
+  assert.equal(updateVolumeSeries(vol, bars(400)[399]!, head), false);
+  assert.equal(head.current, CANDLES[799]!.openTime / 1000, "a dropped frame moved the head");
+
+  // Forward is still an ordinary increment, at the head and past it.
+  assert.equal(updateVolumeSeries(vol, { ...shorter[shorter.length - 1]!, value: 42 }, head), true);
+  assert.equal(updateVolumeSeries(vol, bars(900)[899]!, head), true);
+  assert.equal(head.current, CANDLES[899]!.openTime / 1000);
 
   host.remove();
 });
