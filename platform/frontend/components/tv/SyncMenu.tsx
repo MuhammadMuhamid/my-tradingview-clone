@@ -138,7 +138,7 @@ export function SyncMenu({
                 role="switch"
                 aria-checked={on}
                 onClick={() => onChange({ ...value, [o.id]: !on })}
-                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-state-hover"
+                className="tvc-menu-row w-full gap-3 px-2.5 text-left"
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] text-ink">
@@ -177,7 +177,7 @@ export function SyncMenu({
               type="button"
               onClick={() => setShowAdvanced(true)}
               aria-expanded={false}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-ink-muted hover:bg-state-hover hover:text-ink"
+              className="tvc-menu-row w-full gap-2 px-2.5 text-left text-[13px] text-ink-muted hover:text-ink"
             >
               <span aria-hidden="true">＋</span>
               Advanced — {advanced.map((o) => o.label.toLowerCase()).join(", ")}

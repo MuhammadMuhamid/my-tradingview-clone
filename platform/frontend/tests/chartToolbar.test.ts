@@ -92,7 +92,10 @@ test("the high-value chart controls are primary, not behind an overflow", () => 
   }
   assert.deepEqual(
     controlsInGroup("context").map((c) => c.id),
-    ["symbol", "timeframe", "chartType", "indicators", "replay"],
+    // `compare` joined this group when the comparison's entry point moved off
+    // the chart's status line and onto the bar, beside the instrument it
+    // compares FROM — which is where the reference has it.
+    ["symbol", "compare", "timeframe", "chartType", "indicators", "replay"],
     "the chart-context group is what tells you what you are looking at"
   );
 });

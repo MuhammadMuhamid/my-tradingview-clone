@@ -982,6 +982,9 @@ export default function TvWorkspace() {
    * layout would put the same second instrument on four charts a user was
    * using to look at four different things.
    */
+  /** Which pane's comparison dialog is open, if any — the toolbar's `+` sets it. */
+  const [comparePaneId, setComparePaneId] = useState<string | null>(null);
+
   const changePaneCompare = useCallback((paneId: string, next: PaneCompare | null) => {
     setWorkspace((ws) => setPaneCompare(ws, paneId, next));
   }, []);
@@ -1616,6 +1619,8 @@ export default function TvWorkspace() {
         resetSignal={paneResets[pane.id] ?? 0}
         drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
         onCompareChange={changePaneCompare}
+        comparePaneId={comparePaneId}
+        onComparePaneId={setComparePaneId}
         // The pane fetches its OWN fired events, scoped to its instrument and
         // timeframe, and places them against its own bars. It needs only the
         // armed alerts from here, to attribute an event to one.
@@ -1627,7 +1632,7 @@ export default function TvWorkspace() {
         compact={isMobile}
       />
     );
-  }, [paneDecorations, workspace.activePaneId, paneCount, activatePane, changePaneInterval,
+  }, [comparePaneId, paneDecorations, workspace.activePaneId, paneCount, activatePane, changePaneInterval,
     toggleMaximizePane, closePane, replay, replayDrawings, updateReplayDrawings, cross, range,
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnet, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
@@ -1673,6 +1678,7 @@ export default function TvWorkspace() {
           interval={interval}
           resolutions={resolutions}
           onOpenSearch={() => setSearchPaneId(active.id)}
+          onOpenCompare={() => setComparePaneId(active.id)}
           onInterval={(i) => changePaneInterval(active.id, i)}
           chartType={active.chartType}
           onChartType={changeChartType}
@@ -1972,6 +1978,7 @@ export default function TvWorkspace() {
         onClose={() => setChartSettingsOpen(false)}
         symbol={symbol}
         interval={interval}
+        chartType={active.chartType}
         scale={paneScale(workspace.activePaneId)}
         onScale={(next) => setPaneScale(workspace.activePaneId, next)}
         onReset={() => {

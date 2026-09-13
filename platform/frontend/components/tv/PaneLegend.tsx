@@ -54,6 +54,8 @@ export interface PaneLegendProps {
   lastClose: number | null;
   /** The loaded window is behind the market. */
   stale: boolean;
+  /** The chart's own OHLC row is showing, so this legend need not repeat `C`. */
+  ohlcVisible: boolean;
   /** The window for this pane is being replaced right now. */
   loading: boolean;
   /** How many bars this pane holds — a readout, not a trading fact. */
@@ -64,6 +66,10 @@ export interface PaneLegendProps {
    * in a 4×4 is a hundred pixels tall and a legend must not become the chart.
    */
   dense: boolean;
+
+  /** Set by the pane so the toolbar's Compare control can open this dialog. */
+  compareOpen?: boolean;
+  onCompareOpenChange?: (open: boolean) => void;
 
   onOpenSymbolSearch: (paneId: string) => void;
   onInterval: (paneId: string, interval: Resolution) => void;
@@ -98,7 +104,14 @@ export function PaneLegend(props: PaneLegendProps) {
   const symbolLabel = displaySymbol(symbol);
   const tickerLabel = displayTicker(symbol);
   const venueLabel = displayVenue(symbol);
-  const [compareOpen, setCompareOpen] = useState(false);
+  /*
+   * Controlled when the pane supplies it, so the toolbar's Compare control can
+   * open this pane's dialog; uncontrolled otherwise, so a legend used anywhere
+   * else still works on its own.
+   */
+  const [ownCompareOpen, setOwnCompareOpen] = useState(false);
+  const compareOpen = props.compareOpen ?? ownCompareOpen;
+  const setCompareOpen = props.onCompareOpenChange ?? setOwnCompareOpen;
 
   const pickInterval = useCallback((next: Resolution) => {
     props.onInterval(paneId, next);
@@ -167,22 +180,33 @@ export function PaneLegend(props: PaneLegendProps) {
           is a materially different chart; a reader must be able to see that at
           a glance and undo it in one click.
         */}
-        <button
-          {...{ className: `${HIT} flex h-5 shrink-0 items-center rounded px-1 text-[11px] ${
-            compare ? "bg-surface-2/80 font-semibold text-ink" : "text-ink-faint hover:bg-state-hover/80 hover:text-ink"
-          }` }}
-          onClick={() => setCompareOpen(true)}
-          title={compare
-            ? `Comparing with ${compare.symbol} — ${compare.mode}`
-            : "Compare this chart with another instrument"}
-          aria-label={compare
-            ? `Comparing with ${compare.symbol}. Change or remove.`
-            : "Compare with another instrument"}
-        >
-          {compare ? `vs ${compare.symbol}` : "vs"}
-        </button>
+        {/*
+          TVP7: the comparison states itself only when there IS one.
+          A bare lowercase "vs" sat permanently in the status line as the way
+          IN to the comparison dialog — two letters of chrome, on the densest
+          shared surface there is, saying nothing about the chart. The way in
+          is now the toolbar's Compare control, which is where TradingView puts
+          it; this stays as the removable chip that says a comparison is on,
+          because a chart whose line is a percentage against another instrument
+          must say so at a glance.
+        */}
+        {compare && (
+          <button
+            {...{ className: `${HIT} tvc-control flex h-5 shrink-0 items-center px-1 text-[11px] font-semibold text-ink` }}
+            onClick={() => setCompareOpen(true)}
+            title={`Comparing with ${compare.symbol} — ${compare.mode}`}
+            aria-label={`Comparing with ${compare.symbol}. Change or remove.`}
+          >
+            vs {compare.symbol}
+          </button>
+        )}
 
-        {!dense && props.lastClose !== null && (
+        {/*
+          The last close, only when the OHLC row below is not already showing
+          it as `C`. It was printed unconditionally, so the default chart said
+          the same number twice, forty pixels apart.
+        */}
+        {!dense && !props.ohlcVisible && props.lastClose !== null && (
           <span
             className={`tabular text-[11px] ${props.stale ? "text-warn" : "text-ink-muted"}`}
             title={props.stale

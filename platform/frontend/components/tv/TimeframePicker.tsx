@@ -150,22 +150,22 @@ function PickerRow({
   const selected = current === resolution;
   return (
     /*
-      The selected row is FILLED, not just bolded. It was bold accent text on
-      the panel's own background, which at a glance is indistinguishable from
-      the row above it; TradingView inverts the whole row, and a resolution
-      picker is a place where "which one am I on" has to be answerable without
-      reading.
+      The selected row is FILLED, not just bolded — at a glance bold text on
+      the panel's own background is indistinguishable from the row above it,
+      and a resolution picker is a place where "which one am I on" has to be
+      answerable without reading. The fill is `tvc-menu-row`'s inverted chip
+      rather than this row's own accent blue: measured live, TradingView's
+      selected menu row is #f2f2f2 on #0f0f0f text, not a tint.
     */
-    <div className={`group flex items-center gap-1 rounded-sm pr-1 ${
-      selected ? "bg-accent text-white" : "hover:bg-state-hover"
-    }`}>
+    <div data-active={selected ? "true" : undefined}
+      className="tvc-menu-row group gap-1 pr-1">
       <button
         role="menuitemradio"
         aria-checked={selected}
         aria-label={`${describeResolution(resolution)} — ${explainResolution(resolution)}`}
         onClick={() => onPick(resolution)}
-        className={`flex flex-1 items-baseline gap-2 rounded-sm px-2 py-1.5 text-left text-sm ${
-          selected ? "font-semibold text-white" : "text-ink-muted group-hover:text-ink"
+        className={`flex flex-1 items-baseline gap-2 px-2 text-left text-sm ${
+          selected ? "font-semibold" : "text-ink-muted group-hover:text-ink"
         }`}
       >
         <span className="w-10 shrink-0 tabular">{resolution}</span>
@@ -173,7 +173,7 @@ function PickerRow({
           // Said on the row, not in a tooltip: what a derived bar is made of is
           // the reason it can be trusted, and a tooltip is not an answer to a
           // question a reader did not know to ask.
-          <span className={`text-[11px] ${selected ? "text-white/75" : "text-ink-faint"}`}>
+          <span className={`text-[11px] ${selected ? "opacity-70" : "text-ink-faint"}`}>
             {plan.factor} × {plan.source}
           </span>
         )}

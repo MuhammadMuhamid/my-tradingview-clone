@@ -36,7 +36,7 @@
 export type ToolbarGroup = "context" | "workspace" | "secondary";
 
 export type ToolbarControlId =
-  | "symbol" | "timeframe" | "chartType" | "indicators" | "replay"
+  | "symbol" | "compare" | "timeframe" | "chartType" | "indicators" | "replay"
   | "alert" | "trade" | "layout" | "sync" | "fullscreen" | "chartSettings" | "more"
   | "history" | "overlays" | "automate" | "strategy" | "best" | "savedLayouts";
 
@@ -50,6 +50,7 @@ export interface ToolbarControl {
 export const TOOLBAR_CONTROLS: readonly ToolbarControl[] = [
   // ── chart context ──
   { id: "symbol", label: "Symbol", group: "context" },
+  { id: "compare", label: "Compare", group: "context" },
   { id: "timeframe", label: "Timeframe", group: "context" },
   { id: "chartType", label: "Chart type", group: "context" },
   { id: "indicators", label: "Indicators", group: "context" },

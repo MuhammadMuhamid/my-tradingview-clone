@@ -588,11 +588,13 @@ test("a pane keeps its instrument legible at every size", () => {
     "the pane must not grow a header row again");
 
   // Neither the symbol nor the timeframe is behind a density flag; only the
-  // price and the loading note are.
+  // price and the loading note are. The price is also behind `ohlcVisible`
+  // now, because the OHLC row below the legend already prints the same close
+  // as `C` and a default chart was saying it twice.
   assert.match(legend, /onOpenSymbolSearch\(paneId\)/);
   assert.match(legend, /<LegendTimeframe/);
-  assert.match(legend, /!dense && props\.lastClose/);
-  assert.match(legend, /<button[\s\S]*?onOpenSymbolSearch\(paneId\)[\s\S]*?\{symbolLabel\}[\s\S]*?<\/button>/,
+  assert.match(legend, /!dense && !props\.ohlcVisible && props\.lastClose/);
+  assert.match(legend, /<button[\s\S]*?onOpenSymbolSearch\(paneId\)[\s\S]*?\{tickerLabel\}[\s\S]*?<\/button>/,
     "the primary instrument label must never be hidden by the density policy");
 });
 

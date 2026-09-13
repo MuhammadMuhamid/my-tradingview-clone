@@ -1,9 +1,45 @@
 "use client";
-
+/**
+ * Chart settings, at the depth the reference actually has.
+ *
+ * ── What was wrong, measured rather than assumed ───────────────────────────
+ *
+ * The previous version had seven sidebar labels matching TradingView's seven,
+ * and the parity claim rested on that. Enumerated control by control against
+ * the live dialog, the seven labels covered ELEVEN controls: six toggles, one
+ * select, one number field, one button — and a "Symbol" tab that was a
+ * read-only definition list whose first row printed
+ * `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` at the user. The reference's
+ * Symbol tab is where candle colours, body/border/wick visibility and price
+ * precision live; it is the tab with the MOST controls, and it had none.
+ *
+ * ── The rule for what is here ──────────────────────────────────────────────
+ *
+ * Every control writes a setting `CandleChart` applies to the engine or to its
+ * own markup. Nothing here is decorative. Three things the reference offers
+ * are deliberately ABSENT rather than faked, because lightweight-charts 4.2
+ * exposes no equivalent and a switch that moves nothing is worse than a
+ * missing one: locking the price-to-bar ratio, suppressing overlapping axis
+ * labels, and per-instrument timezone (this chart is UTC throughout, and
+ * `lib/chartClock` says so beside the axis).
+ *
+ * ── Layout ─────────────────────────────────────────────────────────────────
+ *
+ * Measured off the live dialog: a 206x40 tab rail at radius 8, a content
+ * column whose rows are label-left / control-right on a 50px pitch, uppercase
+ * section headings, 34px controls at radius 6 with a 1px #575757 border, and a
+ * Cancel/Ok footer. `Row`, `Toggle`, `Select`, `NumberField` and `Swatch`
+ * below are that grammar, once, so a new setting cannot invent its own.
+ */
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { Resolution } from "@/lib/resolution";
-import type { ChartSettings } from "@/lib/chartSettings";
+import {
+  PRECISIONS, PLACEMENTS, precisionLabel,
+  type ChartSettings, type PricePrecision, type ScalePlacement,
+} from "@/lib/chartSettings";
+import { chartTypeLabel, type ChartType } from "@/lib/chartType";
+import { displaySymbol, displayTicker } from "@/lib/instrument";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
@@ -19,14 +55,19 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "events", label: "Events" },
 ];
 
-/** A real chart-settings entry point, separate from strategy properties. */
+const PLACEMENT_LABEL: Record<ScalePlacement, string> = {
+  right: "Right", left: "Left", both: "Both", none: "No scale",
+};
+
 export function ChartSettingsModal({
-  open, onClose, symbol, interval, scale, onScale, onReset, settings, onSettings,
+  open, onClose, symbol, interval, chartType, scale, onScale, onReset, settings, onSettings,
 }: {
   open: boolean;
   onClose: () => void;
   symbol: string;
   interval: Resolution;
+  /** Which presentation is active, so its own parameters can be filed under it. */
+  chartType: ChartType;
   scale: PriceScaleState;
   onScale: (next: PriceScaleState) => void;
   onReset: () => void;
@@ -34,58 +75,330 @@ export function ChartSettingsModal({
   onSettings: (next: ChartSettings) => void;
 }) {
   const [tab, setTab] = useState<Tab>("symbol");
-  useEffect(() => { if (open) setTab("symbol"); }, [open]);
+  /*
+   * What the dialog was showing when it opened, so Cancel can put it back.
+   *
+   * The reference's footer is Cancel / Ok and both mean something: every
+   * control applies live, and Cancel undoes the whole visit. This dialog used
+   * to have one "Done" button, so a user who changed six things to see what
+   * they did had no way back except changing them back.
+   */
+  const [entry, setEntry] = useState<{ settings: ChartSettings; scale: PriceScaleState } | null>(null);
+  useEffect(() => {
+    if (!open) { setEntry(null); return; }
+    setTab("symbol");
+    setEntry({ settings, scale });
+    // Captured once per opening, deliberately: this must be the state on ENTRY.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const set = <K extends keyof ChartSettings>(key: K, value: ChartSettings[K]): void =>
+    onSettings({ ...settings, [key]: value });
+
+  const cancel = (): void => {
+    if (entry) { onSettings(entry.settings); onScale(entry.scale); }
+    onClose();
+  };
 
   return (
-    <Modal open={open} onClose={onClose} title="Chart settings" wide
-      footer={<button onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm text-ink hover:bg-state-hover">Done</button>}>
-      <div className="flex min-h-[420px] gap-5">
-        <nav aria-label="Chart settings sections" className="w-40 shrink-0 border-r border-border pr-3">
+    <Modal
+      open={open}
+      onClose={cancel}
+      title="Chart settings"
+      wide
+      footer={
+        <div className="flex items-center gap-2">
+          <button onClick={cancel}
+            className="tvc-control flex h-[34px] items-center rounded-md border border-control-border px-4 text-sm text-ink">
+            Cancel
+          </button>
+          <button onClick={onClose}
+            className="flex h-[34px] items-center rounded-md bg-accent px-4 text-sm font-medium text-white hover:brightness-110">
+            Ok
+          </button>
+        </div>
+      }
+    >
+      <div className="flex min-h-[440px] gap-5">
+        <nav aria-label="Chart settings sections" className="w-[206px] shrink-0">
           {TABS.map((item) => (
             <button key={item.id} role="tab" aria-selected={tab === item.id}
               onClick={() => setTab(item.id)}
-              className={`mb-0.5 flex min-h-8 w-full items-center rounded px-2.5 text-left text-sm ${tab === item.id ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"}`}>
+              className={`mb-0.5 flex h-10 w-full items-center rounded-lg px-3 text-left text-sm ${
+                tab === item.id ? "bg-state-hover text-white" : "text-ink-muted hover:bg-state-hover hover:text-ink"
+              }`}>
               {item.label}
             </button>
           ))}
         </nav>
-        <section role="tabpanel" className="min-w-0 flex-1">
-          {tab === "symbol" && <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-ink">Instrument</h3>
-            <p className="text-xs text-ink-muted">The focused chart is showing the canonical market identity below.</p>
-            <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
-              <dt className="text-ink-faint">Symbol</dt><dd className="font-medium text-ink">{symbol}</dd>
-              <dt className="text-ink-faint">Interval</dt><dd className="text-ink">{interval}</dd>
-              <dt className="text-ink-faint">Data source</dt><dd className="text-ink">Trading Scene market feed</dd>
-            </dl>
-            <p className="pt-2 text-xs text-ink-faint">Use the symbol control in the toolbar to change instruments.</p>
-          </div>}
-          {tab === "status" && <div className="space-y-4"><Info title="Status line">Control the instrument and OHLC readout rendered over the focused chart.</Info><Toggle label="Show status line" checked={settings.showStatusLine} onChange={(checked) => onSettings({ ...settings, showStatusLine: checked })} /></div>}
-          {tab === "canvas" && <div className="space-y-4"><Info title="Canvas">Canvas colours follow the active Trading Scene theme. These switches apply to this chart and persist with its workspace.</Info><Toggle label="Show grid lines" checked={settings.showGrid} onChange={(checked) => onSettings({ ...settings, showGrid: checked })} /><Toggle label="Show crosshair" checked={settings.showCrosshair} onChange={(checked) => onSettings({ ...settings, showCrosshair: checked })} /><label className="flex items-center justify-between gap-4 text-sm"><span>Range size (ticks)</span><input type="number" min={1} max={10000} step={1} value={settings.rangeTicks} onChange={(e) => onSettings({ ...settings, rangeTicks: Math.max(1, Math.min(10000, Number(e.target.value) || 1)) })} className="w-24 rounded border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink" /></label></div>}
-          {tab === "trading" && <div className="space-y-4"><Info title="Trading">Trading overlays are read-only chart annotations. Orders remain prepared in the paper/demo ticket and are never submitted from chart settings.</Info><Toggle label="Show positions and orders" checked={settings.showTrading} onChange={(checked) => onSettings({ ...settings, showTrading: checked })} /></div>}
-          {tab === "alerts" && <div className="space-y-4"><Info title="Alerts">Alert creation and automation remain available from their normal toolbar and rail actions.</Info><Toggle label="Show fired-alert markers" checked={settings.showAlerts} onChange={(checked) => onSettings({ ...settings, showAlerts: checked })} /></div>}
-          {tab === "events" && <div className="space-y-4"><Info title="Events">Events are sourced from the alert runner and strategy results; this switch controls their chart annotations.</Info><Toggle label="Show strategy and alert events" checked={settings.showEvents} onChange={(checked) => onSettings({ ...settings, showEvents: checked })} /></div>}
-          {tab === "scales" && <div className="space-y-4">
-            <div><h3 className="text-sm font-semibold text-ink">Price scale</h3><p className="mt-1 text-xs text-ink-muted">These controls update the focused pane immediately and persist with its layout.</p></div>
-            <label className="flex items-center justify-between gap-4 text-sm"><span>Scale mode</span>
-              <select value={scale.mode} onChange={(e) => onScale({ ...scale, mode: e.target.value as PriceScaleMode })} className="rounded border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink">
-                {PRICE_SCALE_MODES.map((mode) => <option key={mode.value} value={mode.value}>{priceScaleModeLabel(mode.value)}</option>)}
-              </select>
-            </label>
-            <Toggle label="Auto scale" checked={scale.autoScale} onChange={(checked) => onScale({ ...scale, autoScale: checked })} />
-            <Toggle label="Invert scale" checked={scale.invert === true} onChange={(checked) => onScale({ ...scale, invert: checked })} />
-            <button onClick={onReset} className="rounded border border-border px-3 py-1.5 text-sm text-ink-muted hover:bg-state-hover hover:text-ink">Reset scale</button>
-          </div>}
+
+        <section role="tabpanel" className="min-w-0 flex-1 border-l border-border pl-5">
+          {tab === "symbol" && (
+            <>
+              <Head>{chartTypeLabel(chartType)}</Head>
+              <Row label="Body">
+                <Toggle checked={settings.candleBody} onChange={(v) => set("candleBody", v)} label="Body" />
+                <Swatch value={settings.upColor} onChange={(v) => set("upColor", v)} label="Up colour" />
+                <Swatch value={settings.downColor} onChange={(v) => set("downColor", v)} label="Down colour" />
+              </Row>
+              <Row label="Borders">
+                <Toggle checked={settings.candleBorders} onChange={(v) => set("candleBorders", v)} label="Borders" />
+              </Row>
+              <Row label="Wick">
+                <Toggle checked={settings.candleWicks} onChange={(v) => set("candleWicks", v)} label="Wick" />
+              </Row>
+
+              {chartType === "range" && (
+                <>
+                  <Head>Range</Head>
+                  {/* A chart type's own parameter, filed under the chart type —
+                      it used to sit under Canvas, on every chart, including
+                      the twenty that ignore it. */}
+                  <Row label="Range size (ticks)">
+                    <NumberField value={settings.rangeTicks} min={1} max={10000}
+                      onChange={(v) => set("rangeTicks", v)} label="Range size in ticks" />
+                  </Row>
+                </>
+              )}
+
+              <Head>Data modification</Head>
+              <Row label="Precision">
+                <Select value={String(settings.precision)} label="Price precision"
+                  onChange={(v) => set("precision", (v === "auto" ? "auto" : Number(v)) as PricePrecision)}
+                  options={PRECISIONS.map((p) => ({ value: String(p), label: precisionLabel(p) }))} />
+              </Row>
+              <Row label="Timezone">
+                <span className="text-sm text-ink-faint" title="Every axis, legend and alert time in this workspace is UTC. It is not per-chart.">
+                  UTC
+                </span>
+              </Row>
+
+              <Head>Instrument</Head>
+              <dl className="grid grid-cols-[130px_1fr] gap-y-2 py-1 text-sm">
+                <dt className="text-ink-faint">Symbol</dt>
+                {/* The canonical identity is the tooltip, not the headline. */}
+                <dd className="truncate font-medium text-ink" title={symbol}>{displayTicker(symbol)}</dd>
+                <dt className="text-ink-faint">Identity</dt>
+                <dd className="truncate text-ink-muted" title={symbol}>{displaySymbol(symbol)}</dd>
+                <dt className="text-ink-faint">Interval</dt><dd className="text-ink">{interval}</dd>
+                <dt className="text-ink-faint">Data source</dt><dd className="text-ink">Trading Scene market feed</dd>
+              </dl>
+            </>
+          )}
+
+          {tab === "status" && (
+            <>
+              <Head>Status line</Head>
+              <Row label="Show status line">
+                <Toggle checked={settings.showStatusLine} onChange={(v) => set("showStatusLine", v)} label="Show status line" />
+              </Row>
+              <Head>Instrument</Head>
+              <Row label="Symbol and interval">
+                <Toggle checked={settings.statusSymbol} onChange={(v) => set("statusSymbol", v)} label="Symbol and interval" />
+              </Row>
+              <Row label="Chart values">
+                <Toggle checked={settings.statusOhlc} onChange={(v) => set("statusOhlc", v)} label="Chart values" />
+              </Row>
+              <Row label="Bar change values">
+                <Toggle checked={settings.statusBarChange} onChange={(v) => set("statusBarChange", v)} label="Bar change values" />
+              </Row>
+              <Row label="Volume">
+                <Toggle checked={settings.statusVolume} onChange={(v) => set("statusVolume", v)} label="Volume" />
+              </Row>
+              <Head>Indicators</Head>
+              <Row label="Titles and values">
+                <Toggle checked={settings.statusIndicatorValues} onChange={(v) => set("statusIndicatorValues", v)} label="Indicator titles and values" />
+              </Row>
+            </>
+          )}
+
+          {tab === "scales" && (
+            <>
+              <Head>Price scale</Head>
+              <Row label="Scales placement">
+                <Select value={settings.scalePlacement} label="Scales placement"
+                  onChange={(v) => set("scalePlacement", v as ScalePlacement)}
+                  options={PLACEMENTS.map((p) => ({ value: p, label: PLACEMENT_LABEL[p] }))} />
+              </Row>
+              <Row label="Scale mode">
+                <Select value={scale.mode} label="Scale mode"
+                  onChange={(v) => onScale({ ...scale, mode: v as PriceScaleMode })}
+                  options={PRICE_SCALE_MODES.map((m) => ({ value: m.value, label: priceScaleModeLabel(m.value) }))} />
+              </Row>
+              <Row label="Auto scale">
+                <Toggle checked={scale.autoScale} onChange={(v) => onScale({ ...scale, autoScale: v })} label="Auto scale" />
+              </Row>
+              <Row label="Invert scale">
+                <Toggle checked={scale.invert === true} onChange={(v) => onScale({ ...scale, invert: v })} label="Invert scale" />
+              </Row>
+              <Row label="">
+                <button onClick={onReset}
+                  className="tvc-control flex h-[34px] items-center rounded-md border border-control-border px-3 text-sm text-ink-muted hover:text-ink">
+                  Reset scale
+                </button>
+              </Row>
+
+              <Head>Time scale</Head>
+              <Row label="Time hours format">
+                <Select value={settings.timeFormat24h ? "24" : "12"} label="Time hours format"
+                  onChange={(v) => set("timeFormat24h", v === "24")}
+                  options={[{ value: "24", label: "24-hours" }, { value: "12", label: "12-hours" }]} />
+              </Row>
+              <Row label="Bars to the right">
+                <NumberField value={settings.rightOffsetBars} min={0} max={200}
+                  onChange={(v) => set("rightOffsetBars", v)} label="Empty bars kept right of the newest bar" />
+              </Row>
+            </>
+          )}
+
+          {tab === "canvas" && (
+            <>
+              <Head>Grid lines</Head>
+              <Row label="Vertical grid lines">
+                <Toggle checked={settings.gridVertical} onChange={(v) => set("gridVertical", v)} label="Vertical grid lines" />
+              </Row>
+              <Row label="Horizontal grid lines">
+                <Toggle checked={settings.gridHorizontal} onChange={(v) => set("gridHorizontal", v)} label="Horizontal grid lines" />
+              </Row>
+              <Row label="Crosshair">
+                <Toggle checked={settings.showCrosshair} onChange={(v) => set("showCrosshair", v)} label="Crosshair" />
+              </Row>
+
+              <Head>Scales</Head>
+              <Row label="Text size">
+                <Select value={String(settings.scaleFontSize)} label="Axis text size"
+                  onChange={(v) => set("scaleFontSize", Number(v))}
+                  options={[10, 11, 12, 13, 14, 16].map((n) => ({ value: String(n), label: String(n) }))} />
+              </Row>
+
+              <Head>Margins</Head>
+              <Row label="Top" suffix="%">
+                <NumberField value={settings.marginTopPct} min={0} max={50}
+                  onChange={(v) => set("marginTopPct", v)} label="Top margin, percent" />
+              </Row>
+              <Row label="Bottom" suffix="%">
+                <NumberField value={settings.marginBottomPct} min={0} max={50}
+                  onChange={(v) => set("marginBottomPct", v)} label="Bottom margin, percent" />
+              </Row>
+              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
+                Canvas and grid colours follow the active Trading Scene theme, so light
+                and dark stay consistent across the whole workspace rather than per chart.
+              </p>
+            </>
+          )}
+
+          {tab === "trading" && (
+            <>
+              <Head>Appearance</Head>
+              <Row label="Positions and orders">
+                <Toggle checked={settings.showTrading} onChange={(v) => set("showTrading", v)} label="Positions and orders" />
+              </Row>
+              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
+                Trading overlays are read-only chart annotations. Orders remain prepared in
+                the paper / demo ticket and are never submitted from chart settings.
+              </p>
+            </>
+          )}
+
+          {tab === "alerts" && (
+            <>
+              <Head>Chart line visibility</Head>
+              <Row label="Fired-alert markers">
+                <Toggle checked={settings.showAlerts} onChange={(v) => set("showAlerts", v)} label="Fired-alert markers" />
+              </Row>
+              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
+                Alert creation and automation remain available from their normal toolbar
+                and rail actions.
+              </p>
+            </>
+          )}
+
+          {tab === "events" && (
+            <>
+              <Head>Events</Head>
+              <Row label="Strategy and alert events">
+                <Toggle checked={settings.showEvents} onChange={(v) => set("showEvents", v)} label="Strategy and alert events" />
+              </Row>
+              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
+                Events come from the alert runner and from strategy results. Trading Scene
+                does not carry an economic calendar or a news feed, so those rows the
+                reference offers are not shown rather than shown empty.
+              </p>
+            </>
+          )}
         </section>
       </div>
     </Modal>
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="flex items-center justify-between gap-4 text-sm"><span>{label}</span><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /></label>;
+/* ── the dialog's grammar, once ─────────────────────────────────────────── */
+
+function Head({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-ink-faint first:pt-0">
+      {children}
+    </h3>
+  );
 }
 
-function Info({ title, children }: { title: string; children: string }) {
-  return <div className="space-y-2"><h3 className="text-sm font-semibold text-ink">{title}</h3><p className="max-w-lg text-sm leading-relaxed text-ink-muted">{children}</p></div>;
+/** Label left, controls right, on the reference's 50px pitch. */
+function Row({ label, suffix, children }: {
+  label: string; suffix?: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-h-[50px] items-center gap-3">
+      <span className="min-w-[188px] shrink-0 text-sm text-ink">{label}</span>
+      <div className="flex items-center gap-2">{children}</div>
+      {suffix && <span className="text-sm text-ink-faint">{suffix}</span>}
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label }: {
+  checked: boolean; onChange: (value: boolean) => void; label: string;
+}) {
+  return (
+    <input type="checkbox" checked={checked} aria-label={label}
+      onChange={(e) => onChange(e.target.checked)} className="h-[18px] w-[18px] accent-accent" />
+  );
+}
+
+function Select({ value, onChange, options, label }: {
+  value: string; onChange: (value: string) => void; label: string;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)}
+      className="h-[34px] w-[180px] rounded-md border border-control-border bg-transparent px-2 text-sm text-ink">
+      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function NumberField({ value, onChange, min, max, label }: {
+  value: number; onChange: (value: number) => void; min: number; max: number; label: string;
+}) {
+  return (
+    <input type="number" value={value} min={min} max={max} step={1} aria-label={label}
+      onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || 0)))}
+      className="h-[34px] w-[86px] rounded-md border border-control-border bg-transparent px-2 text-sm tabular text-ink" />
+  );
+}
+
+/**
+ * A colour, as a colour.
+ *
+ * `<input type="color">` rather than a palette popover: it is the platform's
+ * own picker, it is keyboard-reachable without any code here, and the reference
+ * opens a picker from a swatch of exactly this size.
+ */
+function Swatch({ value, onChange, label }: {
+  value: string; onChange: (value: string) => void; label: string;
+}) {
+  return (
+    <input type="color" value={value} aria-label={label}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-[26px] w-[34px] cursor-pointer rounded border border-control-border bg-transparent p-0.5" />
+  );
 }

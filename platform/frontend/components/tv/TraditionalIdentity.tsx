@@ -25,12 +25,24 @@ export function TraditionalIdentity({ symbol, dense }: { symbol: string; dense: 
   const type = instrumentTypeLabel(identity.type);
   const summary = fx ? "MID · OTC BID/ASK · practice gated"
     : continuous ? `${continuous.selection.toUpperCase()} · ${continuous.adjustment.replaceAll("_", " ")} · RESEARCH ONLY`
-      : reference ? "REFERENCE · READ-ONLY" : futures ? `${futures.contractCode} · ${futures.chainPosition.toUpperCase()} · ${date(futures.expiry)}` : "metadata pending";
+      : reference ? "REFERENCE · READ-ONLY"
+        : futures ? `${futures.contractCode} · ${futures.chainPosition.toUpperCase()} · ${date(futures.expiry)}`
+          /*
+           * TVP7: `null`, not "metadata pending", when the fetch FAILED.
+           * Both branches were independent — the summary fell through to
+           * "metadata pending" whenever `metadata` was null, and the span
+           * below says "metadata unavailable" whenever `error` is set — so a
+           * failed request printed `metadata pending  metadata unavailable`
+           * beside each other on the status line, two states that cannot both
+           * be true. Pending is now only said while something is still
+           * pending.
+           */
+          : error ? null : "metadata pending";
   return <div className="pointer-events-auto relative flex max-w-full items-center gap-1" data-traditional-identity={type}>
     <button onClick={() => setOpen((value) => !value)} aria-expanded={open}
       className="flex h-5 shrink-0 items-center rounded bg-warn/15 px-1.5 text-[10px] font-bold tracking-wide text-warn hover:bg-warn/25"
       title={`${type} price, contract, session and feed details`}>{type}</button>
-    {!dense && <span role="status" aria-label="Traditional market-data semantics"
+    {!dense && summary && <span role="status" aria-label="Traditional market-data semantics"
       className="max-w-[440px] truncate whitespace-nowrap text-[10px] font-medium text-ink-muted">{summary}</span>}
     {!dense && error && <span className="text-[10px] text-warn" title={error}>metadata unavailable</span>}
     {open && <section aria-label={`${type} market details`}

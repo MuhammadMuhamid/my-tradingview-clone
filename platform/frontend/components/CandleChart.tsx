@@ -54,7 +54,7 @@ import {
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
   togglePriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
-import type { ChartSettings } from "@/lib/chartSettings";
+import { DEFAULT_CHART_SETTINGS, type ChartSettings } from "@/lib/chartSettings";
 import {
   availableRangeShortcuts, loadedWindow, resolveRangeShortcut, sameViewport,
   type LoadedWindow, type RangeShortcutId,
@@ -715,10 +715,15 @@ export function CandleChart({
 
   /** Controlled if a caller supplied one; this chart's own otherwise. */
   const scale = priceScale ?? ownPriceScale;
-  const settings = chartSettings ?? {
-    showStatusLine: true, showGrid: true, showCrosshair: true,
-    showTrading: true, showAlerts: true, showEvents: true, rangeTicks: 20,
-  };
+  /*
+   * The fallback is the model's own default rather than an object literal
+   * repeated here. The literal it replaces had already drifted once and would
+   * have drifted again the moment a field was added.
+   */
+  const settings = chartSettings ?? DEFAULT_CHART_SETTINGS;
+  /* Read out so the precision effect can depend on the value rather than on
+     the whole settings object, which changes identity on every keystroke. */
+  const precision = settings.precision;
   const visiblePriceLines = useMemo(() => settings.showTrading ? (priceLines ?? []) : [], [settings.showTrading, priceLines]);
   const visibleTrades = useMemo(() => settings.showTrading ? (trades ?? []) : [], [settings.showTrading, trades]);
   const visibleMarkers = useMemo(() => (markers ?? []).filter((marker) =>
@@ -788,17 +793,73 @@ export function CandleChart({
     } catch { /* the chart went away between render and effect */ }
   }, [scale, chartReady]);
 
+  /**
+   * Chart-level settings, applied to the engine.
+   *
+   * TVP7 widened this from two switches to the set the reference's Canvas and
+   * Scales tabs actually offer. Every option below is one lightweight-charts
+   * already supports; the ones it does not — locking the price-to-bar ratio,
+   * suppressing overlapping axis labels — are deliberately not in the model,
+   * because a switch that moves nothing is worse than an absent one.
+   */
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    const placement = settings.scalePlacement;
     chart.applyOptions({
+      layout: { fontSize: settings.scaleFontSize },
       grid: {
-        vertLines: { visible: settings.showGrid },
-        horzLines: { visible: settings.showGrid },
+        vertLines: { visible: settings.gridVertical },
+        horzLines: { visible: settings.gridHorizontal },
       },
       crosshair: { mode: settings.showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden },
+      rightPriceScale: { visible: placement === "right" || placement === "both" },
+      leftPriceScale: { visible: placement === "left" || placement === "both" },
+      timeScale: {
+        rightOffset: settings.rightOffsetBars,
+        timeVisible: true,
+      },
+      localization: {
+        /*
+         * 12-hour labels are built here rather than left to the library: its
+         * `timeVisible` formatter is 24-hour and takes no locale. The date
+         * half is left alone so the axis keeps the library's own density
+         * decisions about when to show a day, a month or a year.
+         */
+        timeFormatter: settings.timeFormat24h ? undefined : (time: number) => {
+          const d = new Date((time as number) * 1000);
+          const h = d.getUTCHours();
+          const suffix = h < 12 ? "am" : "pm";
+          const hour = h % 12 === 0 ? 12 : h % 12;
+          return `${hour}:${String(d.getUTCMinutes()).padStart(2, "0")} ${suffix}`;
+        },
+      },
     });
-  }, [settings.showGrid, settings.showCrosshair, chartReady]);
+  }, [
+    settings.gridVertical, settings.gridHorizontal, settings.showCrosshair,
+    settings.scaleFontSize, settings.scalePlacement, settings.rightOffsetBars,
+    settings.timeFormat24h, chartReady,
+  ]);
+
+  /**
+   * Plot margins, in percent of pane height.
+   *
+   * Separate from the effect above because `scaleMargins` lives on the price
+   * SCALE rather than on the chart, and because the scale this applies to
+   * depends on which side the axis is currently drawn.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const margins = {
+      top: Math.min(0.9, Math.max(0, settings.marginTopPct / 100)),
+      bottom: Math.min(0.9, Math.max(0, settings.marginBottomPct / 100)),
+    };
+    try {
+      chart.priceScale("right").applyOptions({ scaleMargins: margins });
+      chart.priceScale("left").applyOptions({ scaleMargins: margins });
+    } catch { /* the chart went away between render and effect */ }
+  }, [settings.marginTopPct, settings.marginBottomPct, settings.scalePlacement, chartReady]);
 
   /** Auto-fit both axes and return the scale to its default. */
   const resetView = useCallback(() => {
@@ -1151,6 +1212,60 @@ export function CandleChart({
       if (seriesRef.current === series) seriesRef.current = null;
     };
   }, [chartType, chartCreated]);
+
+  /**
+   * Series appearance, from the reference's "Symbol" tab.
+   *
+   * Body / borders / wicks and the two direction colours were fixed literals
+   * in `addMainSeries`, so the one tab the reference gives the most controls to
+   * gave this product none. They are applied here rather than at creation
+   * because changing a colour must not rebuild the series and lose the view.
+   *
+   * Hollow candles and High-low already express themselves through those same
+   * four colour slots (an empty up body, transparent bodies), so this leaves
+   * them alone: a user's up colour is theirs to choose, but a hollow candle
+   * that fills itself in is no longer a hollow candle.
+   */
+  const { upColor, downColor, candleBody, candleBorders, candleWicks } = settings;
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || renderKind(chartType) !== "candles") return;
+    if (chartType === "hollowCandles" || chartType === "highLow") return;
+    const clear = "rgba(0,0,0,0)";
+    try {
+      (series as ISeriesApi<"Candlestick">).applyOptions({
+        upColor: candleBody ? upColor : clear,
+        downColor: candleBody ? downColor : clear,
+        borderVisible: candleBorders,
+        borderUpColor: candleBorders ? upColor : clear,
+        borderDownColor: candleBorders ? downColor : clear,
+        wickVisible: candleWicks,
+        wickUpColor: candleWicks ? upColor : clear,
+        wickDownColor: candleWicks ? downColor : clear,
+      });
+    } catch { /* the series went away between render and effect */ }
+  }, [chartType, chartReady, upColor, downColor, candleBody, candleBorders, candleWicks]);
+
+  /**
+   * Price precision.
+   *
+   * `auto` leaves the series formatting the library derives from the data,
+   * which is the right default and is what every chart had before. An explicit
+   * choice pins the digits, the way the reference's Data-modification section
+   * does, and `minMove` follows from it so the axis does not offer steps it
+   * cannot label.
+   */
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    if (precision === "auto") return;
+    const digits = precision;
+    try {
+      series.applyOptions({
+        priceFormat: { type: "price", precision: digits, minMove: 1 / 10 ** digits },
+      });
+    } catch { /* the series went away between render and effect */ }
+  }, [precision, chartType, chartReady]);
 
   // Load candles without rebuilding all 10,000 points for a last-bar update.
   useEffect(() => {
@@ -2105,7 +2220,7 @@ export function CandleChart({
         that supplies it also takes the symbol and the interval OUT of the OHLC
         row below — see `identity` in the props.
       */}
-      {settings.showStatusLine ? <>{identity}</> : null}
+      {settings.showStatusLine && settings.statusSymbol ? <>{identity}</> : null}
       {/*
         FC2-M4: one line per series, with the explanation behind it.
 
@@ -2177,7 +2292,7 @@ export function CandleChart({
             one line below is the duplication, in miniature, that the workspace
             shell was just rebuilt to remove.
           */}
-          {identity === undefined && (
+          {identity === undefined && settings.statusSymbol && (
             <>
               <span className="font-semibold text-ink">{symbol}</span>
               <span>· {interval} ·</span>
@@ -2223,15 +2338,22 @@ export function CandleChart({
           ) : (
             <>
               {/* O/H/L and volume are the first things to go on a phone: the close
-                  and the change are what the eye actually reads at a glance. */}
-              <span className="hidden sm:inline">O <span className={px}>{fmtPrice(legend.open)}</span></span>
-              <span className="hidden sm:inline">H <span className={px}>{fmtPrice(legend.high)}</span></span>
-              <span className="hidden sm:inline">L <span className={px}>{fmtPrice(legend.low)}</span></span>
-              <span>C <span className={px}>{fmtPrice(legend.close)}</span></span>
-              <span className={chgUp ? "text-up" : "text-down"}>
-                {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
-              </span>
-              {legend.volume !== null && (
+                  and the change are what the eye actually reads at a glance.
+                  Each group is also a Status-line switch of its own. */}
+              {settings.statusOhlc && (
+                <>
+                  <span className="hidden sm:inline">O <span className={px}>{fmtPrice(legend.open)}</span></span>
+                  <span className="hidden sm:inline">H <span className={px}>{fmtPrice(legend.high)}</span></span>
+                  <span className="hidden sm:inline">L <span className={px}>{fmtPrice(legend.low)}</span></span>
+                  <span>C <span className={px}>{fmtPrice(legend.close)}</span></span>
+                </>
+              )}
+              {settings.statusBarChange && (
+                <span className={chgUp ? "text-up" : "text-down"}>
+                  {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
+                </span>
+              )}
+              {legend.volume !== null && settings.statusVolume && (
                 <span className="hidden xl:inline">Vol <span className="text-ink">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
               )}
             </>
@@ -2247,7 +2369,9 @@ export function CandleChart({
         same numbers in a form built to be read.
       */}
       {timeAnchored ? (
-        <IndicatorLegend
+        /* The reference's Status-line tab switches indicator titles and values
+           together; this is the same switch over this product's own legend. */
+        settings.statusIndicatorValues && <IndicatorLegend
           overlays={groupedOverlays.price}
           time={indicatorHoverTime}
           startCollapsed={compact || groupedOverlays.price.length > 6}
@@ -2369,10 +2493,8 @@ export function CandleChart({
                 onClick={() => applyRangeShortcut(shortcut.id)}
                 aria-pressed={activeRange === shortcut.id}
                 title={`${shortcut.hint} — the visible range only; the timeframe stays ${interval}`}
-                className={`rounded-sm px-1.5 text-[12px] leading-5 ${
-                  activeRange === shortcut.id
-                    ? "bg-surface-2 font-semibold text-ink"
-                    : "text-ink-muted hover:bg-state-hover hover:text-ink"
+                className={`tvc-control flex h-[26px] items-center px-1.5 text-[13px] ${
+                  activeRange === shortcut.id ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >
                 {shortcut.label}

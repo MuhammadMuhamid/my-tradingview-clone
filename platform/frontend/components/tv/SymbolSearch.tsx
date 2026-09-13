@@ -369,8 +369,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         <div role="group" aria-label="Filter by venue" className="flex gap-1 overflow-x-auto px-6 pb-3">
           {venueChips.map((item) => (
             <button key={item.id} onClick={() => setVenue(item.id)} aria-pressed={venue === item.id}
-              className={`shrink-0 rounded px-2 py-1 text-xs ${venue === item.id
-                ? "bg-accent/15 font-medium text-accent" : "text-ink-faint hover:bg-state-hover hover:text-ink"}`}>
+              className={`tvc-control shrink-0 rounded px-2 py-1 text-xs ${venue === item.id
+                ? "font-medium text-ink" : "text-ink-faint hover:text-ink"}`}>
               {item.label}
             </button>
           ))}
@@ -381,8 +381,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
               ["continuous_future", "CONT"], ["fx_pair", "FX"], ["index", "INDEX"],
               ["commodity", "COMMODITY"], ["stock", "STOCK"], ["etf", "ETF"] ] as const).map(([value, label]) => (
               <button key={value} onClick={() => setType(value)} aria-pressed={type === value}
-                className={`rounded px-2 py-1 text-[11px] font-semibold ${type === value
-                  ? "bg-accent/15 text-accent" : "text-ink-faint hover:bg-state-hover hover:text-ink"}`}>
+                className={`tvc-control rounded px-2 py-1 text-[11px] font-semibold ${type === value
+                  ? "text-ink" : "text-ink-faint hover:text-ink"}`}>
                 {label}
               </button>
             ))}

@@ -86,10 +86,30 @@ test("chart settings is reachable from the normal toolbar and changes a real pan
   const dialog = screen.getByRole("dialog", { name: "Chart settings" });
   assert.ok(dialog);
   fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
-  const grid = screen.getByRole("checkbox", { name: "Show grid lines" });
+  // The single "Show grid lines" switch became the two directions the engine
+  // and the reference both have.
+  const grid = screen.getByRole("checkbox", { name: "Horizontal grid lines" });
   assert.equal((grid as HTMLInputElement).checked, true);
   fireEvent.click(grid);
   assert.equal((grid as HTMLInputElement).checked, false);
+
+  // The Symbol tab is the reference's densest one, and here it was a read-only
+  // list. It now carries the series' own appearance, and those controls reach
+  // the pane rather than only the dialog.
+  fireEvent.click(screen.getByRole("tab", { name: "Symbol" }));
+  const wick = screen.getByRole("checkbox", { name: "Wick" });
+  assert.equal((wick as HTMLInputElement).checked, true);
+  fireEvent.click(wick);
+  assert.equal((wick as HTMLInputElement).checked, false);
+
+  // Cancel restores everything this visit changed, which is what makes a live
+  // preview safe to explore.
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("tab", { name: "Symbol" }));
+  assert.equal(
+    (screen.getByRole("checkbox", { name: "Wick" }) as HTMLInputElement).checked, true,
+    "Cancel must undo the whole visit, not only the last control touched");
 });
 
 test("clicking a timeframe loads that timeframe, once", async () => {

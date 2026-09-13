@@ -542,7 +542,7 @@ export function Watchlist({
              * and its spot pair are different instruments with the same name
              * and that distinction is worth the width.
              */
-            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[31px] md:grid-cols-[minmax(0,1fr)_14px] ${selectedRow ? "bg-surface-2 shadow-[inset_2px_0_0_0_rgb(var(--ts-accent-rgb))]" : "hover:bg-state-hover"}`}>
+            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[31px] md:grid-cols-[minmax(0,1fr)_14px] ${selectedRow ? "bg-state-active text-ink" : "hover:bg-state-hover"}`}>
             <button onClick={() => onSelect(s.symbol)}
               className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_62px_50px_50px] items-center gap-x-1 text-left">
               <span className="flex min-w-0 items-center font-medium text-ink"

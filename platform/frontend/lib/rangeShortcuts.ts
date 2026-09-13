@@ -34,7 +34,7 @@
  * pin it.
  */
 
-export type RangeShortcutId = "1D" | "5D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "ALL";
+export type RangeShortcutId = "1D" | "5D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL";
 
 export interface RangeShortcut {
   id: RangeShortcutId;
@@ -63,6 +63,9 @@ export const RANGE_SHORTCUTS: readonly RangeShortcut[] = [
   { id: "6M", label: "6M", hint: "The last 180 days of bars", spanSec: 180 * DAY },
   { id: "YTD", label: "YTD", hint: "From the start of this year (UTC)", spanSec: null },
   { id: "1Y", label: "1Y", hint: "The last 365 days of bars", spanSec: 365 * DAY },
+  /* TVP7: `5Y` sits between 1Y and All on TradingView's row and was the one
+     shortcut of that row missing here. Same 365-day year as `1Y`. */
+  { id: "5Y", label: "5Y", hint: "The last five years of bars", spanSec: 5 * 365 * DAY },
   { id: "ALL", label: "All", hint: "Every bar this pane has loaded", spanSec: null },
 ];
 

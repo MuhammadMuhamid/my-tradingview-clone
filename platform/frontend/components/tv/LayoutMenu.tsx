@@ -139,7 +139,7 @@ export function LayoutMenu({
     <button
       onClick={() => { if (!disabled) { onClick(); setOpen(false); } }}
       disabled={disabled}
-      className="flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left text-[13px] text-ink hover:bg-state-hover disabled:opacity-40"
+      className="tvc-menu-row w-full gap-2.5 px-2.5 text-left text-sm text-ink disabled:opacity-40"
     >
       {children}
     </button>

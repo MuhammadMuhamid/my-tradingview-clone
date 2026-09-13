@@ -85,8 +85,16 @@ export function Modal({
     const active = document.activeElement as HTMLElement | null;
     restoreTo.current =
       active && !panelRef.current?.contains(active) ? active : lastOutsideFocus.current;
-    const first = focusables()[0] ?? panelRef.current;
-    first?.focus();
+    /*
+     * The PANEL takes focus, not the first focusable.
+     *
+     * The close button is first in DOM order, so every dialog opened with a
+     * 2px accent ring drawn around its X. The panel carries `tabIndex={-1}`
+     * and `aria-labelledby`, so focusing it announces the dialog's title —
+     * which is what a screen-reader user wants on open — and the first Tab
+     * then lands on a real control instead of on "cancel this".
+     */
+    (panelRef.current ?? focusables()[0])?.focus();
     return () => {
       // `isConnected` guards the case where the trigger itself was removed by
       // whatever the dialog just did — deleting the alert it was opened from.
@@ -129,7 +137,20 @@ export function Modal({
 
   if (!open) return null;
   return createPortal(
-    <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+    /*
+     * ── `tv-workstation` on the portal root ───────────────────────────────
+     *
+     * Every dialog portals to `document.body`, which is OUTSIDE the
+     * `.tv-workstation` element the whole dense grammar is scoped to
+     * (`app/chart/page.tsx`). So `.tvc-control`, `.tvc-menu`, the 14px
+     * workstation type and the 1px focus offset all stopped at the dialog's
+     * edge: a button inside a modal carrying `tvc-control` had no hover state
+     * at all, because the class it was relying on could not match. Naming the
+     * portal root puts the dialog layer back inside the same grammar without
+     * giving up the portal, which is what keeps a modal out of the chart's
+     * stacking and overflow contexts.
+     */
+    <div className="tv-workstation pointer-events-auto fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       {/*
         The backdrop is presentational: closing by clicking it is a convenience,
         and the labelled close button plus Escape are the accessible paths, so it
@@ -142,10 +163,10 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative flex max-h-[85vh] w-full ${wide ? "max-w-2xl" : "max-w-lg"} flex-col rounded-md border border-border bg-surface shadow-2xl outline-none ${panelClassName}`}
+        className={`relative flex max-h-[92vh] w-full ${wide ? "max-w-[750px]" : "max-w-lg"} flex-col rounded-md bg-popover shadow-[0_8px_28px_rgba(0,0,0,0.5)] outline-none ${panelClassName}`}
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-          <h2 id={titleId} className="text-base font-semibold text-ink">{title}</h2>
+        <div className="flex items-center justify-between px-5 py-3">
+          <h2 id={titleId} className="text-[20px] font-semibold leading-8 text-ink">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"

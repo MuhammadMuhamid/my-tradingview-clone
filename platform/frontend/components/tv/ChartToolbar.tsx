@@ -175,6 +175,8 @@ export interface ChartToolbarProps {
   symbol: string;
   interval: Resolution;
   onOpenSearch: () => void;
+  /** Open the focused pane's comparison dialog. */
+  onOpenCompare: () => void;
   onInterval: (interval: Resolution) => void;
   /**
    * The browser's favourite / recent / custom resolutions.
@@ -510,6 +512,28 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <span className="min-w-0 truncate">{tickerLabel}</span>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0 text-ink-faint">
             <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+          </svg>
+        </button>
+
+        {/*
+          Compare, beside the instrument it compares FROM.
+
+          TVP7: the only way into a comparison used to be a bare lowercase
+          "vs" in the chart's status line — two letters of permanent chrome on
+          the densest surface in the product, describing nothing about the
+          chart when no comparison was on. The reference puts this next to the
+          symbol, as a `+`, and so does this.
+        */}
+        <button
+          {...ctl("compare")}
+          onClick={props.onOpenCompare}
+          title="Compare this chart with another instrument"
+          aria-label="Compare with another instrument"
+          className={`${TOOL_ICON_BUTTON} hidden sm:flex`}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
 

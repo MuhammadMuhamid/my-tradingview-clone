@@ -250,7 +250,7 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
                 role="menuitem"
                 onClick={signOut}
                 title={`Signed in as ${username}`}
-                className="flex w-full items-center px-3 py-1.5 text-left text-[13px] text-ink-muted hover:bg-state-hover hover:text-ink"
+                className="tvc-menu-row w-full px-2.5 text-left text-sm text-ink-muted hover:text-ink"
               >
                 Sign out
               </button>

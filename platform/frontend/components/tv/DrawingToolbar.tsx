@@ -391,8 +391,8 @@ export function DrawingToolbar({
                 aria-label={`More ${group.id} tools`}
                 className="absolute bottom-0 right-0 flex h-6 w-6 items-end justify-end p-[3px] text-ink-faint hover:text-ink"
               >
-                <svg viewBox="0 0 10 10" width="10" height="10" fill="currentColor" aria-hidden="true">
-                  <path d="M10 10L0 10L10 0z" />
+                <svg viewBox="0 0 4 7" width="4" height="7" fill="currentColor" aria-hidden="true">
+                  <path d="M4 7L0 7L4 3z" />
                 </svg>
               </button>
             )}
@@ -401,7 +401,8 @@ export function DrawingToolbar({
                 {group.tools.map((t) => {
                   const starred = favourites.includes(t.tool);
                   return (
-                    <div key={t.tool} className={`flex w-full items-center hover:bg-state-hover ${t.tool === tool ? "text-accent" : "text-ink"}`}>
+                    <div key={t.tool} data-active={t.tool === tool ? "true" : undefined}
+                      className="tvc-menu-row text-ink">
                       <button
                         onClick={() => { onTool(t.tool); setActive((a) => ({ ...a, [group.id]: t.tool })); setFlyout(null); }}
                         className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 text-left text-sm"

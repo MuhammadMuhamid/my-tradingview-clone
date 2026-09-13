@@ -197,12 +197,13 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
               title={entry.disabled ? entry.disabledReason : undefined}
               onMouseEnter={() => { if (!entry.disabled) setCursor(index); }}
               onClick={() => choose(entry.id)}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] transition-colors ${
+              data-highlighted={focused && !entry.disabled && !entry.destructive ? "true" : undefined}
+              className={`tvc-menu-row w-full gap-2 px-2.5 text-left text-sm ${
                 entry.disabled
                   ? "cursor-not-allowed text-ink-faint"
                   : entry.destructive
                     ? focused ? "bg-down/15 text-down" : "text-down"
-                    : focused ? "bg-surface-2 text-ink" : "text-ink"
+                    : "text-ink"
               }`}
             >
               {/*

@@ -148,6 +148,9 @@ export interface ChartPaneProps {
   drawingStyleFocusSignal?: number;
   /** This pane's comparison changed. Never synced to other panes. */
   onCompareChange?: (paneId: string, next: PaneCompare | null) => void;
+  /** Which pane the workspace is asking to show its comparison dialog. */
+  comparePaneId?: string | null;
+  onComparePaneId?: (paneId: string | null) => void;
 
   /**
    * The alerts armed on this account, so a fired event can be attributed.
@@ -871,6 +874,11 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 interval={pane.interval}
                 lastClose={showReadout && last ? last.close : null}
                 stale={history.stale}
+                ohlcVisible={pane.chartSettings?.showStatusLine !== false && pane.chartSettings?.statusOhlc !== false}
+                compareOpen={props.comparePaneId === undefined ? undefined : props.comparePaneId === paneId}
+                onCompareOpenChange={props.onComparePaneId
+                  ? (open) => props.onComparePaneId?.(open ? paneId : null)
+                  : undefined}
                 loading={density === "large" && history.loading}
                 bars={visibleCandles.length}
                 compare={compare}
