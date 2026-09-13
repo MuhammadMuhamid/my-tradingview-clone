@@ -455,6 +455,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                 <span className="hidden min-w-0 flex-1 truncate text-sm text-ink-muted sm:block">
                   {r.baseAsset} / {r.quoteAsset}
                 </span>
+                {/* accent-is-meaning: "on this chart" is a fact about the chart, not
+                    about which row the keyboard is on — that row is the neutral chip. */}
                 {isCurrent && (
                   <span className="shrink-0 rounded bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
                     on this chart
@@ -466,6 +468,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                     add
                   </span>
                 )}
+                {/* accent-is-meaning: the instrument-type badge; spot is quiet and
+                    everything else is called out, for the same reason as the watchlist. */}
                 <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${instrumentType === "spot"
                   ? "bg-surface-2 text-ink-faint" : "bg-accent/15 text-accent"}`}>{typeLabel}</span>
                 {expiryLabel && <span className="hidden shrink-0 text-[11px] tabular text-ink-muted sm:inline">{expiryLabel}</span>}

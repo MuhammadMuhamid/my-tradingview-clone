@@ -92,7 +92,7 @@ export function Nav() {
                 href={l.href}
                 aria-current={active ? "page" : undefined}
                 className={`flex h-7 shrink-0 items-center whitespace-nowrap rounded-md px-2.5 text-[13px] transition-colors sm:px-3 ${
-                  active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+                  active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"
                 }`}
               >
                 {l.label}
@@ -120,7 +120,7 @@ export function Nav() {
             className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors ${
               path === HELP_HREF
                 ? "bg-surface-2 font-medium text-ink"
-                : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+                : "text-ink-muted hover:bg-state-hover hover:text-ink"
             }`}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -132,7 +132,7 @@ export function Nav() {
           </Link>
           {username && (
             <button onClick={signOut} title={`Signed in as ${username}`}
-              className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
+              className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-state-hover hover:text-ink">
               Sign out
             </button>
           )}
@@ -194,11 +194,12 @@ function FirstRunHint({ path }: { path: string }) {
   return (
     <div role="note" className="border-t border-border/60 bg-surface/80">
       <div className="mx-auto flex h-8 max-w-[1400px] items-center gap-3 px-3 text-xs sm:px-4">
+        {/* accent-is-meaning: a link. */}
         <span className="text-ink-muted">
           New here? <Link href={`${HELP_HREF}#start`} className="text-accent hover:underline">Start here</Link> — the
           five-minute loop, in the Manual.
         </span>
-        <button onClick={dismiss} className="ml-auto rounded px-2 py-0.5 text-ink-faint hover:bg-surface-2 hover:text-ink">
+        <button onClick={dismiss} className="ml-auto rounded px-2 py-0.5 text-ink-faint hover:bg-state-hover hover:text-ink">
           Dismiss
         </button>
       </div>
@@ -274,7 +275,7 @@ function SystemMenu({ path }: { path: string }) {
         aria-current={active ? "page" : undefined}
         title={health.summary}
         className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors ${
-          open || active ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+          open || active ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"
         }`}
       >
         <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${HEALTH_DOT[health.tone]}`} />
@@ -308,7 +309,7 @@ function SystemMenu({ path }: { path: string }) {
                 role="menuitem"
                 aria-current={current ? "page" : undefined}
                 onClick={() => setOpen(false)}
-                className={`flex items-baseline justify-between gap-3 px-3 py-2 text-[13px] hover:bg-surface-2 ${
+                className={`flex items-baseline justify-between gap-3 px-3 py-2 text-[13px] hover:bg-state-hover ${
                   current ? "text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >

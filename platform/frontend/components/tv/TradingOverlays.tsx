@@ -54,6 +54,7 @@ export function TradingOverlayMenu({ open, onOpen, value, onChange, data, loadin
         <path d="M4 7h10M4 17h16M14 4v6M10 14v6" />
       </svg>
       Overlays
+      {/* accent-is-meaning: a count badge. */}
       {data && data.items.length > 0 && <span className="rounded-full bg-accent/15 px-1.5 text-[10px] font-semibold text-accent">{data.items.length}</span>}
     </button>
     {open && <div ref={menuRef} role="menu" aria-label="Trading overlay visibility" onKeyDown={onMenuKeyDown}

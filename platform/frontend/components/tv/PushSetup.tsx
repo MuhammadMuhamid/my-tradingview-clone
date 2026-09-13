@@ -11,6 +11,12 @@ import {
  * registered, so this sits at the bottom of the MA panel where alerts are
  * created rather than buried in a settings page.
  */
+// accent-is-meaning: Enable is this row's primary action, and accent is the
+// product's primary-action fill. The pair of state buttons beside it (On/Off)
+// carry the neutral border treatment, which is the rule this sits next to.
+const ENABLE_BUTTON =
+  "shrink-0 rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40";
+
 export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
   const [state, setState] = useState<ReturnType<typeof pushState> | null>(null);
   /**
@@ -122,7 +128,7 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
               const r = await enablePush();
               onMessage(`Notifications enabled — ${r.devices} device${r.devices === 1 ? "" : "s"} registered`);
             })}
-            className="shrink-0 rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40">
+            className={ENABLE_BUTTON}>
             {busy ? "…" : "Enable"}
           </button>
         )}

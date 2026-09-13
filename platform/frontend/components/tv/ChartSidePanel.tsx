@@ -270,6 +270,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
         </svg>
+        {/* accent-is-meaning: a count badge — how many, not which one is open. */}
         {props.indicatorCount > 0 && (
           <span className="absolute ml-6 -mt-4 rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
             {props.indicatorCount}
@@ -286,6 +287,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
         </svg>
+        {/* accent-is-meaning: a count badge — how many, not which one is open. */}
         {props.maAlerts.length > 0 && (
           <span className="absolute ml-6 -mt-4 rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
             {props.maAlerts.length}
@@ -356,6 +358,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
             {icon}
           </svg>
           {label}
+          {/* accent-is-meaning: a count badge — how many, not which one is open. */}
           {id === "ma" && props.maAlerts.length > 0 && (
             <span className="absolute right-1/4 top-0.5 rounded-full bg-accent px-1 text-[8px] font-semibold text-white">
               {props.maAlerts.length}

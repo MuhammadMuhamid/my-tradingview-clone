@@ -652,19 +652,32 @@ select:not([multiple]):not([size]) {
  * put them on one, and the chevron is drawn back in so a select still reads as
  * a select.
  */
+/*
+ * TVP8: the Screener was a second design system.
+ *
+ * These three rules are ~20 call sites' worth of control, and they disagreed
+ * with the shared primitives on all three of the things a reader actually
+ * notices: 28px tall against `FIELD`'s 34px, 12px text against 14px, and
+ * `border-border` — a divider colour — where every other control in the
+ * product outlines itself with `--ts-control-border`. Two Screener controls
+ * next to one `<Button>` read as two products.
+ *
+ * Fixing it here rather than at the call sites is deliberate: the markup was
+ * never wrong, the vocabulary was.
+ */
 .scanner-control {
-  @apply inline-flex h-7 items-center rounded-md border border-border px-2 text-xs text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
+  @apply inline-flex min-h-[34px] items-center rounded-md border border-control-border px-2.5 text-sm text-ink-muted transition-colors hover:bg-state-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
 }
 .scanner-input {
-  @apply h-7 rounded-md border border-border bg-bg px-2 text-xs text-ink outline-none focus:border-accent;
+  @apply min-h-[34px] rounded-md border border-control-border bg-transparent px-2.5 text-sm text-ink outline-none focus:border-accent;
 }
 .scanner-select {
-  @apply h-7 rounded-md border border-border bg-bg py-0 pl-2 pr-5 text-xs text-ink outline-none focus:border-accent;
+  @apply min-h-[34px] rounded-md border border-control-border bg-transparent py-0 pl-2.5 pr-6 text-sm text-ink outline-none focus:border-accent;
   -webkit-appearance: none;
   appearance: none;
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='none' stroke='%23a8a8a8' stroke-width='2'%3E%3Cpath d='M2 4l3 3 3-3'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 5px center;
+  background-position: right 7px center;
 }
 .scanner-workspace .num { font-variant-numeric: tabular-nums; text-align: right; }
 .scanner-workspace .sticky-col {

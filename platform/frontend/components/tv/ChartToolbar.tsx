@@ -356,6 +356,8 @@ function ContextActions(props: ChartToolbarProps & { className: string; labelCla
           <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
         </svg>
         <span className={props.labelClass}>Indicators</span>
+        {/* accent-is-meaning: a count badge — how many studies are on the chart.
+            The button's own selected state is `.tvc-control`, as the contract says. */}
         {props.indicatorCount > 0 && (
           <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-white">
             {props.indicatorCount}

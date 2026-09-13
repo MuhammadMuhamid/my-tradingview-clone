@@ -125,6 +125,8 @@ function LimitRow(
         </span>
       </div>
       <div className="h-1.5 overflow-hidden rounded bg-surface-2" aria-hidden="true">
+        {/* accent-is-meaning: the filled part of a usage bar is data — how much
+            of the limit is spent — and turns to `down` when it is breached. */}
         <div
           className={`h-full ${breached ? "bg-down" : "bg-accent"}`}
           style={{ width: `${limit === null ? 0 : pct}%` }}
@@ -224,6 +226,8 @@ export default function OperationsPage() {
         <HealthBadge tone={overview.tone}>{overview.status}</HealthBadge>
       </div>
 
+      {/* accent-is-meaning: an operator notice is the page speaking, which is
+          categorically ours; nothing on this page is selected. */}
       {notice && (
         <p role="status" className="rounded border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-ink">
           {notice}

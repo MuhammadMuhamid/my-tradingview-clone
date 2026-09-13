@@ -1806,6 +1806,8 @@ export default function TvWorkspace() {
           </div>
         )}
 
+        {/* accent-is-meaning: the app is waiting for a click and saying so — an
+            in-progress primary action, not a selected row. */}
         {pickingLevel && (
           <div className="flex items-center justify-between gap-3 border-b border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent">
             <span>Click the focused chart at the price you want the alert on.</span>

@@ -113,6 +113,8 @@ export function SyncMenu({
           <path d="M4 8h11a4 4 0 010 8H9" /><path d="M7 5L4 8l3 3" />
         </svg>
         <span className="hidden 2xl:inline">Sync</span>
+        {/* accent-is-meaning: a count badge — how many sync axes are on. The
+            control itself uses `.tvc-control` for its own open state. */}
         {!disabled && activeCount > 0 && (
           <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-white">
             {activeCount}

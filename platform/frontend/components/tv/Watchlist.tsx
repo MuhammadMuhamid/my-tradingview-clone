@@ -564,6 +564,8 @@ export function Watchlist({
               <span className="flex min-w-0 items-center font-medium text-ink"
                 title={`${displaySymbol(s.symbol)}${s.venue ? ` · ${s.venue}` : ""}`}>
                 <span className="truncate">{s.baseAsset}<span className="text-ink-faint">/{s.quoteAsset}</span></span>
+                {/* accent-is-meaning: a non-spot row is a different instrument KIND,
+                    and mistaking a perp for spot is the costly error this prevents. */}
                 {identity && identity.type !== "spot" && (
                   <span className="ml-1 shrink-0 text-[9px] font-bold text-accent">
                     {instrumentTypeLabel(identity.type)}{identity.expiry ? ` ${identity.expiry.slice(2)}` : ""}

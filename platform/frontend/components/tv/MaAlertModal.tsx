@@ -254,6 +254,8 @@ export function MaAlertModal({
           Evaluated server-side on {timeframe} candles and pushed to every device you have
           enabled notifications on — the chart does not need to be open.
         </p>
+        {/* accent-is-meaning: this sentence changes what Save will do, so it is
+            the dialog talking about its own primary action. */}
         {match && (
           <p className="text-xs text-accent">
             This line already has a {timeframe} alert for that condition; saving updates it.

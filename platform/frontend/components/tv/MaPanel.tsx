@@ -291,6 +291,8 @@ export function MaPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* accent-is-meaning: a mode notice — Replay is on and it is why the
+            controls below are inert. Nothing here is selected. */}
         {liveActionsDisabled && (
           <div className="border-b border-accent/30 bg-accent/10 px-3 py-2 text-[11px] text-accent">
             Exit Replay to create or edit live alerts. Historical MA values remain available.

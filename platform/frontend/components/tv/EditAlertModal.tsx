@@ -71,11 +71,18 @@ export function EditAlertModal({
   );
   const box = `w-full ${FIELD}`;
 
+  // accent-is-meaning: the symbol is the alert's SUBJECT. A dialog title names
+  // what it is about the same way the status line names the instrument, and no
+  // row in this dialog is selected.
+  const title = deployment
+    ? <>Edit alert on <span className="text-accent">{deployment.symbol}</span></>
+    : "Edit alert";
+
   return (
     <Modal
       open={deployment !== null}
       onClose={onClose}
-      title={deployment ? <>Edit alert on <span className="text-accent">{deployment.symbol}</span></> : "Edit alert"}
+      title={title}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>

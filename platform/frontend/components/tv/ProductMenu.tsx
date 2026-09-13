@@ -300,6 +300,8 @@ function MenuLink(
       }`}
     >
       <span>{children}</span>
+      {/* accent-is-meaning: the note is ours — the selected row above it is the
+          neutral `bg-surface-2` chip, which is the rule this sits next to. */}
       {note && <span className="text-[11px] text-accent">{note}</span>}
     </Link>
   );

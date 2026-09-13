@@ -356,8 +356,8 @@ export default function AlertsPage() {
                 </div>
                 {list.map((a) => (
                   <div key={a.id}
-                    className={`group flex items-center gap-2 pl-4 pr-2 text-[13px] hover:bg-surface-2/40 ${
-                      selected.has(a.id) ? "bg-accent/5" : ""}`}>
+                    className={`group flex items-center gap-2 pl-4 pr-2 text-[13px] hover:bg-state-hover ${
+                      selected.has(a.id) ? "bg-state-active" : ""}`}>
                     <input
                       type="checkbox"
                       className="shrink-0 accent-accent"
@@ -389,6 +389,8 @@ export default function AlertsPage() {
                       <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] tabular text-ink-muted">
                         {a.timeframe}
                       </span>
+                      {/* accent-is-meaning: a frequency other than the default is a
+                          property of the alert, not a selected row. */}
                       {a.frequency !== DEFAULT_ALERT_FREQUENCY && (
                         <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
                           {FREQUENCY_LABELS[a.frequency]}
@@ -407,7 +409,7 @@ export default function AlertsPage() {
                         type="button"
                         onClick={() => setEditing(a)}
                         aria-label={`Edit ${a.symbol} ${alertLineLabel(a)}`}
-                        className="rounded px-2 py-1 text-[11px] text-ink-faint opacity-0 transition-opacity hover:bg-surface-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                        className="rounded px-2 py-1 text-[11px] text-ink-faint opacity-0 transition-opacity hover:bg-state-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
                       >
                         Edit
                       </button>
@@ -471,7 +473,9 @@ export default function AlertsPage() {
                 </span>
                 {/* An alert that fired mid-candle may have fired at a price the
                     finished candle never closed at. Saying so here is the honest
-                    half of offering intrabar modes at all. */}
+                    half of offering intrabar modes at all.
+                    accent-is-meaning: this badge is a claim about the data, not a
+                    selection. */}
                 {e.intrabar && (
                   <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">
                     bar still forming

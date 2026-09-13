@@ -67,6 +67,18 @@ const WORKSTATION = [
   "app/chart/page.tsx",
 ];
 
+/*
+ * TVP8: the grammar rules below used to be scoped to WORKSTATION, so every one
+ * of them — accent-as-selection, the hover token, raw provider copy — was
+ * enforced on the chart and on nothing else. That is how `/alerts` kept an
+ * accent-tinted selected row through a whole campaign whose contract says in
+ * as many words that selection is a neutral chip.
+ *
+ * A rule that only holds on the page it was written for is a preference. These
+ * are rules, so they are checked everywhere the product renders.
+ */
+const PRODUCT = [...sourceFiles("app"), ...sourceFiles("components")];
+
 test("CONTRACT — the measured density numbers are the ones in the tokens", () => {
   /*
    * Each of these was wrong once, and each error was systemic rather than
@@ -202,10 +214,28 @@ test("CONTRACT — accent never means 'this one is selected' in the workstation"
   // `border-l-accent` and friends are accent too — the first version of this
   // matched only the unsided `border-accent` and missed the symbol search's
   // current-row edge entirely.
-  const ACCENT = String.raw`(?:bg-accent(?:\/\d+)?|text-accent|border(?:-[xytrbl])?-accent(?:\/\d+)?)`;
-  const CONDITIONAL = new RegExp(String.raw`(?:\?|&&)\s*"[^"]*\b${ACCENT}\b`);
+  /*
+   * TVP8: two holes, both of which let real defects through.
+   *
+   * 1. The shape was `(?|&&) "…accent…"` — the accent class had to sit in a
+   *    STRING directly after the operator. `{selected && <div className="…
+   *    bg-accent/5">}` puts a `<` there instead, so the single genuine
+   *    accent-as-selection left in the product (the /alerts row) matched
+   *    nothing. The operator is now followed by any of `<`, a quote or a
+   *    backtick — conditional element, conditional string, conditional
+   *    template.
+   * 2. A `focus:`/`hover:`/`group-*:` variant cannot express "this one is
+   *    selected" — it expresses a pointer or keyboard state, and the contract
+   *    names the focus ring as accent's job. Those are no longer offenders, so
+   *    the rule does not push people into marking a focus ring as meaningful.
+   *
+   * Checked against PRODUCT, not WORKSTATION. Counted at the time of writing:
+   * 0 in the old shape, 23 legitimate uses + 1 real defect in the new one.
+   */
+  const ACCENT = String.raw`(?<![\w:-])(?:bg-accent(?:\/\d+)?|text-accent|border(?:-[xytrbl])?-accent(?:\/\d+)?)`;
+  const CONDITIONAL = new RegExp(String.raw`(?:\?|&&|\|\|)\s*\(?\s*(?:<|\`|")`);
   const offenders: string[] = [];
-  for (const file of WORKSTATION) {
+  for (const file of PRODUCT) {
     const lines = read(file).split("\n");
     for (const [i, line] of lines.entries()) {
       if (!new RegExp(String.raw`\b${ACCENT}\b`).test(line)) continue;
@@ -227,7 +257,7 @@ test("CONTRACT — accent never means 'this one is selected' in the workstation"
 test("CONTRACT — no workstation surface reverts to the pre-TVP7 hover", () => {
   // `surface-2` is #1f1f1f: a correct panel, and one step too dark for a hover
   // on every surface that used it.
-  const offenders = WORKSTATION.filter((f) => /hover:bg-surface-2\b/.test(read(f)));
+  const offenders = PRODUCT.filter((f) => /hover:bg-surface-2\b/.test(read(f)));
   assert.deepEqual(offenders, [],
     `hover must be the state token, not a panel colour: ${offenders.join(", ")}`);
 });
@@ -589,14 +619,41 @@ test("CONTRACT — presentation never re-subscribes the feed or remounts the cha
    */
   const chart = code(read("components/CandleChart.tsx"));
 
+  /*
+   * TVP8: this assertion could not fail.
+   *
+   * It was `created.slice(0, indexOf("}, []);") + 7).endsWith("}, []);")` —
+   * a slice that ENDS at the first `}, []);` and is then asked whether it ends
+   * with `}, []);`. True by construction. Give the effect a dependency and
+   * `indexOf` simply walks on to the next zero-dependency effect in the file
+   * and the test stays green; verified by mutating the real array to
+   * `}, [symbol]);`.
+   *
+   * What it has to do instead is read the dependency array that CLOSES THIS
+   * EFFECT, so: find the effect's own closing line and capture what is in the
+   * brackets. `[\s\S]*?` is lazy, so this is the first `}, [...]);` after
+   * `createChart(` — the effect's own — and the captured text has to be empty.
+   */
   const created = chart.slice(chart.indexOf("const chart = createChart("));
-  assert.ok(created.slice(0, created.indexOf("}, []);") + 7).trimEnd().endsWith("}, []);"),
-    "the chart-creating effect must have no dependencies");
+  const closes = /[\s\S]*?\n\s*\}, \[([^\]]*)\]\);/.exec(created);
+  assert.ok(closes, "could not find the end of the chart-creating effect");
+  assert.equal(closes![1].trim(), "",
+    `the chart-creating effect must have no dependencies — found [${closes![1].trim()}]`);
 
+  /*
+   * TVP8: and this one was case-blind. The token was the lowercase word
+   * `settings`, which does not appear in `transformSettings` — so the one
+   * presentation value that WAS in the array went unseen for a whole campaign,
+   * and a chart-type setting change tore down the websocket. Matching is now
+   * case-insensitive and the array is located by the effect that closes after
+   * the subscribe call, not by the first `]);` in the remaining file.
+   */
   const feed = chart.slice(chart.indexOf("marketFeed.subscribe("));
-  const deps = feed.slice(0, feed.indexOf("]);") + 3);
-  for (const presentation of ["upColor", "downColor", "themeTick", "volumeBarColor", "settings"]) {
-    assert.equal(deps.includes(presentation), false,
+  const feedCloses = /[\s\S]*?\n\s*\}, \[([^\]]*)\]\);/.exec(feed);
+  assert.ok(feedCloses, "could not find the end of the market-feed effect");
+  const deps = feedCloses![1].toLowerCase();
+  for (const presentation of ["upColor", "downColor", "themeTick", "volumeBarColor", "Settings"]) {
+    assert.equal(deps.includes(presentation.toLowerCase()), false,
       `the market feed must not resubscribe on ${presentation} — read it through a ref`);
   }
   assert.match(chart, /volumeBarColorRef\.current\(/,

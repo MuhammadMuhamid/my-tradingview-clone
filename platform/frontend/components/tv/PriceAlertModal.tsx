@@ -297,6 +297,8 @@ export function PriceAlertModal({
           </div>
         </Row>
 
+        {/* accent-is-meaning: this sentence changes what Save will do, so it is
+            the dialog talking about its own primary action. */}
         {match && (
           <p className="text-xs text-accent">
             This level already has a {timeframe} alert for that condition; saving updates it.

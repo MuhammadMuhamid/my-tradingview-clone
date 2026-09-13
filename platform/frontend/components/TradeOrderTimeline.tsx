@@ -133,6 +133,8 @@ export function TradeOrderTimelineView({ timeline }: { timeline: TradingTimeline
               </time>
               <span className="relative flex justify-center" aria-hidden="true">
                 {index < timeline.items.length - 1 && <span className="absolute bottom-[-12px] top-2 w-px bg-border" />}
+                {/* accent-is-meaning: the dot is the event itself — ours when the
+                    state is settled, `warn` while it is still authoritative. */}
                 <span className={`relative mt-1 h-2 w-2 rounded-full border ${
                   event.evidenceClass === "CURRENT_AUTHORITATIVE_STATE"
                     ? "border-warn bg-surface" : "border-accent bg-accent"

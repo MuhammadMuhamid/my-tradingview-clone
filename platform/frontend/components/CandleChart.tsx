@@ -772,6 +772,20 @@ export function CandleChart({
     pnfReversalBoxes: settings.pnfReversalBoxes,
   }), [settings.renkoAtrPeriod, settings.lineBreakLines, settings.kagiReversalPercent,
     settings.pnfBoxPercent, settings.pnfReversalBoxes]);
+  /*
+   * TVP8: the live path reads these through a ref.
+   *
+   * `transformSettings` was in the market-feed effect's dependency array, so
+   * nudging the Renko ATR period or the P&F box size tore down the websocket
+   * and opened a new one — the exact churn the rule beside that array forbids,
+   * and it survived because the guard in `tests/uiContract.test.ts` matched the
+   * lowercase word `settings` against `transformSettings` and found nothing.
+   *
+   * The value is presentation: it changes how a tick is DRAWN, never which
+   * stream it comes from.
+   */
+  const transformSettingsRef = useRef(transformSettings);
+  useEffect(() => { transformSettingsRef.current = transformSettings; }, [transformSettings]);
   /**
    * Why this presentation is drawing nothing, or null when it is fine.
    *
@@ -1967,7 +1981,7 @@ export function CandleChart({
       } else if (transform !== null) {
         if ((transform === "kagi" || transform === "pointAndFigure")
           && !(priceTick && priceTick > 0)) return;
-        const params = transformParams(kind, priceTick ?? undefined, transformSettings);
+        const params = transformParams(kind, priceTick ?? undefined, transformSettingsRef.current);
         const advanced = advanceTransform(
           transformHeadRef.current, transform, params, list
         );
@@ -2024,7 +2038,7 @@ export function CandleChart({
       if (applyTickRef.current === applyTick) applyTickRef.current = null;
       setFeedState(IDLE_FEED);
     };
-  }, [symbol, interval, live, latestLegend, legendAtCanonical, priceTick, transformSettings]);
+  }, [symbol, interval, live, latestLegend, legendAtCanonical, priceTick]);
 
   /**
    * Mirror another pane's crosshair.

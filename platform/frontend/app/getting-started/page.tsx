@@ -1050,7 +1050,7 @@ export default function GettingStarted() {
             On this page
           </h2>
           <div className="mt-2 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
-            <a href="#start" className="flex gap-2 rounded-md px-2 py-1 text-[13px] font-medium leading-5 text-accent hover:bg-surface-2">
+            <a href="#start" className="flex gap-2 rounded-md px-2 py-1 text-[13px] font-medium leading-5 text-accent hover:bg-state-hover">
               Start here
             </a>
             {(Object.keys(LAYER_TITLES) as SectionLayer[]).map((layer) => (
@@ -1063,7 +1063,7 @@ export default function GettingStarted() {
                     <li key={section.id}>
                       <a
                         href={`#${section.id}`}
-                        className="flex gap-2 rounded-md px-2 py-1 text-[13px] leading-5 text-ink-muted hover:bg-surface-2 hover:text-ink"
+                        className="flex gap-2 rounded-md px-2 py-1 text-[13px] leading-5 text-ink-muted hover:bg-state-hover hover:text-ink"
                       >
                         <span aria-hidden="true" className="tabular text-ink-faint">{i + 1}.</span>
                         <span className="min-w-0">{section.title}</span>
