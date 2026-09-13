@@ -74,7 +74,7 @@ import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
 import { displaySymbol, displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
 import { resolvePriceTick } from "@/lib/priceTick";
 import { computeTpoProfile, computeVolumeProfile, DEFAULT_PROFILE_SETTINGS } from "@/lib/volumeProfile";
-import { DEFAULT_CHART_SETTINGS } from "@/lib/chartSettings";
+import { DEFAULT_CHART_SETTINGS, userDefaultChartSettings } from "@/lib/chartSettings";
 import { PROFILE_COLORS } from "@/lib/native/profile";
 
 export interface ChartPaneProps {
@@ -894,23 +894,33 @@ function ChartPaneImpl(props: ChartPaneProps) {
         {history.error && history.errorLevel === "notice" && (
           <div
             role="status"
-            title={history.errorDetail ?? undefined}
+            title={history.errorDetail
+              ? `${history.error} ${history.errorDetail}`
+              : history.error}
             /*
-              Top-centre on a desktop pane, bottom-centre on a phone.
-
-              This notice is z-20 and the pane legend is z-3, so at 390px the
-              centred badge landed squarely on top of the legend and hid the
-              symbol and the last price behind a message about the feed. The
-              legend is permanent and the notice is transient; the notice is
-              the one that moves. Below `sm` it sits over the volume histogram
-              instead, which carries far less of what is being read.
+              ── TVP8 round two: a chip, not a banner ────────────────────────
+              
+              This was a centred pill across the top of the plot carrying the
+              whole sentence, and it is NOT transient: whenever streaming is
+              unavailable it stays for the session. A permanent banner over the
+              price action is not what the reference does — it keeps feed state
+              as a small marker beside the symbol and puts the sentence in the
+              tooltip.
+              
+              So: top-right, out of the price action and out of the legend's
+              column, two words and a dot. The sentence is the `title`, which
+              is where it was already carrying its detail.
+              
+              Bottom-right below `sm`, for the reason the old comment gave: the
+              legend is permanent and this is not, so this is the one that
+              moves out of its way.
             */
-            className="pointer-events-auto absolute bottom-2 left-1/2 z-20 flex -translate-x-1/2
-              items-center gap-1.5 rounded border border-warn/40 bg-warn/15 px-2 py-0.5 text-[11px]
-              text-warn backdrop-blur-sm sm:bottom-auto sm:top-2"
+            className="pointer-events-auto absolute bottom-2 right-2 z-20 flex items-center gap-1.5
+              rounded border border-warn/40 bg-warn/15 px-1.5 py-0.5 text-[11px] text-warn
+              backdrop-blur-sm sm:bottom-auto sm:top-2"
           >
-            <span>{history.error}</span>
-            {history.errorDetail && <span aria-hidden="true" className="opacity-60">&#9432;</span>}
+            <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full bg-warn" />
+            <span>Delayed</span>
           </div>
         )}
         {!replayActive && active
@@ -1060,7 +1070,17 @@ function ChartPaneImpl(props: ChartPaneProps) {
             goTo={props.goTo}
             drawingStyleFocusSignal={props.drawingStyleFocusSignal}
             paneActive={props.active}
-            chartSettings={pane.chartSettings}
+            /*
+             * TVP8 round two: the pane's settings, or the user's DEFAULT.
+             *
+             * This passed `pane.chartSettings` raw, and `CandleChart` falls
+             * back to `DEFAULT_CHART_SETTINGS` when it is undefined — so a
+             * pane with nothing stored ignored "Save as default" entirely
+             * while the settings dialog, which reads `paneChartSettings`,
+             * showed the saved values. Dialog and chart disagreed about the
+             * same pane.
+             */
+            chartSettings={pane.chartSettings ?? userDefaultChartSettings()}
             onIndicatorPaneAction={paneAction}
             canIndicatorAction={studyActionable}
             hiddenStudies={hiddenStudies}

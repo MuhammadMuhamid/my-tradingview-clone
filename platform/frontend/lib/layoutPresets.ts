@@ -235,6 +235,37 @@ export function resizeTrack(
   return next;
 }
 
+/**
+ * The grid lines a user can actually drag, per axis.
+ *
+ * TVP8 round two: `ChartWorkspace` rendered one separator per grid TRACK, and
+ * a packed preset's track count is an LCM — "two over three" is six columns,
+ * not five, and not one of its five interior lines is a pane edge in both
+ * rows. Twelve of the nineteen separators in the 13- and 14-pane layouts moved
+ * nothing at all, while all nineteen sat over the charts as live strips
+ * swallowing crosshair and drawing input.
+ *
+ * A boundary is draggable only when NO cell spans it: if one does, moving the
+ * line would have to resize a pane on one side and split a pane on the other,
+ * which a CSS grid cannot express and a user cannot mean.
+ */
+export function draggableBoundaries(
+  preset: LayoutPreset, axis: "cols" | "rows",
+): number[] {
+  const count = axis === "cols" ? preset.cols : preset.rows;
+  const out: number[] = [];
+  for (let boundary = 1; boundary < count; boundary++) {
+    const spanned = preset.cells.some((cell) => {
+      const start = axis === "cols" ? cell.col : cell.row;
+      const size = axis === "cols" ? cell.colSpan : cell.rowSpan;
+      return start <= boundary && start + size - 1 >= boundary + 1;
+    });
+    // `boundary` counts columns; the caller indexes tracks from zero.
+    if (!spanned) out.push(boundary - 1);
+  }
+  return out;
+}
+
 export function presetGridStyle(preset: LayoutPreset, fractions?: GridFractions): {
   gridTemplateColumns: string;
   gridTemplateRows: string;

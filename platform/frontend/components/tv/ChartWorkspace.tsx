@@ -18,7 +18,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  cellGridStyle, evenFractions, presetGridStyle, resizeTrack,
+  cellGridStyle, draggableBoundaries, evenFractions, presetGridStyle, resizeTrack,
   type GridFractions, type LayoutPreset, type PaneCell,
 } from "@/lib/layoutPresets";
 import {
@@ -114,8 +114,16 @@ function PaneSeparator({
         onCommit();
       }}
       style={vertical
-        ? { left: `${offset * 100}%`, top: 0, bottom: 0, width: 9, marginLeft: -4 }
-        : { top: `${offset * 100}%`, left: 0, right: 0, height: 9, marginTop: -4 }}
+        /*
+         * TVP8 round two: 5px, not 9.
+         *
+         * These sit ON the plot, and at 9px they took four pixels out of each
+         * neighbouring chart for the crosshair and the drawing layer. The
+         * reference's splitter is about this wide, and the hover tint makes it
+         * findable without being a wall.
+         */
+        ? { left: `${offset * 100}%`, top: 0, bottom: 0, width: 5, marginLeft: -2 }
+        : { top: `${offset * 100}%`, left: 0, right: 0, height: 5, marginTop: -2 }}
       className={`absolute z-10 bg-transparent transition-colors hover:bg-accent/40 focus-visible:bg-accent/40 ${
         vertical ? "cursor-col-resize" : "cursor-row-resize"}`}
     />
@@ -168,10 +176,15 @@ export function ChartWorkspace({ workspace, renderPane }: ChartWorkspaceProps) {
       {(["cols", "rows"] as const).flatMap((axis) => {
         const tracks = fractions[axis];
         const total = tracks.reduce((sum, v) => sum + v, 0);
+        // Only the lines that are a pane edge everywhere — see
+        // `draggableBoundaries`. A packed preset's track count is an LCM, so
+        // most of its interior lines run through the middle of a pane.
+        const draggable = new Set(draggableBoundaries(preset, axis));
         let running = 0;
-        return tracks.slice(0, -1).map((value, index) => {
+        return tracks.slice(0, -1).flatMap((value, index) => {
           running += value;
-          return (
+          if (!draggable.has(index)) return [];
+          return ([
             <PaneSeparator
               key={`${axis}-${index}`}
               axis={axis}
@@ -181,7 +194,7 @@ export function ChartWorkspace({ workspace, renderPane }: ChartWorkspaceProps) {
               }))}
               onCommit={() => writeFractions(workspace.presetId, fractionsRef.current)}
             />
-          );
+          ]);
         });
       })}
       {workspace.panes.map((pane, index) => {

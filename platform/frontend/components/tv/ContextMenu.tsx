@@ -166,7 +166,9 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
           // Invisible until measured, so it is never seen at the wrong place.
           visibility: placement ? "visible" : "hidden",
         }}
-        className="fixed z-[91] min-w-[200px] max-w-[280px] overflow-y-auto tvc-menu tvc-menu--compact outline-none"
+        // Wider than 280: a priced item plus its hint did not fit, and the
+        // reference's own menu is about this wide.
+        className="fixed z-[91] min-w-[200px] max-w-[330px] overflow-y-auto tvc-menu tvc-menu--compact outline-none"
       >
         {items.map((entry, index) => {
           if (isSeparator(entry)) {
@@ -224,14 +226,26 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
                   </svg>
                 )}
               </span>
-              <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+              {/*
+                TVP8 round two: the LABEL never truncates; the hint does.
+                
+                At `max-w-[280px]` the label was the thing that got cut, so
+                "Prepare an order at 76,845.50" rendered as "Prepare an order
+                at 7…" — hiding the price, which is the entire content of that
+                item — and "Classical chart patterns" became "Classical ...".
+                A menu may abbreviate its parenthetical; it may never hide what
+                the item does.
+              */}
+              <span className="shrink-0 whitespace-nowrap">{entry.label}</span>
               {entry.disabled && entry.disabledReason && (
                 <span id={`${menuId}-${entry.id}-why`} className="sr-only">
                   {entry.disabledReason}
                 </span>
               )}
               {entry.hint && (
-                <span className="shrink-0 text-[11px] text-ink-faint">{entry.hint}</span>
+                <span className="min-w-0 flex-1 truncate text-right text-[11px] text-ink-faint">
+                  {entry.hint}
+                </span>
               )}
             </button>
           );

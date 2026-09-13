@@ -17,7 +17,8 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   availablePaneCounts, cellGridStyle, defaultPresetFor, LAYOUT_PRESETS, MAX_PANES,
-  MIN_TRACK_FRACTION, paneDensity, presetGridStyle, presetOrDefault, presetsForCount,
+  draggableBoundaries, MIN_TRACK_FRACTION, paneDensity, presetGridStyle, presetOrDefault,
+  presetsForCount,
   resizeTrack,
 } from "../lib/layoutPresets";
 import {
@@ -834,4 +835,72 @@ test("THE BOTTOM PANEL CAN BE RESIZED AND MAXIMIZED, NOT ONLY COLLAPSED", () => 
 
   // Arrow keys move it, or it is a mouse-only control.
   assert.match(panel, /e\.key !== "ArrowUp" && e\.key !== "ArrowDown"/);
+});
+
+test("ONLY A LINE THAT IS A PANE EDGE EVERYWHERE CAN BE DRAGGED", () => {
+  /*
+   * TVP8 round two: the workspace rendered one separator per grid TRACK, and a
+   * packed preset's track count is an LCM. "Two over three" is six columns,
+   * and not one of its five interior lines is a pane edge in both rows — so
+   * twelve of the nineteen separators in the 13- and 14-pane layouts moved
+   * nothing, while all nineteen sat over the charts as live strips swallowing
+   * crosshair and drawing input.
+   *
+   * A boundary is draggable only when NO cell spans it. If one does, moving
+   * the line would have to resize a pane on one side and split a pane on the
+   * other, which a CSS grid cannot express and a user cannot mean.
+   */
+  const byId = (id: string) => LAYOUT_PRESETS.find((p) => p.id === id)!;
+
+  // Two columns: the one interior line is both panes' edge.
+  assert.deepEqual(draggableBoundaries(byId("2-cols"), "cols"), [0]);
+  assert.deepEqual(draggableBoundaries(byId("2-cols"), "rows"), []);
+
+  // Two rows: the mirror image.
+  assert.deepEqual(draggableBoundaries(byId("2-rows"), "rows"), [0]);
+  assert.deepEqual(draggableBoundaries(byId("2-rows"), "cols"), []);
+
+  // A 2x2 has one of each.
+  assert.deepEqual(draggableBoundaries(byId("4-grid"), "cols"), [0]);
+  assert.deepEqual(draggableBoundaries(byId("4-grid"), "rows"), [0]);
+
+  // Four columns: three real lines.
+  assert.deepEqual(draggableBoundaries(byId("4-cols"), "cols"), [0, 1, 2]);
+
+  // A single pane has nothing to drag.
+  assert.deepEqual(draggableBoundaries(byId("1"), "cols"), []);
+  assert.deepEqual(draggableBoundaries(byId("1"), "rows"), []);
+
+  /*
+   * And the rule holds for every preset the product ships: a boundary this
+   * function returns is never spanned by a cell, in any layout.
+   */
+  for (const preset of LAYOUT_PRESETS) {
+    for (const axis of ["cols", "rows"] as const) {
+      for (const index of draggableBoundaries(preset, axis)) {
+        const boundary = index + 1;
+        const spanned = preset.cells.some((cell) => {
+          const start = axis === "cols" ? cell.col : cell.row;
+          const size = axis === "cols" ? cell.colSpan : cell.rowSpan;
+          return start <= boundary && start + size - 1 >= boundary + 1;
+        });
+        assert.equal(spanned, false,
+          `${preset.id} offers a ${axis} line at ${index} that runs through a pane`);
+      }
+    }
+  }
+
+  // A packed row-mix has no draggable column line at all, which is the case
+  // that produced twelve dead separators.
+  const mixed = LAYOUT_PRESETS.find((p) => p.cols > p.panes);
+  if (mixed) {
+    assert.deepEqual(draggableBoundaries(mixed, "cols"), [],
+      `${mixed.id} is an LCM grid; none of its column lines is a pane edge in every row`);
+  }
+
+  // The workspace renders only those, and at 5px rather than 9.
+  const workspace = read("components/tv/ChartWorkspace.tsx");
+  assert.match(workspace, /if \(!draggable\.has\(index\)\) return \[\];/);
+  assert.match(workspace, /width: 5, marginLeft: -2/);
+  assert.match(workspace, /height: 5, marginTop: -2/);
 });

@@ -1037,6 +1037,21 @@ export function CandleChart({
       },
       localization: {
         /*
+         * TVP8 round two: the axis groups its thousands, like the legend does.
+         *
+         * The scale printed `80400.00` while the OHLC readout two inches away
+         * printed `77,991.22` and every menu printed `76,845.50` — the same
+         * number in two typographies on one screen, and the reference groups
+         * its axis too. The library's default formatter is `toFixed`; this is
+         * the product's own `fmtPrice`, so there is one answer to "how is a
+         * price written here".
+         *
+         * The precision still comes from `priceFormat` on the series (the
+         * Symbol tab's control); this only groups what that produced, so
+         * setting 5 digits on a low-priced instrument is unaffected.
+         */
+        priceFormatter: (price: number) => fmtPrice(price),
+        /*
          * 12-hour labels are built here rather than left to the library: its
          * `timeVisible` formatter is 24-hour and takes no locale. The date
          * half is left alone so the axis keeps the library's own density
@@ -2107,8 +2122,19 @@ export function CandleChart({
       else if (entry.kind === "Histogram") entry.api.applyOptions({
         color: overlay.color, lastValueVisible, title: axisTitle,
       });
+      /*
+       * TVP8 round two: Width reaches the plots that HAVE a line.
+       *
+       * `lineWidth` was applied in the `Line` branch only, so a study's Width
+       * control was inert on every Area plot — an Elder Force Index or a
+       * Bollinger fill could be recoloured and not rewidened. A histogram,
+       * candlestick or bar plot has no line at all, which is why those
+       * branches still do not take it.
+       */
       else if (entry.kind === "Area") entry.api.applyOptions({
-        lineColor: overlay.color, lastValueVisible, title: axisTitle,
+        lineColor: overlay.color,
+        lineWidth: Math.max(1, Math.min(4, overlay.width ?? 2)) as 1 | 2 | 3 | 4,
+        lastValueVisible, title: axisTitle,
       });
       else if (entry.kind === "Candlestick") entry.api.applyOptions({
         upColor: overlay.color, downColor: overlay.color,

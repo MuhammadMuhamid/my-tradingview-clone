@@ -493,10 +493,23 @@ test("CONTRACT — a transient notice never covers the permanent legend", () => 
    * feed hiding the number the user came for.
    */
   const pane = read("components/tv/ChartPane.tsx");
-  const notice = /role="status"[\s\S]{0,900}?className="([^"]+)"/.exec(pane)?.[1] ?? "";
+  const notice = /role="status"[\s\S]{0,1600}?className="([^"]+)"/.exec(pane)?.[1] ?? "";
   assert.ok(notice.includes("bottom-2"), "on a phone it sits at the foot of the pane");
   assert.ok(notice.includes("sm:top-2") && notice.includes("sm:bottom-auto"),
     "and returns to the top only where there is room for it");
+
+  /*
+   * TVP8 round two: and it is not centred over the price action.
+   *
+   * It was a pill across the top-centre of the plot carrying the whole
+   * sentence — and it is NOT transient: whenever streaming is unavailable it
+   * stays for the session. The reference keeps feed state as a small marker
+   * and puts the sentence in the tooltip, which is what this is now.
+   */
+  assert.equal(notice.includes("left-1/2"), false,
+    "a persistent notice must not sit across the middle of the plot");
+  assert.ok(notice.includes("right-2"), "it lives opposite the legend");
+  assert.match(pane, /<span>Delayed<\/span>/, "two words, with the sentence in the title");
 });
 
 test("CONTRACT — monospace is for code and machine identifiers, nothing else", () => {
