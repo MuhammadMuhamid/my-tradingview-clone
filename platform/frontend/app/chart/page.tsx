@@ -1764,14 +1764,6 @@ export default function TvWorkspace() {
           onMoreOpen={setMoreOpen}
         />
 
-        <ReplayControls
-          candles={candles} session={replay} pickerOpen={replayPickerOpen}
-          onStart={beginReplay} onCancel={() => setReplayPickerOpen(false)}
-          onPrevious={() => setReplay((current) => current ? stepReplay(current, candles, -1) : null)}
-          onNext={() => setReplay((current) => current ? stepReplay(current, candles, 1) : null)}
-          onPlaying={setReplayPlaying} onSpeed={setReplaySpeed} onExit={exitReplay}
-        />
-
         {err && <div className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">{err}</div>}
 
         {/*
@@ -1830,6 +1822,27 @@ export default function TvWorkspace() {
           {overlays.selected && <TradingOverlayDetails item={overlays.selected}
             onClose={() => overlays.select(null)} />}
         </div>
+
+        {/*
+          Replay's strip sits BELOW the panes, between the chart and the bottom
+          workstation — chart chrome, not a page banner.
+
+          It used to render directly under the toolbar, above every pane, as a
+          full-width accent-tinted bar. Two things were wrong with that beyond
+          its colour: it was a sibling of the error banner and the deep-link
+          consent notice and read as one of them, and it pushed every pane down
+          by its own height for the whole session, so entering replay moved the
+          chart out from under the pointer. The reference puts the same
+          controls under the time axis, where they belong to the thing they
+          control.
+        */}
+        <ReplayControls
+          candles={candles} session={replay} pickerOpen={replayPickerOpen}
+          onStart={beginReplay} onCancel={() => setReplayPickerOpen(false)}
+          onPrevious={() => setReplay((current) => current ? stepReplay(current, candles, -1) : null)}
+          onNext={() => setReplay((current) => current ? stepReplay(current, candles, 1) : null)}
+          onPlaying={setReplayPlaying} onSpeed={setReplaySpeed} onExit={exitReplay}
+        />
 
         <ChartBottomPanel
           symbol={symbol}

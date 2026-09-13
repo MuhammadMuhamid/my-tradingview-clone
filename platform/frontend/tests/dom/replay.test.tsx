@@ -191,8 +191,10 @@ test("leaving a Replay restores the instrument's own drawings", async () => {
   await selectTool(chart.container, "Trend line");
   await drag(chart.plot, [340, 300], [560, 420]);
 
+  // By accessible name, not by visible text: the exit is an icon button now,
+  // as the reference's is, so `textContent` is empty.
   const exit = [...chart.container.querySelectorAll<HTMLElement>("button")]
-    .find((b) => /exit/i.test(b.textContent ?? ""));
+    .find((b) => /exit/i.test(b.getAttribute("aria-label") ?? b.textContent ?? ""));
   assert.ok(exit, "a running session must be leavable");
   fireEvent.click(exit);
   await settle();

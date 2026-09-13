@@ -133,8 +133,7 @@
   --ts-surface-2: #f2f2f2;
   --ts-surface-3: #e6e6e6;
   --ts-line: #e1e1e1;
-  --ts-line-strong: #b8b8b8;
-  --ts-ink: #131313;
+  --ts-ink: #0f0f0f;
   --ts-ink-muted: #5c5c5c;
   --ts-ink-faint: #787878;
   --ts-accent: #2962ff;
@@ -145,7 +144,7 @@
   --ts-surface-rgb: 255 255 255;
   --ts-surface-2-rgb: 242 242 242;
   --ts-line-rgb: 225 225 225;
-  --ts-ink-rgb: 19 19 19;
+  --ts-ink-rgb: 15 15 15;
   --ts-ink-muted-rgb: 92 92 92;
   --ts-ink-faint-rgb: 120 120 120;
   --ts-accent-rgb: 41 98 255;
@@ -156,14 +155,31 @@
   --ts-chart-crosshair: #9c9c9c;
   --ts-chart-label: #5c5c5c;
 
-  /* The same two-neutral state contract, one step darker than the surface
-     rather than one step lighter. Popovers stay white and earn their lift
-     from the shadow, which is what TradingView's light theme does. */
-  --ts-state-hover: #ebebeb;
-  --ts-state-active: #dbdbdb;
+  /*
+   * The same two-neutral state contract, MEASURED rather than mirrored.
+   *
+   * These were first written by analogy from the dark values — index-mirroring
+   * cold-gray, which gave #ebebeb hover and #dbdbdb selected. An adversarial
+   * review flagged that as a guess wearing the word "measured", and it was:
+   * read off TradingView's own light theme the pair is one step lighter.
+   *
+   *   chrome background  #ffffff   (the toolbar's own groups)
+   *   hover              #f2f2f2   cold-gray-100
+   *   selected           #ebebeb   cold-gray-150 — also the page frame
+   *   separator          #ebebeb   a hairline on white, not the #b8b8b8 rule
+   *                                a mirror of the dark value would have given
+   *
+   * #dbdbdb as a selected fill on a white bar was a visibly heavier chip than
+   * the reference's, which is exactly the kind of error a mirror makes: the
+   * two themes are not reflections, they are two measured sets.
+   */
+  --ts-state-hover: #f2f2f2;
+  --ts-state-active: #ebebeb;
+  --ts-line-strong: #ebebeb;
   --ts-popover: #ffffff;
   --ts-popover-shadow: 0 2px 4px rgba(0, 0, 0, 0.16);
   --ts-control-border: #c9c9c9;
+  /* Inverted, as in dark: the selected menu row is the opposite of the sheet. */
   --ts-menu-selected-bg: #2e2e2e;
   --ts-menu-selected-ink: #ffffff;
 }
