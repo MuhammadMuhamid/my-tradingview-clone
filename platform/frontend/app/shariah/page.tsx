@@ -8,7 +8,7 @@ import {
   type ShariahImportPreview, type ShariahMode, type ShariahModeState, type ShariahSnapshotMeta,
   type ShariahSyncLevel, type ShariahUniverse,
 } from "@/lib/shariah";
-import { Button, Card, CardHeader, Empty, Field, Select, TextInput } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, Field, Notice, PageShell, Select, TextInput } from "@/components/ui";
 
 /**
  * The private Shariah review console.
@@ -141,6 +141,21 @@ function BotFloorPanel({ state, unreadable }: {
 /** ISO date-time for the reviewed_at field, defaulted to now but always editable. */
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/**
+ * A backend failure, said the way a reader needs it.
+ *
+ * The raw cause is kept — it is the tooltip, and it is what a support request
+ * needs — but it is not the headline. A route path, a stack frame or a status
+ * code as the most prominent line on a page tells the reader nothing they can
+ * do and everything about our plumbing.
+ */
+function shortReason(raw: string): string {
+  if (/\b(401|403|unauthor|forbidden)/i.test(raw)) return "You may need to sign in again.";
+  if (/\b(404|no route)/i.test(raw)) return "This environment does not serve it.";
+  if (/\b(5\d\d|timeout|fetch failed|network)/i.test(raw)) return "The service did not answer. Try again shortly.";
+  return "Hover for the reason reported.";
 }
 
 export default function ShariahPage() {
@@ -282,11 +297,11 @@ export default function ShariahPage() {
   const screeningView = view === "screening";
 
   return (
-    <main className="mx-auto max-w-[1400px] px-3 py-4 sm:px-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-base font-semibold text-ink">Shariah</h1>
-          <p className="text-xs text-ink-muted">
+    <PageShell>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold text-ink">Shariah</h1>
+          <p className="mt-0.5 text-sm text-ink-muted">
             Policy {universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published
             deliberately by you. Nothing here is decided automatically.
           </p>
@@ -297,8 +312,12 @@ export default function ShariahPage() {
                 role="tab"
                 aria-selected={view === id}
                 onClick={() => setView(id)}
-                className={`rounded px-2 py-1 text-xs transition-colors ${
-                  view === id ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:text-ink"
+                /* `.tvc-control` reads `aria-selected` above, so the chip and
+                   the announced state are the same fact. Selection used to be
+                   `bg-surface-2` and hover `hover:text-ink` — two different
+                   kinds of signal for one choice. */
+                className={`tvc-control flex h-7 items-center rounded-md px-2.5 text-sm ${
+                  view === id ? "font-medium text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >
                 {label}
@@ -340,12 +359,18 @@ export default function ShariahPage() {
         </div>
       )}
 
+      {/*
+        The sentence a reader can act on; the provider's own words in the
+        tooltip. This printed the raw cause straight across the page — on the
+        QA fixture, literally "fixture server has no route for GET
+        /api/shariah/universe" as the page's most prominent line.
+      */}
       {error && (
-        <div role="alert" className="mb-3 rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</div>
+        <Notice tone="error" role="alert">
+          <span title={error}>The Shariah universe could not be read. {shortReason(error)}</span>
+        </Notice>
       )}
-      {notice && (
-        <div role="status" className="mb-3 rounded-md border border-up/30 bg-up/10 px-3 py-2 text-sm text-up">{notice}</div>
-      )}
+      {notice && <Notice tone="success" role="status">{notice}</Notice>}
 
       {!screeningView && (
         <Card>
@@ -423,8 +448,14 @@ export default function ShariahPage() {
                   key={asset.assetId}
                   onClick={() => setSelected(asset.assetId)}
                   aria-current={selected === asset.assetId ? "true" : undefined}
-                  className={`flex w-full items-center justify-between gap-2 border-b border-border px-3 py-2 text-left text-sm hover:bg-surface-2 ${
-                    selected === asset.assetId ? "bg-surface-2" : ""
+                  /*
+                   * Selected and hover used to be the same value —
+                   * `bg-surface-2` both — so running the pointer down this
+                   * list made every row look like the chosen one. They are now
+                   * the product's two state neutrals, one step apart.
+                   */
+                  className={`flex w-full items-center justify-between gap-2 border-b border-border px-3 py-2 text-left text-sm ${
+                    selected === asset.assetId ? "bg-state-active text-ink" : "hover:bg-state-hover"
                   }`}
                 >
                   <span className="min-w-0">
@@ -477,7 +508,7 @@ export default function ShariahPage() {
           : <Card><Empty>Select an asset to review.</Empty></Card>}
       </div>
       )}
-    </main>
+    </PageShell>
   );
 }
 

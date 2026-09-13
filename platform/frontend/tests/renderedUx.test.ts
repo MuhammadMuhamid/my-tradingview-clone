@@ -273,6 +273,27 @@ test("controls that speak, and failures that are announced", () => {
   assert.match(read("app/shariah/page.tsx"), /aria-label="Load a ChatGPT review results JSON file"/);
   assert.match(read("app/shariah/page.tsx"), /aria-label="Filter the screening universe"/);
   assert.match(read("app/login/page.tsx"), /\{err && <p role="alert"/);
-  assert.match(read("app/shariah/page.tsx"), /<div role="alert" className="mb-3 rounded-md border border-down/);
+  /*
+   * The intent here is "a failure is ANNOUNCED", not "a failure has these
+   * Tailwind classes". It used to pin the exact class string, which made it a
+   * CSS snapshot: the moment the page adopted the shared `Notice` primitive —
+   * same role, same tone, same words — it failed for a reason that had nothing
+   * to do with whether the failure is announced.
+   *
+   * These three assertions are the contract instead, and they are stricter
+   * than the string was: announced, toned as an error, and — the part no class
+   * string could check — not printing the provider's raw cause as the page's
+   * headline. The Shariah page did exactly that, so on the QA fixture its most
+   * prominent line read "fixture server has no route for GET
+   * /api/shariah/universe".
+   */
+  const shariah = read("app/shariah/page.tsx");
+  assert.match(shariah, /<Notice tone="error" role="alert">/);
+  assert.match(shariah, /shortReason\(error\)/,
+    "the headline must be a sentence a reader can act on");
+  assert.match(shariah, /<span title=\{error\}>/,
+    "the provider's own words belong in the tooltip, not the headline");
+  assert.doesNotMatch(shariah, /role="alert"[^>]*>\{error\}</,
+    "a raw backend error must never be the page's own copy");
   assert.match(read("app/screener/page.tsx"), /<div role="status" aria-live="polite">/);
 });
