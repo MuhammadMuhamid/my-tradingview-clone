@@ -21,7 +21,7 @@ import {
 import {
   createDisposalGuard, useChartMeasuring, useDetachChartObserver,
 } from "@/lib/chartLifecycle";
-import { fmtPrice, fmtPriceDelta } from "@/lib/format";
+import { autoPriceDigits, fmtPrice, fmtPriceAt, fmtPriceDelta } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
@@ -872,6 +872,16 @@ export function CandleChart({
      the whole settings object, which changes identity on every keystroke. */
   const precision = settings.precision;
   /*
+   * The decimals the price AXIS labels with.
+   *
+   * A ref because the chart — and with it the `localization.priceFormatter`
+   * closure below — is created once, while the precision behind it changes
+   * with the setting and with the instrument's tick. The effect that applies
+   * `priceFormat` to the series writes this at the same time, so the axis and
+   * the series are formatted from one decision instead of two.
+   */
+  const axisDigitsRef = useRef(2);
+  /*
    * Just the five numbers the display transforms read.
    *
    * The data effects must re-run when a Renko period changes and must NOT
@@ -1097,11 +1107,19 @@ export function CandleChart({
          * the product's own `fmtPrice`, so there is one answer to "how is a
          * price written here".
          *
-         * The precision still comes from `priceFormat` on the series (the
-         * Symbol tab's control); this only groups what that produced, so
-         * setting 5 digits on a low-priced instrument is unaffected.
+         * TVP8 continuation: this formatter REPLACES the series `priceFormat`
+         * on the axis rather than post-processing it, which the comment here
+         * used to claim it did. `fmtPrice` reads the magnitude of each NUMBER
+         * it is handed — `abs >= 100 ? 2 : abs >= 1 ? 4 : 6` — so a SOL scale
+         * spanning 60 to 170 printed `170.00` four rows above `90.0000`: two
+         * precisions on one axis, on one instrument, against a real feed.
+         *
+         * The decimals are a property of the INSTRUMENT, so the axis is told
+         * them. `axisDigitsRef` is written by the effect that applies
+         * `priceFormat` to the series, which is what keeps the two in step and
+         * keeps the Symbol tab's control authoritative over both.
          */
-        priceFormatter: (price: number) => fmtPrice(price),
+        priceFormatter: (price: number) => fmtPriceAt(price, axisDigitsRef.current),
         /*
          * 12-hour labels are built here rather than left to the library: its
          * `timeVisible` formatter is 24-hour and takes no locale. The date
@@ -1727,15 +1745,15 @@ export function CandleChart({
          * series would have derived for itself from the data.
          */
         const tick = priceTick && priceTick > 0 ? priceTick : null;
-        const digits = tick === null
-          ? 2
-          : Math.max(0, Math.min(10, Math.ceil(-Math.log10(tick) - 1e-9)));
+        const digits = autoPriceDigits(tick);
+        axisDigitsRef.current = digits;
         series.applyOptions({
           priceFormat: { type: "price", precision: digits, minMove: tick ?? 0.01 },
         });
         return;
       }
       const digits = precision;
+      axisDigitsRef.current = digits;
       series.applyOptions({
         priceFormat: { type: "price", precision: digits, minMove: 1 / 10 ** digits },
       });

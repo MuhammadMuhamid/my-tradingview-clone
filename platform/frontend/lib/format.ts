@@ -33,6 +33,36 @@ export function fmtPrice(n: number | null | undefined): string {
 }
 
 /**
+ * The decimals an INSTRUMENT is priced to, from its tick size.
+ *
+ * Extracted so the chart's series `priceFormat` and the price axis's own
+ * formatter cannot disagree about how many decimals one instrument has. They
+ * did: the axis formatter was `fmtPrice`, which reads the magnitude of each
+ * NUMBER it is handed, so a scale spanning 60 to 170 printed `170.00` four
+ * rows above `90.0000` — two precisions on one axis, on the same instrument.
+ *
+ * A price's decimals are a property of the instrument, not of the individual
+ * number, which is why this takes the tick and nothing else.
+ */
+export function autoPriceDigits(tick: number | null | undefined): number {
+  if (!tick || tick <= 0) return 2;
+  return Math.max(0, Math.min(10, Math.ceil(-Math.log10(tick) - 1e-9)));
+}
+
+/**
+ * A price at an EXPLICIT precision, grouped the way every other price in the
+ * product is grouped.
+ *
+ * `fmtPrice` chooses the decimals; this is told them. Used where one scale
+ * must label every value the same way regardless of magnitude.
+ */
+export function fmtPriceAt(n: number | null | undefined, digits: number): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  const d = Math.max(0, Math.min(20, Math.trunc(digits)));
+  return n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+/**
  * A price DELTA, at the precision of the price it was taken from.
  *
  * `fmtPrice` picks its decimals from the magnitude of the number it is given,
