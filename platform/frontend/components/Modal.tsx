@@ -2,6 +2,25 @@
 import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+/*
+ * ── TVP8: which dialog the keyboard belongs to ─────────────────────────────
+ *
+ * Every Modal binds Escape and Tab on `document` in the capture phase, and
+ * `stopPropagation` does not stop a SIBLING listener on the same target in the
+ * same phase — both run. With two open at once, which the product now does
+ * routinely (a confirm raised from inside the chart-settings dialog, the
+ * Go-to picker over the chart), Escape closed both of them and Shift+Tab was
+ * pulled out of the inner one by the outer one's trap.
+ *
+ * `stopImmediatePropagation` is not the fix: listeners run in REGISTRATION
+ * order, so the outer dialog's handler runs first and would silence the inner
+ * one — exactly backwards.
+ *
+ * So: a stack. Only the dialog on top of it answers the keyboard, which is
+ * what "innermost first" actually means.
+ */
+const openDialogs: symbol[] = [];
+
 /** Everything that can hold keyboard focus inside the panel. */
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
@@ -103,10 +122,24 @@ export function Modal({
     };
   }, [open, focusables]);
 
+  /** This dialog's place in the stack above. */
+  const dialogId = useRef<symbol>(Symbol("dialog"));
+  useEffect(() => {
+    if (!open) return;
+    const id = dialogId.current;
+    openDialogs.push(id);
+    return () => {
+      const at = openDialogs.indexOf(id);
+      if (at >= 0) openDialogs.splice(at, 1);
+    };
+  }, [open]);
+
   // Escape closes; Tab cycles inside the panel rather than wandering behind it.
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent): void => {
+      // Only the innermost dialog answers. See `openDialogs`.
+      if (openDialogs[openDialogs.length - 1] !== dialogId.current) return;
       if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
       if (e.key !== "Tab") return;
       const items = focusables();

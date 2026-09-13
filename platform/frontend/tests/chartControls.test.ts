@@ -223,10 +223,18 @@ test("PRICE SCALE — it is per pane, persisted, and a candle update cannot rese
   );
   // The applying effect is keyed on the scale and on chart/series recreation —
   // NOT on `candles`, so a tick cannot re-apply (or reset) anything.
-  const effect = CHART.slice(CHART.indexOf("chart.priceScale(\"right\").applyOptions"));
+  /*
+   * TVP8 round two: the axis is the one the SERIES is bound to.
+   *
+   * This always wrote to `"right"`, so with "Scales placement: left" the mode,
+   * auto-scale and invert switches — and four items in the axis context menu —
+   * were applied to an axis nothing was on, and did nothing at all.
+   */
+  const effect = CHART.slice(CHART.indexOf("chart.priceScale(side).applyOptions"));
   const deps = effect.slice(0, effect.indexOf("]);") + 3);
-  assert.ok(deps.includes("}, [scale, chartReady]);"), deps.slice(-120));
+  assert.ok(deps.includes("}, [scale, settings.scalePlacement, chartReady]);"), deps.slice(-160));
   assert.equal(deps.includes("candles"), false, "the scale must not depend on the data");
+  assert.match(CHART, /const side = settings\.scalePlacement === "left" \? "left" : "right";/);
 });
 
 test("PRICE SCALE — drag and double-click reset are the library's, not ours", () => {
@@ -238,7 +246,8 @@ test("PRICE SCALE — drag and double-click reset are the library's, not ours", 
   assert.equal(theme.includes("axisPressedMouseMove"), false);
   assert.equal(code(CHART).includes("handleScale"), false);
   // The chart reads the library's own autoScale back instead of guessing.
-  assert.match(CHART, /chart\.priceScale\("right"\)\.options\(\)\.autoScale/);
+  // Read back from the axis the series is on — see the placement note above.
+  assert.match(CHART, /chart\.priceScale\(side\)\.options\(\)\.autoScale/);
 });
 
 test("PRICE SCALE — changing the mode does not destroy the chart", () => {

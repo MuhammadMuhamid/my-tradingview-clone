@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
-import { PALETTE, TEXT_TOOLS, type Drawing } from "@/lib/drawings";
+import { FILLABLE_TOOLS, PALETTE, TEXT_TOOLS, type Drawing } from "@/lib/drawings";
 import { isResolution, NATIVE_RESOLUTIONS, type Resolution } from "@/lib/resolution";
 import { Button } from "@/components/ui";
 
@@ -48,7 +48,15 @@ export function DrawingSettingsModal({
         {(["style", "text", "coordinates", "visibility"] as Tab[]).map((id) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} disabled={id === "text" && !TEXT_TOOLS.has(draft.tool)} className={`mb-0.5 flex min-h-8 w-full items-center rounded px-2.5 text-left text-sm capitalize ${tab === id ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"}`}>{id}</button>)}
       </nav>
       <section role="tabpanel" className="min-w-0 flex-1">
-        {tab === "style" && <div className="space-y-4"><h3 className="text-sm font-semibold text-ink">Style</h3><div><p className="mb-2 text-xs text-ink-muted">Color</p><div className="flex flex-wrap gap-2">{PALETTE.map((color) => <button key={color} onClick={() => patchStyle({ color })} aria-label={`Use ${color}`} aria-pressed={draft.style.color === color} className={`h-7 w-7 rounded-full border-2 ${draft.style.color === color ? "border-ink" : "border-transparent"}`} style={{ backgroundColor: color }} />)}</div></div><label className="flex max-w-xs items-center justify-between gap-4 text-sm">Line width<select value={draft.style.width} onChange={(e) => patchStyle({ width: Number(e.target.value) })} className="rounded border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink">{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}px</option>)}</select></label><Toggle label="Dashed" checked={Boolean(draft.style.dashed)} onChange={(v) => patchStyle({ dashed: v })} /><Toggle label="Fill" checked={Boolean(draft.style.filled)} onChange={(v) => patchStyle({ filled: v })} />
+        {tab === "style" && <div className="space-y-4"><h3 className="text-sm font-semibold text-ink">Style</h3><div><p className="mb-2 text-xs text-ink-muted">Color</p><div className="flex flex-wrap gap-2">{PALETTE.map((color) => <button key={color} onClick={() => patchStyle({ color })} aria-label={`Use ${color}`} aria-pressed={draft.style.color === color} className={`h-7 w-7 rounded-full border-2 ${draft.style.color === color ? "border-ink" : "border-transparent"}`} style={{ backgroundColor: color }} />)}</div></div><label className="flex max-w-xs items-center justify-between gap-4 text-sm">Line width<select value={draft.style.width} onChange={(e) => patchStyle({ width: Number(e.target.value) })} className="rounded border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink">{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}px</option>)}</select></label><Toggle label="Dashed" checked={Boolean(draft.style.dashed)} onChange={(v) => patchStyle({ dashed: v })} />{/*
+            TVP8 round two: Fill only where there is an interior.
+            
+            The quick toolbar over a selected drawing gates this correctly and
+            this dialog did not, so the same control was honest in one place
+            and inert in the other on 81 of the 87 tools — which is worse than
+            being wrong in both, because the user learns it works.
+          */}
+          {FILLABLE_TOOLS.has(draft.tool) && <Toggle label="Fill" checked={Boolean(draft.style.filled)} onChange={(v) => patchStyle({ filled: v })} />}
           {/*
             ── The profile block, which had no control anywhere ──────────────
             `allocation`, `widthPercent` and `showValueArea` are declared on

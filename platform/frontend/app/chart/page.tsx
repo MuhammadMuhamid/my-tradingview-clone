@@ -2153,6 +2153,9 @@ export default function TvWorkspace() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         handlers={paletteHandlers}
+        // What can act right now: the palette does not offer a Replay step
+        // with no session, or a drawing command with nothing selected.
+        context={{ replayActive, drawingSelected: selectedDrawing !== null }}
       />
       <GoToDateModal
         open={goToOpen}

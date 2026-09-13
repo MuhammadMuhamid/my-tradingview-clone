@@ -58,6 +58,13 @@ export interface Command {
   shortcut?: string;
 }
 
+export interface CommandContext {
+  /** A Replay session is running, so its step and play commands can act. */
+  replayActive: boolean;
+  /** A drawing is selected, so the commands that act on one can act. */
+  drawingSelected: boolean;
+}
+
 export interface CommandHandlers {
   drawing: (tool: DrawingTool) => void;
   indicator: (studyId: string) => void;
@@ -84,6 +91,7 @@ function keyCap(key: string, mod: boolean, shift: boolean, mac: boolean): string
 export function buildCommands(
   drawingGroups: readonly { id: string; tools: readonly { tool: string; label: string }[] }[],
   mac: boolean,
+  context: CommandContext = { replayActive: false, drawingSelected: false },
 ): Command[] {
   const commands: Command[] = [];
   let order = 0;
@@ -141,9 +149,24 @@ export function buildCommands(
    * Tool selections are excluded: they are already in the Drawings section
    * above, under the name of the tool rather than "Trend line" twice.
    */
+  /*
+   * TVP8 round two: a palette does not offer what cannot happen.
+   *
+   * It listed the three Replay steps with no session running — `replayOnly`
+   * exists on the binding and the palette ignored it — the drawing commands
+   * with nothing selected, and ITSELF, whose row closed the palette and did
+   * nothing else. Every one of those is a row that answers a search, gets
+   * chosen, and produces silence.
+   */
+  const DRAWING_ACTIONS = new Set([
+    "delete", "clone", "copy", "paste", "bring-forward", "send-backward",
+  ]);
   const seen = new Set<string>();
   for (const binding of BINDINGS) {
     if (binding.action.startsWith("tool:")) continue;
+    if (binding.action === "command-palette") continue;
+    if (binding.replayOnly && !context.replayActive) continue;
+    if (DRAWING_ACTIONS.has(binding.action) && !context.drawingSelected) continue;
     if (seen.has(binding.action)) continue;   // two keys, one action
     seen.add(binding.action);
     commands.push({

@@ -48,10 +48,33 @@ test("the palette indexes every drawing, study, chart type and action", () => {
    * minus the tool selections, which are already indexed under the tool's own
    * name. Two keys bound to one action is one command.
    */
+  /*
+   * TVP8 round two: a palette does not offer what cannot happen.
+   *
+   * It used to list the three Replay steps with no session running, the
+   * drawing commands with nothing selected, and ITSELF — a row that answers a
+   * search, gets chosen, and closes the palette. Every one of those is a
+   * promise the product cannot keep at the moment it is made.
+   */
   const actions = commands.filter((c) => c.kind === "action");
-  const expected = new Set(
-    BINDINGS.filter((b) => !b.action.startsWith("tool:")).map((b) => b.action));
-  assert.equal(actions.length, expected.size);
+  const alwaysAvailable = new Set(
+    BINDINGS
+      .filter((b) => !b.action.startsWith("tool:"))
+      .filter((b) => !b.replayOnly)
+      .filter((b) => b.action !== "command-palette")
+      .filter((b) => !["delete", "clone", "copy", "paste", "bring-forward", "send-backward"]
+        .includes(b.action))
+      .map((b) => b.action));
+  assert.equal(actions.length, alwaysAvailable.size);
+  assert.equal(actions.some((c) => c.id === "action:command-palette"), false,
+    "the palette does not offer to open itself");
+  assert.equal(actions.some((c) => c.id === "action:replay-step-forward"), false,
+    "a Replay step with no session is a row that does nothing");
+
+  // And with a session and a selection, they come back.
+  const live = buildCommands(GROUPS, true, { replayActive: true, drawingSelected: true });
+  assert.ok(live.some((c) => c.id === "action:replay-step-forward"));
+  assert.ok(live.some((c) => c.id === "action:clone"));
 
   // Every id is unique, or favouriting one favourites two.
   assert.equal(new Set(commands.map((c) => c.id)).size, commands.length);

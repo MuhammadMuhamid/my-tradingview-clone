@@ -4,7 +4,7 @@ import { Modal } from "@/components/Modal";
 import { GROUPS } from "./DrawingToolbar";
 import {
   buildCommands, rankCommands, runCommand,
-  type Command, type CommandHandlers,
+  type Command, type CommandContext, type CommandHandlers,
 } from "@/lib/commandPalette";
 import { isMacPlatform } from "@/lib/shortcuts";
 
@@ -33,11 +33,13 @@ function readFavourites(): string[] {
 }
 
 export function CommandPalette({
-  open, onClose, handlers,
+  open, onClose, handlers, context,
 }: {
   open: boolean;
   onClose: () => void;
   handlers: CommandHandlers;
+  /** What can act right now — see `buildCommands`. */
+  context: CommandContext;
 }) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -46,7 +48,15 @@ export function CommandPalette({
   const listRef = useRef<HTMLDivElement>(null);
 
   const mac = isMacPlatform();
-  const commands = useMemo(() => buildCommands(GROUPS, mac), [mac]);
+  /*
+   * The two flags, not the object: the caller builds `context` inline, so a
+   * dependency on its identity would rebuild all 165 commands on every render
+   * of the chart page.
+   */
+  const { replayActive, drawingSelected } = context;
+  const commands = useMemo(
+    () => buildCommands(GROUPS, mac, { replayActive, drawingSelected }),
+    [mac, replayActive, drawingSelected]);
   const results = useMemo(
     () => rankCommands(commands, query, favourites).slice(0, 60),
     [commands, query, favourites]);

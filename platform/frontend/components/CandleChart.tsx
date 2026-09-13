@@ -916,12 +916,18 @@ export function CandleChart({
    * claiming "Auto" over a scale the user had dragged, and the next time the
    * state was re-applied the drag would be silently thrown away.
    */
+  /** Which axis the series is on, for the callbacks that run outside render. */
+  const scalePlacementRef = useRef(settings.scalePlacement);
+  scalePlacementRef.current = settings.scalePlacement;
+
   const reconcileScaleRef = useRef<() => void>(() => {});
   reconcileScaleRef.current = () => {
     const chart = chartRef.current;
     if (!chart) return;
     let auto: boolean;
-    try { auto = chart.priceScale("right").options().autoScale; }
+    // The same axis the effect below writes to — see `scalePlacement` there.
+    const side = scalePlacementRef.current === "left" ? "left" : "right";
+    try { auto = chart.priceScale(side).options().autoScale; }
     catch { return; }
     if (auto !== scaleRef.current.autoScale) {
       applyScaleRef.current(setPriceScaleAuto(scaleRef.current, auto));
@@ -940,14 +946,24 @@ export function CandleChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    /*
+     * TVP8 round two: the axis the SERIES is bound to.
+     *
+     * This always wrote to `"right"`. With "Scales placement: left" the series
+     * is bound to the left axis (see the effect below), so Logarithmic,
+     * Percent, Auto scale and Invert were being applied to an axis nothing was
+     * on: three switches in the settings dialog and four items in the axis
+     * context menu, all silently inert, in one of the dialog's own modes.
+     */
+    const side = settings.scalePlacement === "left" ? "left" : "right";
     try {
-      chart.priceScale("right").applyOptions({
+      chart.priceScale(side).applyOptions({
         mode: LIBRARY_SCALE_MODE[scale.mode],
         autoScale: scale.autoScale,
         invertScale: scale.invert === true,
       });
     } catch { /* the chart went away between render and effect */ }
-  }, [scale, chartReady]);
+  }, [scale, settings.scalePlacement, chartReady]);
 
   /**
    * Chart-level settings, applied to the engine.
@@ -1045,6 +1061,17 @@ export function CandleChart({
     settings.timeFormat24h, settings.gridColor, settings.gridStyle,
     settings.crosshairColor, settings.crosshairWidth, settings.crosshairStyle,
     settings.watermark, settings.dateFormat, symbol, chartReady,
+    /*
+     * TVP8 round two: and on a theme change.
+     *
+     * `subscribeChartTheme` re-applies the whole of `baseChartOptions()` when
+     * the root theme flips, which silently reverted seven of the controls
+     * above — grid colour and style, all three crosshair fields, the axis font
+     * size and the watermark — while the settings dialog went on showing the
+     * user's values. Re-running here puts the user's choices back on top of
+     * the theme's, which is the order they were always meant to be in.
+     */
+    themeTick,
   ]);
 
   /**
@@ -1090,7 +1117,9 @@ export function CandleChart({
       bottom: Math.min(0.9, Math.max(0, settings.marginBottomPct / 100)),
     };
     try {
-      chart.priceScale("right").applyOptions({ scaleMargins: margins });
+      // The margins belong to the axis the series is on, for the same reason.
+      chart.priceScale(settings.scalePlacement === "left" ? "left" : "right")
+        .applyOptions({ scaleMargins: margins });
       chart.priceScale("left").applyOptions({ scaleMargins: margins });
     } catch { /* the chart went away between render and effect */ }
   }, [settings.marginTopPct, settings.marginBottomPct, settings.scalePlacement, chartReady]);
@@ -1191,7 +1220,8 @@ export function CandleChart({
           : { background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" } },
       });
     } catch { /* disposed */ }
-  }, [settings.backgroundGradient, chartReady]);
+    // The theme rewrites `layout.background`; the user's choice goes back on top.
+  }, [settings.backgroundGradient, chartReady, themeTick]);
 
   const resetSignalRef = useRef(resetSignal);
   useEffect(() => {
