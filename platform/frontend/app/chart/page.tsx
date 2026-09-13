@@ -1158,13 +1158,30 @@ export default function TvWorkspace() {
     setReplay((current) => current ? { ...current, speed } : null);
   }, []);
 
+  /*
+   * ── TVP8 round two: Play advanced nothing ─────────────────────────────────
+   *
+   * This effect listed `candles` and the whole `replay` object. `candles` is a
+   * new array on every poll and on every live tick, so the cleanup cleared the
+   * pending timeout and the effect scheduled a fresh one — over and over,
+   * faster than the replay delay. The button said Pause and the chart sat
+   * still. On a canonical instrument, which streams, it could never advance at
+   * all.
+   *
+   * The bars are read through a ref: which bars exist is not a reason to
+   * restart the clock. The effect now re-runs only when the session's own
+   * state changes — and `horizonCloseTime` changing after each tick is
+   * precisely what schedules the next one.
+   */
+  const replayCandlesRef = useRef(candles);
+  replayCandlesRef.current = candles;
   useEffect(() => {
     if (!replay?.playing || replayIndicatorLoading) return;
     const timer = window.setTimeout(() => {
-      setReplay((current) => current ? replayTick(current, candles) : null);
+      setReplay((current) => current ? replayTick(current, replayCandlesRef.current) : null);
     }, replayDelayMs(replay.speed));
     return () => window.clearTimeout(timer);
-  }, [candles, replay, replayIndicatorLoading]);
+  }, [replay?.playing, replay?.speed, replay?.horizonCloseTime, replayIndicatorLoading]);
 
   /**
    * Armed price alerts, drawn as horizontal levels on the chart.

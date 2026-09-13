@@ -396,6 +396,17 @@ test("both redo bindings resolve, and every binding is reachable", () => {
   assert.equal(resolveShortcut(key({ key: "y", metaKey: true }), CONTEXT), "redo");
   for (const binding of BINDINGS) {
     /*
+     * TVP8: an action declared to have NO chord is reachable another way.
+     *
+     * `snapshot-copy` is in this table so the command palette can offer it —
+     * the palette is built from BINDINGS on purpose, so a second hand-written
+     * list cannot drift from it — and it has no key, because ⌘⇧C is Chrome's
+     * element inspector and a shortcut the browser eats is worse than none.
+     * The reachability rule below is about chords; `chordless` is checked
+     * separately, right after this loop.
+     */
+    if (binding.chordless) continue;
+    /*
      * The event a keyboard would actually emit.
      *
      * The old version passed `shiftKey: binding.shift === true`, which for the
@@ -414,6 +425,19 @@ test("both redo bindings resolve, and every binding is reachable", () => {
       assert.ok(resolved !== null,
         `${binding.label} (${binding.key}${shiftKey ? " with shift" : ""}) resolves to nothing`);
     }
+  }
+
+  /*
+   * A chordless action still has to be REACHABLE, or declaring it here is the
+   * same advertisement of a thing that does nothing.
+   */
+  const page = read("app/chart/page.tsx");
+  for (const binding of BINDINGS.filter((b) => b.chordless)) {
+    assert.ok(page.includes(`case "${binding.action}"`),
+      `${binding.action} has no chord and no handler — it is reachable from nowhere`);
+    assert.equal(resolveShortcut(
+      key({ key: binding.key, metaKey: true, shiftKey: true }), CONTEXT), null,
+      `${binding.action} is declared chordless and must never match a key press`);
   }
 });
 
@@ -661,14 +685,33 @@ test("every toolbar popover goes through the registry rather than its own state"
   walk("components");
   walk("lib");
 
+  /*
+   * TVP8: template-literal ids count.
+   *
+   * This matched only a double-quoted id, so `useExclusivePopover(`calendar:
+   * ${id}`)` — the Replay and Go-to date picker, whose id carries the instance
+   * so two of them cannot fight — was invisible to the inventory. A popover
+   * that escapes the list is precisely what this test exists to catch, and it
+   * was escaping through the quote character.
+   */
   const registered = [...sources.values()]
-    .flatMap((source) => [...source.matchAll(/useExclusivePopover\("([^"]+)"\)/g)])
+    .flatMap((source) => [...source.matchAll(/useExclusivePopover\(\s*[`"]([^`"]+)[`"]\s*\)/g)])
     .map((m) => m[1]!);
   // Every popover this product has, by name. A new one that keeps its own
   // boolean will not appear here — and the check below is what catches it.
   assert.deepEqual([...registered].sort(), [
+    // TVP8: `calendar:*` is the Replay / Go-to date picker, which takes its id
+    // from the instance so two of them on one screen cannot fight; the
+    // registry sees the literal prefix in the source.
+    "calendar:${id}",
     "chart-type", "drawing-flyout", "layout-preset", "nav-system", "pane-sync",
-    "product-menu", "saved-layouts", "timeframe", "trading-overlays",
+    "product-menu", "saved-layouts", "timeframe",
+    // TVP8: and widening the match immediately found a SECOND one that had
+    // been escaping — the timeframe picker's scoped instance. Two popovers
+    // were outside the registry's inventory, both through the quote character.
+    "timeframe:${props.scope}",
+    // TVP8: the camera's Save image / Copy image menu.
+    "toolbar:snapshot", "trading-overlays",
     // TVP7: the watchlist's list switcher. It kept a private `useState(false)`
     // and escaped this inventory because it was a hand-rolled box with no
     // `role="menu"` for the rule below to catch.

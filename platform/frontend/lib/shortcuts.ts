@@ -130,6 +130,16 @@ export interface Binding {
   shift?: boolean;
   /** Only meaningful while a Replay session is running. */
   replayOnly?: boolean;
+  /**
+   * An action with NO keyboard chord.
+   *
+   * TVP8: it is still listed here, because this table is what the command
+   * palette and the shortcut sheet are built from — leaving it out would take
+   * the action out of the palette too, and a hand-written second list is the
+   * thing this table exists to prevent. `resolveShortcut` never matches one,
+   * and the sheet and the palette show no key cap.
+   */
+  chordless?: boolean;
   /** What the shortcuts sheet says this does. */
   label: string;
   group: "Edit" | "Drawing tools" | "Chart" | "Replay" | "Navigation";
@@ -168,10 +178,25 @@ export const BINDINGS: readonly Binding[] = [
   { action: "chart-settings", key: ",", mod: true, label: "Chart settings", group: "Navigation" },
   { action: "shortcuts-sheet", key: "?", label: "Keyboard shortcuts", group: "Navigation" },
   { action: "command-palette", key: "k", mod: true, label: "Search tool or function", group: "Navigation" },
+  /*
+   * TVP8 round two: ⌘⇧C was Chrome's element inspector.
+   *
+   * A shortcut the browser eats is worse than none — the user presses it,
+   * DevTools opens, and they conclude the feature is broken — and it was
+   * advertised in both the shortcut sheet and the palette. Copying an image
+   * now has the two routes the reference gives it, the camera's own menu and
+   * the palette, and no chord the browser will take first. ⌘⇧S is free and
+   * stays.
+   *
+   * Alt is not an option here: `resolveShortcut` rejects every Alt press on
+   * purpose, because Alt+ArrowLeft is Back and must stay Back.
+   */
   { action: "snapshot-save", key: "s", mod: true, shift: true, label: "Save a chart image", group: "Chart" },
-  { action: "snapshot-copy", key: "c", mod: true, shift: true, label: "Copy a chart image", group: "Chart" },
+  { action: "snapshot-copy", key: "", chordless: true, label: "Copy a chart image", group: "Chart" },
   { action: "fullscreen", key: "F", shift: true, label: "Fullscreen", group: "Chart" },
-  { action: "reset-view", key: "r", mod: true, shift: true, label: "Reset the view", group: "Chart" },
+  // ⌘⇧R is a cache-bypassing reload the page cannot cancel. Resetting the view
+  // is neither destructive nor persistent, so it can have the bare key.
+  { action: "reset-view", key: "r", label: "Reset the view", group: "Chart" },
   { action: "toggle-log", key: "l", mod: true, shift: true, label: "Logarithmic scale", group: "Chart" },
   { action: "toggle-auto", key: "a", mod: true, shift: true, label: "Auto scale", group: "Chart" },
 
@@ -232,6 +257,7 @@ export function resolveShortcut(
    */
   if (context.mac ? event.ctrlKey : event.metaKey) return null;
   for (const binding of BINDINGS) {
+    if (binding.chordless) continue;
     if (binding.replayOnly && !context.replayActive) continue;
     if (binding.key.length === 1
       ? binding.key.toLowerCase() !== event.key.toLowerCase()

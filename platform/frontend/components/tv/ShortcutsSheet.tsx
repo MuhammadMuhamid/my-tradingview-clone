@@ -57,6 +57,15 @@ export function ShortcutsSheet({ open, onClose }: { open: boolean; onClose: () =
   const groups = useMemo(() => {
     const byGroup = new Map<Binding["group"], { label: string; keys: string[] }[]>();
     for (const binding of BINDINGS) {
+      /*
+       * TVP8: an action with no chord is not a shortcut.
+       *
+       * `snapshot-copy` lives in BINDINGS so the command palette can offer it
+       * — that table is the palette's only source, by design — but a sheet of
+       * KEYBOARD SHORTCUTS listing a row with no key is the same lie as
+       * advertising one the browser eats, which is what this replaced.
+       */
+      if (binding.chordless) continue;
       const rows = byGroup.get(binding.group) ?? [];
       const existing = rows.find((row) => row.label === binding.label);
       if (existing) existing.keys.push(keyLabel(binding, mac));

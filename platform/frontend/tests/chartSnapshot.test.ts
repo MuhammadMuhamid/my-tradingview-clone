@@ -44,9 +44,16 @@ test("THE CAMERA IS REACHABLE THREE WAYS, AND ALL OF THEM RUN ONE IMPLEMENTATION
   const page = code("app/chart/page.tsx");
   const toolbar = code("components/tv/ChartToolbar.tsx");
 
-  // The toolbar button, where the reference puts it.
-  assert.match(toolbar, /onClick=\{\(e\) => props\.onSnapshot\(e\.altKey \? "copy" : "save"\)\}/,
-    "click saves, Alt-click copies — the pair the reference offers from its camera menu");
+  /*
+   * The camera is a MENU, as the reference's is.
+   *
+   * TVP8 round two: it was click-saves / Alt-click-copies, so Copy had no
+   * route on a touch screen, none on a keyboard, and an `aria-label` naming
+   * only Save — a screen reader was told half the control.
+   */
+  assert.match(toolbar, /<SnapshotMenu onSnapshot=\{props\.onSnapshot\} \/>/);
+  assert.match(toolbar, /\["save", "Save image"\], \["copy", "Copy image"\]/);
+  assert.match(toolbar, /aria-haspopup="menu"/);
   assert.match(page, /onSnapshot=\{snapshot\}/);
 
   // The keyboard, through the same table every other action uses.
@@ -55,6 +62,13 @@ test("THE CAMERA IS REACHABLE THREE WAYS, AND ALL OF THEM RUN ONE IMPLEMENTATION
   assert.ok(save && copy, "a camera with no keyboard route is half a feature");
   assert.equal(save!.mod, true);
   assert.equal(save!.shift, true);
+  /*
+   * Copy has no chord on purpose: ⌘⇧C is Chrome's element inspector, and a
+   * shortcut the browser eats is worse than none. It is in the table so the
+   * command palette can offer it, and `chordless` keeps it out of the sheet
+   * and out of `resolveShortcut`.
+   */
+  assert.equal(copy!.chordless, true);
   assert.match(page, /case "snapshot-save": void snapshot\("save"\)/);
   assert.match(page, /case "snapshot-copy": void snapshot\("copy"\)/);
 

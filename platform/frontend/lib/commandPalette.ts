@@ -90,7 +90,8 @@ export function buildCommands(
 
   const shortcutFor = (action: string): string | undefined => {
     const binding = BINDINGS.find((b) => b.action === action);
-    return binding ? keyCap(binding.key, binding.mod === true, binding.shift === true, mac) : undefined;
+    if (!binding || binding.chordless) return undefined;
+    return keyCap(binding.key, binding.mod === true, binding.shift === true, mac);
   };
 
   for (const group of drawingGroups) {
@@ -152,7 +153,9 @@ export function buildCommands(
       label: binding.label,
       group: binding.group,
       keywords: [binding.action.replace(/[:-]/g, " ")],
-      shortcut: keyCap(binding.key, binding.mod === true, binding.shift === true, mac),
+      shortcut: binding.chordless
+        ? undefined
+        : keyCap(binding.key, binding.mod === true, binding.shift === true, mac),
     });
   }
 
