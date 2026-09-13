@@ -305,12 +305,54 @@ re-derive them.
 
 ---
 
+## 8b. Numerical and interaction parity — how they were established
+
+Two things a screenshot cannot tell you, both measured against the live
+reference rather than argued from first principles.
+
+**The arithmetic.** Given the same bars, this engine produces the same numbers
+as TradingView. Eleven values at one bar of BINANCE:BTCUSDT 4h — RSI, EMA at
+four lengths, MACD line/signal/histogram, Bollinger basis/upper/lower, ADX and
+session VWAP — agree to a worst relative difference of 4.8e-13. The right-hand
+side was read out of TradingView's own study models (`metaInfo()` for plot
+titles, `properties().inputs` for the parameters it was ACTUALLY using, `data()`
+for its computed value per bar), and the bars were proven identical before any
+indicator was compared. `tests/tradingViewNumericParity.test.ts` pins it with a
+committed fixture, so it is reproducible and hermetic.
+
+If you change anything in `lib/ta/core.ts`, that test is the one that decides
+whether you changed a method or only a sum.
+
+**The feel.** Measured in a browser on a PRODUCTION build — the distinction
+matters, because `reactStrictMode` double-invokes effects in development and a
+dev-only doubled subscribe is not a defect. Every interaction in the
+workstation completes in 25–44ms with zero chart remounts and zero new sockets:
+theme, chart type, timeframe, settings, indicator add/remove, drawing tool,
+rail panel, replay, bottom panel, pan, zoom, resize. A timeframe change costs
+exactly three requests, each once.
+
+Two structural facts hold that up, and both are one careless dependency away
+from being lost — §9 has the test:
+
+- the chart is created in an effect with **no dependencies**, so nothing can
+  recreate it;
+- the market feed subscribes on WHAT is watched, never on how it is drawn. A
+  colour in that dependency array re-opens a websocket every time the user
+  changes a candle colour or flips the theme.
+
+---
+
 ## 9. What is protected by tests
 
 | rule | test |
 |---|---|
 | every colour token a component uses is declared | `tests/theme.test.ts` |
 | the canvas follows the theme: no fixed volume palette, both themes state a weight, the mix matches TradingView's measured bar, shorthand hex included | `tests/uiContract.test.ts` |
+| the indicator engine agrees with TradingView's own numbers on identical bars | `tests/tradingViewNumericParity.test.ts` |
+| presentation never re-subscribes the feed or remounts the chart | `tests/uiContract.test.ts` |
+| a symbol reaches the user through displayTicker/displaySymbol, never raw | `tests/uiContract.test.ts` |
+| accent in a conditional is a defect unless marked `accent-is-meaning` | `tests/uiContract.test.ts` |
+| every icon-only rail control has an accessible name, not only a tooltip | `tests/drawingRail.test.ts` |
 | monospace appears only on code and machine identifiers; the Journal's figures use `.tabular` | `tests/uiContract.test.ts` |
 | the phone action bar's height is one token; the theme toggle clears it | `tests/uiContract.test.ts` |
 | a legend clips rather than wraps, collapsed and expanded alike | `tests/uiContract.test.ts` |

@@ -130,3 +130,26 @@ test("every rail icon key exists, so no tool silently wears another tool's glyph
     }
   }
 });
+
+test("RAIL — every icon-only control has a NAME, not only a tooltip", () => {
+  /*
+   * These buttons hold a 28px SVG and no text, so their accessible name fell
+   * through to `title` — the last resort in the name algorithm, and the only
+   * control family in this product that relied on it. `aria-pressed` was
+   * already here (an earlier wave added it, with a comment about exactly this
+   * class of invisibility) which made the gap easy to miss: the rail ANNOUNCED
+   * ITS STATE while having no name to attach that state to.
+   *
+   * Found by driving the production build and failing to address a tool by its
+   * accessible name.
+   */
+  const src = source;
+  const buttons = [...src.matchAll(/<button[\s\S]*?>/g)].map((m) => m[0]);
+  const iconOnly = buttons.filter((b) => !/aria-label/.test(b) && /title=/.test(b));
+  assert.deepEqual(iconOnly, [],
+    "an icon-only rail button must carry aria-label, not only title:\n"
+    + iconOnly.map((b) => b.replace(/\s+/g, " ").slice(0, 90)).join("\n"));
+
+  // And the icon itself is decoration, so it never competes for the name.
+  assert.match(src, /const Icon = [\s\S]{0,320}aria-hidden="true"/);
+});

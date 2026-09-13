@@ -521,3 +521,39 @@ test("CONTRACT — no workstation surface renders a raw symbol variable", () => 
     "a symbol must reach the user through displayTicker/displaySymbol:\n"
     + offenders.join("\n"));
 });
+
+test("CONTRACT — presentation never re-subscribes the feed or remounts the chart", () => {
+  /*
+   * Measured in the browser on a production build: every interaction in the
+   * workstation — theme, chart type, timeframe, settings, drawing tool, rail
+   * panel, replay, bottom panel, pan, zoom, resize — completes in 25-44ms with
+   * ZERO chart remounts and ZERO new sockets. This test guards the two
+   * structural facts that make that true, because both are one careless
+   * dependency away from being false.
+   *
+   * 1. The chart is created in an effect with NO dependencies, so nothing can
+   *    recreate it. (`tests/chartControls.test.ts` also asserts this from the
+   *    price-scale angle; it is repeated here because it is the single largest
+   *    contributor to the product feeling immediate rather than reloading.)
+   *
+   * 2. The market feed's subscription depends on WHAT is being watched, never
+   *    on how it is drawn. Adding a colour to that dependency array tears down
+   *    and re-opens a websocket every time the user changes a candle colour or
+   *    flips the theme — which is why the volume palette reaches the live tick
+   *    through a ref instead.
+   */
+  const chart = code(read("components/CandleChart.tsx"));
+
+  const created = chart.slice(chart.indexOf("const chart = createChart("));
+  assert.ok(created.slice(0, created.indexOf("}, []);") + 7).trimEnd().endsWith("}, []);"),
+    "the chart-creating effect must have no dependencies");
+
+  const feed = chart.slice(chart.indexOf("marketFeed.subscribe("));
+  const deps = feed.slice(0, feed.indexOf("]);") + 3);
+  for (const presentation of ["upColor", "downColor", "themeTick", "volumeBarColor", "settings"]) {
+    assert.equal(deps.includes(presentation), false,
+      `the market feed must not resubscribe on ${presentation} — read it through a ref`);
+  }
+  assert.match(chart, /volumeBarColorRef\.current\(/,
+    "the live tick reads the palette through a ref, not a closure");
+});

@@ -83,7 +83,7 @@ const ICONS: Record<string, JSX.Element> = {
 
 const Icon = ({ name, size = 28 }: { name: string; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {ICONS[name] ?? ICONS.trend}
   </svg>
 );
@@ -399,6 +399,13 @@ export function DrawingToolbar({
                * the same control in a different rail.
                */
               aria-pressed={groupOn}
+              /*
+               * And a NAME, not only a state. These are icon-only buttons with
+               * no text, so their accessible name fell through to `title` —
+               * the weakest source in the name algorithm, and the only control
+               * family in this product relying on it. The rail is 87 tools.
+               */
+              aria-label={current.label}
               title={current.label}
             >
               <Icon name={current.icon} />
@@ -457,14 +464,17 @@ export function DrawingToolbar({
       <div className="my-1 h-px w-8 bg-border" />
 
       <button onClick={() => onMagnet(!magnet)} className={btn(magnet)} aria-pressed={magnet}
+        aria-label={magnet ? "Turn the magnet off" : "Turn the magnet on"}
         title={magnet ? "Magnet on — anchors snap to OHLC" : "Magnet off"}>
         <Icon name="magnet" />
       </button>
       <button onClick={() => onLocked(!locked)} className={btn(locked)} aria-pressed={locked}
+        aria-label={locked ? "Unlock all drawings" : "Lock all drawings"}
         title={locked ? "Drawings locked" : "Lock all drawings"}>
         <Icon name={locked ? "lock" : "unlock"} />
       </button>
       <button onClick={() => onHidden(!hidden)} className={btn(hidden)} aria-pressed={hidden}
+        aria-label={hidden ? "Show all drawings" : "Hide all drawings"}
         title={hidden ? "Drawings hidden" : "Hide all drawings"}>
         <Icon name={hidden ? "eyeOff" : "eye"} />
       </button>
@@ -475,6 +485,7 @@ export function DrawingToolbar({
         onClick={onDeleteAll}
         disabled={count === 0}
         className={`${btn(false)} disabled:cursor-not-allowed disabled:opacity-30 hover:!text-down`}
+        aria-label={count === 0 ? "No drawings to remove" : `Remove all ${count} drawings`}
         title={count === 0 ? "No drawings" : `Remove all ${count} drawings`}
       >
         <Icon name="trash" />
