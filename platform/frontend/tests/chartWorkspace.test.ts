@@ -12,15 +12,13 @@
  * cannot see — that there is one pane component and no second-class one.
  */
 import { test } from "node:test";
-import {
-  MIN_TRACK_FRACTION, presetGridStyle, resizeTrack,
-} from "../lib/layoutPresets";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
   availablePaneCounts, cellGridStyle, defaultPresetFor, LAYOUT_PRESETS, MAX_PANES,
-  paneDensity, presetGridStyle, presetOrDefault, presetsForCount,
+  MIN_TRACK_FRACTION, paneDensity, presetGridStyle, presetOrDefault, presetsForCount,
+  resizeTrack,
 } from "../lib/layoutPresets";
 import {
   activePane, applyPaneInterval, applyPaneSymbol, clonePane, createWorkspace, feedKeys,
