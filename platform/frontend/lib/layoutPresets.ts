@@ -180,13 +180,72 @@ export function defaultPresetFor(count: number): LayoutPreset {
 }
 
 /** Inline style for the grid container. */
-export function presetGridStyle(preset: LayoutPreset): {
+/**
+ * The track sizes of a grid whose separators have been dragged.
+ *
+ * TVP8: the workspace was `repeat(cols, 1fr)` — every chart exactly the same
+ * size, for ever. The reference lets you drag the line between two charts, and
+ * a two-up layout is very often one chart you are working in and one you are
+ * glancing at. Equal halves is the wrong answer to that and it was the only
+ * answer available.
+ *
+ * Fractions are stored per AXIS, not per pane, because that is what a CSS grid
+ * can express and what a separator actually moves: dragging the line between
+ * column 1 and column 2 in a 2x2 resizes all four charts, which is also what
+ * the reference does.
+ */
+export interface GridFractions {
+  cols: readonly number[];
+  rows: readonly number[];
+}
+
+/** Every track equal — what a layout starts at and what Reset returns it to. */
+export function evenFractions(preset: LayoutPreset): GridFractions {
+  return {
+    cols: Array.from({ length: preset.cols }, () => 1),
+    rows: Array.from({ length: preset.rows }, () => 1),
+  };
+}
+
+/** No track may be dragged below this share of its axis. */
+export const MIN_TRACK_FRACTION = 0.12;
+
+/**
+ * Move one interior separator, keeping the axis's total constant.
+ *
+ * `index` is the boundary: 0 is the line between track 0 and track 1. Only the
+ * two tracks it sits between move — dragging one line must not reshuffle the
+ * whole row, which is the behaviour that makes a grid feel unpredictable.
+ */
+export function resizeTrack(
+  tracks: readonly number[], index: number, delta: number,
+): number[] {
+  const next = [...tracks];
+  const a = next[index];
+  const b = next[index + 1];
+  if (a === undefined || b === undefined) return next;
+  const total = tracks.reduce((sum, v) => sum + v, 0);
+  const floor = total * MIN_TRACK_FRACTION;
+  const pair = a + b;
+  // Clamp inside the pair, so neither of the two collapses and nothing else
+  // on the axis is touched.
+  const wanted = Math.min(Math.max(a + delta * total, floor), pair - floor);
+  next[index] = wanted;
+  next[index + 1] = pair - wanted;
+  return next;
+}
+
+export function presetGridStyle(preset: LayoutPreset, fractions?: GridFractions): {
   gridTemplateColumns: string;
   gridTemplateRows: string;
 } {
+  const track = (values: readonly number[] | undefined, count: number): string =>
+    values && values.length === count
+      ? values.map((v) => `minmax(0, ${v}fr)`).join(" ")
+      : `repeat(${count}, minmax(0, 1fr))`;
   return {
-    gridTemplateColumns: `repeat(${preset.cols}, minmax(0, 1fr))`,
-    gridTemplateRows: `repeat(${preset.rows}, minmax(0, 1fr))`,
+    gridTemplateColumns: track(fractions?.cols, preset.cols),
+    gridTemplateRows: track(fractions?.rows, preset.rows),
   };
 }
 

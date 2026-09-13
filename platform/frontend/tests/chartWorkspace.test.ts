@@ -12,6 +12,9 @@
  * cannot see — that there is one pane component and no second-class one.
  */
 import { test } from "node:test";
+import {
+  MIN_TRACK_FRACTION, presetGridStyle, resizeTrack,
+} from "../lib/layoutPresets";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -753,4 +756,84 @@ test("A TRANSFORM CANNOT REACH TRADING, ALERTS, STRATEGIES OR STORED CANDLES", (
     assert.ok(!/chartTransforms/.test(read(file)),
       `${file} reads the synthetic transforms; only the renderer may`);
   }
+});
+
+// ── TVP8: the line between two charts, and the bottom panel's height ───────
+
+test("A SEPARATOR MOVES ONLY THE TWO TRACKS IT SITS BETWEEN", () => {
+  /*
+   * The workspace grid was `repeat(cols, 1fr)`: every chart exactly the same
+   * size, for ever. A two-up layout is very often one chart being worked in
+   * and one being glanced at, and equal halves was the only answer available.
+   *
+   * Dragging one line must not reshuffle the whole axis — that is what makes a
+   * resizable grid feel unpredictable — so the pair's total is invariant and
+   * every other track is untouched.
+   */
+  const three = [1, 1, 1];
+  const moved = resizeTrack(three, 0, 0.1);
+  assert.ok(moved[0]! > 1 && moved[1]! < 1, "the pair either side of the line moves");
+  assert.equal(moved[2], 1, "a track that is not on this line does not move");
+  assert.ok(Math.abs(moved[0]! + moved[1]! - 2) < 1e-9, "the pair's total is invariant");
+  assert.ok(Math.abs(moved.reduce((a, b) => a + b, 0) - 3) < 1e-9, "and so is the axis's");
+
+  // Neither side can be dragged out of existence.
+  const collapsed = resizeTrack([1, 1], 0, -10);
+  assert.ok(collapsed[0]! >= 2 * MIN_TRACK_FRACTION - 1e-9,
+    "a chart dragged to nothing is a chart you cannot drag back");
+  assert.ok(Math.abs(collapsed[0]! + collapsed[1]! - 2) < 1e-9);
+
+  // A line that does not exist is a no-op rather than a crash.
+  assert.deepEqual(resizeTrack([1], 0, 0.2), [1]);
+});
+
+test("the grid renders the dragged tracks, and even ones when it has none", () => {
+  const preset = { id: "x", label: "x", cols: 2, rows: 1, cells: [] } as never;
+  assert.deepEqual(presetGridStyle(preset), {
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateRows: "repeat(1, minmax(0, 1fr))",
+  });
+  assert.deepEqual(presetGridStyle(preset, { cols: [1.4, 0.6], rows: [1] }), {
+    gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 0.6fr)",
+    gridTemplateRows: "minmax(0, 1fr)",
+  });
+  // A stored record that no longer fits the preset is ignored, not rendered:
+  // three fractions in a two-column grid would drop a chart off the edge.
+  assert.deepEqual(
+    presetGridStyle(preset, { cols: [1, 1, 1], rows: [1] }).gridTemplateColumns,
+    "repeat(2, minmax(0, 1fr))");
+});
+
+test("THE BOTTOM PANEL CAN BE RESIZED AND MAXIMIZED, NOT ONLY COLLAPSED", () => {
+  /*
+   * Every body in the panel was a hard-coded height and the only control was
+   * collapse. The reference drags from the top edge and pairs a maximize
+   * chevron with the collapse one; the Pine editor at a fixed 380px shows
+   * about eighteen lines, and reading a strategy test means giving it the
+   * screen for a minute and then giving it back.
+   */
+  /*
+   * Comments stripped, for the same reason the alert re-arm test strips them:
+   * a rule its own documentation can satisfy — or, here, break — is not a
+   * rule. This assertion turned red on the sentence explaining the fix.
+   */
+  const panel = read("components/tv/ChartBottomPanel.tsx")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  assert.match(panel, /role="separator"/, "the top edge is a real separator");
+  assert.match(panel, /aria-orientation="horizontal"/);
+  assert.match(panel, /onPointerDown=\{onResizeStart\}/,
+    "pointer events, so a tablet can drag it too");
+  assert.match(panel, /aria-label=\{maximized \? "Restore panel" : "Maximize panel"\}/);
+
+  // The heights are the state, not literals — the editor was `h-[380px]`.
+  assert.match(panel, /style=\{\{ height \}\}/);
+  assert.doesNotMatch(panel, /h-\[380px\]/);
+
+  // And it cannot take the whole window: the chart stays legible behind it.
+  assert.match(panel, /MAX_HEIGHT_FRACTION = 0\.8/);
+  assert.match(panel, /Math\.max\(MIN_HEIGHT, Math\.min\(cap, next\)\)/);
+
+  // Arrow keys move it, or it is a mouse-only control.
+  assert.match(panel, /e\.key !== "ArrowUp" && e\.key !== "ArrowDown"/);
 });

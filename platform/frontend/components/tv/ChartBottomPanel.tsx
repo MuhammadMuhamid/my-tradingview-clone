@@ -41,6 +41,31 @@ const bottomKey = (): string =>
     ? "tv.bottomCollapsed.mobile"
     : "tv.bottomCollapsed";
 
+/*
+ * ── TVP8: the panel's height ───────────────────────────────────────────────
+ *
+ * Every body in here was a hard-coded height — `h-[380px]` for the editor,
+ * `h-[180px]` for the tester's notice — and the panel could only be collapsed
+ * or not. The reference's bottom panel drags from its top edge and has a
+ * maximize chevron beside the collapse one, and both matter here for the same
+ * reason they matter there: the Pine editor at 380px shows about eighteen
+ * lines, and reading a strategy test means giving it the screen for a minute
+ * and then giving it back.
+ */
+const HEIGHT_KEY = "tv.bottomHeight";
+const MIN_HEIGHT = 140;
+const DEFAULT_HEIGHT = 380;
+/** Never take the whole window: the chart must stay legible behind it. */
+const MAX_HEIGHT_FRACTION = 0.8;
+
+function storedHeight(): number {
+  try {
+    const raw = window.localStorage.getItem(HEIGHT_KEY);
+    const parsed = raw === null ? NaN : Number(raw);
+    return Number.isFinite(parsed) && parsed >= MIN_HEIGHT ? parsed : DEFAULT_HEIGHT;
+  } catch { return DEFAULT_HEIGHT; }
+}
+
 export interface ChartBottomPanelProps {
   /** The focused pane's instrument and resolution. */
   symbol: string;
@@ -85,6 +110,10 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
   const [tab, setTab] = useState<BottomTab>("trading");
   /** Collapsed to just its tab strip, so the chart gets the full height. */
   const [collapsed, setCollapsed] = useState(false);
+  const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  /** The height to restore to when maximize is turned off. */
+  const [restoreHeight, setRestoreHeight] = useState<number | null>(null);
+  const maximized = restoreHeight !== null;
   /** Once the user has picked a tab, no default moves it. */
   const userChoseTab = useRef(false);
 
@@ -122,6 +151,45 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
    * effect, before the restored state has been applied, so it writes the
    * initial `false` straight back over the stored preference.
    */
+  useEffect(() => { setHeight(storedHeight()); }, []);
+
+  /*
+   * Drag the top edge. Pointer events rather than mouse, so this works on a
+   * tablet — the same gap `DrawingCanvas` had.
+   */
+  const dragFrom = useRef<{ y: number; height: number } | null>(null);
+  const onResizeStart = useCallback((event: React.PointerEvent) => {
+    event.preventDefault();
+    (event.target as Element).setPointerCapture?.(event.pointerId);
+    dragFrom.current = { y: event.clientY, height };
+    setRestoreHeight(null);   // dragging is an explicit height; un-maximize
+  }, [height]);
+
+  const onResizeMove = useCallback((event: React.PointerEvent) => {
+    const from = dragFrom.current;
+    if (!from) return;
+    // Dragging UP makes it taller, which is why the delta is inverted.
+    const next = Math.round(from.height + (from.y - event.clientY));
+    const cap = Math.round(window.innerHeight * MAX_HEIGHT_FRACTION);
+    setHeight(Math.max(MIN_HEIGHT, Math.min(cap, next)));
+  }, []);
+
+  const onResizeEnd = useCallback(() => {
+    if (!dragFrom.current) return;
+    dragFrom.current = null;
+    try { window.localStorage.setItem(HEIGHT_KEY, String(height)); } catch { /* private window */ }
+  }, [height]);
+
+  const toggleMaximized = useCallback(() => {
+    setCollapsed(false);
+    setRestoreHeight((current) => {
+      if (current !== null) { setHeight(current); return null; }
+      const kept = height;
+      setHeight(Math.round(window.innerHeight * MAX_HEIGHT_FRACTION));
+      return kept;
+    });
+  }, [height]);
+
   const toggleBottom = useCallback(() => {
     setCollapsed((v) => {
       const next = !v;
@@ -145,6 +213,40 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
 
   return (
     <div className="shrink-0 border-t border-border bg-surface">
+      {/*
+        TVP8: the drag handle, on the panel's own top edge as the reference
+        has it. `separator` with an orientation and a value is what makes it
+        legible to a screen reader and operable from the keyboard; a bare
+        `cursor-ns-resize` div is neither.
+      */}
+      {!collapsed && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the bottom panel"
+          aria-valuenow={height}
+          aria-valuemin={MIN_HEIGHT}
+          tabIndex={0}
+          onPointerDown={onResizeStart}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeEnd}
+          onPointerCancel={onResizeEnd}
+          onKeyDown={(e) => {
+            const step = e.shiftKey ? 80 : 16;
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+            e.preventDefault();
+            const cap = Math.round(window.innerHeight * MAX_HEIGHT_FRACTION);
+            setRestoreHeight(null);
+            setHeight((current) => {
+              const next = Math.max(MIN_HEIGHT,
+                Math.min(cap, current + (e.key === "ArrowUp" ? step : -step)));
+              try { window.localStorage.setItem(HEIGHT_KEY, String(next)); } catch { /* private */ }
+              return next;
+            });
+          }}
+          className="h-1.5 cursor-ns-resize bg-transparent transition-colors hover:bg-state-active focus-visible:bg-state-active"
+        />
+      )}
       <div role="tablist" aria-label="Bottom workstation"
         className="flex items-center gap-1 border-b border-border px-2">
         {([["trading", "Positions & Orders"], ["tester", "Strategy Tester"], ["pine", "Pine Editor"]] as const).map(([id, label]) => (
@@ -197,6 +299,22 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
               {props.indicatorCount} indicator{props.indicatorCount === 1 ? "" : "s"} on this chart
             </button>
           )}
+          {/* TVP8: maximize, beside collapse, as the reference pairs them. */}
+          {!collapsed && (
+            <button
+              onClick={toggleMaximized}
+              title={maximized ? "Restore panel" : "Maximize panel"}
+              aria-label={maximized ? "Restore panel" : "Maximize panel"}
+              aria-pressed={maximized}
+              className="flex h-7 w-7 items-center justify-center rounded text-ink-faint hover:bg-state-hover hover:text-ink"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                {maximized
+                  ? <><path d="M5 12h14" /><path d="M9 8l3-3 3 3" /></>
+                  : <><path d="M5 12h14" /><path d="M9 6l3-3 3 3" /><path d="M9 18l3 3 3-3" /></>}
+              </svg>
+            </button>
+          )}
           <button
             onClick={toggleBottom}
             title={collapsed ? "Expand panel" : "Minimize panel"}
@@ -224,7 +342,8 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
           unavailable={props.manualUnavailable}
         />
       ) : tab === "tester" && props.replayActive ? (
-        <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-ink-muted">
+        <div style={{ height: Math.min(height, 180) }}
+          className="flex items-center justify-center px-6 text-center text-sm text-ink-muted">
           Strategy Tester is unavailable during Bar Replay. Exit Replay to run a full-range strategy test.
         </div>
       ) : tab === "tester" ? (
@@ -242,7 +361,8 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
           onOpenTrade={props.onOpenTrade}
         />
       ) : (
-        <div className="h-[380px]">
+        // TVP8: the dragged height, not a literal 380.
+        <div style={{ height }}>
           <PineEditor
             symbol={props.symbol}
             timeframe={props.interval}
