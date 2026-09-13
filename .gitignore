@@ -130,3 +130,12 @@ platform [0-9]*/
 # reasoning applies at any depth, so this is not anchored to the root.
 * copy/
 * copy [0-9]*/
+
+# Browser-capture scratch. `browser_evaluate`'s `filename` writes its result
+# next to the repo root, and a `git add -A` from here swept two such files —
+# 106 KB of TradingView study state, including an obfuscated Pine blob — into
+# a commit that had nothing to do with them. Inspection output is evidence,
+# not source; it belongs under .playwright-mcp/ or a scratch directory.
+/tv_studies.json
+/tv_study_inputs.json
+/page-*.yml
