@@ -1,3 +1,4 @@
+import { recallJson, rememberJson } from "./browserStorage";
 import type { Candle } from "./types";
 
 export type TradingOverlaySource = "MANUAL" | "AUTOMATED" | "PAPER";
@@ -38,16 +39,13 @@ export const DEFAULT_OVERLAY_PREFERENCES: TradingOverlayPreferences = {
 const STORAGE_KEY = "tv.tradingOverlays.v1";
 
 export function loadOverlayPreferences(): TradingOverlayPreferences {
-  if (typeof window === "undefined") return DEFAULT_OVERLAY_PREFERENCES;
-  try {
-    const value = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
-    return Object.fromEntries(Object.entries(DEFAULT_OVERLAY_PREFERENCES).map(([key, fallback]) =>
-      [key, typeof value[key] === "boolean" ? value[key] : fallback])) as unknown as TradingOverlayPreferences;
-  } catch { return DEFAULT_OVERLAY_PREFERENCES; }
+  const value = recallJson<Record<string, unknown>>(STORAGE_KEY, {});
+  return Object.fromEntries(Object.entries(DEFAULT_OVERLAY_PREFERENCES).map(([key, fallback]) =>
+    [key, typeof value[key] === "boolean" ? value[key] : fallback])) as unknown as TradingOverlayPreferences;
 }
 
 export function saveOverlayPreferences(value: TradingOverlayPreferences): void {
-  if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  rememberJson(STORAGE_KEY, value);
 }
 
 export function overlayItemVisible(item: TradingOverlayItem, value: TradingOverlayPreferences): boolean {

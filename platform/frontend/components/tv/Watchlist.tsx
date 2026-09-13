@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { recall, remember } from "@/lib/browserStorage";
 import { useAsk } from "@/components/AskDialog";
 import type { SymbolInfo } from "@/lib/types";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
@@ -115,7 +116,7 @@ export function Watchlist({
   const reload = async (selectId?: string) => {
     const rows = await api.listWatchlists();
     setLists(rows);
-    const stored = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_KEY) : null;
+    const stored = recall(ACTIVE_KEY);
     const wanted = selectId ?? stored;
     const pick = rows.find((l) => l.id === wanted) ?? rows[0] ?? null;
     setActiveId(pick?.id ?? null);
@@ -131,14 +132,14 @@ export function Watchlist({
           // otherwise seed one list from the tracked symbols.
           let seeded = false;
           try {
-            const raw = localStorage.getItem(LEGACY_KEY);
+            const raw = recall(LEGACY_KEY);
             const legacy = raw ? (JSON.parse(raw) as { lists?: NamedWatchlist[] }) : null;
             for (const [i, l] of (legacy?.lists ?? []).entries()) {
               if (!l?.name) continue;
               await api.upsertWatchlist({ name: l.name, symbols: l.symbols ?? [], position: i });
               seeded = true;
             }
-            if (seeded) localStorage.setItem(`${LEGACY_KEY}.migrated`, raw ?? "");
+            if (seeded) remember(`${LEGACY_KEY}.migrated`, raw ?? "");
           } catch { /* malformed legacy data — fall through to the default */ }
           if (!seeded) {
             await api.upsertWatchlist({
@@ -148,7 +149,7 @@ export function Watchlist({
           rows = await api.listWatchlists();
         }
         setLists(rows);
-        const stored = localStorage.getItem(ACTIVE_KEY);
+        const stored = recall(ACTIVE_KEY);
         const pick = rows.find((l) => l.id === stored) ?? rows[0] ?? null;
         setActiveId(pick?.id ?? null);
       } catch (e) {
@@ -160,7 +161,7 @@ export function Watchlist({
   }, []); // once on mount; the server is the source of truth afterwards
 
   useEffect(() => {
-    if (activeId && typeof window !== "undefined") localStorage.setItem(ACTIVE_KEY, activeId);
+    if (activeId) remember(ACTIVE_KEY, activeId);
   }, [activeId]);
 
   const active = lists?.find((l) => l.id === activeId) ?? null;

@@ -27,6 +27,7 @@
  * the current-layout pointer and the autosave toggle stay device-local.
  */
 import { api, type ServerLayout } from "./api";
+import { forget, recall, remember } from "./browserStorage";
 import type { StrategyParams } from "./types";
 import type { Resolution } from "./resolution";
 import type { StrategyProperties } from "@/components/tv/StrategySettingsModal";
@@ -77,7 +78,6 @@ const LEGACY_KEY = "srtrend.layouts.v1";
 const CUR = "srtrend.currentLayout.v1";
 const AUTO = "srtrend.autosave.v1";
 
-const canStore = (): boolean => typeof window !== "undefined" && !!window.localStorage;
 
 function fromServer(l: ServerLayout): Layout {
   return {
@@ -115,8 +115,7 @@ function toServerBody(name: string, s: WorkspaceState) {
 
 /** One-time import of pre-database localStorage layouts into the server. */
 export async function migrateLegacyLayouts(): Promise<void> {
-  if (!canStore()) return;
-  const raw = localStorage.getItem(LEGACY_KEY);
+  const raw = recall(LEGACY_KEY);
   if (!raw) return;
   try {
     const legacy = JSON.parse(raw) as Layout[];
@@ -126,8 +125,8 @@ export async function migrateLegacyLayouts(): Promise<void> {
       if (!l?.name || taken.has(l.name.trim().toUpperCase())) continue;
       await api.upsertLayout(toServerBody(l.name, l));
     }
-    localStorage.setItem(`${LEGACY_KEY}.migrated`, raw);
-    localStorage.removeItem(LEGACY_KEY);
+    remember(`${LEGACY_KEY}.migrated`, raw);
+    forget(LEGACY_KEY);
   } catch {
     // Server unreachable — keep the legacy data and retry next load.
   }
@@ -191,7 +190,7 @@ export async function deleteLayout(id: string): Promise<void> {
     // The local pointer is cleared either way: a layout that could not be
     // deleted server-side is still one the user asked to leave, and keeping it
     // current would restore it on the next load.
-    if (getCurrentLayoutId() === id && canStore()) localStorage.removeItem(CUR);
+    if (getCurrentLayoutId() === id) forget(CUR);
   }
 }
 
@@ -206,19 +205,23 @@ export async function syncDeploymentLayouts(): Promise<void> {
 }
 
 export function getCurrentLayoutId(): string | null {
-  return canStore() ? localStorage.getItem(CUR) : null;
+  return recall(CUR);
 }
 
 export function setCurrentLayoutId(id: string | null): void {
-  if (!canStore()) return;
-  if (id === null) localStorage.removeItem(CUR);
-  else localStorage.setItem(CUR, id);
+  if (id === null) forget(CUR);
+  else remember(CUR, id);
 }
 
+/*
+ * Autosave defaults ON, and a browser that cannot remember gets the default
+ * every load rather than a disabled feature. `!== "false"` rather than
+ * `=== "true"` for exactly that reason: absent means on.
+ */
 export function getAutosave(): boolean {
-  return canStore() ? localStorage.getItem(AUTO) !== "false" : true;
+  return recall(AUTO) !== "false";
 }
 
 export function setAutosave(on: boolean): void {
-  if (canStore()) localStorage.setItem(AUTO, String(on));
+  remember(AUTO, String(on));
 }

@@ -23,6 +23,7 @@
  * it would take over half the chart.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { recall, remember } from "@/lib/browserStorage";
 import { type Resolution } from "@/lib/resolution";
 import { PineEditor } from "@/components/tv/PineEditor";
 import { StrategyTester } from "@/components/tv/StrategyTester";
@@ -60,7 +61,7 @@ const MAX_HEIGHT_FRACTION = 0.8;
 
 function storedHeight(): number {
   try {
-    const raw = window.localStorage.getItem(HEIGHT_KEY);
+    const raw = recall(HEIGHT_KEY);
     const parsed = raw === null ? NaN : Number(raw);
     return Number.isFinite(parsed) && parsed >= MIN_HEIGHT ? parsed : DEFAULT_HEIGHT;
   } catch { return DEFAULT_HEIGHT; }
@@ -134,7 +135,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(bottomKey());
+    const stored = recall(bottomKey());
     /*
      * Default closed on every form factor, not only on phones. The panel opens
      * on an empty placeholder that says "hit Run backtest", and it was taking
@@ -177,7 +178,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
   const onResizeEnd = useCallback(() => {
     if (!dragFrom.current) return;
     dragFrom.current = null;
-    try { window.localStorage.setItem(HEIGHT_KEY, String(height)); } catch { /* private window */ }
+    remember(HEIGHT_KEY, String(height));
   }, [height]);
 
   const toggleMaximized = useCallback(() => {
@@ -193,7 +194,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
   const toggleBottom = useCallback(() => {
     setCollapsed((v) => {
       const next = !v;
-      window.localStorage.setItem(bottomKey(), next ? "1" : "0");
+      remember(bottomKey(), next ? "1" : "0");
       return next;
     });
   }, []);
@@ -240,7 +241,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
             setHeight((current) => {
               const next = Math.max(MIN_HEIGHT,
                 Math.min(cap, current + (e.key === "ArrowUp" ? step : -step)));
-              try { window.localStorage.setItem(HEIGHT_KEY, String(next)); } catch { /* private */ }
+              remember(HEIGHT_KEY, String(next));
               return next;
             });
           }}
@@ -276,7 +277,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
               else {
                 setTab(id);
                 setCollapsed(false);
-                window.localStorage.setItem(bottomKey(), "0");
+                remember(bottomKey(), "0");
               }
             }}
             // 22px measured on a phone. The tab strip is also the handle
