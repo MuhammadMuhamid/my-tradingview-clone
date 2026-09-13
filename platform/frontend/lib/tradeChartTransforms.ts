@@ -32,17 +32,30 @@ export function footprintBarsAsOhlc(trades: readonly AggregateTrade[], intervalM
 export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, tickSize = 0.01): RangeBar[] {
   if (!(rangeSize > 0) || !(tickSize > 0)) return [];
   const out: RangeBar[] = []; let current: RangeBar | null = null;
+  // An exact completion leaves a real boundary behind. The next execution
+  // must form from that boundary, rather than seeding a new bar at its own
+  // price and silently dropping the intervening move.
+  let lastBoundaryU: number | null = null;
   const ticks = Math.max(1, Math.round(rangeSize / tickSize));
   const unit = (price: number) => Math.round(price / tickSize);
-  const price = (u: number) => u * tickSize;
+  // Keep tick-derived boundaries stable when binary floating point cannot
+  // represent the provider's decimal tick (for example 0.0001 * 10003).
+  const price = (u: number) => {
+    const value = u * tickSize;
+    return Number.isFinite(value) ? Number(value.toPrecision(15)) : value;
+  };
   const sorted = [...trades].sort((a, b) => a.timestamp - b.timestamp || (a.id ?? 0) - (b.id ?? 0));
   for (const trade of sorted) {
     if (!Number.isFinite(trade.price) || trade.quantity <= 0) continue;
     const target = unit(trade.price);
     if (!current) {
-      const p = price(target);
-      current = { openTime: trade.timestamp, open: p, high: p, low: p, close: p, volume: trade.quantity, sourceTrades: 1 };
-      continue;
+      if (lastBoundaryU === null) {
+        const p = price(target);
+        current = { openTime: trade.timestamp, open: p, high: p, low: p, close: p, volume: trade.quantity, sourceTrades: 1 };
+        continue;
+      }
+      const boundary = price(lastBoundaryU);
+      current = { openTime: trade.timestamp, open: boundary, high: boundary, low: boundary, close: boundary, volume: 0, sourceTrades: 0 };
     }
     const openU = unit(current.open);
     const dir = target >= openU ? 1 : -1;
@@ -77,6 +90,7 @@ export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, 
     if (remaining === 0) {
       const last = out[out.length - 1];
       if (last) { last.volume += trade.quantity; last.sourceTrades += 1; }
+      lastBoundaryU = from;
       current = null;
     }
     else {
