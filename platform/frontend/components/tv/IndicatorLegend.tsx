@@ -164,7 +164,27 @@ export function IndicatorLegend({
               className="group/study flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
               <span className="shrink-[3] truncate font-semibold text-ink">{group.title}</span>
               {group.params && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
-              {group.plots.map((plot) => (
+              {/*
+                ── TVP8 round two: three values that could never have one ─────
+
+                The value column is what the legend is FOR: the plot's reading
+                at the crosshair. A constant level has no such reading, so RSI
+                rendered
+
+                    Relative Strength Index  Length 14 · Source close
+                    RSI 45.28   70 —   50 —   30 —
+
+                — three permanent em-dashes laid over the candles, on the row
+                whose own comment says the values at its end are what is being
+                read. The reference does not list reference levels in its
+                status line either; they are lines on the pane with their own
+                axis labels, which is where a constant belongs.
+
+                `constantValue` is exactly the flag for this: `ChartSeries`
+                sets it on an hline, which has two endpoints for the renderer
+                and one value at every bar.
+              */}
+              {group.plots.filter((plot) => plot.constantValue === undefined).map((plot) => (
                 <span key={plot.id} className="inline-flex shrink-0 items-center gap-1 text-ink-muted">
                   <span
                     aria-hidden="true"

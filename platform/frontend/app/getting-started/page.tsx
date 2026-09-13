@@ -1058,8 +1058,20 @@ export default function GettingStarted() {
                 <div className="px-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
                   {LAYER_TITLES[layer]}
                 </div>
+                {/*
+                  TVP8 round two: the number was the section's index in the
+                  FLAT list, printed inside a list grouped by layer. Orientation
+                  therefore read 1, 2, 3, 16 — "Common workflows" is the
+                  sixteenth section of the document and the fourth of this
+                  group. A table of contents whose numbers do not count is
+                  worse than one with no numbers at all.
+
+                  Filtered first, so the ordinal counts the list the reader is
+                  actually looking at. It also stops `map` emitting `false` for
+                  every section in another layer.
+                */}
                 <ol className="mt-0.5 space-y-0.5">
-                  {SECTIONS.map((section, i) => section.layer === layer && (
+                  {SECTIONS.filter((section) => section.layer === layer).map((section, i) => (
                     <li key={section.id}>
                       <a
                         href={`#${section.id}`}

@@ -41,6 +41,12 @@ import {
 import { PRICE_PANE_ID } from "../lib/chartSeries";
 import type { Candle, Interval } from "../lib/types";
 import { logReturns, stdev } from "../lib/ta/core";
+import fs from "node:fs";
+import path from "node:path";
+
+/** A product source file, for the one rule below that reads the legend. */
+const read = (rel: string): string =>
+  fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
 
 // ── a reproducible series ───────────────────────────────────────────────────
 
@@ -797,4 +803,49 @@ test("THE TWO INPUTS THAT DID NOTHING ARE GONE OR BOUND", () => {
     assert.equal(drawn(one, "r2") || drawn(one, "s2"), false,
       "asking for one zone per side must not draw a second");
   }
+});
+
+test("THE LEGEND READS PLOTS, NOT THE CONSTANT LINES BEHIND THEM", () => {
+  /*
+   * ── TVP8 round two ─────────────────────────────────────────────────────
+   *
+   * The legend's value column is what the legend is FOR: a plot's reading at
+   * the crosshair. A constant level has no such reading, so RSI rendered
+   *
+   *   Relative Strength Index  Length 14 · Source close
+   *   RSI 45.28   70 —   50 —   30 —
+   *
+   * — three permanent em-dashes over the candles, measured live on the
+   * production build. The reference does not put reference levels in its
+   * status line either: they are lines on the pane with their own axis
+   * labels, which is where a constant belongs.
+   *
+   * Asserted on both sides, because "the legend shows fewer things" is only
+   * correct while the LINES are still drawn.
+   */
+  const def = studyById("rsi")!;
+  const out = runNativeStudy(def, newNativeStudy(def, "k"), bars(200), "1m", 2);
+
+  const levels = out.overlays.filter((o) => o.constantValue !== undefined);
+  assert.equal(levels.length, 3, "RSI still draws its 70 / 50 / 30 lines");
+  assert.deepEqual(levels.map((o) => o.constantValue).sort((a, b) => b! - a!), [70, 50, 30]);
+
+  const plots = out.overlays.filter((o) => o.constantValue === undefined);
+  assert.equal(plots.length, 1, "and exactly one thing with a value to read");
+  assert.equal(plots[0]!.title, "RSI");
+
+  // A level's own data is two endpoints at one value — which is precisely why
+  // it has nothing to show at a crosshair, and why `constantValue` exists.
+  for (const level of levels) {
+    const values = new Set(level.data.map((p) => p.value));
+    assert.equal(values.size, 1, `${level.id} is not constant`);
+    assert.equal([...values][0], level.constantValue);
+  }
+
+  // And the legend honours the flag rather than guessing from the title.
+  const legend = read("components/tv/IndicatorLegend.tsx")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.match(legend,
+    /group\.plots\.filter\(\(plot\) => plot\.constantValue === undefined\)\.map\(/,
+    "the legend must drop constant levels from its value row");
 });
