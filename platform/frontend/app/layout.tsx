@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "Trading Scene",
@@ -40,7 +39,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* Visible only when focused; see .skip-link in globals.css. */}
           <a href="#main" className="skip-link">Skip to content</a>
           <Nav />
-          <ThemeToggle />
           {/*
             A flex column, not a block.
 

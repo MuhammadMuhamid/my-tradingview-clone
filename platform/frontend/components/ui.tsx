@@ -197,6 +197,43 @@ export function Button({
   );
 }
 
+/**
+ * The close cross and the disclosure caret, drawn.
+ *
+ * Six controls in the chart chrome typed these instead — `×`, `▼`, and a
+ * FULLWIDTH `＋` (U+FF0B), which renders at roughly double width with CJK side
+ * bearings. Beside the crisp SVGs everywhere else they read as unfinished, and
+ * they land off the optical centre of a 28px button because a glyph's box is
+ * not its ink. The product had already written this rule down for itself in
+ * two other files and then left six call sites unconverted.
+ */
+export function CloseGlyph({ size = 10 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 10 10" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+    </svg>
+  );
+}
+
+export function CaretGlyph({ size = 8 }: { size?: number }) {
+  return (
+    <svg width={size} height={size * 0.75} viewBox="0 0 8 6" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1 1.5L4 4.5L7 1.5" />
+    </svg>
+  );
+}
+
+export function PlusGlyph({ size = 10 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 10 10" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <path d="M5 1.5v7M1.5 5h7" />
+    </svg>
+  );
+}
+
 export function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     active: "bg-up/15 text-up border-up/30",

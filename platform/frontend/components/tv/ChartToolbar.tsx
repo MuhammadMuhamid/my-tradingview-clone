@@ -671,7 +671,16 @@ export function ChartToolbar(props: ChartToolbarProps) {
             {...ctl("best")}
             onClick={props.onApplyBest} disabled={props.loadingBest || replayActive}
             title={replayActive ? "Exit Replay to apply a full-range optimizer result" : `Apply the local optimizer's best saved config for ${displayTicker(symbol)}`}
-            className="flex h-7 shrink-0 items-center gap-1.5 rounded border border-warn/30 bg-warn/10 px-2 text-[13px] font-medium text-warn hover:bg-warn/20 disabled:cursor-wait disabled:opacity-60">
+            /*
+              A toolbar control, not a call to action.
+
+              This was 28px with a 4px radius and a filled amber ground in a
+              row whose other controls are 38px, transparent, and paint an
+              inset chip — three control heights in one strip. And `warn` is
+              reserved for a state whose outcome is not yet known (§2), not
+              for drawing the eye to a feature.
+            */
+            className={`${TOOL_BUTTON} shrink-0 gap-1.5 disabled:cursor-not-allowed disabled:opacity-40`}>
             <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
               <path d="M7 1l1.8 3.9 4.2.5-3.1 2.9.8 4.2L7 10.5 3.3 12.5l.8-4.2L1 5.4l4.2-.5L7 1Z" />
             </svg>

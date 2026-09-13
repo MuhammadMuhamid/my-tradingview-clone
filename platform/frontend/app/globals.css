@@ -108,13 +108,13 @@
   --ts-workstation-popover-padding: 6px;
   --ts-workstation-radius: 6px;
   /*
-   * The phone action bar's height, declared once because two rules need it:
-   * the bar sizes itself by it, and the floating theme toggle clears it.
+   * The phone action bar's height.
    *
-   * It used to be neither. The toggle is `position: fixed; bottom: 12px`, and
-   * at 390x844 that put a 44px button squarely on top of "Automate" — the
-   * last tab of the primary navigation was unreachable on a phone, hidden
-   * under a control for changing the colour scheme.
+   * Two rules needed this: the bar sized itself by it, and a floating theme
+   * toggle cleared it — that button is gone, moved into `ProductMenu` and
+   * `Nav` where the other shell controls live, so the overlap it was written
+   * to survive cannot happen. The token stays because the bar still sizes
+   * itself by it and the chart workspace still reserves the space.
    */
   --ts-phone-nav-height: 52px;
 
@@ -465,38 +465,6 @@ body {
     font-size: 16px;
   }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-}
-
-.theme-toggle {
-  position: fixed;
-  right: 12px;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  z-index: 80;
-  display: inline-flex;
-  width: 40px;
-  height: 40px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--ts-line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--ts-surface) 94%, transparent);
-  color: var(--ts-ink-muted);
-  box-shadow: 0 6px 22px color-mix(in srgb, var(--ts-ink) 12%, transparent);
-  backdrop-filter: blur(8px);
-  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
-}
-.theme-toggle:hover { background: var(--ts-surface-2); color: var(--ts-ink); }
-@media (max-width: 640px) { .theme-toggle { width: 44px; height: 44px; } }
-/*
- * On a phone the chart workstation owns the bottom edge, so the toggle sits
- * above the action bar rather than on it. Scoped by `:has()` to pages that
- * actually render the bar — everywhere else the toggle keeps the bottom
- * corner it has.
- */
-@media (max-width: 767px) {
-  body:has(nav[data-phone-nav]) .theme-toggle {
-    bottom: calc(var(--ts-phone-nav-height) + env(safe-area-inset-bottom) + 12px);
-  }
 }
 
 /* Recessive scrollbars for the dark surfaces */

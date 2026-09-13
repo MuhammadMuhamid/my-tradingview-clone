@@ -31,6 +31,7 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { HEALTH_DOT, useOpsHealth, useStreamSummary } from "@/lib/navStatus";
 import { productMenuLinks, PRODUCT_NAME, SYSTEM_LINKS } from "@/lib/navigation";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /** The manual. Read once, and then it stops asking. */
 const HELP_HREF = "/getting-started";
@@ -244,6 +245,16 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
                 {l.label}
               </MenuLink>
             ))}
+          </MenuSection>
+
+          <MenuSection>
+            {/* The theme lives with the other shell controls, not floating
+                over the price axis. See `ThemeToggle`. */}
+            <ThemeToggle
+              role="menuitem"
+              withLabel
+              className="tvc-menu-row w-full gap-2 px-2.5 text-left text-sm text-ink-muted hover:text-ink"
+            />
           </MenuSection>
 
           {username && (

@@ -13,6 +13,7 @@ import {
   type SortColumn, type WatchlistSort,
 } from "@/lib/watchlistOrder";
 import { canonicalDisplayParts, canonicalizeLegacySpotSymbol, displaySymbol, instrumentTypeLabel, isCanonicalInstrumentId } from "@/lib/instrument";
+import { CaretGlyph } from "@/components/ui";
 
 interface Ticker { last: number; chg: number; chgPct: number; stale?: boolean; changeKnown?: boolean }
 type NamedWatchlist = ServerWatchlist;
@@ -384,7 +385,7 @@ export function Watchlist({
               </span>
             )}
             <span className="truncate text-sm font-semibold">{active?.name ?? "Watchlist"}</span>
-            <span className="ml-auto pl-1 text-[10px] text-ink-faint">▼</span>
+            <span className="ml-auto flex items-center pl-1 text-ink-faint"><CaretGlyph /></span>
           </button>
           <button
             onClick={() => setAddOpen((v) => !v)}
@@ -416,10 +417,10 @@ export function Watchlist({
                 <span className="truncate">{l.name}</span><span className="text-ink-faint">{l.symbols.length}</span>
               </button>
             ))}
-            <div className="my-1 border-t border-border" />
-            <button onClick={() => void createList()} className="w-full px-3 py-1.5 text-left text-xs hover:bg-state-hover">＋ Create new</button>
-            <button onClick={renameList} className="w-full px-3 py-1.5 text-left text-xs hover:bg-state-hover">Rename current</button>
-            <button disabled={lists.length === 1} onClick={() => void deleteList()} className="w-full px-3 py-1.5 text-left text-xs text-down hover:bg-state-hover disabled:opacity-30">Delete current</button>
+            <div className="tvc-menu-sep" />
+            <button onClick={() => void createList()} className="tvc-menu-row w-full px-2.5 text-left text-sm text-ink-muted hover:text-ink">New list</button>
+            <button onClick={renameList} className="tvc-menu-row w-full px-2.5 text-left text-sm text-ink-muted hover:text-ink">Rename current</button>
+            <button disabled={lists.length === 1} onClick={() => void deleteList()} className="tvc-menu-row w-full px-2.5 text-left text-sm text-down disabled:cursor-not-allowed disabled:opacity-40">Delete current</button>
           </div>
         )}
       </div>
@@ -476,8 +477,8 @@ export function Watchlist({
           <div className="px-4 py-6">
             <p className="text-xs font-medium text-ink">Nothing on this list yet</p>
             <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-              Type an exact market symbol in the field above, or start from the Binance spot
-              most liquid ones.
+              Type an exact market symbol above, or pick from the most liquid
+              Binance spot pairs.
             </p>
             <div className="mt-3 flex flex-wrap gap-1">
               {STARTER_SYMBOLS.map((s) => (
@@ -493,9 +494,12 @@ export function Watchlist({
             </div>
             <button
               onClick={() => void addSymbols(STARTER_SYMBOLS)}
-              className="mt-3 w-full rounded bg-accent px-2 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-accent/90"
+              /* The same bordered chip as the symbols above it. A full-width
+                 filled-accent CTA is a product tour, and this is a 300px panel
+                 of a trading workstation. */
+              className="tvc-control mt-3 rounded-md border border-control-border px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink"
             >
-              Add all eight
+              {`Add all ${STARTER_SYMBOLS.length}`}
             </button>
             <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
               A starting point, not a recommendation — a watchlist row moves no

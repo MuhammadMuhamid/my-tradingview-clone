@@ -8,6 +8,7 @@ import {
   isSystemPath, PRIMARY_LINKS, primaryFor, PRODUCT_NAME, sectionTabsFor, SYSTEM_LINKS,
 } from "@/lib/navigation";
 import { shariahApi, type ShariahMode } from "@/lib/shariah";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /*
  * FE-01: "Alerts" and "Live & Alerts" were two entries for two unrelated
@@ -101,6 +102,9 @@ export function Nav() {
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <LiveDataChip />
+          {/* Not a floating button over the page: one more control in the row
+              that already holds them. See `ThemeToggle`. */}
+          <ThemeToggle className="tvc-control flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted hover:text-ink" />
           <SystemMenu path={path} />
           {/*
             Help lives beside the account controls rather than in the workspace

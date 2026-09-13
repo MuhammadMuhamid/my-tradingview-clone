@@ -4,6 +4,7 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { SYNC_LABELS, type SyncOptions } from "@/lib/paneSync";
 import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { PlusGlyph } from "@/components/ui";
 
 /**
  * Which properties the charts in this layout follow from one another.
@@ -182,7 +183,7 @@ export function SyncMenu({
               aria-expanded={false}
               className="tvc-menu-row w-full gap-2 px-2.5 text-left text-[13px] text-ink-muted hover:text-ink"
             >
-              <span aria-hidden="true">＋</span>
+              <PlusGlyph />
               Advanced — {advanced.map((o) => o.label.toLowerCase()).join(", ")}
             </button>
           )}

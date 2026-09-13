@@ -199,7 +199,10 @@ test("CONTRACT — accent never means 'this one is selected' in the workstation"
    * marked is a defect, with no judgement left in this test.
    */
   const EXEMPT = /accent-is-meaning/;
-  const ACCENT = String.raw`(?:bg-accent(?:\/\d+)?|text-accent|border-accent(?:\/\d+)?)`;
+  // `border-l-accent` and friends are accent too — the first version of this
+  // matched only the unsided `border-accent` and missed the symbol search's
+  // current-row edge entirely.
+  const ACCENT = String.raw`(?:bg-accent(?:\/\d+)?|text-accent|border(?:-[xytrbl])?-accent(?:\/\d+)?)`;
   const CONDITIONAL = new RegExp(String.raw`(?:\?|&&)\s*"[^"]*\b${ACCENT}\b`);
   const offenders: string[] = [];
   for (const file of WORKSTATION) {
@@ -361,27 +364,42 @@ test("CONTRACT — the volume weight is TradingView's own, measured", () => {
   assert.notEqual(mixToward("#2ebd85", "#fff", 0.5), "#2ebd85");
 });
 
-test("CONTRACT — the phone action bar owns the bottom edge, alone", () => {
+test("CONTRACT — nothing floats over the chart", () => {
   /*
-   * At 390x844 the floating theme toggle is `position: fixed; bottom: 12px`,
-   * and the chart workstation's action bar is fixed to the same edge. The
-   * toggle landed on "Automate" — the last tab of the primary navigation was
-   * unreachable on a phone, underneath a control for changing the colour
-   * scheme.
+   * The rule this replaces asserted that the floating theme toggle CLEARED the
+   * phone action bar, which it did — a `:has()` rule lifted a fixed 44px
+   * button off the "Automate" tab it had been covering at 390x844.
    *
-   * The height is one token with two readers so the clearance cannot drift
-   * away from the thing it is clearing.
+   * Clearing was the wrong fix for the right complaint. The button was a
+   * blurred, drop-shadowed, 10px-radius FAB parked on top of the price axis on
+   * every page: no workstation floats a chrome control over its own canvas,
+   * and it was the first non-chart pixel the eye landed on. It lives in
+   * `ProductMenu` on the chart and in `Nav`'s control row everywhere else now,
+   * so there is nothing to lift and nothing to collide with.
+   *
+   * What is asserted instead is the general rule, which is the one that keeps
+   * the next FAB out.
    */
-  assert.match(css, /--ts-phone-nav-height:\s*\d+px/, "the bar's height is a token");
-  assert.match(css, /body:has\(nav\[data-phone-nav\]\) \.theme-toggle/,
-    "the toggle lifts only where the bar actually exists");
-  assert.match(css, /bottom:\s*calc\(var\(--ts-phone-nav-height\)[^)]*\+[^;]*\)/,
-    "it lifts BY the bar's own height, not by a number that happens to match");
+  assert.doesNotMatch(css, /\.theme-toggle/, "the floating toggle is gone, styles included");
 
+  const floats = [...css.matchAll(/([^{}]+)\{([^}]*position:\s*fixed[^}]*)\}/g)]
+    .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+    .filter(({ selector }) => !/^@|::backdrop|\.skip-link|html|body/.test(selector));
+  assert.deepEqual(floats.map((f) => f.selector), [],
+    "a fixed-position element in globals.css floats over the workspace; put it "
+    + "in the chrome that already holds controls");
+
+  // The bar still sizes itself from the token the lift used to share.
+  assert.match(css, /--ts-phone-nav-height:\s*\d+px/);
   const panel = read("components/tv/ChartSidePanel.tsx");
-  assert.match(panel, /<nav data-phone-nav/, "the bar announces itself to the rule above");
-  assert.match(panel, /min-h-\[var\(--ts-phone-nav-height\)\]/,
-    "and sizes itself from the same token");
+  assert.match(panel, /<nav data-phone-nav/);
+  assert.match(panel, /min-h-\[var\(--ts-phone-nav-height\)\]/);
+
+  // And the control is where the shell keeps its other controls.
+  assert.match(read("components/tv/ProductMenu.tsx"), /<ThemeToggle/);
+  assert.match(read("components/Nav.tsx"), /<ThemeToggle/);
+  assert.doesNotMatch(read("app/layout.tsx"), /ThemeToggle/,
+    "it is no longer rendered outside the shell");
 });
 
 test("CONTRACT — collapsing a legend never makes it taller", () => {

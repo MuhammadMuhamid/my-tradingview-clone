@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { FIELD } from "@/components/ui";
+import { FIELD, PlusGlyph } from "@/components/ui";
 import {
   FILTER_DEFAULTS,
   type FilterSide, type MaAlert, type MaType, type StAtrMethod,
@@ -167,7 +167,7 @@ export function AlertFiltersField({
         aria-expanded={false}
         className="flex items-center gap-1.5 text-left text-sm text-ink-muted hover:text-ink"
       >
-        <span aria-hidden="true">＋</span>
+        <PlusGlyph />
         Add a condition (optional) — only fire when RSI, a moving average or Supertrend agrees
       </button>
     );

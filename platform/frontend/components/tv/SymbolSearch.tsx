@@ -306,7 +306,12 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         role="dialog"
         aria-modal="true"
         aria-label="Symbol search"
-        className="relative flex max-h-[80vh] w-full max-w-[840px] flex-col overflow-hidden rounded-[3px] border border-border bg-surface shadow-2xl"
+        /*
+          The dialog surface, not a second one. This was `rounded-[3px]` with
+          a border on `bg-surface` — a fourth radius and a different ground
+          from every other dialog, on the first dialog a user opens.
+        */
+        className="relative flex max-h-[80vh] w-full max-w-[840px] flex-col overflow-hidden rounded-md bg-popover shadow-[var(--ts-popover-shadow)]"
       >
         <div className="flex items-start justify-between gap-3 px-6 pb-2 pt-5">
           <div className="min-w-0">
@@ -325,7 +330,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
 
         {/* search box */}
         <div className="px-6">
-          <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5 focus-within:border-accent">
+          <div className="flex items-center gap-3 rounded-md border border-control-border bg-transparent px-3 py-2.5 focus-within:border-accent">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0 text-ink-faint" aria-hidden="true">
               <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
             </svg>
@@ -358,8 +363,9 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
               key={q}
               onClick={() => setQuote(q)}
               aria-pressed={quote === q}
-              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
-                quote === q ? "bg-ink font-medium text-bg" : "bg-surface-2 text-ink-muted hover:text-ink"
+              /* The same chip the venue filters beside them already use. */
+              className={`tvc-control shrink-0 rounded-md px-3 py-1 text-sm ${
+                quote === q ? "font-medium text-ink" : "text-ink-muted hover:text-ink"
               }`}
             >
               {q === ALL_QUOTES ? "All quotes" : q}
@@ -434,12 +440,18 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                 aria-current={isCurrent ? "true" : undefined}
                 className={`flex w-full items-center gap-2 border-b border-border/60 px-3 py-3 text-left sm:gap-4 sm:px-6 ${
                   i === cursor ? "bg-surface-2" : "hover:bg-state-hover/50"
-                } ${isCurrent ? "border-l-2 border-l-accent" : "border-l-2 border-l-transparent"}`}
+                } ${/* accent-is-meaning: "you are here" — this row is the instrument
+                       already on the chart, which is a fact about the row rather
+                       than a selection the user has made in this list. It is said
+                       in words too, by the "on this chart" badge beside it. */
+                  isCurrent ? "border-l-2 border-l-accent" : "border-l-2 border-l-transparent"}`}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-bold text-ink-muted">
+                {/* A three-letter mark, not an avatar: `rounded-full` on every
+                    row made a symbol list read as a contacts list. */}
+                <span className="flex h-6 w-9 shrink-0 items-center justify-center rounded-md bg-surface-2 text-[10px] font-semibold uppercase text-ink-faint">
                   {r.baseAsset.slice(0, 3)}
                 </span>
-                <span className="w-[90px] shrink-0 truncate font-semibold text-accent sm:w-[150px]">{r.symbol}</span>
+                <span className="w-[90px] shrink-0 truncate font-semibold text-ink sm:w-[150px]">{r.symbol}</span>
                 <span className="hidden min-w-0 flex-1 truncate text-sm text-ink-muted sm:block">
                   {r.baseAsset} / {r.quoteAsset}
                 </span>
