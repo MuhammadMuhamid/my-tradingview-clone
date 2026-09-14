@@ -9,6 +9,7 @@ import { EditAlertModal } from "@/components/tv/EditAlertModal";
 import { StaleNotice } from "@/components/StaleNotice";
 import { TradeOrderTimeline } from "@/components/TradeOrderTimeline";
 import { api, type PaperResult } from "@/lib/api";
+import { describeAction, describeFailure, type FailureCopy } from "@/lib/errorCopy";
 import { freshAt, type Freshness } from "@/lib/freshness";
 import { deliversLiveOrders } from "@/lib/types";
 import { activationAcknowledgement } from "@/lib/deploymentConsent";
@@ -36,7 +37,16 @@ export default function DeploymentsPage() {
    */
   const [freshness, setFreshness] = useState<Freshness>({ lastOkAt: null, lastError: null });
   /** The most recent failed action, which is separate from a failed poll. */
-  const [actionError, setActionError] = useState<string | null>(null);
+  /*
+   * REV-UX-01: a FailureCopy, not a string.
+   *
+   * This was `Could not ${what} ${symbol}: ${(e as Error).message}` rendered
+   * in an error `Notice` — the most prominent thing on the Trading page, with
+   * a backend exception spliced into the middle of the sentence. The cause is
+   * not discarded; it is the banner's tooltip, which is where a bug report
+   * gets it from.
+   */
+  const [actionError, setActionError] = useState<FailureCopy | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -72,7 +82,7 @@ export default function DeploymentsPage() {
     try {
       setPaper(await api.paperResult(id));
     } catch (e) {
-      setActionError((e as Error).message);
+      setActionError(describeFailure(e, "The simulated fills"));
     }
   };
 
@@ -91,7 +101,7 @@ export default function DeploymentsPage() {
       await fn();
       await refresh();
     } catch (e) {
-      setActionError(`Could not ${what} ${d.symbol}: ${(e as Error).message}`);
+      setActionError(describeAction(e, `${what} ${d.symbol}`));
       // Re-read, so the row shows what the server actually holds rather than
       // what the click implied.
       await refresh();
@@ -147,7 +157,7 @@ export default function DeploymentsPage() {
       <StaleNotice state={freshness} />
       {actionError && (
         <Notice tone="error" role="alert" onDismiss={() => setActionError(null)}>
-          {actionError}
+          <span title={actionError.detail}>{actionError.headline}</span>
         </Notice>
       )}
 

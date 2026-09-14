@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, Empty, PageHeader, PageShell, StatusBadge } from "@/components/ui";
+import { shortReason } from "@/lib/errorCopy";
 import { BacktestForm } from "@/components/BacktestForm";
 import { api } from "@/lib/api";
 import type { Backtest, SymbolInfo } from "@/lib/types";
@@ -58,7 +59,8 @@ export default function BacktestsPage() {
         {error && rows.length === 0 ? (
           <div role="alert" className="px-4 py-8 text-center text-sm text-down">
             The backtest list could not be loaded, so this is not a statement that you have none.
-            <span className="mt-1 block text-xs text-ink-faint">{error}</span>
+            {/* REV-UX-01: the cause is the tooltip, not a second line of prose. */}
+            <span className="mt-1 block text-xs text-ink-faint" title={error}>{shortReason(error)}</span>
           </div>
         ) : !loaded ? (
           <div role="status" className="px-4 py-8 text-center text-sm text-ink-faint">Loading backtests…</div>

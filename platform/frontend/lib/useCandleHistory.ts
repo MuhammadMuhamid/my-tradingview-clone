@@ -26,6 +26,7 @@ import { datasetKey } from "./liveDataset";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import type { Candle } from "./types";
 import { resolutionMs, type Resolution } from "./resolution";
+import { describeFailure, type FailureCopy } from "./errorCopy";
 import { canonicalDisplayParts, isCanonicalInstrumentId, isEquityInstrumentId, isTraditionalInstrumentId } from "./instrument";
 import { subscribeCanonicalMarket } from "./canonicalMarketStream";
 
@@ -270,7 +271,18 @@ export function useCandleHistory(
   const [held, setHeld] = useState<HeldWindow>(
     () => heldWindow(candleHistory.peek(request) ?? [], { symbol, interval, bars }));
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /*
+   * REV-UX-01: the headline and the cause are SEPARATE, and always have been
+   * in this hook's own documented contract above — the stream-warning path
+   * honoured it and the hard-error path did not, so a 502 from the candles
+   * route put `invalid SOLUSDT 15m backfill: invalid_close_time` across the
+   * top of the plot as the most prominent sentence on the page.
+   *
+   * Holding one object rather than two pieces of state is what makes that
+   * impossible rather than merely discouraged: there is no way to set the
+   * headline without having said what the cause was.
+   */
+  const [failure, setFailure] = useState<FailureCopy | null>(null);
   const [streamWarning, setStreamWarning] =
     useState<{ message: string; detail: string | null } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -285,7 +297,7 @@ export function useCandleHistory(
     const cached = candleHistory.peek(window_);
     if (cached) {
       setHeld(heldWindow(cached, window_));
-      setError(null); setLoading(false); return;
+      setFailure(null); setLoading(false); return;
     }
     // X5 credential/subscription-gated markets commonly fail before returning
     // their first bar. Keeping the previous symbol's window under the new FX,
@@ -295,7 +307,7 @@ export function useCandleHistory(
     if (isTraditionalInstrumentId(symbol)) setHeld(heldWindow([], window_));
     const signal = inFlight.current.start();
     setLoading(true);
-    setError(null);
+    setFailure(null);
     try {
       const data = await candleHistory.load(window_, loadCandleWindow, signal);
       // The response is applied ONLY if it is still the one being waited for.
@@ -305,7 +317,7 @@ export function useCandleHistory(
       // An abort is this pane superseding itself, not a failure to report.
       if (isAbortError(cause)) return;
       if (!requestSeq.current.isCurrent(token)) return;
-      setError((cause as Error).message);
+      setFailure(describeFailure(cause, "Price history"));
     } finally {
       if (requestSeq.current.isCurrent(token)) setLoading(false);
     }
@@ -441,12 +453,12 @@ export function useCandleHistory(
     () => ({
       candles: held.candles, dataset: held.dataset, stale: held.stale,
       loading,
-      error: error ?? streamWarning?.message ?? null,
-      errorDetail: error ? null : streamWarning?.detail ?? null,
-      errorLevel: error ? "error" : streamWarning ? "notice" : null,
+      error: failure?.headline ?? streamWarning?.message ?? null,
+      errorDetail: failure?.detail ?? (failure ? null : streamWarning?.detail ?? null),
+      errorLevel: failure ? "error" : streamWarning ? "notice" : null,
       mergeLiveBars, reload,
     }),
-    [held, loading, error, streamWarning, mergeLiveBars, reload]
+    [held, loading, failure, streamWarning, mergeLiveBars, reload]
   );
 }
 

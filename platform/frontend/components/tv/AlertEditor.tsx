@@ -17,6 +17,7 @@ import {
 } from "@/lib/alertEditing";
 import { describeAlert, alertColor } from "@/lib/alerts";
 import type { Interval } from "@/lib/types";
+import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
 /**
  * The one editor every armed alert opens into.
@@ -45,7 +46,7 @@ export function AlertEditor({
   const ask = useAsk();
   const [form, setForm] = useState<AlertEditForm | null>(null);
   const [busy, setBusy] = useState<"save" | "delete" | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
 
   // Refill from the server's copy every time a different alert is opened, so a
   // dialog can never show values left over from the previous one.
@@ -71,7 +72,7 @@ export function AlertEditor({
 
   const save = async (): Promise<void> => {
     const problem = validateAlertForm(kind, form);
-    if (problem) { setErr(problem); return; }
+    if (problem) { setErr(said(problem)); return; }
     if (!patch || !dirty) { onClose(); return; }
     setBusy("save");
     setErr(null);
@@ -84,7 +85,7 @@ export function AlertEditor({
     } catch (e) {
       // Deliberately leaves the dialog open with the server's values still
       // behind it: a failed save must never look like a committed one.
-      setErr((e as Error).message);
+      setErr(describeAction(e, "save the alert"));
     } finally {
       setBusy(null);
     }
@@ -104,7 +105,7 @@ export function AlertEditor({
       onDeleted(alert, `Deleted ${alert.symbol} · ${describeAlert(alert)}`);
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "delete the alert"));
     } finally {
       setBusy(null);
     }
@@ -724,8 +725,9 @@ export function AlertEditor({
         </p>
 
         {err && (
-          <p role="alert" className="rounded-md border border-down/30 bg-down/10 px-2.5 py-2 text-sm text-down">
-            {err}
+          <p role="alert" title={err.detail || undefined}
+            className="rounded-md border border-down/30 bg-down/10 px-2.5 py-2 text-sm text-down">
+            {err.headline}
           </p>
         )}
       </div>

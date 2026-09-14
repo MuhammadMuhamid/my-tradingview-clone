@@ -18,6 +18,7 @@ import { describeAlert } from "@/lib/alerts";
 import { fmtPrice } from "@/lib/format";
 import { ALERT_INTERVAL_VALUES, type Interval } from "@/lib/types";
 import { displayTicker } from "@/lib/instrument";
+import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
 /** Every timeframe the backend supports, in the order the toolbar shows them. */
 
@@ -81,7 +82,7 @@ export function PriceAlertModal({
   const [armed, setArmed] = useState(true);
   const [cooldownMin, setCooldownMin] = useState(DEFAULT_COOLDOWN_MIN);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
 
   /*
    * Reopening must not inherit the previous level, so everything the dialog
@@ -145,7 +146,7 @@ export function PriceAlertModal({
      (direction === "cross_down" && lastPrice < target));
 
   const save = async () => {
-    if (!valid) { setErr("Enter a price above zero."); return; }
+    if (!valid) { setErr(said("Enter a price above zero.")); return; }
     setBusy(true);
     setErr(null);
     try {
@@ -159,7 +160,7 @@ export function PriceAlertModal({
       onSaved(`${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} · ${describeAlert(row)}`);
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -173,7 +174,7 @@ export function PriceAlertModal({
       onSaved(`Alert removed — ${displayTicker(symbol)} ${fmtPrice(match.targetPrice)}`);
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -304,7 +305,7 @@ export function PriceAlertModal({
             This level already has a {timeframe} alert for that condition; saving updates it.
           </p>
         )}
-        {err && <p className="text-sm text-down" role="alert">{err}</p>}
+        {err && <p className="text-sm text-down" role="alert" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>
   );

@@ -221,11 +221,19 @@ export function ProductMenu({ buttonClass }: ProductMenuProps) {
                   {stream.label}
                 </span>
               )}
-              <span className="flex items-center gap-1.5" title={health.summary}>
+              {/*
+                REV-UX-01: this used to sniff `health.summary` for a prefix to
+                decide whether the summary was safe to show — a workaround for
+                a summary that sometimes carried a backend exception. It never
+                worked as a rule (it matched a PREFIX, so the raw cause was
+                still in the tooltip beneath it), and it is no longer needed:
+                `useOpsHealth` now separates the sentence from the cause, so
+                the sentence is the label's tooltip and the cause is beside it.
+              */}
+              <span className="flex items-center gap-1.5"
+                title={health.detail ? `${health.summary} ${health.detail}` : health.summary}>
                 <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${HEALTH_DOT[health.tone]}`} />
-                {health.label === "Unknown" && health.summary.startsWith("Operations status could not be read")
-                  ? "System status unavailable"
-                  : `System ${health.label}`}
+                {health.detail ? "System status unavailable" : `System ${health.label}`}
               </span>
             </div>
           </div>

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
 import { api } from "@/lib/api";
+import { shortReason } from "@/lib/errorCopy";
 import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Deployment } from "@/lib/types";
 
@@ -138,7 +139,8 @@ export function EditAlertModal({
             {deployment.runtimeState.position === "long" &&
               " This alert is currently in a position; the new buy size applies to the next entry."}
           </p>
-          {err && <p className="text-sm text-down">{err}</p>}
+          {/* REV-UX-01: the cause is the tooltip; the sentence is the reader's. */}
+          {err && <p className="text-sm text-down" title={err}>The alert was not saved. {shortReason(err)}</p>}
         </div>
       )}
     </Modal>

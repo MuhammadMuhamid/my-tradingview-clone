@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import {
   disablePush, enablePush, iosNeedsInstall, pushState, pushSupported,
   refreshSubscription, subscribedHere,
@@ -29,7 +30,7 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
   /** Server-wide subscription count — every device, not this one. */
   const [devices, setDevices] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
 
   // Permission state is only readable in the browser, so resolve after mount
   // to keep the server-rendered markup stable.
@@ -58,7 +59,7 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
       await fn();
       await refresh();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "change push notifications"));
     } finally {
       setBusy(false);
     }
@@ -138,7 +139,7 @@ export function PushSetup({ onMessage }: { onMessage: (m: string) => void }) {
           Re-allow notifications for this site in your browser settings, then reload.
         </p>
       )}
-      {err && <p className="mt-1.5 text-[11px] text-down">{err}</p>}
+      {err && <p className="mt-1.5 text-[11px] text-down" title={err.detail || undefined}>{err.headline}</p>}
     </Box>
   );
 }

@@ -24,7 +24,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { captureLayoutWorkspace, restoreLayoutWorkspace } from "@/lib/layoutWorkspace";
-import { shortReason } from "@/components/ui";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import { useAsk } from "@/components/AskDialog";
 import { type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import { ChartPane } from "@/components/tv/ChartPane";
@@ -273,7 +273,13 @@ export default function TvWorkspace() {
     setReplay((current) => (current ? reconcileReplay(current, candles) : null));
   }, [candles]);
 
-  const [err, setErr] = useState<string | null>(null);
+  /*
+   * REV-UX-01: a FailureCopy, so the band cannot be a place a raw cause lands.
+   * The render used to sanitise this string with a regular expression, which
+   * is a filter over copy that should never have been unsafe in the first
+   * place — and which mangled the one message that was already a sentence.
+   */
+  const [err, setErr] = useState<FailureCopy | null>(null);
 
   // ── strategy tester (workspace-wide: one tester, on the focused chart) ──
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -942,7 +948,7 @@ export default function TvWorkspace() {
         `Best ${displayTicker(symbol)} config applied${net != null ? ` · +${net.toFixed(1)}%` : ""}${dd != null ? ` · DD ${dd.toFixed(1)}%` : ""}`
       );
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "apply the best configuration"));
     } finally {
       setLoadingBest(false);
     }
@@ -1003,7 +1009,7 @@ export default function TvWorkspace() {
       );
       window.history.replaceState({}, "", "/chart");
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "apply that configuration"));
     } finally {
       setLoadingBest(false);
     }
@@ -1168,7 +1174,7 @@ export default function TvWorkspace() {
     // must not be reachable from this one.
     drawingStore.resetReplay(symbol, []);
     const next = startReplay(candles, requestedTime);
-    if (!next) { setErr("No completed candle exists at or before that replay point."); return; }
+    if (!next) { setErr({ headline: "No completed candle exists at or before that replay point.", detail: "" }); return; }
     setReplay(next);
     setReplayPickerOpen(false);
     setReplayDrawings([]);
@@ -1986,11 +1992,9 @@ export default function TvWorkspace() {
           report gets it from.
         */}
         {err && (
-          <div title={err}
+          <div title={err.detail || undefined}
             className="border-b border-down/30 bg-down/10 px-3 py-1.5 text-xs text-down">
-            {err.length > 80 || /\b(4\d\d|5\d\d|fetch|http|\/api\/)/i.test(err)
-              ? `That did not work. ${shortReason(err)}`
-              : err}
+            {err.headline}
           </div>
         )}
 

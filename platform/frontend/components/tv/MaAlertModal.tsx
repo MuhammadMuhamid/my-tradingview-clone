@@ -17,6 +17,7 @@ import {
 import { ALERT_INTERVAL_VALUES, type Interval } from "@/lib/types";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { displayTicker } from "@/lib/instrument";
+import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
 /** Every timeframe the backend supports, in the order the toolbar shows them. */
 
@@ -71,7 +72,7 @@ export function MaAlertModal({
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
 
   // Reopening on a different line must not inherit the previous line's timeframe.
   useEffect(() => {
@@ -107,7 +108,7 @@ export function MaAlertModal({
 
   const save = async () => {
     if (isNear && nearMaxPct <= nearMinPct) {
-      setErr("The far edge of the band must be larger than the near edge.");
+      setErr(said("The far edge of the band must be larger than the near edge."));
       return;
     }
     setBusy(true);
@@ -125,7 +126,7 @@ export function MaAlertModal({
       );
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -139,7 +140,7 @@ export function MaAlertModal({
       onSaved(`Alert removed — ${displayTicker(symbol)} ${timeframe} ${label}`);
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -261,7 +262,7 @@ export function MaAlertModal({
             This line already has a {timeframe} alert for that condition; saving updates it.
           </p>
         )}
-        {err && <p className="text-sm text-down">{err}</p>}
+        {err && <p className="text-sm text-down" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>
   );

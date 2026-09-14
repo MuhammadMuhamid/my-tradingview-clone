@@ -7,6 +7,7 @@ import { freshAt, type Freshness } from "@/lib/freshness";
 import type { Alert, Deployment } from "@/lib/types";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 import { StatusBadge } from "@/components/ui";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import { EditAlertModal } from "./EditAlertModal";
 
 /**
@@ -33,7 +34,8 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
    * money is moving is the one place a frozen answer is unacceptable.
    */
   const [freshness, setFreshness] = useState<Freshness>({ lastOkAt: null, lastError: null });
-  const [actionError, setActionError] = useState<string | null>(null);
+  /* REV-UX-01: the headline is the reader's, the cause is the tooltip's. */
+  const [actionError, setActionError] = useState<FailureCopy | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -65,7 +67,7 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
     try {
       await fn();
     } catch (e) {
-      setActionError(`Could not ${what} ${d.symbol}: ${(e as Error).message}`);
+      setActionError(describeAction(e, `${what} ${d.symbol}`));
     } finally {
       // Always re-read: the row must show what the server holds, not what the
       // click intended.
@@ -109,8 +111,9 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
         <div className="space-y-1.5 border-b border-border px-2 py-2">
           <StaleNotice state={freshness} />
           {actionError && (
-            <div role="alert" className="rounded-md border border-down/40 bg-down/10 px-2.5 py-1.5 text-[11px] text-down">
-              {actionError}
+            <div role="alert" title={actionError.detail}
+              className="rounded-md border border-down/40 bg-down/10 px-2.5 py-1.5 text-[11px] text-down">
+              {actionError.headline}
             </div>
           )}
         </div>

@@ -304,11 +304,28 @@ test("CONTRACT — no workstation surface reverts to the pre-TVP7 hover", () => 
     `only ${using.length} files use the state hover — this rule has stopped reading`);
 });
 
-test("CONTRACT — a provider's raw words are never a headline", () => {
+test("CONTRACT — a provider's raw words are never a headline (STRUCTURE ONLY)", () => {
   /*
-   * `useCandleHistory` used to concatenate the provider's exception into the
-   * sentence it rendered across the top of the chart, so a working chart could
-   * be captioned with a URL-encoded route path.
+   * ── What this test is, and what it is NOT ─────────────────────────────────
+   *
+   * READ THIS BEFORE TRUSTING IT. Everything below is a regular expression
+   * over SOURCE TEXT. It cannot see what the page says, and it did not:
+   *
+   * this test was green for the whole of TVP7 and most of TVP8 while the hook
+   * it reads put `invalid SOLUSDT 15m backfill: invalid_close_time` across the
+   * top of the plot as the most prominent sentence on the page. It passed
+   * because the identifiers it greps for were present — in the OTHER branch.
+   * The stream-warning path split headline from cause; the hard-error path did
+   * `setError((cause as Error).message)` and set no detail at all. A test that
+   * asks whether a word appears in a file cannot tell those two apart.
+   *
+   * The rule itself is pinned by `tests/dom/providerFailureCopy.test.tsx`,
+   * which mounts the real workspace against a fixture that refuses the candles
+   * route and reads the DOM. That is the test to change if the rule changes.
+   *
+   * This one is kept for what it can honestly do: catch the two channels being
+   * DELETED outright, cheaply, in the unit suite. It is a smoke alarm, not an
+   * inspection, and its name now says so.
    */
   const hook = read("lib/useCandleHistory.ts");
   assert.match(hook, /errorDetail/, "the technical cause has its own channel");
@@ -317,6 +334,17 @@ test("CONTRACT — a provider's raw words are never a headline", () => {
     "a cause may be carried, never interpolated into the user's sentence");
   assert.match(read("components/tv/ChartPane.tsx"), /title=\{history\.errorDetail/,
     "the cause belongs in the tooltip");
+
+  /*
+   * The one thing this file CAN check that the DOM test cannot: that the
+   * behavioural test still exists and still drives the hook. A rule whose only
+   * real coverage is one file is a rule that a deletion silently repeals.
+   */
+  const behavioural = read("tests/dom/providerFailureCopy.test.tsx");
+  assert.match(behavioural, /mountChart/,
+    "the rule's real coverage must mount the product, not read it");
+  assert.match(behavioural, /assertRefused/,
+    "and must fail if it never reached the failure path");
 });
 
 test("CONTRACT — every settings control reaches something", () => {

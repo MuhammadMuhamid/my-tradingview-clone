@@ -322,7 +322,8 @@ function SystemMenu({ path }: { path: string }) {
               <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${HEALTH_DOT[health.tone]}`} />
               <span className="font-medium">{health.label}</span>
             </div>
-            <p className="mt-0.5 text-[11px] leading-tight text-ink-faint">
+            <p className="mt-0.5 text-[11px] leading-tight text-ink-faint"
+              title={health.detail ?? undefined}>
               {health.summary}
             </p>
           </div>

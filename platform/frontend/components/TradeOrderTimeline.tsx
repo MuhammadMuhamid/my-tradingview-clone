@@ -1,4 +1,5 @@
 "use client";
+import { shortReason } from "@/lib/errorCopy";
 import { useEffect, useState } from "react";
 import { api, type TimelineItem, type TradingTimeline } from "@/lib/api";
 
@@ -85,8 +86,10 @@ export function TradeOrderTimeline({ kind, id }: {
     return () => { active = false; };
   }, [kind, id]);
 
-  if (error) return <div role="alert" className="border-t border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
-    Timeline unavailable: {error}
+  /* REV-UX-01: this read `Timeline unavailable: 502 Bad Gateway`. */
+  if (error) return <div role="alert" title={error}
+    className="border-t border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
+    Timeline unavailable. {shortReason(error)}
   </div>;
   if (!timeline) return <div role="status" className="border-t border-border px-3 py-3 text-xs text-ink-faint">
     Loading persisted timeline…

@@ -92,7 +92,7 @@ export default function BacktestDetail() {
   if (err && !bt) return shell(
     <Notice tone="error" role="alert">
       This backtest could not be loaded.
-      <span className="mt-1 block text-xs text-ink-faint">{err}</span>
+      <span className="mt-1 block text-xs text-ink-faint" title={err}>{shortReason(err)}</span>
     </Notice>
   );
   if (!bt) return shell(<div role="status" className="text-ink-faint">Loading…</div>);
@@ -113,7 +113,7 @@ export default function BacktestDetail() {
       {err && (
         <Notice tone="error" role="alert">
           This page stopped updating.
-          <span className="ml-1 text-ink-faint">{err}</span>
+          <span className="ml-1 text-ink-faint" title={err}>{shortReason(err)}</span>
         </Notice>
       )}
 

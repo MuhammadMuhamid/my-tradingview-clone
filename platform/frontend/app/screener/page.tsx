@@ -196,7 +196,8 @@ export default function ScannerPage() {
                 ? "Screening runs in a separate service that this Platform has not been pointed at. The chart, alerts, trading and the Journal do not depend on it."
                 : "The screening service did not answer. The chart, alerts, trading and the Journal do not depend on it; this page will work again once the service is reachable."}
             </p>
-            <p className="mt-2 text-[11px] text-ink-faint">{error}</p>
+            {/* REV-UX-01: this line was the raw thrown message. */}
+            <p className="mt-2 text-[11px] text-ink-faint" title={error}>{shortReason(error)}</p>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <button className="scanner-control" onClick={() => void load()}>Retry</button>
               {unconfigured && (
@@ -345,7 +346,7 @@ export default function ScannerPage() {
           <p role="alert" className="mt-1 text-xs text-warn">
             Shariah classifications could not be read, so the status column and Shariah Mode are
             not shown here. This screen only reports them — buying is gated by the server either
-            way. <span className="text-ink-faint">{shariahError}</span>
+            way. <span className="text-ink-faint" title={shariahError}>{shortReason(shariahError)}</span>
           </p>
         )}
         {spotCategory && shariahStatuses && (

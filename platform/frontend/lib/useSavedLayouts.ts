@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
 import * as layoutStore from "./layouts";
 import type { Layout, WorkspaceState } from "./layouts";
+import { describeAction, type FailureCopy } from "./errorCopy";
 
 /** JSON.stringify with recursively sorted keys — server JSONB reorders keys. */
 function stableStringify(v: unknown): string {
@@ -51,7 +52,12 @@ export interface SavedLayoutsInput {
   /** The default name a "save" prompt offers. */
   defaultName: string;
   onToast: (message: string) => void;
-  onError: (message: string) => void;
+  /**
+   * REV-UX-01: a `FailureCopy`, so a layout failure cannot be reported by
+   * splicing a backend exception into the middle of a sentence. Six call sites
+   * below did exactly that, two of them passing the exception ALONE.
+   */
+  onError: (failure: FailureCopy) => void;
 }
 
 export interface SavedLayoutsApi {
@@ -176,7 +182,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
     } catch (e) {
       // Previously this reported "Layout saved" whether or not anything was
       // saved, which is the one thing a save confirmation must never do.
-      onError(`Layout not saved: ${(e as Error).message}`);
+      onError(describeAction(e, "save the layout"));
     }
   }, [currentLayoutId, workspaceState, defaultName, refreshLayouts, onToast, onError, ask]);
 
@@ -203,7 +209,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       void layoutStore.createLayout(name, workspaceState).then(async (l) => {
         setCurrentLayoutId(l.id);
         await refreshLayouts();
-      }).catch((e) => onError((e as Error).message));
+      }).catch((e) => onError(describeAction(e, "switch layout")));
       });
     },
     onCopy: () => {
@@ -215,7 +221,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       void layoutStore.createLayout(name, workspaceState).then(async (l) => {
         setCurrentLayoutId(l.id);
         await refreshLayouts();
-      }).catch((e) => onError((e as Error).message));
+      }).catch((e) => onError(describeAction(e, "create the layout")));
       });
     },
     onRename: () => {
@@ -227,7 +233,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       if (name === null) return;
       void layoutStore.renameLayout(currentLayoutId, name)
         .then(refreshLayouts)
-        .catch((e: Error) => onError(`Layout not renamed: ${e.message}`));
+        .catch((e: Error) => onError(describeAction(e, "rename the layout")));
       });
     },
     onDelete: (id: string) => {
@@ -241,7 +247,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
         if (id === currentLayoutId) setCurrentLayoutId(null);
         await refreshLayouts();
       }).catch(async (e: Error) => {
-        onError(`Layout not deleted: ${e.message}`);
+        onError(describeAction(e, "delete the layout"));
         await refreshLayouts();
       });
       });

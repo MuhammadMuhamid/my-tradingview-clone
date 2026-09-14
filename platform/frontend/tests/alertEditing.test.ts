@@ -417,8 +417,22 @@ test("the editor refreshes from the server rather than trusting the form", () =>
   const editor = read("components/tv/AlertEditor.tsx");
   assert.match(editor, /api\.updateMaAlert\(alert\.id, patch\)/);
   assert.match(editor, /onSaved\(updated,/, "the row shown after a save must be the server's");
-  // A failed save must not close the dialog or report success.
-  assert.match(editor, /catch \(e\) \{\s*\/\/[\s\S]*?setErr\(\(e as Error\)\.message\)/);
+  /*
+   * A failed save must not close the dialog or report success.
+   *
+   * REV-UX-01 changed the spelling here: the catch used to be
+   * `setErr((e as Error).message)`, which put the backend's own words into the
+   * dialog as copy, and is now `setErr(describeAction(e, …))`. What this
+   * assertion is ABOUT is that the catch reports rather than closing — so it
+   * is pinned on `setErr` being called and `onSaved`/`onClose` not being, not
+   * on how the message is built.
+   */
+  const saveCatch = /catch \(e\) \{[^}]*setErr\([^)]*\)/.exec(editor)?.[0] ?? "";
+  assert.ok(saveCatch.length > 0, "a failed save is swallowed — nothing is reported");
+  assert.doesNotMatch(saveCatch, /onSaved|onClose/,
+    "a failed save must not close the dialog or report success");
+  assert.doesNotMatch(editor, /setErr\(\(e as Error\)\.message\)/,
+    "the backend's own words are not the dialog's copy — see tests/rawCauseCopy.test.ts");
 });
 
 // ── every family can actually be edited ────────────────────────────────────

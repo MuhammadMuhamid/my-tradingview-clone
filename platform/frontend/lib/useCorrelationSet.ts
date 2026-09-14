@@ -32,6 +32,7 @@ import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard"
 import { loadCandleWindow, repairStaleTail } from "./useCandleHistory";
 import type { MatrixSeries } from "./correlationMatrix";
 import type { Resolution } from "./resolution";
+import { causeText, failureReason } from "./errorCopy";
 
 /**
  * How many instruments one table may cover.
@@ -53,7 +54,14 @@ export interface CorrelationSet {
   interval: Resolution | null;
   bars: number;
   /** Instruments that could not be loaded, and why. */
-  errors: { symbol: string; message: string }[];
+  /**
+   * One row per instrument that could not be loaded.
+   *
+   * REV-UX-01: `message` used to be `(cause as Error).message` and the panel
+   * rendered it as a sentence — "SOLUSDT could not be loaded: 502 Bad
+   * Gateway". The reason is the reader's; the cause is the tooltip's.
+   */
+  errors: { symbol: string; message: string; detail: string }[];
   /** How many instruments were dropped for being past the cap. */
   truncated: number;
 }
@@ -106,7 +114,7 @@ export function useCorrelationSet(
     });
 
     const series: MatrixSeries[] = [];
-    const errors: { symbol: string; message: string }[] = [];
+    const errors: { symbol: string; message: string; detail: string }[] = [];
     let cursor = 0;
     const worker = async (): Promise<void> => {
       for (;;) {
@@ -124,7 +132,7 @@ export function useCorrelationSet(
           });
         } catch (cause) {
           if (isAbortError(cause)) return;
-          errors.push({ symbol, message: (cause as Error).message });
+          errors.push({ symbol, message: failureReason(cause), detail: causeText(cause) });
         }
       }
     };

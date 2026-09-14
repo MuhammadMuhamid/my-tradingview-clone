@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Card, CardHeader, Button, Field, TextInput, Select } from "@/components/ui";
 import { ParamForm } from "@/components/ParamForm";
 import { api } from "@/lib/api";
+import { shortReason } from "@/lib/errorCopy";
 import { defaultParams } from "@/lib/paramSchema";
 import type { Interval, StrategyParams, SymbolInfo } from "@/lib/types";
 import { displaySymbol } from "@/lib/instrument";
@@ -100,7 +101,10 @@ export function BacktestForm({
           <p className="mt-1 text-[11px] text-ink-faint">Unsupported session, adjustment, funding, roll or execution semantics fail before a run is queued.</p>
         </section>
 
-        {err && <div className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{err}</div>}
+        {/* REV-UX-01: the cause is the tooltip; the sentence is the reader's. */}
+        {err && <div title={err} className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">
+          The backtest could not be queued. {shortReason(err)}
+        </div>}
 
         <div className="flex items-center gap-3">
           <Button variant="primary" onClick={submit} disabled={busy}>

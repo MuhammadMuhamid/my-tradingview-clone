@@ -184,13 +184,18 @@ export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
  *
  * The raw cause is kept: it is the tooltip, and it is what a support request
  * needs. It is just not the headline.
+ *
+ * ── REV-UX-01: this is a RE-EXPORT now, and was not before ─────────────────
+ *
+ * `lib/errorCopy.ts` says in its own docstring that "`ui.tsx` re-exports it.
+ * One implementation, reachable from both sides." That was the intent and it
+ * was not what the code did: this file carried a second, independent copy of
+ * the four branches, so the rule had two implementations that could drift and
+ * one of them was invisible to anyone reading the other. They had not drifted
+ * yet. Re-exporting is what the comment always claimed.
  */
-export function shortReason(raw: string): string {
-  if (/\b(401|403|unauthor|forbidden)/i.test(raw)) return "You may need to sign in again.";
-  if (/\b(404|no route)/i.test(raw)) return "This environment does not serve it.";
-  if (/\b(5\d\d|timeout|fetch failed|network)/i.test(raw)) return "The service did not answer. Try again shortly.";
-  return "Hover for the reason reported.";
-}
+export { shortReason } from "@/lib/errorCopy";
+import { shortReason } from "@/lib/errorCopy";
 
 /**
  * What went wrong, in the reader's words, with the cause on hover.

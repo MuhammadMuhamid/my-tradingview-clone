@@ -16,6 +16,7 @@ import {
 } from "@/lib/watchlistOrder";
 import { canonicalDisplayParts, canonicalizeLegacySpotSymbol, displaySymbol, instrumentTypeLabel, isCanonicalInstrumentId } from "@/lib/instrument";
 import { CaretGlyph } from "@/components/ui";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 
 interface Ticker { last: number; chg: number; chgPct: number; stale?: boolean; changeKnown?: boolean }
 type NamedWatchlist = ServerWatchlist;
@@ -90,7 +91,7 @@ export function Watchlist({
    * closes it; only the default changed.
    */
   const [addOpen, setAddOpen] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
   /*
    * TVP7: this was `useState(false)` — a private open flag beside a popover,
    * which is exactly the shape `lib/popoverGroup` exists to prevent. It went
@@ -153,7 +154,7 @@ export function Watchlist({
         const pick = rows.find((l) => l.id === stored) ?? rows[0] ?? null;
         setActiveId(pick?.id ?? null);
       } catch (e) {
-        setErr((e as Error).message);
+        setErr(describeAction(e, "load the watchlist"));
         setLists([]);
       }
     })();
@@ -207,7 +208,7 @@ export function Watchlist({
     const next = fn(active);
     setLists((prev) => prev?.map((l) => (l.id === next.id ? next : l)) ?? prev);
     api.updateWatchlist(next.id, { name: next.name, symbols: next.symbols })
-      .catch((e: Error) => setErr(e.message));
+      .catch((e: Error) => setErr(describeAction(e, "read the watchlists")));
   };
 
   /*
@@ -316,7 +317,7 @@ export function Watchlist({
         symbols: [...l.symbols, ...resolved.filter((s) => !l.symbols.includes(s))],
       }));
       setAdding("");
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) { setErr(describeAction(e, "create the list")); }
   };
 
   const add = async () => {
@@ -340,7 +341,7 @@ export function Watchlist({
     try {
       const created = await api.upsertWatchlist({ name, symbols: [], position: lists.length });
       await reload(created.id);
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) { setErr(describeAction(e, "rename the list")); }
   };
   const renameList = async () => {
     if (!active) return;
@@ -362,7 +363,7 @@ export function Watchlist({
     try {
       await api.deleteWatchlist(active.id);
       await reload(lists.find((l) => l.id !== active.id)?.id);
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) { setErr(describeAction(e, "delete the list")); }
   };
 
   const px = (n: number) => {
@@ -453,7 +454,7 @@ export function Watchlist({
             className="rounded-sm bg-accent px-2 py-1 text-[13px] font-medium text-white disabled:opacity-40">Add</button>
         </div>
       )}
-      {err && <div className="px-3 py-1.5 text-xs text-down">{err}</div>}
+      {err && <div className="px-3 py-1.5 text-xs text-down" title={err.detail || undefined}>{err.headline}</div>}
       {/*
         Column headers that sort. A third click returns to the user's own
         order, so a sort is never a one-way door out of an arrangement they

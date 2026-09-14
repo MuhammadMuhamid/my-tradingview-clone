@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type SymbolSearchResult } from "@/lib/api";
+import { shortReason } from "@/lib/errorCopy";
 import {
   ALL_QUOTES, ALL_TYPES, ALL_VENUES, LIVE_EXPIRIES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, dialogClosed, moveCursor,
   pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor, searchKey,
@@ -408,7 +409,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
           {err && (
             <div role="alert" className="m-4 rounded-md border border-down/30 bg-down/10 px-4 py-3 text-sm text-down">
               <p className="font-medium">Symbol search is unavailable.</p>
-              <p className="mt-0.5 text-[13px] text-down/90">{err}</p>
+              {/* REV-UX-01: this line was the raw thrown message. */}
+              <p className="mt-0.5 text-[13px] text-down/90" title={err}>{shortReason(err)}</p>
               <p className="mt-1 text-[13px] text-ink-muted">
                 The chart keeps its current symbol. Nothing was changed.
               </p>

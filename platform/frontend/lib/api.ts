@@ -644,6 +644,51 @@ export interface PaperResult {
   }>;
 }
 
+/**
+ * A failed request, with the one fact the caller cannot recover from prose.
+ *
+ * ── Why the status travels ─────────────────────────────────────────────────
+ *
+ * `req` used to throw a plain `Error` whose `message` was the server's own
+ * `error` field WHEN THERE WAS ONE, and `"502 Bad Gateway"` when there was
+ * not. Those two are not the same kind of string, and every consumer that
+ * wanted to say something useful to a reader had to guess which it had got by
+ * running a regular expression over it — `lib/errorCopy.ts` still carries the
+ * regexes that were written for exactly that guess.
+ *
+ * The guess is wrong in both directions. A provider that replies
+ * `invalid SOLUSDT 15m backfill: invalid_close_time` to a 502 contains no
+ * status at all, so it reads as "no idea"; and a symbol or a price with three
+ * digits in it reads as an HTTP code that was never sent. The response knew
+ * the answer and discarded it.
+ *
+ * So the status is carried, and `detail` is the server's words kept verbatim
+ * for a tooltip and a bug report. `message` is unchanged from what this threw
+ * before, because callers up and down the app read `(e as Error).message` and
+ * this is a subclass — nothing that worked stops working.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  /** What the server actually said, whether prose or a status line. */
+  readonly detail: string;
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/** The server's `error` field if it sent one, else its status line. */
+async function failureText(res: Response): Promise<string> {
+  let msg = `${res.status} ${res.statusText}`;
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (body.error) msg = body.error;
+  } catch { /* keep status text */ }
+  return msg;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
@@ -652,12 +697,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (!res.ok) {
-    let msg = `${res.status} ${res.statusText}`;
-    try {
-      const body = (await res.json()) as { error?: string };
-      if (body.error) msg = body.error;
-    } catch { /* keep status text */ }
-    throw new Error(msg);
+    throw new ApiError(res.status, await failureText(res));
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -697,12 +737,7 @@ async function reqAcceptingConflict<T>(
     const payload = (await res.json()) as T;
     return { ...payload, conflicted: res.status === 409 };
   }
-  let msg = `${res.status} ${res.statusText}`;
-  try {
-    const parsed = (await res.json()) as { error?: string };
-    if (parsed.error) msg = parsed.error;
-  } catch { /* keep status text */ }
-  throw new Error(msg);
+  throw new ApiError(res.status, await failureText(res));
 }
 
 /** One instrument's drawings, or one pane's studies, as the server holds them. */

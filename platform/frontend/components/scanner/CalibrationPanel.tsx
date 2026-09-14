@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "@/lib/scanner/api";
 import { fmtTime } from "@/lib/scanner/format";
 import type { Calibration, EmpiricalLookup } from "@/lib/scanner/types";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 
 /**
  * §6.2 — the only place the word "probability" is allowed, and only once a
@@ -25,7 +26,7 @@ export function CalibrationPanel({
 }) {
   const [data, setData] = useState<Calibration | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<FailureCopy | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const run = async (fn: () => Promise<Calibration>) => {
@@ -37,7 +38,7 @@ export function CalibrationPanel({
       setData(next);
       setNotice(next.current ? "Calibration loaded and matches current settings." : "Stored calibration loaded as stale.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeAction(e, "run the calibration"));
     } finally {
       setBusy(false);
     }
@@ -80,7 +81,7 @@ export function CalibrationPanel({
         </button>
       </div>
 
-      {error && <p className="text-xs text-down">{error}</p>}
+      {error && <p className="text-xs text-down" title={error.detail || undefined}>{error.headline}</p>}
       {notice && !error && <p role="status" className="text-xs text-ink-muted">{notice}</p>}
 
       {data && (

@@ -11,6 +11,7 @@ import type { Backtest, OpenTrade, Strategy, StrategyParams, Trade } from "@/lib
 import type { StrategyProperties } from "./StrategySettingsModal";
 import { fmtNum, fmtPct, fmtPrice, signClass } from "@/lib/format";
 import { legacyBinanceSpotTicker } from "@/lib/instrument";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 
 function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
@@ -63,7 +64,7 @@ export function StrategyTester({
   const [end, setEnd] = useState(isoDaysAgo(0));
   const [run, setRun] = useState<Backtest | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoRanNonce = useRef<number>(0);
 
@@ -134,7 +135,7 @@ export function StrategyTester({
       setRun(bt);
       setTab("overview");
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "run the backtest"));
     }
   };
 
@@ -211,7 +212,7 @@ export function StrategyTester({
           <span role="status" className="text-xs text-warn">{backtestNotice}</span>
         )}
         {run && <StatusBadge status={run.status} />}
-        {err && <span className="text-xs text-down">{err}</span>}
+        {err && <span className="text-xs text-down" title={err.detail || undefined}>{err.headline}</span>}
         <div className="ml-auto flex gap-1" role="tablist" aria-label="Strategy tester results">
           {(["overview", "trades"] as const).map((t) => (
             <button

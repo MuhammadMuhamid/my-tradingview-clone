@@ -9,6 +9,7 @@ import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Strategy, StrategyParams } from "@/lib/types";
 import { defaultParamsFor } from "@/lib/paramSchema";
 import { displayTicker } from "@/lib/instrument";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 
 /**
  * Start automated trading on a strategy.
@@ -43,7 +44,7 @@ export function AlertModal({
   const [botUuid, setBotUuid] = useState("");
   const [buyQuoteQty, setBuyQuoteQty] = useState(800);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
   const [conditionKey, setConditionKey] = useState(strategy?.key ?? "ma_rr_v9");
   /**
    * Explicit consent to live order placement.
@@ -84,7 +85,7 @@ export function AlertModal({
       onCreated(selected.name);
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -184,7 +185,7 @@ export function AlertModal({
                 : `I understand this starts trading immediately and sends real ${buyQuoteQty} USDT buy orders to my bot.`}
           </span>
         </label>
-        {err && <p className="text-sm text-down" role="alert">{err}</p>}
+        {err && <p className="text-sm text-down" role="alert" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>
   );

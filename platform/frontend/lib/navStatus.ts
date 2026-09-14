@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { api, type OpsStatus } from "@/lib/api";
 import { compactHealth, type HealthTone } from "@/lib/operationsHealth";
 import { describeStreamState, marketStreams, type StreamState } from "@/lib/marketStream";
+import { causeText, failureReason } from "@/lib/errorCopy";
 
 /** Tailwind background for each health tone, so both menus dot alike. */
 export const HEALTH_DOT: Record<HealthTone, string> = {
@@ -28,8 +29,19 @@ export interface OpsHealth {
   tone: HealthTone;
   /** One word: "Healthy", "Attention", "Unknown", or "…" while first reading. */
   label: string;
-  /** The sentence behind the word — always safe to show in a title. */
+  /**
+   * The sentence behind the word.
+   *
+   * REV-UX-01: this used to end `: ${(e as Error).message}` on both failure
+   * paths, and its own comment said it was "always safe to show in a title" —
+   * which was wrong twice. It is not only a title (`Nav.tsx` renders it as a
+   * paragraph in the system menu), and it was not safe: a backend that answers
+   * an operations poll with a status line or a route path put that text in the
+   * menu as prose.
+   */
   summary: string;
+  /** The cause verbatim when there was one, for a tooltip and a bug report. */
+  detail: string | null;
 }
 
 /**
@@ -73,19 +85,24 @@ export function useOpsHealth(): OpsHealth {
   if (ops) {
     try {
       const health = compactHealth(ops);
-      return { tone: health.tone, label: health.status, summary: health.summary };
+      return { tone: health.tone, label: health.status, summary: health.summary, detail: null };
     } catch (e) {
       return {
         tone: "neutral",
         label: "Unknown",
-        summary: `Operations status could not be read: ${(e as Error).message}`,
+        summary: `Operations status could not be read. ${failureReason(e)}`,
+        detail: causeText(e),
       };
     }
   }
   if (error) {
-    return { tone: "neutral", label: "Unknown", summary: `Operations status could not be read: ${error}` };
+    return {
+      tone: "neutral", label: "Unknown",
+      summary: `Operations status could not be read. ${failureReason(error)}`,
+      detail: causeText(error),
+    };
   }
-  return { tone: "neutral", label: "…", summary: "Reading system status…" };
+  return { tone: "neutral", label: "…", summary: "Reading system status…", detail: null };
 }
 
 export interface StreamSummary {

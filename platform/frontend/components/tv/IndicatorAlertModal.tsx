@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { displayTicker } from "@/lib/instrument";
+import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
 /** The timeframes a level or oscillator alert can be armed on in one pass. */
 const TIMEFRAMES: Interval[] = ["5m", "15m", "1h", "4h"];
@@ -138,7 +139,7 @@ export function IndicatorAlertModal({
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
 
   useEffect(() => {
     if (open) { setTimeframes([defaultTimeframe]); setNote(""); setErr(null); }
@@ -159,45 +160,45 @@ export function IndicatorAlertModal({
   const armedMode: MaAlertMode = PRICE_LINE_KINDS.includes(kind) ? bbMode : direction;
 
   const save = async (): Promise<void> => {
-    if (timeframes.length === 0) { setErr("Pick at least one timeframe"); return; }
+    if (timeframes.length === 0) { setErr(said("Pick at least one timeframe")); return; }
     // Refused here as well as by the server, so the user is told before the
     // round trip rather than by a 400 they did not expect.
     if (kind === "rsi" && rsiTarget === "level" && !(rsiLevel > 0 && rsiLevel < 100)) {
-      setErr("RSI level must be between 0 and 100 — the oscillator cannot leave that range");
+      setErr(said("RSI level must be between 0 and 100 — the oscillator cannot leave that range"));
       return;
     }
     if (kind === "macd" && macdFast >= macdSlow) {
-      setErr("Fast length must be below slow length, or the oscillator's sign inverts");
+      setErr(said("Fast length must be below slow length, or the oscillator's sign inverts"));
       return;
     }
     // At or below zero the two bands collapse onto the midpoint or swap, so the
     // trend would flip on nearly every bar; far above, it never flips at all.
     if (kind === "supertrend" && !(stMultiplier > 0 && stMultiplier <= 100)) {
-      setErr("The ATR multiplier must be greater than 0 and at most 100");
+      setErr(said("The ATR multiplier must be greater than 0 and at most 100"));
       return;
     }
     // A window of one has no deviation, so both bands sit exactly on the basis
     // and every "touch" would be a touch.
     if (kind === "bollinger" && !(Number.isInteger(bbLength) && bbLength >= 2)) {
-      setErr("The Bollinger length must be a whole number of at least 2");
+      setErr(said("The Bollinger length must be a whole number of at least 2"));
       return;
     }
     if (kind === "bollinger" && (bbMode === "near_above" || bbMode === "near_below")
         && !(nearMaxPct > nearMinPct && nearMinPct >= 0)) {
-      setErr("The far edge of the band must be larger than the near edge");
+      setErr(said("The far edge of the band must be larger than the near edge"));
       return;
     }
     if (kind === "bollinger" && !(bbMult > 0 && bbMult <= 100)) {
-      setErr("The standard-deviation multiplier must be greater than 0 and at most 100");
+      setErr(said("The standard-deviation multiplier must be greater than 0 and at most 100"));
       return;
     }
     if (kind === "stochastic" && stochTarget === "level"
         && !(stochLevel > 0 && stochLevel < 100)) {
-      setErr("The level must be between 0 and 100 — the oscillator cannot leave that range");
+      setErr(said("The level must be between 0 and 100 — the oscillator cannot leave that range"));
       return;
     }
     if (kind === "adx" && !(adxLevel > 0 && adxLevel < 100)) {
-      setErr("The ADX threshold must be between 0 and 100 — the index cannot leave that range");
+      setErr(said("The ADX threshold must be between 0 and 100 — the index cannot leave that range"));
       return;
     }
     setBusy(true);
@@ -239,7 +240,7 @@ export function IndicatorAlertModal({
       );
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -576,7 +577,7 @@ export function IndicatorAlertModal({
           </div>
         </Row>
 
-        {err && <p className="text-sm text-down">{err}</p>}
+        {err && <p className="text-sm text-down" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>
   );

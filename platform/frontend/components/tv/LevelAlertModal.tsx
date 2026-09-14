@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { displayTicker } from "@/lib/instrument";
+import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
 /**
  * Arm a support/resistance or pivot-level alert.
@@ -102,7 +103,7 @@ export function LevelAlertModal({
   const [frequency, setFrequency] = useState<AlertFrequency>("once_per_bar_close");
   const [cooldownMin, setCooldownMin] = useState(60);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<FailureCopy | null>(null);
 
   // Follow the matched rows, so an untouched Save cannot change what they hold.
   useEffect(() => {
@@ -125,9 +126,9 @@ export function LevelAlertModal({
     setTimeframes((cur) => cur.includes(tf) ? cur.filter((t) => t !== tf) : [...cur, tf]);
 
   const save = async () => {
-    if (timeframes.length === 0) { setErr("Pick at least one timeframe."); return; }
+    if (timeframes.length === 0) { setErr(said("Pick at least one timeframe.")); return; }
     if (isNear && nearMaxPct <= nearMinPct) {
-      setErr("The far edge of the band must be larger than the near edge.");
+      setErr(said("The far edge of the band must be larger than the near edge."));
       return;
     }
     setBusy(true);
@@ -155,7 +156,7 @@ export function LevelAlertModal({
       );
       onClose();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(describeAction(e, "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -298,7 +299,7 @@ export function LevelAlertModal({
           </div>
         </Row>
 
-        {err && <p className="text-sm text-down">{err}</p>}
+        {err && <p className="text-sm text-down" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>
   );

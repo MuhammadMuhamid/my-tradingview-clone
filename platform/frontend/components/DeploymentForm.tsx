@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Card, CardHeader, Button, Field, TextInput, Select } from "@/components/ui";
 import { ParamForm } from "@/components/ParamForm";
 import { api } from "@/lib/api";
+import { shortReason } from "@/lib/errorCopy";
 import { defaultParams } from "@/lib/paramSchema";
 import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Interval, StrategyParams, SymbolInfo } from "@/lib/types";
@@ -99,7 +100,10 @@ export function DeploymentForm({
           {showParams && <div className="mt-2"><ParamForm value={params} onChange={setParams} /></div>}
         </div>
 
-        {err && <div className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{err}</div>}
+        {/* REV-UX-01: the cause is the tooltip; the sentence is the reader's. */}
+        {err && <div title={err} className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">
+          The deployment could not be created. {shortReason(err)}
+        </div>}
 
         <div className="flex items-center gap-3">
           <Button variant="primary" onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create deployment"}</Button>

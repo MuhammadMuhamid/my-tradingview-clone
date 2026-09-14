@@ -220,8 +220,8 @@ export function CorrelationPanel({
             </p>
           )}
           {set.errors.map((error) => (
-            <p key={error.symbol} className="text-warn">
-              {error.symbol} could not be loaded: {error.message}
+            <p key={error.symbol} className="text-warn" title={error.detail}>
+              {error.symbol} could not be loaded. {error.message}
             </p>
           ))}
         </footer>

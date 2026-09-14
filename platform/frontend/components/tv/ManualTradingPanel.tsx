@@ -21,6 +21,7 @@ import {
   manualTradingPollingAllowed, noteManualTradingFailure,
 } from "@/lib/manualTradingPolling";
 import { displayTicker } from "@/lib/instrument";
+import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
 const newRequestId = (): string => window.crypto.randomUUID();
 const n = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
@@ -59,14 +60,20 @@ type OrderFilter = (typeof ORDER_FILTERS)[number]["id"];
 
 /** A labelled input with the unit printed inside it, as the reference does. */
 function UnitField({
-  label, unit, value, onChange, invalid = false, error, id, placeholder,
+  label, unit, value, onChange, invalid = false, problem, id, placeholder,
 }: {
   label: string;
   unit: string;
   value: string;
   onChange: (v: string) => void;
   invalid?: boolean;
-  error?: string | null;
+  /*
+   * REV-UX-01: named `error` until a tree-wide scan for causes-rendered-as-copy
+   * could not tell it apart from this file's OWN `error` state twelve hundred
+   * lines below — which DOES hold a thrown cause. This one never does: it is a
+   * sentence about the value in the box beside it.
+   */
+  problem?: string | null;
   id: string;
   placeholder?: string;
 }) {
@@ -78,10 +85,10 @@ function UnitField({
         panel. A rejected amount used to be explained six controls away from
         the amount box, above the account picker.
       */}
-      {error && (
+      {problem && (
         <p id={`${id}-error`} role="alert"
           className="mb-1 rounded border border-down/40 bg-down/10 px-2 py-1 text-[11px] leading-4 text-down">
-          {error}
+          {problem}
         </p>
       )}
       <div className={`flex items-center rounded-md border bg-surface-2 transition-colors focus-within:border-accent ${
@@ -93,7 +100,7 @@ function UnitField({
           value={value}
           placeholder={placeholder}
           aria-invalid={invalid || undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
+          aria-describedby={problem ? `${id}-error` : undefined}
           onChange={(e) => onChange(e.target.value)}
           className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm tabular text-ink outline-none"
         />
@@ -151,7 +158,7 @@ export function ManualTradingPanel({
   const [actionRequestIds, setActionRequestIds] = useState<Record<string, string>>({});
   const [mainnetConfirmed, setMainnetConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<FailureCopy | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<"ticket" | "orders">("ticket");
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
@@ -191,7 +198,7 @@ export function ManualTradingPanel({
     } catch (e) {
       const message = (e as Error).message;
       noteManualTradingFailure(message);
-      setError(message);
+      setError(describeAction(e, "read the trading state"));
     }
   }, [accountId, onStateChange]);
 
@@ -363,7 +370,7 @@ export function ManualTradingPanel({
     // Belt and braces: `valid` already covers this, but submit is the last
     // place an order can still be stopped, and it must not depend on the
     // button's disabled state having been recomputed.
-    if (staleTicket) { setError(staleTicket); setConfirming(false); return; }
+    if (staleTicket) { setError(said(staleTicket)); setConfirming(false); return; }
     const requestId = orderRequestId ?? newRequestId();
     if (!orderRequestId) setOrderRequestId(requestId);
     setPending(true); setError(null); setNotice(null);
@@ -372,7 +379,7 @@ export function ManualTradingPanel({
       setMainnetConfirmed(false); setArmedSymbol(null); setArmedAccountId(null);
       setNotice("Order accepted by the execution bot.");
       await refresh(); setTab("orders"); }
-    catch (e) { setError((e as Error).message); }
+    catch (e) { setError(describeAction(e, "place the order")); }
     finally { setPending(false); }
   };
 
@@ -380,20 +387,20 @@ export function ManualTradingPanel({
     const order = state?.orders.find((o) => o.id === id);
     const selected = state?.accounts.find((a) => a.id === order?.exchangeAccountId);
     if (!selected || pending) return;
-    if (!selected.testnet) { setError("Production order mutation is unavailable in this campaign."); return; }
+    if (!selected.testnet) { setError(said("Production order mutation is unavailable in this campaign.")); return; }
     const key = `cancel:${id}`; const requestId = actionRequestIds[key] ?? newRequestId();
     if (!actionRequestIds[key]) setActionRequestIds((old) => ({ ...old, [key]: requestId }));
     setPending(true); setError(null); setNotice(null);
     try { await api.cancelManualOrder(id, { requestId });
       setActionRequestIds((old) => { const next = { ...old }; delete next[key]; return next; });
       setNotice("Limit cancellation confirmed by the execution bot."); await refresh(); }
-    catch (e) { setError((e as Error).message); } finally { setPending(false); }
+    catch (e) { setError(describeAction(e, "cancel the order")); } finally { setPending(false); }
   };
 
   const protection = async (position: ManualPosition, remove = false) => {
     const selected = state?.accounts.find((a) => a.id === position.exchangeAccountId);
     if (!selected || pending) return;
-    if (!selected.testnet) { setError("Production order mutation is unavailable in this campaign."); return; }
+    if (!selected.testnet) { setError(said("Production order mutation is unavailable in this campaign.")); return; }
     const key = `protection:${position.id}:${remove ? "remove" : "edit"}`;
     const requestId = actionRequestIds[key] ?? newRequestId();
     if (!actionRequestIds[key]) setActionRequestIds((old) => ({ ...old, [key]: requestId }));
@@ -405,7 +412,7 @@ export function ManualTradingPanel({
       stopLossPrice: remove ? null : n(values.sl) ?? null });
       setActionRequestIds((old) => { const next = { ...old }; delete next[key]; return next; });
       setNotice(remove ? "TP/SL removed on the server." : "TP/SL updated on the server."); await refresh(); }
-    catch (e) { setError((e as Error).message); } finally { setPending(false); }
+    catch (e) { setError(describeAction(e, "change the protective order")); } finally { setPending(false); }
   };
 
   const orders = useMemo(() => {
@@ -444,7 +451,7 @@ export function ManualTradingPanel({
       };
     }
     if (!error) return null;
-    if (/manual trading is disabled/i.test(error)) {
+    if (/manual trading is disabled/i.test(error.detail || error.headline)) {
       return {
         title: "Manual trading is not enabled on this install",
         detail: "MANUAL_TRADING_ENABLED is off, so this Platform will not send orders. Nothing "
@@ -457,7 +464,7 @@ export function ManualTradingPanel({
       detail: "Nothing was sent and no order was placed. Check that the bot is running and that "
         + "this Platform points at it, then reopen this panel. Balances and orders shown "
         + "elsewhere may be behind until it answers.",
-      raw: error,
+      raw: error.detail || error.headline,
     };
   }, [state, error]);
 
@@ -503,7 +510,8 @@ export function ManualTradingPanel({
       and says so once. This banner is for the case that matters while trading:
       state is on screen, and an action against it failed.
     */}
-    {error && state && <div role="alert" className="border-b border-down/30 bg-down/10 px-3 py-2 text-xs text-down">{error}</div>}
+    {error && state && <div role="alert" title={error.detail || undefined}
+      className="border-b border-down/30 bg-down/10 px-3 py-2 text-xs text-down">{error.headline}</div>}
     {notice && <div role="status" className="border-b border-up/30 bg-up/10 px-3 py-2 text-xs text-up">{notice}</div>}
     {/*
       The panel used to render its error banner AND `Loading manual trading…`
@@ -647,7 +655,7 @@ export function ManualTradingPanel({
       {orderType === "LIMIT" && (
         <div>
           <UnitField id="manual-limit" label="Limit price" unit="USDT" value={limitPrice} onChange={arm(setLimitPrice)}
-            invalid={priceInvalid} error={priceInvalid ? "Enter a limit price above zero." : null} />
+            invalid={priceInvalid} problem={priceInvalid ? "Enter a limit price above zero." : null} />
           {/*
             * Explanatory only: where the typed price sits relative to the live
             * book, in this symbol's real tick size. It is derived FROM the
@@ -682,7 +690,7 @@ export function ManualTradingPanel({
         </p>}
       </div>}
       <UnitField id="manual-amount" label={amountLabel} unit={amountUnit} value={amount} onChange={arm(setAmount)}
-        invalid={amountInvalid} error={amountInvalid ? `Enter an amount above zero in ${amountUnit}.` : null} />
+        invalid={amountInvalid} problem={amountInvalid ? `Enter an amount above zero in ${amountUnit}.` : null} />
       {/*
         * Quick fill, from the SAME balance the validation above uses. It only
         * types a number into the field — every check still runs on it, and the
