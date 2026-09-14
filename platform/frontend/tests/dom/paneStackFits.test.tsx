@@ -52,8 +52,6 @@ import { mountChart, type MountedChart } from "./harness/chart";
  * came up saying "0 bars" and the stack was empty, so every assertion here
  * would have been about nothing.
  */
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 const OSCILLATORS = [
   "Money Flow Index", "Williams %R", "Stochastic RSI", "MACD",
   "Relative Strength Index", "Commodity Channel Index",
@@ -65,9 +63,18 @@ async function addStudies(chart: MountedChart, count: number): Promise<void> {
   fireEvent.click(open);
   await settle();
 
+  /*
+   * ── TVP8 R3-03: the ROW is the add control ──────────────────────────────
+   *
+   * Every row used to carry a bordered `Add` button, and this helper clicked
+   * it by its `Add … to BTCUSDT 1h` tooltip. The reference has no Add button:
+   * a row is one line and clicking anywhere on it adds the script. So the
+   * gesture under test is now the one a person actually makes — clicking the
+   * row — and the row is a `role="option"` named by the study.
+   */
   const dialog = screen.getByRole("dialog");
   for (const name of OSCILLATORS.slice(0, count)) {
-    fireEvent.click(within(dialog).getByTitle(new RegExp(`^Add ${escapeRe(name)} to `)));
+    fireEvent.click(within(dialog).getByRole("button", { name }));
     await settle();
   }
   fireEvent.keyDown(document, { key: "Escape" });
@@ -148,4 +155,59 @@ test("FG-02 — the time axis lives under the lowest pane, and that pane is in t
     "the lowest pane is not the last child of the stack");
   assert.ok(lowest.querySelector("canvas"),
     "the pane that carries the time axis has no chart in it");
+});
+
+test("R3-13 — a pane's actions are revealed by hovering THAT pane, not the column", async () => {
+  /*
+   * ── The defect, exactly ─────────────────────────────────────────────────
+   *
+   * `IndicatorPane`'s section carried `group/pane`, and so does `ChartPane`'s
+   * outer container — the whole chart column, every study pane inside it.
+   * Tailwind's named-group variant compiles to a DESCENDANT selector
+   * (`.group\/pane:hover &`), so a cluster written `group-hover/pane:` matched
+   * a hover ANYWHERE in the column: putting the pointer on the RSI pane lit up
+   * the MACD pane's controls as well, and the owner's veto capture reads as
+   * icons sitting on both panes "persistently". The reference reveals the
+   * actions of the pane under the pointer and nothing else.
+   *
+   * ── Why this is asserted structurally ───────────────────────────────────
+   *
+   * jsdom computes no stylesheet, so `:hover` cannot be driven and read back
+   * here. What CAN be proved is the thing the CSS selector actually resolves:
+   * the nearest ancestor carrying the cluster's group name. If that ancestor
+   * is the pane, the reveal is pane-scoped; if it is the column, every pane
+   * lights at once. Renaming the group back to `group/pane` fails this.
+   */
+  const chart = await mountChart();
+  await settle();
+  await addStudies(chart, 2);
+
+  const panes = [...chart.container
+    .querySelectorAll<HTMLElement>("section[aria-label$='indicator pane']")];
+  assert.equal(panes.length, 2, "two panes are needed to tell the two scopes apart");
+
+  for (const pane of panes) {
+    assert.ok(pane.className.includes("group/studypane"),
+      "the pane is not its own hover scope");
+    const cluster = [...pane.querySelectorAll<HTMLElement>("span")]
+      .find((el) => el.className.includes("group-hover/studypane:opacity-100"));
+    assert.ok(cluster, "the pane has no hover-revealed action cluster");
+    assert.ok(cluster.className.includes("opacity-0"),
+      "a cluster that is not transparent at rest is permanent chrome");
+
+    // The selector's own question: which ancestor turns this cluster on?
+    const scope = cluster.parentElement?.closest<HTMLElement>('[class*="group/studypane"]');
+    assert.equal(scope, pane,
+      "the cluster is revealed by an ancestor that is not its own pane — so "
+      + "hovering one pane reveals every pane's controls");
+  }
+
+  /*
+   * And the column is NOT that ancestor. `ChartPane` keeps `group/pane` for
+   * the main pane, which is correct and is what `PaneLegend`'s own cluster
+   * uses; what must never be true again is the two sharing a name.
+   */
+  const column = panes[0]!.closest<HTMLElement>('[class*="group/pane "]');
+  assert.ok(column === null || !column.className.includes("group/studypane"),
+    "the chart column and the study pane cannot share a hover scope");
 });

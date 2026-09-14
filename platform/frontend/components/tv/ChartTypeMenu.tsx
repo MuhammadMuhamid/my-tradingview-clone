@@ -6,7 +6,9 @@ import {
   CHART_TYPES, SYNTHETIC_DISCLOSURE_HINT, isChartType, syntheticDisclosure,
   type ChartType, type ChartTypeSpec, type TransformSettings,
 } from "@/lib/chartType";
-import { TOOL_CARET_BUTTON, TOOL_STATE, TOOLBAR_H } from "@/components/tv/toolbarChrome";
+import {
+  TOOL_CARET_BUTTON, TOOL_CARET_GLYPH, TOOL_ICON_STROKE, TOOL_STATE, TOOLBAR_H,
+} from "@/components/tv/toolbarChrome";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
@@ -15,7 +17,16 @@ import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
  * Ours, not the reference's: these are silhouettes of the same CHARTS — two
  * OHLC ticks, two candles, a staircase, a stack of bricks — which is the part
  * that has to be recognisable at 22px, and the drawing is original. Stroke
- * 1.6 with round caps, matching every other icon on this bar.
+ * `TOOL_ICON_STROKE` with round caps, matching every other icon on this bar.
+ *
+ * ── TVP8 R1b-03: each silhouette has to be DISTINCT, and thin ──────────────
+ *
+ * Three of these were near-identical bold candle pairs (Candles / Hollow
+ * candles / Volume candles), the strip's Heikin Ashi was a three-candle
+ * cluster carrying 2.5× the reference's ink, and Columns was three FILLED
+ * ascending bars — a signal-strength icon. The rule the reference follows and
+ * this now follows: hollow bodies, one difference per type, and ~19–22px of
+ * the 24-unit box rather than 16.
  */
 const ICONS: Record<ChartType, React.ReactNode> = {
   bars: (
@@ -24,40 +35,48 @@ const ICONS: Record<ChartType, React.ReactNode> = {
       <path d="M5 8h3M8 14h3M13 9h3M16 16h3" />
     </>
   ),
+  // Two thin HOLLOW candles of different heights, each with both wicks.
   candles: (
     <>
-      <path d="M8 4v16M16 4v16" />
-      <rect x="5.5" y="8" width="5" height="8" rx="0.5" />
-      <rect x="13.5" y="6" width="5" height="7" rx="0.5" />
+      <path d="M7.6 2.2v19.6M16.4 3.8v16.4" />
+      <rect x="4.6" y="6.4" width="6" height="11.2" rx="0.5" />
+      <rect x="13.4" y="8.6" width="6" height="7" rx="0.5" />
     </>
   ),
   // The same glyph as candles, with the up body unfilled — which is the
   // only difference between the two types.
   hollowCandles: (
     <>
-      <path d="M8 4v16M16 4v16" />
-      <rect x="5.5" y="8" width="5" height="8" rx="0.5" fill="none" />
-      <rect x="13.5" y="6" width="5" height="7" rx="0.5" fill="currentColor" />
+      <path d="M7.6 2.2v19.6M16.4 3.8v16.4" />
+      <rect x="4.6" y="6.4" width="6" height="11.2" rx="0.5" fill="currentColor" />
+      <rect x="13.4" y="8.6" width="6" height="7" rx="0.5" fill="none" />
     </>
   ),
   // Bodies of DIFFERENT WIDTHS, which is what a volume candle actually is:
   // the width carries the bar's traded volume.
   volumeCandles: (
     <>
-      <path d="M7 4v16M16 5v15" />
-      <rect x="4" y="8" width="6" height="8" rx="0.5" />
-      <rect x="14" y="9" width="4" height="7" rx="0.5" />
+      <path d="M6.4 2.6v18.8M16.6 4.6v15.4" />
+      <rect x="2.4" y="7" width="8" height="10" rx="0.5" />
+      <rect x="14.4" y="8.6" width="4.4" height="7" rx="0.5" />
     </>
   ),
-  line: <path d="M3 16l5-6 4 4 3-5 6 6" />,
+  // Straight SEGMENTS, mitred: the reference's line forms are zigzags, and a
+  // rounded join at 22px is what made ours read as smooth waves (R1b-03).
+  line: <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />,
   lineWithMarkers: (
-    <><path d="M3 16l5-6 4 4 3-5 6 6" /><circle cx="8" cy="10" r="1.5" fill="currentColor" /><circle cx="15" cy="9" r="1.5" fill="currentColor" /></>
+    <>
+      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />
+      <circle cx="7.4" cy="11.4" r="1.6" fill="currentColor" />
+      <circle cx="11.8" cy="15" r="1.6" fill="currentColor" />
+    </>
   ),
-  stepLine: <path d="M3 17h4v-5h4v3h4v-6h6" />,
+  stepLine: <path d="M2 18.4h4.8v-6h4.8v3.6h4.8v-7.2H22" strokeLinejoin="miter" />,
   area: (
     <>
-      <path d="M3 16l5-6 4 4 3-5 6 6" />
-      <path d="M3 16l5-6 4 4 3-5 6 6V20H3z" fill="currentColor" fillOpacity="0.25" stroke="none" />
+      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />
+      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4V21.4H2.4z"
+        fill="currentColor" fillOpacity="0.25" stroke="none" />
     </>
   ),
   // A BAND between the highs and the lows, with the closes traced through it —
@@ -73,20 +92,35 @@ const ICONS: Record<ChartType, React.ReactNode> = {
   // A dashed reference with the line crossing it, which is the idea.
   baseline: (
     <>
-      <path d="M3 12h18" strokeDasharray="2 2" />
-      <path d="M3 16l5-6 4 4 3-5 6 6" />
+      <path d="M2 12h20" strokeDasharray="2 2" />
+      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />
     </>
   ),
-  columns: <path d="M4 20V12h3v8zM10 20V7h3v13zM16 20V4h3v16z" fill="currentColor" />,
+  // Three HOLLOW bars. Filled ascending bars are a signal-strength icon, and
+  // that is exactly what a viewer read them as (R1b-03).
+  columns: (
+    <>
+      <rect x="2.6" y="12.4" width="5.2" height="9.4" />
+      <rect x="9.4" y="6.6" width="5.2" height="15.2" />
+      <rect x="16.2" y="2.6" width="5.2" height="19.2" />
+    </>
+  ),
   // Ranges and nothing else: no open, no close, no body.
-  highLow: <path d="M6 6v9M12 4v14M18 9v8" />,
+  // Two hollow RANGE bars: no open, no close, no body — only the extremes.
+  highLow: (
+    <>
+      <rect x="4.2" y="4.2" width="6.4" height="12.6" />
+      <rect x="13.4" y="8" width="6.4" height="11.8" />
+    </>
+  ),
   // Stacked cells — a footprint prints a number in every price cell of every
   // bar, and the grid is what distinguishes it from a candle at this size.
+  // A candle beside the rows of numbers a footprint prints in every cell.
   footprint: (
     <>
-      <rect x="4" y="5" width="7" height="14" rx="0.5" />
-      <rect x="13" y="5" width="7" height="14" rx="0.5" />
-      <path d="M4 9.7h16M4 14.3h16" />
+      <path d="M6 2.4v19.2" />
+      <rect x="3" y="6.2" width="6" height="11.6" rx="0.5" />
+      <path d="M12 6.4h9.6M12 11h9.6M12 15.6h9.6" />
     </>
   ),
   // Letter blocks, stacked into the profile they build.
@@ -110,20 +144,22 @@ const ICONS: Record<ChartType, React.ReactNode> = {
   ),
   // Heikin Ashi: candle bodies that abut, because HA bars open at the previous
   // bar's midpoint rather than at a gap.
+  // One candle and a small square, which is the reference's own 13×19
+  // silhouette. Ours was a three-candle cluster carrying 2.5× its ink.
   heikinAshi: (
     <>
-      <path d="M7 5v14M12 6v13M17 4v14" />
-      <rect x="4.5" y="9" width="5" height="7" rx="0.5" />
-      <rect x="9.5" y="8" width="5" height="7" rx="0.5" />
-      <rect x="14.5" y="6" width="5" height="7" rx="0.5" />
+      <path d="M7.6 2.4v19.2" />
+      <rect x="4.6" y="7.6" width="6" height="10.4" rx="0.5" />
+      <path d="M16.6 3.4v3" />
+      <rect x="13.8" y="6.4" width="5.6" height="5.6" rx="0.5" />
     </>
   ),
   // Renko: equal bricks stepping on a diagonal, with no wicks and no gaps.
   renko: (
     <>
-      <rect x="3" y="14" width="6" height="6" rx="0.5" />
-      <rect x="9" y="8" width="6" height="6" rx="0.5" />
-      <rect x="15" y="2" width="6" height="6" rx="0.5" />
+      <rect x="3.4" y="15.4" width="5.8" height="5.8" rx="0.5" />
+      <rect x="9.2" y="8.6" width="5.8" height="5.8" rx="0.5" />
+      <rect x="15" y="1.8" width="5.8" height="5.8" rx="0.5" />
     </>
   ),
   // Line break: TALL blocks of unequal height — a line runs from the previous
@@ -225,12 +261,13 @@ function writeFavourites(list: readonly ChartType[]): void {
 /** A 38x38 icon-only control on the bar, without a display utility of its own. */
 const STRIP_BUTTON =
   `${TOOL_STATE} ${TOOLBAR_H} w-[38px] shrink-0 items-center justify-center ` +
-  "text-ink-muted hover:text-ink";
+  // R1b-01: full ink at rest. The hover state on this bar is the chip.
+  "text-ink";
 
 function Glyph({ type, size }: { type: ChartType; size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+      strokeWidth={TOOL_ICON_STROKE} strokeLinecap="round" strokeLinejoin="round"
       className="shrink-0" aria-hidden="true">
       {ICONS[type]}
     </svg>
@@ -388,8 +425,13 @@ export function ChartTypeMenu({
     const starred = favourites.includes(t.value);
     const full = !starred && favourites.length >= MAX_FAVOURITES;
     return (
+      /*
+        R1b-05: `pl-1.5 gap-2` with the glyph drawn directly (no 24px box
+        around a 22px glyph) puts the icon's ink 14px and the label 42px from
+        the menu's left edge — the measured reference. Ours sat at 19 and 50.
+      */
       <div key={t.value} data-active={selected ? "true" : undefined}
-        className="tvc-menu-row group gap-2.5 pr-1.5">
+        className="tvc-menu-row group gap-2 pl-1.5 pr-1.5">
         <button
           role="menuitemradio"
           aria-checked={selected}
@@ -398,21 +440,17 @@ export function ChartTypeMenu({
             ? `${t.label} — a synthetic display transform`
             : t.label}
           onClick={() => { onChange(t.value); setOpen(false); }}
-          className="flex min-w-0 flex-1 items-center gap-2.5 pl-2.5 text-left text-sm"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
         >
-          <span className="flex w-6 shrink-0 items-center justify-center">
-            <Glyph type={t.value} size={22} />
-          </span>
+          <Glyph type={t.value} size={22} />
           <span className="min-w-0 flex-1 truncate">{t.label}</span>
-          {/* The check is the row's own answer to "am I on this one"; the
-              inverted chip behind it is the same fact seen across the menu. */}
-          {selected && (
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
-              className="shrink-0" aria-hidden="true">
-              <path d="M5 12.5l4.5 4.5L19 7" />
-            </svg>
-          )}
+          {/*
+            No check glyph. The live inventory claimed one; the pixels in
+            `tradingview/chart-type-menu-1440-dark.png` show the inverted chip
+            and the star and nothing else, and the pixels win (R1b-05). The
+            chip IS the answer to "am I on this one", said across the row
+            rather than in a 13px mark at its end.
+          */}
         </button>
         <button
           onClick={() => toggleFavourite(t.value)}
@@ -426,21 +464,24 @@ export function ChartTypeMenu({
             ? `Take ${t.label} off the toolbar`
             : `Keep ${t.label} on the toolbar`}
           /*
-           * Amber, not accent, for a favourite: a star is a keep-this mark and
-           * accent in this product is an action or a link. It INHERITS the
-           * row's colour while the row is the selected chip, which is inverted
-           * — a hard-coded light star there is invisible on the one row where
-           * knowing whether it is a favourite matters most.
+           * R1b-05: the star is 16px and INK, not 11px and amber.
+           *
+           * Two amber marks in a grey list were the second thing a viewer
+           * named in this menu. The reference draws a filled white star at the
+           * row's right edge and lets the inverted selected row turn it black
+           * — which is exactly what inheriting `currentColor` does, so the one
+           * row where "is this a favourite" matters most stays readable
+           * without hard-coding a colour for it.
            */
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity ${
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-opacity ${
             starred
-              ? `opacity-100 ${selected ? "" : "text-warn"}`
+              ? "opacity-100"
               : `opacity-0 focus:opacity-100 group-hover:opacity-100 ${
-                full ? "text-ink-faint/60" : selected ? "opacity-70" : "text-ink-faint"}`
+                full ? "opacity-40" : ""}`
           }`}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"
-            fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+            fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
             <path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z" />
           </svg>
         </button>
@@ -495,9 +536,11 @@ export function ChartTypeMenu({
           aria-expanded={open}
           className={TOOL_CARET_BUTTON}
         >
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="3" aria-hidden="true">
-            <path d="M5 9l7 7 7-7" />
+          <svg width={TOOL_CARET_GLYPH.width} height={TOOL_CARET_GLYPH.height}
+            viewBox={TOOL_CARET_GLYPH.viewBox} fill="none" stroke="currentColor"
+            strokeWidth={TOOL_CARET_GLYPH.stroke} strokeLinecap="round"
+            strokeLinejoin="round" aria-hidden="true">
+            <path d={TOOL_CARET_GLYPH.d} />
           </svg>
         </button>
 

@@ -43,6 +43,7 @@ const FOCUSABLE =
  */
 export function Modal({
   title, open, onClose, children, footer, wide = false, panelClassName = "", contentClassName = "",
+  headerClassName = "", scrollBody = true,
 }: {
   title: ReactNode;
   open: boolean;
@@ -54,6 +55,22 @@ export function Modal({
   panelClassName?: string;
   /** Optional content treatment when the child owns its own scroll regions. */
   contentClassName?: string;
+  /** Optional header sizing for a dialog with a measured header height. */
+  headerClassName?: string;
+  /**
+   * Whether the body is the scroller.
+   *
+   * True for every dialog in the product, and it must stay true: a dialog
+   * whose body does not scroll and whose child does not either simply clips.
+   *
+   * The indicator browser is the one dialog with a measured two-column body in
+   * which ONLY the list scrolls — the library rail and the tab row are fixed,
+   * the way the reference has them. With the body as the scroller, the rail
+   * and the tabs scrolled away with the list. Opting out here is narrower than
+   * overriding `overflow-y-auto` from a `contentClassName`, which cannot win
+   * against a class of the same specificity that comes later in the sheet.
+   */
+  scrollBody?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   /** Whatever had focus before the dialog opened, so it can be given back. */
@@ -198,7 +215,7 @@ export function Modal({
         tabIndex={-1}
         className={`relative flex max-h-[92vh] w-full ${wide ? "max-w-[750px]" : "max-w-lg"} flex-col rounded-md bg-popover shadow-[0_8px_28px_rgba(0,0,0,0.5)] outline-none ${panelClassName}`}
       >
-        <div className="flex items-center justify-between px-5 py-3">
+        <div className={`flex items-center justify-between px-5 py-3 ${headerClassName}`}>
           <h2 id={titleId} className="text-[20px] font-semibold leading-8 text-ink">{title}</h2>
           <button
             onClick={onClose}
@@ -219,7 +236,7 @@ export function Modal({
             </svg>
           </button>
         </div>
-        <div className={`min-h-0 flex-1 overflow-y-auto px-5 py-4 ${contentClassName}`}>{children}</div>
+        <div className={`min-h-0 flex-1 ${scrollBody ? "overflow-y-auto" : "flex flex-col"} px-5 py-4 ${contentClassName}`}>{children}</div>
         {footer && (
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
             {footer}

@@ -82,10 +82,13 @@ test("ADDING A SYMBOL WHILE THE QUOTE POLL IS IN FLIGHT DOES NOT PAINT THE POLL'
   fireEvent.keyDown(box, { key: "Enter" });
   await settle();
 
-  const rows = [...chart.container.querySelectorAll<HTMLElement>("button")]
+  // Scoped to the list: the toolbar's symbol pill prints the same token now.
+  const rows = [...chart.container.querySelectorAll<HTMLElement>("[data-watchlist-row] button")]
     .map((b) => (b.textContent ?? "").trim());
-  assert.equal(rows.some((text) => text.startsWith("ETH/USDT")), true,
-    "the edit must have landed — ETH/USDT is now a row");
+  // TVP8 R7-01: `displayTicker` writes the venue's own listing code, so a row
+  // is one token. The assertion is unchanged; only the spelling moved.
+  assert.equal(rows.some((text) => text.startsWith("ETHUSDT")), true,
+    "the edit must have landed — ETHUSDT is now a row");
   assert.equal(server.callsTo(TICKERS).length > seeds + 1, true,
     "the edit must have started a new seed read for the new membership");
 

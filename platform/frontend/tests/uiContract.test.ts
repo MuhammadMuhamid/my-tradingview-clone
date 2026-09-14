@@ -541,11 +541,12 @@ test("CONTRACT — the product entry is a rail cell, and its menu is the row gra
    * chevron plus a separator INSIDE the row, and it pushed every control after
    * it 57px right (our pill measured at x=113).
    *
-   * The menu it opens is 260px at [53,0]: 40px rows, a 28px glyph box on every
-   * one of them, 14px/400 labels, 13px spacer separators, a switch row for the
-   * theme, a key hint on the shortcuts row and a red sign-out at the end. Ours
-   * was 288px of 30px rows at 13px with no glyphs, under a product name and
-   * two sentences of status prose.
+   * The menu it opens is 260px at [53,0]: a 40px BRAND row, then 40px rows
+   * with a 28px glyph box on every one of them, 14px/400 labels, 13px spacer
+   * separators, a switch row for the theme, a key hint on the shortcuts row
+   * and a red sign-out at the end. Ours was 288px of 30px rows at 13px with no
+   * glyphs, under a product name and two sentences of status prose — and then,
+   * for a wave, under an `● System Attention` operations readout (R1b-04).
    *
    * Read as CODE: this file's own header describes the cell it replaced, and a
    * rule that reads prose about a shape cannot tell it from the shape.
@@ -560,7 +561,18 @@ test("CONTRACT — the product entry is a rail cell, and its menu is the row gra
     "…holding a 28px circular avatar");
   // The badge moved onto the avatar's corner, where a 28px circle can carry it.
   assert.match(menu, /-right-0\.5 -top-0\.5 h-2\.5 w-2\.5 rounded-full/,
-    "the status/first-run dot is a 10px badge at the avatar's top-right");
+    "the first-run dot is a 10px badge at the avatar's top-right");
+  /*
+   * R1b-04: and it is a NOTIFICATION, never an ops readout.
+   *
+   * The avatar used to badge whichever of the stream and the system was
+   * unwell, so a healthy-looking workstation was one backend poll away from an
+   * amber dot on its account button — a control reporting on infrastructure,
+   * which is not what an account button is for and which TradingView's own
+   * (an unread count) never does. The health truth is the brand row's tooltip.
+   */
+  assert.doesNotMatch(menu, /\$\{\s*alert \?\? "bg-accent"\s*\}/,
+    "the account cell must not carry a health dot");
 
   // The menu's box: 260px, anchored beside the cell rather than under it.
   assert.match(menu, /w-\[260px\]/, "TV's menu box is 260px wide");
@@ -575,19 +587,42 @@ test("CONTRACT — the product entry is a rail cell, and its menu is the row gra
   assert.match(menu, /tvc-menu-sep/, "sections are separated by the 13px spacer");
 
   /*
-   * The two live readouts are a STATUS ROW, not a paragraph.
+   * ── R1b-04: the FIRST row is the brand, and health is a tooltip ──────────
    *
-   * They used to be two lines of 11px prose under the product name — a menu is
-   * a list of places, and the answer to "is the feed alive" is one line with a
-   * dot on it. The detail, including the cause `useOpsHealth` separates out,
-   * belongs in the title (REV-UX-01): a backend that answers an operations
-   * poll with an exception must never put that text on screen as copy.
+   * The two readouts were two lines of 11px prose under the product name, then
+   * one 32px `role="status"` row — `● System Attention` — as the menu's
+   * headline. Measured on the reference, the first row is the WORDMARK at 40px
+   * and there is no health readout on this control at all: an operations
+   * string as the first thing a user reads when they reach for "where else can
+   * I go" was the loudest non-TradingView signal the shared chrome had.
+   *
+   * What survives, and must: the detail — including the cause `useOpsHealth`
+   * separates out — is the brand row's `title` (REV-UX-01), and a 6px dot
+   * appears on that row only while something is genuinely degraded.
    */
-  assert.match(menu, /role="status"/, "the two readouts survive as one status row");
-  assert.equal((menu.match(/role="status"/g) ?? []).length, 1, "…exactly one of them");
-  assert.match(menu, /role="status"[\s\S]{0,120}h-8 items-center/, "…32px tall");
+  const brandRow = /className="flex h-10 items-center[^"]*"[\s\S]{0,900}?<\/div>/.exec(menu)?.[0] ?? "";
+  assert.ok(brandRow, "the menu has no 40px brand row");
+  assert.match(brandRow, /\{PRODUCT_NAME\}/, "…carrying the product's own wordmark");
+  assert.match(brandRow, /title=\{statusDetail\}/,
+    "…and the whole of both readouts, in its title");
+  assert.match(brandRow, /\{degraded && \(/,
+    "…with a dot only when the stream or the system is actually unwell");
+  assert.doesNotMatch(menu, /role="status"[\s\S]{0,200}\{statusLabel\}\s*<\/span>\s*<\/div>/,
+    "the ops readout must not be a row of the menu");
   assert.doesNotMatch(menu, />\s*\{health\.summary\}/,
     "the health SENTENCE is a tooltip, never rendered copy");
+
+  /*
+   * And the route the user is on is ANNOUNCED, not painted.
+   *
+   * `data-active` on the current destination is the inverted selection chip —
+   * 260px of rgb(242) on `Chart` every time the menu is opened from the chart,
+   * which is every time it is opened. TV marks nothing in this list as
+   * current; `aria-current="page"` keeps the fact for anyone who needs it.
+   */
+  assert.match(menu, /aria-current=\{current \? "page" : undefined\}/);
+  assert.doesNotMatch(menu, /data-active=\{current/,
+    "a destination is not a value in force, so it takes no selection chip");
 
   // A menu entry that does nothing is worse than no entry, so the shortcuts
   // row exists only when something can open the sheet.

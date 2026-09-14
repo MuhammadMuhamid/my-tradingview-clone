@@ -35,6 +35,26 @@ export const DATE_FORMATS: readonly DateFormatName[] = [
   "dd MMM yy", "MMM dd, yyyy", "yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy",
 ];
 
+/**
+ * What the watermark behind the bars is for.
+ *
+ * R6 (TVP8): the reference's Canvas tab has a `Watermark` DROPDOWN, not a
+ * checkbox — hidden, the instrument's own name, or "replay mode", which draws
+ * it only while the pane is replaying history, so a screenshot taken during a
+ * replay says so. The boolean that came before it migrates in
+ * `normalizeChartSettings`: `true → "symbol"`, `false → "hidden"`.
+ */
+export type WatermarkMode = "hidden" | "symbol" | "replay";
+
+/** When the axis-foot `log % auto reset` strip is drawn. */
+export type ScaleButtonsMode = "hover" | "always" | "hidden";
+
+/** Whether the pane draws the ticker's bid and ask as price lines. */
+export type BidAskLines = "hidden" | "line";
+
+/** Which form of the instrument's name the status line carries. */
+export type StatusTitleForm = "ticker" | "symbol";
+
 export interface ChartSettings {
   // ── Series appearance (the reference's "Symbol" tab) ──────────────────────
   /** Candle bodies are filled; off draws them hollow. */
@@ -57,6 +77,21 @@ export interface ChartSettings {
   upColor: string;
   /** Down colour, as a hex literal. */
   downColor: string;
+  /**
+   * R6 S-2: a colour pair per candle COMPONENT, as the reference has.
+   *
+   * The dialog offered `Body`, `Borders` and `Wick` as three bare checkboxes
+   * and then one shared `Up / down` pair below them, so a border could be
+   * turned off but never coloured — while lightweight-charts 4.2's candlestick
+   * series has carried `borderUpColor` / `borderDownColor` / `wickUpColor` /
+   * `wickDownColor` the whole time. Absent from a stored workspace these
+   * default to `upColor` / `downColor`, which is exactly what the chart drew
+   * before they existed, so nobody's chart changes on the update.
+   */
+  borderUpColor: string;
+  borderDownColor: string;
+  wickUpColor: string;
+  wickDownColor: string;
   /** Price precision, or `auto` to follow the instrument's tick size. */
   precision: PricePrecision;
 
@@ -65,13 +100,42 @@ export interface ChartSettings {
   showStatusLine: boolean;
   /** The instrument name and interval within it. */
   statusSymbol: boolean;
+  /**
+   * R6 SL-2: which form of the name, since the product has two.
+   *
+   * `displayTicker` gives `BTCUSDT`, `displaySymbol` gives
+   * `BINANCE:BTC/USDT · SPOT`. The legend hard-coded the first. Contract §5
+   * keeps the ticker as the default — this is an opt-in to the longer form,
+   * not a licence to print a canonical `instrument:v1:…` id anywhere.
+   */
+  statusTitle: StatusTitleForm;
   /** O/H/L/C values within it. */
   statusOhlc: boolean;
   /** The bar's absolute and percentage change. */
   statusBarChange: boolean;
   /** The bar's volume. */
   statusVolume: boolean;
-  /** Indicator names and values in the legend below it. */
+  /**
+   * R6 SL-3: the instrument's 24h change, which the quote contract carries.
+   *
+   * Off by default, as the reference's `Last day change values` is. When the
+   * feed has no 24h figure for this instrument the legend renders nothing —
+   * not a dash, which would read as "zero".
+   */
+  statusDayChange: boolean;
+  /**
+   * R6 SL-1: the legend already draws three separable things.
+   *
+   * `statusIndicatorValues` used to gate the whole `IndicatorLegend`, so one
+   * switch hid a study's title, its inputs (`Length 14 · Source close`) and its
+   * values together. The reference has three rows; so does this, and a
+   * workspace stored with the single key seeds all three (see
+   * `normalizeChartSettings`).
+   */
+  statusIndicatorTitles: boolean;
+  /** Dependent on titles: the inputs printed after a study's name. */
+  statusIndicatorInputs: boolean;
+  /** Indicator values in the legend below the status line. */
   statusIndicatorValues: boolean;
 
   // ── Scales and lines ──────────────────────────────────────────────────────
@@ -93,15 +157,69 @@ export interface ChartSettings {
   lastValueLabel: boolean;
   /** How the time axis writes a date. */
   dateFormat: DateFormatName;
+  /**
+   * R6 SC-2: whether the axis-foot `log % auto reset` strip is drawn.
+   *
+   * The reference's `Scale modes (A and L)` row is about the VISIBILITY of the
+   * axis buttons, not about the modes themselves. `always` is this product's
+   * behaviour today, so a stored workspace that has never seen this control
+   * looks exactly as it did.
+   */
+  scaleButtons: ScaleButtonsMode;
+  /**
+   * R6 SC-3: the price tag on the scale for study and overlay series.
+   *
+   * ANDed into the `lastValueVisible` the pane already computes from pane
+   * density, so turning it off is absolute and turning it on does not override
+   * the density rule that keeps a crowded pane readable.
+   */
+  indicatorLastValue: boolean;
+  /**
+   * R6 SC-4: bid and ask as price lines.
+   *
+   * The canonical ticker event carries `bid` / `ask`, and `createPriceLine` is
+   * already how the pane draws trading levels. The ROW only appears once the
+   * pane's ticker has actually reported a bid and an ask, so a provider
+   * without quotes never gets a control that cannot move.
+   */
+  bidAskLines: BidAskLines;
+  bidColor: string;
+  askColor: string;
+  /**
+   * R6 SC-5(d): `Mon` before the date on a day-boundary tick label.
+   *
+   * The reference has it on by default. `CandleChart` already supplies a
+   * `tickMarkFormatter`, so this is a branch inside a function that exists.
+   */
+  dayOfWeekOnLabels: boolean;
 
   // ── Canvas ────────────────────────────────────────────────────────────────
   /** Vertical grid lines. */
   gridVertical: boolean;
   /** Horizontal grid lines. */
   gridHorizontal: boolean;
-  /** TVP8: the grid had a pair of on/off switches and no appearance at all. */
+  /**
+   * TVP8: the grid had a pair of on/off switches and no appearance at all.
+   *
+   * ── R6 C-1: one appearance for two directions was one too few ────────────
+   *
+   * These two are the SHARED pair, and they are what `CandleChart` still
+   * applies to both `vertLines` and `horzLines`. The reference gives each
+   * direction its own line-style button, and lightweight-charts has always
+   * accepted two independent sets, so `gridVertColor` / `gridVertStyle` /
+   * `gridHorzColor` / `gridHorzStyle` below are what the dialog writes now.
+   * The shared pair stays until the apply site reads the new four (it is the
+   * seed the new four migrate from, so deleting it would lose a pinned grid
+   * colour on the next reload).
+   */
   gridColor: string;
   gridStyle: LineStyleName;
+  /** R6 C-1: the vertical grid's own colour (`""` = the theme's) and style. */
+  gridVertColor: string;
+  gridVertStyle: LineStyleName;
+  /** R6 C-1: the horizontal grid's own colour and style. */
+  gridHorzColor: string;
+  gridHorzStyle: LineStyleName;
   /** Lightweight-charts crosshair. */
   showCrosshair: boolean;
   /** TVP8: same — visible or not, and nothing else. */
@@ -115,10 +233,32 @@ export interface ChartSettings {
    * SCREENSHOT of this chart says it is, which is most of what it is for.
    */
   watermark: boolean;
+  /**
+   * R6 C-2: the watermark is a MODE, not a switch.
+   *
+   * ── Why this is not simply `watermark` retyped ───────────────────────────
+   *
+   * It will be. `CandleChart.tsx:1214` reads `visible: settings.watermark` as
+   * a boolean, and that file belongs to another change in flight; retyping the
+   * key underneath it would not only fail `tsc`, it would make every chart in
+   * the product draw a watermark, because `"hidden"` is a truthy string. So
+   * the mode is the value the dialog writes and the boolean is kept in step
+   * beside it (`mode === "symbol"`), and the apply-site change collapses the
+   * two into one key named `watermark`.
+   */
+  watermarkMode: WatermarkMode;
+  /** R6 C-2: the watermark's colour; `""` is the theme's own. */
+  watermarkColor: string;
   /** Solid ground, or the reference's vertical gradient. */
   backgroundGradient: boolean;
+  /** R6 C-2: the ground's colour; `""` is the theme's own. */
+  backgroundColor: string;
   /** Axis label size in px. */
   scaleFontSize: number;
+  /** R6 C-4: axis text colour (`layout.textColor`); `""` is the theme's own. */
+  scaleTextColor: string;
+  /** R6 C-4: the price and time scale border colour; `""` is the theme's own. */
+  scaleLineColor: string;
   /** Empty space above the highest bar, as a percentage of pane height. */
   marginTopPct: number;
   /** Empty space below the lowest bar, as a percentage of pane height. */
@@ -127,8 +267,36 @@ export interface ChartSettings {
   rightOffsetBars: number;
 
   // ── Overlays ──────────────────────────────────────────────────────────────
-  /** Paper/trading position and order decorations. */
+  /** Position and order price lines. */
   showTrading: boolean;
+  /**
+   * R6 T-2: the unrealised P&L on a position's own line.
+   *
+   * Implemented rather than omitted because `ManualPosition` (`lib/api.ts`)
+   * already carries `pnlUsdt` and `pnlPct` — the line's title has the number to
+   * print. There are deliberately no Money / Pips / % sub-rows: the ticket
+   * reports in money and a pip has no meaning on a crypto pair.
+   */
+  showPnlValue: boolean;
+  /**
+   * R6 T-1: execution marks, which were gated under `showTrading` with the
+   * price lines even though they are a different thing on the chart.
+   */
+  showExecutionMarks: boolean;
+  /** Dependent on marks: the `BUY 77,600` text beside each one. */
+  showExecutionLabels: boolean;
+  /**
+   * R6 A-1: a price line per fixed-price alert on this instrument.
+   *
+   * Coloured per alert by `alertColor(a)` rather than from one swatch — the
+   * product's alerts already carry their own colour, and one dialog colour for
+   * all of them would be less truthful than what is drawn. Alerts stated
+   * relative to a moving average or a band have no single price and are
+   * skipped.
+   */
+  showAlertLines: boolean;
+  /** Dependent on alert lines: `isAlertActive` filters the armed ones. */
+  onlyActiveAlerts: boolean;
   /** Fired-alert markers recorded by the alert runner. */
   showAlerts: boolean;
   /** Strategy, script and pattern event markers. */
@@ -199,13 +367,32 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   thinBars: true,
   upColor: "#2ebd85",
   downColor: "#f6465d",
+  // The same two colours: a border and a wick follow the body until somebody
+  // says otherwise, which is what the chart drew before these keys existed.
+  borderUpColor: "#2ebd85",
+  borderDownColor: "#f6465d",
+  wickUpColor: "#2ebd85",
+  wickDownColor: "#f6465d",
   precision: "auto",
 
   showStatusLine: true,
   statusSymbol: true,
+  statusTitle: "ticker",
   statusOhlc: true,
   statusBarChange: true,
-  statusVolume: true,
+  /*
+   * R3-14: off by default, because the reference's status line is.
+   *
+   * `Vol 898.81` rode at the end of every OHLC row — a number the reference
+   * does not show there at all, in the one line of the chart that must read at
+   * a glance. It stays a Status-line switch for anyone who wants it; what
+   * changed is which way it points before anybody has chosen.
+   */
+  statusVolume: false,
+  // The reference's `Last day change values` is off before anybody chooses.
+  statusDayChange: false,
+  statusIndicatorTitles: true,
+  statusIndicatorInputs: true,
   statusIndicatorValues: true,
 
   scalePlacement: "right",
@@ -216,23 +403,45 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   lastValueLineStyle: "dashed",
   lastValueLabel: true,
   dateFormat: "dd MMM yy",
+  // `always` is what this product does today; the control is the reference's
+  // way of getting the strip out of the way, not a change of behaviour.
+  scaleButtons: "always",
+  indicatorLastValue: true,
+  bidAskLines: "hidden",
+  bidColor: "#2ebd85",
+  askColor: "#f6465d",
+  dayOfWeekOnLabels: true,
 
   gridVertical: true,
   gridHorizontal: true,
   gridColor: "",
   gridStyle: "solid",
+  gridVertColor: "",
+  gridVertStyle: "solid",
+  gridHorzColor: "",
+  gridHorzStyle: "solid",
   showCrosshair: true,
   crosshairColor: "",
   crosshairWidth: 1,
   crosshairStyle: "dashed",
   watermark: false,
+  watermarkMode: "hidden",
+  watermarkColor: "",
   backgroundGradient: false,
+  backgroundColor: "",
   scaleFontSize: 12,
+  scaleTextColor: "",
+  scaleLineColor: "",
   marginTopPct: 10,
   marginBottomPct: 8,
   rightOffsetBars: 5,
 
   showTrading: true,
+  showPnlValue: true,
+  showExecutionMarks: true,
+  showExecutionLabels: true,
+  showAlertLines: true,
+  onlyActiveAlerts: true,
   showAlerts: true,
   showEvents: true,
 
@@ -257,6 +466,8 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
 
 const PRECISIONS: readonly PricePrecision[] = ["auto", 0, 1, 2, 3, 4, 5, 6, 7, 8];
 const PLACEMENTS: readonly ScalePlacement[] = ["right", "left", "both", "none"];
+export const WATERMARK_MODES: readonly WatermarkMode[] = ["hidden", "symbol", "replay"];
+export const SCALE_BUTTON_MODES: readonly ScaleButtonsMode[] = ["hover", "always", "hidden"];
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -376,23 +587,55 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
   const legacyGrid = bool(value.showGrid, true);
   const precision = PRECISIONS.includes(value.precision as PricePrecision)
     ? value.precision as PricePrecision : "auto";
+
+  /*
+   * ── The three migrations R6 asked for, in one place ──────────────────────
+   *
+   * Each one is a key that SPLIT or changed shape, and each seeds its
+   * successors from what the user had. The failure this guards against is
+   * always the same: a workspace that comes back from an update with a
+   * setting the user had switched off switched back on.
+   */
+  /** The body colours, resolved first: the candle-component pairs default to them. */
+  const up = hex(value.upColor, DEFAULT_CHART_SETTINGS.upColor) || DEFAULT_CHART_SETTINGS.upColor;
+  const down = hex(value.downColor, DEFAULT_CHART_SETTINGS.downColor) || DEFAULT_CHART_SETTINGS.downColor;
+  /** C-1: one grid colour and style became one of each per direction. */
+  const legacyGridColor = hex(value.gridColor, "");
+  const legacyGridStyle = lineStyle(value.gridStyle, "solid");
+  /** SL-1: one indicator switch became titles / inputs / values. */
+  const legacyIndicators = bool(value.statusIndicatorValues, true);
+  /** C-2: the watermark boolean became a three-state mode. */
+  const watermarkMode: WatermarkMode = WATERMARK_MODES.includes(value.watermarkMode as WatermarkMode)
+    ? value.watermarkMode as WatermarkMode
+    : value.watermark === true ? "symbol" : "hidden";
+
   return {
     candleBody: bool(value.candleBody, true),
     candleBorders: bool(value.candleBorders, true),
     candleWicks: bool(value.candleWicks, true),
     thinBars: bool(value.thinBars, true),
-    upColor: typeof value.upColor === "string" && HEX.test(value.upColor)
-      ? value.upColor : DEFAULT_CHART_SETTINGS.upColor,
-    downColor: typeof value.downColor === "string" && HEX.test(value.downColor)
-      ? value.downColor : DEFAULT_CHART_SETTINGS.downColor,
+    upColor: up,
+    downColor: down,
+    // S-2: absent, these ARE the body's colours — the chart is unchanged for
+    // every workspace that predates them.
+    borderUpColor: hex(value.borderUpColor, up) || up,
+    borderDownColor: hex(value.borderDownColor, down) || down,
+    wickUpColor: hex(value.wickUpColor, up) || up,
+    wickDownColor: hex(value.wickDownColor, down) || down,
     precision,
 
     showStatusLine: bool(value.showStatusLine, true),
     statusSymbol: bool(value.statusSymbol, true),
+    statusTitle: value.statusTitle === "symbol" ? "symbol" : "ticker",
     statusOhlc: bool(value.statusOhlc, true),
     statusBarChange: bool(value.statusBarChange, true),
-    statusVolume: bool(value.statusVolume, true),
-    statusIndicatorValues: bool(value.statusIndicatorValues, true),
+    statusVolume: bool(value.statusVolume, false),
+    statusDayChange: bool(value.statusDayChange, false),
+    // SL-1: the single switch seeds all three, so a user who had the legend
+    // off does not find titles and inputs back.
+    statusIndicatorTitles: bool(value.statusIndicatorTitles, legacyIndicators),
+    statusIndicatorInputs: bool(value.statusIndicatorInputs, legacyIndicators),
+    statusIndicatorValues: legacyIndicators,
 
     scalePlacement: PLACEMENTS.includes(value.scalePlacement as ScalePlacement)
       ? value.scalePlacement as ScalePlacement : "right",
@@ -404,25 +647,50 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     lastValueLabel: bool(value.lastValueLabel, true),
     dateFormat: DATE_FORMATS.includes(value.dateFormat as DateFormatName)
       ? value.dateFormat as DateFormatName : "dd MMM yy",
+    scaleButtons: SCALE_BUTTON_MODES.includes(value.scaleButtons as ScaleButtonsMode)
+      ? value.scaleButtons as ScaleButtonsMode : "always",
+    indicatorLastValue: bool(value.indicatorLastValue, true),
+    bidAskLines: value.bidAskLines === "line" ? "line" : "hidden",
+    bidColor: hex(value.bidColor, DEFAULT_CHART_SETTINGS.bidColor) || DEFAULT_CHART_SETTINGS.bidColor,
+    askColor: hex(value.askColor, DEFAULT_CHART_SETTINGS.askColor) || DEFAULT_CHART_SETTINGS.askColor,
+    dayOfWeekOnLabels: bool(value.dayOfWeekOnLabels, true),
 
     gridVertical: bool(value.gridVertical, legacyGrid),
     gridHorizontal: bool(value.gridHorizontal, legacyGrid),
     // Empty means "the theme's own", which is what every chart had before
     // these controls existed and what Reset returns them to.
-    gridColor: hex(value.gridColor, ""),
-    gridStyle: lineStyle(value.gridStyle, "solid"),
+    gridColor: legacyGridColor,
+    gridStyle: legacyGridStyle,
+    // C-1: the shared pair seeds BOTH directions, exactly as `showGrid` seeds
+    // both visibilities above — a pinned grid colour survives the split.
+    gridVertColor: hex(value.gridVertColor, legacyGridColor),
+    gridVertStyle: lineStyle(value.gridVertStyle, legacyGridStyle),
+    gridHorzColor: hex(value.gridHorzColor, legacyGridColor),
+    gridHorzStyle: lineStyle(value.gridHorzStyle, legacyGridStyle),
     showCrosshair: bool(value.showCrosshair, true),
     crosshairColor: hex(value.crosshairColor, ""),
     crosshairWidth: Math.round(num(value.crosshairWidth, 1, 1, 4)),
     crosshairStyle: lineStyle(value.crosshairStyle, "dashed"),
-    watermark: bool(value.watermark, false),
+    // C-2: the mode is the value; the boolean is what the apply site still
+    // reads, and it is kept in step rather than left to drift.
+    watermarkMode,
+    watermark: watermarkMode === "symbol",
+    watermarkColor: hex(value.watermarkColor, ""),
     backgroundGradient: bool(value.backgroundGradient, false),
+    backgroundColor: hex(value.backgroundColor, ""),
     scaleFontSize: Math.round(num(value.scaleFontSize, 12, 8, 20)),
+    scaleTextColor: hex(value.scaleTextColor, ""),
+    scaleLineColor: hex(value.scaleLineColor, ""),
     marginTopPct: Math.round(num(value.marginTopPct, 10, 0, 50)),
     marginBottomPct: Math.round(num(value.marginBottomPct, 8, 0, 50)),
     rightOffsetBars: Math.round(num(value.rightOffsetBars, 5, 0, 200)),
 
     showTrading: bool(value.showTrading, true),
+    showPnlValue: bool(value.showPnlValue, true),
+    showExecutionMarks: bool(value.showExecutionMarks, true),
+    showExecutionLabels: bool(value.showExecutionLabels, true),
+    showAlertLines: bool(value.showAlertLines, true),
+    onlyActiveAlerts: bool(value.onlyActiveAlerts, true),
     showAlerts: bool(value.showAlerts, true),
     showEvents: bool(value.showEvents, true),
 
@@ -453,6 +721,30 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
 export function isDefaultChartSettings(value: ChartSettings): boolean {
   return (Object.keys(DEFAULT_CHART_SETTINGS) as (keyof ChartSettings)[])
     .every((key) => value[key] === DEFAULT_CHART_SETTINGS[key]);
+}
+
+/**
+ * A date format, shown as a date rather than as its pattern.
+ *
+ * R6 SC-5(a): the dialog listed `dd MMM yy` / `MMM dd, yyyy` / `yyyy-MM-dd` —
+ * the library's pattern tokens, printed at a trader. The reference's row reads
+ * `Mon 29 Sep '97`: the choice is what the axis will LOOK like, so the option
+ * is the thing itself.
+ *
+ * Rendered through the same token substitution `lightweight-charts` performs on
+ * `localization.dateFormat`, on one fixed date (Monday 29 September 1997) so
+ * every option differs visibly and none of them depends on today.
+ */
+export function dateFormatExample(format: DateFormatName): string {
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const y = 1997, m = 9, d = 29;
+  return format
+    .replace("yyyy", String(y))
+    .replace("MMM", MONTHS[m - 1]!)
+    .replace("MM", String(m).padStart(2, "0"))
+    .replace("dd", String(d))
+    .replace("yy", `'${String(y).slice(2)}`);
 }
 
 /** The label a precision choice carries in the dialog. */

@@ -100,6 +100,24 @@ menus; resize the viewport; read DOM geometry and computed styles; take
 viewport and full-page screenshots; keyboard input. Capture of the matched
 1440×900 shell takes ~5s.
 
+## Loading `playwright-ts` in a fresh client (verified 2026-09-14)
+
+- **Claude Code.** `claude mcp list` run from the repository root reports the
+  project-scoped `playwright-ts` server. A project `.mcp.json` server needs a
+  one-time approval per machine; once approved it shows `✔ Connected` and a
+  fresh session loads it without a prompt. Claude keeps that approval in
+  `~/.claude.json` under `projects["<repo path>"].enabledMcpjsonServers`, so
+  on a new machine run `claude` once in the repo and accept the server.
+- **Codex.** `codex mcp list` shows `playwright-ts` as `enabled` from
+  `~/.codex/config.toml`.
+- **The server itself.** Spawning the exact `.mcp.json` command over stdio and
+  sending `initialize` then `tools/list` answers with the Playwright MCP server
+  (1.63 line) and 43 tools, including `browser_navigate`, `browser_snapshot`,
+  `browser_take_screenshot` and `browser_evaluate`. Nothing in the handshake
+  opens a browser; Chrome starts on the first tool call.
+- `playwright-core` is a **devDependency** of `platform/frontend` (used only by
+  `scripts/ts-capture.mjs`); it is not part of the shipped bundle.
+
 ## Matched-state protocol
 
 See `TradingView-Parity-TVP8-20260913/00_OWNER_VISUAL_VETO.md`: 1440×900, dark,

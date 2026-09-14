@@ -70,6 +70,8 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { type Resolution } from "@/lib/resolution";
 import { Separator } from "@/components/ui";
 import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
+import { IndicatorTemplatesMenu, type TemplateStudies } from "@/components/tv/IndicatorTemplatesMenu";
+import type { IndicatorTemplate, TemplateApplication } from "@/lib/indicatorTemplates";
 import { LayoutSelector } from "@/components/tv/LayoutSelector";
 import { LayoutMenu } from "@/components/tv/LayoutMenu";
 import { SyncMenu } from "@/components/tv/SyncMenu";
@@ -166,6 +168,10 @@ export interface ChartToolbarProps {
 
   indicatorCount: number;
   onOpenIndicators: () => void;
+  /** The focused pane's studies — what `Save indicator template…` captures. */
+  indicatorTemplateStudies: TemplateStudies;
+  /** Apply a template to the focused pane, and report what landed. */
+  onApplyIndicatorTemplate: (t: IndicatorTemplate) => TemplateApplication;
 
   /** Drawing-history actions, on the primary row like the reference. */
   canUndo: boolean;
@@ -257,15 +263,28 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
       <button {...ctl("commandPalette")} onClick={props.onOpenCommandPalette}
         title="Search tool or function"
         aria-label="Search tool or function" className={TOOL_ICON_BUTTON}>
-        <Glyph><circle cx="10.5" cy="10.5" r="6.5" /><path d="M20 20l-4.6-4.6" /></Glyph>
+        {/*
+          R1b-03: a plain magnifier was the blind reviewer's first clue. The
+          reference's quick-search glyph is a lens with a LIGHTNING BOLT in it,
+          the bolt breaking the ring at the top — 18×21, not 16×16.
+        */}
+        <Glyph>
+          <circle cx="10.2" cy="11.2" r="7.3" />
+          <path d="M15.4 16.4L21 22" />
+          <path d="M12.4 1.4L8.2 10.4h4.2l-1.4 7 5.4-9h-4.2z" />
+        </Glyph>
       </button>
 
       <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
         title="Chart settings — symbol, status, scales, canvas, trading and events"
         aria-label="Chart settings" className={TOOL_ICON_BUTTON}>
+        {/*
+          R1b-03: ours was a narrow POINTY-TOP hexagon at 16×18; the
+          reference's is a wide FLAT-TOP one at 22×18 with a ring inside.
+        */}
         <Glyph>
-          <path d="M12 2.8l7.8 4.5v9.4L12 21.2l-7.8-4.5V7.3z" />
-          <circle cx="12" cy="12" r="3.2" />
+          <path d="M5.6 3.4h12.8L23.2 12l-4.8 8.6H5.6L0.8 12z" />
+          <circle cx="12" cy="12" r="3.7" />
         </Glyph>
       </button>
 
@@ -317,9 +336,10 @@ function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => v
         aria-expanded={open}
         title="Chart image"
         aria-label="Chart image" className={TOOL_ICON_BUTTON}>
+        {/* R1b-03: 21×17, not 18×14 — the reference's camera nearly fills its cell. */}
         <Glyph>
-          <path d="M3.5 8.5A1.5 1.5 0 015 7h2.4L9 4.8h6L16.6 7H19a1.5 1.5 0 011.5 1.5v9A1.5 1.5 0 0119 19H5a1.5 1.5 0 01-1.5-1.5z" />
-          <circle cx="12" cy="13" r="3.4" />
+          <path d="M1.2 8.6A1.9 1.9 0 013.1 6.7h3.2L8.2 3.6h7.6l1.9 3.1h3.2a1.9 1.9 0 011.9 1.9v9.6a1.9 1.9 0 01-1.9 1.9H3.1a1.9 1.9 0 01-1.9-1.9z" />
+          <circle cx="12" cy="13.2" r="4.1" />
         </Glyph>
       </button>
       {open && (
@@ -358,7 +378,8 @@ function CompareButton(props: ChartToolbarProps & { className: string }) {
       aria-label="Compare with another instrument"
       className={`${TOOL_ICON_BUTTON} ${props.className}`}
     >
-      <Glyph><circle cx="12" cy="12" r="8.5" /><path d="M12 8v8M8 12h8" /></Glyph>
+      {/* R1b-03: 19×19. Ours drew the same ⊕ two pixels small in every direction. */}
+      <Glyph><circle cx="12" cy="12" r="9.6" /><path d="M12 6.6v10.8M6.6 12h10.8" /></Glyph>
     </button>
   );
 }
@@ -381,13 +402,22 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
           : "Indicators"}
         className={TOOL_ICON_BUTTON}
       >
-        {/* a line over bars, as the reference draws its own */}
+        {/*
+          R1b-03 / BLIND clue 3: a rising line over three HOLLOW bars and NO
+          baseline. Ours drew a peaked line over four filled ticks sitting on a
+          solid rule, which is the generic "chart" glyph the blind reviewer
+          named as a tell.
+        */}
         <Glyph>
-          <path d="M3.5 20.5h17" />
-          <path d="M6 17v-4M10 17v-7M14 17v-3M18 17v-9" />
-          <path d="M3.5 9.5l4.5-4 4 2.5 4.5-4.5 4 2" />
+          <path d="M2.8 13.6l4.6-4.6 3.6 3.2 3.4-4.4 4.8-6" />
+          <rect x="2.8" y="15.6" width="5.4" height="6.4" />
+          <rect x="8.2" y="12.8" width="5.4" height="9.2" />
+          <rect x="13.6" y="9.6" width="5.4" height="12.4" />
         </Glyph>
       </button>
+
+      {/* The reference's 2×2-grid Indicator templates button, beside Indicators. */}
+      <IndicatorTemplatesMenu studies={props.indicatorTemplateStudies} onApply={props.onApplyIndicatorTemplate} />
 
       <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
 
@@ -403,11 +433,21 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
         aria-label="Create alert"
         className={TOOL_ICON_BUTTON}
       >
-        {/* an alarm clock with a plus — the reference's own silhouette for "create alert" */}
+        {/*
+          R1b-03 / BLIND clue 2: a clock DIAL whose ring is broken at the lower
+          right by the `+`, with the alarm arcs over the top — 21×21. Ours put
+          the plus INSIDE a closed ring with two bells on top, which reads as a
+          stopwatch.
+        */}
         <Glyph>
-          <circle cx="12" cy="13" r="7.5" />
-          <path d="M12 9.5v7M8.5 13h7" />
-          <path d="M5 5.5L7.5 3.5M19 5.5L16.5 3.5" />
+          {/* the dial, opened at the lower right so the plus breaks the ring */}
+          <path d="M20.2 16.4A9 9 0 1 0 14.8 21.2" />
+          {/* the hands */}
+          <path d="M12 7.2v5.4h4.1" />
+          {/* the alarm's two arcs, over the top */}
+          <path d="M2.6 5.4A10.6 10.6 0 0 1 6.9 1.9M17.1 1.9a10.6 10.6 0 0 1 4.3 3.5" />
+          {/* the plus, sitting in the gap */}
+          <path d="M18.6 15.5v7.2M15 19.1h7.2" />
         </Glyph>
       </button>
 
@@ -419,9 +459,10 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
         title={replayActive ? "Replay is active" : "Bar replay — start from a historical point"}
         className={TOOL_ICON_BUTTON}
       >
-        {/* double rewind, as the reference draws replay */}
+        {/* Double rewind: two hollow triangles, each against its own bar. */}
         <Glyph>
-          <path d="M12 6l-7 6 7 6z" /><path d="M20 6l-7 6 7 6z" />
+          <path d="M10.4 5.4L3.4 12l7 6.6z" /><path d="M11.6 5.4v13.2" />
+          <path d="M19 5.4L12 12l7 6.6z" /><path d="M20.2 5.4v13.2" />
         </Glyph>
       </button>
     </div>
@@ -521,7 +562,12 @@ export function ChartToolbar(props: ChartToolbarProps) {
           onClick={props.onOpenSearch}
           title={`${symbolLabel} — change symbol (/)`}
           aria-label={`Change symbol — currently ${symbolLabel}`}
-          className="flex h-7 min-w-[44px] shrink items-center rounded-full bg-state-active px-3 text-sm font-semibold text-ink hover:brightness-110 sm:shrink-0"
+          /*
+            R1b-01 / BLIND clue 8: 14px at REGULAR weight, and nothing in the
+            chip but the ticker. A semibold ticker was the one heavy string on
+            a row the reference sets entirely at 400.
+          */
+          className="flex h-7 min-w-[44px] shrink items-center rounded-full bg-state-active px-3 text-sm font-normal text-ink hover:brightness-110 sm:shrink-0"
         >
           <span className="min-w-0 truncate">{tickerLabel}</span>
         </button>
@@ -573,7 +619,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             title="Undo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            <Glyph><path d="M8.5 7.5L4 12l4.5 4.5" /><path d="M4 12h10a5 5 0 010 10h-2" /></Glyph>
+            <Glyph><path d="M9.2 6.6L4.4 11.4l4.8 4.8" /><path d="M4.4 11.4h9.2a5.8 5.8 0 015.8 5.8v2" /></Glyph>
           </button>
           <button
             {...ctl("redo")}
@@ -583,7 +629,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             title="Redo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            <Glyph><path d="M15.5 7.5L20 12l-4.5 4.5" /><path d="M20 12H10a5 5 0 000 10h2" /></Glyph>
+            <Glyph><path d="M14.8 6.6l4.8 4.8-4.8 4.8" /><path d="M19.6 11.4h-9.2a5.8 5.8 0 00-5.8 5.8v2" /></Glyph>
           </button>
         </div>
 

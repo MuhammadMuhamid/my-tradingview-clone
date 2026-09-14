@@ -35,6 +35,8 @@
  * repairs a half-valid template into something that looks applied but is not.
  */
 import type { AppliedIndicator, PineParams } from "./indicators";
+import type { IndicatorsApi } from "./useIndicators";
+import type { NativeStudiesApi } from "./useNativeStudies";
 
 export const TEMPLATE_STORAGE_KEY = "tv.indicatorTemplates.v1";
 
@@ -221,10 +223,7 @@ export function templateFromIndicators(
   name: string,
   list: readonly AppliedIndicator[],
   now: Date = new Date(),
-  studies: readonly {
-    defId: string; params: Record<string, unknown>; visible: boolean;
-    styles: Readonly<Record<string, object>>;
-  }[] = [],
+  studies: readonly TemplateStudySnapshot[] = [],
 ): IndicatorTemplate {
   return {
     name: name.trim(),
@@ -244,6 +243,79 @@ export function templateFromIndicators(
         Object.entries(s.styles).map(
           ([plot, style]) => [plot, normalizeParams(style as Record<string, unknown>)])),
     })),
+  };
+}
+
+/**
+ * One built-in study as a template captures it.
+ *
+ * Named rather than written inline at the two call sites that build one,
+ * because the toolbar's template menu now builds the same record from a
+ * different pane's list and a second spelling of this shape is how the Pine
+ * half and the built-in half drifted apart the first time.
+ */
+export interface TemplateStudySnapshot {
+  defId: string;
+  params: Record<string, unknown>;
+  visible: boolean;
+  styles: Readonly<Record<string, object>>;
+}
+
+/** What applying a template actually did — see `applyTemplateTo`. */
+export interface TemplateApplication {
+  applied: number;
+  /** Study ids the template names and this build has no definition for. */
+  missing: string[];
+}
+
+/**
+ * Put a template's studies on a pane.
+ *
+ * ── Why this is here and not in the control that opens the menu ────────────
+ *
+ * It used to be a method of the Indicators BROWSER, and the browser is no
+ * longer where templates live (R3-06). Rather than move it into the toolbar
+ * menu — which would put "what applying means" inside a popover — it is a
+ * function over the two study APIs, so the browser, the menu, a command
+ * palette entry and a test all get the identical behaviour.
+ *
+ * `replace` is the caller's decision and is NOT taken here: clearing a chart
+ * is destructive and must be confirmed against a count the user can see, which
+ * is a question only a UI can ask.
+ *
+ * A `defId` this build has no definition for — a template written by a newer
+ * build, or carried from an installation with a study this one has dropped —
+ * is REPORTED rather than skipped. The loop used to `continue` and the status
+ * line then said "Applied", so the only way to notice a missing indicator was
+ * to count the legend.
+ */
+export function applyTemplateTo(
+  template: IndicatorTemplate,
+  indicators: IndicatorsApi | null,
+  nativeStudies: NativeStudiesApi | null,
+): TemplateApplication {
+  const missing: string[] = [];
+  for (const study of template.studies) {
+    const key = nativeStudies?.add(study.defId, study.params);
+    if (!key) { missing.push(study.defId); continue; }
+    // A template restores how the chart LOOKED, not only what was on it.
+    for (const [plot, style] of Object.entries(study.styles)) {
+      nativeStudies?.setStyle(key, plot, style as Record<string, never>);
+    }
+    if (!study.visible) nativeStudies?.toggleVisible(key);
+  }
+  for (const row of template.indicators) {
+    if (!indicators) { missing.push(row.name); continue; }
+    const key = indicators.add({
+      scriptId: row.scriptId, name: row.name, source: row.source, params: row.params,
+    });
+    // `add` always starts visible; a template that stored a hidden study
+    // restores it hidden.
+    if (!row.visible) indicators.toggleVisible(key);
+  }
+  return {
+    applied: template.indicators.length + template.studies.length - missing.length,
+    missing,
   };
 }
 

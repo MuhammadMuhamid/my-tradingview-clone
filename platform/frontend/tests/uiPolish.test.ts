@@ -157,12 +157,37 @@ test("an oscillator pane spends no height on a header row", () => {
   const pane = fs.readFileSync(path.join(ROOT, "components", "tv", "IndicatorPane.tsx"), "utf8");
   // The z-index moved above the collapsed-pane cover; the position, which is
   // what this test is about, is unchanged.
-  assert.match(pane, /absolute left-2 top-1 z-\[?\d/, "the pane's control row is no longer overlaid");
-  assert.match(pane, /group-hover\/pane:opacity-100/, "the controls are always-on, or gone");
+  assert.match(pane, /absolute left-2 top-1 z-\[?\d/, "the pane's legend row is no longer overlaid");
+  /*
+   * TVP8 R3-12/R3-13: the pane's OWN controls are a second overlaid cluster at
+   * its top-right edge, the way the reference has them, and the reveal is
+   * scoped to this pane (`group/studypane`) rather than to the whole chart
+   * column (`group/pane`, which lit every pane at once).
+   */
+  assert.match(pane, /absolute right-2 top-1 z-\[?\d/,
+    "the pane actions are no longer overlaid at the pane's own edge");
+  assert.match(pane, /group-hover\/studypane:opacity-100/, "the controls are always-on, or gone");
+  // Hide / settings / remove act on the STUDY and now live in the legend row —
+  // the same row a study overlaid on the price pane gets. The pane still owns
+  // the channel they travel down, and still offers remove at its own edge.
+  const legend = fs.readFileSync(
+    path.join(ROOT, "components", "tv", "IndicatorLegend.tsx"), "utf8");
   for (const action of ["hide", "settings", "remove"]) {
-    assert.match(pane, new RegExp(`"${action}"`), `the pane cannot ${action} its indicator`);
+    assert.match(legend, new RegExp(`"${action}"`), `the legend cannot ${action} its indicator`);
   }
-  // The collapse, move and maximise controls added later share that same
-  // overlaid row rather than earning one of their own.
+  assert.match(pane, /"remove"/, "the pane cannot remove its indicator");
+  // Neither cluster reserves a row: both are absolutely positioned over the
+  // plot, so a pane still spends zero height on chrome.
   assert.equal((pane.match(/absolute left-2 top-1 z-/g) ?? []).length, 1);
+  assert.equal((pane.match(/absolute right-2 top-1 z-/g) ?? []).length, 1);
+  /*
+   * And neither paints a surface. Two `bg-surface/8x` boxes — one behind the
+   * legend, one behind the cluster — were the "bordered mini-toolbar" the
+   * owner vetoed (R3-10); the reference's legend is type on the plot.
+   */
+  // Comments stripped: the sentence explaining the defect names the classes it
+  // removed, and a rule a comment can turn red is not a rule.
+  assert.doesNotMatch(pane.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""),
+    /bg-surface\/\d/,
+    "a filled box over the oscillator is chrome, not a legend");
 });

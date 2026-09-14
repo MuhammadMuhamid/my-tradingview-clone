@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { MARKET_CONTRACT_VERSION, effectiveListingStatus, type CanonicalInstrument } from "../../market/model";
+import { ASSET_CLASSES, MARKET_CONTRACT_VERSION, effectiveListingStatus, type CanonicalInstrument } from "../../market/model";
 import { providerRegistry } from "../../market/providers";
 import { venueRegistry } from "../../market/venues";
 import { INTERVAL_MS, type Candle, type Interval } from "../../types/market";
@@ -149,18 +149,31 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
 
   app.get("/api/market/v1/search", async (req) => {
     const query = req.query as { q?: string; venue?: string; quote?: string; type?: string;
-      expiry?: string; underlying?: string; limit?: string };
+      expiry?: string; underlying?: string; limit?: string; assetClass?: string };
     const term = (query.q ?? "").trim().toUpperCase();
     const venue = (query.venue ?? "").trim().toUpperCase();
     const quote = (query.quote ?? "").trim().toUpperCase();
     const type = (query.type ?? "all").trim().toLowerCase();
     const expiry = (query.expiry ?? "live").trim().toLowerCase();
     const underlying = (query.underlying ?? "").trim().toUpperCase();
+    /*
+     * The asset class the caller is browsing, when it is browsing one.
+     *
+     * Additive and optional: absent (or empty) it does not participate, so a
+     * client that never sends it gets exactly the answer it got before. It
+     * exists because the workstation's primary filter is the asset CLASS —
+     * "Crypto" spans spot, perpetual and dated crypto futures, which is not a
+     * set any single `type=` names — and `identity.assetClass` already carries
+     * that fact and is already filtered on for `type=commodity`.
+     */
+    const assetClass = (query.assetClass ?? "").trim().toLowerCase();
     const allowedTypes = new Set(["all", "spot", "perpetual", "future", "continuous_future", "stock", "etf", "fx_pair", "commodity", "index"]);
     const allowedExpiries = new Set(["all", "live", "30d", "90d", "expired"]);
-    if (!allowedTypes.has(type) || !allowedExpiries.has(expiry)) {
+    const allowedAssetClasses = new Set<string>(ASSET_CLASSES);
+    if (!allowedTypes.has(type) || !allowedExpiries.has(expiry) ||
+      (assetClass !== "" && !allowedAssetClasses.has(assetClass))) {
       return { contractVersion: MARKET_CONTRACT_VERSION, total: 0, venues: [], quotes: [], results: [],
-        errors: [{ providerId: "query", error: "type/expiry filter is invalid" }] };
+        errors: [{ providerId: "query", error: "type/expiry/assetClass filter is invalid" }] };
     }
     const limit = Math.min(Math.max(Number(query.limit ?? 60) || 60, 1), 200);
     const candidates = venue ? registry.forVenue(venue) : registry.all();
@@ -180,6 +193,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       const status = effectiveListingStatus(item, now);
       const maturity = item.derivative.kind === "contract" ? item.derivative.maturity : null;
       const expiryAt = maturity?.kind === "dated" ? Date.parse(maturity.expiresAt) : null;
+      if (assetClass && item.identity.assetClass !== assetClass) return false;
       if (type === "commodity" && item.identity.assetClass !== "commodity") return false;
       if (type !== "all" && type !== "commodity" && item.identity.instrumentType !== type) return false;
       if (underlying && item.identity.baseAsset !== underlying) return false;

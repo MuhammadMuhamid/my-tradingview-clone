@@ -730,7 +730,17 @@ test("every toolbar popover goes through the registry rather than its own state"
     // from the instance so two of them on one screen cannot fight; the
     // registry sees the literal prefix in the source.
     "calendar:${id}",
-    "chart-type", "drawing-flyout", "layout-preset", "nav-system", "pane-sync",
+    // TVP8 R6: the chart-settings footer's `Template` menu, and the three
+    // settings-row primitives in `components/ui.tsx` whose popovers replaced
+    // the native `<select>` and the native colour input. Each takes its id
+    // from the control's own accessible name, so two swatches in one row
+    // cannot be open together.
+    "chart-settings-template",
+    "chart-type", "drawing-flyout",
+    // TVP8 R3-06: indicator TEMPLATES left the browser dialog and became the
+    // toolbar control the reference has, beside Indicators.
+    "indicator-templates",
+    "layout-preset", "nav-system", "pane-sync",
     "product-menu", "saved-layouts", "timeframe",
     // TVP8: and widening the match immediately found a SECOND one that had
     // been escaping — the timeframe picker's scoped instance. Two popovers
@@ -738,6 +748,7 @@ test("every toolbar popover goes through the registry rather than its own state"
     "timeframe:${props.scope}",
     // TVP8: the camera's Save image / Copy image menu.
     "toolbar:snapshot", "trading-overlays",
+    "ui-dropdown:${popoverId}", "ui-line-style:${popoverId}", "ui-swatch:${popoverId}",
     // TVP7: the watchlist's list switcher. It kept a private `useState(false)`
     // and escaped this inventory because it was a hand-rolled box with no
     // `role="menu"` for the rule below to catch.

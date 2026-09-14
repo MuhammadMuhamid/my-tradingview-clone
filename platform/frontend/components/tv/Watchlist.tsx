@@ -5,7 +5,7 @@ import { useAsk } from "@/components/AskDialog";
 import type { SymbolInfo } from "@/lib/types";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { api, type ServerWatchlist } from "@/lib/api";
-import { useWatchlistTickers } from "@/lib/useWatchlistTickers";
+import { useWatchlistTickers, type WatchlistTicker } from "@/lib/useWatchlistTickers";
 import { describeStreamState } from "@/lib/marketStream";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import { watchlistMenu } from "@/lib/menuPayloads";
@@ -14,11 +14,15 @@ import {
   MANUAL_SORT, canReorder, nextSort, reorderRefusal, reorderSymbols, sortSymbols,
   type SortColumn, type WatchlistSort,
 } from "@/lib/watchlistOrder";
-import { canonicalDisplayParts, canonicalizeLegacySpotSymbol, displaySymbol, instrumentTypeLabel, isCanonicalInstrumentId } from "@/lib/instrument";
+import {
+  canonicalDisplayParts, canonicalizeLegacySpotSymbol, displaySymbol, displayTicker,
+  instrumentTypeLabel, isCanonicalInstrumentId, type AssetClass,
+} from "@/lib/instrument";
 import { CaretGlyph } from "@/components/ui";
 import { describeAction, type FailureCopy } from "@/lib/errorCopy";
+import { AssetMark, WatchlistDetails, type MarketLine } from "@/components/tv/WatchlistDetails";
 
-interface Ticker { last: number; chg: number; chgPct: number; stale?: boolean; changeKnown?: boolean }
+type Ticker = Pick<WatchlistTicker, "last" | "chg" | "chgPct" | "stale" | "changeKnown">;
 type NamedWatchlist = ServerWatchlist;
 
 /**
@@ -28,6 +32,9 @@ type NamedWatchlist = ServerWatchlist;
  */
 const LEGACY_KEY = "tv-clone-watchlists-v1";
 const ACTIVE_KEY = "tv.watchlist.active.v1";
+/** How the list is being LOOKED AT — not part of the list, so device-local. */
+const COMPACT_KEY = "tv.watchlist.compact.v1";
+const COLLAPSED_KEY = "tv.watchlist.collapsed.v1";
 
 /**
  * What an empty watchlist offers instead of a full stop.
@@ -58,9 +65,53 @@ const STARTER_SYMBOLS: readonly string[] = [
   "XRPUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT",
 ];
 
+/*
+ * ── TVP8 R7-06: the list is grouped, and the grouping is a VIEW ────────────
+ *
+ * The reference puts a `⌄ CRYPTO` band above its rows. It is not decoration:
+ * a workstation list holds spot pairs, perpetuals, equities and FX at once,
+ * and the reader's first question about an unfamiliar ticker is which of those
+ * it is. A 42px band answers it once per group instead of once per row.
+ *
+ * Nothing about it is persisted, and `lib/watchlistOrder.ts` is untouched. The
+ * user's manual order is still the stored list; grouping reads it and draws it
+ * in sections, so clearing the view gives their arrangement back unchanged.
+ */
+const GROUP_LABEL: Readonly<Record<AssetClass, string>> = {
+  crypto_spot: "Crypto",
+  crypto_derivative: "Crypto",
+  us_equity: "Stocks",
+  fx: "Forex",
+  traditional_future: "Futures",
+  reference_index: "Indices",
+};
+
+function groupOf(info: SymbolInfo): string {
+  return GROUP_LABEL[info.assetClass ?? "crypto_spot"] ?? "Crypto";
+}
+
+/** Sentence case for the details block's `Spot • Crypto` line. */
+function sentenceCase(word: string): string {
+  return word.charAt(0) + word.slice(1).toLowerCase();
+}
+
+/*
+ * The row's four columns, as literals so Tailwind can see them.
+ *
+ * TVP8 R7-03: measured off the reference at 1440×900 — a 24px mark cell, the
+ * ticker taking what is left, then 72 / 70 / 60 for Last / Chg / Chg%. The
+ * shipped grid gave the two change columns 50px each, which cannot hold
+ * `+333.12` at 14px, so every change cell in every capture read `+333....`.
+ */
+const ROW_GRID = "grid-cols-[24px_minmax(0,1fr)_72px_70px_60px]";
+const ROW_GRID_COMPACT = "grid-cols-[24px_minmax(0,1fr)_72px]";
+const HEAD_GRID = "grid-cols-[minmax(0,1fr)_72px_70px_60px]";
+const HEAD_GRID_COMPACT = "grid-cols-[minmax(0,1fr)_72px]";
+
 export function Watchlist({
   symbols, selected, onSelect, onSymbolsChanged, replayQuote = null,
   onOpenInNewPane, onAddAlert, canOpenNewPane = false, replayActive = false,
+  onHide,
 }: {
   symbols: SymbolInfo[];
   selected: string;
@@ -76,13 +127,12 @@ export function Watchlist({
   onAddAlert?: (symbol: string) => void;
   canOpenNewPane?: boolean;
   replayActive?: boolean;
+  /** The gutter grip closes the panel; the rail cell still toggles it. */
+  onHide?: () => void;
 }) {
   const ask = useAsk();
   const [adding, setAdding] = useState("");
   /** The add-symbol field is opened from the header, not permanently reserved. */
-  // When the panel is opened from the compact rail, put the add field in the
-  // first tab order position. It keeps the empty state actionable without
-  // reserving permanent vertical chrome on the chart.
   /*
    * TVP7: closed. This field was open on load, so the panel spent a permanent
    * 34px row — above the column headers, above the first quote — on a control
@@ -104,14 +154,14 @@ export function Watchlist({
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   /**
-   * The row right-click menu.
-   *
-   * `watchlistMenu` was written in Wave B and imported by nothing but its
-   * test, so B7's required watchlist payload was dead code. It opens here.
+   * One `ContextMenu` for every menu opened at a POINT — a row's right-click,
+   * the header's `⋯`, the details block's `⋯`. The alternative is three
+   * components with three sets of keyboard, placement and focus-restore rules,
+   * which is the thing `ContextMenu`'s own header explains at length.
    */
-  const [rowMenu, setRowMenu] = useState<
+  const [pointMenu, setPointMenu] = useState<
     | null
-    | { at: { x: number; y: number }; symbol: string; entries: MenuEntry[] }
+    | { at: { x: number; y: number }; label: string; symbol: string | null; entries: MenuEntry[] }
   >(null);
 
   const reload = async (selectId?: string) => {
@@ -191,6 +241,29 @@ export function Watchlist({
     if (activeId) remember(ACTIVE_KEY, activeId);
   }, [activeId]);
 
+  /** Compact mode: mark + ticker + Last, on the same 30px rows. */
+  const [compact, setCompact] = useState(false);
+  const [collapsed, setCollapsed] = useState<readonly string[]>([]);
+  useEffect(() => {
+    setCompact(recall(COMPACT_KEY) === "1");
+    try {
+      const raw = recall(COLLAPSED_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) setCollapsed(parsed.filter((x): x is string => typeof x === "string"));
+    } catch { /* a malformed preference is no preference */ }
+  }, []);
+  const setCompactRemembered = (next: boolean): void => {
+    setCompact(next);
+    remember(COMPACT_KEY, next ? "1" : "0");
+  };
+  const toggleGroup = (label: string): void => {
+    setCollapsed((current) => {
+      const next = current.includes(label) ? current.filter((x) => x !== label) : [...current, label];
+      remember(COLLAPSED_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const active = lists?.find((l) => l.id === activeId) ?? null;
   /**
    * The rows in the user's own order — which is what is persisted.
@@ -253,6 +326,18 @@ export function Watchlist({
       .filter((s): s is SymbolInfo => Boolean(s));
   }, [manualSymbols, visibleSymbolNames, tickers, sort]);
 
+  /** The sections, in first-appearance order. A sort applies inside them. */
+  const sections = useMemo(() => {
+    const order: string[] = [];
+    const byLabel = new Map<string, SymbolInfo[]>();
+    for (const item of visibleSymbols) {
+      const label = groupOf(item);
+      if (!byLabel.has(label)) { byLabel.set(label, []); order.push(label); }
+      byLabel.get(label)!.push(item);
+    }
+    return order.map((label) => ({ label, rows: byLabel.get(label)! }));
+  }, [visibleSymbols]);
+
   const selectedDetails = useMemo(() => {
     const selectedLabel = displaySymbol(selected);
     const info = manualSymbols.find((item) => item.symbol === selected
@@ -263,6 +348,8 @@ export function Watchlist({
 
   /** The row being dragged, in the manual order. Null when nothing is. */
   const [dragging, setDragging] = useState<string | null>(null);
+  /** Why the last drop was refused, if it was. Cleared by the next drag. */
+  const [dropRefusal, setDropRefusal] = useState<string | null>(null);
 
   /**
    * Drop `symbol` onto the row currently occupied by `onto`.
@@ -277,6 +364,19 @@ export function Watchlist({
    */
   const moveSymbolOnto = (symbol: string, onto: string): void => {
     if (!canReorder(sort) || symbol === onto) return;
+    const from = manualSymbols.find((s) => s.symbol === symbol);
+    const to = manualSymbols.find((s) => s.symbol === onto);
+    /*
+     * R7-06: the sections are a view, so a row dragged across one would land
+     * back under its own heading and appear not to have moved at all. Refusing
+     * it and saying why is the same contract `reorderRefusal` keeps for a
+     * sorted list.
+     */
+    if (from && to && groupOf(from) !== groupOf(to)) {
+      setDropRefusal(`${groupOf(from)} and ${groupOf(to)} are separate sections — a row can only be moved within its own.`);
+      return;
+    }
+    setDropRefusal(null);
     updateActive((l) => {
       const target = l.symbols.indexOf(onto);
       if (target < 0) return l;
@@ -302,6 +402,17 @@ export function Watchlist({
     : stream.status === "stale"
       ? { label: "stalled", tone: "text-down", detail: streamWords.detail }
     : { label: "not streaming", tone: "text-warn", detail: `${streamWords.detail} Prices shown are retained REST quotes and refresh every 15 seconds.` };
+
+  /*
+   * R7-05: the feed dot LEAVES the header when the feed is fine.
+   *
+   * TradingView paints nothing there, and it is right to: a green dot that is
+   * green 99% of the time teaches a reader to stop looking at it, which is
+   * exactly the wrong training for the one time it is not. The sentence stays
+   * — announced, and in the tooltip of the dot that appears when there IS
+   * something to say.
+   */
+  const degraded = priceState !== null && priceState.label !== "live";
 
   /**
    * Optimistic local edit, then persist. The list re-renders immediately and
@@ -397,107 +508,201 @@ export function Watchlist({
     return n.toLocaleString(undefined, { maximumFractionDigits: d });
   };
 
-  return (
-    <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
-      {/*
-        FC2-L3: one header row, not three.
+  const openRowMenu = (at: { x: number; y: number }, symbol: string): void => {
+    setPointMenu({
+      at, symbol,
+      // R7-10: a canonical id is never the visible name of anything.
+      label: displayTicker(symbol),
+      entries: watchlistMenu({ symbol, replayActive, canOpenNewPane }),
+    });
+  };
 
-        The list name, the feed state, the add control and the count used to
-        stack 139px deep before the first symbol, against TradingView's 118px —
-        roughly one symbol's worth of a list whose whole job is showing
-        symbols. The feed dot is now IN the title row (it is a two-state dot,
-        not a sentence, and its sentence is still in the tooltip and still
-        announced), and adding a symbol is an icon that opens the field rather
-        than a permanently reserved row.
+  const marketLine = (info: SymbolInfo, quote: WatchlistTicker | null): MarketLine => {
+    const crypto = (info.assetClass ?? "crypto_spot").startsWith("crypto");
+    if (stream.status === "stale") {
+      return { label: "Stalled", tone: "negative", detail: priceState?.detail ?? streamWords.detail };
+    }
+    if (stream.status === "live") {
+      return {
+        // Truthful for a 24/7 venue and only claimed for one; an equity's
+        // session calendar is not something this panel knows.
+        label: crypto ? "Market open" : "Streaming",
+        tone: "open", detail: priceState?.detail ?? streamWords.detail,
+      };
+    }
+    return {
+      label: quote ? "Quotes 15 s old" : "Not streaming",
+      tone: "caution", detail: priceState?.detail ?? streamWords.detail,
+    };
+  };
+
+  const columns: [SortColumn, string, string][] = compact
+    ? [["symbol", "Symbol", ""], ["last", "Last", "text-right"]]
+    : [["symbol", "Symbol", ""], ["last", "Last", "text-right"],
+       ["change", "Chg", "text-right"], ["change", "Chg%", "text-right"]];
+
+  return (
+    <aside data-watchlist className="group/panel flex h-full w-[85vw] max-w-[300px] shrink-0 bg-surface md:w-[300px]">
+      {/*
+        R7-14: the 4px gutter, inside the panel's own 300px.
+
+        The reference's panel is a DOCKED COLUMN: a 4px band of `--ts-line`
+        separates it from the chart and carries the grip that closes it. Ours
+        was a 1px `border-l`, which reads as a box drawn around a region rather
+        than as a column parked beside one — the difference between a
+        workstation and a page with a sidebar.
       */}
-      <div className="relative border-b border-border px-2 py-1.5">
-        <div className="flex items-center gap-0.5">
-          <button onClick={() => setMenuOpen(!menuOpen)} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-state-hover">
-            {priceState && (
-              <span
-                role="status"
-                aria-live="polite"
-                title={priceState.detail}
-                className={`shrink-0 text-[9px] leading-none ${priceState.tone}`}
-              >
-                <span aria-hidden="true">●</span>
-                <span className="sr-only">Prices {priceState.label}</span>
-              </span>
-            )}
-            <span className="truncate text-sm font-semibold">{active?.name ?? "Watchlist"}</span>
-            <span className="ml-auto flex items-center pl-1 text-ink-faint"><CaretGlyph /></span>
-          </button>
+      <div className="relative hidden w-[4px] shrink-0 bg-border md:block">
+        {onHide && (
           <button
-            onClick={() => setAddOpen((v) => !v)}
-            aria-expanded={addOpen}
-            title="Add a symbol to this list"
-            aria-label="Add a symbol to this list"
-            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-state-hover hover:text-ink"
+            onClick={onHide}
+            title="Hide the watchlist"
+            aria-label="Hide the watchlist"
+            className="absolute -left-[3px] top-1/2 z-10 flex h-[42px] w-[10px] -translate-y-1/2 items-center justify-center rounded-sm bg-border text-[10px] leading-none text-ink-faint opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover/panel:opacity-100"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            <span aria-hidden="true">›</span>
           </button>
-          <button onClick={() => void createList()} title="Create watchlist" aria-label="Create watchlist"
-            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-state-hover hover:text-ink">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <path d="M4 6h10M4 12h7M4 18h7" /><path d="M17 10v8M13 14h8" />
-            </svg>
-          </button>
-          <span className="w-6 shrink-0 text-right text-[11px] text-ink-faint">{visibleSymbols.length}</span>
-        </div>
-        {menuOpen && lists && (
-          <div role="menu" aria-label="My watchlists"
-            className="absolute left-2 right-2 top-[44px] z-50 tvc-menu">
-            <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-ink-faint">My watchlists</div>
-            {lists.map((l) => (
-              <button key={l.id} role="menuitemradio" aria-checked={l.id === activeId}
-                onClick={() => { setActiveId(l.id); setMenuOpen(false); }}
-                className="tvc-menu-row w-full justify-between px-2.5 text-left text-sm text-ink">
-                <span className="truncate">{l.name}</span><span className="text-ink-faint">{l.symbols.length}</span>
-              </button>
-            ))}
-            <div className="tvc-menu-sep" />
-            <button onClick={() => void createList()} className="tvc-menu-row w-full px-2.5 text-left text-sm text-ink-muted hover:text-ink">New list</button>
-            <button onClick={renameList} className="tvc-menu-row w-full px-2.5 text-left text-sm text-ink-muted hover:text-ink">Rename current</button>
-            <button disabled={lists.length === 1} onClick={() => void deleteList()} className="tvc-menu-row w-full px-2.5 text-left text-sm text-down disabled:cursor-not-allowed disabled:opacity-40">Delete current</button>
-          </div>
         )}
       </div>
-      {addOpen && (
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-          {/* A placeholder is not an accessible name, and it disappears as soon
-              as the field is typed into. Measured in a browser: this was the one
-              control on the chart with no name at all. */}
-          <input autoFocus value={adding} onChange={(e) => setAdding(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void add();
-              if (e.key === "Escape") { setAdding(""); setAddOpen(false); }
-            }}
-            aria-label="Add a symbol to this watchlist" placeholder="Symbol, e.g. BTCUSDT"
-            className="w-full rounded-sm border border-border bg-bg px-1.5 py-1 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-accent" />
-          <button onClick={add} disabled={!adding}
-            className="rounded-sm bg-accent px-2 py-1 text-[13px] font-medium text-white disabled:opacity-40">Add</button>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/*
+          R7-05: a 46px title row over a 29px column row.
+
+          The shipped header put five things on one 41px line — a feed dot, the
+          list name, a detached caret, `+`, a TS-only "create watchlist" icon
+          and a count — of which three do not exist on the reference at all.
+          What the reference has is a NAME with its own caret, and three 38px
+          cells: add, a table/list toggle, and the list's own `⋯` menu.
+        */}
+        <div data-watchlist-header className="relative flex h-[46px] shrink-0 items-center pl-3 pr-2">
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            className="tvc-control flex h-[34px] min-w-0 items-center gap-1 rounded-md px-1.5 text-left"
+          >
+            {degraded && priceState && (
+              /* Visible only when there IS something to say. Its sentence is
+                 the `role="status"` line below, which is always present. */
+              <span aria-hidden="true" title={priceState.detail}
+                className={`shrink-0 text-[9px] leading-none ${priceState.tone}`}>●</span>
+            )}
+            <span className="truncate text-[14px] font-semibold leading-none text-ink">
+              {active?.name ?? "Watchlist"}
+            </span>
+            <span className="flex shrink-0 items-center text-ink-faint"><CaretGlyph /></span>
+          </button>
+          {priceState && (
+            <span role="status" aria-live="polite" className="sr-only">Prices {priceState.label}</span>
+          )}
+          <div className="ml-auto flex items-center">
+            <button
+              onClick={() => setAddOpen((v) => !v)}
+              aria-expanded={addOpen}
+              title="Add a symbol to this list"
+              aria-label="Add a symbol to this list"
+              className="tvc-control flex h-[38px] w-[38px] items-center justify-center text-ink"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setCompactRemembered(!compact)}
+              aria-pressed={compact}
+              title={compact ? "Show the change columns" : "Compact list — ticker and last price only"}
+              aria-label={compact ? "Show the change columns" : "Compact list"}
+              className="tvc-control flex h-[38px] w-[38px] items-center justify-center text-ink"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="1.5" />
+                <path d="M4 9.5h16M12 9.5V20" />
+              </svg>
+            </button>
+            <button
+              onClick={(e) => {
+                const box = e.currentTarget.getBoundingClientRect();
+                setPointMenu({
+                  at: { x: box.right, y: box.bottom }, symbol: null, label: active?.name ?? "Watchlist",
+                  entries: [
+                    { id: "list:new", label: "New list" },
+                    { id: "list:rename", label: "Rename list", disabled: !active,
+                      disabledReason: "No list is selected" },
+                    { id: "list:delete", label: "Delete list", destructive: true,
+                      disabled: !active || (lists?.length ?? 0) <= 1,
+                      disabledReason: "A workspace keeps at least one list" },
+                  ],
+                });
+              }}
+              title="More watchlist actions"
+              aria-label="More watchlist actions"
+              className="tvc-control flex h-[38px] w-[38px] items-center justify-center text-ink"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" />
+              </svg>
+            </button>
+          </div>
+          {menuOpen && lists && (
+            <div role="menu" aria-label="My watchlists"
+              className="absolute left-2 right-2 top-[46px] z-50 tvc-menu">
+              <div className="tvc-menu-heading">My watchlists</div>
+              {lists.map((l) => (
+                <button key={l.id} role="menuitemradio" aria-checked={l.id === activeId}
+                  onClick={() => { setActiveId(l.id); setMenuOpen(false); }}
+                  className="tvc-menu-row justify-between px-2.5 text-left text-sm text-ink">
+                  <span className="truncate">{l.name}</span><span className="opacity-70">{l.symbols.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-      {err && <div className="px-3 py-1.5 text-xs text-down" title={err.detail || undefined}>{err.headline}</div>}
-      {/*
-        Column headers that sort. A third click returns to the user's own
-        order, so a sort is never a one-way door out of an arrangement they
-        spent time on.
-      */}
-      <div className="grid grid-cols-[minmax(0,1fr)_62px_50px_50px_14px] gap-x-1 border-b border-border px-3 py-1 text-ink-faint">
-        {([["symbol", "Symbol", ""], ["last", "Last", "text-right"],
-           ["change", "Chg", "text-right"],
-           ["change", "Chg%", "text-right"]] as [SortColumn, string, string][])
-          .map(([column, label, extra]) => (
+
+        {addOpen && (
+          /*
+            R7-12: a 34px search row, not a form.
+
+            This was a 29px input with a 2px ACCENT border beside a filled-blue
+            `Add` button — a primary call to action inside a 300px workstation
+            panel, in the one colour the contract reserves for meaning. Enter
+            adds; Escape closes; the accessible names are unchanged because
+            `keyboard`, `drawings` and `watchlistEditFeed` all aim at them.
+          */
+          <div className="flex h-[34px] shrink-0 items-center gap-1.5 rounded-md border border-control-border px-2 mx-2 mb-1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
+              aria-hidden="true" className="shrink-0 text-ink-faint">
+              <circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" />
+            </svg>
+            {/* A placeholder is not an accessible name, and it disappears as soon
+                as the field is typed into. Measured in a browser: this was the one
+                control on the chart with no name at all. */}
+            <input autoFocus value={adding} onChange={(e) => setAdding(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void add();
+                if (e.key === "Escape") { setAdding(""); setAddOpen(false); }
+              }}
+              aria-label="Add a symbol to this watchlist" placeholder="Symbol, e.g. BTCUSDT"
+              className="w-full bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-faint" />
+          </div>
+        )}
+        {err && <div className="px-3 py-1.5 text-xs text-down" title={err.detail || undefined}>{err.headline}</div>}
+        {/*
+          Column headers that sort. A third click returns to the user's own
+          order, so a sort is never a one-way door out of an arrangement they
+          spent time on. The hairline under them is `--ts-state-active`, a step
+          stronger than the row separators, exactly as the reference draws it.
+        */}
+        <div className={`grid h-[29px] shrink-0 items-center gap-x-1 border-b pl-[10px] pr-2 text-[14px] text-ink-faint ${compact ? HEAD_GRID_COMPACT : HEAD_GRID}`}
+          style={{ borderColor: "var(--ts-state-active)" }}>
+          {columns.map(([column, label, extra]) => (
             <button
               key={label}
               onClick={() => setSort((current) => nextSort(current, column))}
               aria-label={sort.column === column
                 ? `Sorted by ${label}, ${sort.direction === "asc" ? "ascending" : "descending"}. Click to change.`
                 : `Sort by ${label}`}
-              className={`${extra} text-left hover:text-ink ${
+              className={`${extra} truncate text-left hover:text-ink ${
                 sort.column === column ? "font-semibold text-ink" : ""
               }`}
             >
@@ -507,170 +712,206 @@ export function Watchlist({
               )}
             </button>
           ))}
-        <span />
-      </div>
-      {reorderRefusal(sort) && (
-        <div className="px-3 py-1 text-[10px] text-ink-faint">{reorderRefusal(sort)}</div>
-      )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {visibleSymbols.length === 0 && (
-          <div className="px-4 py-6">
-            <p className="text-xs font-medium text-ink">Nothing on this list yet</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-              Type an exact market symbol above, or pick from the most liquid
-              Binance spot pairs.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-1">
-              {STARTER_SYMBOLS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => void addSymbols([s])}
-                  aria-label={`Add ${s} to this watchlist`}
-                  className="rounded border border-border px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:border-accent hover:text-ink"
-                >
-                  {s.replace(/USDT$/, "")}
-                </button>
+        </div>
+        {(reorderRefusal(sort) ?? dropRefusal) && (
+          <div className="px-3 py-1 text-[11px] text-ink-faint">{reorderRefusal(sort) ?? dropRefusal}</div>
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {/*
+            R7-13: loading is not emptiness.
+
+            `lists === null` is every mount, and the empty state was rendered
+            for it — so the first thing a returning user saw was a paragraph
+            telling them their list was empty and pointing at a field that is
+            closed by default.
+          */}
+          {lists === null && (
+            <div aria-hidden="true" className="pt-1">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex h-[30px] items-center pl-4 pr-2">
+                  <div className="h-[10px] w-[86px] rounded-sm bg-surface-2" />
+                  <div className="ml-auto h-[10px] w-[54px] rounded-sm bg-surface-2" />
+                </div>
               ))}
             </div>
-            <button
-              onClick={() => void addSymbols(STARTER_SYMBOLS)}
-              /* The same bordered chip as the symbols above it. A full-width
-                 filled-accent CTA is a product tour, and this is a 300px panel
-                 of a trading workstation. */
-              className="tvc-control mt-3 rounded-md border border-control-border px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink"
-            >
-              {`Add all ${STARTER_SYMBOLS.length}`}
-            </button>
-            <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
-              A starting point, not a recommendation — a watchlist row moves no
-              strategy, alert or order.
-            </p>
-          </div>
-        )}
-        {visibleSymbols.map((s) => {
-          const identity = canonicalDisplayParts(s.symbol);
-          const selectedRow = s.symbol === selected;
-          const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
-          const up = t ? t.chgPct >= 0 : true;
-          return <div key={s.symbol}
-            draggable={canReorder(sort)}
-            onDragStart={(e) => {
-              if (!canReorder(sort)) return;
-              setDragging(s.symbol);
-              e.dataTransfer.effectAllowed = "move";
-              // Some browsers refuse a drag with no payload at all.
-              e.dataTransfer.setData("text/plain", s.symbol);
-            }}
-            onDragOver={(e) => { if (canReorder(sort) && dragging) e.preventDefault(); }}
-            onDrop={(e) => {
-              if (!canReorder(sort) || !dragging) return;
-              e.preventDefault();
-              moveSymbolOnto(dragging, s.symbol);
-              setDragging(null);
-            }}
-            onDragEnd={() => setDragging(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setRowMenu({
-                at: { x: e.clientX, y: e.clientY },
-                symbol: s.symbol,
-                entries: watchlistMenu({
-                  symbol: s.symbol, replayActive, canOpenNewPane,
-                }),
-              });
-            }}
-            /*
-              FC2-M1: 29px rows with a hairline, at 14px.
-
-              They were 33.5px at 13px with `border-bottom: 0` — 14% taller
-              than TradingView's, showing two fewer symbols per screen, in
-              smaller type, with nothing ruling one row off from the next. All
-              three pulled the same way: the list read as looser and less
-              scannable than the reference while occupying the same width.
-            */
-            /*
-             * TVP7: 31px and four columns, both measured off the live product.
-             * The row used to carry `· SPOT · BINANCE` after the ticker, which
-             * on a 279px panel left the price with nowhere to go and made
-             * every row of an all-Binance-spot list end in the same eleven
-             * characters. The venue moved into the row's tooltip; the TYPE
-             * badge stays for anything that is not spot, because a perpetual
-             * and its spot pair are different instruments with the same name
-             * and that distinction is worth the width.
-             */
-            className={`group grid h-11 grid-cols-[minmax(0,1fr)_44px] items-center border-b border-border px-3 text-sm tabular md:h-[31px] md:grid-cols-[minmax(0,1fr)_14px] ${selectedRow ? "bg-state-active text-ink" : "hover:bg-state-hover"}`}>
-            <button onClick={() => onSelect(s.symbol)}
-              className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_62px_50px_50px] items-center gap-x-1 text-left">
-              <span className="flex min-w-0 items-center font-medium text-ink"
-                title={`${displaySymbol(s.symbol)}${s.venue ? ` · ${s.venue}` : ""}`}>
-                <span className="truncate">{s.baseAsset}<span className="text-ink-faint">/{s.quoteAsset}</span></span>
-                {/* accent-is-meaning: a non-spot row is a different instrument KIND,
-                    and mistaking a perp for spot is the costly error this prevents. */}
-                {identity && identity.type !== "spot" && (
-                  <span className="ml-1 shrink-0 text-[9px] font-bold text-accent">
-                    {instrumentTypeLabel(identity.type)}{identity.expiry ? ` ${identity.expiry.slice(2)}` : ""}
-                  </span>
-                )}
-              </span>
-              <span className={`truncate text-right ${t ? (t.stale ? "text-warn" : "text-ink") : "text-ink-faint"}`}
-                title={selectedRow && replayQuote ? "Replay price at the current historical horizon" : undefined}>
-                {t ? px(t.last) : "—"}
-              </span>
-              <span className={`truncate text-right ${t && t.changeKnown !== false ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>
-                {t && t.changeKnown !== false ? `${up ? "+" : ""}${px(t.chg)}` : "—"}
-              </span>
-              <span className={`truncate text-right ${t && t.changeKnown !== false ? (up ? "text-up" : "text-down") : "text-ink-faint"}`}>{t && t.changeKnown !== false ? `${up ? "+" : ""}${t.chgPct.toFixed(2)}%` : "—"}</span>
-            </button>
-            <button title="Remove from watchlist" aria-label={`Remove ${displaySymbol(s.symbol)} from watchlist`}
-              onClick={() => updateActive((l) => ({ ...l, symbols: l.symbols.filter((x) => x !== s.symbol) }))}
-              className="flex h-11 w-11 items-center justify-center text-ink-faint hover:text-down md:invisible md:h-[31px] md:w-[14px] md:group-hover:visible">×</button>
-          </div>;
-        })}
-      </div>
-      {selectedDetails && (
-        <section aria-label={`Details for ${displaySymbol(selectedDetails.info.symbol)}`} className="max-h-56 shrink-0 overflow-y-auto border-t border-border bg-surface-2 px-3 py-2">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold text-ink">{selectedDetails.info.baseAsset}/{selectedDetails.info.quoteAsset}</h2>
-              <p className="text-[10px] text-ink-faint">{instrumentTypeLabel(canonicalDisplayParts(selectedDetails.info.symbol)?.type ?? "spot")} · {selectedDetails.info.venue ?? "BINANCE"}</p>
+          )}
+          {lists !== null && active !== null && visibleSymbols.length === 0 && (
+            <div className="px-4 py-6">
+              <p className="text-xs font-medium text-ink">Nothing on this list yet</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
+                Press + to add a symbol, or start with the most liquid Binance
+                spot pairs.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1">
+                {STARTER_SYMBOLS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => void addSymbols([s])}
+                    aria-label={`Add ${s} to this watchlist`}
+                    className="rounded border border-border px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:border-control-border hover:text-ink"
+                  >
+                    {s.replace(/USDT$/, "")}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => void addSymbols(STARTER_SYMBOLS)}
+                /* The same bordered chip as the symbols above it. A full-width
+                   filled-accent CTA is a product tour, and this is a 300px panel
+                   of a trading workstation. */
+                className="tvc-control mt-3 rounded-md border border-control-border px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink"
+              >
+                {`Add all ${STARTER_SYMBOLS.length}`}
+              </button>
+              <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
+                A starting point, not a recommendation — a watchlist row moves no
+                strategy, alert or order.
+              </p>
             </div>
-            {selectedDetails.ticker && <div className={`text-right tabular ${selectedDetails.ticker.chgPct >= 0 ? "text-up" : "text-down"}`}><div className="text-sm font-semibold">{px(selectedDetails.ticker.last)}</div><div className="text-[11px]">{selectedDetails.ticker.chgPct >= 0 ? "+" : ""}{selectedDetails.ticker.chgPct.toFixed(2)}%</div></div>}
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-            <div><span className="block text-ink-faint">Market</span><span className="text-ink">{selectedDetails.info.venue ?? "BINANCE"} {selectedDetails.info.quoteAsset}</span></div>
-            <div><span className="block text-ink-faint">Feed</span><span className="text-ink">{selectedDetails.ticker?.source === "stream" ? "Live stream" : selectedDetails.ticker ? "Seeded quote" : "Unavailable"}</span></div>
-          </div>
-          <div className="mt-3 border-t border-border pt-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">News</h3>
-            <p className="mt-1 text-[11px] text-ink-faint">No news-feed provider is configured for this instrument.</p>
-          </div>
-          <div className="mt-2 border-t border-border pt-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Key stats</h3>
-            <p className="mt-1 text-[11px] text-ink-faint">The available quote contract supplies last price and 24h change. Volume and 30-day average volume are not provided by the configured ticker API.</p>
-          </div>
-        </section>
-      )}
-      <ContextMenu
-        at={rowMenu?.at ?? null}
-        label={rowMenu?.symbol ?? ""}
-        entries={rowMenu?.entries ?? []}
-        onClose={() => setRowMenu(null)}
-        onSelect={(id) => {
-          const symbol = rowMenu?.symbol;
-          if (!symbol) return;
-          switch (id) {
-            case "watchlist:open-focused": onSelect(symbol); return;
-            case "watchlist:open-new-pane": onOpenInNewPane?.(symbol); return;
-            case "watchlist:add-alert": onAddAlert?.(symbol); return;
-            case "watchlist:remove":
-              updateActive((l) => ({
-                ...l, symbols: l.symbols.filter((x) => x !== symbol),
-              }));
-              return;
-            default: return;
-          }
-        }}
-      />
+          )}
+          {sections.map((section) => (
+            <div key={section.label} data-watchlist-section={section.label}>
+              <button
+                onClick={() => toggleGroup(section.label)}
+                aria-expanded={!collapsed.includes(section.label)}
+                className="flex h-[36px] w-full items-center gap-[13px] pl-[23px] pr-2 pt-[6px] text-left"
+              >
+                <span aria-hidden="true"
+                  className={`shrink-0 text-[8px] leading-none text-ink-faint transition-transform ${
+                    collapsed.includes(section.label) ? "-rotate-90" : ""}`}>▼</span>
+                <span className="min-w-0 flex-1 truncate text-[12px] uppercase tracking-[0.04em] text-ink-faint">
+                  {section.label}
+                </span>
+                <span className="shrink-0 text-[11px] text-ink-faint">{section.rows.length}</span>
+              </button>
+              {!collapsed.includes(section.label) && section.rows.map((s) => {
+                const identity = canonicalDisplayParts(s.symbol);
+                const selectedRow = s.symbol === selected;
+                const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
+                const up = t ? t.chgPct >= 0 : true;
+                const known = Boolean(t) && t!.changeKnown !== false;
+                const changeClass = known ? (up ? "text-up" : "text-down") : "text-ink-faint";
+                return <div key={s.symbol}
+                  data-watchlist-row={s.symbol}
+                  draggable={canReorder(sort)}
+                  onDragStart={(e) => {
+                    if (!canReorder(sort)) return;
+                    setDragging(s.symbol);
+                    setDropRefusal(null);
+                    e.dataTransfer.effectAllowed = "move";
+                    // Some browsers refuse a drag with no payload at all.
+                    e.dataTransfer.setData("text/plain", s.symbol);
+                  }}
+                  onDragOver={(e) => { if (canReorder(sort) && dragging) e.preventDefault(); }}
+                  onDrop={(e) => {
+                    if (!canReorder(sort) || !dragging) return;
+                    e.preventDefault();
+                    moveSymbolOnto(dragging, s.symbol);
+                    setDragging(null);
+                  }}
+                  onDragEnd={() => setDragging(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openRowMenu({ x: e.clientX, y: e.clientY }, s.symbol);
+                  }}
+                  /*
+                   * R7-03 / R7-04: 30px of pitch (29px + a 1px separator), and
+                   * a SELECTED row that is an outline rather than a filled
+                   * slab. The reference draws a 2px rgb(140) ring with the
+                   * panel's own ground inside it; ours painted the whole row
+                   * `--ts-state-active`, which at 300px wide is the single
+                   * loudest neutral on the surface and reads as a different
+                   * selection grammar from across the room.
+                   */
+                  className={`group h-11 border-b md:h-[29px] ${
+                    selectedRow
+                      ? "rounded-md border-transparent shadow-[inset_0_0_0_2px_var(--ts-ink-faint)]"
+                      : "border-border hover:bg-state-hover"}`}>
+                  <button onClick={() => onSelect(s.symbol)}
+                    className={`grid h-full w-full min-w-0 items-center gap-x-1 pl-4 pr-2 text-left text-[14px] tabular ${compact ? ROW_GRID_COMPACT : ROW_GRID}`}
+                    title={`${displaySymbol(s.symbol)}${s.venue ? ` · ${s.venue}` : ""}`}>
+                    {/*
+                      The ticker comes FIRST in the DOM and second on screen.
+                      `col-start-*` places the mark, so a screen reader and
+                      `textContent` read `BTCUSDT` rather than the monogram's
+                      two letters — which is also what the row-finding tests
+                      depend on.
+                    */}
+                    <span data-ticker className="col-start-2 row-start-1 flex min-w-0 items-center overflow-hidden whitespace-nowrap font-normal text-ink">
+                      <span>{displayTicker(s.symbol)}</span>
+                      {/* accent-is-meaning: a non-spot row is a different instrument KIND,
+                          and mistaking a perp for spot is the costly error this prevents. */}
+                      {identity && identity.type !== "spot" && (
+                        <span className="ml-1 shrink-0 text-[9px] font-bold text-accent">
+                          {instrumentTypeLabel(identity.type)}{identity.expiry ? ` ${identity.expiry.slice(2)}` : ""}
+                        </span>
+                      )}
+                    </span>
+                    <span data-col="last" className={`col-start-3 row-start-1 text-right ${t ? (t.stale ? "text-warn" : "text-ink") : "text-ink-faint"}`}
+                      title={selectedRow && replayQuote ? "Replay price at the current historical horizon" : undefined}>
+                      {t ? px(t.last) : "—"}
+                    </span>
+                    {!compact && (
+                      <span data-col="chg" className={`col-start-4 row-start-1 text-right ${changeClass}`}>
+                        {/* No `+` prefix: the colour carries the sign, and at
+                            14px the character is a column's worth of width. */}
+                        {known ? px(t!.chg) : "—"}
+                      </span>
+                    )}
+                    {!compact && (
+                      <span data-col="chgpct" className={`col-start-5 row-start-1 text-right ${changeClass}`}>
+                        {known ? `${t!.chgPct.toFixed(2)}%` : "—"}
+                      </span>
+                    )}
+                    <AssetMark asset={s.baseAsset} size={18} className="col-start-1 row-start-1" />
+                  </button>
+                </div>;
+              })}
+            </div>
+          ))}
+        </div>
+        {selectedDetails && (
+          <WatchlistDetails
+            qualifiedName={displaySymbol(selectedDetails.info.symbol)}
+            ticker_={displayTicker(selectedDetails.info.symbol)}
+            base={selectedDetails.info.baseAsset}
+            quote={selectedDetails.info.quoteAsset}
+            venue={selectedDetails.info.venue ?? "BINANCE"}
+            typeLabel={sentenceCase(instrumentTypeLabel(
+              canonicalDisplayParts(selectedDetails.info.symbol)?.type ?? "spot"))}
+            classLabel={groupOf(selectedDetails.info)}
+            quote24h={selectedDetails.ticker}
+            market={marketLine(selectedDetails.info, selectedDetails.ticker)}
+            statsProvider={(selectedDetails.info.venue ?? "BINANCE") === "BINANCE" ? "binance-24h" : "none"}
+            formatPrice={px}
+            onMenu={(at) => openRowMenu(at, selectedDetails.info.symbol)}
+          />
+        )}
+        <ContextMenu
+          at={pointMenu?.at ?? null}
+          label={pointMenu?.label ?? ""}
+          entries={pointMenu?.entries ?? []}
+          onClose={() => setPointMenu(null)}
+          onSelect={(id) => {
+            if (id === "list:new") { void createList(); return; }
+            if (id === "list:rename") { void renameList(); return; }
+            if (id === "list:delete") { void deleteList(); return; }
+            const symbol = pointMenu?.symbol;
+            if (!symbol) return;
+            switch (id) {
+              case "watchlist:open-focused": onSelect(symbol); return;
+              case "watchlist:open-new-pane": onOpenInNewPane?.(symbol); return;
+              case "watchlist:add-alert": onAddAlert?.(symbol); return;
+              case "watchlist:remove":
+                updateActive((l) => ({
+                  ...l, symbols: l.symbols.filter((x) => x !== symbol),
+                }));
+                return;
+              default: return;
+            }
+          }}
+        />
+      </div>
     </aside>
   );
 }

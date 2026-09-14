@@ -293,6 +293,75 @@ export function displayTicker(raw: string): string {
 }
 
 /**
+ * What the instrument is CALLED, for the one line at the top-left of a chart.
+ *
+ * ── Why this is not `displayTicker` with prettier spacing ──────────────────
+ *
+ * The reference's status line reads `Bitcoin / TetherUS · 1h · Binance` in
+ * 16px regular: a descriptive name, not a listing code. `BTCUSDT` in 14px bold
+ * is the control grammar — the toolbar pill, the watchlist row — and the
+ * contract keeps it there. This is the other half of the same policy: the
+ * chart's own headline may say what the thing IS, and the symbol CONTROL still
+ * says the ticker. What neither may ever be is a canonical `instrument:v1:…`
+ * id, which is the rule §5 actually exists to enforce.
+ *
+ * ── Why a table, and why it is allowed to be incomplete ────────────────────
+ *
+ * There is no descriptive-name feed in this installation, and inventing one
+ * would be a promise. So the table below is only what is genuinely known, and
+ * BOTH halves of a pair have to be known before a name is offered — otherwise
+ * the answer is the ticker, unchanged. `Bitcoin / USDT` — half-translated —
+ * would be worse than either, because it reads as a name and is not one.
+ */
+const ASSET_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  BTC: "Bitcoin", XBT: "Bitcoin", ETH: "Ethereum", SOL: "Solana", BNB: "BNB",
+  XRP: "XRP", ADA: "Cardano", DOGE: "Dogecoin", AVAX: "Avalanche", DOT: "Polkadot",
+  LINK: "Chainlink", LTC: "Litecoin", TRX: "TRON", MATIC: "Polygon", ATOM: "Cosmos",
+  USDT: "TetherUS", USDC: "USD Coin", BUSD: "Binance USD", FDUSD: "First Digital USD",
+  DAI: "Dai", TUSD: "TrueUSD",
+  USD: "U.S. Dollar", EUR: "Euro", GBP: "British Pound", JPY: "Japanese Yen",
+  CHF: "Swiss Franc", AUD: "Australian Dollar", CAD: "Canadian Dollar",
+  NZD: "New Zealand Dollar",
+});
+
+/** Quote currencies a legacy bare ticker can end with, longest first. */
+const BARE_QUOTES: readonly string[] = ["FDUSD", "BUSD", "TUSD", "USDT", "USDC", "DAI",
+  "USD", "EUR", "GBP", "JPY", "BTC", "ETH", "BNB"];
+
+/** `BTCUSDT` → `["BTC", "USDT"]`, or null when the split is not knowable. */
+function splitBareTicker(ticker: string): [string, string] | null {
+  for (const quote of BARE_QUOTES) {
+    if (ticker.length > quote.length && ticker.endsWith(quote)) {
+      return [ticker.slice(0, -quote.length), quote];
+    }
+  }
+  return null;
+}
+
+export function displayName(raw: string): string {
+  const ticker = displayTicker(raw);
+  const canonical = canonicalDisplayParts(raw);
+  /*
+   * Only the two-legged CASH instruments are named.
+   *
+   * An equity, an index or a commodity has no pair and this installation holds
+   * no company names. A perpetual or a dated future has a pair, but its ticker
+   * carries the `.P` or the expiry that says WHICH contract it is — and a name
+   * that dropped that would name two different instruments identically, which
+   * is the one failure mode worse than being terse.
+   */
+  const pair: [string, string] | null = canonical
+    ? (canonical.type === "spot" || canonical.type === "fx_pair"
+      ? [canonical.base, canonical.quote]
+      : null)
+    : splitBareTicker(ticker);
+  if (!pair) return ticker;
+  const base = ASSET_NAMES[pair[0]];
+  const quote = ASSET_NAMES[pair[1]];
+  return base && quote ? `${base} / ${quote}` : ticker;
+}
+
+/**
  * The venue as a reader would say it: `Binance`, `Nasdaq`, `S&P` — not
  * `BINANCE`.
  *

@@ -23,11 +23,8 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { within } from "@testing-library/react";
-import {
-  assertAbsent, assertPresent, closeBrowser, compactSeries, observedElements, resetBrowser,
-  resize, server,
-} from "./harness/env";
+import { fireEvent, within } from "@testing-library/react";
+import { assertAbsent, assertPresent, closeBrowser, compactSeries, observedElements, resetBrowser, resize, server, settle } from "./harness/env";
 import { mountChart } from "./harness/chart";
 
 beforeEach(() => {
@@ -63,18 +60,16 @@ test("A PANE SQUEEZED TO 300PX GIVES ITS RANGE BAR BACK TO THE PLOT, AND SHOWS I
     "grown back to 1280×800 the range bar must return");
 });
 
-test("THE RANGE ROW IS ALWAYS NINE CHIPS; THE ONES THIS PANE CANNOT FILL ARE DISABLED", async () => {
+test("THE RANGE ROW IS ALWAYS NINE CHIPS, NONE OF THEM DEAD", async () => {
   /*
-   * TVP8 R1-11. The row used to render `availableRangeShortcuts()`, so the
-   * BUTTONS changed with the pane's history: seventy-five hours of 15m bars
-   * produced `1D All` and nothing else, and `5Y` did not exist anywhere in the
-   * product at 1h either. A row that is sometimes two wide and sometimes nine
-   * reads as a row that has lost something, and it moves the target the eye is
-   * already aiming at.
-   *
-   * The rule the module exists to hold is untouched — a range the loaded
-   * window cannot fill still cannot be applied. What changed is that the
-   * refusal is now VISIBLE and announced, instead of being an absence.
+   * TVP8 R1-11 / R1b-08. The row used to render `availableRangeShortcuts()`,
+   * so the BUTTONS changed with the pane's history: seventy-five hours of 15m
+   * bars produced `1D All` and nothing else. The first repair kept all nine
+   * and DISABLED the unreachable ones; the reference does neither — every
+   * chip is painted at full ink and a range the loaded history cannot fill
+   * shows everything the pane has, which is what TradingView does when it
+   * runs out of bars. So a chip is never disabled, and pressing one the pane
+   * cannot fill is a real action with a visible result, not a refusal.
    */
   const chart = await mountChart();
   const bar = rangeBar(chart.pane(0));
@@ -85,22 +80,30 @@ test("THE RANGE ROW IS ALWAYS NINE CHIPS; THE ONES THIS PANE CANNOT FILL ARE DIS
     ["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y", "All"],
     "all nine, in the reference's order, whatever this pane has loaded");
 
-  // 300 bars of 15m is about three days: one day fits, five do not, and `All`
-  // is always honourable because it is the loaded window by definition.
-  const state = (label: string): { disabled: boolean; announced: string | null } => {
-    const chip = chips.find((c) => c.textContent === label);
-    if (!chip) throw new Error(`no ${label} chip`);
-    return {
-      disabled: (chip as HTMLButtonElement).disabled,
-      announced: chip.getAttribute("aria-disabled"),
-    };
+  const chip = (label: string): HTMLButtonElement => {
+    const found = chips.find((c) => c.textContent === label);
+    if (!found) throw new Error(`no ${label} chip`);
+    return found as HTMLButtonElement;
   };
-  assert.deepEqual(state("1D"), { disabled: false, announced: "false" });
-  assert.deepEqual(state("All"), { disabled: false, announced: "false" });
-  for (const label of ["5D", "1M", "3M", "6M", "YTD", "1Y", "5Y"]) {
-    assert.deepEqual(state(label), { disabled: true, announced: "true" },
-      `${label} is beyond this pane's loaded history and must be offered dead, not hidden`);
+  for (const c of chips) {
+    assert.equal((c as HTMLButtonElement).disabled, false, `${c.textContent} is never disabled`);
+    assert.notEqual(c.getAttribute("aria-disabled"), "true", `${c.textContent} is never announced dead`);
+    assert.doesNotMatch(c.className, /opacity-40|text-ink-faint|text-ink-muted/,
+      `${c.textContent} is painted at full ink`);
   }
+
+  // 300 bars of 15m is about three days: `5Y` cannot be filled, so pressing
+  // it shows the whole loaded window — and SAYS so — instead of doing nothing.
+  assert.match(chip("5Y").title, /shows all the 15m history/);
+  assert.match(chip("1D").title, /the visible range only/);
+  fireEvent.click(chip("5Y"));
+  await settle();
+  assert.equal(chip("5Y").getAttribute("aria-pressed"), "true",
+    "an unfillable range is still a range the user chose");
+  fireEvent.click(chip("1D"));
+  await settle();
+  assert.equal(chip("1D").getAttribute("aria-pressed"), "true");
+  assert.equal(chip("5Y").getAttribute("aria-pressed"), "false");
 
   // The go-to-date control sits after the chips, outside the range group.
   assert.equal(within(bar!).queryByLabelText("Go to date"), null);

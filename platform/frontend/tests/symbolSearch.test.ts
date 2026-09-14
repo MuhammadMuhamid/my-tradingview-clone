@@ -13,10 +13,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  ALL_QUOTES, NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, describeResult, dialogClosed,
-  moveCursor, pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor,
-  searchKey, searchSummary, venueFilters,
+  ALL_QUOTES, ALL_TYPES, ASSET_CLASS_CHIPS, EXPIRY_LABELS, EXPIRY_OPTIONS, NO_INTENT, SEARCH_MARKET,
+  SEARCH_VENUE, TYPE_LABELS, chipDegradedTitle, chipForInstrument, chipTypeDefault, currentFirst,
+  degradedSources, degradedSummary, describeResult, dialogClosed, matchParts, moveCursor, pressEnter,
+  queryChanged, quoteFilters, responseArrived, rowAtCursor, rowDescription, rowTicker, rowTitle,
+  rowTypeWords, searchKey, searchSummary, showsExpiry, sourceLabel, typeOptionsFor, venueFilters,
+  venueOptions, type SearchInstrumentType,
 } from "../lib/symbolSearch";
+import { shortReason } from "../lib/errorCopy";
+import { displayTicker } from "../lib/instrument";
 import type { SymbolSearchResult } from "../lib/api";
 import { resolveTradingTarget, tradingTargetNotice } from "../lib/tradingTarget";
 import {
@@ -31,6 +36,7 @@ const readCode = (rel: string): string =>
   read(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const DIALOG = "components/tv/SymbolSearch.tsx";
+const LIB = "lib/symbolSearch.ts";
 const SEED: PaneSeed = { symbol: "SOLUSDT", interval: "15m" };
 
 const row = (over: Partial<SymbolSearchResult> = {}): SymbolSearchResult => ({
@@ -39,18 +45,228 @@ const row = (over: Partial<SymbolSearchResult> = {}): SymbolSearchResult => ({
 
 // ── market identity ────────────────────────────────────────────────────────
 
+/**
+ * ── TVP8 R4: why this asserts a TABLE and not the component's text ────────
+ *
+ * This case used to grep `SPOT`, `PERP`, `FUTURE`, `CONT`… out of the JSX,
+ * which is where the old dialog printed them as uppercase tab labels. That
+ * could not tell a rendered filter from a deleted one — the strings would
+ * have survived in a comment, a title or a dead branch — and it actively
+ * fought the repair, because the reference's dialog has no uppercase type
+ * tabs at all.
+ *
+ * The claim set now lives in `lib/symbolSearch` as the chip table and the
+ * per-chip type menus, so what the dialog OFFERS can be asserted directly.
+ */
 test("the dialog offers every implemented market identity while unsupported identifiers remain absent", () => {
-  const source = readCode(DIALOG);
-  for (const supported of [/\bSPOT\b/, /\bPERP\b/, /\bFUTURE\b/, /\bCONT\b/, /\bFX\b/, /\bINDEX\b/,
-    /\bCOMMODITY\b/, /\bSTOCK\b/, /\bETF\b/, /Filter by instrument type/]) {
-    assert.match(source, supported);
+  const implemented: SearchInstrumentType[] = ["all", "spot", "perpetual", "future", "continuous_future",
+    "fx_pair", "index", "commodity", "stock", "etf"];
+  const offered = new Set(ASSET_CLASS_CHIPS.flatMap((chip) => typeOptionsFor(chip.id)));
+  for (const type of implemented) {
+    assert.ok(offered.has(type), `${type} is implemented but no chip's menu offers it`);
+    assert.ok(TYPE_LABELS[type].length > 0, `${type} has no reader-facing label`);
   }
+  assert.deepEqual([...EXPIRY_OPTIONS].sort(), ["30d", "90d", "all", "expired", "live"],
+    "every expiry window the futures catalogue supports is offered");
+  for (const expiry of EXPIRY_OPTIONS) assert.ok(EXPIRY_LABELS[expiry].length > 0);
+
+  /*
+   * Bonds, Economy and Options are the reference's chips that we have no
+   * contract for. Rendering them would promise a catalogue that does not
+   * exist — the same rule that keeps ISIN and CUSIP out of the placeholder.
+   */
+  assert.deepEqual(ASSET_CLASS_CHIPS.map((chip) => chip.label),
+    ["All", "Stocks", "Funds", "Futures", "Forex", "Crypto", "Indices"]);
+  const labels = ASSET_CLASS_CHIPS.map((chip) => chip.label).join(" ");
+  for (const absent of [/bond/i, /econom/i, /option/i]) assert.doesNotMatch(labels, absent);
+
+  const source = readCode(DIALOG);
+  assert.match(source, /Filter by instrument type/,
+    "the types menu keeps the accessible name the contract names it by");
   for (const forbidden of [/\bCUSIP\b/i, /\bISIN\b/i]) {
-    assert.doesNotMatch(source, forbidden,
-      `${forbidden} names a market with no feed — a filter for it would return nothing`);
+    for (const file of [source, readCode(LIB)]) {
+      assert.doesNotMatch(file, forbidden,
+        `${forbidden} names a market with no feed — a filter for it would return nothing`);
+    }
   }
   assert.doesNotMatch(source, /value="option"|instrumentType:\s*"option"/i,
     "an HTML option element is not an options-market capability");
+  // And the dialog no longer spends a control band on a native form control.
+  assert.doesNotMatch(source, /<select/, "a workstation dialog does not use a native select");
+});
+
+test("each chip asks for exactly the market it names", () => {
+  const byId = Object.fromEntries(ASSET_CLASS_CHIPS.map((chip) => [chip.id, chip]));
+  assert.deepEqual(byId.all!.query, {});
+  assert.deepEqual(byId.crypto!.query, { assetClass: "crypto" },
+    "Crypto spans spot, perpetual and dated crypto futures — no single type names that set");
+  assert.deepEqual(byId.futures!.query, { type: "future" });
+  assert.deepEqual(byId.forex!.query, { type: "fx_pair" });
+  assert.deepEqual(byId.indices!.query, { type: "index" });
+  assert.deepEqual(byId.stocks!.query, { type: "stock" });
+  assert.deepEqual(byId.funds!.query, { type: "etf" });
+
+  /*
+   * The chip's declared type and the type its menu opens on must agree: the
+   * request carries the STATE, so a chip whose default widened back to "all"
+   * would silently show the whole catalogue under its own name.
+   */
+  for (const chip of ASSET_CLASS_CHIPS) {
+    assert.equal(chipTypeDefault(chip.id), chip.query.type ?? ALL_TYPES,
+      `the ${chip.label} chip opens on a type it does not ask for`);
+    assert.ok(typeOptionsFor(chip.id).includes(chipTypeDefault(chip.id)));
+  }
+
+  // Commodities are futures — NYMEX and COMEX contracts — so they are a type
+  // under Futures rather than a chip of their own.
+  assert.ok(typeOptionsFor("futures").includes("commodity"));
+  assert.ok(!typeOptionsFor("futures").includes(ALL_TYPES),
+    "the route filters one type at a time, so All here would widen past the chip");
+  assert.equal(showsExpiry("futures", "future"), true);
+  assert.equal(showsExpiry("crypto", "spot"), false, "expiry is a futures question");
+});
+
+test("the dialog opens on the class of the instrument the chart is showing", () => {
+  assert.equal(chipForInstrument("BTCUSDT"), "crypto", "a legacy bare ticker is Binance spot");
+  assert.equal(chipForInstrument("instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot"), "crypto");
+  assert.equal(chipForInstrument("instrument:v1:GATEIO:perpetual:BTC:USDT:USDT:perpetual"), "crypto");
+  assert.equal(chipForInstrument("instrument:v1:CME:future:ES:USD:USD:dated-20261218"), "futures");
+  assert.equal(chipForInstrument("instrument:v1:NYMEX:continuous_future:CL:USD:USD:continuous-cl-front"), "futures");
+  assert.equal(chipForInstrument("instrument:v1:OANDA:fx_pair:EUR:USD:USD:cash"), "forex");
+  assert.equal(chipForInstrument("instrument:v1:NASDAQ:stock:AAPL:USD:USD:cash"), "stocks");
+  assert.equal(chipForInstrument("instrument:v1:NASDAQ:etf:SPY:USD:USD:cash"), "funds");
+  assert.equal(chipForInstrument("instrument:v1:SP:index:SPX:USD:USD:cash"), "indices");
+});
+
+/**
+ * "Open, then Enter" must change nothing.
+ *
+ * The dialog pre-filled the BASE asset (`BTC` for BINANCE:BTC/USDT), which
+ * answers with 162 instruments across every venue, and put the cursor on row
+ * 0 — a Hyperliquid perpetual. The fastest gesture a user has therefore
+ * switched the chart to a different instrument on a different venue and
+ * registered a pair on the way. The ticker pre-fill and this ordering are
+ * the two halves of the repair.
+ */
+test("the box opens on the chart's TICKER and the chart's instrument leads the list", () => {
+  assert.equal(displayTicker("instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot"), "BTCUSDT");
+  assert.equal(displayTicker("instrument:v1:BINANCE:perpetual:BTC:USD:USD:perpetual"), "BTCUSD.P");
+  // A dated series keeps its expiry, because two contracts on one underlying
+  // are different instruments. The pair still concatenates — `displayTicker`
+  // is `lib/instrument`'s rule and this dialog does not have a second one.
+  assert.equal(displayTicker("instrument:v1:CME:future:ES:USD:USD:dated-20261218"), "ESUSD 2026-12-18");
+
+  const current = "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot";
+  const answer = [
+    row({ symbol: "BTCUSD", canonicalId: "instrument:v1:HYPERLIQUID:perpetual:BTC:USD:USDC:perpetual" }),
+    row({ symbol: "BTCUSDT", canonicalId: current }),
+    row({ symbol: "BTCUSDC", canonicalId: "instrument:v1:BINANCE:spot:BTC:USDC:USDC:spot" }),
+  ];
+  assert.deepEqual(currentFirst(answer, current).map((r) => r.canonicalId),
+    [current, answer[0]!.canonicalId, answer[2]!.canonicalId],
+    "the chart's own instrument leads, and the rest keep the backend's order");
+  // Already first, or absent: the order is untouched either way.
+  assert.deepEqual(currentFirst(answer, "nothing").map((r) => r.symbol), ["BTCUSD", "BTCUSDT", "BTCUSDC"]);
+  assert.deepEqual(currentFirst([], current), []);
+
+  const source = readCode(DIALOG);
+  assert.match(source, /setTerm\(displayTicker\(current\)\)/, "the box opens on the ticker, not the base asset");
+  assert.match(source, /currentFirst\(res\.results, currentRef\.current\)/);
+  assert.match(source, /const row = ordered\[0\];/,
+    "an armed Enter must select from the ORDERED rows, or it re-introduces the defect");
+  assert.doesNotMatch(source, /on this chart<|border-l-accent/,
+    "the current row is aria-current and a title, not an accent edge and a badge");
+});
+
+test("a row says what it is in the reference's words, and keeps every fact one hover away", () => {
+  const spot = row({ canonicalId: "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot" });
+  assert.equal(rowTicker(spot), "SOLUSDT");
+  assert.equal(rowDescription(spot), "SOL / USDT");
+  assert.equal(rowTypeWords(spot), "spot crypto");
+
+  const perp = row({ instrumentType: "perpetual", baseAsset: "BTC", quoteAsset: "USD" });
+  assert.equal(rowDescription(perp), "BTC / USD perpetual");
+  assert.equal(rowTypeWords(perp), "perpetual crypto");
+
+  const dated = row({ instrumentType: "future", baseAsset: "ES", quoteAsset: "USD",
+    series: { kind: "dated", expiry: "2026-12-18", delivery: "cash" },
+    // Only the three fields the row speaks about; the contract's other
+    // fifteen are the identity panel's business, not this list's.
+    futures: { contractCode: "ESZ26", chainPosition: "front",
+      feed: { status: "auth_subscription_gated", label: "gated", delaySeconds: null },
+    } as unknown as SymbolSearchResult["futures"] });
+  assert.equal(rowDescription(dated), "ES / USD Dec 2026");
+  assert.equal(rowTypeWords(dated), "futures", "a traditional contract is not crypto futures");
+  const title = rowTitle(dated, "other");
+  assert.match(title, /ESZ26 · front · auth subscription gated/,
+    "the strings that used to shout on the row are the row's title now");
+
+  assert.equal(rowTypeWords(row({ instrumentType: "continuous_future" })), "continuous futures");
+  assert.equal(rowTypeWords(row({ instrumentType: "fx_pair" })), "forex");
+  assert.equal(rowTypeWords(row({ instrumentType: "index" })), "index");
+  assert.equal(rowTypeWords(row({ instrumentType: "stock" })), "stock");
+  assert.equal(rowTypeWords(row({ instrumentType: "etf" })), "etf");
+
+  // "on this chart" and "choosing it registers the pair" are still said —
+  // in the title, which is where a detail belongs.
+  assert.match(rowTitle(spot, "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot"), /on this chart/);
+  assert.match(rowTitle(row({ tracked: false }), "other"), /choosing it registers the pair/);
+
+  // The matched part of the description is what the reference marks.
+  assert.deepEqual(matchParts("Bitcoin / TetherUS", "bit"), { pre: "", hit: "Bit", post: "coin / TetherUS" });
+  assert.equal(matchParts("SOL / USDT", ""), null);
+  assert.equal(matchParts("SOL / USDT", "zz"), null);
+});
+
+/**
+ * Every truthful provider limitation stays visible — none of it is a headline.
+ *
+ * The dialog opened on a 50px amber banner reading `bybit-spot,
+ * robinhood-crypto, binance-derivatives, … unavailable`, above the first
+ * result, on every open. Contract §5 forbids a provider id as primary copy,
+ * and `tests/dom/symbolSearchDialog.test.tsx` reads the rendered DOM for it.
+ * What this pins is the vocabulary: venues by LABEL, causes behind a title.
+ */
+test("a failing provider is named by its venue, counted in the footer, and never as an id", () => {
+  const venues = [{ id: "BYBIT", label: "Bybit" }, { id: "BINANCE", label: "Binance" }];
+  const errors = [
+    { providerId: "bybit-spot", error: "HTTP 403" },
+    { providerId: "binance-derivatives", error: "HTTP 451" },
+    { providerId: "robinhood-crypto", error: "no credential configured" },
+  ];
+  assert.equal(sourceLabel("bybit-spot", venues), "Bybit");
+  assert.equal(sourceLabel("binance-derivatives", venues), "Binance derivatives");
+  assert.equal(sourceLabel("robinhood-crypto", venues), "Robinhood Crypto");
+  assert.equal(sourceLabel("alpaca-us-equities", venues), "Alpaca U.S. Equities");
+
+  const down = degradedSources(errors, venues, shortReason);
+  assert.deepEqual(down.map((item) => item.label), ["Bybit", "Binance derivatives", "Robinhood Crypto"]);
+  for (const item of down) {
+    assert.doesNotMatch(item.label, /-/, "a provider id is not a name a reader can use");
+    assert.ok(item.error.length > 0, "the cause is kept verbatim, for the tooltip");
+  }
+  assert.equal(degradedSummary(3), "3 sources unavailable");
+  assert.equal(degradedSummary(1), "1 source unavailable");
+
+  // A chip dies only when EVERY provider carrying it is down.
+  const stocks = ASSET_CLASS_CHIPS.find((chip) => chip.id === "stocks")!;
+  assert.equal(chipDegradedTitle(stocks, [], shortReason), null);
+  const why = chipDegradedTitle(stocks, [{ providerId: "alpaca-us-equities", error: "403 unverified" }], shortReason);
+  assert.match(why ?? "", /^U\.S\. stocks are unavailable — /);
+  assert.doesNotMatch(why ?? "", /alpaca-us-equities|403/,
+    "the reason is a sentence; the raw cause belongs in the popover's detail column");
+  assert.equal(chipDegradedTitle(ASSET_CLASS_CHIPS[0]!, errors, shortReason), null,
+    "a class carried by many venues does not die because one of them did");
+
+  // A venue that answered nothing and whose provider failed is offered
+  // DISABLED, rather than removed — a venue that vanishes looks unsupported.
+  const options = venueOptions({ venues, rows: [row({ venueId: "BINANCE" })], chip: "crypto",
+    selected: "ALL", errors, reason: shortReason });
+  const bybit = options.find((item) => item.id === "BYBIT");
+  assert.ok(bybit, "Bybit is still listed");
+  assert.equal(bybit.unavailable, true);
+  assert.equal(options.find((item) => item.id === "BINANCE")?.unavailable, false,
+    "Binance answered, so its failing derivatives book does not disable it");
 });
 
 test("the venue and market are stated rather than left to be inferred", () => {

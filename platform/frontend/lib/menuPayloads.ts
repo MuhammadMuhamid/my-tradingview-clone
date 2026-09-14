@@ -25,6 +25,7 @@
  * how a menu becomes forty items long.
  */
 import type { MenuEntry } from "./contextMenu";
+import { displayTicker } from "./instrument";
 
 /*
  * ── Why every id carries its menu's name ───────────────────────────────────
@@ -373,7 +374,14 @@ export function watchlistMenu(ctx: WatchlistMenuContext): MenuEntry[] {
     },
     { id: "sep", separator: true },
     {
-      id: "watchlist:add-alert", label: `Add alert on ${ctx.symbol}`,
+      /*
+       * TVP8 R7-10: this interpolated the STORAGE key, so a canonical row's
+       * right-click offered "Add alert on
+       * instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot" as a 455px-wide menu
+       * row and as the menu's own accessible name. Contract §5: a canonical
+       * string is never primary copy.
+       */
+      id: "watchlist:add-alert", label: `Add alert on ${displayTicker(ctx.symbol)}`,
       disabled: ctx.replayActive, disabledReason: REPLAY_REASON,
     },
     { id: "sep-remove", separator: true },

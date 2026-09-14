@@ -6,30 +6,52 @@
  *
  * Two real libraries, and nothing else.
  *
- * BUILT-IN: the native studies this build ships (`lib/native/catalog`). They
+ * TECHNICALS: the native studies this build ships (`lib/native/catalog`). They
  * compute in the browser, from the bars the pane already holds, using the same
  * canonical maths the server alerts on. "Built-in" used to be an empty promise
  * here and is now a truthful heading — which is exactly why it was refused
  * before rather than shown as a stub.
  *
- * SAVED: the Pine scripts stored by this installation — written in the Pine
- * editor or imported as `.pine` files — plus the study TEMPLATES an operator
- * has saved from a chart. Both are user-owned.
+ * MY SCRIPTS: the Pine scripts stored by this installation — written in the
+ * Pine editor or imported as `.pine` files. User-owned.
  *
- * Community, Marketplace, Purchased and Trending remain absent, because they
- * would be promises about a marketplace that does not exist.
+ * Community, Marketplace, Purchased, Fundamentals and Trending remain absent,
+ * because they would be promises about a library that does not exist.
  *
- * The categories below are therefore derived from real data: the built-in
- * registry, the `kind` the Pine compiler reports for each script, what is
- * currently applied to the focused chart, the operator's favourites and
- * recents, and the templates in local storage. Nothing is invented.
+ * ── TVP8 R3: why this stopped being a filter console ───────────────────────
+ *
+ * The dialog had TWO navigation systems for one list — a sidebar of six
+ * counted entries and a wrapping row of seven counted chips, with every entry
+ * in the second repeating one in the first — plus two-line rows carrying a
+ * green BUILT-IN badge, a description, a `Star` text button and a bordered
+ * `Add` button, plus a template EDITOR and a `.pine` import block below the
+ * list, inside the same scroll. A context-clean reviewer named the product in
+ * under a second from that shape alone.
+ *
+ * The reference's dialog is: search, a library rail with two headings, a tab
+ * row, and a one-line list you click. So:
+ *
+ *   - Favourites are the row's star, and a FAVORITES group when one exists.
+ *   - Recents are a RECENTS group when one exists. Neither is a rail entry,
+ *     and neither carries a count — a count beside a filter is the filter
+ *     answering a question nobody asked.
+ *   - "On this chart" is not in the browser at all. The pane legends and
+ *     `IndicatorsPanel` already show what is applied; here it survives only as
+ *     the last line of a row's `?` tooltip.
+ *   - Descriptions and categories are that same `?` tooltip.
+ *   - Indicator TEMPLATES are a toolbar control of their own
+ *     (`components/tv/IndicatorTemplatesMenu`), which is where the reference
+ *     has them and where they stop being a second feature in a shared dialog.
+ *   - Importing a `.pine` file is an `Import…` row at the top of My scripts,
+ *     not a footer under every library.
  *
  * ── Which chart it adds to ─────────────────────────────────────────────────
  *
  * The focused pane's study list, handed in as `indicators`. The page resolves
  * that from `workspace.activePaneId`, so this component cannot add to the
- * wrong chart, and the footer names the chart it will land on rather than
- * leaving the user to assume.
+ * wrong chart. The reference does not caption the dialog with which chart it
+ * will land on and neither does this: the focused pane is the toolbar's, and
+ * saying so in the dialog was a sentence explaining the product to itself.
  *
  * The side panel (`IndicatorsPanel`) remains what it was: the manager for what
  * is ALREADY on the chart, with each instance's inputs. This dialog is the
@@ -38,36 +60,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
 import { type Resolution } from "@/lib/resolution";
-import { displaySymbol, displayTicker } from "@/lib/instrument";
 import { Modal } from "@/components/Modal";
 import { api, type PineScript } from "@/lib/api";
 import type { AppliedIndicator } from "@/lib/indicators";
-import {
-  deleteTemplate, findTemplate, loadTemplates, saveTemplates, templateFromIndicators,
-  upsertTemplate, type IndicatorTemplate,
-} from "@/lib/indicatorTemplates";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import {
   CATEGORY_LABELS, loadFavourites, loadRecents, searchStudies, toggleFavourite,
 } from "@/lib/native/catalog";
 import type { NativeStudyDef } from "@/lib/native/registry";
-import { FIELD } from "@/components/ui";
 
-type Category =
-  | "builtin" | "favourites" | "recents"
-  | "all" | "indicator" | "strategy" | "onChart" | "templates";
+/** Which library the rail is pointing at. The reference's two, and no more. */
+type Library = "technicals" | "scripts";
 
-const CATEGORIES: { id: Category; label: string }[] = [
-  { id: "builtin", label: "Built-in" },
-  { id: "favourites", label: "Favourites" },
-  { id: "recents", label: "Recents" },
-  { id: "all", label: "My scripts" },
+/** Which tab of that library the pill row is showing. */
+type Kind = "indicator" | "strategy";
+
+/*
+ * ── The tab row, and why it is two pills rather than seven chips ───────────
+ *
+ * The reference shows `Indicators · Strategies · Profiles · Patterns`, in one
+ * 28px row, with no counts. Two of those four are not true here: this build
+ * files its volume-profile studies under Indicators like every other overlay,
+ * and it has no browsable pattern library at all — `Profiles` and `Patterns`
+ * would be tabs onto nothing, which is the same empty promise a `Community`
+ * heading would be. The two that ARE true are the two the Pine compiler
+ * already reports for every script and the two the native registry is filed
+ * under.
+ */
+const KINDS: { id: Kind; label: string }[] = [
   { id: "indicator", label: "Indicators" },
   { id: "strategy", label: "Strategies" },
-  { id: "onChart", label: "On this chart" },
-  { id: "templates", label: "Templates" },
 ];
+
+/** How many recently-used studies are worth a group. The reference shows few. */
+const RECENTS_SHOWN = 5;
 
 export interface IndicatorBrowserProps {
   open: boolean;
@@ -83,42 +110,29 @@ export interface IndicatorBrowserProps {
   onOpenInEditor: (script: PineScript) => void;
 }
 
-// TradingView's category strip is a compact tab row, not pill-shaped tags.
-// Keeping a fixed 32px row also prevents the browser from jumping when a
-// category is changed or a search result count appears.
-const CHIP = "tvc-control flex h-8 items-center rounded-md px-2.5 text-[13px]";
-const ACTION =
-  "shrink-0 rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-ink " +
-  "transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-40";
+/** One 28px tab. Selected is a NEUTRAL filled pill — accent is never selection. */
+const PILL = "flex h-7 items-center rounded-md px-2.5 text-[13px] transition-colors";
 
 export function IndicatorBrowser(props: IndicatorBrowserProps) {
   const { open, onClose, indicators } = props;
   const ask = useAsk();
-  const [library, setLibrary] = useState<PineScript[]>([]);
-  const [templates, setTemplates] = useState<IndicatorTemplate[]>([]);
-  const [category, setCategory] = useState<Category>("builtin");
+  const [library, setLibrary] = useState<Library>("technicals");
+  const [kind, setKind] = useState<Kind>("indicator");
+  const [scripts, setScripts] = useState<PineScript[]>([]);
   const [favourites, setFavourites] = useState<string[]>([]);
   const [recents, setRecents] = useState<string[]>([]);
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
-  /*
-   * Every user-visible string in this dialog names the instrument by TICKER.
-   * Eight of them interpolated `props.symbol`, which for a canonical id is
-   * `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` — a URN in a status
-   * message, in an Add tooltip, and in the footer.
-   */
-  const ticker = displayTicker(props.symbol);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [templateName, setTemplateName] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const applied: AppliedIndicator[] = useMemo(() => indicators?.list ?? [], [indicators]);
+  const searching = q.trim().length > 0;
 
   const refresh = useCallback(async () => {
     try {
-      setLibrary(await api.listPineScripts());
+      setScripts(await api.listPineScripts());
       setLibraryError(null);
     } catch (e) {
       // The library is the whole point of this dialog, so its absence is said
@@ -129,133 +143,79 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
   }, []);
 
   // Fresh every open: a script saved in the editor since last time should be
-  // here, and a stale status line from a previous visit should not.
+  // here, and a stale filter from a previous visit should not.
   useEffect(() => {
     if (!open) return;
-    setStatus(null);
     setQ("");
-    setTemplateName("");
-    setTemplates(loadTemplates());
     setFavourites(loadFavourites());
     setRecents(loadRecents());
-    setCategory("builtin");
+    setLibrary("technicals");
+    setKind("indicator");
     void refresh();
     const t = setTimeout(() => searchRef.current?.focus(), 0);
     return () => clearTimeout(t);
   }, [open, refresh]);
 
-  const persistTemplates = useCallback((next: IndicatorTemplate[]) => {
-    setTemplates(next);
-    saveTemplates(next);
-  }, []);
-
   /** How many instances of this script are on the chart right now. */
   const appliedCount = useCallback((script: PineScript): number =>
     applied.filter((i) => i.scriptId === script.id).length, [applied]);
-
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const matches = (s: PineScript): boolean =>
-      needle.length === 0 || s.name.toLowerCase().includes(needle);
-    if (category === "indicator") return library.filter((s) => s.kind === "indicator" && matches(s));
-    if (category === "strategy") return library.filter((s) => s.kind === "strategy" && matches(s));
-    if (category === "onChart") {
-      const ids = new Set(applied.map((i) => i.scriptId).filter((id): id is string => id !== null));
-      return library.filter((s) => ids.has(s.id) && matches(s));
-    }
-    return library.filter(matches);
-  }, [library, applied, category, q]);
-
-  /**
-   * The built-in studies this view is showing.
-   *
-   * Favourites and recents are the same list narrowed and ordered, rather than
-   * three separate sources: a favourite that stopped existing in this build is
-   * already dropped on read, so nothing here can render a blank row.
-   */
-  const nativeList = useMemo<NativeStudyDef[]>(() => {
-    const matched = searchStudies(q);
-    if (category === "favourites") {
-      const wanted = new Set(favourites);
-      return matched.filter((d) => wanted.has(d.id));
-    }
-    /*
-     * "On this chart" counted built-ins and then listed only Pine scripts.
-     * With three built-ins applied and no scripts the chip read `3` over an
-     * empty list — the exact mismatch the comment further down was written to
-     * prevent, reproduced one category along. The built-ins now appear in the
-     * list they were already being counted in.
-     */
-    if (category === "onChart") {
-      const appliedNative = new Set((props.nativeStudies?.list ?? []).map((study) => study.defId));
-      return matched.filter((d) => appliedNative.has(d.id));
-    }
-    if (category === "recents") {
-      const order = new Map(recents.map((id, i) => [id, i]));
-      return matched.filter((d) => order.has(d.id))
-        .sort((a, b) => order.get(a.id)! - order.get(b.id)!);
-    }
-    return matched;
-  }, [q, category, favourites, recents, props.nativeStudies?.list]);
 
   /** How many instances of this built-in are on the focused chart. */
   const nativeCount = useCallback((id: string): number =>
     (props.nativeStudies?.list ?? []).filter((s) => s.defId === id).length,
     [props.nativeStudies]);
 
+  /**
+   * Every built-in this view is showing, in the reference's order.
+   *
+   * `searchStudies` ranks while there is a query and returns the registry
+   * untouched when there is not; alphabetical is what the reference's resting
+   * list is, so the resting list is sorted here rather than in the registry,
+   * which other callers read in its own order.
+   */
+  const nativeList = useMemo<NativeStudyDef[]>(() => {
+    const matched = searchStudies(q);
+    /*
+     * The native catalogue is a catalogue of INDICATORS. There is no built-in
+     * strategy in this build, so the Strategies tab over Technicals is honestly
+     * empty rather than quietly showing the indicators again.
+     */
+    const kinded = searching || kind === "indicator" ? matched : [];
+    return searching ? kinded : [...kinded].sort((a, b) => a.name.localeCompare(b.name));
+  }, [q, searching, kind]);
+
+  /** Every Pine script this view is showing. */
+  const scriptList = useMemo<PineScript[]>(() => {
+    const needle = q.trim().toLowerCase();
+    const matches = (s: PineScript): boolean =>
+      needle.length === 0 || s.name.toLowerCase().includes(needle);
+    const kinded = searching ? scripts : scripts.filter((s) => s.kind === kind);
+    return kinded.filter(matches).sort((a, b) => a.name.localeCompare(b.name));
+  }, [scripts, q, searching, kind]);
+
+  /** The built-ins a FAVORITES group would hold, in the list's own order. */
+  const favouriteList = useMemo<NativeStudyDef[]>(() => {
+    const wanted = new Set(favourites);
+    return nativeList.filter((d) => wanted.has(d.id));
+  }, [nativeList, favourites]);
+
+  /** The built-ins a RECENTS group would hold, most recent first. */
+  const recentList = useMemo<NativeStudyDef[]>(() => {
+    const order = new Map(recents.map((id, i) => [id, i]));
+    return nativeList.filter((d) => order.has(d.id))
+      .sort((a, b) => order.get(a.id)! - order.get(b.id)!)
+      .slice(0, RECENTS_SHOWN);
+  }, [nativeList, recents]);
+
   const addNative = useCallback((def: NativeStudyDef): void => {
     if (!props.nativeStudies) return;
     props.nativeStudies.add(def.id);
     setRecents(loadRecents());
-    setStatus(`Added ${def.name} to ${ticker} ${props.interval}`);
-  }, [props.nativeStudies, props.interval, ticker]);
+    // The dialog stays open, the way the reference's does: adding three
+    // studies is three clicks, not three round trips through the toolbar.
+  }, [props.nativeStudies]);
 
-  /**
-   * How many rows a category would show, with the current search applied.
-   *
-   * Each arm reproduces the filter that category's list actually uses, which
-   * is why they are gathered here rather than inlined: two expressions for one
-   * question is how the chip and the list came to disagree.
-   */
-  const categoryCount = useCallback((id: string): number => {
-    const needle = q.trim().toLowerCase();
-    const nameMatches = (name: string): boolean =>
-      needle.length === 0 || name.toLowerCase().includes(needle);
-    const matchedStudies = searchStudies(q);
-    switch (id) {
-      case "templates":
-        return templates.filter((t) => nameMatches(t.name)).length;
-      case "onChart": {
-        const ids = new Set(applied.map((i) => i.scriptId).filter((v): v is string => v !== null));
-        const pine = library.filter((s) => ids.has(s.id) && nameMatches(s.name)).length;
-        const appliedNative = new Set((props.nativeStudies?.list ?? []).map((s) => s.defId));
-        return pine + matchedStudies.filter((d) => appliedNative.has(d.id)).length;
-      }
-      case "all":
-        return library.filter((s) => nameMatches(s.name)).length;
-      case "builtin":
-        return matchedStudies.length;
-      case "favourites": {
-        const wanted = new Set(favourites);
-        return matchedStudies.filter((d) => wanted.has(d.id)).length;
-      }
-      case "recents": {
-        const seen = new Set(recents);
-        return matchedStudies.filter((d) => seen.has(d.id)).length;
-      }
-      default:
-        return library.filter((s) => s.kind === id && nameMatches(s.name)).length;
-    }
-  }, [q, templates, applied, library, favourites, recents, props.nativeStudies]);
-
-  const filteredTemplates = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return needle.length === 0
-      ? templates
-      : templates.filter((t) => t.name.toLowerCase().includes(needle));
-  }, [templates, q]);
-
-  const addScript = async (s: PineScript): Promise<void> => {
+  const addScript = useCallback(async (s: PineScript): Promise<void> => {
     if (!indicators) return;
     setBusy(true);
     try {
@@ -263,13 +223,12 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       // in another tab is applied as it stands now.
       const full = await api.getPineScript(s.id);
       indicators.add({ scriptId: full.id, name: full.name, source: full.source });
-      setStatus(`Added “${full.name}” to ${ticker} ${props.interval}`);
     } catch (e) {
-      setStatus((e as Error).message);
+      setLibraryError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  };
+  }, [indicators]);
 
   const removeScript = async (s: PineScript): Promise<void> => {
     if (!await ask.confirm({
@@ -280,9 +239,8 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
     try {
       await api.deletePineScript(s.id);
       await refresh();
-      setStatus(`Deleted “${s.name}” from the library`);
     } catch (e) {
-      setStatus((e as Error).message);
+      setLibraryError((e as Error).message);
     }
   };
 
@@ -290,430 +248,299 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
   const onFiles = async (files: FileList | null): Promise<void> => {
     if (!files || files.length === 0) return;
     setBusy(true);
-    setStatus(null);
-    const added: string[] = [];
     const failed: string[] = [];
     for (const file of Array.from(files)) {
       try {
         const source = await file.text();
         const name = file.name.replace(/\.(pine|txt)$/i, "");
         await api.savePineScript(name, source);
-        added.push(name);
       } catch (e) {
         failed.push(`${file.name}: ${(e as Error).message}`);
       }
     }
     await refresh();
     setBusy(false);
-    setStatus([
-      added.length > 0 ? `Imported ${added.length} script${added.length === 1 ? "" : "s"}` : "",
-      ...failed,
-    ].filter(Boolean).join(" · "));
+    if (failed.length > 0) setLibraryError(failed.join(" · "));
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  // ── templates ────────────────────────────────────────────────────────────
-
-  const saveTemplate = async (): Promise<void> => {
-    const name = templateName.trim();
-    /*
-     * TVP8: built-in studies count.
-     *
-     * A template used to hold Pine studies only and silently drop all 57
-     * built-ins, so saving one from a chart carrying RSI, MACD and Bollinger
-     * Bands produced nothing at all — the guard below refused, because
-     * `applied` was empty. Both lists are the template now, and either one is
-     * enough to have something worth saving.
-     */
-    const nativeList = props.nativeStudies?.list ?? [];
-    if (name.length === 0 || (applied.length === 0 && nativeList.length === 0)) return;
-    const template = templateFromIndicators(name, applied, new Date(), nativeList);
-    let result = upsertTemplate(templates, template);
-    if (!result.ok && result.reason === "exists") {
-      // Overwriting a template the operator built earlier is a decision, not a
-      // side effect of reusing a name.
-      if (!await ask.confirm({
-        title: `A template called “${name}” already exists`,
-        body: "Replacing it overwrites the studies and settings it holds.",
-        confirmLabel: "Replace", tone: "danger",
-      })) return;
-      result = upsertTemplate(templates, template, { overwrite: true });
-    }
-    if (!result.ok) {
-      setStatus(result.reason === "full"
-        ? "Template not saved: this browser is holding the maximum number of templates."
-        : "Template not saved: give it a name and put at least one study on the chart first.");
-      return;
-    }
-    persistTemplates(result.list);
-    setTemplateName("");
-    const saved = template.indicators.length + template.studies.length;
-    setStatus(`Saved template “${name}” — ${saved} stud${saved === 1 ? "y" : "ies"}`);
-  };
-
   /**
-   * Put a template's studies on the chart.
+   * Enter adds the first result.
    *
-   * `replace` clears what is there first and says so before doing it. Adding is
-   * the default because it cannot lose anything.
+   * Search is focused when the browser opens, and the rows are a listbox — so
+   * reaching the third result costs three Down-arrows. Typing a name and
+   * pressing Enter is what a user reaching for a known study actually does,
+   * and it is the whole distance from the search box to the chart. It is
+   * BEHAVIOUR: the reference does not print a sentence under the field telling
+   * you about it, and neither does this.
    */
-  const applyTemplate = async (template: IndicatorTemplate, replace: boolean): Promise<void> => {
-    if (!indicators) return;
+  const addFirstResult = useCallback((): void => {
+    const first = nativeList[0];
+    if (first && props.nativeStudies) { addNative(first); return; }
+    const script = scriptList[0];
+    if (script) void addScript(script);
+  }, [nativeList, scriptList, props.nativeStudies, addNative, addScript]);
 
-    /*
-     * ── TVP8 round two: Replace counted the wrong half of the chart ──────────
-     *
-     * The guard was `replace && applied.length > 0`, and `applied` is the PINE
-     * list. `props.nativeStudies?.clear()` ran inside it regardless — so a
-     * chart carrying nothing but built-ins, which is what most charts carry,
-     * had all of them removed with no confirmation at all. The count in the
-     * title was the Pine count too, so when it did ask, it under-reported what
-     * was about to be destroyed.
-     */
-    const onChart = applied.length + (props.nativeStudies?.list.length ?? 0);
-    if (replace && onChart > 0) {
-      const ok = await ask.confirm({
-        title: `Replace the ${onChart} stud${onChart === 1 ? "y" : "ies"} on `
-          + `${ticker} ${props.interval}?`,
-        body: `“${template.name}” has ${template.indicators.length + template.studies.length}. `
-          + "The studies on the chart now are removed.",
-        confirmLabel: "Replace", tone: "danger",
-      });
-      if (!ok) return;
-      indicators.clear();
-      props.nativeStudies?.clear();
-    }
+  /** The `?` tooltip: what the row's second line used to say, on demand. */
+  const nativeInfo = useCallback((def: NativeStudyDef): string => {
+    const count = nativeCount(def.id);
+    return `${CATEGORY_LABELS[def.category]} · ${def.description}`
+      + (count > 0 ? `\nOn this chart · ${count} instance${count === 1 ? "" : "s"}` : "");
+  }, [nativeCount]);
 
-    // TVP8: the built-ins, restored with their tuning AND their styling.
-    const missing: string[] = [];
-    for (const study of template.studies) {
-      const key = props.nativeStudies?.add(study.defId, study.params);
-      if (!key) { missing.push(study.defId); continue; }
-      for (const [plot, style] of Object.entries(study.styles)) {
-        props.nativeStudies?.setStyle(key, plot, style as Record<string, never>);
+  const scriptInfo = useCallback((s: PineScript): string => {
+    const count = appliedCount(s);
+    return `${s.kind === "strategy" ? "Strategy" : "Indicator"} · saved `
+      + `${s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : "locally"}`
+      + (count > 0 ? `\nOn this chart · ${count} instance${count === 1 ? "" : "s"}` : "");
+  }, [appliedCount]);
+
+  const nativeRow = (def: NativeStudyDef): React.ReactNode => (
+    <BrowserRow
+      key={def.id}
+      name={def.name}
+      query={q}
+      info={nativeInfo(def)}
+      starred={favourites.includes(def.id)}
+      onToggleStar={() => setFavourites(toggleFavourite(def.id))}
+      onAdd={() => addNative(def)}
+      disabled={!props.nativeStudies}
+    />
+  );
+
+  const scriptRow = (s: PineScript): React.ReactNode => (
+    <BrowserRow
+      key={s.id}
+      name={s.name}
+      query={q}
+      info={scriptInfo(s)}
+      onAdd={() => void addScript(s)}
+      disabled={busy || !indicators}
+      trailing={
+        <>
+          <RowGlyph
+            label={`Edit ${s.name} in the Pine Editor`}
+            onClick={() => void api.getPineScript(s.id).then(props.onOpenInEditor).then(onClose)}
+          >
+            <path d="M4 16.5V20h3.5L18 9.5 14.5 6 4 16.5zM13.3 7.2l3.5 3.5" />
+          </RowGlyph>
+          <RowGlyph label={`Delete ${s.name} from the library`} danger
+            onClick={() => void removeScript(s)}>
+            <path d="M4 6.5h16M9.5 6.5V4h5v2.5M6.5 6.5l1 13.5h9l1-13.5" />
+          </RowGlyph>
+        </>
       }
-      if (!study.visible) props.nativeStudies?.toggleVisible(key);
-    }
-    for (const row of template.indicators) {
-      const key = indicators.add({
-        scriptId: row.scriptId, name: row.name, source: row.source, params: row.params,
-      });
-      // `add` always starts visible; a template that stored a hidden study
-      // restores it hidden.
-      if (!row.visible) indicators.toggleVisible(key);
-    }
-
-    /*
-     * ── TVP8 round two: a study the template names and this build has not ────
-     *
-     * `add` returns nothing for a `defId` the catalogue does not contain — a
-     * template written by a newer build, or exported from an installation with
-     * a study this one has since dropped. The loop did `continue`, and then the
-     * status line said "Applied" as though everything had arrived. The user
-     * gets a chart that is quietly missing an indicator, and the only way to
-     * find out is to count.
-     */
-    const applyCount = template.indicators.length + template.studies.length - missing.length;
-    setStatus(missing.length === 0
-      ? `Applied “${template.name}” to ${ticker} ${props.interval}`
-      : `Applied ${applyCount} of ${applyCount + missing.length} from “${template.name}”. `
-        + `This build has no study called ${missing.join(", ")}.`);
-  };
-
-  const removeTemplate = async (template: IndicatorTemplate): Promise<void> => {
-    if (!await ask.confirm({
-      title: `Delete the template “${template.name}”?`,
-      body: "Studies on the chart stay where they are.",
-      confirmLabel: "Delete", tone: "danger",
-    })) return;
-    persistTemplates(deleteTemplate(templates, template.name));
-    setStatus(`Deleted template “${template.name}”`);
-  };
-
-  const nameTaken = templateName.trim().length > 0
-    && findTemplate(templates, templateName) !== null;
+    />
+  );
 
   return (
     <Modal open={open} onClose={onClose}
       wide
       title="Indicators, metrics, and strategies"
-      panelClassName="!max-w-[840px] !h-[620px] !max-h-[calc(100vh-24px)]"
-      contentClassName="px-5 py-4 sm:px-5"
+      /* 840×638 and a 62px header, measured off the reference. */
+      panelClassName="!max-w-[840px] !h-[638px] !max-h-[calc(100vh-24px)]"
+      headerClassName="!py-[15px]"
+      /*
+        R3-07: the LIST scrolls, and nothing else.
+
+        `Modal` wraps its children in one `overflow-y-auto`, so the library
+        rail, the tab row and — while it existed — the template editor scrolled
+        away together with the rows. In the reference the rail and the tabs are
+        fixed and a thin scrollbar sits at the list's own right edge.
+      */
+      scrollBody={false}
+      contentClassName="!px-5 !pt-0 !pb-0"
     >
       {/* ── search ── */}
-      <input
-        ref={searchRef}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        /*
-         * Enter adds the first result.
-         *
-         * Search is focused when the browser opens, and the rows are a list of
-         * `div`s with two buttons each — so reaching the third result cost six
-         * Tabs and Enter in the box did nothing at all. Typing a name and
-         * pressing Enter is what a user reaching for a known study actually
-         * does, and it is the whole distance from the search box to the chart.
-         */
-        onKeyDown={(e) => {
-          if (e.key !== "Enter" || q.trim() === "") return;
-          const first = nativeList[0];
-          if (first && props.nativeStudies) { e.preventDefault(); addNative(first); return; }
-          const script = filtered[0];
-          if (script) { e.preventDefault(); void addScript(script); }
-        }}
-        placeholder="Search this installation’s scripts and templates…"
-        aria-label="Search indicators"
-        className={`w-full ${FIELD}`}
-      />
-      <p className="mt-1 text-[11px] text-ink-faint">
-        Press Enter to add the first result.
-      </p>
-
-      {/* A stable library rail mirrors the current TradingView hierarchy while
-          exposing only sections backed by real local data. */}
-      <div className="mt-3 flex min-h-0 gap-4">
-        <nav aria-label="Indicator library sections"
-          className="hidden w-[200px] shrink-0 flex-col gap-3 border-r border-border pr-3 sm:flex">
-          <LibrarySection title="Personal">
-            <LibraryNavButton active={category === "all"} onClick={() => setCategory("all")}
-              label="My scripts" count={categoryCount("all")} />
-            <LibraryNavButton active={category === "onChart"} onClick={() => setCategory("onChart")}
-              label="On this chart" count={categoryCount("onChart")} />
-          </LibrarySection>
-          <LibrarySection title="Built-in">
-            <LibraryNavButton active={category === "builtin"} onClick={() => setCategory("builtin")}
-              label="Built-in" count={categoryCount("builtin")} />
-            <LibraryNavButton active={category === "favourites"} onClick={() => setCategory("favourites")}
-              label="Favourites" count={categoryCount("favourites")} />
-            <LibraryNavButton active={category === "recents"} onClick={() => setCategory("recents")}
-              label="Recents" count={categoryCount("recents")} />
-          </LibrarySection>
-          <LibrarySection title="Saved">
-            <LibraryNavButton active={category === "templates"} onClick={() => setCategory("templates")}
-              label="Indicator templates" count={categoryCount("templates")} />
-          </LibrarySection>
-        </nav>
-        <div className="min-w-0 flex-1">
-
-      {/*
-        ── categories, all derived from what is CURRENTLY listed ──
-
-        The counts used to be totals — "Built-in 12" beside a single row,
-        because the chip read `NATIVE_STUDIES.length` while the list read the
-        search. A count next to a filter has to say how many that filter would
-        show, or it is telling the user the search did not happen.
-      */}
-      <div role="group" aria-label="Indicator category" className="mt-3 flex flex-wrap gap-1.5">
-        {CATEGORIES.filter((c) => c.id !== "all").map((c) => {
-          const active = category === c.id;
-          const count = categoryCount(c.id);
-          return (
-            <button
-              key={c.id}
-              onClick={() => setCategory(c.id)}
-              aria-pressed={active}
-              className={`${CHIP} ${
-                active ? "font-medium text-ink" : "text-ink-muted hover:text-ink"
-              }`}
-            >
-              {c.label}
-              <span className={`ml-1.5 tabular ${active ? "text-bg/70" : "text-ink-faint"}`}>{count}</span>
-            </button>
-          );
-        })}
+      <div className="relative shrink-0 pt-[9px]">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"
+          className="pointer-events-none absolute left-3 top-[calc(50%+4px)] -translate-y-1/2 text-ink-faint">
+          <circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" />
+        </svg>
+        <input
+          ref={searchRef}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || !searching) return;
+            e.preventDefault();
+            addFirstResult();
+          }}
+          /*
+            `Search`. It read "Search this installation's scripts and
+            templates…" — 47 characters explaining the dialog from inside its
+            own field — and carried `focus:border-accent`, which painted an
+            accent ring the instant the dialog opened because the field is
+            focused programmatically. The product's one `:focus-visible` rule
+            is the focus indicator here, as everywhere.
+          */
+          placeholder="Search"
+          aria-label="Search indicators"
+          className="h-[34px] w-full rounded-md border border-control-border bg-transparent
+            pl-9 pr-9 text-sm text-ink outline-none placeholder:text-ink-faint"
+        />
+        {searching && (
+          <button
+            type="button"
+            onClick={() => { setQ(""); searchRef.current?.focus(); }}
+            aria-label="Clear the search"
+            title="Clear the search"
+            className="absolute right-2 top-[calc(50%+4px)] flex h-6 w-6 -translate-y-1/2
+              items-center justify-center rounded text-ink-faint hover:text-ink"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {libraryError && (
-        <p role="alert" className="mt-3 rounded border border-down/30 bg-down/10 px-3 py-2 text-[12px] text-down">
-          The script library could not be read: {libraryError}. Nothing on the chart changed.
-        </p>
-      )}
+      <div className="mt-3 flex min-h-0 flex-1 gap-4">
+        {/*
+          ── the library rail ────────────────────────────────────────────────
 
-      {/*
-        `onChart` is the one category that spans both kinds — it means "what is
-        applied", and a built-in and a script are both applicable. It used to
-        COUNT both and LIST only scripts, so three built-ins and no scripts read
-        "On this chart 3" over an empty panel. It now renders both lists, the
-        built-ins first.
-      */}
-      {category === "builtin" || category === "favourites" || category === "recents"
-        || category === "onChart" ? (
-        <div className="mt-3 flex flex-col gap-1">
-          {nativeList.length === 0 && category !== "onChart" && (
-            <p className="py-6 text-center text-[12px] text-ink-faint">
-              {category === "favourites"
-                ? "No favourites yet. Star a built-in study to keep it here."
-                : category === "recents"
-                  ? "Nothing added yet. Studies you apply appear here."
-                  : "No built-in study matches that search."}
-            </p>
-          )}
-          {category === "onChart" && nativeList.length === 0 && filtered.length === 0 && (
-            <p className="py-6 text-center text-[12px] text-ink-faint">
-              Nothing on this chart yet. Add a built-in study or a script.
-            </p>
-          )}
-          {nativeList.map((def) => {
-            const count = nativeCount(def.id);
-            const starred = favourites.includes(def.id);
-            return (
-              <div key={def.id}
-                className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
-                <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">
-                  Built-in
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">{def.name}</span>
-                  <span className="block truncate text-[11px] text-ink-faint">
-                    {count > 0
-                      ? `On this chart · ${count} instance${count === 1 ? "" : "s"}`
-                      : `${CATEGORY_LABELS[def.category]} · ${def.description}`}
-                  </span>
-                </span>
+          Two sections, and every entry in them is a library this installation
+          really has. It held six entries with counts, four of which were
+          filters rather than libraries (`On this chart`, `Favourites`,
+          `Recents`, `Indicator templates`) — and the selected one was filled
+          with `bg-surface-2`, which is the dialog's OWN background colour, so
+          selection was invisible except by weight.
+        */}
+        <nav aria-label="Indicator library"
+          className="hidden w-[200px] shrink-0 flex-col overflow-hidden sm:flex">
+          <LibrarySection title="Personal" />
+          <LibraryNavButton
+            active={!searching && library === "scripts"}
+            onClick={() => { setLibrary("scripts"); setKind("indicator"); }}
+            label="My scripts"
+          >
+            <circle cx="12" cy="8" r="3.4" /><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6" />
+          </LibraryNavButton>
+          <LibrarySection title="Built-in" />
+          <LibraryNavButton
+            active={!searching && library === "technicals"}
+            onClick={() => { setLibrary("technicals"); setKind("indicator"); }}
+            label="Technicals"
+          >
+            <path d="M4 19V6M4 19h15" />
+            <path d="M7.5 16l3.5-5 3 3 4.5-7" />
+          </LibraryNavButton>
+        </nav>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/*
+            The tab row, and the column header under it. Both are absent while
+            a query is running: search spans both libraries and groups its own
+            results, so a tab that filters one of them would be describing a
+            list it is not in charge of.
+          */}
+          {!searching && (
+            <div role="tablist" aria-label="Script kind" className="flex shrink-0 items-center gap-1.5">
+              {KINDS.map((k) => (
                 <button
-                  onClick={() => setFavourites(toggleFavourite(def.id))}
-                  aria-pressed={starred}
-                  aria-label={starred ? `Unfavourite ${def.name}` : `Favourite ${def.name}`}
-                  title={starred ? "Remove from favourites" : "Add to favourites"}
-                  className={`shrink-0 rounded px-1.5 py-1 text-[11px] transition-colors ${
-                    starred ? "text-warn" : "text-ink-faint hover:text-ink"
+                  key={k.id}
+                  role="tab"
+                  aria-selected={kind === k.id}
+                  onClick={() => setKind(k.id)}
+                  className={`${PILL} ${
+                    // accent is never selection — the contract's own rule.
+                    kind === k.id
+                      ? "bg-surface-3 font-medium text-ink"
+                      : "text-ink-muted hover:bg-state-hover hover:text-ink"
                   }`}
                 >
-                  {starred ? "Starred" : "Star"}
+                  {k.label}
                 </button>
-                <button
-                  onClick={() => addNative(def)}
-                  disabled={!props.nativeStudies}
-                  className={ACTION}
-                  title={props.nativeStudies
-                    ? `Add ${def.name} to ${ticker} ${props.interval}`
-                    : "The focused chart is still loading"}
-                >
-                  Add
-                </button>
-              </div>
-            );
-          })}
-          {category === "onChart" && filtered.map((s) => (
-            <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
-              {/* accent-is-meaning: a script KIND — data about the row, which the
-                  contract names as legitimate accent. */}
-              <span className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${
-                s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
-              }`}>
-                {s.kind === "strategy" ? "Str" : "Ind"}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{s.name}</span>
-              <span className="shrink-0 text-[11px] text-ink-faint">
-                {appliedCount(s)} instance{appliedCount(s) === 1 ? "" : "s"}
-              </span>
+              ))}
             </div>
-          ))}
-        </div>
-      ) : category === "templates" ? (
-        <TemplateList
-          templates={filteredTemplates}
-          totalTemplates={templates.length}
-          canApply={indicators !== null}
-          onApply={applyTemplate}
-          onDelete={removeTemplate}
-        />
-      ) : (
-        <div className="mt-3 flex flex-col gap-1">
-          {filtered.length === 0 && !libraryError && (
-            <p className="py-6 text-center text-[12px] text-ink-faint">
-              {library.length === 0
-                ? "No scripts saved yet. Import a .pine file below, or write one in the Pine Editor."
-                : "No script matches that search."}
+          )}
+
+          {libraryError && (
+            <p role="alert" className="mt-2 shrink-0 rounded border border-down/30 bg-down/10 px-3 py-2 text-[12px] text-down">
+              The script library could not be read: {libraryError}. Nothing on the chart changed.
             </p>
           )}
-          {filtered.map((s) => {
-            const count = appliedCount(s);
-            return (
-              <div key={s.id} className="flex h-8 items-center gap-2 border-b border-border px-2 hover:bg-state-hover">
-                {/* accent-is-meaning: a script KIND — data about the row, which the
-                    contract names as legitimate accent. */}
-                <span className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${
-                  s.kind === "strategy" ? "bg-accent/15 text-accent" : "bg-border text-ink-muted"
-                }`}>
-                  {s.kind === "strategy" ? "Str" : "Ind"}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">{s.name}</span>
-                  <span className="block truncate text-[11px] text-ink-faint">
-                    {/*
-                      Truthful state: how many copies of THIS script are on the
-                      focused chart, not a generic "added" flag — the same script
-                      can be applied twice with different inputs.
-                    */}
-                    {count > 0
-                      ? `On this chart · ${count} instance${count === 1 ? "" : "s"}`
-                      : `Saved ${s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : "locally"}`}
-                  </span>
-                </span>
-                <button
-                  onClick={() => void addScript(s)}
-                  disabled={busy || !indicators}
-                  className={ACTION}
-                  title={indicators
-                    ? `Add “${s.name}” to ${ticker} ${props.interval}`
-                    : "The focused chart is still preparing"}
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => void api.getPineScript(s.id).then(props.onOpenInEditor).then(onClose)}
-                  className={ACTION}
-                  title="Open in the Pine Editor"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => void removeScript(s)}
-                  className={`${ACTION} hover:border-down hover:text-down`}
-                  title="Delete from the library"
-                  aria-label={`Delete ${s.name} from the library`}
-                >
-                  Delete
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
-      {/* ── save the focused chart's studies as a template ── */}
-      <div className="mt-4 border-t border-border pt-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          Save these studies as a template
-        </div>
-        <p className="mt-0.5 text-[11px] leading-tight text-ink-faint">
-          Studies and their inputs only — not the symbol, timeframe or chart layout. Stored in this
-          browser.
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveTemplate(); } }}
-            placeholder="Template name"
-            aria-label="Template name"
-            className="min-w-0 flex-1 rounded border border-border bg-surface-2 px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
-          />
-          <button
-            onClick={saveTemplate}
-            disabled={templateName.trim().length === 0 || applied.length === 0}
-            className={ACTION}
+          <div
+            aria-label="Indicators"
+            className="min-h-0 flex-1 overflow-y-auto pb-4"
           >
-            {nameTaken ? "Replace…" : "Save template"}
-          </button>
+            {searching ? (
+              <>
+                {/*
+                  ── R3-05: results are grouped by library, and the match is lit ─
+
+                  A flat five-row list under a chip row said nothing about WHERE
+                  a result came from, and nothing about why it matched — an
+                  alias hit ("BB" → Bollinger Bands) looked like a mistake.
+                  accent-is-meaning: the accent here is DATA — which characters
+                  of this name the query matched — not a decoration and not a
+                  selection.
+                */}
+                {nativeList.length > 0 && <GroupHeader>Technicals</GroupHeader>}
+                {nativeList.map(nativeRow)}
+                {scriptList.length > 0 && <GroupHeader>My scripts</GroupHeader>}
+                {scriptList.map(scriptRow)}
+                {nativeList.length === 0 && scriptList.length === 0 && (
+                  <p className="py-6 text-center text-[12px] text-ink-faint">
+                    Nothing in either library matches that search.
+                  </p>
+                )}
+              </>
+            ) : library === "technicals" ? (
+              <>
+                {/*
+                  Favourites and recents are GROUPS of this list, the way the
+                  reference has them — present when they hold something, gone
+                  when they do not, and never a rail entry with a `0` beside it.
+                */}
+                {favouriteList.length > 0 && (
+                  <>
+                    <GroupHeader>Favorites</GroupHeader>
+                    {favouriteList.map(nativeRow)}
+                  </>
+                )}
+                {recentList.length > 0 && (
+                  <>
+                    <GroupHeader>Recents</GroupHeader>
+                    {recentList.map(nativeRow)}
+                  </>
+                )}
+                <GroupHeader>Script name</GroupHeader>
+                {nativeList.map(nativeRow)}
+                {nativeList.length === 0 && (
+                  <p className="py-6 text-center text-[12px] text-ink-faint">
+                    This build ships no built-in strategies. Strategies you write
+                    in the Pine Editor appear under My scripts.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <GroupHeader>Script name</GroupHeader>
+                {/*
+                  Import, as a row of the library it imports INTO. It was a
+                  button in a footer under every library, beside a sentence
+                  naming the focused chart — two things the reference's dialog
+                  does not have, in the place its list reaches the bottom edge.
+                */}
+                <ImportRow disabled={busy} onClick={() => fileRef.current?.click()} />
+                {scriptList.map(scriptRow)}
+                {scriptList.length === 0 && !libraryError && (
+                  <p className="py-6 text-center text-[12px] text-ink-faint">
+                    {scripts.length === 0
+                      ? "No scripts saved yet. Import a .pine file, or write one in the Pine Editor."
+                      : kind === "strategy"
+                        ? "No strategy saved yet."
+                        : "No script matches that search."}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </div>
-        <p className="mt-1 text-[11px] text-ink-faint">
-          {applied.length === 0
-            ? "Nothing is on this chart yet, so there is nothing to save."
-            : `${applied.length} stud${applied.length === 1 ? "y" : "ies"} on ${ticker} ${props.interval}.`}
-          {nameTaken && " That name already exists — saving asks before replacing it."}
-        </p>
       </div>
 
       <input
@@ -724,106 +551,213 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         hidden
         onChange={(e) => void onFiles(e.target.files)}
       />
-
-      {status && (
-        <p role="status" className="mt-3 truncate text-[11px] text-ink-muted" title={status}>{status}</p>
-      )}
-
-      <div className="mt-3 border-t border-border pt-3 text-[11px] text-ink-faint">
-        {/*
-          The ticker, not the canonical id. This line printed
-          `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot 15m` at the user —
-          the URN as primary dialog copy, which is the regression the symbol
-          display policy exists to prevent. The identity is the title.
-        */}
-        Adds land on the focused chart — <span className="font-semibold text-ink-muted"
-          title={displaySymbol(props.symbol)}>
-          {ticker} {props.interval}</span>.
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={busy}
-          className={`${ACTION} ml-2`}
-          title="Import .pine files from disk"
-        >
-          Import .pine
-        </button>
-      </div>
-        </div>
-      </div>
     </Modal>
   );
 }
 
-function LibrarySection({ title, children }: { title: string; children: React.ReactNode }) {
+/** An 11px/400 uppercase section label in a 30px row — the reference's rail. */
+function LibrarySection({ title }: { title: string }) {
   return (
-    <section>
-      <h3 className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{title}</h3>
-      <div className="flex flex-col gap-0.5">{children}</div>
-    </section>
+    <h3 className="flex h-[30px] shrink-0 items-center px-2 text-[11px] uppercase tracking-wide text-ink-faint">
+      {title}
+    </h3>
   );
 }
 
+/**
+ * One library, at the reference's 40px pitch with a 20px line glyph.
+ *
+ * The selected fill is `surface-3`, not `surface-2`: `surface-2` IS the
+ * dialog's own background, so the selected row used to be invisible except by
+ * its weight. Neutral, never accent — selection is a neutral chip everywhere
+ * in this product.
+ */
 function LibraryNavButton({
-  active, onClick, label, count,
-}: { active: boolean; onClick: () => void; label: string; count: number }) {
+  active, onClick, label, children,
+}: { active: boolean; onClick: () => void; label: string; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[12px] ${
-        active ? "bg-surface-2 font-medium text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"
+      className={`flex h-10 w-full shrink-0 items-center gap-3 rounded px-2 text-left text-[14px] ${
+        active ? "bg-surface-3 font-semibold text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"
       }`}
     >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+        aria-hidden="true" className="shrink-0">
+        {children}
+      </svg>
       <span className="truncate">{label}</span>
-      <span className="tabular text-[10px] text-ink-faint">{count}</span>
     </button>
   );
 }
 
-function TemplateList({
-  templates, totalTemplates, canApply, onApply, onDelete,
-}: {
-  templates: IndicatorTemplate[];
-  totalTemplates: number;
-  canApply: boolean;
-  onApply: (template: IndicatorTemplate, replace: boolean) => void;
-  onDelete: (template: IndicatorTemplate) => void;
-}) {
-  if (templates.length === 0) {
-    return (
-      <p className="py-6 text-center text-[12px] text-ink-faint">
-        {totalTemplates === 0
-          ? "No templates yet. Put the studies you want on a chart, then name and save them below."
-          : "No template matches that search."}
-      </p>
-    );
-  }
+/** An 11px muted group heading — `SCRIPT NAME`, `TECHNICALS`, `FAVORITES`. */
+function GroupHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-3 flex flex-col gap-1">
-      {templates.map((t) => (
-        <div key={t.name} className="flex items-center gap-2 rounded border border-border px-2 py-1.5 hover:bg-state-hover">
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] text-ink">{t.name}</span>
-            <span className="block truncate text-[11px] text-ink-faint">
-              {t.indicators.length} stud{t.indicators.length === 1 ? "y" : "ies"}
-              {t.createdAt ? ` · saved ${new Date(t.createdAt).toLocaleDateString()}` : ""}
-            </span>
-          </span>
-          <button onClick={() => onApply(t, false)} disabled={!canApply} className={ACTION}
-            title="Add this template's studies to the focused chart">
-            Add
-          </button>
-          <button onClick={() => onApply(t, true)} disabled={!canApply} className={ACTION}
-            title="Clear the focused chart's studies and apply this template instead">
-            Replace
-          </button>
-          <button onClick={() => onDelete(t)} className={`${ACTION} hover:border-down hover:text-down`}
-            aria-label={`Delete the template ${t.name}`}>
-            Delete
-          </button>
-        </div>
-      ))}
+    <div className="flex h-[26px] items-end px-2 pb-1 text-[11px] uppercase tracking-wide text-ink-faint">
+      {children}
     </div>
+  );
+}
+
+/**
+ * The matched characters, in accent.
+ *
+ * accent-is-meaning: this is data about the row — which part of the name the
+ * query found — not a highlight for emphasis and not a selection.
+ */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const needle = query.trim().toLowerCase();
+  const at = needle.length === 0 ? -1 : text.toLowerCase().indexOf(needle);
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="text-accent">{text.slice(at, at + needle.length)}</span>
+      {text.slice(at + needle.length)}
+    </>
+  );
+}
+
+/**
+ * One script in the list.
+ *
+ * ── Why the ROW is the control ─────────────────────────────────────────────
+ *
+ * Each row used to be a `div` holding a green `BUILT-IN` badge, a 13px name, an
+ * 11px description, a `Star` text button and a bordered `Add` button — 36px of
+ * pitch for one line of information, and the add action was the button rather
+ * than the row. The reference's row is 32px, one 14px name, and clicking
+ * anywhere on it adds the script; the star and the info glyph appear on hover,
+ * at the two edges.
+ *
+ * ── Why the edge affordances are siblings, not children ────────────────────
+ *
+ * A button inside a button is not valid HTML: the inner one is unreachable by
+ * keyboard and the outer one's accessible name absorbs it. So the row's own
+ * button fills the row in normal flow and the star and the glyphs are
+ * absolutely positioned over its two ends, with the row's padding reserving
+ * the space they occupy. Every one of them is a real, separately focusable
+ * control, and the row is still one click anywhere.
+ */
+function BrowserRow({
+  name, query, info, starred, onToggleStar, onAdd, disabled = false, trailing,
+}: {
+  name: string;
+  query: string;
+  info: string;
+  starred?: boolean;
+  onToggleStar?: () => void;
+  onAdd: () => void;
+  disabled?: boolean;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div className={`group/row relative flex h-8 items-center rounded ${
+      disabled ? "opacity-50" : "hover:bg-state-hover"
+    }`}>
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={disabled}
+        title={info}
+        className="flex h-8 w-full items-center truncate rounded pl-7 pr-20 text-left
+          text-[14px] text-ink disabled:cursor-not-allowed"
+      >
+        <span className="min-w-0 truncate">
+          <Highlight text={name} query={query} />
+        </span>
+      </button>
+      {onToggleStar && (
+        <span className="absolute left-0 top-0 flex h-8 w-7 items-center justify-center">
+          <button
+            type="button"
+            onClick={onToggleStar}
+            aria-pressed={starred}
+            aria-label={starred ? `Unfavourite ${name}` : `Favourite ${name}`}
+            title={starred ? "Remove from favourites" : "Add to favourites"}
+            className={`flex h-6 w-6 items-center justify-center rounded transition-opacity ${
+              starred
+                ? "text-warn opacity-100"
+                : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100"
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.6"
+              strokeLinejoin="round" fill={starred ? "currentColor" : "none"} aria-hidden="true">
+              <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z" />
+            </svg>
+          </button>
+        </span>
+      )}
+      <span className="absolute right-1 top-0 flex h-8 items-center">
+        {trailing}
+        {/*
+          The `?`, and what it carries: the category, the description and — when
+          the study is applied — how many instances of it this chart holds.
+          Those were the row's permanent second line, an 11px sentence under
+          every one of 57 names. On hover, at the right edge, is where the
+          reference keeps the same information.
+        */}
+        <RowGlyph label={`About ${name}`} title={info}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.6 9.3a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6" />
+          <path d="M12 16.6h.01" />
+        </RowGlyph>
+      </span>
+    </div>
+  );
+}
+
+/** One hover-revealed 24×24 affordance at a row's right edge. */
+function RowGlyph({
+  label, title, danger = false, onClick, children,
+}: {
+  label: string;
+  title?: string;
+  danger?: boolean;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={title ?? label}
+      onClick={onClick}
+      className={`ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0
+        transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100 ${
+        danger ? "text-ink-faint hover:text-down" : "text-ink-faint hover:text-ink"
+      }`}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {children}
+      </svg>
+    </button>
+  );
+}
+
+/** `Import…`, at the head of the library it imports into. */
+function ImportRow({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title="Import .pine files from disk"
+      className="flex h-8 w-full items-center rounded pr-1 text-left hover:bg-state-hover
+        disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span className="flex w-7 shrink-0 items-center justify-center text-ink-faint">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 15.5V4M8 8l4-4 4 4" /><path d="M4 15v4h16v-4" />
+        </svg>
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[14px] text-ink-muted">Import…</span>
+    </button>
   );
 }

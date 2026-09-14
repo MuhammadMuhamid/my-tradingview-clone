@@ -370,6 +370,16 @@ export interface Ticker24h {
   open: number;
   /** Exchange-side event time, ms. */
   at: number;
+  /**
+   * TVP8 R7-11: the 24h ticker the backend already receives carries these;
+   * they used to be dropped on the way through. Optional because a row that
+   * predates the field must not crash a reader, and because non-Binance
+   * quote contracts do not supply them.
+   */
+  volume?: number;
+  quoteVolume?: number;
+  high?: number;
+  low?: number;
 }
 
 export interface MarketTickerResponse {
@@ -1232,11 +1242,22 @@ export const api = {
     ),
   searchMarket: (q: string, quote = "", venue = "", limit = 60,
     type: "all" | "spot" | "perpetual" | "future" | "continuous_future" | "stock" | "etf" | "fx_pair" | "commodity" | "index" = "all",
-    expiry: "all" | "live" | "30d" | "90d" | "expired" = "live", underlying = "") =>
+    expiry: "all" | "live" | "30d" | "90d" | "expired" = "live", underlying = "",
+    /**
+     * The asset CLASS the dialog's chip row is on, when it is on one.
+     *
+     * Trailing and optional, because it is additive on both sides: omitted, the
+     * request is byte-for-byte the one this function has always sent, and the
+     * route ignores an absent `assetClass` exactly as before. It is here
+     * because "Crypto" is not a `type=` — it spans spot, perpetual and dated
+     * crypto futures — and `identity.assetClass` is what names that set.
+     */
+    assetClass: "" | "crypto" | "equity" | "fx" | "commodity" | "index" = "") =>
     req<SymbolSearchResponse>(
       `/api/market/v1/search?q=${encodeURIComponent(q)}&quote=${encodeURIComponent(quote)}` +
       `&venue=${encodeURIComponent(venue)}&type=${type}&expiry=${expiry}` +
-      `&underlying=${encodeURIComponent(underlying)}&limit=${limit}`
+      `&underlying=${encodeURIComponent(underlying)}&limit=${limit}` +
+      (assetClass ? `&assetClass=${assetClass}` : "")
     ),
   equityInstrument: (instrument: string, signal?: AbortSignal) => req<EquityInstrumentResponse>(
     `/api/market/v1/instrument/${encodeURIComponent(instrument)}`, signal ? { signal } : undefined),

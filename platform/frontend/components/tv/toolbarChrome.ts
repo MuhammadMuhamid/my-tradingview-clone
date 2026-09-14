@@ -62,10 +62,19 @@ export const TOOLBAR_ROW_H = "h-[38px]";
  */
 export const TOOL_STATE = "tvc-control";
 
-/** Every secondary toolbar control, at one height. */
+/**
+ * Every secondary toolbar control, at one height.
+ *
+ * TVP8 R1b-01: `text-ink` at REST, with no muted→ink hover shift. Measured on
+ * the reference, every glyph, caret and unarmed chip on the bar peaks at the
+ * same rgb(219) as the ticker and the layout name; ours peaked at rgb(168) and
+ * only reached 219 under the pointer. Fifty-one luminance levels on twenty
+ * controls is what made our bar read as a greyed-out bar with two bright words
+ * on it. The hover state is the CHIP (`.tvc-control::before`), never the ink.
+ */
 export const TOOL_BUTTON =
   `${TOOL_STATE} flex ${TOOLBAR_H} shrink-0 items-center gap-1.5 px-1.5 text-sm ` +
-  "text-ink-muted hover:text-ink disabled:hover:text-ink-muted";
+  "text-ink";
 
 /**
  * The hairline between groups of controls.
@@ -87,7 +96,14 @@ export const SEPARATOR = "mx-1 !h-[22px] w-px self-center !bg-border-strong";
  * caps — every toolbar SVG uses these two constants.
  */
 export const TOOL_ICON_SIZE = 22;
-export const TOOL_ICON_STROKE = 1.6;
+/*
+ * TVP8 R1b-03: 1.5, not 1.6. The reference's glyphs are a single hairline
+ * weight at a LARGER optical extent — ours were heavier strokes on smaller
+ * silhouettes, which is why the two rows read as two icon families at 3x. The
+ * silhouettes in `ChartToolbar.Glyph` and `ChartTypeMenu.ICONS` now fill
+ * 19–22px of this 24-unit viewBox; this is the weight they are drawn at.
+ */
+export const TOOL_ICON_STROKE = 1.5;
 
 /**
  * A pill with a word in it — `Trade`, at the right end of the reference's
@@ -98,10 +114,14 @@ export const TOOL_PILL_OUTLINE =
   "flex h-7 shrink-0 items-center rounded-full border border-border-strong px-3 text-sm " +
   "text-ink hover:bg-state-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
-/** An icon-only control on the bar: square, the bar's own height. */
+/**
+ * An icon-only control on the bar: square, the bar's own height.
+ *
+ * Full ink at rest (R1b-01). See `TOOL_BUTTON`.
+ */
 export const TOOL_ICON_BUTTON =
   `${TOOL_STATE} flex ${TOOLBAR_H} w-[38px] shrink-0 items-center justify-center ` +
-  "text-ink-muted hover:text-ink";
+  "text-ink";
 
 /**
  * A disclosure caret on its own: the second half of a split button.
@@ -109,7 +129,29 @@ export const TOOL_ICON_BUTTON =
  * TradingView pairs a 38px action button with a 24px caret rather than putting
  * the caret inside the action, so clicking the icon applies the current value
  * and clicking the caret opens the list. 24 is the measured width.
+ *
+ * Full ink at rest (R1b-01): the reference's three carets all measure rgb(219),
+ * ours measured 140. The caret GLYPH is the shared 8×4 chevron — see
+ * `TOOL_CARET_GLYPH`.
  */
 export const TOOL_CARET_BUTTON =
   `${TOOL_STATE} flex ${TOOLBAR_H} w-6 shrink-0 items-center justify-center ` +
-  "text-ink-faint hover:text-ink";
+  "text-ink";
+
+/**
+ * The disclosure chevron every split control draws.
+ *
+ * One shape, one size: measured on the reference, the interval caret, the
+ * chart-style caret and the saved-layout caret are the same 8×4 hairline
+ * chevron at full ink. Ours were three different SVGs at three sizes and two
+ * stroke weights, and the layout one was the smallest and faintest of them
+ * (R1b-06).
+ */
+export const TOOL_CARET_GLYPH = {
+  width: 10,
+  height: 6,
+  viewBox: "0 0 10 6",
+  /** Ink extent 8.3 × 4.1 at stroke 1.5 — the measured 8×4. */
+  d: "M1.6 1.7L5 4.3 8.4 1.7",
+  stroke: 1.5,
+} as const;

@@ -399,11 +399,17 @@ test("the armed resolution always has a chip, even when no favourite carries it"
   assert.equal(offStrip.armedChip, "45m");
 });
 
-test("a chip prints a day uppercase and everything shorter lowercase", () => {
-  // `1M` is a month and `1m` is a minute; on a 29px chip the case of one
-  // letter is the whole of the difference, so the reference's casing is
-  // copied rather than approximated.
-  assert.equal(chipLabel("1d"), "1D");
+test("a chip prints a day as a bare letter and everything shorter with its count", () => {
+  /*
+   * TVP8 (BLIND clue 6). `1M` is a month and `1m` is a minute; on a 29px chip
+   * the case of one letter is the whole of the difference, so the reference's
+   * casing is copied rather than approximated — and so is its COUNT rule. The
+   * shared grammar writes a single day as `D`, not `1D`: a blind reviewer
+   * picked our toolbar out of a pair on that one character. Multiples keep
+   * their count (`2D`), and sub-day is unchanged, because a bare `m` would
+   * name the unit rather than the interval.
+   */
+  assert.equal(chipLabel("1d"), "D");
   assert.equal(chipLabel("4h"), "4h");
   assert.equal(chipLabel("30s"), "30s");
   assert.equal(chipLabel("15m"), "15m");

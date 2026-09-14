@@ -36,6 +36,28 @@ export interface WatchlistTicker {
   stale?: boolean;
   changeKnown?: boolean;
   providerId?: string;
+  /**
+   * The rest of the 24h ticker, where the provider supplies it (TVP8 R7-07).
+   *
+   * `undefined` means NOT SUPPLIED, and the details block says so rather than
+   * printing a zero. Only the Binance 24h seed carries these today; a value
+   * that arrives once survives the stream frames that follow, because a
+   * `@miniTicker` frame is last-and-open only and losing the volume on the
+   * first tick would make the row flicker between a number and a dash.
+   */
+  volume?: number;
+  quoteVolume?: number;
+  high?: number;
+  low?: number;
+}
+
+/** The 24h statistics a stream frame does not carry, kept across one. */
+function retainedStats(previous: WatchlistTicker | undefined): Pick<WatchlistTicker,
+  "volume" | "quoteVolume" | "high" | "low"> {
+  return previous === undefined ? {} : {
+    volume: previous.volume, quoteVolume: previous.quoteVolume,
+    high: previous.high, low: previous.low,
+  };
 }
 
 interface RawMiniTicker {
@@ -95,7 +117,6 @@ export function useWatchlistTickers(symbols: readonly string[]): {
   const contentKey = symbols.map((s) => isCanonicalInstrumentId(s) ? s : s.toUpperCase()).join("\u0000");
   const list = useMemo(() => contentKey ? contentKey.split("\u0000") : [], [contentKey]);
   const canonical = useMemo(() => list.filter((s) => s.toLowerCase().startsWith("instrument:v1:")), [list]);
-  const legacy = useMemo(() => list.filter((s) => !s.toLowerCase().startsWith("instrument:v1:")), [list]);
   // Migrated Binance Spot rows keep the economical combined mini-ticker
   // socket. Canonical persistence must not turn one legacy socket into one
   // socket per row after reload.
@@ -107,6 +128,27 @@ export function useWatchlistTickers(symbols: readonly string[]): {
   }), [list]);
   const combinedByProviderSymbol = useMemo(() => new Map(combined.map((item) =>
     [item.providerSymbol, item.storageKey])), [combined]);
+  /*
+   * ── TVP8 R7-09: five of eight rows read `—` on a fresh load ───────────────
+   *
+   * A canonical `instrument:v1:BINANCE:spot:…` row is never in `legacy`, so
+   * the seed used to reach it only through `api.marketTickers` — a contract
+   * that supplies `last` and no `open`, which is why the row was built with
+   * `changeKnown: false` and printed a dash in Chg and Chg% until the first
+   * `@miniTicker` frame for that pair landed. On a thin pair that is seconds;
+   * the reviewer's 300 ms capture caught five rows dashed under a header that
+   * said "live". The reference's rows arrive complete.
+   *
+   * `combined` is already exactly the set of rows that ride the Binance
+   * mini-ticker socket — legacy tickers AND canonical Binance spot — so it is
+   * also exactly the set the Binance 24h seed can answer for. Seeding through
+   * it brings `open` with the seed, and the provider snapshot is left to the
+   * rows it is the only source for.
+   */
+  const combinedKeys = useMemo(() => new Set(combined.map((item) => item.storageKey)), [combined]);
+  const canonicalRemoteKey = canonical.filter((id) => !combinedKeys.has(id)).join("\u0000");
+  const canonicalRemote = useMemo(() => canonicalRemoteKey ? canonicalRemoteKey.split("\u0000") : [],
+    [canonicalRemoteKey]);
   const key = useMemo(() => watchlistStreamKey(combined.map((item) => item.storageKey)), [combined]);
   const directCanonicalKey = canonicalStreamEligible.join("\u0000");
   const directCanonical = useMemo(() => directCanonicalKey ? directCanonicalKey.split("\u0000") : [],
@@ -120,27 +162,35 @@ export function useWatchlistTickers(symbols: readonly string[]): {
     setCanonicalStreamEligible([]);
     if (list.length === 0) return;
     const controller = new AbortController();
-    const legacyRead = (legacy.length > 0 ? api.tickers(legacy, controller.signal) : Promise.resolve([]))
+    const binanceSymbols = combined.map((item) => item.providerSymbol);
+    const binanceRead = (binanceSymbols.length > 0 ? api.tickers(binanceSymbols, controller.signal) : Promise.resolve([]))
       .then((rows) => ({ rows, error: null as string | null }))
       // REV-UX-01: the header shows this line; the cause is not the copy.
       .catch((cause) => ({ rows: [], error: describeFailure(cause, "Binance quotes").headline }));
-    const canonicalRead = (canonical.length > 0 ? api.marketTickers(canonical, controller.signal) : Promise.resolve(null))
+    const canonicalRead = (canonicalRemote.length > 0 ? api.marketTickers(canonicalRemote, controller.signal) : Promise.resolve(null))
       .then((market) => ({ market, error: null as string | null }))
       .catch((cause) => ({ market: null, error: describeFailure(cause, "Provider quotes").headline }));
-    void Promise.all([legacyRead, canonicalRead]).then(([legacyResult, canonicalResult]) => {
+    void Promise.all([binanceRead, canonicalRead]).then(([binanceResult, canonicalResult]) => {
       if (controller.signal.aborted) return;
-      const rows = legacyResult.rows;
+      const rows = binanceResult.rows;
       const market = canonicalResult.market;
       setCanonicalStreamEligible(market?.providers.flatMap((group) => group.observations)
         .map((row) => row.canonicalInstrumentId).filter(directWatchlistStreamSupported) ?? []);
       setIssues([...(market?.errors ?? []).map((item) => `${item.providerId}: ${item.error}`),
         ...((market?.missing ?? []).length ? [`${market!.missing.length} saved instrument(s) unavailable`] : []),
-        ...[legacyResult.error, canonicalResult.error].filter((item): item is string => item !== null)]);
+        ...[binanceResult.error, canonicalResult.error].filter((item): item is string => item !== null)]);
       setTickers((current) => {
         const next = { ...current };
         for (const row of rows) {
-          if (next[row.symbol]?.source === "stream") continue;
-          next[row.symbol] = tickerFrom(row.last, row.open, "seed");
+          const storageKey = combinedByProviderSymbol.get(row.symbol) ?? row.symbol;
+          const stats = { volume: row.volume, quoteVolume: row.quoteVolume, high: row.high, low: row.low };
+          if (next[storageKey]?.source === "stream") {
+            // A frame beat the seed to the price; the 24h statistics it does
+            // not carry are still this row's, so take those and leave the rest.
+            next[storageKey] = { ...next[storageKey]!, ...stats };
+            continue;
+          }
+          next[storageKey] = { ...tickerFrom(row.last, row.open, "seed"), ...stats };
         }
         for (const group of market?.providers ?? []) for (const row of group.observations) {
           const last = row.values.last;
@@ -152,7 +202,7 @@ export function useWatchlistTickers(symbols: readonly string[]): {
       });
     });
     return () => controller.abort();
-  }, [list, legacy, canonical]);
+  }, [list, combined, combinedByProviderSymbol, canonicalRemote]);
 
   useEffect(() => {
     if (combined.length === 0) { setStream(IDLE); return; }
@@ -169,7 +219,8 @@ export function useWatchlistTickers(symbols: readonly string[]): {
         if (!Number.isFinite(last) || !Number.isFinite(open)) return;
         const storageKey = combinedByProviderSymbol.get(row.s);
         if (!storageKey) return;
-        setTickers((t) => ({ ...t, [storageKey]: tickerFrom(last, open, "stream") }));
+        setTickers((t) => ({ ...t,
+          [storageKey]: { ...tickerFrom(last, open, "stream"), ...retainedStats(t[storageKey]) } }));
       },
     });
     return release;
@@ -200,7 +251,7 @@ export function useWatchlistTickers(symbols: readonly string[]): {
           `Stream unavailable for ${instrument}. ${failureReason(cause)}`])]);
       });
     }
-    const poll = () => void api.marketTickers(canonical, controller.signal).then((market) => {
+    const poll = () => void api.marketTickers(canonicalRemote, controller.signal).then((market) => {
       setIssues([...market.errors.map((item) => `${item.providerId}: ${item.error}`),
         ...(market.missing.length ? [`${market.missing.length} saved instrument(s) unavailable`] : [])]);
       setTickers((current) => {
@@ -241,7 +292,7 @@ export function useWatchlistTickers(symbols: readonly string[]): {
     const timer = window.setInterval(poll, 15_000);
     return () => { stopped = true; controller.abort(); for (const release of releases) release();
       setCanonicalStates({}); window.clearInterval(timer); };
-  }, [canonical, directCanonical, canonicalLive]);
+  }, [canonicalRemote, directCanonical, canonicalLive]);
 
   const states = [
     ...(combined.length > 0 && stream.status !== "idle" ? [stream] : []),

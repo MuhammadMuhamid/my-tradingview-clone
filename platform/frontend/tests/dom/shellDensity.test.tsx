@@ -49,11 +49,12 @@ function timeframeButtons(container: HTMLElement): string[] {
   /*
    * Found by `data-resolution`, not by the shape of the printed text.
    *
-   * A chip prints day-and-longer resolutions uppercase (`1D`) and sub-day
-   * lowercase (`4h`), which is also how the bottom row's RANGE shortcuts are
-   * written — `1D 5D 1M 3M 6M`, a different control setting a different thing,
-   * and one that a text-shaped match swept up the moment the strip started
-   * printing `1D`. Only a chip that sets a resolution carries the resolution.
+   * A chip prints day-and-longer resolutions as a bare uppercase letter (`D`)
+   * and sub-day with its count (`4h`), which is close to how the bottom row's
+   * RANGE shortcuts are written — `1D 5D 1M 3M 6M`, a different control
+   * setting a different thing, and one that a text-shaped match swept up the
+   * moment the strip started printing days. Only a chip that sets a resolution
+   * carries the resolution.
    */
   return [...container.querySelectorAll<HTMLElement>("button[data-resolution]")]
     .filter((b) => b.getAttribute("aria-pressed") !== null)
@@ -100,7 +101,10 @@ test("A ONE-PANE WORKSPACE HAS ONE SYMBOL CONTROL AND ONE INTERVAL STRIP", async
   // The strip exists ONCE. Six favourite buttons, on the toolbar, and no
   // second run of them anywhere.
   const pressable = timeframeButtons(chart.container);
-  assert.deepEqual(pressable, ["1m", "5m", "15m", "1h", "4h", "1D"],
+  // `D`, not `1D`: the shared grammar prints the count only for a multiple
+  // (`2D`), and a blind reviewer picked our bar out of a pair on that one
+  // character. See `lib/timeframes.chipLabel`.
+  assert.deepEqual(pressable, ["1m", "5m", "15m", "1h", "4h", "D"],
     `a timeframe strip is rendered more than once: ${pressable.join(", ")}`);
   for (const button of [...chart.container.querySelectorAll<HTMLElement>("button")]) {
     if (button.closest("[data-pane-legend]") === null) continue;
@@ -126,14 +130,33 @@ test("the pane's chrome is a legend over the plot, not a row above it", async ()
    * "SOLUSDT · 15m O … H … L …" in the live app. So what is asserted is
    * membership of the column, not a second set of coordinates.
    */
-  const column = legend.parentElement;
+  /*
+   * TVP8 R3-14: the identity and the OHLC readout share ONE line.
+   *
+   * They used to be two rows of the column, each in its own `bg-surface/75`
+   * box, where the reference has a single line of type — name, interval,
+   * venue, then `O H L C` at the same baseline. So the legend's parent is now
+   * that status ROW, and the row is the column's first child.
+   */
+  const row = legend.parentElement;
+  assert.ok(row !== null);
+  assert.match(row.className, /items-baseline/, "the identity and the readout share a baseline");
+  assert.equal(row.firstElementChild, legend,
+    "what the chart IS comes before what is being read off it");
+
+  const column = row.parentElement;
   assert.ok(column !== null);
   assert.match(column.className, /absolute/);
   assert.match(column.className, /pointer-events-none/,
     "a legend that ate a drag would break every trend line started top-left");
   assert.match(column.className, /flex-col/, "one stacked column, not two overlays");
-  assert.equal(column.firstElementChild, legend,
-    "what the chart IS belongs above what is being read off it");
+  assert.equal(column.firstElementChild, row,
+    "what the chart IS belongs above every notice about how it is drawn");
+  // R3-10/R3-14: no row of this legend paints a surface over the candles.
+  for (const el of [row, legend, column]) {
+    assert.doesNotMatch(el.className, /bg-surface\//,
+      "a filled box under the status line is chrome, not a legend");
+  }
 
   // The legend itself is transparent to the pointer; only its controls are not.
   assert.match(legend.className, /pointer-events-none/);
@@ -149,22 +172,41 @@ test("the pane's chrome is a legend over the plot, not a row above it", async ()
 test("THE CHART NAMES ITS INSTRUMENT AND RESOLUTION EXACTLY ONCE", async () => {
   const chart = await mountChart();
   const pane = chart.pane(0);
-  const column = pane.querySelector<HTMLElement>("[data-pane-legend]")!.parentElement!;
+  const column = pane.querySelector<HTMLElement>("[data-pane-legend]")!
+    .parentElement!.parentElement!;
 
   /*
-   * The readout under the legend used to open with "SOLUSDT · 15m ·" of its
-   * own. With the pane's identity now directly above it, that was the same two
-   * facts twice, forty pixels apart — the reported defect one layer down.
+   * The readout used to open with "SOLUSDT · 15m ·" of its own. With the
+   * pane's identity beside it, that was the same two facts twice — the
+   * reported defect one layer down.
+   *
+   * TVP8 R3-14: the identity is the instrument's NAME rather than its listing
+   * code. `Bitcoin / TetherUS · 1h · Binance` is what the reference's status
+   * line says; `BTCUSDT` in 14px bold is the CONTROL grammar and stays on the
+   * toolbar pill. What may never appear is the canonical id, which is the rule
+   * the symbol policy exists for — so that is asserted directly rather than
+   * inferred from the absence of a ticker.
    */
   const text = column.textContent ?? "";
-  const symbols = text.match(/SOLUSDT/g) ?? [];
-  assert.equal(symbols.length, 1, `the instrument is named ${symbols.length} times: ${text}`);
+  const names = text.match(/Solana \/ TetherUS/g) ?? [];
+  assert.equal(names.length, 1, `the instrument is named ${names.length} times: ${text}`);
   const intervals = text.match(/15m/g) ?? [];
   assert.equal(intervals.length, 1, `the resolution is named ${intervals.length} times: ${text}`);
+  assert.doesNotMatch(text, /instrument:v1:/,
+    "a canonical id is never user-facing copy — contract §5");
+  assert.doesNotMatch(text, /SOLUSDT/,
+    "the ticker is the control's own spelling, not the chart's headline");
 
-  // The OHLC row is still there, and still says what it is reading.
-  assert.match(text, /O\s/);
-  assert.match(text, /C\s/);
+  // The OHLC readout is still there, on that same line, still saying what it
+  // is reading. The reference sets it tight — `O77,600.00`, no space.
+  assert.match(text, /O\d/);
+  assert.match(text, /C\d/);
+
+  /*
+   * R3-14: `Vol` is off by default, because the reference's status line does
+   * not carry it. It stays a Status-line switch for anyone who wants it.
+   */
+  assert.doesNotMatch(text, /Vol\s/, "volume is not part of the default status line");
 });
 
 test("neither maximise nor close exists when there is only one pane", async () => {
@@ -213,7 +255,7 @@ test("EVERY PANE KEEPS ITS OWN SYMBOL AND ITS OWN TIMEFRAME", async () => {
 
   // The toolbar is still ONE symbol control and ONE strip, exactly as in one
   // pane — it acts on the focused pane, which is what the benchmark does too.
-  assert.deepEqual(timeframeButtons(chart.container), ["1m", "5m", "15m", "1h", "4h", "1D"]);
+  assert.deepEqual(timeframeButtons(chart.container), ["1m", "5m", "15m", "1h", "4h", "D"]);
   assert.equal(
     symbolControls(chart.container).filter(
       (b) => b.closest('[data-toolbar-control="symbol"]') !== null).length, 1);
@@ -238,8 +280,14 @@ test("changing one pane's timeframe from its legend leaves the other where it wa
   await settle();
   const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Pane timeframe"]');
   assert.ok(menu, "the pane's timeframe menu did not open");
-  const row = [...menu.querySelectorAll<HTMLElement>('button[role="menuitemradio"]')]
-    .find((b) => (b.querySelector("span")?.textContent ?? "").trim() === "1h");
+  /*
+    Found by `data-resolution`, not by the printed label. The menu prints the
+    interval in FULL WORDS — `1 hour` — as the reference's does
+    (`measurements/tv-timeframe-menu-20260914.md`); the canonical id is the
+    attribute, and the attribute is what a test has any business reading.
+  */
+  const row = menu.querySelector<HTMLElement>(
+    'button[role="menuitemradio"][data-resolution="1h"]');
   assert.ok(row);
   fireEvent.click(row);
   await settle();

@@ -183,21 +183,139 @@ export const isCursorMode = (tool: DrawingTool): boolean => CURSOR_TOOLS.has(too
 /**
  * The glyphs the Icons cell offers.
  *
- * Unicode characters, drawn by the platform's own emoji face: no artwork is
- * bundled and none is borrowed, which is also why the canvas can paint one
- * with a single `fillText`. They live here rather than in the rail because
- * they are a drawing's CONTENT — the same kind of value as a trendline's
- * colour — and because a pictograph inside a `.tsx` is a control glyph as far
- * as the product's icon rule is concerned, and it is right about that.
+ * Unicode characters, drawn by the platform's own emoji or text face: no
+ * artwork is bundled and none is borrowed, which is also why the canvas can
+ * paint one with a single `fillText`. They live here rather than in the rail
+ * because they are a drawing's CONTENT — the same kind of value as a
+ * trendline's colour — and because a pictograph inside a `.tsx` is a control
+ * glyph as far as the product's icon rule is concerned, and it is right about
+ * that.
+ *
+ * ── Why there are categories and two tabs (R2b-07) ─────────────────────────
+ *
+ * The picker was a flat 56-glyph grid, 292px tall, where the reference has a
+ * 679px categorised picker that scrolls inside itself. Fifty-six is not a
+ * picker, it is a favourites bar: the whole point of the control is that you
+ * come to it looking for a particular mark and find it by category.
+ *
+ * The reference's bottom tab bar reads `Emojis · Stickers · Icons`. Stickers
+ * are that product's own licensed artwork and have no counterpart here, so
+ * this picker renders TWO tabs and says so rather than shipping an empty
+ * third: `Emojis` (the platform's colour emoji) and `Icons` (a monochrome
+ * outline set, also Unicode, so it paints through the same `fillText` path and
+ * inherits the drawing's own colour instead of arriving pre-coloured).
  */
+export interface GlyphCategory {
+  id: string;
+  /** The category cell's own glyph, and its accessible name. */
+  label: string;
+  icon: string;
+  glyphs: readonly string[];
+}
+
+export const EMOJI_CATEGORIES: readonly GlyphCategory[] = [
+  {
+    id: "smileys", label: "Smileys", icon: "\u{1F642}",
+    glyphs: [
+      "\u{1F600}", "\u{1F603}", "\u{1F604}", "\u{1F609}", "\u{1F60A}", "\u{1F60E}", "\u{1F929}", "\u{1F914}",
+      "\u{1F610}", "\u{1F611}", "\u{1F636}", "\u{1F62E}", "\u{1F632}", "\u{1F631}", "\u{1F628}", "\u{1F625}",
+      "\u{1F622}", "\u{1F62D}", "\u{1F621}", "\u{1F620}", "\u{1F92F}", "\u{1F975}", "\u{1F976}", "\u{1F634}",
+      "\u{1F644}", "\u{1F612}", "\u{1F60F}", "\u{1F92B}", "\u{1F910}", "\u{1F971}", "\u{1F92A}", "\u{1F973}",
+    ],
+  },
+  {
+    id: "gestures", label: "Gestures", icon: "\u{1F44D}",
+    glyphs: [
+      "\u{1F44D}", "\u{1F44E}", "\u{1F44C}", "\u{270C}\uFE0F", "\u{1F918}", "\u{1F44F}", "\u{1F64C}", "\u{1F64F}",
+      "\u{1F4AA}", "\u{270B}", "\u{1F44A}", "\u{1F91D}", "\u{1F446}", "\u{1F447}", "\u{1F448}", "\u{1F449}",
+      "\u{1F440}", "\u{1F441}\uFE0F", "\u{1F9E0}", "\u{1F444}", "\u{1F9BE}", "\u{270D}\uFE0F", "\u{1F590}\uFE0F", "\u{1F595}",
+    ],
+  },
+  {
+    id: "marks", label: "Marks", icon: "\u2757",
+    glyphs: [
+      "\u2757", "\u2753", "\u2705", "\u274C", "\u2B55", "\u26A0\uFE0F", "\u26D4", "\u{1F6D1}",
+      "\u{1F534}", "\u{1F7E0}", "\u{1F7E1}", "\u{1F7E2}", "\u{1F535}", "\u{1F7E3}", "\u26AB", "\u26AA",
+      "\u{1F53A}", "\u{1F53B}", "\u{1F536}", "\u{1F537}", "\u2B50", "\u2728", "\u{1F4AF}", "\u{1F4A2}",
+    ],
+  },
+  {
+    id: "weather", label: "Weather", icon: "\u{1F525}",
+    glyphs: [
+      "\u{1F525}", "\u{1F4A5}", "\u26A1", "\u2600\uFE0F", "\u{1F319}", "\u2601\uFE0F", "\u{1F30A}", "\u2744\uFE0F",
+      "\u{1F32A}\uFE0F", "\u{1F308}", "\u{1F327}\uFE0F", "\u{1F326}\uFE0F", "\u{1F32B}\uFE0F", "\u{1F30D}", "\u{1F311}", "\u{1F31E}",
+    ],
+  },
+  {
+    id: "markets", label: "Markets", icon: "\u{1F4C8}",
+    glyphs: [
+      "\u{1F4C8}", "\u{1F4C9}", "\u{1F4CA}", "\u{1F4B0}", "\u{1F48E}", "\u{1F4B5}", "\u{1F4B3}", "\u{1F3E6}",
+      "\u{1F4B9}", "\u{1FA99}", "\u2696\uFE0F", "\u{1F9EE}", "\u{1F4CB}", "\u{1F4C5}", "\u{1F4DD}", "\u{1F4CC}",
+    ],
+  },
+  {
+    id: "animals", label: "Animals", icon: "\u{1F42E}",
+    glyphs: [
+      "\u{1F402}", "\u{1F43B}", "\u{1F988}", "\u{1F40B}", "\u{1F419}", "\u{1F985}", "\u{1F98A}", "\u{1F981}",
+      "\u{1F42E}", "\u{1F418}", "\u{1F40E}", "\u{1F422}", "\u{1F40C}", "\u{1F41D}", "\u{1F98B}", "\u{1F41E}",
+    ],
+  },
+  {
+    id: "travel", label: "Travel", icon: "\u{1F680}",
+    glyphs: [
+      "\u{1F680}", "\u{1F3C1}", "\u{1F6A6}", "\u{1F6A7}", "\u26F5", "\u2708\uFE0F", "\u{1F697}", "\u{1F6F0}\uFE0F",
+      "\u{1F5FA}\uFE0F", "\u{1F9ED}", "\u23F0", "\u23F3", "\u{1F514}", "\u{1F50D}", "\u{1F9F2}", "\u{1F4A1}",
+    ],
+  },
+  {
+    id: "objects", label: "Objects", icon: "\u{1F4CE}",
+    glyphs: [
+      "\u{1F4CE}", "\u{1F510}", "\u{1F512}", "\u{1F513}", "\u{1F511}", "\u{1F5DD}\uFE0F", "\u{1F528}", "\u{1F527}",
+      "\u2699\uFE0F", "\u{1F9F0}", "\u{1F4E6}", "\u{1F4C1}", "\u{1F4C4}", "\u{1F4D0}", "\u{1F4CF}", "\u{1F58D}\uFE0F",
+    ],
+  },
+];
+
+export const OUTLINE_CATEGORIES: readonly GlyphCategory[] = [
+  {
+    id: "arrows", label: "Arrows", icon: "\u2192",
+    glyphs: [
+      "\u2190", "\u2191", "\u2192", "\u2193", "\u2194", "\u2195", "\u2196", "\u2197",
+      "\u2198", "\u2199", "\u21B0", "\u21B1", "\u21BA", "\u21BB", "\u21C4", "\u21C5",
+      "\u21D0", "\u21D1", "\u21D2", "\u21D3", "\u21E6", "\u21E7", "\u21E8", "\u21E9",
+      "\u27A4", "\u27F5", "\u27F6", "\u27F7", "\u2937", "\u2936", "\u2934", "\u2935",
+    ],
+  },
+  {
+    id: "shapes", label: "Shapes", icon: "\u25C6",
+    glyphs: [
+      "\u25A0", "\u25A1", "\u25B2", "\u25B3", "\u25BC", "\u25BD", "\u25C6", "\u25C7",
+      "\u25CF", "\u25CB", "\u25D0", "\u25D1", "\u25E6", "\u2B1B", "\u2B1C", "\u2B22",
+      "\u25B6", "\u25B7", "\u25C0", "\u25C1", "\u25AA", "\u25AB", "\u2B24", "\u2B21",
+    ],
+  },
+  {
+    id: "signs", label: "Signs", icon: "\u2713",
+    glyphs: [
+      "\u2713", "\u2714", "\u2717", "\u2718", "\u2795", "\u2796", "\u00D7", "\u00F7",
+      "\u00B1", "\u2260", "\u2248", "\u221E", "\u2211", "\u220F", "\u221A", "\u2206",
+      "\u00A7", "\u00B6", "\u2020", "\u2021", "\u2022", "\u203B", "\u203C", "\u2049",
+    ],
+  },
+  {
+    id: "stars", label: "Stars", icon: "\u2605",
+    glyphs: [
+      "\u2605", "\u2606", "\u272A", "\u272B", "\u272C", "\u2739", "\u273F", "\u2740",
+      "\u2660", "\u2661", "\u2662", "\u2663", "\u2664", "\u2665", "\u2666", "\u2667",
+      "\u266A", "\u266B", "\u2691", "\u2690", "\u2693", "\u2694", "\u2696", "\u2692",
+    ],
+  },
+];
+
+/** Every glyph the picker can arm, in picker order. */
 export const ICON_GLYPHS: readonly string[] = [
-  "😀", "😉", "😎", "🤔", "😐", "😮", "😱", "😡",
-  "👍", "👎", "👀", "🙏", "💪", "✋", "👆", "👇",
-  "❤️", "💔", "⭐", "✨", "🔥", "💥", "⚡", "☀️",
-  "🌙", "☁️", "🌊", "❄️", "🎯", "🏁", "🚀", "🛑",
-  "⚠️", "❗", "❓", "✅", "❌", "🔒", "🔑", "💡",
-  "📈", "📉", "📊", "💰", "💎", "🐂", "🐻", "🦈",
-  "⏰", "⏳", "📌", "📎", "🔔", "🔍", "🧲", "🧠",
+  ...EMOJI_CATEGORIES.flatMap((c) => c.glyphs),
+  ...OUTLINE_CATEGORIES.flatMap((c) => c.glyphs),
 ];
 
 /**

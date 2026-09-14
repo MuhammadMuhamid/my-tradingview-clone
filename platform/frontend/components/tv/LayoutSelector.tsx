@@ -27,7 +27,7 @@ import {
   availablePaneCounts, defaultPresetFor, presetOrDefault, presetsForCount,
   type LayoutPreset,
 } from "@/lib/layoutPresets";
-import { TOOL_ICON_BUTTON } from "@/components/tv/toolbarChrome";
+import { TOOL_ICON_BUTTON, TOOL_ICON_STROKE } from "@/components/tv/toolbarChrome";
 
 /** The pane counts that get a first-class button with a thumbnail. */
 const COMMON_COUNTS = [1, 2, 3, 4];
@@ -76,26 +76,38 @@ function PresetThumbnail({ preset, size = 18 }: { preset: LayoutPreset; size?: n
  * draws a plain outline square here, and an outline still says "a frame holding
  * panes" at one pane and at sixteen.
  *
- * The stroke thins and the panes close up past a 2×2 grid, because 1.6px of
- * stroke on a 3.9px cell is a blob rather than a cell.
+ * The stroke thins and the panes close up past a 2×2 grid, because 1.5px of
+ * stroke on a 3.4px cell is a blob rather than a cell.
+ *
+ * ── TVP8 R1b-03: the BOX is 19×17, not a 22px square ──────────────────────
+ *
+ * Measured on the reference, this cell's glyph is a 19×17 rounded rectangle —
+ * wider than it is tall, like the window it stands for. Ours drew a 22×22
+ * square, the largest glyph on the bar where the reference's is one of the
+ * smaller ones. The grid inside it is a SCHEMATIC, so the cells are scaled to
+ * the box on each axis independently rather than kept square: a 3×1 preset is
+ * three columns of the same window, not a 3:1 letterbox.
  */
-function LayoutGlyph({ preset, size = 22 }: { preset: LayoutPreset; size?: number }) {
-  const unit = size / Math.max(preset.cols, preset.rows);
+const LAYOUT_GLYPH_W = 19;
+const LAYOUT_GLYPH_H = 17;
+
+function LayoutGlyph(props: { preset: LayoutPreset; w?: number; h?: number }) {
+  const { preset, w = LAYOUT_GLYPH_W, h = LAYOUT_GLYPH_H } = props;
+  const unitX = w / preset.cols;
+  const unitY = h / preset.rows;
   const dense = Math.max(preset.cols, preset.rows) > 2;
-  const stroke = dense ? 1.1 : 1.6;
-  const inset = dense ? 0.8 : 1.3;
-  const w = unit * preset.cols;
-  const h = unit * preset.rows;
+  const stroke = dense ? 1.1 : TOOL_ICON_STROKE;
+  const inset = dense ? 0.7 : stroke / 2;
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} fill="none" stroke="currentColor"
       strokeWidth={stroke} strokeLinejoin="round" aria-hidden="true" className="shrink-0">
       {preset.cells.map((cell, index) => (
         <rect
           key={index}
-          x={(cell.col - 1) * unit + inset}
-          y={(cell.row - 1) * unit + inset}
-          width={cell.colSpan * unit - inset * 2}
-          height={cell.rowSpan * unit - inset * 2}
+          x={(cell.col - 1) * unitX + inset}
+          y={(cell.row - 1) * unitY + inset}
+          width={cell.colSpan * unitX - inset * 2}
+          height={cell.rowSpan * unitY - inset * 2}
           rx="1.5"
         />
       ))}

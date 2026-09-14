@@ -37,7 +37,9 @@ test("chart and range/backtest candle calls state FX basis and continuous method
 
 test("unified search/watchlist and chart legend expose feed, contract and non-tradable truth", () => {
   assert.equal(SEARCH_MARKET, "Crypto, stocks, FX, futures & indices");
-  const search = read("components/tv/SymbolSearch.tsx"); const watchlist = read("components/tv/Watchlist.tsx");
+  // TVP8 R4: the search dialog's vocabulary lives in `lib/symbolSearch` —
+  // the row's own words plus the facts it keeps in the row's `title`.
+  const search = read("lib/symbolSearch.ts"); const watchlist = read("components/tv/Watchlist.tsx");
   const identity = read("components/tv/TraditionalIdentity.tsx"); const legend = read("components/tv/PaneLegend.tsx");
   for (const token of ["continuous_future", "fx_pair", "INDEX", "MID chart", "READ-ONLY REFERENCE", "feed.status"]) {
     assert.match(search, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

@@ -106,13 +106,23 @@ export async function chooseMenuItem(text: string | RegExp): Promise<void> {
   await settle();
 }
 
-/** The drawing tool currently armed, read from the rail's pressed button. */
+/**
+ * The drawing tool currently armed, read from the rail's pressed button.
+ *
+ * By its NAME, not by its `title`. TVP8 replaced the rail's native `title`
+ * tooltips with the product's own pill (R2b-14), so `title` is gone from every
+ * rail cell — and this helper, which had been reading it, reported "no tool is
+ * armed" for all of them. The accessible name is the thing that was always
+ * meant to be authoritative here: it is what a user of the keyboard or a
+ * screen reader gets, it has been on these buttons since TVP7, and it cannot
+ * be removed without the rail's own test failing first.
+ */
 export function armedTool(container: HTMLElement): string | null {
   const rail = container.querySelector<HTMLElement>('[data-drawing-rail="true"]')
     ?? container;
-  const pressed = [...rail.querySelectorAll<HTMLElement>('button[aria-pressed="true"][title]')]
-    .find((el) => el.getAttribute("title") !== null);
-  return pressed?.getAttribute("title") ?? null;
+  const pressed = [...rail.querySelectorAll<HTMLElement>('button[aria-pressed="true"]')]
+    .find((el) => (el.getAttribute("aria-label") ?? el.getAttribute("title")) !== null);
+  return pressed?.getAttribute("aria-label") ?? pressed?.getAttribute("title") ?? null;
 }
 
 /** The interval the focused pane is on, read from the toolbar's pressed key. */
@@ -121,9 +131,10 @@ export function armedInterval(container: HTMLElement): string | null {
   /*
    * The id, not the label.
    *
-   * A strip chip PRINTS `1D` and IS `1d` — the reference writes day-and-longer
-   * resolutions uppercase, and every request, persisted pane and assertion
-   * still names the canonical id. `data-resolution` is where the chip puts it,
+   * A strip chip PRINTS `D` and IS `1d` — the reference writes day-and-longer
+   * resolutions as a bare uppercase letter, and every request, persisted pane
+   * and assertion still names the canonical id. `data-resolution` is the
+   * chip's own attribute for exactly that reason,
    * so this helper reads the chart's actual resolution rather than a casing
    * decision made for a 29px chip.
    */
@@ -153,7 +164,10 @@ export function armedInterval(container: HTMLElement): string | null {
  * regrouping of the rail rather than encoding one.
  */
 export async function selectTool(container: HTMLElement, title: string): Promise<void> {
-  const direct = container.querySelector<HTMLElement>(`button[title="${title}"]`);
+  // `aria-label` first, for the same reason `armedTool` reads it: the rail's
+  // cells no longer carry `title`, and their name is the stable handle.
+  const direct = container.querySelector<HTMLElement>(
+    `button[aria-label="${title}"], button[title="${title}"]`);
   if (direct) { fireEvent.click(direct); await settle(); return; }
 
   const carets = [...container.querySelectorAll<HTMLElement>("button")]

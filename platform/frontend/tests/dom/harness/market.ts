@@ -162,12 +162,28 @@ export function dayChange(i: FixtureInstrument): number {
 const venueLabel = (id: string): string =>
   id === "SP" ? "S&P" : id[0]! + id.slice(1).toLowerCase();
 
+/**
+ * The `market.v1` asset class of a fixture instrument.
+ *
+ * The catalogue is written in the PRODUCT's instrument types; the search
+ * route filters on the contract's asset classes, which are a coarser set
+ * (`crypto` covers spot and perpetual alike). The dialog's Crypto chip asks
+ * by class precisely because no single `type=` names that union, so a fixture
+ * that could not answer `assetClass=` would leave the chip untestable.
+ */
+const ASSET_CLASS = { spot: "crypto", perpetual: "crypto", fx_pair: "fx", stock: "equity", index: "index" } as const;
+
+export const assetClassOf = (i: FixtureInstrument): string => ASSET_CLASS[i.type];
+
 /** `GET /api/market/v1/search` and, with `legacyOnly`, `GET /api/symbols/search`. */
 export function searchResponse(url: URL, legacyOnly = false): SymbolSearchResponse {
   const q = (url.searchParams.get("q") ?? "").trim().toUpperCase();
   const venue = (url.searchParams.get("venue") ?? "").trim().toUpperCase();
   const quote = (url.searchParams.get("quote") ?? "").trim().toUpperCase();
   const type = url.searchParams.get("type") ?? "all";
+  // Optional and additive, exactly as the route treats it: absent, it filters
+  // nothing and the answer is the one this fixture has always given.
+  const assetClass = (url.searchParams.get("assetClass") ?? "").trim().toLowerCase();
   const limit = Number(url.searchParams.get("limit") ?? 60);
   const matches = CATALOGUE.filter((i) => {
     if (legacyOnly && i.type !== "spot") return false;
@@ -176,6 +192,7 @@ export function searchResponse(url: URL, legacyOnly = false): SymbolSearchRespon
     if (venue && i.venue !== venue) return false;
     if (quote && i.quote !== quote) return false;
     if (type !== "all" && i.type !== type) return false;
+    if (assetClass && assetClassOf(i) !== assetClass) return false;
     return true;
   });
   return {
@@ -187,12 +204,30 @@ export function searchResponse(url: URL, legacyOnly = false): SymbolSearchRespon
   };
 }
 
-/** `GET /api/symbols/tickers?symbols=` — the legacy Binance 24h seed. */
+/**
+ * `GET /api/symbols/tickers?symbols=` — the Binance-spot 24h seed.
+ *
+ * TVP8 R7-09: this route is now the seed for CANONICAL Binance spot rows too,
+ * not only for bare legacy tickers, because a canonical row seeded through the
+ * provider snapshot arrives with a last price and no `open` — and therefore
+ * with `—` in Chg and Chg% until a stream frame lands. Nothing about the
+ * fixture changes for that (a canonical id resolves to the same provider
+ * symbol the catalogue is keyed by); what is new is `volume`/`quoteVolume`/
+ * `high`/`low`, which the backend used to drop and the details block now
+ * renders. They are derived from the catalogue's own price so a test can
+ * assert a formatted value without the fixture inventing a market.
+ */
 export function legacyTickers(symbols: readonly string[], now = Date.now()): Ticker24h[] {
   return symbols.flatMap((symbol) => {
     const found = CATALOGUE.find((i) => providerSymbol(i) === symbol.toUpperCase());
     if (!found) return [];
-    return [{ symbol: symbol.toUpperCase(), last: found.price, open: found.price / (1 + dayChange(found)), at: now }];
+    const open = found.price / (1 + dayChange(found));
+    const volume = Math.round(1_000_000 / found.price);
+    return [{
+      symbol: symbol.toUpperCase(), last: found.price, open, at: now,
+      volume, quoteVolume: volume * found.price,
+      high: found.price * 1.01, low: found.price * 0.99,
+    }];
   });
 }
 

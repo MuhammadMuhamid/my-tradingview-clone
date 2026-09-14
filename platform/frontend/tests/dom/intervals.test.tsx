@@ -40,11 +40,26 @@ async function openPicker(container: HTMLElement): Promise<HTMLElement> {
   return menu;
 }
 
+/**
+ * One row of the picker, found by the resolution it SETS.
+ *
+ * Not by what it prints. The menu prints full words — `15 minutes`, as
+ * `measurements/tv-timeframe-menu-20260914.md` records the reference doing —
+ * while the canonical id stays `15m` and rides on `data-resolution`. A test
+ * that matched the label was testing the copy; this one tests the control.
+ */
 function menuRow(menu: HTMLElement, resolution: string): HTMLElement {
-  const row = [...menu.querySelectorAll<HTMLElement>('button[role="menuitemradio"]')]
-    .find((b) => (b.querySelector("span")?.textContent ?? "").trim() === resolution);
+  const row = menu.querySelector<HTMLElement>(
+    `button[role="menuitemradio"][data-resolution="${resolution}"]`);
   assert.ok(row, `the picker has no ${resolution} row`);
   return row;
+}
+
+/** Reveal the custom-interval entry, which the first row discloses. */
+function openCustomEntry(menu: HTMLElement): void {
+  // TV's first row is `Add custom interval…` rather than the form itself; the
+  // form is behind it, so twenty-nine resolutions start 60px higher.
+  fireEvent.click(within(menu).getByRole("button", { name: /Add custom interval/ }));
 }
 
 const candleCallsFor = (resolution: string): string[] =>
@@ -67,14 +82,15 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
   const stripButtons = [...strip.querySelectorAll<HTMLElement>("button")]
     .filter((b) => b.getAttribute("aria-haspopup") !== "menu")
     .map((b) => (b.textContent ?? "").trim())
-    .filter((t) => /^\d+[smhd]$/i.test(t));
+    .filter((t) => /^\d*[smhdwm]$/i.test(t) && t !== "");
   /*
-   * `1D`, not `1d`: the reference writes day-and-longer resolutions uppercase
-   * and sub-day lowercase, so `1M` (a month) can never be read as `1m` (a
-   * minute) on a 29px chip. The canonical id is unchanged and still `1d` —
-   * see the chips' `data-resolution`.
+   * `D`, not `1d` and not `1D`: the shared grammar writes day-and-longer
+   * resolutions as a bare uppercase letter and sub-day with its count, so `M`
+   * (a month) can never be read as `1m` (a minute) on a 29px chip, and a
+   * multiple keeps its number (`2D`). The canonical id is unchanged and still
+   * `1d` — see the chips' `data-resolution`.
    */
-  assert.deepEqual(stripButtons, ["1m", "5m", "15m", "1h", "4h", "1D"],
+  assert.deepEqual(stripButtons, ["1m", "5m", "15m", "1h", "4h", "D"],
     "a new user's strip is the six the toolbar has always shown");
   assert.deepEqual(
     [...strip.querySelectorAll<HTMLElement>("button[data-resolution]")]
@@ -94,11 +110,25 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
 
   const menu = await openPicker(chart.container);
   const offered = [...menu.querySelectorAll<HTMLElement>('button[role="menuitemradio"]')]
-    .map((b) => (b.querySelector("span")?.textContent ?? "").trim());
+    .map((b) => b.getAttribute("data-resolution") ?? "");
   assert.ok(offered.length >= 20, `only ${offered.length} resolutions are reachable`);
   for (const group of ["Seconds", "Minutes", "Hours", "Days"]) {
     assert.ok(menu.querySelector(`section[aria-label="${group}"]`), `no ${group} group`);
   }
+  /*
+   * And only the sections this product can serve.
+   *
+   * The reference's own menu opens with TICKS and closes with RANGES. This
+   * chart folds time and nothing else, so an empty `TICKS` heading would be
+   * advertising a resolution class that does not exist — the one thing a
+   * parity campaign must not copy.
+   */
+  for (const absent of ["Ticks", "Ranges"]) {
+    assert.equal(menu.querySelector(`section[aria-label="${absent}"]`), null,
+      `${absent} is offered and cannot be served`);
+  }
+  // The rows are the reference's own copy: full words, not the chip's id.
+  assert.match(menuRow(menu, "15m").textContent ?? "", /15 minutes/);
   // Every one the backend stores is in there, including the two that were new.
   for (const stored of ["1s", "3m", "8h", "12h"]) assert.ok(offered.includes(stored), stored);
 });
@@ -108,6 +138,8 @@ test("a derived row says what it is made of, on the row", async () => {
   const menu = await openPicker(chart.container);
 
   const derived = menuRow(menu, "45m");
+  assert.match(derived.textContent ?? "", /45 minutes/,
+    "the row names the interval in full words, as the reference's does");
   assert.match(derived.textContent ?? "", /3 × 15m/,
     "a person choosing 45m is entitled to see that it is three real 15m bars");
   assert.match(derived.getAttribute("aria-label") ?? "", /45 minutes/);
@@ -201,6 +233,7 @@ test("a custom interval can be typed, is applied, and is remembered", async () =
   server.setCandles("SOLUSDT", "1m", compactSeries(900, { intervalMs: 60_000 }));
   const chart = await mountChart();
   const menu = await openPicker(chart.container);
+  openCustomEntry(menu);
 
   const amount = within(menu).getByLabelText("Custom interval amount");
   const unit = within(menu).getByLabelText("Custom interval unit") as HTMLSelectElement;
@@ -233,12 +266,14 @@ test("a custom interval can be typed, is applied, and is remembered", async () =
   const reopened = await openPicker(chart.container);
   const custom = reopened.querySelector<HTMLElement>('section[aria-label="Custom"]');
   assert.ok(custom, "the custom resolution was not remembered");
-  assert.match(custom.textContent ?? "", /7m/);
+  assert.ok(custom.querySelector('[data-resolution="7m"]'),
+    "the Custom section does not carry the resolution it remembered");
 });
 
 test("a custom entry that is not a resolution is refused with a reason", async () => {
   const chart = await mountChart();
   const menu = await openPicker(chart.container);
+  openCustomEntry(menu);
 
   const amount = within(menu).getByLabelText("Custom interval amount");
   fireEvent.change(amount, { target: { value: "60" } });

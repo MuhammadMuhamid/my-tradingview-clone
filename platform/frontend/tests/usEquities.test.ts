@@ -63,10 +63,20 @@ test("workstation identity makes venue, session, feed delay and adjustment legib
 });
 
 test("search and watchlists carry stock and ETF category without collapsing canonical ids", () => {
-  const search = read("components/tv/SymbolSearch.tsx");
+  /*
+   * TVP8 R4: the dialog's claims moved into `lib/symbolSearch` as tables.
+   * These used to grep `["stock", "STOCK"]` out of the JSX — the uppercase
+   * type tabs the repaired dialog does not have, because the reference's row
+   * grammar says the product type in three quiet lowercase words instead.
+   * The capability being asserted is unchanged: stocks and ETFs are offered,
+   * and an equity row still carries its feed and delay.
+   */
+  const search = read("lib/symbolSearch.ts");
   const watchlist = read("components/tv/Watchlist.tsx");
-  assert.match(search, /\["stock", "STOCK"\]/);
-  assert.match(search, /\["etf", "ETF"\]/);
+  assert.match(search, /stock: "Stock"/);
+  assert.match(search, /etf: "ETF"/);
+  assert.match(search, /id: "stocks"[\s\S]*?type: "stock"/);
+  assert.match(search, /id: "funds"[\s\S]*?type: "etf"/);
   assert.match(search, /REG · RAW ·.*feedDelaySeconds\}s delay/s);
   assert.match(watchlist, /"us_equity" as const/);
   assert.match(watchlist, /canonicalDisplayParts\(s\)/);

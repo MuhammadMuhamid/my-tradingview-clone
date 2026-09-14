@@ -105,23 +105,23 @@ export function IndicatorLegend({
 
   if (groups.length === 0 && hidden.length === 0) return null;
   return (
-    <div className={`flex items-start gap-1 text-[13px] leading-5 tabular ${className}`}>
-      {collapsible && (
-      <button
-        type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        aria-expanded={!collapsed}
-        aria-label={collapsed
-          ? `Show values for ${groups.length} indicator${groups.length === 1 ? "" : "s"}`
-          : "Hide indicator values"}
-        className="pointer-events-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-state-hover hover:text-ink"
-      >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
-          {collapsed ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}
-        </svg>
-      </button>
-      )}
-      <div className={`pointer-events-none min-w-0 ${collapsible ? "pt-[3px]" : ""}`}>
+    /*
+      ── R3-10/R3-14: a legend is type over the plot, not a box on it ────────
+
+      Every row used to sit in its own `rounded bg-surface/75` box and the
+      action cluster in a second one, so the top-left of every pane carried two
+      filled rectangles laid over the candles — chrome, because it WAS a
+      container. The reference's legend has no background, no border and no
+      radius at rest; the only thing hover adds is a hairline around the
+      title/params group. Nothing here paints a surface.
+
+      A column, not a row: the collapse control moved OUT of the left gutter
+      and UNDER the last study row, which is where the reference puts it — as a
+      26×20 bordered box — and where it stops costing every row 24px of
+      indent.
+    */
+    <div className={`flex flex-col items-start text-[13px] leading-5 tabular ${className}`}>
+      <div className="pointer-events-none min-w-0 max-w-full">
         {collapsed ? (
           /*
             Collapsed is the SAME rule as expanded below: one row, clipped.
@@ -142,7 +142,7 @@ export function IndicatorLegend({
                   className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ backgroundColor: group.plots[0]?.color }}
                 />
-                <span className="truncate font-semibold text-ink">{group.title}</span>
+                <span className="truncate text-ink">{group.title}</span>
               </span>
             ))}
           </div>
@@ -160,10 +160,56 @@ export function IndicatorLegend({
               full title is on the row's own `title`.
             */
             <div key={`${group.title}:${index}`}
-              title={group.params ? `${group.title} ${group.params}` : group.title}
               className="group/study flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
-              <span className="shrink-[3] truncate font-semibold text-ink">{group.title}</span>
-              {group.params && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
+              {/*
+                ── R3-11: the title is not the loudest thing on the chart ─────
+
+                `font-semibold` made every study title heavier than the price
+                it was laid over. The reference's is 13px/400 ink with its
+                parameters 13px/400 muted beside it, and the ONE thing hover
+                adds is a hairline around this group — which is why the outline
+                lives here and not on the row.
+
+                `pointer-events-auto` on the span rather than the row: a legend
+                that swallowed the pointer would break a trend line drawn from
+                the top-left corner, which is where most of them start. Hover
+                still reaches the row's `group/study` from here, because
+                `:hover` applies to the ancestors of whatever was hit.
+              */}
+              <span
+                title={group.params ? `${group.title} ${group.params}` : group.title}
+                className="pointer-events-auto -mx-1 flex min-w-0 shrink items-baseline gap-x-2
+                  overflow-hidden rounded-sm border border-transparent px-1
+                  group-hover/study:border-border"
+              >
+                <span className="shrink-[3] truncate text-ink">{group.title}</span>
+                {group.params && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
+              </span>
+              {/*
+                The actions sit BETWEEN the parameters and the values, which is
+                where the reference has them — not after the numbers, where a
+                cluster appearing on hover pushes the values the user is
+                reading sideways.
+              */}
+              {onAction && canAction?.(group.id) && (
+                <span className="pointer-events-auto flex shrink-0 items-center gap-0.5
+                  opacity-0 transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
+                  <StudyButton label={`Hide ${group.title}`}
+                    onClick={() => onAction(group.id, "hide")}>
+                    <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
+                    <circle cx="12" cy="12" r="2.6" />
+                  </StudyButton>
+                  <StudyButton label={`${group.title} settings`}
+                    onClick={() => onAction(group.id, "settings")}>
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                  </StudyButton>
+                  <StudyButton label={`Remove ${group.title}`}
+                    onClick={() => onAction(group.id, "remove")}>
+                    <path d="M4 6h16M9 6V4h6v2M6.5 6l1 14h9l1-14" />
+                  </StudyButton>
+                </span>
+              )}
               {/*
                 ── TVP8 round two: three values that could never have one ─────
 
@@ -184,47 +230,36 @@ export function IndicatorLegend({
                 sets it on an hline, which has two endpoints for the renderer
                 and one value at every bar.
               */}
-              {group.plots.filter((plot) => plot.constantValue === undefined).map((plot) => (
-                <span key={plot.id} className="inline-flex shrink-0 items-center gap-1 text-ink-muted">
+              {/*
+                ── R3-11: the VALUE is the row, and it wears the plot's colour ─
+
+                This printed `● RSI 45.91` — a 6px dot, the plot's NAME in
+                muted, and the number in plain ink. Three studies made nine
+                tokens of which three were numbers. The reference prints the
+                numbers alone, each in its own plot's colour, so the colour
+                that identifies the line is carried by the thing being read
+                instead of by a bullet beside it. The name is the tooltip.
+
+                `∅` rather than `—` for an absent reading: an em-dash beside
+                other numbers reads as a value of zero-ish, and the reference
+                uses the empty-set glyph precisely because it cannot.
+              */}
+              {group.plots.filter((plot) => plot.constantValue === undefined).map((plot) => {
+                const value = plotValueAt(plot.data, time);
+                return (
                   <span
-                    aria-hidden="true"
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: plot.color }}
-                  />
-                  {plot.title}{" "}
-                  {/* The value is the thing being read; the plot's name is context. */}
-                  <span className="tabular text-ink">
-                    {formatPlotValue(plotValueAt(plot.data, time), plot.precision)}
+                    key={plot.id}
+                    title={plot.title}
+                    className="pointer-events-auto shrink-0 tabular"
+                    style={{ color: plot.color }}
+                  >
+                    {value === null || !Number.isFinite(value)
+                      ? "∅"
+                      : formatPlotValue(value, plot.precision)}
+                    <span className="sr-only"> {plot.title}</span>
                   </span>
-                </span>
-              ))}
-              {onAction && canAction?.(group.id) && (
-                /*
-                  Revealed on hover or focus rather than reserving width: the
-                  legend sits over the candles and a permanent three-button
-                  cluster on every study would cover more of the chart than
-                  the names do. `pointer-events-auto` is on the cluster only —
-                  the text above stays transparent to the pointer so a drawing
-                  drag that starts near the top-left still reaches the canvas.
-                */
-                <span className="pointer-events-auto ml-0.5 flex shrink-0 items-center gap-0.5
-                  opacity-0 transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
-                  <StudyButton label={`Hide ${group.title}`}
-                    onClick={() => onAction(group.id, "hide")}>
-                    <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
-                    <circle cx="12" cy="12" r="2.6" />
-                  </StudyButton>
-                  <StudyButton label={`${group.title} settings`}
-                    onClick={() => onAction(group.id, "settings")}>
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
-                  </StudyButton>
-                  <StudyButton label={`Remove ${group.title}`}
-                    onClick={() => onAction(group.id, "remove")}>
-                    <path d="M5 5l14 14M19 5L5 19" />
-                  </StudyButton>
-                </span>
-              )}
+                );
+              })}
             </div>
           ))
         )}
@@ -232,7 +267,7 @@ export function IndicatorLegend({
           <div key={`hidden:${study.id}`}
             title={`${study.title} — applied, not drawn`}
             className="group/study flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
-            <span className="shrink truncate font-semibold text-ink-faint line-through
+            <span className="shrink truncate text-ink-faint line-through
               decoration-1">{study.title}</span>
             <span className="pointer-events-auto flex shrink-0 items-center gap-0.5 opacity-60
               transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
@@ -250,12 +285,39 @@ export function IndicatorLegend({
           </div>
         ))}
       </div>
+      {collapsible && (
+        /*
+          ── R3-14: the collapse control is a box UNDER the studies ───────────
+
+          It was a chevron in the legend's left gutter, inline before the first
+          title, which indented every row by 24px and put a control where the
+          reference puts the study's own name. The reference's is a 26×20
+          bordered box below the last study row — out of the reading order of
+          the rows it hides, and the only bordered thing in the legend.
+        */
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed
+            ? `Show values for ${groups.length} indicator${groups.length === 1 ? "" : "s"}`
+            : "Hide indicator values"}
+          title={collapsed ? "Show indicator legend" : "Hide indicator legend"}
+          className="pointer-events-auto mt-0.5 flex h-5 w-[26px] shrink-0 items-center
+            justify-center rounded-sm border border-border text-ink-faint transition-colors
+            hover:bg-state-hover hover:text-ink"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+            {collapsed ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
 
 /**
- * One action on one study, sized to sit inside a 20px legend row.
+ * One action on one study, at the reference's 28×24 legend-action size.
  *
  * A real `<button>` rather than a span with a handler, so the cluster is
  * reachable by keyboard — which is also what makes `focus-within` able to
@@ -270,11 +332,19 @@ function StudyButton(
       aria-label={label}
       title={label}
       onClick={(event) => { event.stopPropagation(); onClick(); }}
-      className="flex h-[18px] w-[18px] items-center justify-center rounded text-ink-faint
-        transition-colors hover:bg-state-hover hover:text-ink"
+      /*
+        28×24 with a 16px glyph — the reference's legend-action size, measured.
+        The 18×18 button with a 12px glyph it replaces was a sixth smaller than
+        anything else a pointer aims at in this product.
+
+        Hover is a hairline, not a fill: this sits on the candles, and a filled
+        square there is the "bordered mini-toolbar" the owner vetoed.
+      */
+      className="flex h-6 w-7 items-center justify-center rounded-sm border border-transparent
+        text-ink-faint transition-colors hover:border-border hover:text-ink"
     >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {children}
       </svg>
     </button>

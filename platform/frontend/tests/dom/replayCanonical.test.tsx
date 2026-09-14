@@ -46,9 +46,15 @@ after(closeBrowser);
 
 /** Put the focused pane on the canonical SOL instrument, through its watchlist row. */
 async function chooseCanonicalSol(chart: MountedChart): Promise<void> {
-  const row = [...chart.container.querySelectorAll<HTMLElement>("button")]
-    .find((b) => (b.textContent ?? "").trim().startsWith("SOL/USDT"));
-  assert.ok(row, "the watchlist has no SOL/USDT row — the fixture's tracked symbols did not seed it");
+  /*
+   * Scoped to the LIST. TVP8 R7-01 made a watchlist row print `SOLUSDT`, which
+   * is also what the toolbar's symbol pill prints — and the pill comes first in
+   * the document, so an unscoped `find` over every button started clicking the
+   * symbol search open instead of choosing the row.
+   */
+  const row = [...chart.container.querySelectorAll<HTMLElement>("[data-watchlist-row] button")]
+    .find((b) => (b.textContent ?? "").trim().startsWith("SOLUSDT"));
+  assert.ok(row, "the watchlist has no SOLUSDT row — the fixture's tracked symbols did not seed it");
   fireEvent.click(row);
   await settle();
 }

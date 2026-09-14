@@ -43,8 +43,10 @@ test("ON A FIRST RUN THE DEFAULT LIST IS SEEDED FROM THE TRACKED SYMBOLS, NOT FR
   assert.deepEqual(body.symbols, [CANONICAL.SOLUSDT, CANONICAL.BTCUSDT],
     "the seed must carry the tracked symbols' canonical identities");
 
-  const rows = [...chart.container.querySelectorAll<HTMLElement>("button")]
+  // Scoped to the list: the toolbar's symbol pill prints the same token now.
+  const rows = [...chart.container.querySelectorAll<HTMLElement>("[data-watchlist-row] button")]
     .map((b) => (b.textContent ?? "").trim());
-  assert.equal(rows.some((t) => t.startsWith("SOL/USDT")) && rows.some((t) => t.startsWith("BTC/USDT")), true,
+  // TVP8 R7-01: one token per row, as the reference writes them.
+  assert.equal(rows.some((t) => t.startsWith("SOLUSDT")) && rows.some((t) => t.startsWith("BTCUSDT")), true,
     "both tracked symbols must be rows in the seeded list");
 });

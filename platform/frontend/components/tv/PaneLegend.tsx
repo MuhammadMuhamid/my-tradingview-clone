@@ -41,7 +41,7 @@ import { CompareControl } from "@/components/tv/CompareControl";
 import { LegendTimeframe, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { Resolution } from "@/lib/resolution";
 import type { PaneCompare } from "@/lib/workspace";
-import { displaySymbol, displayTicker, displayVenue } from "@/lib/instrument";
+import { displayName, displaySymbol, displayTicker, displayVenue } from "@/lib/instrument";
 import { DerivativeIdentity } from "@/components/tv/DerivativeIdentity";
 import { EquityIdentity } from "@/components/tv/EquityIdentity";
 import { TraditionalIdentity } from "@/components/tv/TraditionalIdentity";
@@ -103,6 +103,20 @@ export function PaneLegend(props: PaneLegendProps) {
    */
   const symbolLabel = displaySymbol(symbol);
   const tickerLabel = displayTicker(symbol);
+  /*
+   * TVP8 R3-14: the headline says what the instrument IS.
+   *
+   * The reference's status line opens `Bitcoin / TetherUS · 1h · Binance` at
+   * 16px/400. This opened `BTCUSDT` at 14px/600 — the CONTROL grammar, which
+   * belongs on the toolbar pill and in a watchlist row, promoted to the
+   * chart's headline and set heavier than the price beside it. `displayName`
+   * answers with the descriptive name where this installation genuinely knows
+   * one and with the ticker where it does not; it can never answer with a
+   * canonical `instrument:v1:…` id, which is the rule §5 exists for. The
+   * ticker stays the accessible name and the tooltip, so nothing that was
+   * findable before stops being findable.
+   */
+  const nameLabel = displayName(symbol);
   const venueLabel = displayVenue(symbol);
   /*
    * Controlled when the pane supplies it, so the toolbar's Compare control can
@@ -139,12 +153,12 @@ export function PaneLegend(props: PaneLegendProps) {
         className="pointer-events-none flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5"
       >
         <button
-          {...{ className: `${HIT} tvc-control flex h-5 shrink-0 items-center rounded-md px-1 text-xs font-semibold text-ink` }}
+          {...{ className: `${HIT} tvc-control -mx-1 flex h-6 shrink-0 items-center rounded-md px-1 text-[16px] leading-6 text-ink` }}
           onClick={() => props.onOpenSymbolSearch(paneId)}
-          title={`Change this pane's symbol — currently ${symbolLabel} · ${props.bars.toLocaleString()} bars loaded`}
+          title={`Change this pane's symbol — currently ${tickerLabel} (${symbolLabel}) · ${props.bars.toLocaleString()} bars loaded`}
           aria-label={`Change symbol for the ${symbolLabel} pane`}
         >
-          {tickerLabel}
+          {nameLabel}
         </button>
 
         <DerivativeIdentity symbol={symbol} dense={dense} />
@@ -159,8 +173,20 @@ export function PaneLegend(props: PaneLegendProps) {
           autonomous without being a second, divergent implementation of the
           timeframe UI.
         */}
+        {!dense && <span aria-hidden="true" className="shrink-0 text-[16px] text-ink-muted">&middot;</span>}
+        {/*
+          R3-14: the interval reads as TEXT, at the headline's own size.
+
+          It was an 11px/600 pill with a chevron — a second control shouting
+          beside the first, where the reference has `· 1h ·` in the same
+          16px/400 as the name. It is still the click target and still opens
+          the same picker; `TimeframePicker` owns the button's own classes, so
+          the size, the weight and the chevron are corrected from here rather
+          than by forking a second timeframe control.
+        */}
         <LegendTimeframe
-          className={HIT}
+          className={`${HIT} [&>button]:h-6 [&>button]:text-[16px] [&>button]:font-normal
+            [&>button]:text-ink-muted [&>button>svg]:hidden`}
           scope={paneId}
           interval={interval}
           onInterval={pickInterval}
@@ -168,7 +194,7 @@ export function PaneLegend(props: PaneLegendProps) {
         />
 
         {venueLabel && !dense && (
-          <span className="shrink-0 text-[11px] text-ink-faint" title={symbolLabel}>
+          <span className="shrink-0 text-[16px] text-ink-muted" title={symbolLabel}>
             &middot; {venueLabel}
           </span>
         )}

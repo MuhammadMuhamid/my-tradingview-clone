@@ -1,93 +1,193 @@
 "use client";
 /**
- * Chart settings, at the depth the reference actually has.
+ * Chart settings, in the reference's row grammar.
  *
- * ── What was wrong, measured rather than assumed ───────────────────────────
+ * ── What R6 found, measured rather than argued ─────────────────────────────
  *
- * The previous version had seven sidebar labels matching TradingView's seven,
- * and the parity claim rested on that. Enumerated control by control against
- * the live dialog, the seven labels covered ELEVEN controls: six toggles, one
- * select, one number field, one button — and a "Symbol" tab that was a
- * read-only definition list whose first row printed
- * `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` at the user. The reference's
- * Symbol tab is where candle colours, body/border/wick visibility and price
- * precision live; it is the tab with the MOST controls, and it had none.
+ * The outer box was right and everything inside it was a different product.
+ * 750 wide, a 206px rail, 40px tabs, a 50px row pitch — all copied correctly —
+ * and then every boolean row was drawn as `label … [checkbox at x=812]` on a
+ * fixed 188px label column, where the reference's boolean is
+ * `[checkbox at the content edge] label`. Eleven further tells followed from
+ * that one: no sidebar glyphs, a vertical divider the reference does not have,
+ * four tab-level PARAGRAPHS it does not have, a four-row identity block
+ * printing `BINANCE:BTC/USDT · SPOT` and "Trading Scene market feed" at the
+ * user, five native `<select>`s (OS chevron, OS popup), a native colour input
+ * at 34×26, and a footer with two selects whose options were commands.
  *
- * ── The rule for what is here ──────────────────────────────────────────────
+ * ── The grammar, defined once, so a new row cannot invent its own ──────────
  *
- * Every control writes a setting `CandleChart` applies to the engine or to its
- * own markup. Nothing here is decorative. Three things the reference offers
- * are deliberately ABSENT rather than faked, because lightweight-charts 4.2
- * exposes no equivalent and a switch that moves nothing is worse than a
- * missing one: locking the price-to-bar ratio, suppressing overlapping axis
- * labels, and per-instrument timezone (this chart is UTC throughout, and
- * `lib/chartClock` says so beside the axis).
+ * Each tab is a two-column CSS grid: `minmax(<the tab's value column>,
+ * max-content) 1fr` with a 20px gap, so the controls line up at the tab's
+ * widest label + 20px — which is where the reference's land (688 Symbol, 779
+ * Scales, 766 Canvas, 798 Trading, all from x=591, the content edge).
  *
- * ── Layout ─────────────────────────────────────────────────────────────────
+ *   `CheckRow`  an 18px checkbox at the content edge, 10px, a 14px label, on a
+ *               50px pitch, with any trailing controls in column two.
+ *   `FieldRow`  a 14px label in column one, controls in column two.
+ *   `Section`   an 11px uppercase title in a 32px row, spanning both columns.
+ *   `note`      the ONE prose form: a 12px muted line under the row it
+ *               qualifies, which makes that row 68px. There is no other prose
+ *               in this dialog.
  *
- * Measured off the live dialog: a 206x40 tab rail at radius 8, a content
- * column whose rows are label-left / control-right on a 50px pitch, uppercase
- * section headings, 34px controls at radius 6 with a 1px #575757 border, and a
- * Cancel/Ok footer. `Row`, `Toggle`, `Select`, `NumberField` and `Swatch`
- * below are that grammar, once, so a new setting cannot invent its own.
+ * Dependent rows are indented 26px and DISABLED while their parent is off —
+ * never unmounted, which is what used to make the Lines row jump as it was
+ * toggled.
+ *
+ * ── Where the controls themselves live ─────────────────────────────────────
+ *
+ * `components/ui.tsx`: `Checkbox`, `Dropdown`, `Swatch`, `LineStyleButton`,
+ * `NumberField`. Contract §7 — the unique pages use the same primitives as the
+ * workstation, and a swatch written here is a swatch the Screener cannot have.
+ *
+ * ── What is deliberately absent ────────────────────────────────────────────
+ *
+ * A control that moves nothing must not exist (contract §6). The reference
+ * rows this product cannot honour are listed in the contract's §6 omissions —
+ * instrument logo, open-market status, buy/sell buttons and one-click trading,
+ * execution sound, alert volume, ideas, economic calendar, news, session
+ * breaks, currency/unit and plus-button axis affordances, lock-price-to-bar
+ * ratio, no-overlapping-labels, value-according-to-scale, navigation and pane
+ * button overlays. None of them is drawn greyed out; they are simply not here.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { Resolution } from "@/lib/resolution";
 import {
-  clearUserDefaultChartSettings, DATE_FORMATS, DEFAULT_CHART_SETTINGS,
+  clearUserDefaultChartSettings, DATE_FORMATS, dateFormatExample, DEFAULT_CHART_SETTINGS,
   deleteChartSettingsTemplate, loadChartSettingsTemplates, PRECISIONS, PLACEMENTS,
   precisionLabel, saveChartSettingsTemplate, saveUserDefaultChartSettings,
   type ChartSettingsTemplate,
-  type ChartSettings, type DateFormatName, type LineStyleName,
-  type PricePrecision, type ScalePlacement,
+  type ChartSettings, type DateFormatName,
+  type PricePrecision, type ScalePlacement, type WatermarkMode,
 } from "@/lib/chartSettings";
 import { chartTransform, chartTypeLabel, renderKind, type ChartType } from "@/lib/chartType";
-import { displaySymbol, displayTicker } from "@/lib/instrument";
-import { Button } from "@/components/ui";
+import {
+  Button, CaretGlyph, Checkbox, Dropdown, LineStyleButton, NumberField, Swatch,
+} from "@/components/ui";
+import { TOOL_ICON_STROKE } from "@/components/tv/toolbarChrome";
+import { TRADE_LABEL_LIMIT } from "@/components/CandleChart";
 import { useAsk } from "@/components/AskDialog";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
 
 type Tab = "symbol" | "status" | "scales" | "canvas" | "trading" | "alerts" | "events";
-const TABS: { id: Tab; label: string }[] = [
-  { id: "symbol", label: "Symbol" },
-  { id: "status", label: "Status line" },
-  { id: "scales", label: "Scales and lines" },
-  { id: "canvas", label: "Canvas" },
-  { id: "trading", label: "Trading" },
-  { id: "alerts", label: "Alerts" },
-  { id: "events", label: "Events" },
+
+/**
+ * The sidebar's glyphs, drawn here in the product's own icon family.
+ *
+ * OV-K governs the family: a 24-unit viewBox, `TOOL_ICON_STROKE`, round caps,
+ * the silhouette filling most of the box. The rail had no glyphs at all, which
+ * left seven words in a 206px column and no way to find a tab except by
+ * reading it.
+ */
+function TabGlyph({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={TOOL_ICON_STROKE} strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+const TABS: { id: Tab; label: string; glyph: React.ReactNode }[] = [
+  {
+    id: "symbol", label: "Symbol",
+    // A candle: body and wick, twice.
+    glyph: <TabGlyph><path d="M8 3v18M8 7h0M5 7h6v10H5zM16 3v18M13 6h6v9h-6z" /></TabGlyph>,
+  },
+  {
+    id: "status", label: "Status line",
+    glyph: <TabGlyph><path d="M4 7h16M4 12h11M4 17h7" /></TabGlyph>,
+  },
+  {
+    id: "scales", label: "Scales and lines",
+    // The axis corner, with its ticks.
+    glyph: <TabGlyph><path d="M5 3v16h15M5 7h3M5 11h3M5 15h3M9 19v-2M14 19v-2M19 19v-2" /></TabGlyph>,
+  },
+  {
+    id: "canvas", label: "Canvas",
+    glyph: <TabGlyph><path d="M4 20l1-4L16 5l3 3L8 19zM14 7l3 3" /></TabGlyph>,
+  },
+  {
+    id: "trading", label: "Trading",
+    glyph: <TabGlyph><path d="M4 20V10M10 20V4M16 20v-7M21 6l-5 5-3-3-4 4" /></TabGlyph>,
+  },
+  {
+    id: "alerts", label: "Alerts",
+    glyph: <TabGlyph><circle cx="12" cy="13" r="7" /><path d="M12 9v4l3 2M9 3h6" /></TabGlyph>,
+  },
+  {
+    id: "events", label: "Events",
+    glyph: <TabGlyph><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" /></TabGlyph>,
+  },
 ];
+
+/**
+ * Where each tab's value column starts, as a MINIMUM in pixels from x=591.
+ *
+ * Measured on the reference: 688 Symbol, 779 Scales, 766 Canvas, 798 Trading,
+ * each of which is that tab's widest label plus 20. The grid column is
+ * `minmax(this, max-content)`, so a label wider than the reference's own still
+ * gets its space — the number is a floor that keeps the columns where the
+ * reference puts them, not a fixed width that could clip a row.
+ */
+const VALUE_COLUMN: Record<Tab, number> = {
+  symbol: 77,   // 688
+  status: 97,   // not published; the widest label on the tab governs
+  scales: 168,  // 779
+  canvas: 155,  // 766
+  trading: 187, // 798
+  alerts: 0,
+  events: 0,
+};
 
 const PLACEMENT_LABEL: Record<ScalePlacement, string> = {
   right: "Right", left: "Left", both: "Both", none: "No scale",
 };
 
-export function ChartSettingsModal({
-  open, onClose, symbol, interval, chartType, scale, onScale, onReset, settings, onSettings,
-}: {
+export function ChartSettingsModal(props: {
   open: boolean;
   onClose: () => void;
+  /**
+   * The pane's instrument.
+   *
+   * R6 S-1 deleted the INSTRUMENT block this used to print, so nothing in the
+   * dialog reads it any more. The prop stays because the call site passes it
+   * and the watermark row will want it back when the apply site lands.
+   */
   symbol: string;
   interval: Resolution;
   /** Which presentation is active, so its own parameters can be filed under it. */
   chartType: ChartType;
   scale: PriceScaleState;
   onScale: (next: PriceScaleState) => void;
+  /** Kept for the call site; the Reset button it drove is gone (R6 SC-2). */
   onReset: () => void;
   settings: ChartSettings;
   onSettings: (next: ChartSettings) => void;
+  /**
+   * Whether this pane's ticker has reported a bid and an ask.
+   *
+   * R6 SC-4: the Bid and ask row appears only for a feed that HAS quotes, the
+   * same rule Body/Borders/Wick follow for presentations that have them. A
+   * provider without quotes must not be shown a control that cannot move.
+   */
+  hasBidAsk?: boolean;
 }) {
+  const {
+    open, onClose, chartType, scale, onScale, settings, onSettings, hasBidAsk = false,
+  } = props;
   const [tab, setTab] = useState<Tab>("symbol");
   /*
    * What the dialog was showing when it opened, so Cancel can put it back.
    *
    * The reference's footer is Cancel / Ok and both mean something: every
-   * control applies live, and Cancel undoes the whole visit. This dialog used
-   * to have one "Done" button, so a user who changed six things to see what
-   * they did had no way back except changing them back.
+   * control applies live, and Cancel undoes the whole visit.
    */
   const [entry, setEntry] = useState<{ settings: ChartSettings; scale: PriceScaleState } | null>(null);
   useEffect(() => {
@@ -100,35 +200,26 @@ export function ChartSettingsModal({
 
   const set = <K extends keyof ChartSettings>(key: K, value: ChartSettings[K]): void =>
     onSettings({ ...settings, [key]: value });
+  /** Two keys that describe one control, written together. */
+  const setMany = (patch: Partial<ChartSettings>): void => onSettings({ ...settings, ...patch });
 
   /** The same condition `CandleChart`'s series-appearance effect applies. */
   const seriesColoursApply = renderKind(chartType) === "candles"
     && chartType !== "hollowCandles" && chartType !== "highLow";
 
   /*
-   * Thin bars reaches exactly one chart type.
-   *
-   * The reference offers it on its Bars chart and nowhere else, for the good
-   * reason that nothing else in the registry has a bar thickness to thin.
-   * Gated on the RENDER KIND rather than on the type's name, so the day a
-   * second bar-drawn type exists it gets the control without anyone
-   * remembering to add it here.
+   * Thin bars reaches exactly one chart type — gated on the RENDER KIND rather
+   * than on the type's name, so the day a second bar-drawn type exists it gets
+   * the control without anyone remembering to add it here.
    */
   const thinBarsApplies = renderKind(chartType) === "bars";
 
   /*
-   * The two colour wells reach further than the three toggles beside them.
-   *
-   * They were gated together, on the reasoning that a Line chart has no body
-   * to colour — true of the toggles, and it stopped being true of the wells
-   * the moment the volume histogram started deriving its palette from them.
-   * On a Line, Area, Baseline or Columns chart the volume under the price is
-   * still drawn and still takes `upColor` / `downColor`, so hiding the wells
-   * there removed the only way to recolour it.
-   *
-   * Volume is not drawn under a transform that invents its own bars — Renko,
-   * Kagi, Point & Figure, Line break — and there the wells genuinely reach
-   * nothing, so they stay hidden.
+   * The two colour wells reach further than the three toggles beside them: on
+   * a Line, Area, Baseline or Columns chart the volume histogram under the
+   * price still takes `upColor` / `downColor`. Volume is not drawn under a
+   * transform that invents its own bars — Renko, Kagi, Point & Figure, Line
+   * break — and there the wells genuinely reach nothing.
    */
   const transform = chartTransform(chartType);
   const volumeTakesDirectionColours = transform === null || transform === "heikinAshi";
@@ -140,13 +231,9 @@ export function ChartSettingsModal({
   };
 
   /*
-   * TVP8: Template and Defaults, which the reference puts in this footer and
-   * which this was the only settings dialog in the product without —
-   * `StrategySettingsModal` and `NativeStudySettings` both have a Defaults.
-   *
-   * A per-user default reaches further than it looks: every new pane starts
-   * from the product's defaults, so a trader who wants a 3px crosshair and no
-   * grid was setting it again on every pane they opened.
+   * Templates and the user's own default, which the reference puts in this
+   * footer. R6 CH-4: ONE control on the left, a ghost `Template` button
+   * opening a menu — not two native selects whose options were commands.
    */
   const ask = useAsk();
   const [templates, setTemplates] = useState<ChartSettingsTemplate[]>([]);
@@ -175,492 +262,579 @@ export function ChartSettingsModal({
     setTemplates(deleteChartSettingsTemplate(templates, name));
   };
 
+  /** The state of the reference's one `Symbol` price-label row, from two keys. */
+  const priceLabelState = settings.lastValueLabel && settings.lastValueLine ? "valueLine"
+    : settings.lastValueLabel ? "value"
+      : settings.lastValueLine ? "line" : "hidden";
+
+  const statusOff = !settings.showStatusLine;
+
   return (
     <Modal
       open={open}
       onClose={cancel}
       title="Chart settings"
       wide
+      /*
+       * R6 CH-5: the dialog's height is the active tab's content, floored by
+       * the seven-tab rail and capped where the reference's is — it sits at
+       * y=20…860 in a 900px viewport. `min-h-[440px]` used to hold a one-row
+       * tab open at 595px with 240px of nothing in it.
+       */
+      panelClassName="!max-h-[calc(100vh-40px)]"
+      headerClassName="!h-[62px]"
+      /*
+       * Only the TAB PANEL scrolls. `scrollBody={false}` turns the body into a
+       * flex column whose child owns the scrolling, so the rail and the footer
+       * stay put while a long tab moves — which is what the reference does and
+       * what this could not do while `Modal` scrolled rail and panel together.
+       *
+       * 30px of vertical padding rather than the default 16: it is what puts
+       * the 280px rail in the 342px content band the reference measures.
+       */
+      contentClassName="!py-[30px]"
+      scrollBody={false}
       footer={
         <div className="flex w-full items-center gap-2">
-          {/* TVP8: Template and Defaults, on the left as the reference has them. */}
-          <Select
-            value=""
-            label="Chart settings template"
-            onChange={(v) => {
-              if (v === "__save") void saveTemplate();
-              else if (v.startsWith("__delete:")) void removeTemplate(v.slice("__delete:".length));
-              else if (v) applyTemplate(v);
+          <TemplateMenu
+            templates={templates}
+            onApply={applyTemplate}
+            onSaveAs={() => void saveTemplate()}
+            onDelete={(name) => void removeTemplate(name)}
+            onApplyDefaults={() => {
+              clearUserDefaultChartSettings();
+              onSettings(DEFAULT_CHART_SETTINGS);
             }}
-            options={[
-              { value: "", label: "Template" },
-              ...templates.map((t) => ({ value: t.name, label: t.name })),
-              { value: "__save", label: "Save current settings as…" },
-              ...templates.map((t) => ({ value: `__delete:${t.name}`, label: `Delete “${t.name}”` })),
-            ]}
-          />
-          {/*
-            TVP8 round two: Defaults is a MENU, not a confirm.
-            
-            It was a two-button confirm encoding three outcomes — OK saved the
-            default, Cancel reset the chart, and Escape / the backdrop / the ×
-            all resolve `false`, which means DISMISSING the dialog wiped both
-            the chart's settings and the stored default. A destructive action
-            on the escape key is the worst possible place to put one.
-            
-            Two named items, each doing exactly what it says, and dismissing
-            the menu does nothing. This is also the shape the reference uses.
-          */}
-          <Select
-            value=""
-            label="Chart defaults"
-            onChange={(v) => {
-              if (v === "save") saveUserDefaultChartSettings(settings);
-              else if (v === "reset") {
-                clearUserDefaultChartSettings();
-                onSettings(DEFAULT_CHART_SETTINGS);
-              }
-            }}
-            options={[
-              { value: "", label: "Defaults" },
-              { value: "save", label: "Save these as my default" },
-              { value: "reset", label: "Reset to the product defaults" },
-            ]}
+            onSaveAsDefault={() => saveUserDefaultChartSettings(settings)}
           />
           <span className="flex-1" />
-          <Button onClick={cancel} className="px-4">Cancel</Button>
-          <Button variant="primary" onClick={onClose} className="px-4">Ok</Button>
+          <Button variant="ghost" onClick={cancel} className="w-[74px]">Cancel</Button>
+          <Button variant="contrast" onClick={onClose} className="w-[44px] px-0">Ok</Button>
         </div>
       }
     >
-      <div className="flex min-h-[440px] gap-5">
+      <div className="flex min-h-0 flex-1 gap-5">
         <nav aria-label="Chart settings sections" className="w-[206px] shrink-0">
           {TABS.map((item) => (
             <button key={item.id} role="tab" aria-selected={tab === item.id}
               onClick={() => setTab(item.id)}
               /*
-                Selected was `bg-state-hover` — the HOVER neutral — so hovering
-                any sibling painted it identically to the open tab and the only
-                thing left telling them apart was #fff against #dbdbdb ink. The
-                two-neutral rule exists precisely for this, and `aria-selected`
-                is already announced, so the chip reads it.
+                Selected is the neutral chip `.tvc-control[aria-selected]`
+                already draws, plus the reference's weight change. It was 400
+                either way, on a 42px pitch (`mb-0.5`) rather than 40.
               */
-              className={`tvc-control mb-0.5 flex h-10 w-full items-center rounded-md px-3 text-left text-sm ${
-                tab === item.id ? "text-ink" : "text-ink-muted hover:text-ink"
+              className={`tvc-control flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm ${
+                tab === item.id ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
               }`}>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center">{item.glyph}</span>
               {item.label}
             </button>
           ))}
         </nav>
 
-        <section role="tabpanel" className="min-w-0 flex-1 border-l border-border pl-5">
+        {/*
+          R6 CH-3: no `border-l`, no `pl-5`. The reference's content column
+          starts 20px after the rail and is not fenced off from it.
+        */}
+        <section
+          role="tabpanel"
+          className="grid min-h-0 min-w-0 flex-1 auto-rows-min content-start gap-x-5 overflow-y-auto"
+          style={{ gridTemplateColumns: `minmax(${VALUE_COLUMN[tab]}px, max-content) 1fr` }}
+        >
           {tab === "symbol" && (
             <>
-              <Head>{chartTypeLabel(chartType)}</Head>
-              {/*
-                Body / Borders / Wick only for the presentations that HAVE
-                them. They were rendered for every chart type, so a Line or a
-                Kagi chart offered three toggles and two colour wells whose
-                applying effect returns early — controls that move nothing,
-                which is the exact thing this dialog's own header forbids.
-                Hollow candles and High-low are excluded for a different
-                reason: their identity IS those colour slots.
-              */}
               {seriesColoursApply && (
                 <>
-              <Row label="Body">
-                <Toggle checked={settings.candleBody} onChange={(v) => set("candleBody", v)} label="Body" />
-              </Row>
-              <Row label="Borders">
-                <Toggle checked={settings.candleBorders} onChange={(v) => set("candleBorders", v)} label="Borders" />
-              </Row>
-              <Row label="Wick">
-                <Toggle checked={settings.candleWicks} onChange={(v) => set("candleWicks", v)} label="Wick" />
-              </Row>
+                  <Section>{chartTypeLabel(chartType)}</Section>
+                  {/*
+                    R6 S-2: a colour pair per component, as the reference has.
+                    Borders and wicks could be switched off but never coloured,
+                    while the series has carried `borderUpColor` /
+                    `wickUpColor` and their down halves the whole time.
+                  */}
+                  <CheckRow label="Body" checked={settings.candleBody}
+                    onChange={(v) => set("candleBody", v)}>
+                    <Swatch label="Body up colour" value={settings.upColor}
+                      onChange={(v) => set("upColor", v)} />
+                    <Swatch label="Body down colour" value={settings.downColor}
+                      onChange={(v) => set("downColor", v)} />
+                  </CheckRow>
+                  <CheckRow label="Borders" checked={settings.candleBorders}
+                    onChange={(v) => set("candleBorders", v)}>
+                    <Swatch label="Border up colour" value={settings.borderUpColor}
+                      onChange={(v) => set("borderUpColor", v)} />
+                    <Swatch label="Border down colour" value={settings.borderDownColor}
+                      onChange={(v) => set("borderDownColor", v)} />
+                  </CheckRow>
+                  <CheckRow label="Wick" checked={settings.candleWicks}
+                    onChange={(v) => set("candleWicks", v)}>
+                    <Swatch label="Wick up colour" value={settings.wickUpColor}
+                      onChange={(v) => set("wickUpColor", v)} />
+                    <Swatch label="Wick down colour" value={settings.wickDownColor}
+                      onChange={(v) => set("wickDownColor", v)} />
+                  </CheckRow>
                 </>
               )}
               {thinBarsApplies && (
-                <Row label="Thin bars">
-                  <Toggle checked={settings.thinBars} onChange={(v) => set("thinBars", v)} label="Thin bars" />
-                </Row>
+                <>
+                  <Section>{chartTypeLabel(chartType)}</Section>
+                  <CheckRow label="Thin bars" checked={settings.thinBars}
+                    onChange={(v) => set("thinBars", v)} />
+                </>
               )}
-              {directionColoursApply && (
-                <Row label={seriesColoursApply ? "Up / down" : "Up / down (volume)"}>
-                  <Swatch value={settings.upColor} onChange={(v) => set("upColor", v)} label="Up colour" />
-                  <Swatch value={settings.downColor} onChange={(v) => set("downColor", v)} label="Down colour" />
-                </Row>
+              {!seriesColoursApply && directionColoursApply && (
+                <>
+                  <Section>Volume</Section>
+                  <FieldRow label="Up / down">
+                    <Swatch label="Up colour" value={settings.upColor}
+                      onChange={(v) => set("upColor", v)} />
+                    <Swatch label="Down colour" value={settings.downColor}
+                      onChange={(v) => set("downColor", v)} />
+                  </FieldRow>
+                </>
               )}
 
               {/*
-                ── A chart type's own parameters, filed under the chart type ──
-                `rangeTicks` used to sit under "Canvas" — a parameter of ONE
-                presentation, on the tab about the drawing surface, visible on
-                the twenty charts that ignore it. The other four were not
-                anywhere: Renko's ATR period, Line break's count, Kagi's
-                reversal and Point & figure's box and reversal were constants
-                welded into the chart-type token AND into its label, so the
-                menu read "Renko · ATR(14)" and no user could make it say
-                anything else. The transform functions accepted all five as
-                arguments the whole time.
+                A chart type's own parameters, filed under the chart type — the
+                rows where this product is honestly deeper than the reference.
+                They keep every setting they had and take the new grammar:
+                70×28 number fields with the unit as text after them.
               */}
               {chartType === "range" && (
                 <>
-                  <Head>Range</Head>
-                  <Row label="Range size (ticks)">
-                    <NumberField value={settings.rangeTicks} min={1} max={10000}
+                  <Section>Range</Section>
+                  <FieldRow label="Range size">
+                    <NumberField value={settings.rangeTicks} min={1} max={10000} unit="ticks"
                       onChange={(v) => set("rangeTicks", v)} label="Range size in ticks" />
-                  </Row>
+                  </FieldRow>
                 </>
               )}
 
               {chartType === "renko" && (
                 <>
-                  <Head>Renko</Head>
-                  <Row label="ATR length">
+                  <Section>Renko</Section>
+                  <FieldRow label="ATR length">
                     <NumberField value={settings.renkoAtrPeriod} min={2} max={200}
                       onChange={(v) => set("renkoAtrPeriod", v)} label="Renko ATR length" />
-                  </Row>
+                  </FieldRow>
                 </>
               )}
 
               {chartType === "lineBreak" && (
                 <>
-                  <Head>Line break</Head>
-                  <Row label="Number of lines">
+                  <Section>Line break</Section>
+                  <FieldRow label="Number of lines">
                     <NumberField value={settings.lineBreakLines} min={2} max={10}
                       onChange={(v) => set("lineBreakLines", v)} label="Line break count" />
-                  </Row>
+                  </FieldRow>
                 </>
               )}
 
               {chartType === "kagi" && (
                 <>
-                  <Head>Kagi</Head>
-                  <Row label="Reversal" suffix="%">
+                  <Section>Kagi</Section>
+                  <FieldRow label="Reversal">
                     <NumberField value={settings.kagiReversalPercent} min={0.1} max={50} step={0.1}
-                      onChange={(v) => set("kagiReversalPercent", v)} label="Kagi reversal percent" />
-                  </Row>
+                      unit="%" onChange={(v) => set("kagiReversalPercent", v)}
+                      label="Kagi reversal percent" />
+                  </FieldRow>
                 </>
               )}
 
               {chartType === "pointAndFigure" && (
                 <>
-                  <Head>Point &amp; figure</Head>
-                  <Row label="Box size" suffix="%">
+                  <Section>Point &amp; figure</Section>
+                  <FieldRow label="Box size">
                     <NumberField value={settings.pnfBoxPercent} min={0.1} max={50} step={0.1}
-                      onChange={(v) => set("pnfBoxPercent", v)} label="Point and figure box size percent" />
-                  </Row>
-                  <Row label="Reversal (boxes)">
-                    <NumberField value={settings.pnfReversalBoxes} min={1} max={10}
-                      onChange={(v) => set("pnfReversalBoxes", v)} label="Point and figure reversal in boxes" />
-                  </Row>
+                      unit="%" onChange={(v) => set("pnfBoxPercent", v)}
+                      label="Point and figure box size percent" />
+                  </FieldRow>
+                  <FieldRow label="Reversal">
+                    <NumberField value={settings.pnfReversalBoxes} min={1} max={10} unit="boxes"
+                      onChange={(v) => set("pnfReversalBoxes", v)}
+                      label="Point and figure reversal in boxes" />
+                  </FieldRow>
                 </>
               )}
 
               {(chartType === "sessionVolumeProfile" || chartType === "tpo") && (
                 <>
-                  <Head>{chartType === "tpo" ? "Time price opportunity" : "Session volume profile"}</Head>
-                  {/*
-                    The renderer branched on every one of these already —
-                    `side`, `split`, `showPoc`, `widthRatio`, `rowSize`,
-                    `valueAreaPercent`, `allocation`. The pane passed literals,
-                    so a fully parameterised profile had no parameters. The
-                    asymmetry that made it obvious: the DRAWING-based Fixed
-                    Range Volume Profile has a five-control quick bar for the
-                    same knobs, reading the same type through the same
-                    function.
-                  */}
-                  <Row label="Rows">
+                  <Section>{chartType === "tpo" ? "Time price opportunity" : "Session volume profile"}</Section>
+                  <FieldRow label="Rows">
                     <NumberField value={settings.profileRows} min={4} max={400}
                       onChange={(v) => set("profileRows", v)} label="Profile row count" />
-                  </Row>
-                  <Row label="Value area" suffix="%">
+                  </FieldRow>
+                  <FieldRow label="Value area">
                     <NumberField value={settings.profileValueAreaPercent} min={30} max={100}
-                      onChange={(v) => set("profileValueAreaPercent", v)} label="Value area percent" />
-                  </Row>
+                      unit="%" onChange={(v) => set("profileValueAreaPercent", v)}
+                      label="Value area percent" />
+                  </FieldRow>
                   {chartType === "tpo" && (
-                    <Row label="Block duration" suffix="min">
-                      <NumberField value={settings.tpoBlockMinutes} min={1} max={1440}
-                        onChange={(v) => set("tpoBlockMinutes", v)} label="TPO block duration in minutes" />
-                    </Row>
+                    <FieldRow label="Block duration">
+                      <NumberField value={settings.tpoBlockMinutes} min={1} max={1440} unit="min"
+                        onChange={(v) => set("tpoBlockMinutes", v)}
+                        label="TPO block duration in minutes" />
+                    </FieldRow>
                   )}
-                  <Row label="Volume placement">
-                    <Select value={settings.profileAllocation} label="How a bar's volume is placed"
+                  <FieldRow label="Volume placement">
+                    <Dropdown value={settings.profileAllocation} label="How a bar's volume is placed"
+                      width={180}
                       onChange={(v) => set("profileAllocation", v as "range" | "close")}
                       options={[
                         { value: "range", label: "Across the bar's range" },
                         { value: "close", label: "All at the close" },
                       ]} />
-                  </Row>
-                  <Row label="Rows show">
-                    <Select value={settings.profileSplit} label="Row split"
+                  </FieldRow>
+                  <FieldRow label="Rows show">
+                    <Dropdown value={settings.profileSplit} label="Row split" width={180}
                       onChange={(v) => set("profileSplit", v as "total" | "upDown")}
                       options={[
                         { value: "total", label: "Total volume" },
                         { value: "upDown", label: "Up and down apart" },
                       ]} />
-                  </Row>
-                  <Row label="Placement">
-                    <Select value={settings.profileSide} label="Which side the profile is drawn from"
+                  </FieldRow>
+                  <FieldRow label="Placement">
+                    <Dropdown value={settings.profileSide} label="Which side the profile is drawn from"
+                      width={150}
                       onChange={(v) => set("profileSide", v as "left" | "right")}
                       options={[{ value: "right", label: "Right" }, { value: "left", label: "Left" }]} />
-                  </Row>
-                  <Row label="Width" suffix="%">
-                    <NumberField value={settings.profileWidthPercent} min={5} max={90}
+                  </FieldRow>
+                  <FieldRow label="Width">
+                    <NumberField value={settings.profileWidthPercent} min={5} max={90} unit="%"
                       onChange={(v) => set("profileWidthPercent", v)} label="Profile width percent" />
-                  </Row>
-                  <Row label="Point of control">
-                    <Toggle checked={settings.profileShowPoc}
-                      onChange={(v) => set("profileShowPoc", v)} label="Point of control" />
-                  </Row>
-                  <Row label="Value area shading">
-                    <Toggle checked={settings.profileShowValueArea}
-                      onChange={(v) => set("profileShowValueArea", v)} label="Value area shading" />
-                  </Row>
+                  </FieldRow>
+                  <CheckRow label="Point of control" checked={settings.profileShowPoc}
+                    onChange={(v) => set("profileShowPoc", v)} />
+                  <CheckRow label="Value area shading" checked={settings.profileShowValueArea}
+                    onChange={(v) => set("profileShowValueArea", v)} />
                 </>
               )}
 
-              <Head>Data modification</Head>
-              <Row label="Precision">
-                <Select value={String(settings.precision)} label="Price precision"
+              <Section>Data modification</Section>
+              <FieldRow label="Precision">
+                <Dropdown value={String(settings.precision)} label="Precision" width={150}
                   onChange={(v) => set("precision", (v === "auto" ? "auto" : Number(v)) as PricePrecision)}
                   options={PRECISIONS.map((p) => ({ value: String(p), label: precisionLabel(p) }))} />
-              </Row>
-              <Row label="Timezone">
-                <span className="text-sm text-ink-faint" title="Every axis, legend and alert time in this workspace is UTC. It is not per-chart.">
-                  UTC
-                </span>
-              </Row>
-
-              <Head>Instrument</Head>
-              <dl className="grid grid-cols-[130px_1fr] gap-y-2 py-1 text-sm">
-                <dt className="text-ink-faint">Symbol</dt>
-                {/* The canonical identity is the tooltip, not the headline. */}
-                <dd className="truncate font-medium text-ink" title={symbol}>{displayTicker(symbol)}</dd>
-                <dt className="text-ink-faint">Identity</dt>
-                <dd className="truncate text-ink-muted" title={symbol}>{displaySymbol(symbol)}</dd>
-                <dt className="text-ink-faint">Interval</dt><dd className="text-ink">{interval}</dd>
-                <dt className="text-ink-faint">Data source</dt><dd className="text-ink">Trading Scene market feed</dd>
-              </dl>
+              </FieldRow>
+              {/*
+                R6 S-3: one timezone exists, so there is no dropdown — but the
+                value is the row's value, in ink, and the qualification is the
+                reference's own grammar for a qualification: a 12px line under
+                the row. It used to be `text-ink-faint` with the explanation
+                hidden in a `title` tooltip.
+              */}
+              <FieldRow label="Timezone" note="Every chart in this workspace is UTC.">
+                <span className="text-sm text-ink">UTC</span>
+              </FieldRow>
             </>
           )}
 
           {tab === "status" && (
             <>
-              <Head>Status line</Head>
-              <Row label="Show status line">
-                <Toggle checked={settings.showStatusLine} onChange={(v) => set("showStatusLine", v)} label="Show status line" />
-              </Row>
-              <Head>Instrument</Head>
-              <Row label="Symbol and interval">
-                <Toggle checked={settings.statusSymbol} onChange={(v) => set("statusSymbol", v)} label="Symbol and interval" />
-              </Row>
-              <Row label="Chart values">
-                <Toggle checked={settings.statusOhlc} onChange={(v) => set("statusOhlc", v)} label="Chart values" />
-              </Row>
-              <Row label="Bar change values">
-                <Toggle checked={settings.statusBarChange} onChange={(v) => set("statusBarChange", v)} label="Bar change values" />
-              </Row>
-              <Row label="Volume">
-                <Toggle checked={settings.statusVolume} onChange={(v) => set("statusVolume", v)} label="Volume" />
-              </Row>
-              <Head>Indicators</Head>
-              <Row label="Titles and values">
-                <Toggle checked={settings.statusIndicatorValues} onChange={(v) => set("statusIndicatorValues", v)} label="Indicator titles and values" />
-              </Row>
+              <Section>Instrument</Section>
+              {/*
+                R6 SL-5: the master switch keeps its reach and loses its own
+                section title — it is the first row, and everything below it is
+                disabled while it is off, which is the reference's dependent-row
+                idiom and explains the switch without a sentence.
+              */}
+              <CheckRow label="Status line" checked={settings.showStatusLine}
+                onChange={(v) => set("showStatusLine", v)} />
+              <CheckRow label="Title" checked={settings.statusSymbol} disabled={statusOff}
+                onChange={(v) => set("statusSymbol", v)}>
+                <Dropdown value={settings.statusTitle} label="Title form" width={150}
+                  disabled={statusOff || !settings.statusSymbol}
+                  onChange={(v) => set("statusTitle", v === "symbol" ? "symbol" : "ticker")}
+                  options={[
+                    { value: "ticker", label: "Ticker" },
+                    { value: "symbol", label: "Full symbol" },
+                  ]} />
+              </CheckRow>
+              <CheckRow label="Chart values" checked={settings.statusOhlc} disabled={statusOff}
+                onChange={(v) => set("statusOhlc", v)} />
+              <CheckRow label="Bar change values" checked={settings.statusBarChange} disabled={statusOff}
+                onChange={(v) => set("statusBarChange", v)} />
+              <CheckRow label="Volume" checked={settings.statusVolume} disabled={statusOff}
+                onChange={(v) => set("statusVolume", v)} />
+              <CheckRow label="Last day change values" checked={settings.statusDayChange}
+                disabled={statusOff} onChange={(v) => set("statusDayChange", v)} />
+
+              <Section>Indicators</Section>
+              {/*
+                R6 SL-1: the legend already draws a study's title, its inputs
+                and its values as separate spans; one switch hid all three.
+              */}
+              <CheckRow label="Titles" checked={settings.statusIndicatorTitles}
+                onChange={(v) => set("statusIndicatorTitles", v)} />
+              <CheckRow label="Inputs" checked={settings.statusIndicatorInputs} indent
+                disabled={!settings.statusIndicatorTitles}
+                onChange={(v) => set("statusIndicatorInputs", v)} />
+              <CheckRow label="Values" checked={settings.statusIndicatorValues}
+                onChange={(v) => set("statusIndicatorValues", v)} />
             </>
           )}
 
           {tab === "scales" && (
             <>
-              <Head>Price scale</Head>
-              <Row label="Scales placement">
-                <Select value={settings.scalePlacement} label="Scales placement"
+              <Section>Price scale</Section>
+              {/*
+                R6 SC-2: the reference's `Scale modes (A and L)` row is about
+                the VISIBILITY of the axis-foot buttons. The four rows that
+                duplicated the strip itself — mode, auto, invert, and a live
+                `Reset scale` ACTION inside a Cancel-able dialog — keep the
+                three that are settings and lose the action.
+              */}
+              <FieldRow label="Scale mode buttons">
+                <Dropdown value={settings.scaleButtons} label="Scale mode buttons" width={180}
+                  onChange={(v) => set("scaleButtons", v as ChartSettings["scaleButtons"])}
+                  options={[
+                    { value: "hover", label: "Visible on mouse over" },
+                    { value: "always", label: "Always visible" },
+                    { value: "hidden", label: "Hidden" },
+                  ]} />
+              </FieldRow>
+              <FieldRow label="Scales placement">
+                <Dropdown value={settings.scalePlacement} label="Scales placement" width={150}
                   onChange={(v) => set("scalePlacement", v as ScalePlacement)}
                   options={PLACEMENTS.map((p) => ({ value: p, label: PLACEMENT_LABEL[p] }))} />
-              </Row>
-              <Row label="Scale mode">
-                <Select value={scale.mode} label="Scale mode"
+              </FieldRow>
+              <FieldRow label="Scale mode">
+                <Dropdown value={scale.mode} label="Scale mode" width={150}
                   onChange={(v) => onScale({ ...scale, mode: v as PriceScaleMode })}
                   options={PRICE_SCALE_MODES.map((m) => ({ value: m.value, label: priceScaleModeLabel(m.value) }))} />
-              </Row>
-              <Row label="Auto scale">
-                <Toggle checked={scale.autoScale} onChange={(v) => onScale({ ...scale, autoScale: v })} label="Auto scale" />
-              </Row>
-              <Row label="Invert scale">
-                <Toggle checked={scale.invert === true} onChange={(v) => onScale({ ...scale, invert: v })} label="Invert scale" />
-              </Row>
-              <Row label="">
-                <button onClick={onReset}
-                  className="tvc-control flex h-[34px] items-center rounded-md border border-control-border px-3 text-sm text-ink-muted hover:text-ink">
-                  Reset scale
-                </button>
-              </Row>
+              </FieldRow>
+              <CheckRow label="Auto scale" checked={scale.autoScale}
+                onChange={(v) => onScale({ ...scale, autoScale: v })} />
+              <CheckRow label="Invert scale" checked={scale.invert === true}
+                onChange={(v) => onScale({ ...scale, invert: v })} />
 
+              <Section>Price labels &amp; lines</Section>
               {/*
-                TVP8: the tab named "Scales and lines" had seven controls and
-                every one of them was a scale. These are the lines it is named
-                for, and each maps to a lightweight-charts series option, so
-                none of them is a switch that moves nothing.
+                R6 SC-1: one row, two controls. The same four settings were two
+                rows and five controls, and the three appearance controls
+                mounted and unmounted as the checkbox was toggled, so the row
+                jumped. The line-style button is DISABLED when the chosen state
+                has no line, never removed.
               */}
-              <Head>Lines</Head>
-              <Row label="Last value line">
-                <Toggle checked={settings.lastValueLine} onChange={(v) => set("lastValueLine", v)}
-                  label="Last value line" />
-                {settings.lastValueLine && (
-                  <>
-                    <Swatch value={settings.lastValueLineColor}
-                      onChange={(v) => set("lastValueLineColor", v)} label="Last value line colour" />
-                    <NumberField value={settings.lastValueLineWidth} min={1} max={4} width="narrow"
-                      onChange={(v) => set("lastValueLineWidth", v)} label="Last value line width" />
-                    <Select narrow value={settings.lastValueLineStyle} label="Last value line style"
-                      onChange={(v) => set("lastValueLineStyle", v as LineStyleName)}
-                      options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
-                  </>
-                )}
-              </Row>
-              <Row label="Last price label">
-                <Toggle checked={settings.lastValueLabel} onChange={(v) => set("lastValueLabel", v)}
-                  label="Last price label on the scale" />
-              </Row>
+              <FieldRow label="Symbol">
+                <Dropdown value={priceLabelState} label="Symbol price label and line" width={180}
+                  onChange={(v) => setMany({
+                    lastValueLabel: v === "valueLine" || v === "value",
+                    lastValueLine: v === "valueLine" || v === "line",
+                  })}
+                  options={[
+                    { value: "valueLine", label: "Value, Line" },
+                    { value: "value", label: "Value" },
+                    { value: "line", label: "Line" },
+                    { value: "hidden", label: "Hidden" },
+                  ]} />
+                <LineStyleButton
+                  label="Last value line appearance"
+                  disabled={!settings.lastValueLine}
+                  color={settings.lastValueLineColor}
+                  width={settings.lastValueLineWidth}
+                  style={settings.lastValueLineStyle}
+                  onChange={(next) => setMany({
+                    lastValueLineColor: next.color,
+                    lastValueLineWidth: next.width,
+                    lastValueLineStyle: next.style,
+                  })} />
+              </FieldRow>
+              <FieldRow label="Indicators">
+                <Dropdown value={settings.indicatorLastValue ? "value" : "hidden"}
+                  label="Indicator last value" width={150}
+                  onChange={(v) => set("indicatorLastValue", v === "value")}
+                  options={[{ value: "value", label: "Value" }, { value: "hidden", label: "Hidden" }]} />
+              </FieldRow>
+              {hasBidAsk && (
+                <FieldRow label="Bid and ask">
+                  <Dropdown value={settings.bidAskLines} label="Bid and ask lines" width={150}
+                    onChange={(v) => set("bidAskLines", v === "line" ? "line" : "hidden")}
+                    options={[{ value: "hidden", label: "Hidden" }, { value: "line", label: "Line" }]} />
+                  <Swatch label="Bid colour" value={settings.bidColor}
+                    onChange={(v) => set("bidColor", v)} />
+                  <Swatch label="Ask colour" value={settings.askColor}
+                    onChange={(v) => set("askColor", v)} />
+                </FieldRow>
+              )}
 
-              <Head>Time scale</Head>
-              <Row label="Date format">
-                <Select value={settings.dateFormat} label="Date format"
+              <Section>Time scale</Section>
+              <CheckRow label="Day of week on labels" checked={settings.dayOfWeekOnLabels}
+                onChange={(v) => set("dayOfWeekOnLabels", v)} />
+              {/*
+                R6 SC-5(a): the options were the LIBRARY's pattern tokens —
+                `dd MMM yy` — printed at a trader. Each option is now the date
+                the axis will draw, rendered through the same substitution.
+              */}
+              <FieldRow label="Date format">
+                <Dropdown value={settings.dateFormat} label="Date format" width={150}
                   onChange={(v) => set("dateFormat", v as DateFormatName)}
-                  options={DATE_FORMATS.map((f) => ({ value: f, label: f }))} />
-              </Row>
-              <Row label="Time hours format">
-                <Select value={settings.timeFormat24h ? "24" : "12"} label="Time hours format"
+                  options={DATE_FORMATS.map((f) => ({ value: f, label: dateFormatExample(f) }))} />
+              </FieldRow>
+              <FieldRow label="Time hours format">
+                <Dropdown value={settings.timeFormat24h ? "24" : "12"} label="Time hours format"
+                  width={100}
                   onChange={(v) => set("timeFormat24h", v === "24")}
                   options={[{ value: "24", label: "24-hours" }, { value: "12", label: "12-hours" }]} />
-              </Row>
-              <Row label="Bars to the right">
-                <NumberField value={settings.rightOffsetBars} min={0} max={200}
-                  onChange={(v) => set("rightOffsetBars", v)} label="Empty bars kept right of the newest bar" />
-              </Row>
+              </FieldRow>
             </>
           )}
 
           {tab === "canvas" && (
             <>
-              <Head>Grid lines</Head>
-              <Row label="Vertical grid lines">
-                <Toggle checked={settings.gridVertical} onChange={(v) => set("gridVertical", v)} label="Vertical grid lines" />
-              </Row>
-              <Row label="Horizontal grid lines">
-                <Toggle checked={settings.gridHorizontal} onChange={(v) => set("gridHorizontal", v)} label="Horizontal grid lines" />
-              </Row>
+              <Section>Chart basic styles</Section>
+              <FieldRow label="Background">
+                <Dropdown value={settings.backgroundGradient ? "gradient" : "solid"}
+                  label="Background" width={150}
+                  onChange={(v) => set("backgroundGradient", v === "gradient")}
+                  options={[{ value: "solid", label: "Solid" }, { value: "gradient", label: "Gradient" }]} />
+                <Swatch label="Background colour" allowTheme value={settings.backgroundColor}
+                  onChange={(v) => set("backgroundColor", v)} />
+              </FieldRow>
               {/*
-                TVP8: the grid had two on/off switches and no appearance at
-                all. An empty colour means the theme's own, which is what every
-                chart had before this existed.
+                R6 C-1: each direction carries its own appearance, as the
+                reference does and as the engine has always accepted. The
+                `Grid appearance` row and its separate `Theme colour` button are
+                gone — "Theme" is the first cell of the palette now.
               */}
-              <Row label="Grid appearance">
-                <Swatch value={settings.gridColor || "#2a2a2a"}
-                  onChange={(v) => set("gridColor", v)} label="Grid colour" />
-                <Select narrow value={settings.gridStyle} label="Grid line style"
-                  onChange={(v) => set("gridStyle", v as LineStyleName)}
-                  options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
-                {settings.gridColor && (
-                  <button onClick={() => set("gridColor", "")}
-                    className="tvc-control flex h-[26px] items-center rounded px-2 text-xs text-ink-muted hover:text-ink">
-                    Theme colour
-                  </button>
-                )}
-              </Row>
-              <Row label="Crosshair">
-                <Toggle checked={settings.showCrosshair} onChange={(v) => set("showCrosshair", v)} label="Crosshair" />
-                {settings.showCrosshair && (
-                  <>
-                    <Swatch value={settings.crosshairColor || "#9598a1"}
-                      onChange={(v) => set("crosshairColor", v)} label="Crosshair colour" />
-                    <NumberField value={settings.crosshairWidth} min={1} max={4} width="narrow"
-                      onChange={(v) => set("crosshairWidth", v)} label="Crosshair width" />
-                    <Select narrow value={settings.crosshairStyle} label="Crosshair style"
-                      onChange={(v) => set("crosshairStyle", v as LineStyleName)}
-                      options={[{ value: "solid", label: "Solid" }, { value: "dotted", label: "Dotted" }, { value: "dashed", label: "Dashed" }]} />
-                  </>
-                )}
-              </Row>
+              <CheckRow label="Vertical grid lines" checked={settings.gridVertical}
+                onChange={(v) => set("gridVertical", v)}>
+                <LineStyleButton label="Vertical grid line appearance" allowTheme
+                  disabled={!settings.gridVertical}
+                  color={settings.gridVertColor} width={1} style={settings.gridVertStyle}
+                  onChange={(next) => setMany({
+                    gridVertColor: next.color, gridVertStyle: next.style,
+                  })} />
+              </CheckRow>
+              <CheckRow label="Horizontal grid lines" checked={settings.gridHorizontal}
+                onChange={(v) => set("gridHorizontal", v)}>
+                <LineStyleButton label="Horizontal grid line appearance" allowTheme
+                  disabled={!settings.gridHorizontal}
+                  color={settings.gridHorzColor} width={1} style={settings.gridHorzStyle}
+                  onChange={(next) => setMany({
+                    gridHorzColor: next.color, gridHorzStyle: next.style,
+                  })} />
+              </CheckRow>
+              <CheckRow label="Crosshair" checked={settings.showCrosshair}
+                onChange={(v) => set("showCrosshair", v)}>
+                <LineStyleButton label="Crosshair appearance" allowTheme
+                  disabled={!settings.showCrosshair}
+                  color={settings.crosshairColor}
+                  width={settings.crosshairWidth}
+                  style={settings.crosshairStyle}
+                  onChange={(next) => setMany({
+                    crosshairColor: next.color,
+                    crosshairWidth: next.width,
+                    crosshairStyle: next.style,
+                  })} />
+              </CheckRow>
+              {/*
+                R6 C-2: a mode, not a switch — hidden, the instrument's name, or
+                only while the pane is replaying, which is what makes a replay
+                screenshot say that it is one.
+              */}
+              <FieldRow label="Watermark">
+                <Dropdown value={settings.watermarkMode} label="Watermark" width={180}
+                  onChange={(v) => setMany({
+                    watermarkMode: v as WatermarkMode,
+                    // Kept in step with the boolean the apply site still reads;
+                    // the two collapse into one key when it lands.
+                    watermark: v === "symbol",
+                  })}
+                  options={[
+                    { value: "hidden", label: "Hidden" },
+                    { value: "symbol", label: "Symbol" },
+                    { value: "replay", label: "Replay mode" },
+                  ]} />
+                <Swatch label="Watermark colour" allowTheme value={settings.watermarkColor}
+                  onChange={(v) => set("watermarkColor", v)} />
+              </FieldRow>
 
-              <Head>Background</Head>
-              <Row label="Gradient background" suffix="A vertical wash">
-                <Toggle checked={settings.backgroundGradient}
-                  onChange={(v) => set("backgroundGradient", v)} label="Gradient background" />
-              </Row>
-              <Row label="Symbol watermark" suffix="The ticker behind the bars">
-                <Toggle checked={settings.watermark}
-                  onChange={(v) => set("watermark", v)} label="Symbol watermark" />
-              </Row>
-
-              <Head>Scales</Head>
-              <Row label="Text size">
-                <Select value={String(settings.scaleFontSize)} label="Axis text size"
+              <Section>Scales</Section>
+              <FieldRow label="Text">
+                <Swatch label="Scale text colour" allowTheme value={settings.scaleTextColor}
+                  onChange={(v) => set("scaleTextColor", v)} />
+                <Dropdown value={String(settings.scaleFontSize)} label="Scale text size" width={100}
                   onChange={(v) => set("scaleFontSize", Number(v))}
                   options={[10, 11, 12, 13, 14, 16].map((n) => ({ value: String(n), label: String(n) }))} />
-              </Row>
+              </FieldRow>
+              <FieldRow label="Lines">
+                <Swatch label="Scale line colour" allowTheme value={settings.scaleLineColor}
+                  onChange={(v) => set("scaleLineColor", v)} />
+              </FieldRow>
 
-              <Head>Margins</Head>
-              <Row label="Top" suffix="%">
-                <NumberField value={settings.marginTopPct} min={0} max={50}
+              <Section>Margins</Section>
+              <FieldRow label="Top">
+                <NumberField value={settings.marginTopPct} min={0} max={50} unit="%"
                   onChange={(v) => set("marginTopPct", v)} label="Top margin, percent" />
-              </Row>
-              <Row label="Bottom" suffix="%">
-                <NumberField value={settings.marginBottomPct} min={0} max={50}
+              </FieldRow>
+              <FieldRow label="Bottom">
+                <NumberField value={settings.marginBottomPct} min={0} max={50} unit="%"
                   onChange={(v) => set("marginBottomPct", v)} label="Bottom margin, percent" />
-              </Row>
-              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
-                {/*
-                  TVP8: this used to say the colours follow the theme, full stop.
-                  That stopped being true the moment the grid and crosshair got
-                  their own wells, and a sentence that is no longer true is
-                  worse than no sentence — it is the dialog lying about itself.
-                */}
-                Left alone, the grid and crosshair follow the active Trading Scene theme, so
-                light and dark stay consistent across the whole workspace. Choosing a colour
-                here pins it for this chart; “Theme colour” hands it back.
-              </p>
+              </FieldRow>
+              {/*
+                R6 SC-5(c): `Bars to the right` is a MARGIN, and the reference
+                files it here with Top and Bottom rather than on the scales tab.
+              */}
+              <FieldRow label="Right">
+                <NumberField value={settings.rightOffsetBars} min={0} max={200} unit="bars"
+                  onChange={(v) => set("rightOffsetBars", v)}
+                  label="Empty bars kept right of the newest bar" />
+              </FieldRow>
             </>
           )}
 
           {tab === "trading" && (
             <>
-              <Head>Appearance</Head>
-              <Row label="Positions and orders">
-                <Toggle checked={settings.showTrading} onChange={(v) => set("showTrading", v)} label="Positions and orders" />
-              </Row>
-              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
-                Trading overlays are read-only chart annotations. Orders remain prepared in
-                the paper / demo ticket and are never submitted from chart settings.
-              </p>
+              <Section>Appearance</Section>
+              <CheckRow label="Positions and orders" checked={settings.showTrading}
+                onChange={(v) => set("showTrading", v)}
+                note="Orders are placed from the ticket; the chart shows them." />
+              <CheckRow label="Profit and loss value" checked={settings.showPnlValue}
+                onChange={(v) => set("showPnlValue", v)} />
+              {/*
+                R6 T-1: the arrows and their `BUY 77,600` text are a different
+                thing on the chart from the position and order LINES, and were
+                gated together under one switch.
+              */}
+              <CheckRow label="Execution marks" checked={settings.showExecutionMarks}
+                onChange={(v) => set("showExecutionMarks", v)} />
+              <CheckRow label="Execution labels" checked={settings.showExecutionLabels} indent
+                disabled={!settings.showExecutionMarks}
+                onChange={(v) => set("showExecutionLabels", v)}
+                note={`Labels hide when more than ${TRADE_LABEL_LIMIT} marks are in view.`} />
             </>
           )}
 
           {tab === "alerts" && (
             <>
-              <Head>Chart line visibility</Head>
-              <Row label="Fired-alert markers">
-                <Toggle checked={settings.showAlerts} onChange={(v) => set("showAlerts", v)} label="Fired-alert markers" />
-              </Row>
-              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
-                Alert creation and automation remain available from their normal toolbar
-                and rail actions.
-              </p>
+              <Section>Chart line visibility</Section>
+              {/*
+                R6 A-1: the pane already reads this instrument's alerts and
+                already draws price lines; the LEVELS an alert is armed at were
+                the one thing it did not draw. Colour comes from `alertColor`
+                per alert rather than from one swatch, which is more truthful
+                than the reference's single colour.
+              */}
+              <CheckRow label="Alert lines" checked={settings.showAlertLines}
+                onChange={(v) => set("showAlertLines", v)} />
+              <CheckRow label="Only active alerts" checked={settings.onlyActiveAlerts} indent
+                disabled={!settings.showAlertLines}
+                onChange={(v) => set("onlyActiveAlerts", v)} />
+              <CheckRow label="Fired-alert markers" checked={settings.showAlerts}
+                onChange={(v) => set("showAlerts", v)} />
             </>
           )}
 
           {tab === "events" && (
             <>
-              <Head>Events</Head>
-              <Row label="Strategy and alert events">
-                <Toggle checked={settings.showEvents} onChange={(v) => set("showEvents", v)} label="Strategy and alert events" />
-              </Row>
-              <p className="pt-2 text-xs leading-relaxed text-ink-faint">
-                Events come from the alert runner and from strategy results. Trading Scene
-                does not carry an economic calendar or a news feed, so those rows the
-                reference offers are not shown rather than shown empty.
-              </p>
+              <Section>Events</Section>
+              {/*
+                Alerts have their own tab, so "alert" in this label was wrong:
+                `showEvents` gates the markers whose category is NOT an alert.
+              */}
+              <CheckRow label="Strategy and script events" checked={settings.showEvents}
+                onChange={(v) => set("showEvents", v)} />
             </>
           )}
         </section>
@@ -671,86 +845,192 @@ export function ChartSettingsModal({
 
 /* ── the dialog's grammar, once ─────────────────────────────────────────── */
 
-function Head({ children }: { children: React.ReactNode }) {
+/** An 11px uppercase title in a 32px row, across both columns. */
+function Section({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-ink-faint first:pt-0">
+    <h3
+      style={{ gridColumn: "1 / -1" }}
+      className="flex h-8 items-end pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
+    >
       {children}
     </h3>
   );
 }
 
-/** Label left, controls right, on the reference's 50px pitch. */
-function Row({ label, suffix, children }: {
-  label: string; suffix?: string; children: React.ReactNode;
-}) {
+/** The 12px muted line under a row — the dialog's only prose form. */
+function Note({ children, indent }: { children: React.ReactNode; indent: boolean }) {
   return (
-    <div className="flex min-h-[50px] items-center gap-3">
-      <span className="min-w-[188px] shrink-0 text-sm text-ink">{label}</span>
-      {/* TVP8: wraps. A row that outgrows the column must get taller, never
-          scroll sideways — a dialog with a horizontal scrollbar is a bug. */}
-      <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>
-      {suffix && <span className="text-sm text-ink-faint">{suffix}</span>}
+    <div
+      style={{ gridColumn: "1 / -1", paddingLeft: indent ? 54 : 28 }}
+      className="-mt-3 pb-3 text-xs leading-[18px] text-ink-faint"
+    >
+      {children}
     </div>
   );
 }
 
-function Toggle({ checked, onChange, label }: {
-  checked: boolean; onChange: (value: boolean) => void; label: string;
+/**
+ * `[checkbox] label` at the content edge, with any trailing controls in the
+ * value column — the reference's boolean row, and the one this dialog did not
+ * have. Both cells are always emitted: a grid places children in order, so a
+ * row that skipped its second cell would pull the NEXT row's label into
+ * column two.
+ */
+function CheckRow({ label, checked, onChange, children, disabled = false, indent = false, note }: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  children?: React.ReactNode;
+  disabled?: boolean;
+  /** A dependent row: indented 26px under its parent. */
+  indent?: boolean;
+  note?: string;
 }) {
   return (
-    <input type="checkbox" checked={checked} aria-label={label}
-      onChange={(e) => onChange(e.target.checked)} className="h-[18px] w-[18px] accent-accent" />
+    <>
+      <label
+        style={{ paddingLeft: indent ? 26 : 0 }}
+        className={`flex min-h-[50px] cursor-pointer items-center gap-2.5 text-sm ${
+          disabled ? "cursor-not-allowed text-ink-faint" : "text-ink"
+        }`}
+      >
+        <Checkbox checked={checked} onChange={onChange} label={label} disabled={disabled} />
+        <span className="whitespace-nowrap">{label}</span>
+      </label>
+      <div className="flex min-h-[50px] items-center gap-2">{children}</div>
+      {note !== undefined && <Note indent={indent}>{note}</Note>}
+    </>
   );
 }
 
-function Select({ value, onChange, options, label, narrow = false }: {
-  value: string; onChange: (value: string) => void; label: string;
-  options: { value: string; label: string }[];
-  /*
-   * TVP8: a second width, for the rows that carry several controls.
-   *
-   * "Last value line" is a toggle, a swatch, a width and a style — five
-   * controls beside a 188px label — and a 180px select pushed the row past the
-   * dialog's content column, which grew a horizontal scrollbar and cut the
-   * style dropdown in half. Measured, not guessed: the content column is 482px
-   * and the row wanted about 520.
-   */
-  narrow?: boolean;
+/** A label in column one, controls in column two. */
+function FieldRow({ label, children, indent = false, note }: {
+  label: string;
+  children: React.ReactNode;
+  indent?: boolean;
+  note?: string;
 }) {
   return (
-    <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)}
-      className={`h-[34px] ${narrow ? "w-[104px]" : "w-[180px]"} rounded-md border border-control-border bg-transparent px-2 text-sm text-ink`}>
-      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  );
-}
-
-function NumberField({ value, onChange, min, max, step = 1, label, width = "default" }: {
-  value: number; onChange: (value: number) => void;
-  min: number; max: number; step?: number; label: string;
-  /** `narrow` for a 1–4 width beside other controls; see `Select`. */
-  width?: "default" | "narrow";
-}) {
-  return (
-    <input type="number" value={value} min={min} max={max} step={step} aria-label={label}
-      onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || 0)))}
-      className={`h-[34px] ${width === "narrow" ? "w-[56px]" : "w-[86px]"} rounded-md border border-control-border bg-transparent px-2 text-sm tabular text-ink`} />
+    <>
+      <span
+        style={{ paddingLeft: indent ? 26 : 0 }}
+        className="flex min-h-[50px] items-center whitespace-nowrap text-sm text-ink"
+      >
+        {label}
+      </span>
+      <div className="flex min-h-[50px] items-center gap-2">{children}</div>
+      {note !== undefined && <Note indent={indent}>{note}</Note>}
+    </>
   );
 }
 
 /**
- * A colour, as a colour.
+ * The footer's one control, on the left, as the reference has it.
  *
- * `<input type="color">` rather than a palette popover: it is the platform's
- * own picker, it is keyboard-reachable without any code here, and the reference
- * opens a picker from a swatch of exactly this size.
+ * It was two native `<select>`s — `Template` and `Defaults` — whose options
+ * were commands (`__save`, `__delete:<name>`) and whose value was always `""`:
+ * a menu wearing a field's clothes, twice. E1-06's rule is kept: dismissing
+ * this menu does nothing, and the destructive item is a named row rather than
+ * whatever the escape key resolves to.
  */
-function Swatch({ value, onChange, label }: {
-  value: string; onChange: (value: string) => void; label: string;
+function TemplateMenu({
+  templates, onApply, onSaveAs, onApplyDefaults, onSaveAsDefault, onDelete,
+}: {
+  templates: readonly ChartSettingsTemplate[];
+  onApply: (name: string) => void;
+  onSaveAs: () => void;
+  onApplyDefaults: () => void;
+  onSaveAsDefault: () => void;
+  onDelete: (name: string) => void;
 }) {
+  /*
+   * The registry, not a private boolean: only one popover in the product is
+   * open at a time (`lib/popoverGroup`), which is what stops this menu and a
+   * swatch popover from being open together in the same footer.
+   */
+  const [open, setOpen] = useExclusivePopover("chart-settings-template");
+  const boxRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      // The dialog behind must not close with it.
+      e.stopPropagation();
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open, setOpen]);
+
+  useEffect(() => { if (open) menuItems(menuRef.current)[0]?.focus(); }, [open]);
+
+  const row = "tvc-menu-row px-2.5 text-left text-sm text-ink";
   return (
-    <input type="color" value={value} aria-label={label}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-[26px] w-[34px] cursor-pointer rounded border border-control-border bg-transparent p-0.5" />
+    <div ref={boxRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Chart settings template"
+        onClick={() => setOpen(!open)}
+        className="tvc-control flex h-[34px] w-[100px] items-center justify-between rounded-md px-3 text-sm text-ink-muted hover:text-ink"
+      >
+        Template
+        <CaretGlyph size={10} />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label="Chart settings template"
+          onKeyDown={(e) => {
+            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+              e.preventDefault();
+              moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+            }
+          }}
+          className="tvc-menu tvc-menu--compact absolute bottom-[calc(100%+6px)] left-0 z-50 w-[240px]"
+        >
+          <button type="button" role="menuitem" className={row}
+            onClick={() => { setOpen(false); onSaveAs(); }}>
+            Save as…
+          </button>
+          <button type="button" role="menuitem" className={row}
+            onClick={() => { setOpen(false); onApplyDefaults(); }}>
+            Apply defaults
+          </button>
+          <button type="button" role="menuitem" className={row}
+            onClick={() => { setOpen(false); onSaveAsDefault(); }}>
+            Save as my default
+          </button>
+          {templates.length > 0 && <div className="tvc-menu-sep" />}
+          {templates.map((t) => (
+            <div key={t.name} className={`${row} justify-between gap-2`}>
+              <button type="button" role="menuitem" className="min-w-0 flex-1 truncate text-left"
+                onClick={() => { setOpen(false); onApply(t.name); }}>
+                {t.name}
+              </button>
+              <button type="button" aria-label={`Delete ${t.name}`}
+                className="tvc-control flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint hover:text-ink"
+                onClick={() => { setOpen(false); onDelete(t.name); }}>
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+                  strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+                  <path d="M2.5 3.5h9M5.5 3.5V2h3v1.5M3.8 3.5l.6 8h5.2l.6-8M6 6v4M8 6v4" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

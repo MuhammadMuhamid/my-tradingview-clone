@@ -64,8 +64,14 @@
   --ts-ink-muted: #a8a8a8;
   --ts-ink-faint: #8c8c8c;
   --ts-accent: #4f8cff;
-  --ts-positive: #2ebd85;
-  --ts-negative: #f6465d;
+  /* R7-15: the reference's dark up/down, measured on its watchlist. */
+  --ts-positive: #22ab94;
+  --ts-negative: #f7525f;
+  /* R7-07: the details block's `Market open` line is a stronger green than
+     a change cell, and its News card is a lavender tint with its own ink. */
+  --ts-positive-strong: #089981;
+  --ts-news-tint: rgba(179, 136, 255, 0.16);
+  --ts-news-ink: #b388ff;
   --ts-caution: #f0b90b;
   --ts-bg-rgb: 46 46 46;
   --ts-surface-rgb: 15 15 15;
@@ -171,6 +177,10 @@
   --ts-accent: #2962ff;
   --ts-positive: #089981;
   --ts-negative: #f23645;
+  /* sampled from `tradingview/tv-shell-light-btc1h.png`: card rgb(231,225,243) on white, label ink rgb(69,39,160) */
+  --ts-positive-strong: #089981;
+  --ts-news-tint: rgba(69, 39, 160, 0.1);
+  --ts-news-ink: #4527a0;
   --ts-caution: #946200;
   --ts-bg-rgb: 235 235 235;
   --ts-surface-rgb: 255 255 255;
@@ -324,14 +334,30 @@
   background-color: transparent;
   pointer-events: none;
 }
-:is(.tv-workstation, .ts-app) .tvc-control:hover:not(:disabled):not([aria-disabled="true"])::before {
+/*
+ * ── TVP8 R1b-07: ACTIVE must win over HOVER ────────────────────────────────
+ *
+ * `:hover:not(:disabled):not([aria-disabled="true"])` scores (0,5,1) and the
+ * `[aria-pressed="true"]` rule below scored (0,3,1), so reaching for the
+ * interval you are already on DIMMED it — the armed chip went from rgb(61) to
+ * rgb(46) under the pointer, darker rather than lighter, on the two controls a
+ * trader touches most. The guards are `:where()`d to zero, and the active
+ * rules carry their own `:hover` variants, so the armed chip wins on
+ * specificity as well as on source order.
+ */
+:is(.tv-workstation, .ts-app) .tvc-control:hover:where(:not(:disabled)):where(:not([aria-disabled="true"]))::before {
   background-color: var(--ts-state-hover);
 }
 :is(.tv-workstation, .ts-app) .tvc-control[aria-pressed="true"]::before,
 :is(.tv-workstation, .ts-app) .tvc-control[aria-checked="true"]::before,
 :is(.tv-workstation, .ts-app) .tvc-control[aria-selected="true"]::before,
 :is(.tv-workstation, .ts-app) .tvc-control[aria-expanded="true"]::before,
-:is(.tv-workstation, .ts-app) .tvc-control[data-active="true"]::before {
+:is(.tv-workstation, .ts-app) .tvc-control[data-active="true"]::before,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-pressed="true"]:hover::before,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-checked="true"]:hover::before,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-selected="true"]:hover::before,
+:is(.tv-workstation, .ts-app) .tvc-control[aria-expanded="true"]:hover::before,
+:is(.tv-workstation, .ts-app) .tvc-control[data-active="true"]:hover::before {
   background-color: var(--ts-state-active);
 }
 /* A rail button's chip is narrower than its 52px hit zone, so the rail reads
@@ -340,10 +366,24 @@
 :is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control::before {
   inset: 2px 9px;
 }
+/* R7-03: the right rail's cells are 46×46 and its chip is the reference's
+   38×38, so the chip sits 4px inside the cell on every side. */
+:is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control::before {
+  inset: 4px;
+}
+/*
+ * R1b-01: 0.47, not 0.4.
+ *
+ * The number is a consequence of the ink change above it. A disabled control
+ * used to be 0.4 of rgb(168) over the bar's rgb(15) and landed at rgb(76); the
+ * reference's disabled undo/redo measure rgb(110). Now that the ink at rest is
+ * rgb(219) the same 0.4 would land at rgb(96), and 0.47 lands at rgb(111) —
+ * legibly off, rather than nearly gone.
+ */
 :is(.tv-workstation, .ts-app) .tvc-control:disabled,
 :is(.tv-workstation, .ts-app) .tvc-control[aria-disabled="true"] {
   cursor: not-allowed;
-  opacity: 0.4;
+  opacity: 0.47;
 }
 
 /*
@@ -387,6 +427,12 @@
   margin: 0 var(--ts-workstation-popover-padding);
   border-radius: var(--ts-workstation-radius);
   background-color: transparent;
+}
+/* R7-11: `width: auto` above outranks Tailwind's `w-full`, and a <button>
+   with `width: auto` shrinks to its text — so a button row in a list menu
+   was a short chip. A button row is as wide as the menu minus its gutters. */
+:is(.tv-workstation, .ts-app) button.tvc-menu-row {
+  width: calc(100% - var(--ts-workstation-popover-padding) * 2);
 }
 :is(.tv-workstation, .ts-app) .tvc-menu-row:hover:not(:disabled):not([aria-disabled="true"]),
 :is(.tv-workstation, .ts-app) .tvc-menu-row[data-highlighted="true"] {

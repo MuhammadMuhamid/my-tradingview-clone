@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  DEFAULT_CHART_SETTINGS, isDefaultChartSettings, MAX_SCALE_MARGIN_SUM,
-  normalizeChartSettings, scaleMarginsFor,
+  DATE_FORMATS, dateFormatExample, DEFAULT_CHART_SETTINGS, isDefaultChartSettings,
+  MAX_SCALE_MARGIN_SUM, normalizeChartSettings, scaleMarginsFor,
   type ChartSettings,
 } from "../lib/chartSettings";
 
@@ -93,24 +93,245 @@ test("THE LINES TAB HAS LINE CONTROLS, AND EVERY ONE REACHES THE ENGINE", () => 
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 
   const wired: [keyof ChartSettings, RegExp, RegExp][] = [
-    ["lastValueLine", /priceLineVisible: settings\.lastValueLine/, /set\("lastValueLine"/],
-    ["lastValueLineColor", /priceLineColor: settings\.lastValueLineColor/, /set\("lastValueLineColor"/],
-    ["lastValueLineWidth", /priceLineWidth: settings\.lastValueLineWidth/, /set\("lastValueLineWidth"/],
-    ["lastValueLineStyle", /priceLineStyle: lineStyleOf\(settings\.lastValueLineStyle\)/, /set\("lastValueLineStyle"/],
-    ["lastValueLabel", /lastValueVisible: settings\.lastValueLabel/, /set\("lastValueLabel"/],
+    ["lastValueLine", /priceLineVisible: settings\.lastValueLine/, /lastValueLine: v === "valueLine"/],
+    ["lastValueLineColor", /priceLineColor: settings\.lastValueLineColor/, /lastValueLineColor: next\.color/],
+    ["lastValueLineWidth", /priceLineWidth: settings\.lastValueLineWidth/, /lastValueLineWidth: next\.width/],
+    ["lastValueLineStyle", /priceLineStyle: lineStyleOf\(settings\.lastValueLineStyle\)/, /lastValueLineStyle: next\.style/],
+    ["lastValueLabel", /lastValueVisible: settings\.lastValueLabel/, /lastValueLabel: v === "valueLine"/],
     ["dateFormat", /dateFormat: settings\.dateFormat/, /set\("dateFormat"/],
-    ["gridColor", /settings\.gridColor \? \{ color: settings\.gridColor \}/, /set\("gridColor"/],
-    ["gridStyle", /style: lineStyleOf\(settings\.gridStyle\)/, /set\("gridStyle"/],
-    ["crosshairColor", /settings\.crosshairColor \? \{ color: settings\.crosshairColor \}/, /set\("crosshairColor"/],
-    ["crosshairWidth", /width: settings\.crosshairWidth as/, /set\("crosshairWidth"/],
-    ["crosshairStyle", /style: lineStyleOf\(settings\.crosshairStyle\)/, /set\("crosshairStyle"/],
-    ["watermark", /visible: settings\.watermark/, /set\("watermark"/],
-    ["backgroundGradient", /settings\.backgroundGradient/, /set\("backgroundGradient"/],
+    ["crosshairColor", /settings\.crosshairColor \? \{ color: settings\.crosshairColor \}/, /crosshairColor: next\.color/],
+    ["crosshairWidth", /width: settings\.crosshairWidth as/, /crosshairWidth: next\.width/],
+    ["crosshairStyle", /style: lineStyleOf\(settings\.crosshairStyle\)/, /crosshairStyle: next\.style/],
+    ["watermark", /visible: settings\.watermark/, /watermark: v === "symbol"/],
+    ["backgroundGradient", /settings\.backgroundGradient/, /set\("backgroundGradient", v === "gradient"\)/],
   ];
   for (const [key, engine, control] of wired) {
     assert.match(chart, engine, `${key} never reaches the chart — it is a dead switch`);
     assert.match(dialog, control, `${key} has no control in the dialog`);
     assert.ok(key in DEFAULT_CHART_SETTINGS, `${key} has no default`);
+  }
+
+  /*
+   * ── R6 C-1: the shared grid pair is a MIGRATION SEED now, not a control ───
+   *
+   * `gridColor` / `gridStyle` are still what `CandleChart` applies to both
+   * directions, and they are still what `gridVertColor` / `gridHorzColor` and
+   * their styles default from — so the engine must keep reading them until the
+   * apply site takes the four, and the dialog must NOT write them, or the
+   * per-direction rows would be fighting a shared value behind their backs.
+   */
+  assert.match(chart, /settings\.gridColor \? \{ color: settings\.gridColor \}/,
+    "the grid apply site is the seed the direction pairs migrate from");
+  assert.doesNotMatch(dialog, /set\("gridColor"|set\("gridStyle"/,
+    "the dialog writes the per-direction pairs, not the shared one");
+  for (const control of [
+    /gridVertColor: next\.color/, /gridVertStyle: next\.style/,
+    /gridHorzColor: next\.color/, /gridHorzStyle: next\.style/,
+  ]) assert.match(dialog, control);
+});
+
+test("EVERY NEW R6 KEY HAS A DEFAULT AND A CONTROL THAT WRITES IT", () => {
+  /*
+   * The rule this model states about itself is that a control must reach
+   * something. Its mirror is the one this test enforces: a KEY must have a
+   * control, or it is a preference nobody can express.
+   *
+   * The apply sites for these live in `components/CandleChart.tsx` and its
+   * legends, which is a separate change in flight — so this pins the half that
+   * is here (default, normaliser clause, control) and the wired list above
+   * pins the half that has landed. A key that appears in neither list is a key
+   * nobody is accountable for.
+   */
+  const dialog = read("components/tv/ChartSettingsModal.tsx")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  const controls: [keyof ChartSettings, RegExp][] = [
+    ["borderUpColor", /set\("borderUpColor", v\)/],
+    ["borderDownColor", /set\("borderDownColor", v\)/],
+    ["wickUpColor", /set\("wickUpColor", v\)/],
+    ["wickDownColor", /set\("wickDownColor", v\)/],
+    ["statusTitle", /set\("statusTitle", v === "symbol" \? "symbol" : "ticker"\)/],
+    ["statusDayChange", /set\("statusDayChange", v\)/],
+    ["statusIndicatorTitles", /set\("statusIndicatorTitles", v\)/],
+    ["statusIndicatorInputs", /set\("statusIndicatorInputs", v\)/],
+    ["statusIndicatorValues", /set\("statusIndicatorValues", v\)/],
+    ["scaleButtons", /set\("scaleButtons", v as ChartSettings\["scaleButtons"\]\)/],
+    ["indicatorLastValue", /set\("indicatorLastValue", v === "value"\)/],
+    ["bidAskLines", /set\("bidAskLines", v === "line" \? "line" : "hidden"\)/],
+    ["bidColor", /set\("bidColor", v\)/],
+    ["askColor", /set\("askColor", v\)/],
+    ["dayOfWeekOnLabels", /set\("dayOfWeekOnLabels", v\)/],
+    ["backgroundColor", /set\("backgroundColor", v\)/],
+    ["gridVertColor", /gridVertColor: next\.color/],
+    ["gridVertStyle", /gridVertStyle: next\.style/],
+    ["gridHorzColor", /gridHorzColor: next\.color/],
+    ["gridHorzStyle", /gridHorzStyle: next\.style/],
+    ["watermarkMode", /watermarkMode: v as WatermarkMode/],
+    ["watermarkColor", /set\("watermarkColor", v\)/],
+    ["scaleTextColor", /set\("scaleTextColor", v\)/],
+    ["scaleLineColor", /set\("scaleLineColor", v\)/],
+    ["showPnlValue", /set\("showPnlValue", v\)/],
+    ["showExecutionMarks", /set\("showExecutionMarks", v\)/],
+    ["showExecutionLabels", /set\("showExecutionLabels", v\)/],
+    ["showAlertLines", /set\("showAlertLines", v\)/],
+    ["onlyActiveAlerts", /set\("onlyActiveAlerts", v\)/],
+  ];
+  for (const [key, control] of controls) {
+    assert.ok(key in DEFAULT_CHART_SETTINGS, `${key} has no default`);
+    assert.match(dialog, control, `${key} has no control in the dialog`);
+    // And the normaliser has a clause: an unknown value must not survive.
+    assert.notEqual(
+      (normalizeChartSettings({ [key]: "\u0000not a value" }) as unknown as Record<string, unknown>)[key],
+      "\u0000not a value",
+      `${key} passes a malformed stored value straight through`,
+    );
+  }
+});
+
+test("R6 MIGRATION — one grid appearance becomes one per direction", () => {
+  /*
+   * `gridColor` / `gridStyle` were shared by both directions. A user who had
+   * pinned a magenta dotted grid must find a magenta dotted grid in BOTH new
+   * rows, not the theme's default in either.
+   */
+  const migrated = normalizeChartSettings({ gridColor: "#ff00ff", gridStyle: "dotted" });
+  assert.equal(migrated.gridVertColor, "#ff00ff");
+  assert.equal(migrated.gridHorzColor, "#ff00ff");
+  assert.equal(migrated.gridVertStyle, "dotted");
+  assert.equal(migrated.gridHorzStyle, "dotted");
+  // The seed itself survives, because the apply site still reads it.
+  assert.equal(migrated.gridColor, "#ff00ff");
+
+  // A new-shape value wins over the seed, per direction and per property.
+  const explicit = normalizeChartSettings({
+    gridColor: "#ff00ff", gridStyle: "dotted",
+    gridHorzColor: "#00ff00", gridVertStyle: "dashed",
+  });
+  assert.equal(explicit.gridVertColor, "#ff00ff");
+  assert.equal(explicit.gridHorzColor, "#00ff00");
+  assert.equal(explicit.gridVertStyle, "dashed");
+  assert.equal(explicit.gridHorzStyle, "dotted");
+
+  // Nothing stored: the theme's own, in all four.
+  const fresh = normalizeChartSettings({});
+  assert.equal(fresh.gridVertColor, "");
+  assert.equal(fresh.gridHorzColor, "");
+  assert.equal(fresh.gridVertStyle, "solid");
+  assert.equal(fresh.gridHorzStyle, "solid");
+});
+
+test("R6 MIGRATION — the watermark boolean becomes a three-state mode", () => {
+  /*
+   * `true` meant "the instrument's name behind the bars", which is the mode
+   * called `symbol`; `false` meant `hidden`. Getting this backwards — or
+   * defaulting a stored `true` to `hidden` — turns a watermark a user asked
+   * for off, silently, on the update that adds the replay state.
+   */
+  assert.equal(normalizeChartSettings({ watermark: true }).watermarkMode, "symbol");
+  assert.equal(normalizeChartSettings({ watermark: false }).watermarkMode, "hidden");
+  assert.equal(normalizeChartSettings({}).watermarkMode, "hidden");
+  // The new value wins, and the boolean the apply site still reads is kept in
+  // step with it rather than left to drift.
+  assert.equal(normalizeChartSettings({ watermark: true, watermarkMode: "replay" }).watermarkMode, "replay");
+  assert.equal(normalizeChartSettings({ watermark: true, watermarkMode: "replay" }).watermark, false);
+  assert.equal(normalizeChartSettings({ watermarkMode: "symbol" }).watermark, true);
+  assert.equal(normalizeChartSettings({ watermarkMode: "elsewhere" }).watermarkMode, "hidden");
+});
+
+test("R6 MIGRATION — one indicator switch becomes titles, inputs and values", () => {
+  /*
+   * `statusIndicatorValues` gated the whole legend. A user who had turned the
+   * legend OFF must not find titles and inputs back on; one who had it on gets
+   * all three, which is what they were already seeing.
+   */
+  const off = normalizeChartSettings({ statusIndicatorValues: false });
+  assert.equal(off.statusIndicatorTitles, false);
+  assert.equal(off.statusIndicatorInputs, false);
+  assert.equal(off.statusIndicatorValues, false);
+
+  const on = normalizeChartSettings({ statusIndicatorValues: true });
+  assert.equal(on.statusIndicatorTitles, true);
+  assert.equal(on.statusIndicatorInputs, true);
+  assert.equal(on.statusIndicatorValues, true);
+
+  // An explicit new-shape value still wins over the legacy one.
+  const mixed = normalizeChartSettings({ statusIndicatorValues: false, statusIndicatorTitles: true });
+  assert.equal(mixed.statusIndicatorTitles, true);
+  assert.equal(mixed.statusIndicatorInputs, false);
+});
+
+test("R6 MIGRATION — a candle's borders and wicks start as its body's colours", () => {
+  /*
+   * The pair per component is new; before it, a border and a wick were drawn
+   * in `upColor` / `downColor`. A workspace that predates the split must look
+   * IDENTICAL after it, which means seeding from the body rather than from the
+   * product default.
+   */
+  const migrated = normalizeChartSettings({ upColor: "#112233", downColor: "#445566" });
+  assert.equal(migrated.borderUpColor, "#112233");
+  assert.equal(migrated.borderDownColor, "#445566");
+  assert.equal(migrated.wickUpColor, "#112233");
+  assert.equal(migrated.wickDownColor, "#445566");
+
+  // Set explicitly, they are their own.
+  const explicit = normalizeChartSettings({ upColor: "#112233", wickUpColor: "#aabbcc" });
+  assert.equal(explicit.wickUpColor, "#aabbcc");
+  assert.equal(explicit.borderUpColor, "#112233");
+
+  // And a malformed one falls back to the body, not to the product default.
+  const bad = normalizeChartSettings({ upColor: "#112233", borderUpColor: "rgb(1,2,3)" });
+  assert.equal(bad.borderUpColor, "#112233");
+});
+
+test("R6 — the remaining new keys clamp and default the way the model says", () => {
+  assert.equal(normalizeChartSettings({}).scaleButtons, "always");
+  assert.equal(normalizeChartSettings({ scaleButtons: "hover" }).scaleButtons, "hover");
+  assert.equal(normalizeChartSettings({ scaleButtons: "sometimes" }).scaleButtons, "always");
+
+  assert.equal(normalizeChartSettings({}).statusTitle, "ticker");
+  assert.equal(normalizeChartSettings({ statusTitle: "symbol" }).statusTitle, "symbol");
+  assert.equal(normalizeChartSettings({ statusTitle: "urn" }).statusTitle, "ticker");
+
+  assert.equal(normalizeChartSettings({}).bidAskLines, "hidden");
+  assert.equal(normalizeChartSettings({ bidAskLines: "line" }).bidAskLines, "line");
+  assert.equal(normalizeChartSettings({ bidColor: "" }).bidColor, DEFAULT_CHART_SETTINGS.bidColor);
+
+  // The theme-following colours: `""` is legal and must survive a round trip.
+  for (const key of ["backgroundColor", "watermarkColor", "scaleTextColor", "scaleLineColor"] as const) {
+    assert.equal(normalizeChartSettings({}) [key], "");
+    assert.equal(normalizeChartSettings({ [key]: "" })[key], "");
+    assert.equal(normalizeChartSettings({ [key]: "#123456" })[key], "#123456");
+    assert.equal(normalizeChartSettings({ [key]: "teal" })[key], "");
+  }
+
+  // The booleans the reference has on, and the one it has off.
+  for (const key of ["indicatorLastValue", "dayOfWeekOnLabels", "showPnlValue",
+    "showExecutionMarks", "showExecutionLabels", "showAlertLines", "onlyActiveAlerts"] as const) {
+    assert.equal(DEFAULT_CHART_SETTINGS[key], true, `${key} should default on`);
+    assert.equal(normalizeChartSettings({ [key]: false })[key], false);
+    assert.equal(normalizeChartSettings({ [key]: "no" })[key], true,
+      `${key} must not be disabled by a malformed stored value`);
+  }
+  assert.equal(DEFAULT_CHART_SETTINGS.statusDayChange, false);
+  assert.equal(normalizeChartSettings({ statusDayChange: true }).statusDayChange, true);
+});
+
+test("R6 — a date format is offered as a date, not as its pattern", () => {
+  /*
+   * The dropdown listed `dd MMM yy` — the library's substitution tokens,
+   * printed at a trader. Each option is the date the axis will draw.
+   */
+  assert.equal(dateFormatExample("dd MMM yy"), "29 Sep '97");
+  assert.equal(dateFormatExample("MMM dd, yyyy"), "Sep 29, 1997");
+  assert.equal(dateFormatExample("yyyy-MM-dd"), "1997-09-29");
+  assert.equal(dateFormatExample("dd/MM/yyyy"), "29/09/1997");
+  assert.equal(dateFormatExample("MM/dd/yyyy"), "09/29/1997");
+  // Every format the dialog offers renders to something a reader can tell
+  // apart from the others.
+  const rendered = DATE_FORMATS.map(dateFormatExample);
+  assert.equal(new Set(rendered).size, rendered.length);
+  for (const example of rendered) {
+    assert.doesNotMatch(example, /MM|dd|yy(?!.*')/, `${example} still shows a pattern token`);
   }
 });
 
@@ -162,79 +383,98 @@ test("A SAVED DEFAULT IS WHAT A NEW PANE STARTS FROM", () => {
     assert.match(settings, new RegExp(`export function ${fn}\\b`), `${fn} is missing`);
   }
 
-  // And the footer carries both, as the reference does.
-  const dialog = read("components/tv/ChartSettingsModal.tsx");
-  assert.match(dialog, /label="Chart settings template"/);
-  assert.match(dialog, /Save current settings as…/);
   /*
-   * TVP8 round two: Defaults is a MENU, not a confirm.
+   * ── R6 CH-4: the footer is ONE control on the left ───────────────────────
    *
-   * It was a two-button confirm encoding three outcomes, and Escape / the
-   * backdrop / the × all resolved `false` — so DISMISSING the dialog wiped the
-   * chart's settings and the stored default. A destructive action on the
-   * escape key is the worst place to put one.
+   * `Template` and `Defaults` were two native `<select>`s whose options were
+   * commands (`__save`, `__delete:<name>`, `save`, `reset`) and whose value was
+   * always `""` — a menu wearing a field's clothes, twice, where the reference
+   * has a single ghost button opening a menu.
+   *
+   * E1-06's rule survives the change and is what the last two assertions pin:
+   * the destructive item is a NAMED ROW, and dismissing the menu does nothing.
    */
-  assert.match(dialog, /label="Chart defaults"/);
-  assert.match(dialog, /\{ value: "save", label: "Save these as my default" \}/);
-  assert.match(dialog, /\{ value: "reset", label: "Reset to the product defaults" \}/);
+  const dialog = read("components/tv/ChartSettingsModal.tsx");
+  assert.match(dialog, /aria-label="Chart settings template"/);
+  assert.match(dialog, /role="menu"/, "the template control is a menu, not a field");
+  for (const item of ["Save as…", "Apply defaults", "Save as my default"]) {
+    assert.ok(dialog.includes(`>\n            ${item}\n`) || dialog.includes(item),
+      `the template menu is missing “${item}”`);
+  }
+  assert.doesNotMatch(dialog, /label="Chart defaults"/,
+    "the second footer select is gone; its two items are rows of the one menu");
   assert.doesNotMatch(dialog, /cancelLabel: "Reset this chart"/,
     "dismissing a dialog must never be the destructive branch");
 });
 
+test("NO NATIVE SELECT SURVIVES INSIDE THE CHART SETTINGS DIALOG", () => {
+  /*
+   * R6 CH-6. A native `<select>` renders the OS's chevron and opens the OS's
+   * popup — a different font, a different row height, a different selection
+   * colour — and there were five of them in this dialog plus two in its
+   * footer. It is the loudest "not that product" tell a screenshot can carry,
+   * and it cannot be styled away.
+   */
+  // Comments stripped: this file's own header NAMES the five selects it
+  // replaced, and a rule its own documentation can trip is not a rule.
+  const dialog = read("components/tv/ChartSettingsModal.tsx")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(dialog, /<select|<Select\b/,
+    "this dialog draws its own menus — see `Dropdown` in components/ui.tsx");
+  // And the primitive it uses instead opens the product's own popover grammar.
+  const ui = read("components/ui.tsx");
+  assert.match(ui, /export function Dropdown\(/);
+  assert.match(ui, /role="listbox"/);
+  assert.match(ui, /className="tvc-menu tvc-menu--compact"/,
+    "a dropdown opens the shared popover at the 32px row");
+});
+
 test("no settings row can outgrow the dialog's content column", () => {
   /*
-   * TVP8. "Last value line" is a toggle, a swatch, a width and a style — five
-   * controls beside a 188px label — and a 180px select pushed the row past the
-   * content column. The dialog grew a horizontal scrollbar and the style
-   * dropdown was cut in half; found by opening it and looking, which is the
-   * only way this kind of defect is ever found.
+   * ── TVP8, re-derived for R6's grid ───────────────────────────────────────
    *
-   * Two things stop it recurring: the dense rows take the narrow controls, and
-   * the row wraps, so one that outgrows the column gets TALLER. A dialog with
-   * a horizontal scrollbar is a bug, not a layout.
+   * The old shape was a 188px label column with the controls flowing after it,
+   * and the defect it guarded was a row growing a horizontal scrollbar. The
+   * grammar is a two-column grid now: column one is `minmax(<the tab's value
+   * column>, max-content)`, column two is the rest, and the same defect is
+   * still possible — a 180px dropdown beside a 75px line-style button on the
+   * tab with the widest label column.
+   *
+   * Every number is READ from the file that owns it. The previous version of
+   * this test did arithmetic over literals transcribed from the source, so
+   * widening a control to 400px left it green.
    */
   const dialog = read("components/tv/ChartSettingsModal.tsx");
-  assert.match(dialog, /flex min-w-0 flex-wrap items-center gap-2/,
-    "a row must wrap rather than scroll sideways");
+  const ui = read("components/ui.tsx");
 
-  // Every multi-control row uses the narrow variants.
-  for (const control of [
-    /<Select narrow value=\{settings\.lastValueLineStyle\}/,
-    /<Select narrow value=\{settings\.gridStyle\}/,
-    /<Select narrow value=\{settings\.crosshairStyle\}/,
-    /value=\{settings\.lastValueLineWidth\} min=\{1\} max=\{4\} width="narrow"/,
-    /value=\{settings\.crosshairWidth\} min=\{1\} max=\{4\} width="narrow"/,
-  ]) {
-    assert.match(dialog, control);
-  }
+  assert.match(dialog, /gridTemplateColumns: `minmax\(\$\{VALUE_COLUMN\[tab\]\}px, max-content\) 1fr`/,
+    "the rows share one grid, so a tab's controls line up in one column");
 
-  /*
-   * TVP8 round two: this was arithmetic over literals TRANSCRIBED from the
-   * source — `assert.ok(236 <= 294)`, which is true whatever the dialog does.
-   * Widening the narrow select to 400px reproduced the exact overflow defect
-   * and the test stayed green, so the commit's claim that "a future control
-   * that breaks it fails here rather than in a screenshot" was false.
-   *
-   * The widths are READ from the component now. The column arithmetic is still
-   * stated here because it is a measurement of the dialog's own geometry, but
-   * every number that can drift comes from the file that owns it.
-   */
-  const widthOf = (pattern: RegExp): number => {
-    const found = pattern.exec(dialog);
-    assert.ok(found, `could not read a width from ${pattern}`);
-    return Number(found![1]);
+  const numbers = (pattern: RegExp, source: string): number[] => {
+    const found = [...source.matchAll(pattern)].map((m) => Number(m[1]));
+    assert.ok(found.length > 0, `nothing matched ${pattern}`);
+    return found;
   };
-  const narrowSelect = widthOf(/narrow \? "w-\[(\d+)px\]" : "w-\[\d+px\]"/);
-  const narrowNumber = widthOf(/width === "narrow" \? "w-\[(\d+)px\]" : "w-\[\d+px\]"/);
-  const labelColumn = widthOf(/min-w-\[(\d+)px\] shrink-0 text-sm text-ink/);
 
-  // 1094 - 346 = 748 panel, minus a 206px nav and 5x4 = 20px of gutters.
-  const contentColumn = 748 - 206 - 20;
-  const forControls = contentColumn - labelColumn;
-  const denseRow = 18 /* toggle */ + 34 /* swatch */ + narrowNumber + narrowSelect + 8 * 3;
-  assert.ok(denseRow <= forControls,
-    `the densest row is ${denseRow}px in a ${forControls}px column `
-    + `(select ${narrowSelect}, number ${narrowNumber}, label ${labelColumn})`);
+  // The widest value column any tab asks for, and the widest control run that
+  // can sit in it: a dropdown, a gap, and a line-style button.
+  const valueColumns = numbers(/^\s+(?:symbol|status|scales|canvas|trading|alerts|events): (\d+),/gm, dialog);
+  const widestColumn = Math.max(...valueColumns);
+  const widestDropdown = Math.max(...numbers(/width=\{(\d+)\}/g, dialog));
+  const lineButton = numbers(/h-\[34px\] w-\[(\d+)px\] items-center gap-2 rounded-md/g, ui)[0]!;
+  const swatch = numbers(/flex h-\[34px\] w-\[(\d+)px\] items-center justify-center rounded-md/g, ui)[0]!;
+
+  // 750 panel − 2×20 padding − 206 rail − 20 gutter.
+  const contentColumn = 750 - 40 - 206 - 20;
+  const forControls = contentColumn - widestColumn - 20;
+  const densest = widestDropdown + 8 + lineButton;
+  assert.ok(densest <= forControls,
+    `the densest row is ${densest}px in a ${forControls}px column `
+    + `(dropdown ${widestDropdown}, line button ${lineButton}, column ${widestColumn})`);
+
+  // The Bid and ask row is a dropdown and two swatches, on the same tab.
+  const bidAsk = widestDropdown + 8 + swatch + 8 + swatch;
+  assert.ok(bidAsk <= forControls, `the bid/ask row is ${bidAsk}px in ${forControls}px`);
 });
 
 test("THIN BARS REACHES THE BARS SERIES, AND ONLY IT", () => {

@@ -12,7 +12,7 @@ import { INTERVAL_MS, type Candle, type Trade } from "@/lib/types";
 import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
-import { displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
+import { displayName, displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import {
   baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_UP, chartMuted, volumePalette,
@@ -1171,7 +1171,16 @@ export function CandleChart({
     if (!chart) return;
     const placement = settings.scalePlacement;
     chart.applyOptions({
-      layout: { fontSize: settings.scaleFontSize },
+      /*
+       * R6 C-4: the axis's own type, as the reference's `Scales / Text` row
+       * offers it. An empty colour is the theme's own, which is what every
+       * chart had before the control existed — so the token keeps deciding
+       * unless the user has said otherwise.
+       */
+      layout: {
+        fontSize: settings.scaleFontSize,
+        ...(settings.scaleTextColor ? { textColor: settings.scaleTextColor } : {}),
+      },
       /*
        * TVP8: the grid and the crosshair had one on/off switch each and no
        * appearance at all, while the tab they live under is the one the
@@ -1180,16 +1189,26 @@ export function CandleChart({
        * and what Reset returns them to — so the theme keeps deciding unless
        * the user has said otherwise.
        */
+      /*
+       * R6 C-1: one appearance for two directions was one too few.
+       *
+       * `gridColor` / `gridStyle` were applied to BOTH sets, so a chart could
+       * not have a faint horizontal grid and no vertical one — which is the
+       * ordinary way to read a price chart and what the reference's two
+       * line-style buttons are for. The shared pair stays in the model as the
+       * seed these four migrate from (`normalizeChartSettings`); nothing
+       * writes it any more, and nothing reads it here.
+       */
       grid: {
         vertLines: {
           visible: settings.gridVertical,
-          ...(settings.gridColor ? { color: settings.gridColor } : {}),
-          style: lineStyleOf(settings.gridStyle),
+          ...(settings.gridVertColor ? { color: settings.gridVertColor } : {}),
+          style: lineStyleOf(settings.gridVertStyle),
         },
         horzLines: {
           visible: settings.gridHorizontal,
-          ...(settings.gridColor ? { color: settings.gridColor } : {}),
-          style: lineStyleOf(settings.gridStyle),
+          ...(settings.gridHorzColor ? { color: settings.gridHorzColor } : {}),
+          style: lineStyleOf(settings.gridHorzStyle),
         },
       },
       crosshair: {
@@ -1795,6 +1814,19 @@ export function CandleChart({
    * that fills itself in is no longer a hollow candle.
    */
   const { upColor, downColor, candleBody, candleBorders, candleWicks } = settings;
+  /*
+   * R6 S-2: a border and a wick have their own pair.
+   *
+   * They were drawn in the BODY's colours, so `Borders` and `Wick` could be
+   * switched off and never coloured, while the series has carried
+   * `borderUpColor` / `borderDownColor` / `wickUpColor` / `wickDownColor`
+   * since lightweight-charts 4. `normalizeChartSettings` seeds all four from
+   * the body, so a workspace that predates the split draws exactly what it
+   * drew before — and a user who sets one gets the one they set.
+   */
+  const {
+    borderUpColor, borderDownColor, wickUpColor, wickDownColor,
+  } = settings;
 
   /**
    * The volume histogram's colours, resolved once rather than once per bar.
@@ -1830,14 +1862,15 @@ export function CandleChart({
         upColor: candleBody ? upColor : clear,
         downColor: candleBody ? downColor : clear,
         borderVisible: candleBorders,
-        borderUpColor: candleBorders ? upColor : clear,
-        borderDownColor: candleBorders ? downColor : clear,
+        borderUpColor: candleBorders ? borderUpColor : clear,
+        borderDownColor: candleBorders ? borderDownColor : clear,
         wickVisible: candleWicks,
-        wickUpColor: candleWicks ? upColor : clear,
-        wickDownColor: candleWicks ? downColor : clear,
+        wickUpColor: candleWicks ? wickUpColor : clear,
+        wickDownColor: candleWicks ? wickDownColor : clear,
       });
     } catch { /* the series went away between render and effect */ }
-  }, [chartType, chartReady, upColor, downColor, candleBody, candleBorders, candleWicks]);
+  }, [chartType, chartReady, upColor, downColor, candleBody, candleBorders, candleWicks,
+    borderUpColor, borderDownColor, wickUpColor, wickDownColor]);
 
   /**
    * Bars: hairline, or as wide as the bar spacing allows.
@@ -2844,6 +2877,14 @@ export function CandleChart({
       setActiveRange(null);
     }
   }, [window_]);
+  /** A range the pane cannot fill shows every bar it has — see the chip. */
+  const showAllHistory = useCallback((id: RangeShortcutId) => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    setActiveRange(id);
+    shortcutRangeRef.current = null;
+    try { chart.timeScale().fitContent(); } catch { setActiveRange(null); }
+  }, []);
 
   /*
    * A clock, only while there is somewhere to put it. UTC, because that is
@@ -3011,7 +3052,100 @@ export function CandleChart({
         that supplies it also takes the symbol and the interval OUT of the OHLC
         row below — see `identity` in the props.
       */}
-      {settings.showStatusLine && settings.statusSymbol ? <>{identity}</> : null}
+      {/*
+        ── R3-14: the identity and the readout are ONE line ──────────────────
+
+        The reference's status line is a single row — name, interval, venue,
+        then `O H L C` and the change, all at the same baseline. This product
+        stacked them: the identity on line one, the OHLC readout on line two,
+        each inside its own `bg-surface/75` box, so the top-left of the chart
+        was two filled bars where the reference has one line of type.
+
+        They are a row now, and neither paints a surface. It still wraps — the
+        column is width-capped so it cannot run under the feed badge opposite
+        — which at a narrow pane puts the readout back on its own line, which
+        is the right answer there and was never the defect.
+      */}
+      <div className="flex max-w-full flex-wrap items-baseline gap-x-2">
+        {settings.showStatusLine && settings.statusSymbol ? <>{identity}</> : null}
+        {settings.showStatusLine && legend && (
+          <div className="flex flex-wrap items-baseline gap-x-2 text-[13px] leading-[20px] tabular text-ink-muted">
+            {/*
+              Named here only when nothing above named them. A pane passes an
+              `identity` slot whose whole job is to say which instrument and
+              which resolution this is — and to let them be changed — so
+              repeating them one line below is the duplication, in miniature,
+              that the workspace shell was just rebuilt to remove.
+            */}
+            {identity === undefined && settings.statusSymbol && (
+              <>
+                <span className="text-[16px] text-ink">{displayName(symbol)}</span>
+                <span className="text-[16px]">· {interval} ·</span>
+              </>
+            )}
+            {/*
+              The readout names its own source whenever it is not the exchange's
+              candles. Without it "O 843.11" beside a Heikin-Ashi body is a
+              price the instrument never traded, presented in the place a user
+              reads traded prices from.
+            */}
+            {legendLabel && (
+              <span
+                className="rounded border border-warn/40 px-1 text-warn"
+                title={SYNTHETIC_DISCLOSURE_HINT}
+              >
+                {legendLabel}
+                <span className="sr-only"> — displayed values, not exchange prices</span>
+              </span>
+            )}
+            {(legend.kind === "renkoBrick" || legend.kind === "pointFigureColumn") && legend.brick ? (
+              <>
+                {/*
+                  A brick, described as a brick. It has an open and a close and a
+                  size, it spans no period, and it has neither a high and a low
+                  that differ from those two nor a volume — so no O/H/L/C row is
+                  printed. The time shown is the CANONICAL bar whose close
+                  completed it, which is the only timestamp a brick has that
+                  means anything off this chart.
+                */}
+                <span className={legend.brick.direction > 0 ? "text-up" : "text-down"}>
+                  {legend.brick.direction > 0 ? "▲" : "▼"} {fmtPrice(legend.open)} → {fmtPrice(legend.close)}
+                </span>
+                <span className="hidden sm:inline">
+                  {legend.kind === "pointFigureColumn" ? "box" : "size"} <span className="text-ink">{fmtPrice(legend.brick.size)}</span>
+                </span>
+                <span className="hidden lg:inline">
+                  from <span className="text-ink">
+                    {fmtChartBarTime(legend.brick.sourceOpenTime, resolutionMs(interval))}
+                  </span> {CHART_TIME_ZONE}
+                </span>
+              </>
+            ) : (
+              <>
+                {/* O/H/L and volume are the first things to go on a phone: the close
+                    and the change are what the eye actually reads at a glance.
+                    Each group is also a Status-line switch of its own. */}
+                {settings.statusOhlc && (
+                  <>
+                    <span className="hidden sm:inline">O<span className={px}>{fmtPrice(legend.open)}</span></span>
+                    <span className="hidden sm:inline">H<span className={px}>{fmtPrice(legend.high)}</span></span>
+                    <span className="hidden sm:inline">L<span className={px}>{fmtPrice(legend.low)}</span></span>
+                    <span>C<span className={px}>{fmtPrice(legend.close)}</span></span>
+                  </>
+                )}
+                {settings.statusBarChange && (
+                  <span className={chgUp ? "text-up" : "text-down"}>
+                    {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
+                  </span>
+                )}
+                {legend.volume !== null && settings.statusVolume && (
+                  <span className="hidden xl:inline">Vol <span className="text-ink">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
       {/*
         FC2-M4: one line per series, with the explanation behind it.
 
@@ -3086,83 +3220,6 @@ export function CandleChart({
           {chartUnavailable}
         </div>
       )}
-      {settings.showStatusLine && legend && (
-        <div className="flex flex-wrap items-baseline gap-x-2 rounded-sm bg-surface/75 px-1.5 text-[13px] leading-[20px] tabular text-ink-muted">
-          {/*
-            Named here only when nothing above named them. A pane passes an
-            `identity` slot whose whole job is to say which instrument and which
-            resolution this is — and to let them be changed — so repeating them
-            one line below is the duplication, in miniature, that the workspace
-            shell was just rebuilt to remove.
-          */}
-          {identity === undefined && settings.statusSymbol && (
-            <>
-              <span className="font-semibold text-ink">{displayTicker(symbol)}</span>
-              <span>· {interval} ·</span>
-            </>
-          )}
-          {/*
-            The readout names its own source whenever it is not the exchange's
-            candles. Without it "O 843.11" beside a Heikin-Ashi body is a
-            price the instrument never traded, presented in the place a user
-            reads traded prices from.
-          */}
-          {legendLabel && (
-            <span
-              className="rounded border border-warn/40 px-1 text-warn"
-              title={SYNTHETIC_DISCLOSURE_HINT}
-            >
-              {legendLabel}
-              <span className="sr-only"> — displayed values, not exchange prices</span>
-            </span>
-          )}
-          {(legend.kind === "renkoBrick" || legend.kind === "pointFigureColumn") && legend.brick ? (
-            <>
-              {/*
-                A brick, described as a brick. It has an open and a close and a
-                size, it spans no period, and it has neither a high and a low
-                that differ from those two nor a volume — so no O/H/L/C row is
-                printed. The time shown is the CANONICAL bar whose close
-                completed it, which is the only timestamp a brick has that
-                means anything off this chart.
-              */}
-              <span className={legend.brick.direction > 0 ? "text-up" : "text-down"}>
-                {legend.brick.direction > 0 ? "▲" : "▼"} {fmtPrice(legend.open)} → {fmtPrice(legend.close)}
-              </span>
-              <span className="hidden sm:inline">
-                {legend.kind === "pointFigureColumn" ? "box" : "size"} <span className="text-ink">{fmtPrice(legend.brick.size)}</span>
-              </span>
-              <span className="hidden lg:inline">
-                from <span className="text-ink">
-                  {fmtChartBarTime(legend.brick.sourceOpenTime, resolutionMs(interval))}
-                </span> {CHART_TIME_ZONE}
-              </span>
-            </>
-          ) : (
-            <>
-              {/* O/H/L and volume are the first things to go on a phone: the close
-                  and the change are what the eye actually reads at a glance.
-                  Each group is also a Status-line switch of its own. */}
-              {settings.statusOhlc && (
-                <>
-                  <span className="hidden sm:inline">O <span className={px}>{fmtPrice(legend.open)}</span></span>
-                  <span className="hidden sm:inline">H <span className={px}>{fmtPrice(legend.high)}</span></span>
-                  <span className="hidden sm:inline">L <span className={px}>{fmtPrice(legend.low)}</span></span>
-                  <span>C <span className={px}>{fmtPrice(legend.close)}</span></span>
-                </>
-              )}
-              {settings.statusBarChange && (
-                <span className={chgUp ? "text-up" : "text-down"}>
-                  {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
-                </span>
-              )}
-              {legend.volume !== null && settings.statusVolume && (
-                <span className="hidden xl:inline">Vol <span className="text-ink">{legend.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></span>
-              )}
-            </>
-          )}
-        </div>
-      )}
       {/*
         Ten moving averages, an overlay study and its levels expand to four
         wrapped rows of numbers laid opaquely across the candles they describe.
@@ -3178,7 +3235,9 @@ export function CandleChart({
           overlays={groupedOverlays.price}
           time={indicatorHoverTime}
           startCollapsed={compact || groupedOverlays.price.length > 6}
-          className="max-w-full rounded bg-surface/75 px-1 py-0.5"
+          /* R3-10: no fill. The study rows are type on the plot, like the
+             reference's — the `bg-surface/75` box made them a second bar. */
+          className="max-w-full"
           /* The same key and the same resolver the indicator panes use. */
           onAction={onIndicatorPaneAction
             && ((key, action) => onIndicatorPaneAction(`indicator:${key}`, action))}
@@ -3422,17 +3481,20 @@ export function CandleChart({
               <button
                 key={shortcut.id}
                 type="button"
-                disabled={!enabled}
-                aria-disabled={!enabled}
-                onClick={() => applyRangeShortcut(shortcut.id)}
+                /*
+                 * R1b-08: never dimmed. The reference paints every range chip at
+                 * full ink whatever the pane holds; a range the loaded history
+                 * cannot fill shows everything the pane has instead, which is
+                 * what the reference does when it runs out of bars. The chip
+                 * always moves the chart, so it is never disabled.
+                 */
+                onClick={() => enabled ? applyRangeShortcut(shortcut.id) : showAllHistory(shortcut.id)}
                 aria-pressed={activeRange === shortcut.id}
                 title={enabled
                   ? `${shortcut.hint} — the visible range only; the timeframe stays ${interval}`
-                  : `${shortcut.hint} — this pane has not loaded enough ${interval} history to fill it`}
-                className={`tvc-control flex h-[28px] items-center px-1.5 text-[13px] ${
-                  !enabled ? "cursor-not-allowed text-ink-faint opacity-40"
-                    : activeRange === shortcut.id ? "font-semibold text-ink"
-                      : "text-ink-muted hover:text-ink"
+                  : `${shortcut.hint} — shows all the ${interval} history this pane has loaded`}
+                className={`tvc-control flex h-[28px] items-center px-1.5 text-[13px] text-ink ${
+                  activeRange === shortcut.id ? "font-semibold" : ""
                 }`}
               >
                 {shortcut.label}
@@ -3464,10 +3526,10 @@ export function CandleChart({
                     x: box.left, y: box.top, drawingId: null, price: null, region: "time",
                   });
                 }}
-                className="tvc-control flex h-[28px] w-[28px] items-center justify-center text-ink-muted hover:text-ink"
+                className="tvc-control flex h-[28px] w-[28px] items-center justify-center text-ink"
               >
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   {/* A calendar with an arrow going into it — the reference's silhouette. */}
                   <path d="M11 4h7a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-3" />
                   <path d="M10 2.5v3M16 2.5v3M7 9h12" />
@@ -3484,7 +3546,7 @@ export function CandleChart({
           */}
           {clock !== null && (
             <span
-              className="ml-auto hidden pr-1 text-[13px] leading-[18px] tabular text-ink-muted lg:inline"
+              className="ml-auto hidden pr-1 text-[13px] leading-[18px] tabular text-ink lg:inline"
               title={CHART_TIME_ZONE_NOTE}
             >
               {clock} {CHART_TIME_ZONE}

@@ -91,5 +91,30 @@ test("the upstream reader asks the configured host for the batch form and drops 
   assert.equal(decodeURIComponent(urls[0]!.split("symbols=")[1]!), '["BTCUSDT","ETHUSDT"]');
   assert.deepEqual(rows, [{ symbol: "BTCUSDT", last: 65000.1, open: 64000, at: 5 }]);
   await assert.rejects(() => fetch24hTickers(["bad symbol"], async () => []), /invalid symbol/);
+  /*
+   * TVP8 R7-07: the 24h payload's volume fields reach the caller.
+   *
+   * `/api/v3/ticker/24hr` has always carried `volume`, `quoteVolume`,
+   * `highPrice` and `lowPrice`; this reader dropped them, so the watchlist's
+   * Key stats block reported "not provided by the configured ticker API" about
+   * data the process already had in hand. A row whose payload omits them keeps
+   * NO key at all (the assertion above), because "absent" and "zero" are
+   * different answers to "what was the 24h volume".
+   */
+  assert.deepEqual(
+    await fetch24hTickers(["BTCUSDT"], async () => [{
+      symbol: "BTCUSDT", lastPrice: "65000.10", openPrice: "64000", closeTime: 5,
+      volume: "12.5", quoteVolume: "812501.25", highPrice: "65500", lowPrice: "63900",
+      priceChangePercent: "1.56",
+    }]),
+    [{ symbol: "BTCUSDT", last: 65000.1, open: 64000, at: 5,
+      volume: 12.5, quoteVolume: 812501.25, high: 65500, low: 63900 }]);
+  // A junk number is dropped rather than carried through as NaN.
+  assert.deepEqual(
+    await fetch24hTickers(["BTCUSDT"], async () => [{
+      symbol: "BTCUSDT", lastPrice: "65000.10", openPrice: "64000", closeTime: 5,
+      volume: "", quoteVolume: "812501.25",
+    }]),
+    [{ symbol: "BTCUSDT", last: 65000.1, open: 64000, at: 5, quoteVolume: 812501.25 }]);
   assert.deepEqual(await fetch24hTickers([], async () => { throw new Error("must not be called"); }), []);
 });

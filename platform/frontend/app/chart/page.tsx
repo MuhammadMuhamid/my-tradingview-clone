@@ -1,4 +1,5 @@
 "use client";
+import { applyTemplateTo } from "@/lib/indicatorTemplates";
 /**
  * The chart workspace page.
  *
@@ -1860,6 +1861,19 @@ export default function TvWorkspace() {
      */
   }, { replayActive });
 
+  /**
+   * "Hide indicators" (R2b-03): every study on the focused pane hidden at
+   * once, through the pane's own visibility toggles, so the Indicators
+   * panel's per-study eyes and this scope agree. Hidden means "none of the
+   * studies is visible"; the rail's row toggles all of them together.
+   */
+  const studiesHidden = activeIndicatorList.length > 0 && activeIndicatorList.every((i) => i.visible === false);
+  const setStudiesHidden = (hidden: boolean): void => {
+    for (const item of activeIndicatorList) {
+      if ((item.visible !== false) === hidden) activeIndicators?.toggleVisible(item.key);
+    }
+  };
+
   /** The trading-overlay layer is "hidden" when none of its three kinds is shown. */
   const overlaysHidden = !overlays.prefs.activity && !overlays.prefs.activeOrders && !overlays.prefs.positions;
   const setOverlaysHidden = (hidden: boolean): void =>
@@ -1875,12 +1889,45 @@ export default function TvWorkspace() {
      * — one preference, two ways in. Indicators have no whole-chart hide yet,
      * so that row is not offered rather than offered inert.
      */
-    hideScope: (drawHidden && overlaysHidden ? "all" : drawHidden ? "drawings"
-      : overlaysHidden ? "positions" : "none") as "none" | "drawings" | "positions" | "all",
+    hideScope: (drawHidden && overlaysHidden && studiesHidden ? "all" : drawHidden ? "drawings"
+      : studiesHidden ? "indicators" : overlaysHidden ? "positions" : "none") as "none" | "drawings" | "indicators" | "positions" | "all",
     onHideScope: (scope: "drawings" | "indicators" | "positions" | "all") => {
       if (scope === "drawings") setDrawHidden((v) => !v);
+      else if (scope === "indicators") setStudiesHidden(!studiesHidden);
       else if (scope === "positions") setOverlaysHidden(!overlaysHidden);
-      else if (scope === "all") { const next = !(drawHidden && overlaysHidden); setDrawHidden(next); setOverlaysHidden(next); }
+      else if (scope === "all") {
+        const next = !(drawHidden && overlaysHidden && studiesHidden);
+        setDrawHidden(next); setOverlaysHidden(next); setStudiesHidden(next);
+      }
+    },
+    /*
+     * Remove scopes (R2b-03). Drawings go through the existing confirmation;
+     * indicators clear the focused pane's study list through its own api,
+     * behind the same confirmation, so "Remove N indicators" is exactly as
+     * reversible as the Indicators panel's own remove (it is not undoable —
+     * the confirmation says so).
+     */
+    indicatorCount: activeIndicatorList.length,
+    onRemove: (scope: "drawings" | "indicators" | "all") => {
+      const drawingCount = replayActive ? replayDrawings.length : activeDrawings.length;
+      const studyCount = activeIndicatorList.length;
+      const parts = [
+        scope !== "indicators" ? `${drawingCount} drawing${drawingCount === 1 ? "" : "s"}` : null,
+        scope !== "drawings" ? `${studyCount} indicator${studyCount === 1 ? "" : "s"}` : null,
+      ].filter((p): p is string => p !== null);
+      void ask.confirm({
+        title: `Remove ${parts.join(" and ")} on ${displayTicker(symbol)}?`,
+        body: scope === "drawings"
+          ? "Undo brings drawings back."
+          : "Removing indicators cannot be undone; drawings can be brought back with Undo.",
+        confirmLabel: "Remove", tone: "danger",
+      }).then((ok) => {
+        if (!ok) return;
+        if (scope !== "indicators") {
+          if (replayActive) updateReplayDrawings([]); else drawingStore.set(symbol, []);
+        }
+        if (scope !== "drawings") activeIndicators?.clear();
+      });
     },
     stayInDrawingMode, onStayInDrawingMode: setStayInDrawingMode,
     locked: drawLocked, onLocked: setDrawLocked,
@@ -1989,8 +2036,7 @@ export default function TvWorkspace() {
         left-rail column — and so does this one now. The rails and the panel
         start below it, on the second row.
       */}
-      <div className="relative flex h-[38px] shrink-0 items-stretch bg-surface after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border">
-        {/* The hairline under the row is drawn INSIDE its 38px, so the rails' first cell is at y=48 exactly. */}
+      <div className="relative flex h-[38px] shrink-0 items-stretch bg-surface">
         <ProductMenu variant="rail" onOpenShortcuts={() => setShortcutsOpen(true)} />
         {/*
           The chart's title is the symbol and timeframe already shown in the
@@ -2021,6 +2067,8 @@ export default function TvWorkspace() {
           onBars={changeBars}
           indicatorCount={activeIndicatorList.length}
           onOpenIndicators={() => setIndicatorBrowserOpen(true)}
+          indicatorTemplateStudies={{ indicators: activeIndicatorList, native: activeNativeStudies?.list ?? [] }}
+          onApplyIndicatorTemplate={(t) => applyTemplateTo(t, activeIndicators, activeNativeStudies)}
           canUndo={replayActive
             ? drawingStore.replayHistoryState(symbol).canUndo
             : drawingStore.historyState(symbol).canUndo}
@@ -2080,8 +2128,16 @@ export default function TvWorkspace() {
         />
       </div>
 
-      {/* ── row 2: the left rail, the chart column and the side panel ── */}
-      <div className="flex min-h-0 flex-1">
+      {/*
+        ── row 2: the left rail, the chart column and the side panel ──
+
+        TVP8 R1b-02: the reference separates its regions with 4px gutters of
+        the page background — under the toolbar, right of the rail, either side
+        of the watchlist — not with hairlines. The gutter is the `gap` and the
+        `pt`; the regions draw no borders of their own on those edges. The
+        rails' first cell lands at y=48 (38 + 4 + 6px of rail padding).
+      */}
+      <div className="flex min-h-0 flex-1 gap-1 bg-bg pt-1">
       {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
       <div className="hidden md:flex">
         <DrawingToolbar {...drawingToolbarProps} />

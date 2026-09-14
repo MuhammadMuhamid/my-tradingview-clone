@@ -145,12 +145,12 @@ Measured from live TradingView at 1440×900, DPR 1:
 | toolbar icon button | 38 × 38, icon 28 × 28, padding `0 5px` |
 | toolbar caret (split-button half) | 24 × 38 |
 | left drawing rail | 52px wide, glyph 28 × 28, corner caret 4 × 7 |
-| right icon rail | 52px wide (matches the left) |
+| right icon rail | **46px** wide, 46×46 cells, 38×38 chip (`[data-side-rail] .tvc-control::before { inset: 4px }`), 20px glyphs at stroke 1.5 — measured on the reference 2026-09-14 |
 | right widget panel | 300px |
 | toolbar separator | 1px × 22px on `--ts-line-strong`, 4px clearance each side |
 | **dropdown** row | **40px**, inset 6px, radius 6px |
 | **context menu** row | **32px** — a context menu is denser than a picker |
-| watchlist row | 31px |
+| watchlist row | **30px** on a `[24px_1fr_72px_70px_60px]` grid; 46px title row, 29px column row, 36px section header; the panel keeps a 4px `--ts-line` gutter inside its 300px |
 | dialog | 750px wide when `wide`, 20px/600 title, 50px form-row pitch |
 | dialog form control | 34px tall, radius 6, 1px `--ts-control-border`, transparent |
 | radius, everywhere | **6px** (`rounded-md`). `rounded-full` for pills only. |
@@ -257,7 +257,7 @@ There are four different things and they go in four different places.
 
 | what | where it belongs | example |
 |---|---|---|
-| **ticker** — `displayTicker()` | toolbar pill, pane legend, watchlist row | `BTC/USDT` |
+| **ticker** — `displayTicker()` | toolbar pill, pane legend, watchlist row | `BTCUSDT` (no slash — §5b) |
 | **venue** — `displayVenue()` | status line, muted, after the interval | `· Binance` |
 | **asset type** | a badge, and only when it is NOT spot | `PERP`, `FX` |
 | **canonical identity** — `displaySymbol()`, the raw `instrument:v1:…` | tooltips, the symbol dialog, Chart Settings' Instrument block, exports, support | `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` |
@@ -416,14 +416,72 @@ recorded below in §7c once finalised, and are not to be "tidied" back.
   scale's `auto / log / % / reset` live at the foot of the price axis and
   reveal on hover; a non-price scale mode still declares itself.
 
-### 7c. Left-rail grouping contract
-_(filled in when the rail converges — see `00_LEFT_RAIL_MATRIX.md` for the
-target: 8 tool groups in TradingView's order with TradingView's sections,
-then Measure and Zoom as their own cells, then Magnet / Keep drawing / Lock /
-Hide with option flyouts, then Remove with option flyout; whitespace gaps,
-not hairlines; a hover-revealed edge caret, not a corner triangle.)_
+### 7c. Left-rail grouping contract (TVP8, measured 2026-09-14)
+
+The rail is 52px wide with 52×38 cells starting at y=48, in exactly this
+order: eight tool groups — Cursors (Cross), Trend tools (Trendline), Gann
+and Fibonacci (Fib retracement), Patterns (XABCD), Forecasting and
+measurement (Long position), Geometric shapes (Brush), Annotation (Text),
+Icons (Icon) — a gap, Measure and Zoom in as single cells, a gap, Magnet
+(weak/strong flyout), Keep drawing, Lock (scope flyout), Hide (scope flyout),
+a gap, Remove (scope flyout). Gaps are 13px with a centred 1×36px
+`--ts-rail-separator` hairline. Each group's flyout has TradingView's
+sections, member order, sentence-case labels, `kbd` chords (⌥T ⌥H ⌥J ⌥V ⌥C
+⌥F ⌥⇧R) and a hover star; it opens at x=53, 6px above its cell, at content
+width, with 40px tool rows and 32px option rows. The caret is an 11×34
+hover-revealed edge strip, never a corner triangle. Glyphs are our own, one
+silhouette per tool, full ink at rest.
+
+**Deliberately omitted, and why** (owner decision recorded here, not in a
+code comment): the Demonstration and Magic cursors (TradingView presentation
+and pattern-recognition engines, not drawing tools), Ghost feed (a projection
+feature), Image / Post / Idea (TradingView content uploads and social
+publishing), and the Icons picker's Stickers tab (proprietary art). Each is
+a TradingView product feature, not a shared drawing idea; none is imitated
+with an inert control. Everything else in TradingView's flyouts exists here.
 
 ---
+
+### 7d. Watchlist and right rail (TVP8 batch E — measured 2026-09-14)
+
+Reference: `TradingView-Parity-TVP8-20260913/measurements/tv-watchlist-20260914.md`.
+
+- The right side is a **46px icon rail** (Watchlist, Automations, Indicators,
+  Moving averages, Correlation, Order ticket; a bottom-anchored Help cell
+  above a `--ts-line-strong` hairline) beside a **300px panel**. Rail cells
+  are 46×46 with a 38×38 chip; glyphs are 20px at stroke 1.5 in `text-ink`
+  at rest. A count badge is a 14px red numeric dot, never an accent pill.
+- The watchlist panel: 46px title row (`{list name} ⌄` + three 38×38
+  cells: add, compact, `⋯`), 29px column row on a `--ts-state-active`
+  hairline, 34px add row with a magnifier, 36px asset-class group headers
+  (display-only grouping; nothing persisted), 30px rows on
+  `[24px_1fr_72px_70px_60px]` — asset mark, `displayTicker` 14px/400,
+  last, change, change %. The selected row is transparent with a 2px inset
+  `--ts-ink-faint` ring. No inline `×`, no `+` prefix on a change, no
+  truncation of a value.
+- The details block below the list: 24px mark + 16px/600 ticker + 32px `⋯`;
+  `{base} / {quote} • {VENUE}` 14px; `Spot • Crypto` faint; 28px/600 price;
+  16px change line; a market line in `--ts-positive-strong` only when a
+  crypto venue's stream is live; a News card on `--ts-news-tint` with its
+  label in `--ts-news-ink`; Key stats from the provider's 24h fields.
+- Direction tokens are the reference's: dark `--ts-positive: #22ab94`,
+  `--ts-negative: #f7525f`; light `#089981` / `#f23645`.
+- Omitted on purpose: a vendored brand-icon set (a deterministic monogram
+  stands in), a draggable list/details split (a static 4px band), and
+  `Average volume (30D)` (no 30-day series — shown as `—` with the reason).
+
+### 7e. The chrome converges on live TradingView (owner decision 2026-09-14)
+
+The owner resolved the open question of whether shared workstation chrome
+should keep Trading Scene's older neutral palette: **it follows the current
+live TradingView visual system**, measured live, with only Trading Scene's
+own branding excepted. The dark ground is `#2e2e2e` (the reference's body),
+every surface `#0f0f0f`, ink `#dbdbdb`, muted `#a8a8a8`, faint `#8c8c8c`,
+hover chip `#2e2e2e`, active chip `#3d3d3d`, hairline `#2e2e2e`, strong
+hairline `#4a4a4a` — the reference's `cold-gray` scale, re-measured in this
+session (`measurements/tv-dark-palette-20260914.md`). Light: ground
+`#ebebeb`, surfaces `#ffffff`, ink `#0f0f0f`, secondary `#707070`, hairline
+`#dbdbdb` (`measurements/tv-light-theme-20260914.md`).
 
 ## 8. TradingView reference rule
 

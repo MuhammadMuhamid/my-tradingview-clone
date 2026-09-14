@@ -57,6 +57,7 @@ const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf
 
 const CHART = read("components/CandleChart.tsx");
 const PANE = read("components/tv/IndicatorPane.tsx");
+const LEGEND = read("components/tv/IndicatorLegend.tsx");
 
 /** Prose about a call is not a call: several checks below are about code. */
 const code = (source: string): string => source
@@ -599,11 +600,16 @@ test("SHORTCUTS — the row always offers all nine, and disables what it cannot 
   assert.equal(rangeShortcutChoices(null).length, 9);
   assert.equal(rangeShortcutChoices(null).some((c) => c.enabled), false);
 
-  // The chart renders every choice, and marks the unreachable ones disabled
-  // both for the pointer and for a screen reader.
+  // The chart renders every choice. TVP8 R1b-08: none is ever disabled or
+  // dimmed — the reference paints every chip at full ink, and a range the
+  // loaded history cannot fill shows everything the pane has instead
+  // (`fitContent`), which is what the reference does when it runs out of bars.
   assert.match(CHART, /\{showRanges && \(\s*\n\s*<div role="group" aria-label="Visible range"/);
   assert.match(CHART, /shortcuts\.map\(\(\{ shortcut, enabled \}\) => \(/);
-  assert.match(CHART, /disabled=\{!enabled\}\s*\n\s*aria-disabled=\{!enabled\}/);
+  assert.doesNotMatch(CHART, /disabled=\{!enabled\}/, "a range chip is never disabled");
+  assert.match(CHART, /enabled \? applyRangeShortcut\(shortcut\.id\) : showAllHistory\(shortcut\.id\)/);
+  assert.match(CHART, /const showAllHistory = useCallback[\s\S]*?timeScale\(\)\.fitContent\(\)/);
+  assert.doesNotMatch(CHART, /text-ink-faint opacity-40/, "no dimmed chip");
 
   // Renko has no time axis, so it has no ranges. The price scale is a
   // different question — it is about price, which every presentation has — so
@@ -640,7 +646,8 @@ test("SHORTCUTS — the bottom row is time only; the scale controls sit on the a
     "a logarithmic or percent axis must say so without being hovered");
 
   // The row itself: a hairline and a go-to-date control after the chips, and
-  // the clock at 13px in the muted ink rather than 11px faint.
+  // the clock at 13px in the FULL ink (TVP8 R1b-01: the reference's bottom
+  // row is not a muted row) rather than 11px faint.
   assert.match(CHART, /<span className=\{SEPARATOR\} aria-hidden="true" \/>/);
   assert.match(CHART, /aria-label="Go to date"/);
   // …wired to the pane's existing time-axis menu, which carries `time:go-to`,
@@ -648,7 +655,7 @@ test("SHORTCUTS — the bottom row is time only; the scale controls sit on the a
   // already honours. No second path to the same dialog.
   assert.match(CHART, /onChartContextMenu\?\.\(\{\s*\n\s*x: box\.left, y: box\.top, drawingId: null, price: null, region: "time",/);
   assert.match(CHART, /\{clock\} \{CHART_TIME_ZONE\}/);
-  assert.match(CHART, /text-\[13px\] leading-\[18px\] tabular text-ink-muted/);
+  assert.match(CHART, /text-\[13px\] leading-\[18px\] tabular text-ink lg:inline/);
 });
 
 test("SHORTCUTS — a degenerate window offers nothing at all", () => {
@@ -780,23 +787,77 @@ test("PANES — heights are clamped to the range the drag allows", () => {
 });
 
 test("PANES — every control is a real button with a name, and none is inert", () => {
+  /*
+   * ── TVP8 R3-12: ONE row of seven became two clusters ────────────────────
+   *
+   * The reference splits a study pane's actions by what they act ON. Hide,
+   * settings and remove act on the STUDY and live in the legend row between
+   * its parameters and its values (`IndicatorLegend`), which is also where a
+   * study overlaid on the price pane gets them — one grammar for both kinds.
+   * Order, collapse and maximize act on the PANE and live at the pane's own
+   * top-right edge.
+   *
+   * So this reads both files: the rule is that every control exists, is
+   * named and is wired, not that they are all declared in one component.
+   */
   for (const label of [
     "Collapse ${title}", "Expand ${title}", "Move ${title} up", "Move ${title} down",
     "Maximize ${title}", "Restore ${title} to the pane stack",
+    "Remove ${title} from the chart",
   ]) {
     assert.ok(PANE.includes(label), `missing control: ${label}`);
+  }
+  for (const label of ["Hide ${group.title}", "${group.title} settings", "Remove ${group.title}"]) {
+    assert.ok(LEGEND.includes(label), `missing legend control: ${label}`);
   }
   // Each is wired to a handler rather than being decoration.
   for (const call of [
     "onToggleCollapsed(id)", "onMove(id, -1)", "onMove(id, 1)", "onToggleMaximized(id)",
-    'onAction(id, "hide")', 'onAction(id, "settings")', 'onAction(id, "remove")',
+    'onAction(id, "remove")',
   ]) {
     assert.ok(PANE.includes(call), `control not wired: ${call}`);
   }
+  for (const call of ['onAction(group.id, "hide")', 'onAction(group.id, "settings")',
+    'onAction(group.id, "remove")']) {
+    assert.ok(LEGEND.includes(call), `legend control not wired: ${call}`);
+  }
+  // The pane hands the legend the SAME action channel it uses itself, so the
+  // legend's hide/settings/remove reach `ChartPane.paneAction` unchanged.
+  assert.match(PANE, /onAction=\{onAction && \(\(_instanceId, action\) => onAction\(id, action\)\)\}/);
+
+  /*
+   * R3-12: never a disabled arrow.
+   *
+   * Both directions used to render always, with the impossible one drawn
+   * `disabled` at 30% opacity — a permanently dead control on the top pane and
+   * another on the bottom one. The reference draws only the one that works.
+   */
+  assert.match(PANE, /onMove && canMoveUp &&/);
+  assert.match(PANE, /onMove && canMoveDown &&/);
+  assert.doesNotMatch(PANE, /disabled=\{!canMove(Up|Down)\}/,
+    "an arrow that cannot act is absent, not greyed out");
+
   // Toggles announce their state; the stack is reachable from the keyboard
   // because the controls are buttons revealed on focus, not only on hover.
   assert.match(PANE, /"aria-pressed": pressed/);
-  assert.match(PANE, /focus-within:opacity-100 group-hover\/pane:opacity-100/);
+  /*
+   * R3-13: the group is `studypane`, not `pane`.
+   *
+   * `ChartPane`'s outer container — the whole chart column — is `group/pane`,
+   * and Tailwind's named-group variant is a DESCENDANT selector, so hovering
+   * the RSI pane revealed the MACD pane's cluster too. The distinct name is
+   * the fix, and it is asserted here so it cannot be renamed back.
+   */
+  assert.match(PANE, /focus-within:opacity-100 group-hover\/studypane:opacity-100/);
+  /*
+   * Comments stripped first, and not as a formality: the sentence above this
+   * assertion in `IndicatorPane` explains the bug and therefore SAYS
+   * `group-hover/pane:`. A rule a comment can turn red is the same class of
+   * mistake as one a comment can turn green.
+   */
+  const paneCode = PANE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(paneCode, /group-hover\/pane:/,
+    "a column-scoped reveal lights every pane at once — see R3-13");
 });
 
 test("PANES — a maximised study never destroys a chart to take the column", () => {

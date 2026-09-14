@@ -103,7 +103,12 @@ async function addSavedStudy(chart: MountedChart): Promise<void> {
   fireEvent.click(within(dialog).getByRole("button", { name: /^My scripts/ }));
   await settle();
 
-  fireEvent.click(within(dialog).getByTitle(new RegExp(`^Add .${SAVED_SCRIPT.name}`)));
+  /*
+   * TVP8 R3-03: a row IS the add control. It used to carry a bordered `Add`
+   * button and this clicked it by its tooltip; the reference's row is one line
+   * and clicking anywhere on it adds the script, so that is the gesture here.
+   */
+  fireEvent.click(within(dialog).getByRole("button", { name: SAVED_SCRIPT.name }));
   await settle();
 }
 

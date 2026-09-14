@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useAsk } from "@/components/AskDialog";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { Layout } from "@/lib/layouts";
-import { TOOL_BUTTON, TOOL_CARET_BUTTON } from "@/components/tv/toolbarChrome";
+import { TOOL_BUTTON, TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/tv/toolbarChrome";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
@@ -158,7 +158,7 @@ export function LayoutMenu({
   );
 
   return (
-    <div className="relative flex min-w-0 items-center">
+    <div className="group relative flex min-w-0 items-center">
       {/*
         The name, then the save state as a cloud, then a caret of its own.
         TradingView's shape, and the reason for it is not decoration: three
@@ -186,17 +186,25 @@ export function LayoutMenu({
           {current?.name ?? "Unnamed"}
         </span>
         {/*
-          The cloud carries the state as a SHAPE at every width, which is what
-          the old 10px caps only did at 2xl and the bare dot never did: a dot
-          badge when the workspace is ahead of what is stored, warn-tinted when
-          autosave is failing. Clicking writes it, when there is drift to write.
+          ── TVP8 R1b-06: the cloud is a STATE, not a permanent glyph ───────
+          The cloud carries the state as a SHAPE — a dot badge when the
+          workspace is ahead of what is stored, warn-tinted when autosave is
+          failing — and clicking writes it. What it must not do is sit on the
+          bar when there is nothing to say: measured on the reference, a saved
+          layout at rest reads `M SR strategy ⌄` and no cloud, and ours drew a
+          22px outline cloud in the most-looked-at part of the right group at
+          all times. So it is drawn when there IS drift or an error, and
+          otherwise only while the pointer is on the group — which is where a
+          user reaching to save would be looking anyway.
         */}
         <span
-          className={`relative flex shrink-0 items-center ${autosaveError ? "text-warn" : ""}`}
+          className={`relative shrink-0 items-center ${
+            dirty || autosaveError ? "flex" : "hidden group-hover:flex"
+          } ${autosaveError ? "text-warn" : ""}`}
           aria-hidden="true"
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M7 18.5H17.2a4 4 0 0 0 .3-7.6 6 6 0 0 0-11.4-1.3 4.6 4.6 0 0 0 .9 8.9z" />
           </svg>
           {dirty && (
@@ -219,8 +227,12 @@ export function LayoutMenu({
         title="Manage layouts"
         className={TOOL_CARET_BUTTON}
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" />
+        {/* the shared 8×4 ink caret — the interval and style controls' own */}
+        <svg width={TOOL_CARET_GLYPH.width} height={TOOL_CARET_GLYPH.height}
+          viewBox={TOOL_CARET_GLYPH.viewBox} fill="none" stroke="currentColor"
+          strokeWidth={TOOL_CARET_GLYPH.stroke} strokeLinecap="round"
+          strokeLinejoin="round" aria-hidden="true">
+          <path d={TOOL_CARET_GLYPH.d} />
         </svg>
       </button>
 

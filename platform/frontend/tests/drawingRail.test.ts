@@ -22,8 +22,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  FILLABLE_TOOLS, TOOL_POINTS, type DrawingTool,
+  EMOJI_CATEGORIES, FILLABLE_TOOLS, ICON_GLYPHS, OUTLINE_CATEGORIES, TOOL_POINTS,
+  type DrawingTool,
 } from "../lib/drawings";
+import { BINDINGS } from "../lib/shortcuts";
 
 const RAIL = path.join(__dirname, "..", "components", "tv", "DrawingToolbar.tsx");
 const source = fs.readFileSync(RAIL, "utf8");
@@ -281,7 +283,16 @@ test("RAIL — every icon-only control has a NAME, not only a tooltip", () => {
     // slicing on the first `>` here would land on one of them again, which is
     // the same mistake one level down.
     const inner = bodies[i]!.slice(tag.length + 1);
-    const hasText = /<span|\{[a-zA-Z].*\.label\}|>[A-Za-z0-9]/.test(inner);
+    /*
+     * An `aria-hidden` span is NOT text for this purpose.
+     *
+     * TVP8 gave every rail control the product's own tooltip pill instead of
+     * the OS `title` — and the pill is a `<span aria-hidden="true">` inside
+     * the button. Matching a bare `<span` therefore quietly excused every rail
+     * button from the rule at the moment they all grew one: the assertion
+     * would have kept passing over a button with no name at all.
+     */
+    const hasText = /<span(?![^>]*aria-hidden)|\{[a-zA-Z].*\.label\}|>[A-Za-z0-9]/.test(inner);
     return !hasText && !/aria-label/.test(tag);
   });
   assert.deepEqual(iconOnly, [],
@@ -333,4 +344,261 @@ test("FILL IS OFFERED ONLY WHERE THERE IS AN INTERIOR TO FILL", () => {
   for (const tool of FILLABLE_TOOLS) {
     assert.ok(tool in TOOL_POINTS, `${tool} is not a drawing tool`);
   }
+});
+
+/*
+ * ── TVP8 / R2b: the rail's PIXELS ──────────────────────────────────────────
+ *
+ * The round-2 review judged the rail on sampled pixels: stroke luminance,
+ * glyph bounding boxes, the lit state of the 11px strip, where a flyout's
+ * icon column starts. None of that can be measured in jsdom — it has no
+ * layout and no rasteriser — so what is pinned below is the INPUT to each of
+ * those measurements: the grid the glyphs are drawn on, the weight they are
+ * stroked at, the silhouette features the review named one by one, and the
+ * geometry classes that place a row. A regression in any of them is what the
+ * next pixel capture would report, one capture later.
+ */
+
+test("RAIL — the glyph set is drawn on the reference's 28px grid, crisply", () => {
+  /*
+   * R2b-02. The set was a 24-unit viewBox rendered at 28px with a 0.9 stroke:
+   * a 1.05px line on a fractional grid, so every horizontal and vertical
+   * straddled two device pixels and the rail sampled at a peak luminance of
+   * 140 against the reference's 219. The armed Cross was the DIMMEST glyph in
+   * the column.
+   */
+  assert.match(source, /viewBox="0 0 28 28"/,
+    "one unit must be one pixel, or half-pixel coordinates mean nothing");
+  const weight = /strokeWidth="(1|1\.25)"[\s\S]{0,120}ICONS\[name\]/.exec(source);
+  assert.ok(weight, "the icon stroke is no longer the 1 / 1.25 R2b-02 allows");
+  assert.match(source, /const Icon = \(\{ name, size = 28 \}/);
+
+  /*
+   * And the axis-aligned strokes sit on half-units, which is the whole reason
+   * the grid was changed. Sampled across the set rather than asserted on one
+   * glyph: a single example would be satisfied by a single edit.
+   */
+  const block = source.slice(source.indexOf("const ICONS"), source.indexOf("const Icon ="));
+  const horizontals = [...block.matchAll(/[Mm][\d.]+ ([\d.]+)h/g)].map((m) => m[1]!);
+  assert.ok(horizontals.length > 20, `only ${horizontals.length} horizontal strokes found`);
+  const offGrid = horizontals.filter((y) => !y.endsWith(".5"));
+  assert.deepEqual(offGrid, [],
+    `these horizontals land between pixels and will render as two greys: ${offGrid.join(", ")}`);
+});
+
+test("RAIL — the silhouettes the review named are the ones the set draws", () => {
+  /*
+   * R2b-01 and the blind review's rail list, feature by feature. Each of these
+   * is the thing that made the cell identifiable as NOT the reference at a
+   * glance, so each is pinned as the shape it now is rather than as a
+   * screenshot nobody will diff.
+   */
+  const block = source.slice(source.indexOf("const ICONS"), source.indexOf("const Icon ="));
+  /*
+   * A glyph's whole entry, including the multi-line ones.
+   *
+   * Anchored on the NEXT top-level key (a newline, exactly two spaces, a
+   * letter) rather than on the next `\n  `: half this set is written over
+   * several lines indented four, and `\n  ` is a prefix of `\n    `, so the
+   * naive version returned the first line of every composite glyph — and
+   * "XABCD has five nodes" would have been asserted against one of them.
+   */
+  const glyph = (key: string): string => {
+    const start = block.indexOf(`\n  ${key}: `);
+    assert.ok(start > 0, `no ${key} glyph`);
+    const rest = block.slice(start + 3 + key.length);
+    const end = /\n {2}(?:[A-Za-z]|\}|\/\/)/.exec(rest);
+    return rest.slice(0, end ? end.index : rest.length);
+  };
+
+  // Fib: the dot on an UPPER level is at its right end, the lower one's at its
+  // left. They were mirrored.
+  const fib = glyph("fib");
+  assert.match(fib, /cx="22\.5" cy="10\.5"/, "the upper fib dot is not at the right end");
+  assert.match(fib, /cx="5\.5" cy="22\.5"/, "the lower fib dot is not at the left end");
+
+  // XABCD: five nodes and the crossing strokes, not an open zigzag.
+  const xabcd = glyph("xabcd");
+  assert.equal((xabcd.match(/<circle/g) ?? []).length, 5, "XABCD is not five-node");
+  assert.ok((xabcd.match(/M[\d.]/g) ?? []).length >= 6,
+    "XABCD has no crossing X–B / A–C strokes");
+
+  // Long/short: two rails with end dots and an L bracket, not a 2x2 table.
+  for (const key of ["long", "short"]) {
+    const g = glyph(key);
+    assert.equal((g.match(/<rect/g) ?? []).length, 0, `${key} is still drawn as boxes`);
+    assert.equal((g.match(/<circle/g) ?? []).length, 2, `${key} has no rail end dots`);
+  }
+
+  // Magnet: a horseshoe with two rectangular pole caps — four legs, two arcs.
+  const magnet = glyph("magnet");
+  assert.equal((magnet.match(/v11/g) ?? []).length, 4, "the magnet has no four legs");
+  assert.equal((magnet.match(/a[\d.]+ [\d.]+ 0 0 1/g) ?? []).length, 2,
+    "the magnet is not a horseshoe (outer and inner arc)");
+
+  // Keep drawing: a pencil with a PADLOCK badge, not a pencil on a baseline.
+  const keep = glyph("stayInDrawingMode");
+  assert.match(keep, /<rect/, "the keep-drawing pencil carries no padlock body");
+  assert.match(keep, /a2 2 0 0 1 4 0/, "and no padlock shackle");
+
+  // Hide: an eye with a badge at its lower right, not a plain eye.
+  assert.ok(glyph("eye").includes("M14.5 24.5l1.5-6"), "the eye carries no badge");
+
+  // Channels and pitchforks: the reference's nodal silhouettes.
+  assert.equal((glyph("parallel").match(/<circle/g) ?? []).length, 3);
+  assert.equal((glyph("flatTopBottom").match(/<circle/g) ?? []).length, 4);
+  assert.equal((glyph("disjointChannel").match(/<circle/g) ?? []).length, 4);
+  assert.match(glyph("regression").replace(/\s+/g, " "), /M5\.5 10\.5L21\.5 2\.5M5\.5 24\.5L21\.5 16\.5/,
+    "the regression band has lost one of its two parallel edges");
+  for (const fork of [
+    "pitchfork", "schiffPitchfork", "modifiedSchiffPitchfork", "insidePitchfork",
+  ]) {
+    const tines = glyph(fork).match(/l[69]-[69]/g) ?? [];
+    assert.equal(tines.length, 3, `${fork} does not draw three tines`);
+  }
+});
+
+test("RAIL — the first flyout prints all five of the reference's hotkeys", () => {
+  /*
+   * R2b-05. `BINDINGS` has declared ⌥J, ⌥C and ⌥⇧R since TVP7; `TOOL_ACTION`
+   * knew six tools, so the first flyout a user opens printed three caps of
+   * five and Rectangle printed none.
+   */
+  const map = source.slice(source.indexOf("const TOOL_ACTION"), source.indexOf("function altBinding"));
+  for (const [tool, action] of [
+    ["hray", "tool:horizontal-ray"], ["crossline", "tool:crossline"], ["rect", "tool:rectangle"],
+  ] as const) {
+    assert.ok(map.includes(`${tool}: "${action}"`), `${tool} prints no key cap`);
+    assert.ok(
+      BINDINGS.some((b) => b.action === action && b.alt === true),
+      `${action} has no ⌥ binding to print`
+    );
+  }
+
+  // And the cap is printed modifier-then-key with a thin space (R2b-12): at
+  // 12px `⌥T` reads as one unfamiliar glyph, `⌥ T` as an instruction.
+  assert.match(source, /return `\$\{mods\.join\(""\)\}\\u2009\$\{key\}`/);
+  assert.match(source, /text-\[12px\][\s\S]{0,40}text-ink-faint/);
+});
+
+test("RAIL — the edge strip is a control with its own lit chip", () => {
+  /*
+   * R2b-08. The strip was an invisible hit-zone that revealed a chevron: with
+   * a flyout open, the cell showed a bare glyph on black and nothing said
+   * which control held the menu. `.tvc-control` cannot be borrowed here — the
+   * rail scopes its chip to `inset: 2px 9px`, a negative width on an 11px
+   * strip — so the state grammar is spelled out at the strip's own size.
+   */
+  const strip = source.slice(source.indexOf("const strip = ("), source.indexOf("/**\n   * One 40px tool row"));
+  assert.match(strip, /rounded-\[4px\]/);
+  assert.match(strip, /hover:bg-state-hover/);
+  assert.match(strip, /data-\[open=true\]:bg-state-hover/);
+  assert.doesNotMatch(strip, /title=/,
+    "the strip names itself with the product's pill, not the OS tooltip");
+});
+
+test("RAIL — every cell names itself in the product's chrome, not the OS tooltip", () => {
+  /*
+   * R2b-14. `title` is drawn by the operating system, half a second late, in
+   * a font and on a ground the theme cannot reach — the one piece of chrome in
+   * this workstation that does not obey it. The pill replaces it on the rail's
+   * own cells; the FLYOUT rows keep `title`, because there it carries a hint
+   * ("Click points, double-click to finish") rather than the row's name, which
+   * the row already prints.
+   */
+  const rail = source.slice(source.indexOf("  return (\n    <div\n      ref={railRef}"));
+  assert.doesNotMatch(rail, /\btitle=\{?"?(Remove objects|Measure)/);
+  assert.match(source, /const tip = \(label: string\)/);
+  assert.match(source, /data-rail-tip/);
+  assert.match(source, /bg-state-active px-\[8px\]/);
+  // The pill is decoration: the control it belongs to already has a NAME, and
+  // a tooltip that also announced itself would say it twice.
+  assert.match(source, /<span aria-hidden="true" data-rail-tip/);
+});
+
+test("RAIL — a flyout is clamped to the viewport and scrolls only when it cannot fit", () => {
+  /*
+   * R2b-04. Geometric shapes is 750px tall opening from a cell at y=238, so
+   * its last two rows rendered below a 900px viewport; and every menu that DID
+   * fit still carried `max-h-[calc(100vh-120px)] overflow-y-auto`, so a list
+   * with nothing hidden behaved as though it had.
+   */
+  const flyout = source.slice(source.indexOf("function Flyout("), source.indexOf("/**\n * The Icons picker"));
+  assert.match(flyout, /Math\.min\(cell - 6, viewport - height - 8\)/);
+  assert.match(flyout, /maxHeight === undefined \? "" : "overflow-y-auto "/);
+  assert.doesNotMatch(source.replace(/\/\*[\s\S]*?\*\//g, ""), /max-h-\[calc\(100vh-120px\)\]/,
+    "the blanket scroll fallback is what hid the clamp being absent");
+
+  // And the reference's 30px of blank surface above a tool flyout's first row
+  // (6px of menu padding plus 24), and its 37px section block (6 + 1 + 30,
+  // which needs the separator's bottom margin dropped under a heading).
+  assert.match(source, /<Flyout className="!pt-\[24px\]">/);
+  assert.match(source, /tvc-menu-sep\$\{section\.heading \? " !mb-0" : ""\}/);
+});
+
+test("RAIL — a flyout row places its icon and label where the reference does", () => {
+  /*
+   * R2b-09. The row's own gutter is 6px, so `px-3` put the 28px icon box 16px
+   * from the menu's edge instead of 10, `gap-2` pushed the label to 107
+   * instead of 96, and with no reserved right column the menu came out 18px
+   * narrower than the reference's with the hotkey and the hover star hard
+   * against the longest label.
+   */
+  const row = source.slice(source.indexOf("const toolRow = ("), source.indexOf("const optionRow = ("));
+  assert.match(row, /gap-\[5px\] pl-\[4px\]/, "the icon column is not at x=63");
+  assert.match(row, /<Icon name=\{t\.icon\} size=\{28\} \/>/);
+  assert.match(row, /ml-\[18px\]/, "the reserved hotkey/star column is gone");
+  assert.match(row, /mr-\[10px\]/, "the cap no longer ends 44px from the menu's edge");
+  assert.match(row, /mr-\[6px\] flex h-7 w-7/);
+});
+
+test("RAIL — the Icons picker is the reference's picker, minus the tab it cannot honour", () => {
+  /*
+   * R2b-07. It was a flat 56-glyph grid 292px tall where the reference has a
+   * 354×679 categorised picker that scrolls inside itself: eight 38×38
+   * category cells, an 8-column grid of 37×38 cells with 24px glyphs, and a
+   * bottom tab bar.
+   *
+   * The reference's bar reads `Emojis · Stickers · Icons`. Stickers are its
+   * own licensed artwork; there is no counterpart here and an empty third tab
+   * would be a promise the product cannot keep, so the bar carries two — and
+   * `Icons` is a monochrome Unicode outline set, which paints through the same
+   * text path and takes the drawing's own colour.
+   */
+  const picker = source.slice(source.indexOf("function IconPicker("), source.indexOf("/**\n * The left icon rail."));
+  assert.match(picker, /h-\[679px\] w-\[354px\]/);
+  assert.match(picker, /h-\[38px\] w-\[38px\]/, "no 38×38 category cells");
+  assert.match(picker, /grid-cols-8/);
+  assert.match(picker, /h-\[38px\] w-\[37px\][\s\S]{0,60}text-\[24px\]/, "no 37×38 cells with 24px glyphs");
+  assert.match(picker, /overflow-y-auto/, "the grid does not scroll inside the popover");
+  assert.match(picker, /h-\[37px\]/, "no bottom tab bar");
+  assert.match(picker, /"Emojis" : "Icons"/);
+  assert.doesNotMatch(picker, /Stickers/);
+
+  // Eight categories on the Emojis tab, as the reference shows, and every
+  // glyph reachable from exactly one of them.
+  assert.equal(EMOJI_CATEGORIES.length, 8);
+  assert.ok(OUTLINE_CATEGORIES.length >= 4);
+  const all = [...EMOJI_CATEGORIES, ...OUTLINE_CATEGORIES].flatMap((c) => c.glyphs);
+  assert.equal(new Set(all).size, all.length, "a glyph is filed in two categories");
+  assert.deepEqual([...ICON_GLYPHS], all);
+  // Enough to scroll: the grid is ~14 rows of 8 before the tab bar.
+  assert.ok(all.length > 150, `only ${all.length} glyphs — the picker still fits in one screen`);
+});
+
+test("RAIL — the column is bounded by the shell's gutter, not by a hairline", () => {
+  /*
+   * R2b-13. The reference frames the rail with a 4px `--ts-bg` gutter on its
+   * right and under the toolbar; this column drew a 1px `border-r` into that
+   * space, making the effective rail 51px. The gutter is the shell's to draw
+   * (it is in `app/chart/page.tsx`); what belongs here is NOT drawing a second
+   * boundary inside it — and taking 6px of top padding rather than 10, because
+   * the toolbar row above now ends in that same 4px gutter rather than in a
+   * 1px hairline, which is what still puts the first cell at y=48.
+   */
+  const rail = source
+    .slice(source.indexOf("  return (\n    <div\n      ref={railRef}"))
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.doesNotMatch(rail, /border-r/);
+  assert.match(rail, /w-\[52px\] shrink-0 flex-col items-center bg-surface pt-\[6px\]/);
 });

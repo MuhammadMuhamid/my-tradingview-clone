@@ -1,4 +1,26 @@
-import type { ReactNode } from "react";
+"use client";
+/*
+ * ── Why this file is a client module now (TVP8 / R6) ───────────────────────
+ *
+ * The chart-settings dialog's row grammar — checkbox, dropdown, colour swatch,
+ * line-style button, number field — is the product's grammar, not that
+ * dialog's: contract §7 says the unique pages share the primitives in this
+ * file, and a second copy living under `components/tv` would be the "thirteen
+ * files retyped the string" failure this file exists to prevent. Those five
+ * hold state (a popover is open, a menu row is focused), so the module they
+ * live in is a client module.
+ *
+ * The two server components that import from here — `app/getting-started` and
+ * `app/journal/loading` — take `PageShell` / `PageHeader` with children and no
+ * function props, which a server component renders through a client boundary
+ * unchanged.
+ */
+import {
+  useCallback, useEffect, useLayoutEffect, useRef, useState,
+  type ReactNode, type RefObject,
+} from "react";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { useExclusivePopover } from "@/lib/useExclusivePopover";
 
 
 /*
@@ -224,7 +246,20 @@ export function Button({
 }: {
   children: ReactNode;
   onClick?: () => void;
-  variant?: "default" | "primary" | "danger" | "ghost";
+  /**
+   * `contrast` is a DIALOG's confirming action — R6 CH-4.
+   *
+   * Measured on the reference's settings footer, `Ok` is a light-filled chip
+   * with dark text (rgb 242,242,242), the same inversion the selected menu row
+   * uses, and `Cancel` beside it carries no border at all. Ours were an
+   * accent-blue `Ok` and an outlined `Cancel`, which is the one place in the
+   * product where accent reads as "the safe one" rather than as meaning.
+   *
+   * A variant rather than a re-tokened `primary`: `primary` is the page-level
+   * call to action (Save, Run, Deploy) and re-colouring it would repaint forty
+   * buttons to fix two.
+   */
+  variant?: "default" | "primary" | "contrast" | "danger" | "ghost";
   disabled?: boolean;
   type?: "button" | "submit";
   className?: string;
@@ -259,6 +294,9 @@ export function Button({
   const styles = {
     default: "border border-control-border bg-transparent text-ink tvc-control",
     primary: "bg-accent text-white hover:bg-accent/90",
+    // The inverted chip the selected menu row already uses: light on dark,
+    // dark on light, one token pair, no second definition of "contrast".
+    contrast: "bg-[var(--ts-menu-selected-bg)] text-[var(--ts-menu-selected-ink)] hover:opacity-90",
     danger: "border border-down/30 bg-down/15 text-down hover:bg-down/25",
     ghost: "tvc-control text-ink-muted hover:text-ink",
   }[variant];
@@ -453,5 +491,526 @@ export function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * The settings-row grammar (TVP8 / R6)
+ *
+ * Five primitives, measured off the reference's chart-settings dialog at
+ * 1440×900 dark, and one reason they live in this file rather than beside the
+ * dialog that needed them first: contract §7 — the unique pages use the SAME
+ * primitives as the workstation. A colour swatch written under `components/tv`
+ * is a colour swatch the Screener cannot have.
+ *
+ * What they replace: a native `<input type="checkbox" class="accent-accent">`,
+ * five native `<select>`s (whose OS popup and OS chevron are the most visible
+ * "different product" tell a dialog can have), a native `<input type="color">`
+ * at 34×26, and a line that was a swatch plus a number plus a select laid out
+ * inline, three controls wide, in a row the reference draws as one button.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * The palette every colour control in the product opens.
+ *
+ * Two rows of nine: the reference's neutral ramp from white to black, then the
+ * chromatic row. `""` — "the theme's own" — is not in here; it is the popover's
+ * first cell, because it is a different KIND of answer from a colour.
+ */
+export const SWATCH_PALETTE: readonly string[] = [
+  "#ffffff", "#d1d4dc", "#9598a1", "#787b86", "#5d606b", "#434651", "#2a2e39", "#131722", "#000000",
+  "#f6465d", "#ff9800", "#ffeb3b", "#2ebd85", "#089981", "#2962ff", "#7e57c2", "#e91e63", "#795548",
+];
+
+/**
+ * A popover anchored under a control, positioned in VIEWPORT coordinates.
+ *
+ * `position: fixed`, not `absolute`, and that is the whole reason this helper
+ * exists: the settings dialog's tab panel is the scroller (`overflow-y: auto`),
+ * and an absolutely-positioned popover inside a scroll container is CLIPPED by
+ * it — a palette opened from the last row of the Canvas tab would have been
+ * cut in half. Fixed coordinates are computed from the trigger's own rect when
+ * the popover opens, and flipped above the trigger when there is no room below.
+ */
+function useAnchor(open: boolean, trigger: RefObject<HTMLElement>, box: RefObject<HTMLElement>): {
+  left: number; top: number;
+} {
+  const [pos, setPos] = useState({ left: 0, top: 0 });
+  useLayoutEffect(() => {
+    if (!open) return;
+    const t = trigger.current?.getBoundingClientRect();
+    if (!t) return;
+    const height = box.current?.offsetHeight ?? 0;
+    const width = box.current?.offsetWidth ?? 0;
+    const below = t.bottom + 4;
+    const top = height > 0 && below + height > window.innerHeight - 8
+      ? Math.max(8, t.top - 4 - height)
+      : below;
+    const left = width > 0
+      ? Math.max(8, Math.min(t.left, window.innerWidth - 8 - width))
+      : t.left;
+    setPos({ left, top });
+  }, [open, trigger, box]);
+  return pos;
+}
+
+/** Outside-click and Escape, the two ways every popover in the product closes. */
+function useDismiss(
+  open: boolean, onClose: () => void,
+  ...within: RefObject<HTMLElement>[]
+): void {
+  const refs = useRef(within);
+  refs.current = within;
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node;
+      if (refs.current.some((r) => r.current?.contains(target))) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      // The dialog behind this one must not close as well: a popover is the
+      // innermost thing on screen and Escape belongs to it first.
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open, onClose]);
+}
+
+/**
+ * A checkbox at the size and weight the reference draws one.
+ *
+ * 18px, radius 3, and CHECKED is the contrast fill — light ground, dark tick,
+ * the same inversion as `Button variant="contrast"` and the selected menu row.
+ * It was `accent-accent`: the browser's own box tinted product blue, which is
+ * both the wrong shape and the one use of accent the contract forbids.
+ *
+ * A real `<input type="checkbox">` under the paint, so it is announced,
+ * focusable, and `checked` is readable by a test rather than inferred.
+ */
+export function Checkbox({ checked, onChange, label, disabled = false, id }: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  /** The accessible name. Required: an unlabelled box says only "checkbox". */
+  label: string;
+  disabled?: boolean;
+  id?: string;
+}) {
+  return (
+    <span className="relative inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center">
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(e) => onChange(e.target.checked)}
+        className="peer h-[18px] w-[18px] shrink-0 cursor-pointer appearance-none rounded-[3px]
+          border border-control-border bg-transparent
+          checked:border-transparent checked:bg-[var(--ts-menu-selected-bg)]
+          disabled:cursor-not-allowed disabled:opacity-40"
+      />
+      <svg
+        width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+        className="pointer-events-none absolute hidden peer-checked:block"
+        stroke="var(--ts-menu-selected-ink)" strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round"
+      >
+        <path d="M2 6.2l2.8 2.8L10 3.6" />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * A list of choices, drawn by this product rather than by the operating system.
+ *
+ * A native `<select>` renders the OS's own chevron and opens the OS's own
+ * popup — a different font, a different row height, a different selection
+ * colour, and on macOS a list that overlays the trigger. Five of them in one
+ * dialog is the single loudest "this is not that product" signal in a
+ * screenshot. This is a 34px `.tvc-control` button that opens the `.tvc-menu`
+ * every other menu in the workstation uses, at the 32px context-menu row.
+ *
+ * `role="listbox"` / `role="option"`, not `menu`/`menuitem`: it has a VALUE.
+ */
+export function Dropdown({
+  value, onChange, options, label, width = 150, disabled = false, id,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  options: readonly { value: string; label: string }[];
+  /** The accessible name — the row's own label, e.g. "Precision". */
+  label: string;
+  /** 100 / 150 / 180, per the row's measured width in the reference. */
+  width?: number;
+  disabled?: boolean;
+  /**
+   * This popover's name in the registry (`lib/popoverGroup`), so only one
+   * popover in the product is open at a time. Defaults to the accessible name,
+   * which is already unique within a dialog; pass one explicitly where two
+   * instances could share a label.
+   */
+  id?: string;
+}) {
+  const popoverId = id ?? label;
+  const [open, setOpen] = useExclusivePopover(`ui-dropdown:${popoverId}`);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => {
+    setOpen(false);
+    boxRef.current?.querySelector("button")?.focus();
+  }, [setOpen]);
+  useDismiss(open, close, boxRef, menuRef);
+  const pos = useAnchor(open, boxRef, menuRef);
+  useEffect(() => {
+    if (!open) return;
+    const items = menuItems(menuRef.current);
+    (items.find((el) => el.getAttribute("aria-selected") === "true") ?? items[0])?.focus();
+  }, [open]);
+
+  const current = options.find((o) => o.value === value);
+  return (
+    <div ref={boxRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={label}
+        onClick={() => setOpen(!open)}
+        style={{ width }}
+        className="tvc-control flex h-[34px] items-center justify-between gap-1.5 rounded-md
+          border border-control-border bg-transparent px-2.5 text-sm text-ink
+          disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <span className="truncate">{current?.label ?? value}</span>
+        <CaretGlyph size={10} />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          role="listbox"
+          aria-label={label}
+          style={{ position: "fixed", left: pos.left, top: pos.top, minWidth: width, zIndex: 60 }}
+          onKeyDown={(e) => {
+            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+              e.preventDefault();
+              moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+            }
+          }}
+          className="tvc-menu tvc-menu--compact"
+        >
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              role="option"
+              aria-selected={o.value === value}
+              onClick={() => { onChange(o.value); close(); }}
+              className="tvc-menu-row px-2.5 text-left text-sm text-ink"
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The palette grid both colour controls open, and the `Custom…` escape hatch. */
+function Palette({ value, onChange, allowTheme, onDone }: {
+  value: string;
+  onChange: (next: string) => void;
+  /** Whether `""` — "follow the theme" — is a legal answer for this setting. */
+  allowTheme: boolean;
+  onDone: () => void;
+}) {
+  return (
+    <div className="p-1.5">
+      <div className="grid grid-cols-9 gap-1">
+        {allowTheme && (
+          <button
+            type="button"
+            aria-label="Theme colour"
+            title="Follow the active theme"
+            onClick={() => { onChange(""); onDone(); }}
+            className="tvc-control relative h-5 w-5 rounded-sm border border-control-border"
+          >
+            <svg viewBox="0 0 20 20" className="absolute inset-0 h-full w-full" aria-hidden="true">
+              <path d="M2 18L18 2" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </button>
+        )}
+        {SWATCH_PALETTE.map((hex) => (
+          <button
+            key={hex}
+            type="button"
+            aria-label={hex}
+            title={hex}
+            onClick={() => { onChange(hex); onDone(); }}
+            style={{ backgroundColor: hex }}
+            className={`h-5 w-5 rounded-sm border ${
+              hex === value ? "border-ink" : "border-black/20"
+            }`}
+          />
+        ))}
+      </div>
+      {/*
+        The native picker, kept reachable rather than replaced.
+        A palette of eighteen is what a trader uses; the OS picker is what they
+        need on the day none of the eighteen is their firm's red. The input
+        carries the label's click and the keyboard's focus, so this is a
+        control and not a decoration.
+      */}
+      <label className="tvc-control mt-1.5 flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-sm text-ink-muted hover:text-ink">
+        <span
+          className="h-4 w-4 rounded-sm border border-control-border"
+          style={{ backgroundColor: value || "transparent" }}
+        />
+        Custom…
+        <input
+          type="color"
+          value={value || "#ffffff"}
+          aria-label="Custom colour"
+          onChange={(e) => onChange(e.target.value)}
+          className="h-0 w-0 opacity-0"
+        />
+      </label>
+    </div>
+  );
+}
+
+/**
+ * A colour, as a 34×34 well with a 24px centre — the reference's own geometry.
+ *
+ * It was a bare `<input type="color">` at 34×26: the browser's well, the
+ * browser's border radius, and no way to say "follow the theme" except a
+ * separate 26px button that appeared beside it when a colour was pinned.
+ * `Theme` is the first cell of the palette now, so `""` is reachable from the
+ * same place every other answer is.
+ */
+export function Swatch({
+  value, onChange, label, allowTheme = false, disabled = false, id,
+}: {
+  /** A `#rrggbb` literal, or `""` for "the theme's own" when `allowTheme`. */
+  value: string;
+  onChange: (next: string) => void;
+  label: string;
+  allowTheme?: boolean;
+  disabled?: boolean;
+  /** See `Dropdown.id` — the registry name for this popover. */
+  id?: string;
+}) {
+  const popoverId = id ?? label;
+  const [open, setOpen] = useExclusivePopover(`ui-swatch:${popoverId}`);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), [setOpen]);
+  useDismiss(open, close, boxRef, popRef);
+  const pos = useAnchor(open, boxRef, popRef);
+
+  return (
+    <div ref={boxRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={value || "Theme colour"}
+        onClick={() => setOpen(!open)}
+        className="tvc-control flex h-[34px] w-[34px] items-center justify-center rounded-md
+          border border-control-border disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <span
+          className="h-6 w-6 rounded-[3px] border border-black/20"
+          style={{ backgroundColor: value || "var(--ts-surface-2)" }}
+        >
+          {value === "" && (
+            <svg viewBox="0 0 24 24" className="h-full w-full text-ink-faint" aria-hidden="true">
+              <path d="M3 21L21 3" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          )}
+        </span>
+      </button>
+      {open && (
+        <div
+          ref={popRef}
+          style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 60 }}
+          className="tvc-popover"
+        >
+          <Palette value={value} onChange={onChange} allowTheme={allowTheme} onDone={close} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The three dash patterns, as an SVG dash array at a given width. */
+function dashArray(style: "solid" | "dotted" | "dashed", width: number): string | undefined {
+  if (style === "solid") return undefined;
+  return style === "dotted" ? `${width} ${width * 2}` : `${width * 4} ${width * 2}`;
+}
+
+/**
+ * Colour, width and dash pattern behind ONE 75×34 button.
+ *
+ * The reference uses this row shape five times on Scales and three times on
+ * Canvas; this product had the same three settings laid out inline — a swatch,
+ * a 56px number and a 104px select — so a row that is one control there was
+ * three here, and they mounted and unmounted as their checkbox was toggled,
+ * which made the row jump.
+ *
+ * The button shows what it will draw: the colour square, then a preview line in
+ * the current width and pattern.
+ */
+export function LineStyleButton({
+  color, width, style, onChange, label, allowTheme = false, disabled = false, id,
+}: {
+  color: string;
+  width: number;
+  style: "solid" | "dotted" | "dashed";
+  onChange: (next: { color: string; width: number; style: "solid" | "dotted" | "dashed" }) => void;
+  label: string;
+  allowTheme?: boolean;
+  disabled?: boolean;
+  /** See `Dropdown.id` — the registry name for this popover. */
+  id?: string;
+}) {
+  const popoverId = id ?? label;
+  const [open, setOpen] = useExclusivePopover(`ui-line-style:${popoverId}`);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), [setOpen]);
+  useDismiss(open, close, boxRef, popRef);
+  const pos = useAnchor(open, boxRef, popRef);
+  const stroke = color || "currentColor";
+
+  return (
+    <div ref={boxRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="tvc-control flex h-[34px] w-[75px] items-center gap-2 rounded-md
+          border border-control-border px-2 text-ink
+          disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <span
+          className="h-4 w-4 shrink-0 rounded-[3px] border border-black/20"
+          style={{ backgroundColor: color || "var(--ts-surface-2)" }}
+        />
+        <svg width="32" height="12" viewBox="0 0 32 12" className="shrink-0" aria-hidden="true">
+          <path
+            d="M0 6h32" stroke={stroke} strokeWidth={width}
+            strokeDasharray={dashArray(style, width)} strokeLinecap="round"
+          />
+        </svg>
+      </button>
+      {open && (
+        <div
+          ref={popRef}
+          style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 60 }}
+          className="tvc-popover w-[228px]"
+        >
+          <Palette
+            value={color}
+            onChange={(next) => onChange({ color: next, width, style })}
+            allowTheme={allowTheme}
+            onDone={close}
+          />
+          <div className="flex items-center gap-1 px-1.5 pb-1.5">
+            {[1, 2, 3, 4].map((w) => (
+              <button
+                key={w}
+                type="button"
+                aria-label={`Width ${w}`}
+                aria-pressed={w === width}
+                onClick={() => onChange({ color, width: w, style })}
+                className="tvc-control flex h-8 flex-1 items-center justify-center rounded-md text-ink"
+              >
+                <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true">
+                  <path d="M0 6h22" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
+                </svg>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 px-1.5 pb-1.5">
+            {(["solid", "dotted", "dashed"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-label={s[0]!.toUpperCase() + s.slice(1)}
+                aria-pressed={s === style}
+                onClick={() => onChange({ color, width, style: s })}
+                className="tvc-control flex h-8 flex-1 items-center justify-center rounded-md text-ink"
+              >
+                <svg width="42" height="12" viewBox="0 0 42 12" aria-hidden="true">
+                  <path
+                    d="M0 6h42" stroke="currentColor" strokeWidth={width}
+                    strokeDasharray={dashArray(s, width)} strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A number, at the size the reference's settings dialog draws one.
+ *
+ * 70×28 with the unit as plain 14px muted text AFTER the field — not a suffix
+ * inside it, and not a 34px control: the reference's number fields are the one
+ * thing in that dialog shorter than its buttons, which is why `%` and `bars`
+ * read as words rather than as part of the box.
+ */
+export function NumberField({
+  value, onChange, min, max, step = 1, label, unit, width = 70, disabled = false,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  label: string;
+  /** `%`, `bars`, `min` — rendered beside the field, never inside it. */
+  unit?: string;
+  width?: number;
+  disabled?: boolean;
+}) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || 0)))}
+        style={{ width }}
+        className="tabular h-[28px] rounded-md border border-control-border bg-transparent px-2
+          text-right text-sm text-ink outline-none focus:border-accent
+          disabled:cursor-not-allowed disabled:opacity-40"
+      />
+      {unit && <span className="text-sm text-ink-faint">{unit}</span>}
+    </span>
   );
 }

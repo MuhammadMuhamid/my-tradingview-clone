@@ -12,7 +12,7 @@
  * a column of panels beside a chart is not a phone layout — it is a desktop
  * layout with the chart squeezed out of it.
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { type Resolution } from "@/lib/resolution";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
@@ -31,6 +31,7 @@ import type { SymbolInfo } from "@/lib/types";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import { canonicalDisplayParts, isCanonicalInstrumentId } from "@/lib/instrument";
 import { WorkstationOrderTicket } from "@/components/tv/WorkstationOrderTicket";
+import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 
 export type ChartPanel =
   | "watchlist" | "alerts" | "indicators" | "ma" | "manual" | "correlation" | null;
@@ -95,6 +96,8 @@ export interface ChartSidePanelProps {
 
 export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
   const drawerRef = useRef<HTMLDivElement>(null);
+  /** The rail's Help cell owns its own sheet; nothing above it has to. */
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const restoreFocus = useRef<HTMLElement | null>(null);
   const { onClosePanel } = props;
   useEffect(() => {
@@ -115,25 +118,37 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
   const tradingIdentity = canonicalDisplayParts(props.tradingSymbol);
   const canonicalBinanceSpot = tradingIdentity?.venue === "BINANCE" && tradingIdentity.type === "spot";
   /*
-   * The far-right rail follows TradingView's narrower 45px icon column while
-   * keeping the same full-bleed 38px hit zones as the drawing rail. It stays
-   * square-cornered and avoids pill-like inset controls so both rails frame
-   * the chart as one workstation surface.
+   * ── TVP8 R7-08: this rail is 46px, and the left one is 52 ─────────────────
+   *
+   * Measured on the reference at 1440x900: the drawing rail on the left is
+   * 52px on a 52px pitch; the panel rail on the right is 46px on a 46px pitch,
+   * with a 38x38 painted chip and 20px glyphs that are FULL INK at rest, not
+   * muted. TVP7 made the two rails identical on the reasonable-sounding theory
+   * that one workstation has one rail grammar. The reference disagrees, and it
+   * is right to: the left rail is a tool palette you hold a pointer over all
+   * day, the right one is six destinations. Ours was 52px wide on a 38px pitch
+   * with 26px glyphs at stroke 1.8 — wider, tighter and heavier than the thing
+   * it was copying, all at once.
+   *
+   * The chip is 38x38 through a rail-scoped `::before` inset, declared on the
+   * column below rather than on every button.
    */
   const railBtn = (isActive: boolean): string =>
-    /*
-     * TVP7: the same grammar and the same width as the left rail.
-     *
-     * This was 45px wide with 21px glyphs and painted NOTHING for hover or for
-     * the panel that is currently open — the only rail in the workstation not
-     * on `.tvc-control`, sitting opposite one that is 52px with 28px glyphs.
-     * Two rails on one screen built to two different rules read as two
-     * products, and the open panel had no marker at all beyond a slightly
-     * brighter glyph.
-     */
-    `tvc-control flex h-[38px] w-[52px] items-center justify-center ${
-      isActive ? "text-ink" : "text-ink-muted hover:text-ink"
+    `tvc-control flex h-[46px] w-[46px] items-center justify-center ${
+      isActive ? "text-ink" : "text-ink hover:text-ink"
     }`;
+
+  /** A count on a rail cell, in the reference's badge grammar. */
+  const RailBadge = ({ count }: { count: number }): ReactNode => (
+    /* R7-08: a count badge, in the reference's own grammar — a small red
+       numeric dot at the chip's corner. It used to be an accent pill, which
+       put the product's selection colour on a control whose state it was not
+       describing. Red is not a warning here; it is the badge colour the
+       reference uses for a count on a rail cell. */
+    <span className="pointer-events-none absolute right-[3px] top-[3px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-down px-[3px] text-[9px] font-semibold leading-none text-white">
+      {count}
+    </span>
+  );
 
   /** Phone drawers are mutually exclusive — two overlays at once hides the chart. */
   const togglePanel = (p: ChartPanel): void => {
@@ -160,7 +175,11 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
               onOpenInNewPane={props.onOpenSymbolInNewPane}
               onAddAlert={props.onAddSymbolAlert}
               canOpenNewPane={props.canOpenNewPane ?? false}
-              replayActive={props.replayActive} />
+              replayActive={props.replayActive}
+              /* R7-14: the gutter grip closes the panel. The rail cell still
+                 toggles it, so `sidePanelDefault`'s preference test is
+                 unaffected — this is a second way to the same state. */
+              onHide={props.onClosePanel} />
           )}
           {props.panel === "correlation" && (
             /*
@@ -192,7 +211,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 focusKey={props.indicatorFocusKey}
               />
             ) : (
-              <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 items-center justify-center border-l border-border bg-surface p-4 text-xs text-ink-faint md:w-[300px]">
+              <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 items-center justify-center bg-surface p-4 text-xs text-ink-faint md:w-[300px]">
                 Preparing this pane&apos;s studies…
               </aside>
             )
@@ -209,7 +228,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 onClose={props.onClosePanel}
                 onStateChange={props.onManualState} />)}
           {props.panel === "ma" && (
-            <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col border-l border-border bg-surface md:w-[300px]">
+            <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col bg-surface md:w-[300px]">
               <MaPanel
                 lines={props.maLines}
                 values={props.maValues}
@@ -237,13 +256,24 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
 
     {/* ── far-right icon rail (TV-style) ── */}
     {/*
-      TVP8 R1-13: 10px of top padding, so this column's first 38px cell starts
-      at y=48 — under the toolbar row, not level with it. The rail used to sit
-      in the toolbar band (`py-1`, first cell at y=4) with its selected chip
-      reading as part of the bar; the reference starts BOTH rail columns below
-      the toolbar, and the toolbar row is 38px tall.
+      TVP8 R1-13: 6px of top padding, so this column's first PAINTED chip
+      starts at y=48 — under the toolbar row, not level with it. The rail used
+      to sit in the toolbar band (`py-1`, first cell at y=4) with its selected
+      chip reading as part of the bar; the reference starts BOTH rail columns
+      below the toolbar, and the toolbar row is 38px tall.
+
+      `data-side-rail` is not decoration: `globals.css` scopes this rail's chip
+      inset to it, the way `[data-drawing-rail]` scopes the left one's. Without
+      the attribute a 46px cell would paint a 42px chip instead of the
+      reference's 38x38.
+
+      TODO(globals.css, MAIN): add
+        :is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control::before { inset: 4px; }
+      Until it lands the chip is 2px inset (42x42) rather than 38x38 — the
+      geometry below is already the reference's.
     */}
-    <div className="hidden w-[52px] shrink-0 flex-col items-center border-l border-border bg-surface pb-1 pt-[10px] md:flex">
+    <div data-side-rail="true"
+      className="hidden w-[46px] shrink-0 flex-col items-center bg-surface pb-1 pt-[6px] md:flex">
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}
@@ -251,66 +281,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Watchlist"
         aria-pressed={props.panel === "watchlist"}
       >
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M4 6h16M4 12h16M4 18h10" />
-        </svg>
-      </button>
-      <button
-        onClick={() => props.onPanel((p) => (p === "manual" ? null : "manual"))}
-        disabled={props.replayBlocksLiveActions}
-        className={railBtn(props.panel === "manual")}
-        title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
-        aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
-        aria-pressed={props.panel === "manual"}
-      >
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
-        </svg>
-      </button>
-      <button
-        onClick={() => props.onPanel((p) => (p === "indicators" ? null : "indicators"))}
-        className={railBtn(props.panel === "indicators")}
-        title="Indicators"
-        aria-label="Indicators"
-        aria-pressed={props.panel === "indicators"}
-      >
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
-        </svg>
-        {/* accent-is-meaning: a count badge — how many, not which one is open. */}
-        {props.indicatorCount > 0 && (
-          <span className="absolute ml-6 -mt-4 rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
-            {props.indicatorCount}
-          </span>
-        )}
-      </button>
-      <button
-        onClick={() => props.onPanel((p) => (p === "ma" ? null : "ma"))}
-        className={railBtn(props.panel === "ma")}
-        title="Moving averages and the alerts armed on them"
-        aria-label="Moving averages"
-        aria-pressed={props.panel === "ma"}
-      >
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
-        </svg>
-        {/* accent-is-meaning: a count badge — how many, not which one is open. */}
-        {props.maAlerts.length > 0 && (
-          <span className="absolute ml-6 -mt-4 rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
-            {props.maAlerts.length}
-          </span>
-        )}
-      </button>
-      <button
-        onClick={() => props.onPanel((p) => (p === "correlation" ? null : "correlation"))}
-        className={railBtn(props.panel === "correlation")}
-        title="Correlation — how the watchlist's instruments move together"
-        aria-label="Correlation"
-        aria-pressed={props.panel === "correlation"}
-      >
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
-          <path d="M9 3.5v17M15 3.5v17M3.5 9h17M3.5 15h17" />
         </svg>
       </button>
       <button
@@ -321,11 +293,84 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations"}
         aria-pressed={props.panel === "alerts"}
       >
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
         </svg>
       </button>
+      <button
+        onClick={() => props.onPanel((p) => (p === "indicators" ? null : "indicators"))}
+        className={railBtn(props.panel === "indicators")}
+        title="Indicators"
+        aria-label="Indicators"
+        aria-pressed={props.panel === "indicators"}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
+        </svg>
+        {props.indicatorCount > 0 && <RailBadge count={props.indicatorCount} />}
+      </button>
+      <button
+        onClick={() => props.onPanel((p) => (p === "ma" ? null : "ma"))}
+        className={railBtn(props.panel === "ma")}
+        title="Moving averages and the alerts armed on them"
+        aria-label="Moving averages"
+        aria-pressed={props.panel === "ma"}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
+        </svg>
+        {props.maAlerts.length > 0 && <RailBadge count={props.maAlerts.length} />}
+      </button>
+      <button
+        onClick={() => props.onPanel((p) => (p === "correlation" ? null : "correlation"))}
+        className={railBtn(props.panel === "correlation")}
+        title="Correlation — how the watchlist's instruments move together"
+        aria-label="Correlation"
+        aria-pressed={props.panel === "correlation"}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
+          <path d="M9 3.5v17M15 3.5v17M3.5 9h17M3.5 15h17" />
+        </svg>
+      </button>
+      <button
+        onClick={() => props.onPanel((p) => (p === "manual" ? null : "manual"))}
+        disabled={props.replayBlocksLiveActions}
+        className={railBtn(props.panel === "manual")}
+        title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
+        aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
+        aria-pressed={props.panel === "manual"}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
+        </svg>
+      </button>
+
+      {/*
+        The reference's bottom-anchored group. Six cells there, one here: the
+        rule TVP8 keeps is that a rail cell is a DESTINATION THAT EXISTS, so
+        the column ends where the product does rather than being padded out to
+        the reference's count with glyphs that open nothing.
+
+        No `aria-pressed`: this opens a sheet, not a panel, and
+        `sidePanelDefault`'s `openPanel()` reads the rail by that attribute.
+      */}
+      <div className="mt-auto flex w-full flex-col items-center">
+        <div aria-hidden="true" className="mb-1 h-px w-[30px] bg-border-strong" />
+        <button
+          onClick={() => setShortcutsOpen(true)}
+          className={railBtn(false)}
+          title="Keyboard shortcuts"
+          aria-label="Keyboard shortcuts"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M9.6 9.5a2.5 2.5 0 113.4 2.4v1.3" /><path d="M12.9 16.4h.01" />
+          </svg>
+        </button>
+      </div>
     </div>
+    <ShortcutsSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
     {/* ── phone action bar (TradingView keeps its controls at the thumb) ── */}
     {/*

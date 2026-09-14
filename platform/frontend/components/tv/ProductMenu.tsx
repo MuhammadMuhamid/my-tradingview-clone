@@ -40,9 +40,23 @@
  * rows with a 28px glyph column and 14px/400 labels, 13px spacer separators,
  * a switch row for the theme, a key hint on the shortcuts row, and a red sign
  * out at the end — TradingView's grammar, drawn with our own glyphs and our
- * own tokens. The product name and the two status SENTENCES left the body:
- * a menu is a list of places, not a paragraph. Their truth is still here, as
- * one 32px status row at the top whose detail is in its `title`.
+ * own tokens.
+ *
+ * ── TVP8 R1b-04: the menu opens with the BRAND, not with a health line ─────
+ *
+ * It opened with `● System Attention` — an operations-health string, in a
+ * `role="status"` row, as the headline of a list of places. TradingView has no
+ * health system on this control at all, and the reference's first row is its
+ * wordmark. An ops readout as the first thing a user reads when they reach for
+ * "where else can I go" is the single loudest "this is not a workstation"
+ * signal the shared chrome had.
+ *
+ * So the first row is the 40px brand row (branding is ours to show; §8 of the
+ * contract only forbids imitating the reference's), and the health and stream
+ * truth is the row's `title` plus a dot that appears ONLY when something is
+ * actually degraded. Nothing is hidden: the Operations page and the right
+ * rail's Operations tab are where that truth is READ, and this is where it
+ * raises its hand.
  */
 import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import Link from "next/link";
@@ -244,27 +258,36 @@ export function ProductMenu(
   };
 
   /*
-   * One badge, not two. The mark carries whichever of the two readouts is
-   * actually saying something wrong — a stalled feed or an unhealthy system —
-   * because a closed menu still has to be able to raise its hand. When both are
-   * fine it carries nothing, which is the state it is in nearly all the time.
+   * ── R1b-04: the account cell carries a COUNT, never a health dot ─────────
+   *
+   * It used to badge the avatar with whichever of the two ops readouts was
+   * unwell. Measured on the reference, the same corner carries an unread
+   * count and nothing else — an ops-health dot on an account button is a
+   * control reporting on the backend, which is not what an account button is
+   * for, and it was on screen at 1440 in every capture.
+   *
+   * What survives is the one thing that IS a notification: the unread manual.
+   * The health truth moved to the menu's brand row, where it is a tooltip and
+   * a dot that appears only when something is actually wrong.
    */
   const streamBad = stream !== null
     && stream.state.status !== "live" && stream.state.status !== "open";
   const healthBad = health.tone !== "positive" && health.tone !== "neutral";
-  const alert = streamBad ? stream.dot : healthBad ? HEALTH_DOT[health.tone] : null;
 
   /*
-   * And one status ROW, not two sentences.
+   * And the brand row's TITLE, not a status row of its own.
    *
    * The menu used to print the stream line and the system line as body copy
-   * under the product name — three lines of prose at the top of a list of
-   * places. It says the same two things in one 32px row: the worse of the two
-   * readouts in a few words, and both of them in full in the tooltip. Which is
-   * also why the health SENTENCE is never the label (REV-UX-01): `useOpsHealth`
-   * separates the sentence from the cause, and a backend that answers an
-   * operations poll with an exception puts that text in a title, not on screen.
+   * under the product name, then as one 32px `role="status"` row above it.
+   * TradingView has no health readout on this control (R1b-04), so the
+   * sentence is the brand row's tooltip and the only thing that ever reaches
+   * the screen is a 6px dot, and only while something is genuinely wrong.
+   * Which is also why the health SENTENCE is never the label (REV-UX-01):
+   * `useOpsHealth` separates the sentence from the cause, and a backend that
+   * answers an operations poll with an exception puts that text in a title,
+   * not on screen.
    */
+  const degraded = streamBad || healthBad;
   const showHealth = streamBad ? false : healthBad || stream === null;
   const statusDot = showHealth ? HEALTH_DOT[health.tone] : stream!.dot;
   const statusLabel = showHealth
@@ -301,15 +324,13 @@ export function ProductMenu(
             >
               {initial}
             </span>
-            {(alert !== null || firstRun) && (
+            {firstRun && (
               <span
                 aria-hidden="true"
                 // accent-is-meaning: a notification dot. "Something is here",
                 // not "this one is chosen". TV badges the same corner with an
-                // unread count; ours carries the one readout that is unwell.
-                className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${
-                  alert ?? "bg-accent"
-                }`}
+                // unread count; ours carries the unread manual.
+                className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
               />
             )}
           </span>
@@ -339,14 +360,12 @@ export function ProductMenu(
               <path d="M6.5 15.5l3.5-4 2.8 2.2L18 8.5" stroke="currentColor" strokeWidth="1.9"
                 strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            {(alert !== null || firstRun) && (
+            {firstRun && (
               <span
                 aria-hidden="true"
                 // accent-is-meaning: a notification dot. "Something is here",
                 // not "this one is chosen".
-                className={`absolute -right-1 -top-1 h-2 w-2 rounded-full ring-2 ring-surface ${
-                  alert ?? "bg-accent"
-                }`}
+                className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-accent ring-2 ring-surface"
               />
             )}
           </span>
@@ -380,13 +399,32 @@ export function ProductMenu(
             rail ? "left-[52px] top-0" : "left-0 top-full"
           }`}
         >
-          <div
-            role="status"
-            title={statusDetail}
-            className="flex h-8 items-center gap-2 px-3 text-[12px] leading-none text-ink-faint"
-          >
-            <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot}`} />
-            <span className="truncate">{statusLabel}</span>
+          {/*
+            The brand row. 40px, our own mark and our own wordmark — the
+            reference's first row is the same shape and the same height.
+
+            The dot is the exception, not the rule: it is drawn only when the
+            stream or the system is actually unwell, and the whole of both
+            readouts is in the row's `title`. At rest — which is nearly all of
+            the time — this row is a wordmark and nothing else.
+          */}
+          <div className="flex h-10 items-center gap-2 px-3" title={statusDetail}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+              className="shrink-0 text-ink">
+              <rect x="2.5" y="3.5" width="19" height="17" rx="3" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M6.5 15.5l3.5-4 2.8 2.2L18 8.5" stroke="currentColor" strokeWidth="1.7"
+                strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-ink">
+              {PRODUCT_NAME}
+            </span>
+            {degraded && (
+              <span
+                role="status"
+                aria-label={statusLabel}
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot}`}
+              />
+            )}
           </div>
 
           <Spacer />
@@ -533,11 +571,20 @@ function Switch({ on }: { on: boolean }) {
 /**
  * One destination.
  *
- * The route the user is ON takes the menu's neutral selection chip, declared
- * through `data-active` so the painted state and the announced state are the
- * same fact — never an accent wash. There is no indentation for a section tab
- * any more: the glyph column tells nine destinations apart better than 12px of
- * left padding did, and TradingView's menu has no nesting either.
+ * ── R1b-04: `aria-current` is announced, and not painted ──────────────────
+ *
+ * The route the user is on used to take `data-active`, which `.tvc-menu-row`
+ * paints as the INVERTED selection chip — a 260px block of rgb(242) on the
+ * `Chart` row every single time the menu is opened from the chart, which is
+ * every time it is opened. Measured on the reference, nothing in this list is
+ * marked current at all: a menu of places you can go does not need to shout
+ * about the one you are already in, and the selection chip is the grammar for
+ * "this is the value in force", which a destination is not.
+ *
+ * The FACT stays: `aria-current="page"` still announces it, which is the half
+ * that was load-bearing. There is no indentation for a section tab either —
+ * the glyph column tells nine destinations apart better than 12px of left
+ * padding did, and TradingView's menu has no nesting.
  */
 function MenuLink(
   { href, path, children, onDone, note }:
@@ -552,15 +599,18 @@ function MenuLink(
       href={href}
       role="menuitem"
       aria-current={current ? "page" : undefined}
-      data-active={current ? "true" : undefined}
       onClick={onDone}
       className="tvc-menu-row gap-1 pl-1 pr-2.5 text-[14px] font-normal text-ink"
     >
       <Glyph>{GLYPHS[href] ?? GLYPHS.fallback}</Glyph>
       <span className="flex-1 truncate">{children}</span>
-      {/* accent-is-meaning: the note is ours — the selected row above it is the
-          neutral inverted chip, which is the rule this sits next to. */}
-      {note && <span className="shrink-0 text-[11px] text-accent">{note}</span>}
+      {/*
+        R1b-04: the note is a NOTE. Accent blue on a row of a grey menu was the
+        only colour in the list, and it was carrying "Start here", which is
+        guidance and not an action — so it takes the muted-note treatment the
+        rest of the product uses.
+      */}
+      {note && <span className="shrink-0 text-[11px] text-ink-faint">{note}</span>}
     </Link>
   );
 }

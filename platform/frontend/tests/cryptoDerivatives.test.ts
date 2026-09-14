@@ -31,8 +31,12 @@ test("search carries type and expiry filters and has no options capability", () 
   const dialog = fs.readFileSync(path.join(ROOT, "components", "tv", "SymbolSearch.tsx"), "utf8");
   assert.match(api, /type: "all" \| "spot" \| "perpetual" \| "future"/);
   assert.match(api, /expiry: "all" \| "live" \| "30d" \| "90d" \| "expired"/);
-  assert.match(dialog, /\["spot", "SPOT"\]/); assert.match(dialog, /\["perpetual", "PERP"\]/);
-  assert.match(dialog, /\["future", "FUTURE"\]/);
+  // TVP8 R4: the type filter is a menu built from `lib/symbolSearch`'s table,
+  // not a row of uppercase tabs in the dialog's JSX.
+  const types = fs.readFileSync(path.join(ROOT, "lib", "symbolSearch.ts"), "utf8");
+  assert.match(types, /spot: "Spot"/); assert.match(types, /perpetual: "Perpetual"/);
+  assert.match(types, /future: "Dated futures"/); assert.match(types, /continuous_future: "Continuous futures"/);
+  assert.match(dialog, /Filter by instrument type/); assert.match(dialog, /Filter futures by expiry/);
   assert.doesNotMatch(api, /instrumentType[^\n]+option/i);
 });
 

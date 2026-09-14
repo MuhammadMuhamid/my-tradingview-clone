@@ -207,10 +207,42 @@ export interface Ticker24h {
   open: number;
   /** Exchange-side event time, ms. */
   at: number;
+  /*
+   * TVP8 R7-07: the payload already carried these and this function threw
+   * them away.
+   *
+   * `/api/v3/ticker/24hr` answers with `volume`, `quoteVolume`, `highPrice`
+   * and `lowPrice` on every row; the mapping below read four fields out of a
+   * response that holds twenty. So the watchlist's Key stats block had no
+   * volume to show and said so — an "unavailable" state that was only true of
+   * the code, not of the provider. Optional, because a non-Binance quote
+   * contract genuinely may not supply them and a reader must be able to tell
+   * the difference between "absent" and "zero".
+   */
+  volume?: number;
+  quoteVolume?: number;
+  high?: number;
+  low?: number;
 }
 
 interface RawTicker24h {
   symbol: string; lastPrice: string; openPrice: string; closeTime: number;
+  volume?: string; quoteVolume?: string; highPrice?: string; lowPrice?: string;
+}
+
+/**
+ * One optional numeric field, as a spreadable fragment.
+ *
+ * A fragment rather than a value so a payload that does not carry the field
+ * produces a row WITHOUT the key, instead of one with the key set to
+ * `undefined` — which serialises the same but is a different object, and would
+ * make every `deepStrictEqual` on this shape depend on how many optional
+ * fields exist today.
+ */
+function optionalNumber<K extends string>(name: K, raw: string | undefined): Partial<Record<K, number>> {
+  if (raw === undefined) return {};
+  const value = parseFloat(raw);
+  return Number.isFinite(value) ? { [name]: value } as Record<K, number> : {};
 }
 
 /** Binance caps the `symbols=[…]` form at 100 and weights it by count. */
@@ -230,7 +262,13 @@ export async function fetch24hTickers(
     const last = parseFloat(row.lastPrice);
     const open = parseFloat(row.openPrice);
     if (!Number.isFinite(last) || !Number.isFinite(open)) continue;
-    out.push({ symbol: row.symbol, last, open, at: row.closeTime });
+    out.push({
+      symbol: row.symbol, last, open, at: row.closeTime,
+      ...optionalNumber("volume", row.volume),
+      ...optionalNumber("quoteVolume", row.quoteVolume),
+      ...optionalNumber("high", row.highPrice),
+      ...optionalNumber("low", row.lowPrice),
+    });
   }
   return out;
 }

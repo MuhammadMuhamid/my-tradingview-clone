@@ -44,7 +44,7 @@ import {
 } from "@/lib/timeframes";
 import { describeResolution, explainResolution, parseResolution, type Resolution } from "@/lib/resolution";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
-import { TOOL_CARET_BUTTON } from "@/components/tv/toolbarChrome";
+import { TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/tv/toolbarChrome";
 
 /**
  * Read a stored list without letting a corrupt entry take the page down.
@@ -144,6 +144,17 @@ interface RowProps {
   onRemove?: (resolution: Resolution) => void;
 }
 
+/** The check on the row the chart is actually on. */
+function CurrentCheck() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      className="ml-1 shrink-0" aria-hidden="true">
+      <path d="M5 12.5l4.5 4.5L19 7" />
+    </svg>
+  );
+}
+
 function PickerRow({
   resolution, current, favourite, onPick, onToggleFavourite, onRemove,
 }: RowProps) {
@@ -151,30 +162,32 @@ function PickerRow({
   const selected = current === resolution;
   return (
     /*
-      The selected row is FILLED, not just bolded — at a glance bold text on
-      the panel's own background is indistinguishable from the row above it,
-      and a resolution picker is a place where "which one am I on" has to be
-      answerable without reading. The fill is `tvc-menu-row`'s inverted chip
-      rather than this row's own accent blue: measured live, TradingView's
-      selected menu row is #f2f2f2 on #0f0f0f text, not a tint.
+      ── TVP8 R1b / measurements/tv-timeframe-menu-20260914.md ──────────────
+      The reference's interval rows are 32px and print the interval in FULL
+      WORDS — `15 minutes`, not `15m` — with a hover star at the right and a
+      check on the one the chart is on. Ours were 40px rows printing the chip
+      id in a 40px tabular column, which is the toolbar's spelling repeated
+      inside the menu the toolbar opens.
+
+      The canonical id has not moved: it is `data-resolution` on the row, which
+      is what everything programmatic reads.
     */
     <div data-active={selected ? "true" : undefined}
-      className="tvc-menu-row group gap-1 pr-1">
+      className="tvc-menu-row group gap-1 pl-2.5 pr-1.5">
       <button
         role="menuitemradio"
         aria-checked={selected}
+        data-resolution={resolution}
         aria-label={`${describeResolution(resolution)} — ${explainResolution(resolution)}`}
         onClick={() => onPick(resolution)}
-        className={`flex flex-1 items-baseline gap-2 px-2 text-left text-sm ${
-          selected ? "font-semibold" : "text-ink-muted group-hover:text-ink"
-        }`}
+        className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left text-[13px]"
       >
-        <span className="w-10 shrink-0 tabular">{resolution}</span>
+        <span className="min-w-0 truncate">{describeResolution(resolution)}</span>
         {plan !== null && !plan.native && (
           // Said on the row, not in a tooltip: what a derived bar is made of is
           // the reason it can be trusted, and a tooltip is not an answer to a
           // question a reader did not know to ask.
-          <span className={`text-[11px] ${selected ? "opacity-70" : "text-ink-faint"}`}>
+          <span className={`shrink-0 text-[11px] ${selected ? "opacity-70" : "text-ink-faint"}`}>
             {plan.factor} × {plan.source}
           </span>
         )}
@@ -184,9 +197,7 @@ function PickerRow({
           onClick={() => onRemove(resolution)}
           title={`Remove the custom ${resolution} resolution`}
           aria-label={`Remove the custom ${resolution} resolution`}
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100 ${
-            selected ? "text-white/70 hover:bg-white/20 hover:text-white" : "text-ink-faint hover:bg-state-hover hover:text-ink"
-          }`}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
         >
           <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
             <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.6" />
@@ -199,28 +210,24 @@ function PickerRow({
         title={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         aria-label={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         /*
-         * The star INHERITS the row's colour when the row is selected.
+         * The star INHERITS the row's colour, always.
          *
-         * It used to hard-code `text-white`, which was right while a selected
-         * resolution was a blue fill. The selected menu row is now an inverted
-         * light chip (`--ts-menu-selected-bg` on `-ink`), so white-on-near-white
-         * made the star of the armed resolution invisible — the one row where
-         * knowing whether it is a favourite matters most.
-         *
-         * Amber, not accent, for a favourite: a star is a keep-this mark, and
-         * accent in this product is an action or a link.
+         * It used to be amber, which put a coloured mark in a grey list, and
+         * before that `text-white`, which was invisible on the inverted
+         * selected chip — the one row where knowing whether it is a favourite
+         * matters most. `currentColor` is right in both places at once, and it
+         * is what the reference draws (R1b-05, same rule as the style menu).
          */
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity ${
-          favourite
-            ? `opacity-100 ${selected ? "" : "text-warn"}`
-            : `opacity-0 focus:opacity-100 group-hover:opacity-100 ${selected ? "opacity-70" : "text-ink-faint"}`
+          favourite ? "opacity-100" : "opacity-0 focus:opacity-100 group-hover:opacity-100"
         }`}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"
-          fill={favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"
+          fill={favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
           <path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z" />
         </svg>
       </button>
+      {selected && <CurrentCheck />}
     </div>
   );
 }
@@ -241,6 +248,7 @@ export interface ResolutionMenuProps {
  * would have reintroduced it in a day.
  */
 export function ResolutionMenu({ interval, onPick, preferences }: ResolutionMenuProps) {
+  const [customOpen, setCustomOpen] = useState(false);
   const [customCount, setCustomCount] = useState("");
   const [customUnit, setCustomUnit] = useState<CustomUnit>("m");
   const [customError, setCustomError] = useState<string | null>(null);
@@ -284,80 +292,128 @@ export function ResolutionMenu({ interval, onPick, preferences }: ResolutionMenu
 
   return (
     <>
-      {/* ── custom entry, at the top, as on the benchmark ── */}
-      <div className="rounded bg-surface-2/40 p-1.5">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-          Add custom
+      {/*
+        ── The first row is `Add custom interval…`, as the reference's is ────
+        It used to be the FORM itself — a labelled box, a number input, a unit
+        select and a blue Add button — permanently occupying the top of a menu
+        whose job is to list intervals. The reference's first row is 30px of
+        plain row text that reveals the entry, and the twenty-nine resolutions
+        underneath start 60px higher.
+      */}
+      <button
+        type="button"
+        onClick={() => { setCustomOpen((v) => !v); setCustomError(null); }}
+        aria-expanded={customOpen}
+        className="tvc-menu-row min-h-[30px] gap-2 pl-2.5 pr-1.5 text-left text-[13px]"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.5" strokeLinecap="round" aria-hidden="true" className="shrink-0">
+          <path d="M12 4.5v15M4.5 12h15" />
+        </svg>
+        <span className="flex-1 truncate">Add custom interval…</span>
+      </button>
+
+      {customOpen && (
+        <div className="mx-1.5 mb-1 rounded bg-surface-2/40 p-1.5">
+          <div className="flex items-center gap-1">
+            <input
+              value={customCount}
+              onChange={(e) => { setCustomCount(e.target.value); setCustomError(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") submitCustom(); }}
+              inputMode="numeric"
+              aria-label="Custom interval amount"
+              placeholder="45"
+              className="h-7 w-12 rounded border border-border bg-surface px-1.5 text-[13px] text-ink"
+            />
+            <select
+              value={customUnit}
+              onChange={(e) => { setCustomUnit(e.target.value as CustomUnit); setCustomError(null); }}
+              aria-label="Custom interval unit"
+              className="h-7 flex-1 rounded border border-border bg-surface px-1 text-[12px] text-ink"
+            >
+              {CUSTOM_UNITS.map((u) => (
+                <option key={u.value} value={u.value}>{u.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={submitCustom}
+              className="h-7 shrink-0 rounded bg-accent px-2 text-[12px] font-semibold text-white"
+            >
+              Add
+            </button>
+          </div>
+          {customError !== null && (
+            <p role="alert" className="mt-1 text-[11px] text-warn">{customError}</p>
+          )}
         </div>
-        <div className="flex items-center gap-1">
-          <input
-            value={customCount}
-            onChange={(e) => { setCustomCount(e.target.value); setCustomError(null); }}
-            onKeyDown={(e) => { if (e.key === "Enter") submitCustom(); }}
-            inputMode="numeric"
-            aria-label="Custom interval amount"
-            placeholder="45"
-            className="h-7 w-14 rounded border border-border bg-surface px-1.5 text-[13px] text-ink"
-          />
-          <select
-            value={customUnit}
-            onChange={(e) => { setCustomUnit(e.target.value as CustomUnit); setCustomError(null); }}
-            aria-label="Custom interval unit"
-            className="h-7 flex-1 rounded border border-border bg-surface px-1 text-[12px] text-ink"
-          >
-            {CUSTOM_UNITS.map((u) => (
-              <option key={u.value} value={u.value}>{u.label}</option>
-            ))}
-          </select>
-          <button
-            onClick={submitCustom}
-            className="h-7 shrink-0 rounded bg-accent px-2 text-[12px] font-semibold text-white"
-          >
-            Add
-          </button>
-        </div>
-        {customError !== null && (
-          <p role="alert" className="mt-1 text-[11px] text-warn">{customError}</p>
-        )}
-      </div>
+      )}
+
+      <Separator />
 
       {orphanCurrent !== null && (
         <section aria-label="Current">
-          <h4 className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-            Current
-          </h4>
+          <SectionTitle>Current</SectionTitle>
           {row(orphanCurrent)}
         </section>
       )}
 
       {preferences.custom.length > 0 && (
-        <section aria-label="Custom">
-          <h4 className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-            Custom
-          </h4>
-          {preferences.custom.map((r) => row(r, preferences.removeCustom))}
-        </section>
+        <>
+          {orphanCurrent !== null && <Separator />}
+          <section aria-label="Custom">
+            <SectionTitle>Custom</SectionTitle>
+            {preferences.custom.map((r) => row(r, preferences.removeCustom))}
+          </section>
+        </>
       )}
 
       {preferences.recents.length > 0 && (
-        <section aria-label="Recent">
-          <h4 className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-            Recent
-          </h4>
-          {preferences.recents.map((r) => row(r))}
-        </section>
+        <>
+          <Separator />
+          <section aria-label="Recent">
+            <SectionTitle>Recent</SectionTitle>
+            {preferences.recents.map((r) => row(r))}
+          </section>
+        </>
       )}
 
+      {/*
+        Only the sections this product can actually serve.
+
+        The reference's own menu opens with Ticks and closes with Ranges. This
+        chart has neither — `lib/resolution` folds time, and a tick or a range
+        bar is not a multiple of a time bar — and rendering an empty `TICKS`
+        heading would be advertising a resolution class that does not exist.
+        See `RESOLUTION_CATALOGUE`.
+      */}
       {RESOLUTION_CATALOGUE.map((group) => (
         <section key={group.label} aria-label={group.label}>
-          <h4 className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-            {group.label}
-          </h4>
+          <Separator />
+          <SectionTitle>{group.label}</SectionTitle>
           {group.items.map((r) => row(r))}
         </section>
       ))}
     </>
   );
+}
+
+/**
+ * A section heading: 26px tall, 11px, uppercase — the measured reference
+ * (`measurements/tv-timeframe-menu-20260914.md`). Ours were 10px semibold
+ * headings on 2px of padding, which read as labels rather than as the run
+ * markers the reference uses.
+ */
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h4 className="flex h-[26px] items-center px-2.5 text-[11px] uppercase tracking-wide text-ink-faint">
+      {children}
+    </h4>
+  );
+}
+
+/** The 13px spacer between sections: a hairline with the menu's own 6px of air. */
+function Separator() {
+  return <div role="separator" className="tvc-menu-sep" />;
 }
 
 /** Dismiss-on-outside-click and Escape, shared by both triggers. */
@@ -418,7 +474,15 @@ function useMenuKeys(
  * Both are here; nothing about the structure moved.
  */
 const MENU_BOX =
-  "absolute z-50 max-h-[70vh] w-[212px] overflow-y-auto tvc-menu";
+  /*
+   * 196px and 32px rows (`tvc-menu--compact`), measured live on 2026-09-14:
+   * `measurements/tv-timeframe-menu-20260914.md` puts TV's interval menu at
+   * [436,0,196,900]. Ours was 212px of 40px rows. 40 is the DROPDOWN row and
+   * still is everywhere else; this particular list is thirty rows long and the
+   * reference runs it at 32, which is the only way it fits a 900px viewport
+   * without the user meeting a scrollbar before they meet the hours.
+   */
+  "absolute z-50 w-[196px] overflow-y-auto tvc-menu tvc-menu--compact";
 
 export interface LegendTimeframeProps {
   /** The pane's id, so two panes' menus cannot both be open. */
@@ -468,7 +532,7 @@ export function LegendTimeframe(props: LegendTimeframeProps) {
         </svg>
       </button>
       {open && (
-        <div ref={menuRef} role="menu" aria-label="Pane timeframe" className={`${MENU_BOX} left-0 top-[22px]`}>
+        <div ref={menuRef} role="menu" aria-label="Pane timeframe" className={`${MENU_BOX} left-0 top-[22px] max-h-[70vh]`}>
           <ResolutionMenu
             interval={props.interval}
             onPick={pick}
@@ -507,9 +571,14 @@ function StripChip(props: {
       onClick={() => props.onPick(props.resolution)}
       aria-pressed={props.armed}
       title={explainResolution(props.resolution)}
-      className={`tvc-control flex h-[38px] shrink-0 items-center px-1.5 text-sm ${
-        props.armed ? "text-ink" : "text-ink-muted hover:text-ink"
-      }`}
+      /*
+        R1b-01 / BLIND clue 10: full ink at REST and REGULAR weight at 13px.
+        An unarmed favourite used to sit at rgb(168) and only reach the armed
+        chip's rgb(219) under the pointer — 51 luminance levels between two
+        chips of the same control. The armed one is told by its chip, which is
+        what the reference uses too; nothing here is told by weight.
+      */
+      className="tvc-control flex h-[38px] shrink-0 items-center px-1.5 text-[13px] font-normal text-ink"
     >
       {chipLabel(props.resolution)}
     </button>
@@ -641,13 +710,23 @@ export function TimeframePicker(props: TimeframePickerProps) {
           aria-label="Chart interval — all timeframes"
           className={TOOL_CARET_BUTTON}
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" />
+          <svg width={TOOL_CARET_GLYPH.width} height={TOOL_CARET_GLYPH.height}
+            viewBox={TOOL_CARET_GLYPH.viewBox} fill="none" stroke="currentColor"
+            strokeWidth={TOOL_CARET_GLYPH.stroke} strokeLinecap="round"
+            strokeLinejoin="round" aria-hidden="true">
+            <path d={TOOL_CARET_GLYPH.d} />
           </svg>
         </button>
 
         {open && (
-          <div ref={menuRef} role="menu" aria-label="All timeframes" className={`${MENU_BOX} left-0 top-full`}>
+          /*
+            `top-0`, not `top-full`: the measured box is [436,0,196,900] — the
+            caret's own left edge, the TOP of the viewport, and the full height
+            of it. A thirty-row list hung under a 38px bar loses a row to
+            nothing and still does not fit.
+          */
+          <div ref={menuRef} role="menu" aria-label="All timeframes"
+            className={`${MENU_BOX} left-0 top-0 max-h-[100vh]`}>
             <ResolutionMenu interval={interval} onPick={pick} preferences={preferences} />
           </div>
         )}

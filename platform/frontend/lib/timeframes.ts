@@ -69,8 +69,8 @@ export const CATALOGUE_RESOLUTIONS: readonly Resolution[] =
 /**
  * The six the toolbar has always shown, and still shows to a new user.
  *
- * Canonical ids, so `1d` — the chip prints it as `1D` (see `chipLabel`), which
- * is the reference's casing and not a second identity.
+ * Canonical ids, so `1d` — the chip prints it as a bare `D` (see `chipLabel`),
+ * which is the reference's spelling and not a second identity.
  */
 export const DEFAULT_FAVOURITES: readonly Resolution[] =
   ["1m", "5m", "15m", "1h", "4h", "1d"];
@@ -251,7 +251,7 @@ export function timeframeStrip(
 /**
  * The units a resolution is written in UPPERCASE.
  *
- * TradingView writes a day and everything longer as `1D`, `1W`, `1M`, and
+ * TradingView writes a day and everything longer as `D`, `W`, `M`, and
  * everything shorter as `30s`, `1m`, `4h`. It is not decoration: `1M` and `1m`
  * are a month and a minute, and the only thing separating them on a five-pixel
  * chip is the case of one letter. `w` and `M` are listed although this chart
@@ -263,6 +263,14 @@ const UPPERCASE_UNITS: ReadonlySet<string> = new Set(["d", "w", "M"]);
 /**
  * How a resolution is written on a toolbar chip or a pane legend.
  *
+ * ── TVP8 (BLIND clue 6): a single day is `D`, not `1D` ────────────────────
+ *
+ * The shared grammar prints the COUNT only when there is more than one of the
+ * unit, for day and longer: `D`, `W`, `M`, and `2D`, `3M`. A blind reviewer
+ * picked our toolbar out of a pair on this one character. Sub-day is
+ * unchanged — `1m`, `15m`, `1h` all keep their count, because a bare `m` would
+ * name the unit and not the interval.
+ *
  * Presentation only — the canonical id (`1d`) is what every request, every
  * persisted layout and every test still names. A chip carries its id in
  * `data-resolution` for exactly that reason.
@@ -270,9 +278,9 @@ const UPPERCASE_UNITS: ReadonlySet<string> = new Set(["d", "w", "M"]);
 export function chipLabel(resolution: Resolution): string {
   const plan = parseResolution(resolution);
   if (plan === null) return String(resolution);
-  return UPPERCASE_UNITS.has(plan.unit)
-    ? `${plan.count}${plan.unit.toUpperCase()}`
-    : plan.id;
+  if (!UPPERCASE_UNITS.has(plan.unit)) return plan.id;
+  const letter = plan.unit.toUpperCase();
+  return plan.count === 1 ? letter : `${plan.count}${letter}`;
 }
 
 /*

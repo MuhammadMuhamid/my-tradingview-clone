@@ -442,7 +442,21 @@ export function IndicatorPane({
         default `min-height: auto` refuses to shrink below its content, which
         is the same clipping wearing a different name.
       */
-      className={`group/pane relative border-t border-border bg-surface ${
+      /*
+        ── R3-13: the group is the PANE, not the column ──────────────────────
+
+        This was `group/pane`, and so is `ChartPane`'s outer container — the
+        whole chart column, every study pane included. Tailwind's named-group
+        variant compiles to a DESCENDANT selector, so `group-hover/pane:` on a
+        cluster inside pane B matched a hover anywhere in the column, and
+        putting the pointer on the RSI pane lit up the MACD pane's controls
+        too. The reference reveals the actions of the pane under the pointer
+        and nothing else.
+
+        A distinct name is the whole fix: `group/studypane` has exactly one
+        ancestor that can match — this section.
+      */
+      className={`group/studypane relative border-t border-border bg-surface ${
         fill ? "min-h-0 flex-1" : "min-h-0 shrink"
       }`}
       style={fill ? undefined : { height }}
@@ -459,7 +473,13 @@ export function IndicatorPane({
           aria-label={`Resize ${title} pane`}
           title={`Drag to resize pane (${MIN_PANE_HEIGHT}–${MAX_PANE_HEIGHT}px)`}
           onPointerDown={beginResize}
-          className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent hover:bg-accent/25 focus-visible:bg-accent/30"
+          /*
+            R3-15: neutral, never accent. The separator is a shared control
+            state, and the contract reserves accent for meaning — an 8px band
+            of accent blue across the chart on every accidental hover was the
+            loudest thing on the workstation and said only "you can drag this".
+          */
+          className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent hover:bg-state-hover focus-visible:bg-state-hover"
         />
       )}
       <div ref={containerRef} className="absolute inset-0 z-[1]" />
@@ -481,91 +501,91 @@ export function IndicatorPane({
         />
       )}
       {/*
-        Legend and controls share one overlaid row, the way TradingView does it:
-        the pane's identity and its actions are in the same place, and neither
-        costs the pane any height.
+        ── R3-10/R3-12: one transparent legend row, two clusters ─────────────
+
+        The legend was a `rounded bg-surface/80` box and the controls a second
+        `rounded bg-surface/85` box beside it — two filled rectangles laid on
+        the oscillator, which is what made the header read as chrome. The
+        reference's legend row is 24px of transparent type 4px below the
+        pane's top, and its actions are in TWO places: the ones that act on the
+        STUDY (hide, settings, remove) inside the legend row between the
+        parameters and the values, and the ones that act on the PANE (order,
+        collapse, maximize) at the pane's own top-right edge.
+
+        The study half is `IndicatorLegend`'s own cluster now, so a study in
+        its own pane and a study overlaid on price get the identical row.
       */}
-      <div className="absolute left-2 top-1 z-[3] flex max-w-[calc(100%-16px)] items-start gap-1">
+      <div className="absolute left-2 top-1 z-[3] flex h-6 max-w-[calc(100%-96px)] items-start">
         <IndicatorLegend
           overlays={overlays}
           time={collapsed ? null : hoverTime}
           title={title}
           collapsible={compact || collapsed}
           startCollapsed={compact || collapsed}
-          className="min-w-0 rounded bg-surface/80 px-1.5 py-0.5"
+          className="min-w-0"
+          onAction={onAction && ((_instanceId, action) => onAction(id, action))}
+          canAction={onAction ? () => true : undefined}
         />
-        {/*
-          Every control here does something to THIS pane, and each is a real
-          button so the stack can be rearranged from the keyboard. They are
-          revealed on hover or focus rather than reserving a row: a pane is
-          94–144px tall by default and a permanent toolbar would be a tenth of
-          the oscillator it sits on.
-        */}
-        <span className="flex shrink-0 items-center gap-0.5 rounded bg-surface/85 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/pane:opacity-100">
-          {onToggleCollapsed && (
-            <PaneButton
-              label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
-              pressed={collapsed}
-              onClick={() => onToggleCollapsed(id)}
-            >
-              {collapsed
-                ? <path d="M3.5 8.5L7 5l3.5 3.5" />
-                : <path d="M3.5 5.5L7 9l3.5-3.5" />}
-            </PaneButton>
-          )}
-          {onMove && (canMoveUp || canMoveDown) && (
-            <>
-              <PaneButton
-                label={`Move ${title} up`}
-                disabled={!canMoveUp}
-                onClick={() => onMove(id, -1)}
-              >
-                <path d="M7 11V3M3.5 6.5L7 3l3.5 3.5" />
-              </PaneButton>
-              <PaneButton
-                label={`Move ${title} down`}
-                disabled={!canMoveDown}
-                onClick={() => onMove(id, 1)}
-              >
-                <path d="M7 3v8M3.5 7.5L7 11l3.5-3.5" />
-              </PaneButton>
-            </>
-          )}
-          {onToggleMaximized && canMaximize && (
-            <PaneButton
-              label={maximized ? `Restore ${title} to the pane stack` : `Maximize ${title}`}
-              pressed={maximized}
-              onClick={() => onToggleMaximized(id)}
-            >
-              {maximized
-                ? <path d="M5.5 2.5v3h-3M8.5 11.5v-3h3" />
-                : <path d="M2.5 5.5v-3h3M11.5 8.5v3h-3" />}
-            </PaneButton>
-          )}
-          {onAction && (
-            <>
-              <PaneButton
-                label={`Hide ${title} — it stays in the Indicators panel`}
-                onClick={() => onAction(id, "hide")}
-              >
-                <path d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z" />
-                <circle cx="7" cy="7" r="1.6" />
-              </PaneButton>
-              <PaneButton label={`${title} settings`} onClick={() => onAction(id, "settings")}>
-                <circle cx="7" cy="7" r="2" />
-                <path d="M7 1.5v1.8M7 10.7v1.8M1.5 7h1.8M10.7 7h1.8M3.1 3.1l1.3 1.3M9.6 9.6l1.3 1.3M10.9 3.1L9.6 4.4M4.4 9.6l-1.3 1.3" />
-              </PaneButton>
-              <PaneButton
-                label={`Remove ${title} from the chart`}
-                danger
-                onClick={() => onAction(id, "remove")}
-              >
-                <path d="M3 3l8 8M11 3l-8 8" />
-              </PaneButton>
-            </>
-          )}
-        </span>
       </div>
+      {/*
+        The pane's own controls, at the pane's top-right edge.
+
+        Revealed on hover or focus rather than reserving a row: a pane is
+        94–144px tall by default and a permanent toolbar would be a tenth of
+        the oscillator it sits on. Each is a real button so the stack can be
+        rearranged from the keyboard.
+      */}
+      <span className="absolute right-2 top-1 z-[3] flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/studypane:opacity-100">
+        {/*
+          ── R3-12: only the direction that is possible ──────────────────────
+
+          Both arrows were always drawn and the impossible one was rendered
+          `disabled` at 30% opacity — a permanently dead control on the top
+          pane and another on the bottom one. The reference draws the one that
+          works. A control that cannot act is not a state; it is absence.
+        */}
+        {onMove && canMoveUp && (
+          <PaneButton label={`Move ${title} up`} onClick={() => onMove(id, -1)}>
+            <path d="M7 11V3M3.5 6.5L7 3l3.5 3.5" />
+          </PaneButton>
+        )}
+        {onMove && canMoveDown && (
+          <PaneButton label={`Move ${title} down`} onClick={() => onMove(id, 1)}>
+            <path d="M7 3v8M3.5 7.5L7 11l3.5-3.5" />
+          </PaneButton>
+        )}
+        {onAction && (
+          <PaneButton
+            label={`Remove ${title} from the chart`}
+            danger
+            onClick={() => onAction(id, "remove")}
+          >
+            <path d="M2.5 3.5h9M5 3.5V2h4v1.5M3.5 3.5l.6 8h5.8l.6-8" />
+          </PaneButton>
+        )}
+        {onToggleCollapsed && (
+          <PaneButton
+            label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+            pressed={collapsed}
+            onClick={() => onToggleCollapsed(id)}
+          >
+            {collapsed
+              ? <path d="M3.5 8.5L7 5l3.5 3.5" />
+              : <path d="M3.5 5.5L7 9l3.5-3.5" />}
+          </PaneButton>
+        )}
+        {onToggleMaximized && canMaximize && (
+          <PaneButton
+            label={maximized ? `Restore ${title} to the pane stack` : `Maximize ${title}`}
+            pressed={maximized}
+            onClick={() => onToggleMaximized(id)}
+          >
+            {maximized
+              ? <path d="M5.5 2.5v3h-3M8.5 11.5v-3h3" />
+              : <path d="M2.5 5.5v-3h3M11.5 8.5v3h-3" />}
+          </PaneButton>
+        )}
+      </span>
       {params && <span className="sr-only">{params}</span>}
     </section>
   );
@@ -579,14 +599,13 @@ export function IndicatorPane({
  * else, which on a control that removes an indicator is not acceptable.
  */
 function PaneButton({
-  label, onClick, danger = false, pressed, disabled = false, children,
+  label, onClick, danger = false, pressed, children,
 }: {
   label: string;
   onClick: () => void;
   danger?: boolean;
   /** Set on the toggles, so their state is announced and not only drawn. */
   pressed?: boolean;
-  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -595,16 +614,26 @@ function PaneButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      disabled={disabled}
       {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
-      className={`flex h-5 w-5 items-center justify-center rounded transition-colors ${
-        disabled ? "cursor-default text-ink-faint/30"
-          : danger ? "text-ink-faint hover:bg-down/20 hover:text-down"
-          : pressed ? "bg-surface-2 text-ink"
-          : "text-ink-faint hover:bg-state-hover hover:text-ink"
+      /*
+        24×24 with a 14px glyph, hairline on hover — the reference's pane-action
+        size, measured. It was 20×20 with an 11px glyph inside a filled pill;
+        the pill is gone (R3-10) and hover is now an outline, so nothing here
+        paints a surface over the plot.
+      */
+      /*
+        No `disabled` state, by construction (R3-12). Both arrows used to be
+        drawn always and the impossible one greyed to 30% — a permanently dead
+        control on the top pane and another on the bottom one. A control that
+        cannot act is absent; there is therefore nothing here to style.
+      */
+      className={`flex h-6 w-6 items-center justify-center rounded-sm border border-transparent transition-colors ${
+        danger ? "text-ink-faint hover:border-down/60 hover:text-down"
+          : pressed ? "border-border text-ink"
+          : "text-ink-faint hover:border-border hover:text-ink"
       }`}
     >
-      <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
         strokeWidth="1.2" strokeLinecap="round" aria-hidden="true">
         {children}
       </svg>
