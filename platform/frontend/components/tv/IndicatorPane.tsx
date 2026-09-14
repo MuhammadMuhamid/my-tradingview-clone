@@ -11,6 +11,7 @@ import {
   type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { baseChartOptions, subscribeChartTheme } from "@/lib/chartTheme";
+import { dayOfWeekTickFormatter } from "@/lib/chartClock";
 import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
 import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicatorPaneLayout";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
@@ -140,6 +141,8 @@ export function IndicatorPane({
   showTimeAxis = true,
   defaultHeight = 144,
   compact = false,
+  lastValue = true,
+  dayOfWeekOnLabels = true,
 }: {
   id: string;
   title: string;
@@ -191,6 +194,23 @@ export function IndicatorPane({
    */
   showTimeAxis?: boolean;
   /**
+   * Whether this pane's series carry their last value on the axis.
+   *
+   * R6 SC-3: the settings dialog's `Indicators` row is one answer for every
+   * study on the chart, and a study in its own pane is still a study. The
+   * price-pane overlays take the same flag in `CandleChart`.
+   */
+  lastValue?: boolean;
+  /**
+   * `Mon 29` on this pane's day labels (R6 SC-5(d)).
+   *
+   * The visible time axis is not always the price chart's: it is drawn once,
+   * under the LOWEST pane on screen, which is this component whenever a study
+   * has a pane. So the setting has to reach here too, or a user with an RSI
+   * open would find the row moves nothing.
+   */
+  dayOfWeekOnLabels?: boolean;
+  /**
    * Opening height. Shrinks as panes are added so a third oscillator does not
    * push the stack past the space it is allowed and get clipped mid-body.
    * A pane the user has resized keeps its own height.
@@ -236,7 +256,11 @@ export function IndicatorPane({
     const chart = createChart(containerRef.current, {
       ...base,
       rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top: 0.12, bottom: 0.12 } },
-      timeScale: { ...base.timeScale, visible: showTimeAxisRef.current },
+      timeScale: {
+        ...base.timeScale,
+        visible: showTimeAxisRef.current,
+        tickMarkFormatter: dayOfWeekRef.current ? dayOfWeekTickFormatter : undefined,
+      },
     });
     const unsubscribeTheme = subscribeChartTheme(chart);
     const guard = createDisposalGuard();
@@ -312,14 +336,14 @@ export function IndicatorPane({
         if (kind === "Histogram") {
           entry = { kind, api: chart.addHistogramSeries({
             color: overlay.color, base: 0, priceLineVisible: false,
-            lastValueVisible: true, ...(priceFormat ? { priceFormat } : {}),
+            lastValueVisible: lastValue, ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else if (kind === "Area") {
           entry = { kind, api: chart.addAreaSeries({
             lineColor: overlay.color,
             topColor: alphaColor(overlay.color, "55"),
             bottomColor: alphaColor(overlay.color, "08"),
-            priceLineVisible: false, lastValueVisible: true,
+            priceLineVisible: false, lastValueVisible: lastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else if (kind === "Candlestick") {
@@ -327,18 +351,18 @@ export function IndicatorPane({
             upColor: overlay.color, downColor: overlay.color,
             borderUpColor: overlay.color, borderDownColor: overlay.color,
             wickUpColor: overlay.color, wickDownColor: overlay.color,
-            priceLineVisible: false, lastValueVisible: true,
+            priceLineVisible: false, lastValueVisible: lastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else if (kind === "Bar") {
           entry = { kind, api: chart.addBarSeries({
             upColor: overlay.color, downColor: overlay.color,
-            priceLineVisible: false, lastValueVisible: true,
+            priceLineVisible: false, lastValueVisible: lastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else {
           entry = { kind, api: chart.addLineSeries({
-            color: overlay.color, priceLineVisible: false, lastValueVisible: true,
+            color: overlay.color, priceLineVisible: false, lastValueVisible: lastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         }
@@ -372,7 +396,9 @@ export function IndicatorPane({
       else if (plan === "update") updateData(entry, points);
     }
     onReady(id, chart);
-  }, [id, onReady, overlays, ready]);
+    // `lastValue` is read when a series is CREATED; the effect below re-applies
+    // it to series that already exist.
+  }, [id, onReady, overlays, ready, lastValue]);
 
   // Keep the pane's crosshair aligned with price and sibling panes. Use the
   // first plot that has a value at this time only as the vertical anchor; all
@@ -403,6 +429,28 @@ export function IndicatorPane({
   useEffect(() => {
     chartRef.current?.timeScale().applyOptions({ visible: showTimeAxis });
   }, [showTimeAxis, ready]);
+
+  const dayOfWeekRef = useRef(dayOfWeekOnLabels);
+  dayOfWeekRef.current = dayOfWeekOnLabels;
+  useEffect(() => {
+    chartRef.current?.applyOptions({
+      timeScale: { tickMarkFormatter: dayOfWeekOnLabels ? dayOfWeekTickFormatter : undefined },
+    });
+  }, [dayOfWeekOnLabels, ready]);
+
+  /*
+   * R6 SC-3: the axis badge, re-applied when the SETTING changes.
+   *
+   * The series above take `lastValueVisible` at creation and are created once;
+   * without this the dialog's `Indicators` row would move the price pane's
+   * studies and leave every oscillator pane exactly as it was.
+   */
+  useEffect(() => {
+    for (const entry of seriesRef.current.values()) {
+      try { entry.api.applyOptions({ lastValueVisible: lastValue }); }
+      catch { /* the series went away between render and effect */ }
+    }
+  }, [lastValue, overlays, ready]);
 
   const beginResize = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();

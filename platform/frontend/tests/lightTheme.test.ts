@@ -282,7 +282,12 @@ test("THE CANVAS TOKEN READS SURVIVE A THEME FLIP", () => {
   assert.match(footprint, /window\.removeEventListener\("trading-scene-theme", redraw\)/);
 
   const chart = code("components/CandleChart.tsx");
-  assert.match(chart, /color: chartWatermarkColor\(\),/,
+  /*
+   * R6 C-2 gave the watermark its own swatch. The token is still what it falls
+   * back to, and `""` — the Canvas tab's `Theme` cell — is what every chart
+   * that has not been recoloured stores, so the theme keeps deciding for them.
+   */
+  assert.match(chart, /color: settings\.watermarkColor \|\| chartWatermarkColor\(\),/,
     "the watermark was white at 6% — on a white chart, the setting did nothing");
 });
 

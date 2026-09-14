@@ -114,20 +114,25 @@ test("THE LINES TAB HAS LINE CONTROLS, AND EVERY ONE REACHES THE ENGINE", () => 
   /*
    * ── R6 C-1: the shared grid pair is a MIGRATION SEED now, not a control ───
    *
-   * `gridColor` / `gridStyle` are still what `CandleChart` applies to both
-   * directions, and they are still what `gridVertColor` / `gridHorzColor` and
-   * their styles default from — so the engine must keep reading them until the
-   * apply site takes the four, and the dialog must NOT write them, or the
-   * per-direction rows would be fighting a shared value behind their backs.
+   * `gridColor` / `gridStyle` are what `gridVertColor` / `gridHorzColor` and
+   * their styles default FROM, and nothing else: the dialog must not write
+   * them (the per-direction rows would be fighting a shared value behind their
+   * backs) and the engine must not read them (one of the two directions would
+   * silently win). The four the dialog writes are the four the chart applies.
    */
-  assert.match(chart, /settings\.gridColor \? \{ color: settings\.gridColor \}/,
-    "the grid apply site is the seed the direction pairs migrate from");
+  assert.doesNotMatch(chart, /settings\.gridColor|settings\.gridStyle/,
+    "the engine reads the per-direction pairs; the shared one is only a migration seed");
   assert.doesNotMatch(dialog, /set\("gridColor"|set\("gridStyle"/,
     "the dialog writes the per-direction pairs, not the shared one");
   for (const control of [
     /gridVertColor: next\.color/, /gridVertStyle: next\.style/,
     /gridHorzColor: next\.color/, /gridHorzStyle: next\.style/,
   ]) assert.match(dialog, control);
+  for (const engine of [
+    /visible: settings\.gridVertical,\s*\.\.\.\(settings\.gridVertColor \? \{ color: settings\.gridVertColor \} : \{\}\),\s*style: lineStyleOf\(settings\.gridVertStyle\),/,
+    /visible: settings\.gridHorizontal,\s*\.\.\.\(settings\.gridHorzColor \? \{ color: settings\.gridHorzColor \} : \{\}\),\s*style: lineStyleOf\(settings\.gridHorzStyle\),/,
+  ]) assert.match(chart, engine,
+    "each direction's colour and style reach its own set of grid lines");
 });
 
 test("EVERY NEW R6 KEY HAS A DEFAULT AND A CONTROL THAT WRITES IT", () => {
@@ -284,9 +289,15 @@ test("R6 MIGRATION — a candle's borders and wicks start as its body's colours"
 });
 
 test("R6 — the remaining new keys clamp and default the way the model says", () => {
-  assert.equal(normalizeChartSettings({}).scaleButtons, "always");
-  assert.equal(normalizeChartSettings({ scaleButtons: "hover" }).scaleButtons, "hover");
-  assert.equal(normalizeChartSettings({ scaleButtons: "sometimes" }).scaleButtons, "always");
+  /*
+   * `hover`, not `always`: R1-11 moved the `log % auto reset` group onto the
+   * axis and revealed it on hover, and the reference's own row reads
+   * `Visible on mouse over`. A default of `always` would have relit that
+   * group on every chart on the update that added the control.
+   */
+  assert.equal(normalizeChartSettings({}).scaleButtons, "hover");
+  assert.equal(normalizeChartSettings({ scaleButtons: "always" }).scaleButtons, "always");
+  assert.equal(normalizeChartSettings({ scaleButtons: "sometimes" }).scaleButtons, "hover");
 
   assert.equal(normalizeChartSettings({}).statusTitle, "ticker");
   assert.equal(normalizeChartSettings({ statusTitle: "symbol" }).statusTitle, "symbol");
@@ -571,4 +582,107 @@ test("IO-A8 — a capped pair keeps the ratio the user asked for", () => {
 test("IO-A8 — nonsense is a margin of zero, not a NaN the chart swallows", () => {
   assert.deepEqual(scaleMarginsFor(Number.NaN, 10), { top: 0, bottom: 0.1 });
   assert.deepEqual(scaleMarginsFor(-20, 10), { top: 0, bottom: 0.1 });
+});
+
+test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
+  /*
+   * ── The other half of the rule this model states about itself ────────────
+   *
+   * The test above pins that every new key has a default, a normaliser clause
+   * and a control. This pins the end that matters to a reader: the control
+   * MOVES something. Each row traces the key to the expression that applies
+   * it, with comments stripped — a rule its own documentation can satisfy is
+   * not a rule.
+   *
+   * The keys whose effect is MARKUP rather than canvas are driven through the
+   * DOM in `tests/dom/chartSettingsApply.test.tsx`, by clicking the real
+   * control; they are listed here too, because a grep that says WHERE is what
+   * makes a missing apply site findable when one of those fails.
+   */
+  const strip = (rel: string): string => read(rel)
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const chart = strip("components/CandleChart.tsx");
+  const pane = strip("components/tv/ChartPane.tsx");
+  const paneLegend = strip("components/tv/PaneLegend.tsx");
+  const studyLegend = strip("components/tv/IndicatorLegend.tsx");
+  const studyPane = strip("components/tv/IndicatorPane.tsx");
+  const workspace = strip("app/chart/page.tsx");
+  const overlays = strip("lib/useTradingOverlays.ts");
+
+  const applied: [keyof ChartSettings, string, RegExp][] = [
+    // Symbol — the candle's own components, which shared the body's pair.
+    ["borderUpColor", "CandleChart", /borderUpColor: candleBorders \? borderUpColor : clear/],
+    ["borderDownColor", "CandleChart", /borderDownColor: candleBorders \? borderDownColor : clear/],
+    ["wickUpColor", "CandleChart", /wickUpColor: candleWicks \? wickUpColor : clear/],
+    ["wickDownColor", "CandleChart", /wickDownColor: candleWicks \? wickDownColor : clear/],
+
+    // Canvas.
+    ["backgroundColor", "CandleChart", /const ground = settings\.backgroundColor \|\| "rgba\(0,0,0,0\)"/],
+    ["watermarkMode", "CandleChart", /visible: settings\.watermarkMode === "replay" \? replaying : settings\.watermark/],
+    ["watermarkColor", "CandleChart", /color: settings\.watermarkColor \|\| chartWatermarkColor\(\)/],
+    ["scaleTextColor", "CandleChart", /settings\.scaleTextColor \? \{ textColor: settings\.scaleTextColor \}/],
+    ["scaleLineColor", "CandleChart", /settings\.scaleLineColor \? \{ borderColor: settings\.scaleLineColor \}/],
+
+    // Scales and lines.
+    ["dayOfWeekOnLabels", "CandleChart", /settings\.dayOfWeekOnLabels\s*\? \{ tickMarkFormatter: dayOfWeekTickFormatter \}/],
+    ["indicatorLastValue", "CandleChart", /const lastValueVisible = settings\.indicatorLastValue/],
+    ["bidAskLines", "CandleChart", /settings\.bidAskLines === "line" && live && !isCanonicalInstrumentId\(symbol\)/],
+    ["bidColor", "CandleChart", /price: bookQuote\.bid, color: settings\.bidColor/],
+    ["askColor", "CandleChart", /price: bookQuote\.ask, color: settings\.askColor/],
+    ["scaleButtons", "CandleChart", /settings\.scaleButtons !== "hidden" &&/],
+
+    // Trading and alerts — one switch that used to gate three different things.
+    ["showTrading", "CandleChart", /line\.kind === "alert" \? settings\.showAlertLines : settings\.showTrading/],
+    ["showAlertLines", "CandleChart", /line\.kind === "alert" \? settings\.showAlertLines : settings\.showTrading/],
+    ["showExecutionMarks", "CandleChart", /settings\.showExecutionMarks \? \(trades \?\? \[\]\) : \[\]/],
+    ["showExecutionLabels", "CandleChart", /const labelled = settings\.showExecutionLabels\s*&& tradeMarkerCount\(visibleTrades, inWindow\) <= TRADE_LABEL_LIMIT/],
+    ["showPnlValue", "CandleChart", /settings\.showPnlValue && l\.pnl \? `\$\{l\.title\} \$\{l\.pnl\}` : l\.title/],
+
+    // Status line.
+    ["statusTitle", "CandleChart", /settings\.statusTitle === "symbol" \? displaySymbol\(symbol\) : displayName\(symbol\)/],
+    ["statusDayChange", "CandleChart", /settings\.statusDayChange && dayChange !== null/],
+    ["statusIndicatorTitles", "CandleChart", /showTitles=\{settings\.statusIndicatorTitles\}/],
+    ["statusIndicatorInputs", "CandleChart", /showInputs=\{settings\.statusIndicatorInputs\}/],
+    ["statusIndicatorValues", "CandleChart", /showValues=\{settings\.statusIndicatorValues\}/],
+  ];
+  const source: Record<string, string> = { CandleChart: chart };
+  for (const [key, file, expression] of applied) {
+    assert.match(source[file]!, expression,
+      `${key} never reaches the chart — it is a dead switch`);
+    assert.ok(key in DEFAULT_CHART_SETTINGS, `${key} has no default`);
+  }
+
+  /*
+   * And the apply sites that are NOT in `CandleChart`, because the thing they
+   * move is not drawn there.
+   */
+  // SL-2: the pane's own legend is the identity the chart shows when it has one.
+  assert.match(pane, /titleForm=\{\(pane\.chartSettings\?\.statusTitle\) === "symbol" \? "symbol" : "ticker"\}/);
+  assert.match(paneLegend, /props\.titleForm === "symbol" \? symbolLabel : nameLabel/);
+  // SL-1: the legend's three parts are three props, not one mount decision.
+  for (const prop of [/showTitles && /, /showTitles && showInputs && group\.params/, /showValues && group\.plots/]) {
+    assert.match(studyLegend, prop, "the legend must hide its own parts, not be unmounted whole");
+  }
+  // SC-3: a study in its own pane is still a study.
+  assert.match(chart, /lastValue=\{settings\.indicatorLastValue\}/);
+  assert.match(studyPane, /applyOptions\(\{ lastValueVisible: lastValue \}\)/);
+  /*
+   * SC-5(d): and the visible time axis is not always the price chart's. With a
+   * study pane on screen the axis is drawn once, under the LOWEST pane, by that
+   * pane's own chart — so a formatter installed only on the price chart would
+   * move nothing for any user with an oscillator open.
+   */
+  assert.match(chart, /dayOfWeekOnLabels=\{settings\.dayOfWeekOnLabels\}/);
+  assert.match(studyPane, /tickMarkFormatter: dayOfWeekOnLabels \? dayOfWeekTickFormatter : undefined/);
+  // A-1: `Only active alerts` is the filter, and it is a parameter now.
+  assert.match(workspace, /\(!onlyActive \|\| isAlertActive\(a\)\)/,
+    "onlyActiveAlerts must be able to turn the filter OFF, or the row moves nothing");
+  assert.match(workspace, /paneChartSettings\(workspace, pane\.id\)\.onlyActiveAlerts/);
+  assert.match(workspace, /kind: "alert" as const/,
+    "an alert level must be distinguishable from a position level, or one switch hides both");
+  assert.match(workspace, /hasBidAsk=\{settingsQuote !== null\}/,
+    "the Bid and ask row appears only for a feed that has answered");
+  // T-2: the only positions in this product that prove a P&L.
+  assert.match(overlays, /manualPnl\.get\(item\.identifiers\.manualPositionId \?\? ""\)/);
+  assert.match(workspace, /manualPositions: manualState\?\.positions \?\? \[\]/);
 });

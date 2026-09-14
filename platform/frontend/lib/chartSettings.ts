@@ -161,9 +161,9 @@ export interface ChartSettings {
    * R6 SC-2: whether the axis-foot `log % auto reset` strip is drawn.
    *
    * The reference's `Scale modes (A and L)` row is about the VISIBILITY of the
-   * axis buttons, not about the modes themselves. `always` is this product's
-   * behaviour today, so a stored workspace that has never seen this control
-   * looks exactly as it did.
+   * axis buttons, not about the modes themselves. `hover` is this product's
+   * behaviour today and the reference's own default, so a stored workspace
+   * that has never seen this control looks exactly as it did.
    */
   scaleButtons: ScaleButtonsMode;
   /**
@@ -403,9 +403,18 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   lastValueLineStyle: "dashed",
   lastValueLabel: true,
   dateFormat: "dd MMM yy",
-  // `always` is what this product does today; the control is the reference's
-  // way of getting the strip out of the way, not a change of behaviour.
-  scaleButtons: "always",
+  /*
+   * `hover` — which is what this product does today AND what the reference's
+   * own row says (`Visible on mouse over`).
+   *
+   * R6's prompt guessed `always`, but TVP8 R1-11 deliberately took the
+   * permanent `log % auto reset` group off the bottom row and put it on the
+   * axis, revealed on hover. Defaulting the new control to `always` would
+   * have relit that group on every chart in the product on the update that
+   * added a way to turn it off, which is the opposite of what the control is
+   * for. `always` and `hidden` are the two things a user can now ask for.
+   */
+  scaleButtons: "hover",
   indicatorLastValue: true,
   bidAskLines: "hidden",
   bidColor: "#2ebd85",
@@ -648,7 +657,7 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     dateFormat: DATE_FORMATS.includes(value.dateFormat as DateFormatName)
       ? value.dateFormat as DateFormatName : "dd MMM yy",
     scaleButtons: SCALE_BUTTON_MODES.includes(value.scaleButtons as ScaleButtonsMode)
-      ? value.scaleButtons as ScaleButtonsMode : "always",
+      ? value.scaleButtons as ScaleButtonsMode : "hover",
     indicatorLastValue: bool(value.indicatorLastValue, true),
     bidAskLines: value.bidAskLines === "line" ? "line" : "hidden",
     bidColor: hex(value.bidColor, DEFAULT_CHART_SETTINGS.bidColor) || DEFAULT_CHART_SETTINGS.bidColor,

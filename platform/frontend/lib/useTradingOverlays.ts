@@ -44,6 +44,17 @@ export interface TradingOverlaysInput {
   visibleCandles: Candle[];
   /** The workspace replay horizon, or null when replay is off. */
   replayCutoff: number | null;
+  /**
+   * The explicit manual-position snapshots, for the P&L on a position's line.
+   *
+   * R6 T-2. The overlay contract deliberately carries no P&L — a
+   * `POSITION_LINE` proves a price, a quantity and where it came from — so the
+   * number is correlated here through `identifiers.manualPositionId`, which is
+   * the id the projection already publishes for exactly this position. A
+   * deployment or paper position has no such snapshot and therefore no
+   * number, and its line says nothing rather than saying zero.
+   */
+  manualPositions?: readonly { id: string; pnlUsdt: number; pnlPct: number }[];
 }
 
 export interface TradingOverlaysApi {
@@ -217,16 +228,27 @@ export function useTradingOverlays(input: TradingOverlaysInput): TradingOverlays
         shape: realization ? "square" : item.side === "BUY" ? "arrowUp" : "arrowDown",
         text: `${compactOverlaySource(item)} · ${realization ? "REALIZE" : item.side ?? "EVENT"}` };
     }), [visibleTradingOverlays, visibleCandles]);
+  const manualPnl = useMemo(() => new Map((input.manualPositions ?? []).map((position) =>
+    [position.id, position])), [input.manualPositions]);
   const tradingPriceLines = useMemo<ChartPriceLine[]>(() => visibleTradingOverlays
     .filter((item) => item.kind === "ACTIVE_ORDER_LINE" || item.kind === "POSITION_LINE")
-    .map((item) => ({ id: item.id, price: item.price,
-      color: item.environment === "PAPER" ? "#f0b90b"
-        : item.source === "MANUAL" ? "#4f8cff" : item.kind === "ACTIVE_ORDER_LINE"
-          ? "#a78bfa" : "#2ebd85",
-      title: item.kind === "ACTIVE_ORDER_LINE"
-        ? `${compactOverlaySource(item)} ${item.side ?? ""} ACTIVE`
-        : `${compactOverlaySource(item)} POSITION`,
-      dashed: item.kind === "ACTIVE_ORDER_LINE" })), [visibleTradingOverlays]);
+    .map((item) => {
+      const position = item.kind === "POSITION_LINE"
+        ? manualPnl.get(item.identifiers.manualPositionId ?? "") : undefined;
+      return { id: item.id, price: item.price,
+        color: item.environment === "PAPER" ? "#f0b90b"
+          : item.source === "MANUAL" ? "#4f8cff" : item.kind === "ACTIVE_ORDER_LINE"
+            ? "#a78bfa" : "#2ebd85",
+        title: item.kind === "ACTIVE_ORDER_LINE"
+          ? `${compactOverlaySource(item)} ${item.side ?? ""} ACTIVE`
+          : `${compactOverlaySource(item)} POSITION`,
+        dashed: item.kind === "ACTIVE_ORDER_LINE",
+        ...(position && Number.isFinite(position.pnlUsdt) ? {
+          pnl: `${position.pnlUsdt >= 0 ? "+" : "−"}${Math.abs(position.pnlUsdt)
+            .toLocaleString(undefined, { maximumFractionDigits: 2 })} `
+            + `(${position.pnlPct >= 0 ? "+" : "−"}${Math.abs(position.pnlPct).toFixed(2)}%)`,
+        } : {}) };
+    }), [visibleTradingOverlays, manualPnl]);
   const selectedOverlay = useMemo(() => visibleTradingOverlays.find((item) =>
     item.id === selectedOverlayId) ?? null, [visibleTradingOverlays, selectedOverlayId]);
   useEffect(() => { if (selectedOverlayId && !selectedOverlay) setSelectedOverlayId(null); },

@@ -66,6 +66,22 @@ export interface PaneLegendProps {
    * in a 4×4 is a hundred pixels tall and a legend must not become the chart.
    */
   dense: boolean;
+  /**
+   * Which form of the instrument's name the headline carries (R6 SL-2).
+   *
+   * ── Why `ticker` draws `displayName` and not `displayTicker` ─────────────
+   *
+   * The reference's `Title` dropdown reads `Name`, and TVP8 R3-14 already made
+   * this headline the NAME: `Solana / TetherUS · 15m · Binance`, with the
+   * listing code left to the toolbar pill where the control grammar belongs.
+   * `tests/dom/shellDensity.test.tsx` pins that, and the contract's own rule
+   * is that current intent wins over an older reading. So the default value —
+   * still keyed `ticker` because that is what a workspace has stored — renders
+   * what the chart drew before this control existed, and `symbol` is the
+   * opt-in to the qualified form. `displayName` can never answer with a
+   * canonical `instrument:v1:…` id, which is the rule §5 exists for.
+   */
+  titleForm?: "ticker" | "symbol";
 
   /** Set by the pane so the toolbar's Compare control can open this dialog. */
   compareOpen?: boolean;
@@ -117,6 +133,14 @@ export function PaneLegend(props: PaneLegendProps) {
    * findable before stops being findable.
    */
   const nameLabel = displayName(symbol);
+  /*
+   * R6 SL-2: the dialog's `Title` row chooses between them.
+   *
+   * `nameLabel` above is still what the descriptive form resolves to and is
+   * kept for the tooltip, where a reader who wants "Solana / TetherUS" can
+   * still find it.
+   */
+  const titleLabel = props.titleForm === "symbol" ? symbolLabel : nameLabel;
   const venueLabel = displayVenue(symbol);
   /*
    * Controlled when the pane supplies it, so the toolbar's Compare control can
@@ -155,10 +179,10 @@ export function PaneLegend(props: PaneLegendProps) {
         <button
           {...{ className: `${HIT} tvc-control -mx-1 flex h-6 shrink-0 items-center rounded-md px-1 text-[16px] leading-6 text-ink` }}
           onClick={() => props.onOpenSymbolSearch(paneId)}
-          title={`Change this pane's symbol — currently ${tickerLabel} (${symbolLabel}) · ${props.bars.toLocaleString()} bars loaded`}
+          title={`Change this pane's symbol — currently ${tickerLabel} (${nameLabel}, ${symbolLabel}) · ${props.bars.toLocaleString()} bars loaded`}
           aria-label={`Change symbol for the ${symbolLabel} pane`}
         >
-          {nameLabel}
+          {titleLabel}
         </button>
 
         <DerivativeIdentity symbol={symbol} dense={dense} />

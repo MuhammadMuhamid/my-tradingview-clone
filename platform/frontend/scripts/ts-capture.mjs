@@ -2,7 +2,12 @@
 /**
  * Trading Scene live capture — the local half of the parity pair.
  *
- * Opens the REAL running product (default http://127.0.0.1:3000) in a fresh
+ * Opens the REAL running product (default http://localhost:3000) in a fresh
+ *
+ * `localhost`, not `127.0.0.1`: a Next 16 DEV server treats 127.0.0.1 as a
+ * cross-origin dev resource, HMR never connects and the page never hydrates,
+ * so every scripted click silently does nothing (found by D2, TVP8). The
+ * production server on :3000 answers on either name.
  * throwaway Chrome profile — never the TradingView one — at a fixed viewport
  * and theme, optionally performs a scripted interaction, then writes a
  * screenshot and, if asked, measured geometry for a list of selectors.
@@ -39,7 +44,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** `.next/BUILD_ID` beside this script — what `next start` in this checkout serves. */
 const readBuildId = () => { try { return readFileSync(resolve(HERE, "../.next/BUILD_ID"), "utf8").trim(); } catch { return null; } };
 const args = process.argv.slice(2);
-const opt = { base: "http://127.0.0.1:3000", route: "/chart", theme: "dark", viewport: "1440x900",
+const opt = { base: "http://localhost:3000", route: "/chart", theme: "dark", viewport: "1440x900",
   out: null, json: null, script: null, steps: [], measure: [], settle: 1500, head: process.env.HEADED === "1", full: false };
 for (let i = 0; i < args.length; i += 1) {
   const a = args[i]; const v = () => args[++i];

@@ -102,6 +102,7 @@ import { useCandleHistory } from "@/lib/useCandleHistory";
 import { useLivePrice } from "@/lib/useLivePrice";
 import { lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
 import { displayTicker, isCanonicalInstrumentId, legacyBinanceSpotTicker } from "@/lib/instrument";
+import { useBookQuote } from "@/lib/useBookQuote";
 import { alertCapability } from "@/lib/workstation";
 import type { ChartSettings } from "@/lib/chartSettings";
 import {
@@ -440,6 +441,8 @@ export default function TvWorkspace() {
   // ── authoritative read-only trading evidence, for the focused instrument ──
   const overlays = useTradingOverlays({
     symbol, interval, visibleCandles, replayCutoff: replay?.horizonCloseTime ?? null,
+    // R6 T-2: the only positions in this product that prove a P&L.
+    manualPositions: manualState?.positions ?? [],
   });
 
   // ── phone chrome: everything optional starts closed so the chart gets the screen ──
@@ -493,6 +496,18 @@ export default function TvWorkspace() {
   const [bottomToggle, setBottomToggle] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
+  /*
+   * R6 SC-4: whether the Scales tab may offer a `Bid and ask` row.
+   *
+   * The rule the dialog states about itself is that a control which moves
+   * nothing must not exist, so the row appears only for a feed that has
+   * actually answered with a quote. Subscribed only while the dialog is open:
+   * asking the question costs a socket, and nobody is asking it the rest of
+   * the time. `lib/marketStream`'s registry shares the connection with the
+   * ticket and with any pane already drawing the levels.
+   */
+  const settingsQuote = useBookQuote(
+    chartSettingsOpen && !isCanonicalInstrumentId(symbol) ? symbol : "");
   /*
    * TVP8: "Go to…" on the time axis.
    *
@@ -1344,10 +1359,21 @@ export default function TvWorkspace() {
   const candleOverlays = usePaneCandleOverlays(patternPaneIds);
   const classicalOverlays = usePaneClassicalOverlays(patternPaneIds);
 
-  const alertLinesFor = useCallback((paneInterval: Resolution): ChartPriceLine[] =>
+  /*
+   * R6 A-1: `Only active alerts` is a pane setting, so the filter is a
+   * parameter.
+   *
+   * `isAlertActive` was applied unconditionally, which meant a paused alert
+   * and a spent `once_only` alert both vanished from the chart with no way to
+   * see the levels they are still sitting at. The dialog's dependent row turns
+   * the filter off; the rows themselves are still only the FIXED-price ones,
+   * because an alert stated relative to a moving average has no single price
+   * to draw.
+   */
+  const alertLinesFor = useCallback((paneInterval: Resolution, onlyActive: boolean): ChartPriceLine[] =>
     maAlerts
       .filter((a) => a.conditionKind === "price" && a.targetPrice !== null &&
-                     a.timeframe === paneInterval && isAlertActive(a))
+                     a.timeframe === paneInterval && (!onlyActive || isAlertActive(a)))
       .map((a) => ({
         price: a.targetPrice!,
         color: alertColor(a),
@@ -1356,6 +1382,8 @@ export default function TvWorkspace() {
         // cannot inherit the line's.
         title: `Alert · ${describeAlert(a).replace("price ", "")}`,
         dashed: true,
+        // So `showTrading` cannot take these away with the position lines.
+        kind: "alert" as const,
       })), [maAlerts]);
 
   /** Server-authoritative manual entry and bot-managed TP/SL levels. */
@@ -1398,7 +1426,10 @@ export default function TvWorkspace() {
       // The tester runs one strategy on one chart; its levels belong only to
       // the pane that matches what was tested.
       if (onEvidenceSymbol && pane.interval === interval) lines.push(...priceLines);
-      if (onEvidenceSymbol) lines.push(...alertLinesFor(pane.interval));
+      if (onEvidenceSymbol) {
+        lines.push(...alertLinesFor(
+          pane.interval, paneChartSettings(workspace, pane.id).onlyActiveAlerts));
+      }
       if (onTradingSymbol) lines.push(...manualPriceLines);
       if (onEvidenceSymbol) lines.push(...overlays.priceLines);
       map.set(pane.id, {
@@ -1408,7 +1439,7 @@ export default function TvWorkspace() {
       });
     }
     return map;
-  }, [workspace.panes, symbol, tradingSymbol, interval, replayActive, overlays.markers,
+  }, [workspace, symbol, tradingSymbol, interval, replayActive, overlays.markers,
     overlays.priceLines, priceLines, alertLinesFor, manualPriceLines, trades]);
 
   /** One definition, rendered twice: as the desktop column and the phone drawer. */
@@ -2439,6 +2470,7 @@ export default function TvWorkspace() {
         }}
         settings={paneChartSettings(workspace, workspace.activePaneId)}
         onSettings={(next: ChartSettings) => setWorkspace((ws) => setPaneChartSettings(ws, ws.activePaneId, next))}
+        hasBidAsk={settingsQuote !== null}
       />
       <DrawingSettingsModal
         open={drawingSettingsOpen && selectedDrawing !== null}

@@ -1017,6 +1017,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 bars={visibleCandles.length}
                 compare={compare}
                 dense={!showIdentityDetail}
+                /* R6 SL-2: the Status-line tab's `Title` dropdown. */
+                titleForm={(pane.chartSettings?.statusTitle) === "symbol" ? "symbol" : "ticker"}
                 onOpenSymbolSearch={props.onOpenSymbolSearch}
                 onInterval={props.onInterval}
                 {...(props.onCompareChange ? { onCompareChange: props.onCompareChange } : {})}
@@ -1042,6 +1044,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
             pineDrawings={indicators.drawings}
             priceLines={props.priceLines}
             live={!replayActive && !isCanonicalInstrumentId(pane.symbol)}
+            /* R6 C-2: the `Replay mode` watermark needs the fact itself, not
+               `live`, which is also false for a canonical instrument. */
+            replaying={replayActive}
             fill
             compact={density !== "large"}
             onLiveBarBoundary={replayActive ? undefined : liveBarBoundary}

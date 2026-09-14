@@ -17,6 +17,7 @@ import {
 export function IndicatorLegend({
   overlays, time, className = "", startCollapsed = false, collapsible = true,
   title, onAction, canAction, hidden = [],
+  showTitles = true, showInputs = true, showValues = true,
 }: {
   overlays: ChartOverlay[];
   time: number | null;
@@ -77,6 +78,24 @@ export function IndicatorLegend({
    * screen where a user can put it back.
    */
   hidden?: { id: string; title: string }[];
+  /**
+   * ── R6 SL-1: three rows in the reference, one switch here ────────────────
+   *
+   * This legend has always drawn three separable things — a study's title, its
+   * inputs (`Length 14 · Source close`) and the reading of each plot at the
+   * crosshair — and the Status-line tab had ONE checkbox that mounted or
+   * unmounted the lot. The reference has `Titles`, `Inputs` (dependent on
+   * titles) and `Values`, so these are those three.
+   *
+   * True by default so every other caller — the indicator panes, the strategy
+   * tester — is unchanged, and so a legend used without the chart's settings
+   * still draws everything it has.
+   */
+  showTitles?: boolean;
+  /** Dependent on `showTitles`: the parameters printed after the name. */
+  showInputs?: boolean;
+  /** The plot readings at the crosshair. */
+  showValues?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(startCollapsed && collapsible);
   // Follows the layout when the viewport crosses the phone breakpoint, but
@@ -142,7 +161,7 @@ export function IndicatorLegend({
                   className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ backgroundColor: group.plots[0]?.color }}
                 />
-                <span className="truncate text-ink">{group.title}</span>
+                {showTitles && <span className="truncate text-ink">{group.title}</span>}
               </span>
             ))}
           </div>
@@ -182,8 +201,9 @@ export function IndicatorLegend({
                   overflow-hidden rounded-sm border border-transparent px-1
                   group-hover/study:border-border"
               >
-                <span className="shrink-[3] truncate text-ink">{group.title}</span>
-                {group.params && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
+                {showTitles && <span className="shrink-[3] truncate text-ink">{group.title}</span>}
+                {showTitles && showInputs && group.params
+                  && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
               </span>
               {/*
                 The actions sit BETWEEN the parameters and the values, which is
@@ -244,7 +264,7 @@ export function IndicatorLegend({
                 other numbers reads as a value of zero-ish, and the reference
                 uses the empty-set glyph precisely because it cannot.
               */}
-              {group.plots.filter((plot) => plot.constantValue === undefined).map((plot) => {
+              {showValues && group.plots.filter((plot) => plot.constantValue === undefined).map((plot) => {
                 const value = plotValueAt(plot.data, time);
                 return (
                   <span

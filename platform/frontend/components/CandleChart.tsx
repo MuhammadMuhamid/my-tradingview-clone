@@ -12,7 +12,9 @@ import { INTERVAL_MS, type Candle, type Trade } from "@/lib/types";
 import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
-import { displayName, displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
+import { displayName, displaySymbol, displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
+import { useBookQuote } from "@/lib/useBookQuote";
+import { useWatchlistTickers } from "@/lib/useWatchlistTickers";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
 import {
   baseChartOptions, CHART_ACCENT, CHART_CAUTION, CHART_DOWN, CHART_UP, chartMuted, volumePalette,
@@ -70,7 +72,9 @@ import {
   setPaneHeight, togglePaneCollapsed, togglePaneMaximized,
   type PaneLayoutState,
 } from "@/lib/indicatorPaneLayout";
-import { CHART_TIME_ZONE, CHART_TIME_ZONE_NOTE, fmtChartBarTime, fmtChartClock } from "@/lib/chartClock";
+import {
+  CHART_TIME_ZONE, CHART_TIME_ZONE_NOTE, dayOfWeekTickFormatter, fmtChartBarTime, fmtChartClock,
+} from "@/lib/chartClock";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
 
@@ -136,6 +140,28 @@ export interface ChartPriceLine {
   color: string;
   title: string;
   dashed?: boolean;
+  /**
+   * What KIND of level this is, so the two settings that hide levels can hide
+   * the right ones (R6 T-1 / A-1).
+   *
+   * `Positions and orders` on the Trading tab and `Alert lines` on the Alerts
+   * tab are two rows in two tabs, and both used to be one switch —
+   * `showTrading` emptied the whole `priceLines` array, so turning off the
+   * position lines also took away every armed alert level. Omitted means
+   * `trading`, because every producer that predates this is one.
+   */
+  kind?: "trading" | "alert";
+  /**
+   * Unrealised profit and loss on this level, already formatted, or absent
+   * when the contract behind it does not prove one (R6 T-2).
+   *
+   * Only the explicit `ManualPosition` snapshot carries a P&L; the deployment
+   * and paper position contracts carry a price and a quantity and nothing
+   * else. So this is present on a manual position's line and absent on the
+   * others, and the `Profit and loss value` switch appends it where it exists
+   * rather than printing a zero where it does not.
+   */
+  pnl?: string;
 }
 
 /** A bar marker plotted by a script (plotshape / plotchar). */
@@ -664,7 +690,7 @@ export function updateOverlayData(entry: OverlaySeriesEntry, points: ChartPoint[
 export function CandleChart({
   symbol, interval, candles, dataset, trades, marketTrades, marketTradesError, priceTick, priceLines, overlays, decorations, barColors,
   markers, pineDrawings,
-  live = true, fill = false,
+  live = true, fill = false, replaying = false,
   chartType = "candles",
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
   onDrawingSelection, onChartContextMenu, onGoToDate,
@@ -710,6 +736,15 @@ export function CandleChart({
   /** line/box/label/table objects created by compiled Pine scripts */
   pineDrawings?: PineDrawings | null;
   live?: boolean;
+  /**
+   * This pane is showing a replay rather than the market (R6 C-2).
+   *
+   * The only thing it drives is the `replay` watermark mode: a screenshot
+   * taken during a replay has to say that it is one, and nothing else on the
+   * canvas knows the difference. `live` is not the same fact — it is also
+   * false for a canonical instrument that has no browser socket.
+   */
+  replaying?: boolean;
   /** fill the parent container instead of the fixed 520px height */
   fill?: boolean;
   // ── drawing layer (omit to disable it entirely) ──
@@ -1072,11 +1107,63 @@ export function CandleChart({
     return null;
   }, [chartType, priceTick, marketTrades, marketTradesError]);
 
-  const visiblePriceLines = useMemo(() => settings.showTrading ? (priceLines ?? []) : [], [settings.showTrading, priceLines]);
-  const visibleTrades = useMemo(() => settings.showTrading ? (trades ?? []) : [], [settings.showTrading, trades]);
+  /*
+   * ── R6 T-1 / A-1: three things that were one switch ──────────────────────
+   *
+   * `showTrading` gated the position and order LINES, the execution ARROWS and
+   * their labels together, and it also emptied the alert levels that travel in
+   * the same array. They are three rows in two tabs of the reference, because
+   * they are three different things on the chart: a level you are managing, a
+   * mark saying a trade happened, and a level you are waiting for.
+   */
+  const visiblePriceLines = useMemo(() => (priceLines ?? []).filter((line) =>
+    line.kind === "alert" ? settings.showAlertLines : settings.showTrading
+  ), [settings.showTrading, settings.showAlertLines, priceLines]);
+  const visibleTrades = useMemo(() => settings.showExecutionMarks ? (trades ?? []) : [],
+    [settings.showExecutionMarks, trades]);
   const visibleMarkers = useMemo(() => (markers ?? []).filter((marker) =>
     marker.category === "alert" ? settings.showAlerts : settings.showEvents
   ), [settings.showAlerts, settings.showEvents, markers]);
+  /*
+   * R6 SC-4: the best bid and the best ask, as two levels on the plot.
+   *
+   * The socket is `lib/useBookQuote`'s — the same one the manual ticket reads,
+   * shared through `lib/marketStream`'s registry, so a pane showing the levels
+   * costs no second connection. It is opened ONLY while the setting asks for
+   * them: a quote feed nobody is looking at is a socket nobody asked for, and
+   * the row that turns this on is itself only offered once the feed has
+   * answered. A canonical instrument has no browser book stream, and a pane
+   * under replay is not showing the market, so neither subscribes.
+   */
+  const bookQuote = useBookQuote(
+    settings.bidAskLines === "line" && live && !isCanonicalInstrumentId(symbol) ? symbol : "");
+  /*
+   * R6 SL-3: the instrument's 24h change, for the status line's last row.
+   *
+   * The same contract the watchlist reads — a seed through this app's own
+   * server and then the mini-ticker stream — so the number beside the bar
+   * change is the same number the watchlist row prints, not a second
+   * derivation of it. Off by default, as the reference's `Last day change
+   * values` is, and subscribed only when it is on: an empty symbol list makes
+   * `useWatchlistTickers` open nothing and ask for nothing.
+   */
+  const dayChangeSymbols = useMemo(
+    () => settings.showStatusLine && settings.statusDayChange ? [symbol] : [],
+    [settings.showStatusLine, settings.statusDayChange, symbol]);
+  const { tickers: dayTickers } = useWatchlistTickers(dayChangeSymbols);
+  /**
+   * The 24h figure, or null when this feed does not supply one.
+   *
+   * `changeKnown` is the contract's own flag for "a last price arrived but no
+   * open did" — a provider snapshot without a 24h open. The legend renders
+   * NOTHING in that case: a dash beside a real bar change reads as a change of
+   * zero, which is a number the feed never said.
+   */
+  const dayChange = useMemo(() => {
+    const row = dayTickers[symbol] ?? dayTickers[symbol.toUpperCase()];
+    return row && row.changeKnown !== false && Number.isFinite(row.chgPct)
+      ? { chg: row.chg, chgPct: row.chgPct, last: row.last } : null;
+  }, [dayTickers, symbol]);
   const applyScale = useCallback((next: PriceScaleState) => {
     setOwnPriceScale(next);
     onPriceScaleChange?.(next);
@@ -1229,22 +1316,55 @@ export function CandleChart({
        * it. Off by default — it is the one canvas control that changes what a
        * screenshot of this chart SAYS it is, which is most of what it is for.
        */
+      /*
+       * R6 C-2: a MODE, not a switch.
+       *
+       * `replay` is the one the reference has and this product had no way to
+       * express: the watermark appears only while the pane is replaying, so a
+       * screenshot taken during a replay says that it is one and an ordinary
+       * chart carries nothing. `hidden` and `symbol` are the old boolean's two
+       * states, and `normalizeChartSettings` migrates it into them.
+       */
       watermark: {
-        visible: settings.watermark,
+        visible: settings.watermarkMode === "replay" ? replaying : settings.watermark,
         text: displayTicker(symbol),
-        color: chartWatermarkColor(),
+        color: settings.watermarkColor || chartWatermarkColor(),
         fontSize: 64,
         horzAlign: "center",
         vertAlign: "center",
       },
-      rightPriceScale: { visible: placement === "right" || placement === "both" },
-      leftPriceScale: { visible: placement === "left" || placement === "both" },
+      /*
+       * R6 C-4: the axis's own hairline. `borderColor` is per-scale, so the
+       * one control writes the price scale on both sides and the time scale —
+       * which is what the reference's single `Scales / Lines` swatch does.
+       */
+      rightPriceScale: {
+        visible: placement === "right" || placement === "both",
+        ...(settings.scaleLineColor ? { borderColor: settings.scaleLineColor } : {}),
+      },
+      leftPriceScale: {
+        visible: placement === "left" || placement === "both",
+        ...(settings.scaleLineColor ? { borderColor: settings.scaleLineColor } : {}),
+      },
       // `both` shows the axis on both sides; which side the SERIES is bound to
       // is the effect below, because hiding an axis does not move anything.
 
       timeScale: {
         rightOffset: settings.rightOffsetBars,
         timeVisible: true,
+        ...(settings.scaleLineColor ? { borderColor: settings.scaleLineColor } : {}),
+        /*
+         * R6 SC-5(d): `Mon 29`, not `29`.
+         *
+         * Only the DAY-boundary tick is touched; every other weight — the
+         * year, the month, the intraday times — returns `null`, which is the
+         * library's own "you format it" and keeps `localization.dateFormat`
+         * and the 12/24-hour choice above authoritative over the rest of the
+         * axis. Off, no formatter is installed at all.
+         */
+        ...(settings.dayOfWeekOnLabels
+          ? { tickMarkFormatter: dayOfWeekTickFormatter }
+          : { tickMarkFormatter: undefined }),
       },
       localization: {
         /*
@@ -1292,9 +1412,12 @@ export function CandleChart({
   }, [
     settings.gridVertical, settings.gridHorizontal, settings.showCrosshair,
     settings.scaleFontSize, settings.scalePlacement, settings.rightOffsetBars,
-    settings.timeFormat24h, settings.gridColor, settings.gridStyle,
+    settings.timeFormat24h, settings.gridVertColor, settings.gridVertStyle,
+    settings.gridHorzColor, settings.gridHorzStyle,
     settings.crosshairColor, settings.crosshairWidth, settings.crosshairStyle,
-    settings.watermark, settings.dateFormat, symbol, chartReady,
+    settings.watermark, settings.watermarkMode, settings.watermarkColor, replaying,
+    settings.scaleTextColor, settings.scaleLineColor, settings.dayOfWeekOnLabels,
+    settings.dateFormat, symbol, chartReady,
     /*
      * TVP8 round two: and on a theme change.
      *
@@ -1449,20 +1572,30 @@ export function CandleChart({
     const chart = chartRef.current;
     if (!chart) return;
     try {
+      /*
+       * R6 C-2: the ground has a colour of its own.
+       *
+       * `""` is transparent — the pane's own surface shows through and the
+       * theme keeps deciding, which is what every chart had and is still the
+       * default. A chosen colour is the solid ground, or the TOP of the
+       * gradient with the pane showing through beneath it, so the two
+       * controls in that row compose instead of one cancelling the other.
+       */
+      const ground = settings.backgroundColor || "rgba(0,0,0,0)";
       chart.applyOptions({
         layout: settings.backgroundGradient
           ? {
               background: {
                 type: ColorType.VerticalGradient,
-                topColor: "rgba(41,98,255,0.06)",
+                topColor: settings.backgroundColor || "rgba(41,98,255,0.06)",
                 bottomColor: "rgba(0,0,0,0)",
               },
             }
-          : { background: { type: ColorType.Solid, color: "rgba(0,0,0,0)" } },
+          : { background: { type: ColorType.Solid, color: ground } },
       });
     } catch { /* disposed */ }
     // The theme rewrites `layout.background`; the user's choice goes back on top.
-  }, [settings.backgroundGradient, chartReady, themeTick]);
+  }, [settings.backgroundGradient, settings.backgroundColor, chartReady, themeTick]);
 
   const resetSignalRef = useRef(resetSignal);
   useEffect(() => {
@@ -2189,7 +2322,15 @@ export function CandleChart({
        */
       // The public trade input remains `trades`; visibility is a chart-setting
       // projection so callers keep the same first-class pane contract.
-      const labelled = tradeMarkerCount(visibleTrades, inWindow) <= TRADE_LABEL_LIMIT;
+      /*
+       * R6 T-1: the setting AND the density rule, not one or the other.
+       *
+       * Off, no mark is labelled at any density. On, the limit below still
+       * governs — a 321-trade backtest is an unreadable block of text with or
+       * without a preference saying labels are wanted.
+       */
+      const labelled = settings.showExecutionLabels
+        && tradeMarkerCount(visibleTrades, inWindow) <= TRADE_LABEL_LIMIT;
       // const labelled = tradeMarkerCount(trades, inWindow) <= TRADE_LABEL_LIMIT;
       for (const t of visibleTrades ?? []) {
         const open = t.exitTime === null;
@@ -2229,7 +2370,8 @@ export function CandleChart({
     } else {
       series.setMarkers([]);
     }
-  }, [candles, visibleTrades, visibleMarkers, chartReady, timeAnchored, chartType]);
+  }, [candles, visibleTrades, visibleMarkers, chartReady, timeAnchored, chartType,
+    settings.showExecutionLabels]);
 
   // Live stop / target / entry levels for a running position.
   useEffect(() => {
@@ -2243,10 +2385,37 @@ export function CandleChart({
         lineWidth: 1,
         lineStyle: l.dashed ? LineStyle.Dashed : LineStyle.Solid,
         axisLabelVisible: true,
-        title: l.title,
+        // R6 T-2: the number goes on the line that is making it, when the
+        // level's own contract proves one.
+        title: settings.showPnlValue && l.pnl ? `${l.title} ${l.pnl}` : l.title,
       }));
     return () => { for (const line of drawn) series.removePriceLine(line); };
-  }, [visiblePriceLines, chartReady]);
+  }, [visiblePriceLines, settings.showPnlValue, chartReady]);
+
+  /*
+   * The quote itself, drawn where the price scale can label it.
+   *
+   * Dotted rather than dashed so a bid and an ask cannot be mistaken for the
+   * dashed alert and protection levels above, and drawn only when the feed has
+   * actually answered — a fabricated spread would be the one thing worse than
+   * no spread at all (`lib/useBookQuote` says the same about its own null).
+   */
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || !bookQuote) return;
+    const drawn = [
+      { price: bookQuote.bid, color: settings.bidColor, title: "Bid" },
+      { price: bookQuote.ask, color: settings.askColor, title: "Ask" },
+    ].map((level) => series.createPriceLine({
+      price: level.price,
+      color: level.color,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      axisLabelVisible: true,
+      title: level.title,
+    }));
+    return () => { for (const line of drawn) series.removePriceLine(line); };
+  }, [bookQuote, settings.bidColor, settings.askColor, chartReady]);
 
   // Pick a price level by clicking the chart. Subscribed only while a handler
   // exists — see `onPriceSelect`.
@@ -2328,7 +2497,15 @@ export function CandleChart({
       const priceFormat = precision === null || precision === undefined ? undefined : {
         type: "price" as const, precision, minMove: 10 ** -precision,
       };
-      const lastValueVisible = !compact && overlay.instanceId !== "moving-averages";
+      /*
+       * R6 SC-3: the study's price tag on the scale, as a setting.
+       *
+       * ANDed rather than substituted: the density rule above it stays in
+       * force, so switching the setting ON cannot put ten moving-average
+       * badges back on a crowded axis, and switching it OFF is absolute.
+       */
+      const lastValueVisible = settings.indicatorLastValue
+        && !compact && overlay.instanceId !== "moving-averages";
       /*
        * The price scale carries values, never names.
        *
@@ -2421,7 +2598,8 @@ export function CandleChart({
       if (plan === "replace") replaceOverlayData(entry, points);
       else if (plan === "update") updateOverlayData(entry, points);
     }
-  }, [groupedOverlays.price, chartReady, candles, compact, timeAnchored]);
+  }, [groupedOverlays.price, chartReady, candles, compact, timeAnchored,
+    settings.indicatorLastValue]);
 
   /*
    * The profiles on the price pane, separated from the decorations the Pine
@@ -3079,7 +3257,12 @@ export function CandleChart({
             */}
             {identity === undefined && settings.statusSymbol && (
               <>
-                <span className="text-[16px] text-ink">{displayName(symbol)}</span>
+                {/* R6 SL-2: the Status-line tab's `Title` dropdown, for a
+                    chart rendered without a pane legend of its own. `Name` is
+                    R3-14's headline; `Full symbol` is the qualified identity. */}
+                <span className="text-[16px] text-ink">{
+                  settings.statusTitle === "symbol" ? displaySymbol(symbol) : displayName(symbol)
+                }</span>
                 <span className="text-[16px]">· {interval} ·</span>
               </>
             )}
@@ -3136,6 +3319,23 @@ export function CandleChart({
                 {settings.statusBarChange && (
                   <span className={chgUp ? "text-up" : "text-down"}>
                     {fmtPriceDelta(legend.chg, legend.close)} ({chgUp ? "+" : ""}{legend.chgPct.toFixed(2)}%)
+                  </span>
+                )}
+                {/*
+                  R6 SL-3: the day's change, after the BAR's change.
+
+                  Labelled `24h` because the two are side by side and a second
+                  unlabelled pair of numbers in the same colours would be read
+                  as one. Absent entirely when the feed has no 24h open for
+                  this instrument — see `dayChange`.
+                */}
+                {settings.statusDayChange && dayChange !== null && (
+                  <span
+                    className={`hidden sm:inline ${dayChange.chgPct >= 0 ? "text-up" : "text-down"}`}
+                    title="Change over the last 24 hours"
+                  >
+                    24h {fmtPriceDelta(dayChange.chg, dayChange.last)}
+                    {" "}({dayChange.chgPct >= 0 ? "+" : ""}{dayChange.chgPct.toFixed(2)}%)
                   </span>
                 )}
                 {legend.volume !== null && settings.statusVolume && (
@@ -3229,9 +3429,18 @@ export function CandleChart({
         same numbers in a form built to be read.
       */}
       {timeAnchored ? (
-        /* The reference's Status-line tab switches indicator titles and values
-           together; this is the same switch over this product's own legend. */
-        settings.statusIndicatorValues && <IndicatorLegend
+        /*
+          R6 SL-1: three switches, because the legend draws three things.
+
+          One switch used to mount or unmount the whole legend. It is rendered
+          now whenever ANY of the three is on, and each of them hides its own
+          part; with all three off there is nothing left to draw, which is the
+          state the single switch used to be the only way to reach.
+        */
+        (settings.statusIndicatorTitles || settings.statusIndicatorValues) && <IndicatorLegend
+          showTitles={settings.statusIndicatorTitles}
+          showInputs={settings.statusIndicatorInputs}
+          showValues={settings.statusIndicatorValues}
           overlays={groupedOverlays.price}
           time={indicatorHoverTime}
           startCollapsed={compact || groupedOverlays.price.length > 6}
@@ -3331,7 +3540,24 @@ export function CandleChart({
                 {priceScaleModeLabel(scale.mode)}
               </span>
             )}
-            <span className="flex flex-col items-center gap-px opacity-0 transition-opacity duration-75 focus-within:opacity-100 group-hover/axis:opacity-100">
+            {/*
+              R6 SC-2: WHEN the four are on screen is the setting.
+
+              `hover` is the reference's own default and what R1-11 left this
+              strip at; `always` is for a reader who wants them lit; `hidden`
+              takes them off a chart that is only ever read. The mode badge
+              above is never any of the three — an axis that is not showing
+              prices has to say so whatever this is set to.
+            */}
+            {settings.scaleButtons !== "hidden" && (
+            <span
+              data-axis-buttons={settings.scaleButtons}
+              className={`flex flex-col items-center gap-px transition-opacity duration-75 ${
+                settings.scaleButtons === "always"
+                  ? "opacity-100"
+                  : "opacity-0 focus-within:opacity-100 group-hover/axis:opacity-100"
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => applyScale(togglePriceScaleAuto(scale))}
@@ -3387,6 +3613,7 @@ export function CandleChart({
                 </button>
               )}
             </span>
+            )}
           </span>
         </div>
       )}
@@ -3435,6 +3662,10 @@ export function CandleChart({
                 onReady={registerIndicatorPane}
                 onRangeChange={indicatorPaneRange}
                 onAction={onIndicatorPaneAction}
+                /* R6 SC-3: one answer for every study on this chart. */
+                lastValue={settings.indicatorLastValue}
+                /* R6 SC-5(d): and the axis under the lowest pane is THE axis. */
+                dayOfWeekOnLabels={settings.dayOfWeekOnLabels}
                 collapsed={collapsed}
                 onToggleCollapsed={togglePaneCollapse}
                 maximized={maximized}

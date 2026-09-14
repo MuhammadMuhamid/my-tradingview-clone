@@ -153,7 +153,15 @@ Measured from live TradingView at 1440×900, DPR 1:
 | watchlist row | **30px** on a `[24px_1fr_72px_70px_60px]` grid; 46px title row, 29px column row, 36px section header; the panel keeps a 4px `--ts-line` gutter inside its 300px |
 | dialog | 750px wide when `wide`, 20px/600 title, 50px form-row pitch |
 | dialog form control | 34px tall, radius 6, 1px `--ts-control-border`, transparent |
+| settings-dialog checkbox | **18px**, radius 3, 34px hit area, 10px gap before the label; checked is a light fill with a dark check — never `accent` |
+| settings-dialog swatch | **34 × 34**, 24px inner colour, radius 6 |
+| settings-dialog line-style button | **75 × 34** — colour square plus a preview of the line |
+| settings-dialog number field | **70 × 28**, tabular, the unit as 14px muted text AFTER the field |
 | radius, everywhere | **6px** (`rounded-md`). `rounded-full` for pills only. |
+
+The 34px rule is for buttons and dropdowns. A settings-dialog NUMBER field is
+28px and a checkbox is 18px: both measured on the reference, and neither is a
+fourth control height — they are a field and a box, not buttons.
 
 Do not introduce a fourth radius or a third control height.
 
@@ -185,6 +193,28 @@ Three primitives, and the rule for each is that a second definition is a bug:
 Icons are drawn, never typed. `×`, `▼` and a fullwidth `＋` were scattered
 across six controls; `CloseGlyph`, `CaretGlyph` and `PlusGlyph` exist so the
 seventh is an import.
+
+**The settings-dialog primitives (TVP8, R6).** A dialog full of native
+`<select>`s and `<input type="color">`s reads as a different product: the OS
+draws the chevron, the OS draws the popup, and the well is the wrong size.
+Five more primitives live in `components/ui.tsx` for that reason, and a second
+definition of any of them is a bug:
+
+- `Checkbox` — 18px box, 34px hit area, label supplied for the accessible name.
+- `Dropdown` — a `.tvc-control` button plus a `.tvc-menu` listbox at 100 / 150
+  / 180 wide. **No native `<select>` inside a dialog.**
+- `Swatch` — 34 × 34, opening a palette whose first cell is `Theme` (writes
+  `""`, meaning "the token decides") and whose last is `Custom…` over the
+  native colour input, so keyboard reach is kept.
+- `LineStyleButton` — 75 × 34, popover of palette + width 1–4 + Solid / Dotted
+  / Dashed.
+- `NumberField` — 70 × 28 tabular with the unit beside it.
+
+`Button` gains one variant: **`contrast`** — a light fill with dark text, for a
+dialog's CONFIRMING action (`Ok`). It is not `primary`: accent is a primary
+action elsewhere in the product and §2's neutral rule keeps it that way, and
+the reference's own dialog confirms in a light-filled button rather than a
+blue one. `Cancel` beside it stays a ghost.
 
 ### One face, and where the other one is allowed
 
@@ -305,7 +335,44 @@ exists and the control does not, add the control.
 
 Conversely: if a control renders, it must reach the object it names. Body /
 Borders / Wick appear only for presentations that have them; a study pane's
-eye and trash resolve to the API that owns the study.
+eye and trash resolve to the API that owns the study. A row whose datum is
+PROVIDER-dependent appears only once the pane has that datum — `Bid and ask`
+is rendered only after this instrument's ticker has reported a quote.
+
+### 6a. What the Chart settings dialog deliberately omits (TVP8, R6)
+
+The reference has rows this product cannot honour. None of them is drawn
+greyed out; they are simply absent, and this is the list so that adding one
+back is a decision rather than a drift:
+
+- **Status line** — `Logo` (no instrument-logo pipeline), `Open market status`
+  (no market-hours model; the feed-state pill is a different fact),
+  `Buy/sell buttons` (no on-chart order entry), indicator `Background` and its
+  opacity slider (the legend's ground is a token, and this dialog has no
+  slider control type).
+- **Scales and lines** — `Currency and Unit`, `Plus button`, `Countdown to bar
+  close`, `Value according to scale`, `Previous day close`, `High and low`
+  (the price-line primitive exists; the data does not), `Lock price to bar
+  ratio` and `No overlapping labels` (lightweight-charts 4.2 exposes no
+  equivalent).
+- **Canvas** — `Pane separators` (a theme token), the `BUTTONS` section
+  (`Navigation`, `Pane`: no navigation overlay).
+- **Trading** — `Buy/sell buttons`, `One-click trading`, `Execution sound`,
+  `Show only rejection notifications`, `Reverse position button`, `Project
+  order for market orders`, `Brackets`, order/position alignment, trades in
+  snapshots. Money / Pips / % sub-rows are omitted too: the ticket reports in
+  money and a pip has no meaning on a crypto pair.
+- **Alerts** — the `NOTIFICATIONS` section (`Alert volume`: no sound;
+  `Automatically hide toasts`: a workspace preference, not a pane setting).
+- **Events** — `Ideas`, `Economic events`, `Latest news`, `News notification`
+  (no such provider), `Session breaks` (no vertical session primitive).
+
+Two are recorded as follow-ups rather than omissions, because the engine can
+do them and only the plumbing is missing: `Color bars based on previous close`
+(per-bar `color`/`borderColor`/`wickColor` on every candle write path) and a
+per-chart timezone (`lib/chartClock` is UTC throughout, which is why the
+`Timezone` row is a static value with a note rather than a one-option
+dropdown).
 
 ---
 

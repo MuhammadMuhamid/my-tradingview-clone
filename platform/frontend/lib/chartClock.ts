@@ -54,3 +54,28 @@ export function fmtChartBarTime(ms: number, intervalMs: number): string {
   if (intervalMs >= 86_400_000) return date;
   return `${date} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
+
+/**
+ * `Mon 29` rather than `29` on a day-boundary axis label (R6 SC-5(d)).
+ *
+ * Lives here rather than in `CandleChart` because the visible time axis is not
+ * always the price chart's: with a study pane on screen the axis is drawn once,
+ * under the LOWEST pane, by that pane's own chart. Two charts, one rule.
+ *
+ * Only the day tick is touched — every other weight returns `null`, which is
+ * lightweight-charts' own "you format it", so `localization.dateFormat` and the
+ * 12/24-hour choice stay authoritative over the rest of the axis. Fixed English
+ * abbreviations, not `toLocaleDateString`: this axis is UTC throughout, the
+ * reference writes them this way, and a locale-dependent width would make the
+ * tick spacing the library computed for one machine wrong on another.
+ */
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/** `TickMarkType.DayOfMonth` in lightweight-charts 4.2. */
+const DAY_OF_MONTH_TICK = 2;
+
+export function dayOfWeekTickFormatter(time: unknown, tickMarkType: number): string | null {
+  if (tickMarkType !== DAY_OF_MONTH_TICK || typeof time !== "number") return null;
+  const d = new Date(time * 1000);
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
+}

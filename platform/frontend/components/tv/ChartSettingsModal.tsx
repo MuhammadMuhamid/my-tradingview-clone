@@ -546,7 +546,15 @@ export function ChartSettingsModal(props: {
                   disabled={statusOff || !settings.statusSymbol}
                   onChange={(v) => set("statusTitle", v === "symbol" ? "symbol" : "ticker")}
                   options={[
-                    { value: "ticker", label: "Ticker" },
+                    /*
+                      The reference's own two useful forms. `Name` is
+                      `displayName` — the descriptive name where this
+                      installation knows one, the venue's listing code where it
+                      does not — which is R3-14's headline and what every chart
+                      draws today; `Full symbol` is `displaySymbol`. Neither can
+                      answer with a canonical `instrument:v1:…` id (§5).
+                    */
+                    { value: "ticker", label: "Name" },
                     { value: "symbol", label: "Full symbol" },
                   ]} />
               </CheckRow>
