@@ -109,6 +109,15 @@ export interface ChartBottomPanelProps {
   indicatorCount: number;
   onOpenIndicators: () => void;
   openScript: PineScript | null;
+  /**
+   * FG-04: a counter the page bumps to toggle this drawer from the keyboard.
+   *
+   * A signal rather than a boolean, for the same reason `openScript` is a
+   * value rather than a callback: the panel owns whether it is open, and the
+   * page is asking rather than telling. Lifting `collapsed` to the page would
+   * move a preference this component persists, measures and restores.
+   */
+  toggleSignal: number;
   openParams: PineParams | undefined;
   onOpenScriptConsumed: () => void;
   onApplyToChart: (payload: { name: string; source: string; params: PineParams }) => void;
@@ -255,6 +264,41 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
     setCollapsed(false);
   }, [openScript]);
 
+  /*
+   * FG-04: the keyboard's way in and out.
+   *
+   * Guarded on the first value so mounting is not itself a toggle — the signal
+   * starts at 0 and every press increments it.
+   */
+  const { toggleSignal } = props;
+  const lastSignal = useRef(toggleSignal);
+  useEffect(() => {
+    if (lastSignal.current === toggleSignal) return;
+    lastSignal.current = toggleSignal;
+    toggleBottom();
+  }, [toggleSignal, toggleBottom]);
+
+  /*
+   * ── FG-04: closed means closed ────────────────────────────────────────────
+   *
+   * The tab strip rendered whether or not the panel was open, so the product
+   * carried TWO stacked grey bars under every chart — a 31px range row and a
+   * 34px tab row, 65px together — where the reference carries one 38px strip.
+   * Read directly off a signed-in TradingView at 1440×900 with its panel
+   * closed: `.layout__area--bottom` measures 0, and not one panel tab is on
+   * screen.
+   *
+   * It could not simply be hidden before now, because it was the ONLY way
+   * back: no shortcut, no palette row, no toolbar control. Hiding it would
+   * have traded 27 pixels of chrome for stranding anyone who closed it. The
+   * `b` binding — one line, which the palette and the shortcuts sheet both
+   * read out of the same table — is what makes closing it survivable.
+   *
+   * Every hook above this line runs either way, `toggleSignal` included, so a
+   * collapsed panel still hears the key that brings it back.
+   */
+  if (collapsed) return null;
+
   return (
     <div className="shrink-0 border-t border-border bg-surface">
       {/*
@@ -374,10 +418,10 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
           </button>
         </div>
       </div>
-      {/* Collapsed: the tab strip stays as the handle to bring it back.
-          The body unmounts rather than hiding, so a collapsed Pine Editor
-          stops compiling on every keystroke. */}
-      {collapsed ? null : tab === "trading" ? (
+      {/* The body unmounts rather than hiding, so a Pine Editor that is not
+          on screen stops compiling on every keystroke. FG-04 made the whole
+          panel absent when collapsed, so there is no collapsed case here. */}
+      {tab === "trading" ? (
         <TradingStateStrip
           state={props.manualState}
           readAt={props.manualReadAt}

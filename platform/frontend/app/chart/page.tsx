@@ -487,6 +487,8 @@ export default function TvWorkspace() {
 
   /* FG-01: the panel the user is looking at survives a reload. */
   useEffect(() => { rememberPanel(panel); }, [panel]);
+  /** FG-04: bumped to toggle the bottom workstation from the keyboard. */
+  const [bottomToggle, setBottomToggle] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
   /*
@@ -1797,6 +1799,10 @@ export default function TvWorkspace() {
           fullscreen.toggle();
           return true;
         case "replay-toggle": toggleReplay(); return true;
+        // FG-04: the bottom panel is absent when collapsed, so this is the
+        // way back to it — and the palette and shortcuts sheet both list it,
+        // because all three read `BINDINGS`.
+        case "bottom-panel": setBottomToggle((n) => n + 1); return true;
         case "replay-step-back":
           setReplay((current) => (current ? stepReplay(current, candles, -1) : null));
           return true;
@@ -2154,6 +2160,7 @@ export default function TvWorkspace() {
         />
 
         <ChartBottomPanel
+          toggleSignal={bottomToggle}
           symbol={symbol}
           interval={interval}
           replayActive={replayActive}

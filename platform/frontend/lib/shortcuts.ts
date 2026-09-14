@@ -33,7 +33,7 @@ export type ShortcutAction =
   | "tool:text" | "magnet" | "stay-in-drawing-mode" | "lock-drawings" | "hide-drawings"
   | "symbol-search" | "indicators" | "chart-settings" | "shortcuts-sheet"
   | "command-palette" | "snapshot-save" | "snapshot-copy"
-  | "fullscreen" | "replay-toggle"
+  | "fullscreen" | "replay-toggle" | "bottom-panel"
   | "replay-step-back" | "replay-step-forward" | "replay-play-pause"
   | "reset-view" | "toggle-log" | "toggle-auto";
 
@@ -179,6 +179,26 @@ export const BINDINGS: readonly Binding[] = [
   { action: "chart-settings", key: ",", mod: true, label: "Chart settings", group: "Navigation" },
   { action: "shortcuts-sheet", key: "?", label: "Keyboard shortcuts", group: "Navigation" },
   { action: "command-palette", key: "k", mod: true, label: "Search tool or function", group: "Navigation" },
+  /*
+   * FG-04: the way back to a collapsed bottom panel.
+   *
+   * Until this existed there was exactly one — the panel's own tab strip — so
+   * the strip could not be hidden when the panel was closed, and the product
+   * carried two stacked grey bars under every chart where the reference
+   * carries one. Read directly off a signed-in TradingView at 1440×900:
+   * `.layout__area--bottom` is 0px tall with the panel closed and NO panel tab
+   * is on screen at all.
+   *
+   * One binding rather than three, because the palette, the shortcuts sheet
+   * and the keyboard handler all read this table — so the reopen path is
+   * discoverable in three places from one line, which is the property this
+   * file's own docstring says it exists to have.
+   *
+   * `p`, not `b`: `b` is Bar Replay, and the replay tests caught the collision
+   * on the first run — which is what a keyboard table that two suites read is
+   * for.
+   */
+  { action: "bottom-panel", key: "p", label: "Positions, tester and Pine editor", group: "Navigation" },
   /*
    * TVP8 round two: ⌘⇧C was Chrome's element inspector.
    *
