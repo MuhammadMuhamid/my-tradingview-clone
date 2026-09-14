@@ -1989,7 +1989,8 @@ export default function TvWorkspace() {
         left-rail column — and so does this one now. The rails and the panel
         start below it, on the second row.
       */}
-      <div className="flex shrink-0 items-stretch border-b border-border bg-surface">
+      <div className="relative flex h-[38px] shrink-0 items-stretch bg-surface after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border">
+        {/* The hairline under the row is drawn INSIDE its 38px, so the rails' first cell is at y=48 exactly. */}
         <ProductMenu variant="rail" onOpenShortcuts={() => setShortcutsOpen(true)} />
         {/*
           The chart's title is the symbol and timeframe already shown in the
