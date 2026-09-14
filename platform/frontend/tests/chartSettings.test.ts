@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  DEFAULT_CHART_SETTINGS, isDefaultChartSettings, normalizeChartSettings,
+  DEFAULT_CHART_SETTINGS, isDefaultChartSettings, MAX_SCALE_MARGIN_SUM,
+  normalizeChartSettings, scaleMarginsFor,
   type ChartSettings,
 } from "../lib/chartSettings";
 
@@ -280,4 +281,54 @@ test("THIN BARS REACHES THE BARS SERIES, AND ONLY IT", () => {
   assert.match(modal, /const thinBarsApplies = renderKind\(chartType\) === "bars";/);
   assert.match(modal, /\{thinBarsApplies && \(/);
   assert.match(modal, /set\("thinBars", v\)/);
+});
+
+// ── IO-A8: the margin pair ─────────────────────────────────────────────────
+
+/*
+ * IO-A8 was reported as "both margin controls are inert" and is NOT.
+ * `tests/dom/scaleMargins.test.ts` drives the real price scale and records the
+ * measurement: the library's test is `sum > 1`, the dialog's maximum is exactly
+ * 1.0, and 1.0 is accepted. What is pinned here is the clamp that keeps a
+ * FUTURE widening of either cap from landing on the far side of that line,
+ * where the call site's `catch` would swallow it into exactly the inert state
+ * the finding described.
+ */
+
+test("IO-A8 — every pair the dialog can produce passes through untouched", () => {
+  // The two controls cap at 50 each, so 50/50 is the most that can be asked
+  // for. It is inside the library's limit and must not be quietly rewritten.
+  assert.deepEqual(scaleMarginsFor(50, 50), { top: 0.5, bottom: 0.5 });
+  assert.deepEqual(scaleMarginsFor(10, 8), { top: 0.1, bottom: 0.08 });
+  assert.deepEqual(scaleMarginsFor(0, 0), { top: 0, bottom: 0 });
+});
+
+test("IO-A8 — a pair beyond the library's limit is scaled, not dropped", () => {
+  /*
+   * Unreachable from today's dialog, which is the point: this is the guard for
+   * the day someone widens a cap from 50, and without it that change is a
+   * throw the call site swallows into two dead controls.
+   */
+  const { top, bottom } = scaleMarginsFor(60, 60);
+  assert.ok(top + bottom <= MAX_SCALE_MARGIN_SUM + 1e-9,
+    `the library refuses a sum above 1; got ${top + bottom}`);
+  assert.equal(Math.round(top * 1000), Math.round(bottom * 1000),
+    "equal margins asked for, equal margins given");
+});
+
+test("IO-A8 — a capped pair keeps the ratio the user asked for", () => {
+  /*
+   * Clamping only the second value would silently privilege whichever control
+   * happened to be written first. Twice as much room above as below stays
+   * twice as much.
+   */
+  const { top, bottom } = scaleMarginsFor(80, 40);
+  assert.ok(top + bottom <= MAX_SCALE_MARGIN_SUM + 1e-9);
+  assert.ok(Math.abs(top / bottom - 2) < 1e-9,
+    `the 2:1 the user set became ${top}:${bottom}`);
+});
+
+test("IO-A8 — nonsense is a margin of zero, not a NaN the chart swallows", () => {
+  assert.deepEqual(scaleMarginsFor(Number.NaN, 10), { top: 0, bottom: 0.1 });
+  assert.deepEqual(scaleMarginsFor(-20, 10), { top: 0, bottom: 0.1 });
 });

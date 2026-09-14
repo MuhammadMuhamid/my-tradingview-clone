@@ -55,7 +55,9 @@ import {
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
   togglePriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
-import { DEFAULT_CHART_SETTINGS, type ChartSettings } from "@/lib/chartSettings";
+import {
+  DEFAULT_CHART_SETTINGS, scaleMarginsFor, type ChartSettings,
+} from "@/lib/chartSettings";
 import {
   availableRangeShortcuts, loadedWindow, resolveRangeShortcut, sameViewport,
   type LoadedWindow, type RangeShortcutId,
@@ -1317,10 +1319,17 @@ export function CandleChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const margins = {
-      top: Math.min(0.9, Math.max(0, settings.marginTopPct / 100)),
-      bottom: Math.min(0.9, Math.max(0, settings.marginBottomPct / 100)),
-    };
+    /*
+     * IO-A8: clamped as a PAIR, because that is what the library requires.
+     *
+     * Each was clamped to 0.9 on its own here. The dialog allows 50 in each
+     * box; fifty and fifty is 1.0; lightweight-charts refuses a sum of one or
+     * more by throwing, and the `catch` below — which is there for a chart
+     * that has gone away between render and effect — swallowed it. Both
+     * `applyOptions` calls were skipped, so BOTH controls became inert with no
+     * message, which is the one thing the settings contract forbids outright.
+     */
+    const margins = scaleMarginsFor(settings.marginTopPct, settings.marginBottomPct);
     try {
       // The margins belong to the axis the series is on, for the same reason.
       chart.priceScale(settings.scalePlacement === "left" ? "left" : "right")

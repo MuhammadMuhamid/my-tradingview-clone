@@ -461,3 +461,54 @@ export function precisionLabel(value: PricePrecision): string {
 }
 
 export { PRECISIONS, PLACEMENTS };
+
+/**
+ * The two plot margins, as a pair the chart library will accept.
+ *
+ * ── IO-A8 was reported as a defect and is NOT one. Measured, not assumed ───
+ *
+ * The reviewer's finding: `marginTopPct` and `marginBottomPct` each accept
+ * 0–50 in the dialog and were each clamped to 0.9 independently, so fifty and
+ * fifty made 1.0, lightweight-charts "requires the two to sum to less than
+ * one", the throw was swallowed by the call site's `try`/`catch`, and both
+ * controls went inert with nothing said.
+ *
+ * Driven against the real `IPriceScaleApi` at the version this product ships:
+ *
+ *     0.5 / 0.5  → accepted, stored as 0.5 / 0.5
+ *     0.6 / 0.6  → Invalid margins - sum of margins must be less than 1, given=1.2
+ *
+ * The library's test is `sum > 1`, not `sum >= 1`, and the message is what the
+ * finding was reasoned from rather than the behaviour. The dialog caps each box
+ * at 50 and `normalizeChartSettings` caps stored values at 50, so the largest
+ * sum reachable is exactly 1.0 — accepted. **The controls were never inert.**
+ * Recorded in the repair queue as INVALID_FINDING with this measurement.
+ *
+ * ── What IS worth having, for a different and smaller reason ───────────────
+ *
+ * The dialog's maximum sits exactly on the library's limit, one step from the
+ * far side of it, and the call site's `catch` — which is there for a chart that
+ * has gone away between render and effect — would turn a step over that line
+ * into precisely the silent, inert state the finding described. Widening either
+ * cap from 50, or adding any third contribution to the margins, is enough.
+ *
+ * So the pair is clamped where the library's limit actually is. Every value
+ * reachable today passes through unchanged; a future one that would have been
+ * swallowed is scaled to fit instead. Scaling BOTH by the same factor is what
+ * keeps it honest — clamping only the second would silently privilege whichever
+ * control happened to be written first.
+ */
+export const MAX_SCALE_MARGIN_SUM = 1;
+
+export function scaleMarginsFor(topPct: number, bottomPct: number): {
+  top: number; bottom: number;
+} {
+  const clamp = (pct: number): number =>
+    Number.isFinite(pct) ? Math.min(0.9, Math.max(0, pct / 100)) : 0;
+  const top = clamp(topPct);
+  const bottom = clamp(bottomPct);
+  const sum = top + bottom;
+  if (sum <= MAX_SCALE_MARGIN_SUM) return { top, bottom };
+  const factor = MAX_SCALE_MARGIN_SUM / sum;
+  return { top: top * factor, bottom: bottom * factor };
+}
