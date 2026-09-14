@@ -32,6 +32,7 @@ import { ChartToolbar } from "@/components/tv/ChartToolbar";
 import { ChartWorkspace } from "@/components/tv/ChartWorkspace";
 import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
 import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel";
+import { recall, remember } from "@/lib/browserStorage";
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
 import { GoToDateModal } from "@/components/tv/GoToDateModal";
 import { CommandPalette } from "@/components/tv/CommandPalette";
@@ -124,6 +125,37 @@ import {
 } from "@/lib/manualTradingPolling";
 
 type Panel = ChartPanel;
+
+/**
+ * ── FG-01: which side panel the workstation opens with ────────────────────
+ *
+ * Stored as three states, not two, because "closed" and "not yet said" are
+ * different facts. A user who shuts the watchlist has expressed a preference
+ * and must get the bare rail back on every reload; a user who has never
+ * touched it has not, and gets the reference's own opening shape.
+ */
+const PANEL_KEY = "tv.sidePanel.v1";
+/** The sentinel for a panel the user closed deliberately. */
+const PANEL_CLOSED = "none";
+const PANELS: readonly Exclude<ChartPanel, null>[] =
+  ["watchlist", "alerts", "indicators", "ma", "manual", "correlation"];
+
+/**
+ * What TradingView opens with, and therefore what this opens with before the
+ * user has said otherwise: the instrument list, docked beside the chart.
+ */
+const DEFAULT_PANEL: ChartPanel = "watchlist";
+
+function openingPanel(): ChartPanel {
+  const stored = recall(PANEL_KEY);
+  if (stored === PANEL_CLOSED) return null;
+  const known = PANELS.find((p) => p === stored);
+  return known ?? DEFAULT_PANEL;
+}
+
+function rememberPanel(panel: ChartPanel): void {
+  remember(PANEL_KEY, panel ?? PANEL_CLOSED);
+}
 
 /** Standard auto-backtest window: 2025-11-01 → today (handoff §7). */
 const BACKTEST_START = "2025-11-01";
@@ -322,10 +354,28 @@ export default function TvWorkspace() {
     return lines;
   }, [openTrade]);
 
-  // TradingView opens on a narrow icon rail; a panel is selected on demand.
-  // Keeping the chart unobstructed also preserves the user's last explicit
-  // choice instead of treating the watchlist as permanent chrome.
-  const [panel, setPanel] = useState<Panel>(null);
+  /*
+   * ── FG-01: the right side of the screen was empty ─────────────────────────
+   *
+   * The comment that used to be here said "TradingView opens on a narrow icon
+   * rail; a panel is selected on demand", and that the closed default
+   * "preserves the user's last explicit choice". Both halves were wrong.
+   *
+   * Measured live at 1440×900, signed in: TradingView gives its right side 346
+   * pixels — a 302px watchlist panel plus a 45px icon rail — and 1034 to the
+   * chart. Trading Scene gave the right side 52px of bare icon rail and 1336 to
+   * the chart, a slab 29% wider than the reference with nothing beside it.
+   * That is the single loudest thing about a first glance at this product, and
+   * `ChartSidePanel` has had a 300px watchlist ready to open the whole time.
+   *
+   * And nothing was preserved: `useState(null)` remembers nothing between
+   * loads, so a user who opened the watchlist got the bare rail back on every
+   * reload. The choice is stored now — INCLUDING the choice to close it, which
+   * is why the stored value distinguishes "closed on purpose" from "never
+   * said". A default is what you get before you have an opinion; it must not
+   * overrule one you have expressed.
+   */
+  const [panel, setPanel] = useState<Panel>(openingPanel);
 
   // ── the order ticket's target ──
   /** True while the ticket holds anything an operator typed, chose or attested. */
@@ -429,10 +479,14 @@ export default function TvWorkspace() {
     (paneId: string, r: { from: number; to: number }) => setRange({ paneId, ...r }), []);
 
   // On phones the side panel is an overlay drawer, so start it closed —
-  // otherwise it covers the chart on first load.
+  // otherwise it covers the chart on first load. The desktop default (FG-01)
+  // is a docked column beside the chart, which is a different thing entirely.
   useEffect(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) setPanel(null);
   }, []);
+
+  /* FG-01: the panel the user is looking at survives a reload. */
+  useEffect(() => { rememberPanel(panel); }, [panel]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
   /*
