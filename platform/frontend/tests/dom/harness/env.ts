@@ -13,6 +13,7 @@ import { act, cleanup, render as rtlRender } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { AskProvider } from "@/components/AskDialog";
 import { installFetch, server, type CompactBar } from "./server";
+import { flushResizeObservations, observedElements, resizeElement } from "./register";
 import { candleHistory } from "@/lib/candleHistory";
 import { drawingStore } from "@/lib/drawingStore";
 import { resetTailRepairs } from "@/lib/historyFreshness";
@@ -124,6 +125,30 @@ export async function settle(times = 3): Promise<void> {
   }
 }
 
+/**
+ * Resize an element the product is observing, and let it react.
+ *
+ * TVP8 IO-RESIZE-COV. The box is re-reported (`getBoundingClientRect`,
+ * `clientWidth` and the rest read the new size from now on) and every
+ * `ResizeObserver` watching the element is delivered an entry inside `act`,
+ * so the state the product sets in response is committed before this
+ * returns. Throws if nothing was observing the element: a test that resizes
+ * an element the product never listens on is not testing a reaction, it is
+ * testing nothing, and that is the shape two deleted tests had.
+ */
+export async function resize(el: Element, box: { width: number; height: number }): Promise<void> {
+  const watched = resizeElement(el, box);
+  assert.equal(watched, true,
+    `nothing observes ${describeElement(el)} — the product has no resize reaction here to test`);
+  await act(async () => { flushResizeObservations(); });
+  await settle();
+}
+
+function describeElement(el: Element): string {
+  const id = el.getAttribute("data-pane-id") ?? el.getAttribute("data-testid") ?? el.id;
+  return `<${el.tagName.toLowerCase()}${id ? ` ${id}` : ""} class="${el.className}">`;
+}
+
 /** Advance past a debounce whose delay is known, then let its work settle. */
 export async function advance(ms: number): Promise<void> {
   await act(async () => { await new Promise((r) => setTimeout(r, ms)); });
@@ -181,7 +206,7 @@ export function lastClose(bars: CompactBar[]): number {
   return bars[bars.length - 1]![4];
 }
 
-export { server };
+export { server, observedElements };
 
 /**
  * Render inside the providers `app/layout.tsx` mounts.

@@ -25,6 +25,8 @@
  * rendering context, `PointerEvent`, `ResizeObserver`, and `matchMedia`. Each
  * is the smallest object the product actually calls into, and each is here
  * rather than in a test so that no single test can quietly widen it.
+ * `ResizeObserver` is the one of the four with real behaviour: it delivers
+ * entries, on a test's say-so, so the resize axis is executable (see below).
  *
  * Not faked: the components, the hooks, the stores, the routing helpers and
  * `localStorage`. Those are the things under test. A test that mocks the unit
@@ -189,17 +191,160 @@ for (const [prop, pick] of [
   });
 }
 
-/** jsdom has neither observer; both are used purely to learn about resizes. */
-class NoopObserver {
+/*
+ * ── ResizeObserver, deterministic ──────────────────────────────────────────
+ *
+ * TVP8 IO-RESIZE-COV. This was a no-op — `observe()` recorded nothing and
+ * nothing was ever delivered — which meant every effect in the product that
+ * reacts to its container changing size had ZERO executable coverage: the
+ * pane's density, the volume-profile and footprint repaints, the Pine layers'
+ * redraws and lightweight-charts' own `autoSize`. A test could delete the
+ * reaction and stay green, and two behavioural tests were deleted in the last
+ * session for exactly that reason.
+ *
+ * What this is: the real API's contract, without a layout engine behind it.
+ *
+ *   - `observe(target)` records the target and queues one delivery of its
+ *     CURRENT box, which is what a browser does on the first observation;
+ *   - a box changes only when a test says so, through `resizeElement`, which
+ *     re-reports the element (`giveLayout`) and queues a delivery to every
+ *     observer watching it;
+ *   - deliveries are asynchronous — a browser delivers after layout, before
+ *     paint; here they land on the window's next macrotask, which the suite's
+ *     `settle()` drains — and each entry carries `contentRect`, `borderBoxSize`
+ *     and `contentBoxSize` in the shapes the product and the library read;
+ *   - `unobserve` / `disconnect` drop queued deliveries, as the spec does.
+ *
+ * What it is NOT: a layout engine. Resizing a parent does not resize its
+ * children, because nothing here knows how the children would lay out. A test
+ * resizes the element the product observes, which it can find in the DOM.
+ *
+ * The initial delivery of the default 1280×800 box is deliberately the same
+ * size the chart was created at (lightweight-charts reads
+ * `getBoundingClientRect` when it installs its observer), so it changes
+ * nothing for a test that never resizes: the library's `resize()` returns
+ * early on an unchanged size.
+ */
+interface BoxSize { inlineSize: number; blockSize: number }
+interface FakeResizeObserverEntry {
+  target: Element;
+  contentRect: DOMRectReadOnly;
+  borderBoxSize: readonly BoxSize[];
+  contentBoxSize: readonly BoxSize[];
+  devicePixelContentBoxSize: readonly BoxSize[];
+}
+type ResizeCallback = (entries: FakeResizeObserverEntry[], observer: FakeResizeObserver) => void;
+
+const resizeObservers = new Set<FakeResizeObserver>();
+let deliveryTimer: number | null = null;
+
+function entryFor(target: Element): FakeResizeObserverEntry {
+  const rect = target.getBoundingClientRect();
+  const size: BoxSize = { inlineSize: rect.width, blockSize: rect.height };
+  return {
+    target, contentRect: rect,
+    borderBoxSize: [size], contentBoxSize: [size], devicePixelContentBoxSize: [size],
+  };
+}
+
+/** Deliver every queued observation, in observer creation order. */
+export function flushResizeObservations(): void {
+  if (deliveryTimer !== null) { win.clearTimeout(deliveryTimer); deliveryTimer = null; }
+  for (const observer of [...resizeObservers]) observer.deliver();
+}
+
+function scheduleDelivery(): void {
+  if (deliveryTimer !== null) return;
+  deliveryTimer = win.setTimeout(() => { deliveryTimer = null; flushResizeObservations(); }, 0);
+}
+
+class FakeResizeObserver {
+  private readonly callback: ResizeCallback;
+  private readonly targets = new Set<Element>();
+  private readonly queued = new Set<Element>();
+
+  constructor(callback: ResizeCallback) {
+    if (typeof callback !== "function") throw new TypeError("ResizeObserver: callback is not a function");
+    this.callback = callback;
+    resizeObservers.add(this);
+  }
+
+  observe(target: Element): void {
+    if (this.targets.has(target)) return;
+    this.targets.add(target);
+    this.queued.add(target);
+    scheduleDelivery();
+  }
+
+  unobserve(target: Element): void {
+    this.targets.delete(target);
+    this.queued.delete(target);
+  }
+
+  disconnect(): void {
+    this.targets.clear();
+    this.queued.clear();
+    resizeObservers.delete(this);
+  }
+
+  takeRecords(): FakeResizeObserverEntry[] {
+    const records = [...this.queued].map(entryFor);
+    this.queued.clear();
+    return records;
+  }
+
+  /** @internal — the harness's side of the contract. */
+  observes(target: Element): boolean { return this.targets.has(target); }
+  /** @internal */
+  watching(): Element[] { return [...this.targets]; }
+  /** @internal */
+  queue(target: Element): void { if (this.targets.has(target)) this.queued.add(target); }
+  /** @internal */
+  deliver(): void {
+    if (this.queued.size === 0) return;
+    const records = this.takeRecords();
+    this.callback(records, this);
+  }
+}
+
+/** Every element some live observer is watching — for a test to prove a product observes what it claims to. */
+export function observedElements(): Element[] {
+  const out = new Set<Element>();
+  for (const observer of resizeObservers) for (const target of observer.watching()) out.add(target);
+  return [...out];
+}
+
+/**
+ * Change an element's reported box and tell its observers.
+ *
+ * The delivery is queued, not immediate — call `flushResizeObservations()` or
+ * let `settle()` run to have it land. Returns whether anything was observing
+ * the element, so a test can distinguish "the product did not react" from
+ * "the product was never listening".
+ */
+export function resizeElement(el: Element, box: Box): boolean {
+  giveLayout(el, box);
+  let watched = false;
+  for (const observer of resizeObservers) {
+    if (observer.observes(el)) { observer.queue(el); watched = true; }
+  }
+  if (watched) scheduleDelivery();
+  return watched;
+}
+
+if (typeof (win as unknown as Record<string, unknown>).ResizeObserver === "undefined") {
+  (win as unknown as Record<string, unknown>).ResizeObserver = FakeResizeObserver;
+}
+
+/** jsdom has no IntersectionObserver; the product uses it purely to learn about visibility. */
+class NoopIntersectionObserver {
   observe(): void {}
   unobserve(): void {}
   disconnect(): void {}
   takeRecords(): unknown[] { return []; }
 }
-for (const name of ["ResizeObserver", "IntersectionObserver"]) {
-  if (typeof (win as unknown as Record<string, unknown>)[name] === "undefined") {
-    (win as unknown as Record<string, unknown>)[name] = NoopObserver;
-  }
+if (typeof (win as unknown as Record<string, unknown>).IntersectionObserver === "undefined") {
+  (win as unknown as Record<string, unknown>).IntersectionObserver = NoopIntersectionObserver;
 }
 
 /** A desktop viewport that never matches a `prefers-*` query. */

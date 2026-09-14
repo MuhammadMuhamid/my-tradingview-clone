@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { recall, remember } from "@/lib/browserStorage";
 import { useAsk } from "@/components/AskDialog";
 import type { SymbolInfo } from "@/lib/types";
@@ -129,8 +129,9 @@ export function Watchlist({
       try {
         let rows = await api.listWatchlists();
         if (rows.length === 0) {
-          // First run on this database. Import the browser's old lists if any,
-          // otherwise seed one list from the tracked symbols.
+          // First run on this database. Import the browser's old lists if any;
+          // the default list is seeded by the effect below, once the tracked
+          // symbols it is seeded FROM are known.
           let seeded = false;
           try {
             const raw = recall(LEGACY_KEY);
@@ -142,12 +143,7 @@ export function Watchlist({
             }
             if (seeded) remember(`${LEGACY_KEY}.migrated`, raw ?? "");
           } catch { /* malformed legacy data — fall through to the default */ }
-          if (!seeded) {
-            await api.upsertWatchlist({
-              name: "Main Watchlist", symbols: symbols.map((s) => s.canonicalId ?? s.symbol), position: 0,
-            });
-          }
-          rows = await api.listWatchlists();
+          if (seeded) rows = await api.listWatchlists();
         }
         setLists(rows);
         const stored = recall(ACTIVE_KEY);
@@ -158,8 +154,38 @@ export function Watchlist({
         setLists([]);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // once on mount; the server is the source of truth afterwards
+
+  /*
+   * ── TVP8 IO-A10: the first-run seed was always empty ──────────────────────
+   *
+   * The seed used to live in the mount effect above, reading `symbols` from
+   * that effect's closure — the value the panel MOUNTED with, which is `[]`,
+   * because the page's own `listSymbols` is still in flight when the panel
+   * first renders. So a fresh database got a "Main Watchlist" with no rows in
+   * it, and since FG-01 opened the panel by default that is every first run.
+   * Found the moment the DOM fixture could persist a watchlist at all
+   * (IO-A2-COV): the recorded POST said `"symbols":[]`.
+   *
+   * The seed now waits for the thing it is seeded from. A database with no
+   * tracked symbols gets no list, which is the honest state rather than an
+   * empty list pretending to be one.
+   */
+  const seededDefault = useRef(false);
+  useEffect(() => {
+    if (lists === null || lists.length > 0 || symbols.length === 0 || seededDefault.current) return;
+    seededDefault.current = true;
+    void (async () => {
+      try {
+        await api.upsertWatchlist({
+          name: "Main Watchlist", symbols: symbols.map((s) => s.canonicalId ?? s.symbol), position: 0,
+        });
+        await reload();
+      } catch (e) {
+        setErr(describeAction(e, "create the list"));
+      }
+    })();
+  }, [lists, symbols]);
 
   useEffect(() => {
     if (activeId) remember(ACTIVE_KEY, activeId);

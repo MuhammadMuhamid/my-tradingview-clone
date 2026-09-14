@@ -31,6 +31,12 @@
 import {
   foldBars, parseResolution, sourceBarsNeeded, type FoldableBar,
 } from "@/lib/resolution";
+import type { ServerWatchlist } from "@/lib/api";
+import type { SymbolInfo } from "@/lib/types";
+import {
+  CATALOGUE, legacyTickers, marketTickers, providerSymbol, providerSymbolOf, searchResponse,
+  streamConfig, symbolInfo,
+} from "./market";
 
 export interface StoredDrawingRow {
   venue: string;
@@ -86,6 +92,23 @@ export class FixtureServer {
   /** Every request is refused, the way an unreachable server refuses one. */
   offline = false;
 
+  /*
+   * ── TVP8 IO-A2-COV: the canonical instrument the product stands on ────────
+   *
+   * See `./market.ts`. The symbols table, the two search routes, both ticker
+   * routes, the canonical candle route, the provider stream config and a
+   * watchlist that PERSISTS are all served from here now, in the shapes
+   * `lib/api` describes, so a DOM test can put a pane on an `instrument:v1:…`
+   * identity and reach the paths that only exist for one.
+   */
+  /** Whether `/api/market/v1/stream/:id` answers. The standalone QA fixture turns it off. */
+  streamConfigs = true;
+  /** The local symbols table — the catalogue's tracked rows, plus what `POST /api/symbols` adds. */
+  private readonly tracked = new Map<string, SymbolInfo>();
+  /** Watchlists, persisted for the life of a test the way the database persists them for a user. */
+  readonly watchlists = new Map<string, ServerWatchlist>();
+  private watchlistSeq = 0;
+
   /**
    * Extra routes a single test needs, checked before the built-in table.
    *
@@ -95,6 +118,10 @@ export class FixtureServer {
   readonly routes = new Map<string, (body: unknown, url: URL) => unknown>();
 
   private readonly holds: { match: HoldMatch; held: Held }[] = [];
+
+  constructor() {
+    for (const item of CATALOGUE) if (item.tracked) this.tracked.set(providerSymbol(item), symbolInfo(item));
+  }
 
   /**
    * Another device, landing between this client's requests.
@@ -177,6 +204,11 @@ export class FixtureServer {
     this.interposer = null;
     this.candlesByKey.clear();
     this.fallbackCandles = [];
+    this.tracked.clear();
+    for (const item of CATALOGUE) if (item.tracked) this.tracked.set(providerSymbol(item), symbolInfo(item));
+    this.watchlists.clear();
+    this.watchlistSeq = 0;
+    this.streamConfigs = true;
   }
 
   // ── the chart-state contract ─────────────────────────────────────────────
@@ -285,6 +317,137 @@ export class FixtureServer {
     return { status: 200, payload: row };
   }
 
+
+  /**
+   * Bars for one provider symbol, in whichever wire format was asked for.
+   *
+   * Shared by the legacy `/api/symbols/:symbol/candles` route and the
+   * canonical `/api/market/v1/candles/:id` route, because the backend serves
+   * both from the same store after resolving the id to its listing — a fixture
+   * that folded resolutions on one route and not the other would let a 45m
+   * canonical chart pass here and be wrong in the product.
+   */
+  private candlesResponse(symbol: string, url: URL): Response {
+    const requested = url.searchParams.get("interval") ?? "15m";
+    /*
+     * The fixture serves resolutions the same way the backend does.
+     *
+     * A derived resolution is not stored on either side: the server reads the
+     * SOURCE bars and folds them with `lib/resolution`, and so does this. A
+     * fixture that simply handed back a stored `45m` array would prove that
+     * the chart can render an array — it would prove nothing about whether a
+     * 45-minute bar on this product is three real fifteen-minute bars.
+     */
+    const plan = parseResolution(requested);
+    if (plan === null) return json(400, { error: `invalid interval: ${requested}` });
+    const stepMs = plan.ms;
+    const interval = plan.id;
+    const limit = Number(url.searchParams.get("limit") ?? "1000");
+    const all = this.candlesFor(symbol, plan.source);
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    let source = all;
+    if (from !== null || to !== null) {
+      const lo = from === null ? -Infinity : Number(from);
+      const hi = to === null ? Infinity : Number(to);
+      source = all.filter(([t]) => t >= lo && t <= hi);
+    }
+    const sourceLimit = Number.isFinite(limit) ? sourceBarsNeeded(plan, limit) : Infinity;
+    // Newest-first truncation, then chronological — the backend's own rule.
+    if (source.length > sourceLimit) source = source.slice(-sourceLimit);
+
+    let bars: CompactBar[];
+    if (plan.factor === 1) {
+      bars = source;
+    } else {
+      const asBars: FoldableBar[] = source.map(([t, o, h, l, c, v]) => ({
+        symbol, interval: plan.source, openTime: t, open: o, high: h, low: l,
+        close: c, volume: v,
+        closeTime: t + (plan.ms / plan.factor) - 1,
+      }));
+      const folded = foldBars(asBars, plan);
+      // The oldest bucket is dropped when the read began inside it, exactly as
+      // `readResolvedCandles` does — a bar built from a fraction of its span
+      // must not be drawn at full width beside whole ones.
+      if (folded.length > 0 && asBars.length > 0
+        && asBars[0]!.openTime !== folded[0]!.openTime) folded.shift();
+      bars = folded.map((b): CompactBar => [b.openTime, b.open, b.high, b.low, b.close, b.volume]);
+    }
+    if (Number.isFinite(limit) && bars.length > limit) bars = bars.slice(-limit);
+    if (url.searchParams.get("format") === "compact") {
+      return json(200, {
+        format: "compact-v1", symbol, interval, stepMs, count: bars.length, bars,
+      });
+    }
+    return json(200, bars.map(([openTime, open, high, low, close, volume]) => ({
+      symbol, interval, openTime, open, high, low, close, volume,
+      closeTime: openTime + stepMs - 1,
+    })));
+  }
+
+  /**
+   * A watchlist that already exists when the page loads — a returning user.
+   *
+   * Most tests that need a populated list want THIS, not the first-run seed:
+   * the seed is one product behaviour with its own test, and a test of the
+   * ticker poll or of a row's click should not depend on it.
+   */
+  seedWatchlist(symbols: readonly string[], name = "Main Watchlist"): ServerWatchlist {
+    const row: ServerWatchlist = {
+      id: `wl-${++this.watchlistSeq}`, name, symbols: [...symbols],
+      position: this.watchlists.size, updatedAt: new Date().toISOString(),
+    };
+    this.watchlists.set(row.id, row);
+    return row;
+  }
+
+  /**
+   * `/api/watchlists` — create, list, rename, edit, delete.
+   *
+   * The QA fixture (`qa/chart-fixture.ts`) carried this in its own process
+   * because the shared harness answered `GET` with `[]` and had nothing to
+   * `POST` to: the panel rendered its empty state and every way out of it —
+   * the seed chips, typing a symbol — posted into a 404 and silently did
+   * nothing. In a DOM test that meant the watchlist NEVER held a symbol, so
+   * its ticker poll never started, so IO-A7's end-to-end test could not fail.
+   * The same rows, the same `ServerWatchlist` shape, now served here.
+   */
+  private watchlistRequest(method: string, path: string, body: unknown): Response | undefined {
+    if (path !== "/api/watchlists" && !path.startsWith("/api/watchlists/")) return undefined;
+    const id = path.slice("/api/watchlists".length).replace(/^\//, "");
+    const patch = (body ?? {}) as Partial<ServerWatchlist>;
+    if (method === "GET" && !id) {
+      return json(200, [...this.watchlists.values()].sort((a, b) => a.position - b.position));
+    }
+    if (method === "POST" && !id) {
+      const existing = [...this.watchlists.values()].find((w) => w.name === patch.name);
+      const row: ServerWatchlist = {
+        id: existing?.id ?? `wl-${++this.watchlistSeq}`,
+        name: patch.name ?? "Watchlist",
+        symbols: patch.symbols ?? existing?.symbols ?? [],
+        position: patch.position ?? existing?.position ?? this.watchlists.size,
+        updatedAt: new Date().toISOString(),
+      };
+      this.watchlists.set(row.id, row);
+      return json(200, row);
+    }
+    if (method === "PATCH" && id) {
+      const row = this.watchlists.get(id);
+      if (!row) return json(404, { error: `no watchlist ${id}` });
+      const next: ServerWatchlist = {
+        ...row,
+        name: patch.name ?? row.name,
+        symbols: patch.symbols ?? row.symbols,
+        position: patch.position ?? row.position,
+        updatedAt: new Date().toISOString(),
+      };
+      this.watchlists.set(id, next);
+      return json(200, next);
+    }
+    if (method === "DELETE" && id) { this.watchlists.delete(id); return json(200, {}); }
+    return undefined;
+  }
+
   // ── the fetch this origin answers ────────────────────────────────────────
 
   async handle(input: string, init?: RequestInit): Promise<Response> {
@@ -342,78 +505,60 @@ export class FixtureServer {
     if (path === "/api/chart-state/panes") return json(200, [...this.panes.values()]);
 
     const candleMatch = /^\/api\/symbols\/([^/]+)\/candles$/.exec(path);
-    if (candleMatch) {
-      const symbol = decodeURIComponent(candleMatch[1]!).toUpperCase();
-      const requested = url.searchParams.get("interval") ?? "15m";
-      /*
-       * The fixture serves resolutions the same way the backend does.
-       *
-       * A derived resolution is not stored on either side: the server reads the
-       * SOURCE bars and folds them with `lib/resolution`, and so does this. A
-       * fixture that simply handed back a stored `45m` array would prove that
-       * the chart can render an array — it would prove nothing about whether a
-       * 45-minute bar on this product is three real fifteen-minute bars.
-       */
-      const plan = parseResolution(requested);
-      if (plan === null) return json(400, { error: `invalid interval: ${requested}` });
-      const stepMs = plan.ms;
-      const interval = plan.id;
-      const limit = Number(url.searchParams.get("limit") ?? "1000");
-      const all = this.candlesFor(symbol, plan.source);
-      const from = url.searchParams.get("from");
-      const to = url.searchParams.get("to");
-      let source = all;
-      if (from !== null || to !== null) {
-        const lo = from === null ? -Infinity : Number(from);
-        const hi = to === null ? Infinity : Number(to);
-        source = all.filter(([t]) => t >= lo && t <= hi);
-      }
-      const sourceLimit = Number.isFinite(limit) ? sourceBarsNeeded(plan, limit) : Infinity;
-      // Newest-first truncation, then chronological — the backend's own rule.
-      if (source.length > sourceLimit) source = source.slice(-sourceLimit);
+    if (candleMatch) return this.candlesResponse(decodeURIComponent(candleMatch[1]!).toUpperCase(), url);
 
-      let bars: CompactBar[];
-      if (plan.factor === 1) {
-        bars = source;
-      } else {
-        const asBars: FoldableBar[] = source.map(([t, o, h, l, c, v]) => ({
-          symbol, interval: plan.source, openTime: t, open: o, high: h, low: l,
-          close: c, volume: v,
-          closeTime: t + (plan.ms / plan.factor) - 1,
-        }));
-        const folded = foldBars(asBars, plan);
-        // The oldest bucket is dropped when the read began inside it, exactly as
-        // `readResolvedCandles` does — a bar built from a fraction of its span
-        // must not be drawn at full width beside whole ones.
-        if (folded.length > 0 && asBars.length > 0
-          && asBars[0]!.openTime !== folded[0]!.openTime) folded.shift();
-        bars = folded.map((b): CompactBar => [b.openTime, b.open, b.high, b.low, b.close, b.volume]);
-      }
-      if (Number.isFinite(limit) && bars.length > limit) bars = bars.slice(-limit);
-      if (url.searchParams.get("format") === "compact") {
-        return json(200, {
-          format: "compact-v1", symbol, interval, stepMs, count: bars.length, bars,
-        });
-      }
-      return json(200, bars.map(([openTime, open, high, low, close, volume]) => ({
-        symbol, interval, openTime, open, high, low, close, volume,
-        closeTime: openTime + stepMs - 1,
-      })));
+    const canonicalCandles = /^\/api\/market\/v1\/candles\/(.+)$/.exec(path);
+    if (canonicalCandles) {
+      const id = decodeURIComponent(canonicalCandles[1]!);
+      const symbol = providerSymbolOf(id);
+      if (symbol === null) return json(404, { error: `unknown instrument: ${id}` });
+      return this.candlesResponse(symbol, url);
     }
 
+    const streamMatch = /^\/api\/market\/v1\/stream\/(.+)$/.exec(path);
+    if (streamMatch) {
+      const id = decodeURIComponent(streamMatch[1]!);
+      const kind = url.searchParams.get("kind") === "ticker" ? "ticker" : "candle";
+      const config = this.streamConfigs ? streamConfig(id, kind, url.searchParams.get("interval") ?? "1m") : null;
+      return config ? json(200, config) : json(404, { error: `no stream for ${id}` });
+    }
+
+    if (path === "/api/market/v1/search") return json(200, searchResponse(url));
+    if (path === "/api/symbols/search") return json(200, searchResponse(url, true));
+    if (path === "/api/market/v1/tickers") {
+      const ids = (url.searchParams.get("instruments") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+      return json(200, marketTickers(ids));
+    }
+    if (path === "/api/symbols/tickers") {
+      const symbols = (url.searchParams.get("symbols") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+      return json(200, legacyTickers(symbols));
+    }
+    if (path === "/api/symbols") {
+      if (method === "POST") {
+        const wanted = (body ?? {}) as { symbol?: string; baseAsset?: string; quoteAsset?: string };
+        const symbol = String(wanted.symbol ?? "").toUpperCase();
+        if (!symbol) return json(400, { error: "symbol is required" });
+        const known = CATALOGUE.find((i) => providerSymbol(i) === symbol);
+        const row: SymbolInfo = known ? symbolInfo(known) : {
+          symbol, canonicalId: null, baseAsset: String(wanted.baseAsset ?? symbol), quoteAsset: String(wanted.quoteAsset ?? ""),
+          priceTick: null, qtyStep: null, minNotional: null, isActive: true,
+        };
+        this.tracked.set(symbol, row);
+        return json(200, row);
+      }
+      return json(200, [...this.tracked.values()]);
+    }
+
+    const watchlist = this.watchlistRequest(method, path, body);
+    if (watchlist !== undefined) return watchlist;
+
     const table: Record<string, unknown> = {
-      "/api/symbols": [
-        { symbol: "SOLUSDT", baseAsset: "SOL", quoteAsset: "USDT", isActive: true },
-        { symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", isActive: true },
-      ],
-      "/api/symbols/tickers": [],
       // The history repair path. `chartShell.test.tsx` exercises a stale tail
       // deliberately; everywhere else it must simply not 404.
       "/api/data/backfill": { fetched: 0 },
       "/api/strategies": [],
       "/api/pine": [],
       "/api/layouts": [],
-      "/api/watchlists": [],
       "/api/ma-alerts": [],
       "/api/deployments": [],
       "/api/backtests": [],
