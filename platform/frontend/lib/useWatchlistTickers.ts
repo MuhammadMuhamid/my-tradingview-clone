@@ -19,6 +19,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
+import { describeFailure, failureReason } from "./errorCopy";
+import { isAbortError } from "./requestGuard";
 import {
   combinedStreamPath, marketStreams, miniTickerStreamName, type StreamState,
 } from "./marketStream";
@@ -120,10 +122,11 @@ export function useWatchlistTickers(symbols: readonly string[]): {
     const controller = new AbortController();
     const legacyRead = (legacy.length > 0 ? api.tickers(legacy, controller.signal) : Promise.resolve([]))
       .then((rows) => ({ rows, error: null as string | null }))
-      .catch((cause) => ({ rows: [], error: `Binance ticker refresh failed: ${(cause as Error).message}` }));
+      // REV-UX-01: the header shows this line; the cause is not the copy.
+      .catch((cause) => ({ rows: [], error: describeFailure(cause, "Binance quotes").headline }));
     const canonicalRead = (canonical.length > 0 ? api.marketTickers(canonical, controller.signal) : Promise.resolve(null))
       .then((market) => ({ market, error: null as string | null }))
-      .catch((cause) => ({ market: null, error: `Provider ticker refresh failed: ${(cause as Error).message}` }));
+      .catch((cause) => ({ market: null, error: describeFailure(cause, "Provider quotes").headline }));
     void Promise.all([legacyRead, canonicalRead]).then(([legacyResult, canonicalResult]) => {
       if (controller.signal.aborted) return;
       const rows = legacyResult.rows;
@@ -194,7 +197,7 @@ export function useWatchlistTickers(symbols: readonly string[]): {
         }));
       }).catch((cause) => {
         if (!controller.signal.aborted) setIssues((current) => [...new Set([...current,
-          `Stream unavailable for ${instrument}: ${(cause as Error).message}`])]);
+          `Stream unavailable for ${instrument}. ${failureReason(cause)}`])]);
       });
     }
     const poll = () => void api.marketTickers(canonical, controller.signal).then((market) => {
@@ -214,7 +217,27 @@ export function useWatchlistTickers(symbols: readonly string[]): {
         }
         return next;
       });
-    }).catch((cause) => setIssues([`Ticker refresh failed: ${(cause as Error).message}`]));
+    }).catch((cause) => {
+      /*
+       * ── IO-A7: an abort is this effect superseding itself ─────────────────
+       *
+       * This `.catch` had no abort check, unlike both of its siblings above.
+       * Editing the watchlist aborts the controller while the fifteen-second
+       * poll is in flight, so the rejection that follows painted
+       *
+       *   some quotes unavailable — Ticker refresh failed: signal is aborted…
+       *
+       * on a list that had just been edited. `issues` is tested BEFORE
+       * `stream.status === "live"` in the header's ternary, so that message
+       * also overrode a genuinely live indicator — and if the edit emptied the
+       * canonical set there was nothing left to run and clear it.
+       *
+       * The raw cause is not the copy either: REV-UX-01's rule applies here
+       * exactly as it does on the chart.
+       */
+      if (isAbortError(cause) || controller.signal.aborted) return;
+      setIssues([describeFailure(cause, "Quotes").headline]);
+    });
     const timer = window.setInterval(poll, 15_000);
     return () => { stopped = true; controller.abort(); for (const release of releases) release();
       setCanonicalStates({}); window.clearInterval(timer); };
