@@ -244,3 +244,76 @@ test("catalog selection filters annotations without re-evaluating OHLC", () => {
   assert.deepEqual(placePatterns(value, candles(4), new Set(["doji"])).map((p) => p.pattern.id), ["doji"]);
   assert.equal(placePatterns(value, candles(4), new Set()).length, 0);
 });
+
+// ── IO-A5: the marker goes on the bar the event was placed on ──────────────
+
+/**
+ * `placeAlertEvents` snaps an event to this timeframe's grid — deliberately,
+ * and its own comment says why: "an intrabar event records the bar that was
+ * forming". It stores that answer as `time` on the placed event.
+ *
+ * `alertEventMarkers` then threw it away and recomputed from the raw
+ * `event.barTime`. The two disagree for every event that did not fire exactly
+ * on a bar open, which is most of them, and the consequence is not cosmetic:
+ * `CandleChart` drops any marker outside `[first bar open, last bar open]`, so
+ * an alert firing part-way through the bar that is still forming lands past
+ * the last open time and is never drawn at all — while the Alerts panel and
+ * the chart's own notice both say it fired.
+ *
+ * An alert the product says fired and does not show you is worse than one it
+ * misplaces by a few pixels.
+ */
+test("IO-A5 — an intrabar alert is drawn on the bar that was forming", () => {
+  // Fired 37 minutes into the 1h bar that opens at hour 5.
+  const intrabar = event({ barTime: new Date(5 * HOUR + 37 * 60_000).toISOString() });
+  const placed = placeAlertEvents([intrabar], [alert()], "BTCUSDT", "1h", candles(10));
+  assert.equal(placed.length, 1, "the event was not placed at all");
+  assert.equal(placed[0]!.time, (5 * HOUR) / 1000, "placement did not snap to the grid");
+
+  const [marker] = alertEventMarkers(placed);
+  assert.ok(marker, "a placed event produced no marker");
+  assert.equal(marker.time, placed[0]!.time,
+    "the marker is at the raw fired time, not the bar it was placed on — so it "
+    + "falls off the grid, and on the newest bar it is dropped entirely");
+});
+
+test("IO-A5 — an alert on the newest bar is drawn rather than silently dropped", () => {
+  /*
+   * The case that loses it completely. `CandleChart` keeps a marker only when
+   * its time is within [first bar open, last bar open]; a raw intrabar time on
+   * the last bar is past that, so the marker is discarded while the panel and
+   * the notice both report the alert as fired.
+   */
+  const bars = candles(10);
+  const lastOpen = bars[bars.length - 1]!.openTime;
+  const onNewest = event({ barTime: new Date(lastOpen + 41 * 60_000).toISOString() });
+
+  const placed = placeAlertEvents([onNewest], [alert()], "BTCUSDT", "1h", bars);
+  assert.equal(placed.length, 1, "the newest bar's event was not placed");
+
+  const [marker] = alertEventMarkers(placed);
+  assert.ok(marker, "no marker for an event on the newest bar");
+
+  const first = bars[0]!.openTime / 1000;
+  const last = lastOpen / 1000;
+  assert.ok(marker.time >= first && marker.time <= last,
+    `the marker at ${marker.time} is outside the chart's window [${first}, ${last}], `
+    + "so CandleChart drops it and the alert is never drawn");
+});
+
+test("IO-A5 — a stacked group is drawn once, on its own bar", () => {
+  const bars = candles(10);
+  const two = [
+    event({ id: 1, barTime: new Date(5 * HOUR + 5 * 60_000).toISOString() }),
+    event({ id: 2, barTime: new Date(5 * HOUR + 50 * 60_000).toISOString() }),
+  ];
+  const placed = placeAlertEvents(two, [alert()], "BTCUSDT", "1h", bars);
+  assert.equal(placed.length, 1, "two events on one bar should group");
+  assert.equal(placed[0]!.stacked, 2);
+
+  const markers = alertEventMarkers(placed);
+  assert.equal(markers.length, 1);
+  assert.equal(markers[0]!.time, (5 * HOUR) / 1000,
+    "the group's marker is at one of the raw fired times rather than the bar's");
+  assert.match(markers[0]!.text ?? "", /×2/);
+});

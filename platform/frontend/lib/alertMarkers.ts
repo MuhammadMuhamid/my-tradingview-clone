@@ -116,12 +116,31 @@ export function placeAlertEvents(
  * that carried it would cover the candles it is annotating.
  */
 export function alertEventMarkers(placed: readonly PlacedAlertEvent[]): ChartMarker[] {
-  return placed.map(({ event, alert, stacked }) => {
+  return placed.map(({ alert, stacked, time }) => {
     const up = alert?.mode === "cross_up" || alert?.priceDirection === "cross_up";
     const down = alert?.mode === "cross_down" || alert?.priceDirection === "cross_down";
     return {
       category: "alert" as const,
-      time: Math.floor(new Date(event.barTime).getTime() / 1000),
+      /*
+       * ── IO-A5: the bar it was PLACED on, not the instant it fired ─────────
+       *
+       * This recomputed from the raw `event.barTime`, throwing away the answer
+       * `placeAlertEvents` had just worked out twenty lines above — where the
+       * comment explains the snap precisely: "an intrabar event records the bar
+       * that was forming".
+       *
+       * The two disagree for every event that did not fire exactly on a bar
+       * open, which is most of them, and the consequence is not cosmetic.
+       * `CandleChart` keeps a marker only while its time is inside
+       * [first bar open, last bar open], so an alert firing part-way through
+       * the bar still forming lands PAST the last open time and is dropped
+       * entirely — while the Alerts panel and the chart's own notice both say
+       * it fired. On older bars it simply sits off the grid.
+       *
+       * An alert the product says fired and does not show you is worse than
+       * one it misplaces by a few pixels.
+       */
+      time,
       position: down ? "aboveBar" : "belowBar",
       color: up ? "#2ebd85" : down ? "#f6465d" : "#f0b90b",
       // "Alert" rather than a bell glyph: a dingbat renders as a different
