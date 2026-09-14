@@ -262,9 +262,30 @@ export function mergeLiveBarsInto(
 }
 
 export function useCandleHistory(
-  request: HistoryRequest, options: { enabled?: boolean } = {}
+  request: HistoryRequest,
+  options: {
+    enabled?: boolean;
+    /**
+     * IO-A2: whether this reader wants the window kept CURRENT, as well as
+     * loaded. Default true.
+     *
+     * `enabled` gated everything at once, so the only way to stop a live merge
+     * was to stop loading, and a caller that needed the bars but not the ticks
+     * could not say so. The chart page is exactly that caller during replay:
+     * `useLivePrice` has been mounted `{ enabled: !replayActive }` for as long
+     * as replay has existed, and the comment above `activeHistory` asserted it
+     * "never receives live klines" — which was true of a legacy symbol and
+     * false of a canonical one, where this hook runs its own provider stream
+     * and a fifteen-second REST tail.
+     *
+     * A replay is a window onto history. Streaming new bars into it is work
+     * nobody asked for even when it is harmless, and it was not harmless.
+     */
+    live?: boolean;
+  } = {}
 ): CandleHistoryState {
   const enabled = options.enabled !== false;
+  const live = enabled && options.live !== false;
   const { symbol, interval, bars } = request;
   // Candles and their identity change together, in one state, so a render
   // can never see new candles under an old identity or the reverse.
@@ -374,7 +395,7 @@ export function useCandleHistory(
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
   useEffect(() => {
-    if (!enabled || typeof window === "undefined" || isCanonicalInstrumentId(symbol)) return;
+    if (!live || typeof window === "undefined" || isCanonicalInstrumentId(symbol)) return;
     let seenFirst = false;
     let wasLive = false;
     return marketFeed.subscribe(symbol, interval, {
@@ -388,14 +409,14 @@ export function useCandleHistory(
         wasLive = live;
       },
     });
-  }, [symbol, interval, enabled]);
+  }, [symbol, interval, live]);
 
   /* Canonical instruments stream through the provider contract. A slow REST
    * tail poll remains as an explicit degraded-mode fallback. */
   const canonicalStreamReady = datasetKey(held.dataset) === datasetKey({ symbol, interval }) &&
     held.candles.length > 0;
   useEffect(() => {
-    if (!enabled || !isCanonicalInstrumentId(symbol) || !canonicalStreamReady ||
+    if (!live || !isCanonicalInstrumentId(symbol) || !canonicalStreamReady ||
       !canonicalCandleStreamSupported(symbol, interval)) return;
     let stopped = false;
     let release: (() => void) | null = null;
@@ -447,7 +468,7 @@ export function useCandleHistory(
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 15_000);
     return () => { stopped = true; controller.abort(); release?.(); window.clearInterval(timer); };
-  }, [enabled, symbol, interval, canonicalStreamReady, mergeLiveBars]);
+  }, [live, symbol, interval, canonicalStreamReady, mergeLiveBars]);
 
   return useMemo(
     () => ({

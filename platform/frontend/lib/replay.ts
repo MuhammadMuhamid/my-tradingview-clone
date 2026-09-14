@@ -86,23 +86,43 @@ export function startReplay(
 /**
  * Preserve the replay timestamp across a symbol/timeframe/history reload and
  * resolve it to that context's last completed bar at or before the old T.
+ *
+ * ── IO-A2: two events, one code path, and only one of them was served ──────
+ *
+ * This is called for a NAVIGATION — the user changed symbol or timeframe — and
+ * for a REFRESH of the window the session is already in. The caller's effect
+ * is keyed on the `candles` array identity, and a refresh changes that
+ * identity: a feed coming back from stale reloads, a depth repair reloads, and
+ * on a canonical instrument the provider stream and a fifteen-second REST tail
+ * both call `mergeLiveBars`.
+ *
+ * Both branches returned `playing: false`. For a navigation that is deliberate
+ * — you land paused on the equivalent bar. For a refresh it meant that pressing
+ * Play started a session which stopped itself within fifteen seconds, with the
+ * transport still lit and nothing said, so it read as a product that does not
+ * work rather than as something that had happened.
+ *
+ * This function cannot tell the two apart. The caller can, and now says which
+ * it is. A refresh keeps whatever the session was doing; a refresh that has
+ * LOST the point still stops, because playing on from a horizon that is no
+ * longer in the bars is worse than stopping.
  */
 export function reconcileReplay(
   session: ReplaySession,
   candles: readonly Candle[],
+  options: { sameWindow?: boolean } = {},
 ): ReplaySession {
   const selected = lastBarIndexAtOrBefore(
     candles,
     session.horizonCloseTime,
     session.availableThroughCloseTime,
   );
-  return selected < 0
-    ? { ...session, playing: false }
-    : {
-        ...session,
-        horizonCloseTime: candles[selected]!.closeTime,
-        playing: false,
-      };
+  if (selected < 0) return { ...session, playing: false };
+  return {
+    ...session,
+    horizonCloseTime: candles[selected]!.closeTime,
+    playing: options.sameWindow === true ? session.playing : false,
+  };
 }
 
 /**

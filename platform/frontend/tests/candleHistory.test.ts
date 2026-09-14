@@ -215,7 +215,14 @@ test("THE PANES AND THE PAGE SHARE ONE HISTORY PATH", () => {
   assert.match(hook, /api\.backfill\(/);
   assert.match(hook, /api\.candlesRange\(/);
   assert.match(pane, /useCandleHistory\(\{/);
-  assert.match(page, /useCandleHistory\(\{ symbol, interval, bars \}\)/);
+  /*
+   * IO-A2 gave this call an options argument (`{ live: !replayActive }`), so a
+   * pattern that required the call to END at its request object no longer
+   * matched. What this line is about is that the page reads through the shared
+   * hook rather than loading for itself — which the next loop already enforces
+   * — so it pins the call, not its punctuation.
+   */
+  assert.match(page, /useCandleHistory\(\{ symbol, interval, bars \}/);
   // No component fetches candles for itself any more.
   for (const [name, source] of [["ChartPane", pane], ["the chart page", page]] as const) {
     assert.ok(!/api\.candles\(/.test(source), `${name} still loads its own candles`);

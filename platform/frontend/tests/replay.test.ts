@@ -1,10 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const readSource = (rel: string): string =>
+  readFileSync(join(import.meta.dirname, "..", rel), "utf8");
 import type { Candle } from "../lib/types";
 import type { Drawing } from "../lib/drawings";
 import {
   REPLAY_CONTEXT_BARS, REPLAY_SPEEDS, activeReplayQuote, barsToCoverReplay,
-  drawingsAtReplayHorizon, liveActionsDisabled, reconcileReplay, replayCandles,
+  drawingsAtReplayHorizon, lastBarIndexAtOrBefore, liveActionsDisabled,
+  reconcileReplay, replayCandles,
   replayCoverage, replayDelayMs, replayTick, startReplay, stepReplay,
 } from "../lib/replay";
 import {
@@ -343,4 +349,118 @@ test("A SESSION SURVIVES THE SWITCH RATHER THAN BEING SILENTLY INVALIDATED", () 
   assert.equal(backAgain.horizonCloseTime, session.horizonCloseTime,
     "and switching back lands on the same bar");
   assert.equal(replayCoverage(backAgain, daily), "covered");
+});
+
+// ── IO-A2: a refresh of the same window is not a navigation ────────────────
+
+/**
+ * `reconcileReplay` serves two events through one code path.
+ *
+ * One is a NAVIGATION — the user changed symbol or timeframe — where landing
+ * paused on the equivalent bar is deliberate, and the two tests above pin it.
+ *
+ * The other is a REFRESH of the window the session is already in: a feed that
+ * came back from stale and reloaded, a depth repair, or — on a canonical
+ * instrument — the provider stream and the fifteen-second REST tail, both of
+ * which call `mergeLiveBars`. Every one of those hands the page a new
+ * `candles` array, the page's reconcile effect is keyed on that array, and
+ * `reconcileReplay` returned `playing: false` on BOTH branches.
+ *
+ * So pressing Play started a session that stopped itself within fifteen
+ * seconds, silently, with the transport still lit. It reads as a product that
+ * does not work rather than as something that happened.
+ *
+ * The function cannot tell the two events apart on its own — the caller knows
+ * and did not say. It says now.
+ */
+test("IO-A2 — a refresh of the SAME window leaves a playing session playing", () => {
+  const session = { ...atBar(3), playing: true };
+
+  const refreshed = reconcileReplay(session, candles, { sameWindow: true });
+
+  assert.equal(refreshed.playing, true,
+    "a new candles array for the window we are already in must not end the session");
+  assert.equal(refreshed.horizonCloseTime, session.horizonCloseTime,
+    "and it must not move the bar the user is standing on");
+});
+
+test("IO-A2 — a refresh that loses the point still stops, because it must", () => {
+  /*
+   * The one case where stopping is the answer even in the same window: the
+   * bars came back and the point is no longer in them. Playing on from a
+   * horizon that does not exist is worse than stopping.
+   */
+  const session = { ...atBar(3), playing: true };
+  const later = candles.slice(4);
+
+  const refreshed = reconcileReplay(session, later, { sameWindow: true });
+  assert.equal(refreshed.playing, false,
+    "a session whose point is gone must not keep running");
+});
+
+test("IO-A2 — a navigation still pauses, which is the existing deliberate behaviour", () => {
+  /*
+   * The bars must RESOLVE, or this proves nothing.
+   *
+   * Written first against `closeTime * 5`, every bar landed in the future of
+   * the session's point, `lastBarIndexAtOrBefore` returned -1, and the early
+   * "the point is gone" branch answered `playing: false` for a reason that has
+   * nothing to do with navigation. A perturbation that made EVERY reconcile
+   * keep playing went green against it. These close times are inside the
+   * session's horizon, so the resolving branch is the one under test.
+   */
+  const session = { ...atBar(3), playing: true };
+  const fiveMinute = [
+    { ...candles[0]!, interval: "5m" as const, closeTime: 119_999 },
+    { ...candles[1]!, interval: "5m" as const, closeTime: 239_999 },
+  ];
+  assert.ok(
+    lastBarIndexAtOrBefore(fiveMinute, session.horizonCloseTime,
+      session.availableThroughCloseTime) >= 0,
+    "these bars do not resolve the point — the test would pass on the wrong branch");
+
+  assert.equal(reconcileReplay(session, fiveMinute).playing, false,
+    "changing symbol or timeframe lands paused on the equivalent bar");
+  assert.equal(reconcileReplay(session, fiveMinute, { sameWindow: false }).playing, false,
+    "and saying so explicitly means the same thing");
+});
+
+/**
+ * The caller's half of IO-A2, which the unit tests above cannot reach.
+ *
+ * ── Said plainly: this is a SOURCE check, and it is not the rule's proof ───
+ *
+ * `reconcileReplay` now does the right thing when told which event it is
+ * looking at, and the three tests above execute that. What they cannot see is
+ * whether the page ever TELLS it — the whole defect was a caller that knew and
+ * did not say, and a function with a correct parameter nobody passes is the
+ * same bug wearing an option.
+ *
+ * The honest end-to-end pin would mount the chart, start a session, play it,
+ * and let a canonical instrument's fifteen-second REST tail arrive. The DOM
+ * harness cannot: `tests/dom/harness/server.ts` serves no canonical
+ * instrument, so `isCanonicalInstrumentId` is false for everything it has and
+ * the live-merge path is unreachable. A first attempt at that test passed
+ * BEFORE the repair, for exactly that reason, and was deleted rather than kept
+ * — a green test that cannot fail is worse than no test, because it is counted.
+ *
+ * Recorded as IO-A2-COV in the repair queue: the fixture needs a canonical
+ * instrument before this axis has real coverage, and IO-A3/A4 need it too.
+ */
+test("IO-A2 — the page tells reconcileReplay which event it is, and gates the stream", () => {
+  const page = readSource("app/chart/page.tsx");
+  const hook = readSource("lib/useCandleHistory.ts");
+
+  assert.match(page, /reconcileReplay\(current, candles, \{ sameWindow \}\)/,
+    "the page must say whether this is a refresh or a navigation");
+  assert.match(page, /const sameWindow = reconciledDataset\.current === dataset;/,
+    "and it must decide that from the dataset, not from the array identity");
+
+  assert.match(page, /\{ live: !replayActive \}/,
+    "a replay is a window onto history — it must not be streamed into");
+  assert.match(hook, /const live = enabled && options\.live !== false;/,
+    "the hook must have a flag separate from `enabled`");
+  for (const guard of [/if \(!live \|\| typeof window === "undefined"/, /if \(!live \|\| !isCanonicalInstrumentId/]) {
+    assert.match(hook, guard, `both live paths must be gated: ${guard}`);
+  }
 });

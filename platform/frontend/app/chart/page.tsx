@@ -215,7 +215,10 @@ export default function TvWorkspace() {
    * replay picker, the replay quote and the moving-average readout, all of
    * which are questions about the chart the user is looking at.
    */
-  const activeHistory = useCandleHistory({ symbol, interval, bars });
+  const activeHistory = useCandleHistory({ symbol, interval, bars },
+    // IO-A2: loaded, not streamed, while a replay is running — the same rule
+    // `useLivePrice` below has always followed. Replay outranks live absolutely.
+    { live: !replayActive });
   const candles = activeHistory.candles;
   const visibleCandles = useMemo(() => replayCandles(candles, replay), [candles, replay]);
   const replayLast = visibleCandles[visibleCandles.length - 1];
@@ -265,13 +268,28 @@ export default function TvWorkspace() {
    * Guarded on the array identity rather than on `replay`, because
    * `reconcileReplay` returns a fresh session object and an effect keyed on
    * the session would reconcile itself forever.
+   *
+   * ── IO-A2: the array changes for two different reasons ────────────────────
+   *
+   * A new array means the user navigated — or it means the window they are
+   * already in was refreshed, which a feed returning from stale, a depth
+   * repair and a canonical instrument's live merge all do. This effect could
+   * not tell those apart and `reconcileReplay` took the navigation answer for
+   * both, so a session the user had just started playing stopped itself.
+   *
+   * The dataset is what knows: same symbol and same resolution is a refresh.
    */
   const reconciledFrom = useRef<Candle[] | null>(null);
+  const reconciledDataset = useRef<string | null>(null);
   useEffect(() => {
     if (reconciledFrom.current === candles) return;
     reconciledFrom.current = candles;
-    setReplay((current) => (current ? reconcileReplay(current, candles) : null));
-  }, [candles]);
+    const dataset = datasetKey(activeHistory.dataset);
+    const sameWindow = reconciledDataset.current === dataset;
+    reconciledDataset.current = dataset;
+    setReplay((current) => (
+      current ? reconcileReplay(current, candles, { sameWindow }) : null));
+  }, [candles, activeHistory.dataset]);
 
   /*
    * REV-UX-01: a FailureCopy, so the band cannot be a place a raw cause lands.
