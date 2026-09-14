@@ -330,7 +330,11 @@ test("the price axis and watchlist menus state their own preconditions", () => {
   assert.equal((byId(axis, "axis:toggle-indexed") as { checked?: boolean }).checked, false);
   assert.equal((byId(axis, "axis:toggle-invert") as { checked?: boolean }).checked, false);
 
-  const full = watchlistMenu({ symbol: "SOLUSDT", replayActive: false, canOpenNewPane: false });
+  const full = watchlistMenu({
+    symbol: "SOLUSDT", replayActive: false, canOpenNewPane: false,
+    // R7b-18: the row menu offers the OTHER lists, so it has to be told them.
+    lists: [{ id: "a", name: "Main Watchlist" }],
+  });
   assert.match((byId(full, "watchlist:open-new-pane") as { disabledReason?: string }).disabledReason ?? "",
     /maximum number of panes/);
   assert.match((byId(full, "watchlist:add-alert") as { label: string }).label, /SOLUSDT/,
@@ -363,7 +367,17 @@ test("an unknown or missing target counts as not typing, so the layer keeps work
   assert.equal(isTypingTarget(null), false);
   assert.equal(isTypingTarget(undefined), false);
   assert.equal(isTypingTarget({ tagName: "CANVAS" }), false);
-  assert.equal(resolveShortcut(key({ target: { tagName: "CANVAS" } }), CONTEXT), "tool:trend");
+  /*
+   * TVP8 R4b-05 rewrote this line rather than deleting it: the trendline is
+   * ⌥T now, because TradingView spends every BARE letter on "change symbol"
+   * and this product was spending eleven of them on tools. The claim the test
+   * exists for — an unfamiliar target does not silence the keyboard layer —
+   * is unchanged, and the bare press is asserted inert beside it.
+   */
+  assert.equal(resolveShortcut(key({ key: "t", altKey: true, target: { tagName: "CANVAS" } }), CONTEXT),
+    "tool:trend");
+  assert.equal(resolveShortcut(key({ key: "t", target: { tagName: "CANVAS" } }), CONTEXT), null,
+    "a bare letter over the chart opens the symbol search, which is page.tsx's listener, not this table's");
 });
 
 test("the platform modifier is honoured, and a foreign one is left to the browser", () => {
@@ -384,8 +398,13 @@ test("the platform modifier is honoured, and a foreign one is left to the browse
     { mac: true, replayActive: true }), null);
   assert.equal(resolveShortcut(key({ key: "t", altKey: true }), CONTEXT), "tool:trend",
     "the reference's ⌥T arms the trendline");
-  assert.equal(resolveShortcut(key({ key: "t" }), CONTEXT), "tool:trend");
-  assert.equal(resolveShortcut(key({ key: "b", altKey: true }), CONTEXT), null,
+  /*
+   * R4b-05: and the bare twin is gone. It is not "also the trendline" any
+   * more — a bare letter belongs to the symbol search, exactly as the
+   * reference's sheet says ("Change symbol: any letter").
+   */
+  assert.equal(resolveShortcut(key({ key: "t" }), CONTEXT), null);
+  assert.equal(resolveShortcut(key({ key: "q", altKey: true }), CONTEXT), null,
     "an Alt chord no binding claims is still the browser's");
   // A bare tool letter arriving with the modifier held is a browser command.
   assert.equal(resolveShortcut(key({ key: "t", metaKey: true }), CONTEXT), null,
@@ -737,6 +756,15 @@ test("every toolbar popover goes through the registry rather than its own state"
     // cannot be open together.
     "chart-settings-template",
     "chart-type", "drawing-flyout",
+    /*
+     * R6b-28/29: the two sibling settings dialogs were rebuilt on the same
+     * footer the chart-settings dialog has — a drawing-style `Template ▾` and
+     * a study `Defaults ▾`. Both are menus anchored in a dialog footer that
+     * also holds swatch and line-style popovers, so both MUST be in the
+     * registry: without it, opening `Template` with a colour popover already
+     * open left two popovers over one 380px dialog.
+     */
+    "drawing-settings-template",
     // TVP8 R3-06: indicator TEMPLATES left the browser dialog and became the
     // toolbar control the reference has, beside Indicators.
     "indicator-templates",
@@ -747,12 +775,18 @@ test("every toolbar popover goes through the registry rather than its own state"
     // were outside the registry's inventory, both through the quote character.
     "timeframe:${props.scope}",
     // TVP8: the camera's Save image / Copy image menu.
+    // R6b-29: the study dialog's own `Defaults ▾`, for the same reason.
+    "study-settings-defaults",
     "toolbar:snapshot", "trading-overlays",
     "ui-dropdown:${popoverId}", "ui-line-style:${popoverId}", "ui-swatch:${popoverId}",
     // TVP7: the watchlist's list switcher. It kept a private `useState(false)`
     // and escaped this inventory because it was a hand-rolled box with no
     // `role="menu"` for the rule below to catch.
     "watchlist-lists",
+    // TVP8 R7b-08: and the `⋯` cell beside it, which is now the view-settings
+    // menu rather than a second list-editing one. Two popovers anchored 38px
+    // apart in the same header MUST be mutually exclusive.
+    "watchlist-view",
   ]);
   assert.equal(new Set(registered).size, registered.length, "two popovers share an id");
 
@@ -867,7 +901,9 @@ test("? opens the shortcuts sheet on a layout where ? is shifted", () => {
   assert.equal(resolveShortcut(key({ key: "?", shiftKey: false }), CONTEXT), "shortcuts-sheet");
   // Shift remains a real modifier where it distinguishes two bindings.
   assert.equal(resolveShortcut(key({ key: "f", shiftKey: true }), CONTEXT), "fullscreen");
-  assert.equal(resolveShortcut(key({ key: "f", shiftKey: false }), CONTEXT), "tool:fib");
+  // R4b-05: ⌥F is the fib, and a bare `f` is a search for `f`.
+  assert.equal(resolveShortcut(key({ key: "f", altKey: true, shiftKey: false }), CONTEXT), "tool:fib");
+  assert.equal(resolveShortcut(key({ key: "f", shiftKey: false }), CONTEXT), null);
 });
 
 test("the modifier that is not this platform's is left to the browser", () => {
@@ -930,4 +966,59 @@ test("the two scopes cannot collide", () => {
   history.record(live, one, null);
   assert.equal(history.undo(replay), null, "an undo in Replay cannot reach the live list");
   assert.deepEqual(history.undo(live), []);
+});
+
+/**
+ * TVP8 R4b-05 — the alphabet belongs to the symbol.
+ *
+ * TradingView's shortcut sheet gives EVERY bare letter to one thing: "Change
+ * symbol: any letter", with the drawing tools on ⌥-chords. This table used to
+ * claim eleven bare letters for tools, so a letter typed over the chart armed
+ * one instead of opening the search — which is why `page.tsx` could offer
+ * only `/` and the pill as ways in. The owner's rule is that live TradingView
+ * is the spec for a shared surface, so no unmodified letter may resolve here
+ * at all: whatever the table does not claim, the page's own listener opens
+ * the search with.
+ */
+test("no bare letter resolves to an action, and the reference's ⌥ chords do", () => {
+  const claimed: string[] = [];
+  for (const letter of "abcdefghijklmnopqrstuvwxyz") {
+    const action = resolveShortcut(key({ key: letter }), { mac: true, replayActive: true });
+    if (action !== null) claimed.push(`${letter} → ${action}`);
+  }
+  assert.deepEqual(claimed, [],
+    "a bare letter must be free for the symbol search — see §7c-i of the UI contract");
+
+  // And every chord the reference prints for a drawing tool works here.
+  const reference: [string, boolean, string][] = [
+    ["t", false, "tool:trend"], ["h", false, "tool:horizontal"], ["j", false, "tool:horizontal-ray"],
+    ["v", false, "tool:vertical"], ["c", false, "tool:crossline"], ["f", false, "tool:fib"],
+    ["r", true, "tool:rectangle"],
+  ];
+  for (const [letter, shiftKey, action] of reference) {
+    assert.equal(resolveShortcut(key({ key: letter, altKey: true, shiftKey }), CONTEXT), action,
+      `${shiftKey ? "⇧" : ""}⌥${letter.toUpperCase()} is the reference's chord for ${action}`);
+  }
+
+  // The reference's chart chords the table now carries.
+  assert.equal(resolveShortcut(key({ key: "r", altKey: true }), CONTEXT), "reset-view");
+  assert.equal(resolveShortcut(key({ key: "l", altKey: true }), CONTEXT), "toggle-log");
+  assert.equal(resolveShortcut(key({ key: "F", shiftKey: true }), CONTEXT), "fullscreen");
+  assert.equal(resolveShortcut(key({ key: "k", metaKey: true }), CONTEXT), "command-palette");
+  assert.equal(resolveShortcut(key({ key: "/" }), CONTEXT), "indicators",
+    "`/` opens indicators on the reference, not the symbol search");
+  assert.equal(resolveShortcut(key({ key: "/", metaKey: true }), CONTEXT), "shortcuts-sheet",
+    "⌘/ is the reference's keyboard-shortcuts sheet (R8)");
+
+  // A number is still the interval, which is the other half of the sheet's
+  // sentence — nothing in the table may take one.
+  for (const digit of "0123456789") {
+    assert.equal(resolveShortcut(key({ key: digit }), { mac: true, replayActive: true }), null);
+  }
+
+  // The symbol search is still OFFERED — the palette and the sheet read this
+  // table — it simply has no chord of its own, because its chord is any letter.
+  const search = BINDINGS.find((b) => b.action === "symbol-search");
+  assert.ok(search, "the palette would lose the symbol search entirely");
+  assert.equal(search!.chordless, true);
 });

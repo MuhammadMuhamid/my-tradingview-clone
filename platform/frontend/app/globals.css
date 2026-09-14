@@ -50,6 +50,24 @@
   --ts-line: #2e2e2e;
   --ts-line-strong: #4a4a4a;
   /*
+   * R7b-13: the watchlist's row separator, and the selected row's ring.
+   *
+   * Both are `--ts-line` / `--ts-ink-faint` on dark and neither is on light:
+   * the reference's light watchlist separates rows with rgb(242,242,242) —
+   * a step SOFTER than `--ts-line` (225) — and rings the selected row in
+   * rgb(46,46,46), which is `--ts-ink`, not a faint grey. Mirroring the dark
+   * values gave a list whose separators were heavier than its text hierarchy
+   * and a selection ring that disappeared on white. Two tokens rather than
+   * two theme-conditional class strings, so the row says `var(--ts-ring)`
+   * once and each theme answers for itself.
+   */
+  --ts-line-soft: #2e2e2e;
+  --ts-ring: #8c8c8c;
+  /* R7b-15: what a neutral text field's border becomes while it holds focus.
+     The accent outline the global `:focus-visible` rule paints is the one
+     colour the contract reserves for meaning. */
+  --ts-control-border-strong: #8c8c8c;
+  /*
    * The hairline between the drawing rail's blocks.
    *
    * Measured on the reference at 1440x900 dark: 1px x 36px, luminance 74
@@ -60,6 +78,22 @@
    * white sheet and a ghost on the rail.
    */
   --ts-rail-separator: #4a4a4a;
+  /*
+   * The rail's tooltip pill (TVP8 R2c-07).
+   *
+   * Its own pair rather than `--ts-state-active` / `--ts-ink`, because the
+   * reference's pill is the ONE surface in the workstation whose ink is pure
+   * white in BOTH themes: it is a floating label over a chart, not a chip in a
+   * bar, and it has to stay legible against candles of any colour. Sampled on
+   * `rail-remove-hover-1440-dark` (ground 61 = #3d3d3d, ink 253+) and on
+   * `tv-rail-trend-flyout-light` (ground #2e2e2e, ink 255).
+   *
+   * Only the GROUND is a token. The pill's ink is pure white in both themes —
+   * that is the measurement, not an oversight — and a token whose two themes
+   * carry the same value is precisely what `tests/lightTheme.test.ts` exists
+   * to catch, so the ink is `text-white` at the call site and says so.
+   */
+  --ts-tooltip-bg: #3d3d3d;
   --ts-ink: #dbdbdb;
   --ts-ink-muted: #a8a8a8;
   --ts-ink-faint: #8c8c8c;
@@ -70,7 +104,7 @@
   /* R7-07: the details block's `Market open` line is a stronger green than
      a change cell, and its News card is a lavender tint with its own ink. */
   --ts-positive-strong: #089981;
-  --ts-news-tint: rgba(179, 136, 255, 0.16);
+  --ts-news-tint: rgba(179, 136, 255, 0.20);
   --ts-news-ink: #b388ff;
   --ts-caution: #f0b90b;
   --ts-bg-rgb: 46 46 46;
@@ -81,8 +115,20 @@
   --ts-ink-muted-rgb: 168 168 168;
   --ts-ink-faint-rgb: 140 140 140;
   --ts-accent-rgb: 79 140 255;
-  --ts-positive-rgb: 46 189 133;
-  --ts-negative-rgb: 246 70 93;
+  /*
+   * R7b-02: these are the values `text-up` / `text-down` PAINT.
+   *
+   * `--ts-positive` / `--ts-negative` above were moved to the reference's
+   * measured pair in round 1 and nothing on screen changed, because
+   * `tailwind.config.ts` builds every colour as `rgb(var(--ts-X-rgb) /
+   * <alpha-value>)` — the hex twins are read by nothing but `lib/chartTheme`
+   * and a handful of inline `var()`s. So the watchlist kept rendering
+   * rgb(46,189,133) under a token that said `#22ab94`. They are the same
+   * colour written twice now, and `tests/uiContract.test.ts` asserts that for
+   * every token that has both spellings.
+   */
+  --ts-positive-rgb: 34 171 148;
+  --ts-negative-rgb: 247 82 95;
   --ts-caution-rgb: 240 185 11;
   --ts-chart-grid: #1e1e1e;
   --ts-chart-crosshair: #5c5c5c;
@@ -175,11 +221,22 @@
   --ts-ink-muted: #5c5c5c;
   --ts-ink-faint: #787878;
   --ts-accent: #2962ff;
-  --ts-positive: #089981;
+  /*
+   * R7b-02: measured on `tradingview/tv-shell-light-btc1h.png`, the light
+   * watchlist's change cells are rgb(36,172,149) — the SAME teal as dark, not
+   * the deeper `#089981`. Only `Market open` is `#089981` in both themes,
+   * which is why `--ts-positive-strong` below does not move.
+   *
+   * The light DOWN colour could not be measured: neither light reference
+   * capture holds a falling row. It stays at `#f23645` and is recorded as
+   * unmeasured in contract §7d rather than guessed at from the dark value.
+   */
+  --ts-positive: #22ab94;
   --ts-negative: #f23645;
   /* sampled from `tradingview/tv-shell-light-btc1h.png`: card rgb(231,225,243) on white, label ink rgb(69,39,160) */
   --ts-positive-strong: #089981;
-  --ts-news-tint: rgba(69, 39, 160, 0.1);
+  /* R7b-13: rgb(231,225,243) on white is 13% of #4527a0, not 10%. */
+  --ts-news-tint: rgba(69, 39, 160, 0.13);
   --ts-news-ink: #4527a0;
   --ts-caution: #946200;
   --ts-bg-rgb: 235 235 235;
@@ -190,7 +247,7 @@
   --ts-ink-muted-rgb: 92 92 92;
   --ts-ink-faint-rgb: 120 120 120;
   --ts-accent-rgb: 41 98 255;
-  --ts-positive-rgb: 8 153 129;
+  --ts-positive-rgb: 34 171 148;
   --ts-negative-rgb: 242 54 69;
   --ts-caution-rgb: 148 98 0;
   --ts-chart-grid: #f0f0f0;
@@ -229,7 +286,22 @@
   --ts-state-hover: #f2f2f2;
   --ts-state-active: #ebebeb;
   --ts-line-strong: #ebebeb;
-  --ts-rail-separator: #d1d1d1;
+  /* R7b-13, measured on the light reference: separators rgb(242,242,242) and
+     a selected ring of rgb(46,46,46) — not a mirror of the dark pair. */
+  --ts-line-soft: #f2f2f2;
+  --ts-ring: #2e2e2e;
+  --ts-control-border-strong: #9c9c9c;
+  /*
+   * R2c-08: #ebebeb, not #d1d1d1.
+   *
+   * Sampled on `tv-rail-trend-flyout-light` at y=358: luminance 235. The light
+   * rail's hairline is the same value the light theme uses for every other
+   * divider on a white sheet; #d1d1d1 (209) was a mirror of the dark value's
+   * CONTRAST rather than a measurement, and it drew three hard rules down a
+   * white column the reference barely marks.
+   */
+  --ts-rail-separator: #ebebeb;
+  --ts-tooltip-bg: #2e2e2e;
   --ts-popover: #ffffff;
   --ts-popover-shadow: 0 2px 4px rgba(0, 0, 0, 0.16);
   --ts-control-border: #c9c9c9;
@@ -366,10 +438,28 @@
 :is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control::before {
   inset: 2px 9px;
 }
-/* R7-03: the right rail's cells are 46×46 and its chip is the reference's
-   38×38, so the chip sits 4px inside the cell on every side. */
+/* R7-03 / R1c-06: the right rail's cells are 45 wide by 46 tall — 45 because
+   the column's last pixel is the hairline to the watchlist — and its chip is
+   the reference's 38×38 (x=1399–1436, y=47–84 at 1440). 4px of vertical inset
+   in a 46px cell and 3.5px of horizontal inset in a 45px one are what that
+   comes to. */
 :is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control::before {
-  inset: 4px;
+  inset: 4px 3.5px;
+}
+/*
+ * R7b-12: and the rail's OWN active chip is rgb(74,74,74), not rgb(61,61,61).
+ *
+ * Measured on `tradingview/watchlist-open-1440-dark.png` at x=1417: the chip
+ * behind the open panel's rail cell is `--ts-line-strong`, a step above the
+ * `--ts-state-active` every other selected control in the workstation wears.
+ * It is the only painted thing in a 46px column of bare glyphs, so at
+ * rgb(61) against rgb(15) it read as a smudge rather than as "this panel is
+ * the one that is open". Light keeps rgb(235), which is what the light
+ * reference paints and is also what `--ts-line-strong` already is there.
+ */
+:is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control[aria-pressed="true"]::before,
+:is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control[aria-pressed="true"]:hover::before {
+  background-color: var(--ts-line-strong);
 }
 /*
  * R1b-01: 0.47, not 0.4.
@@ -510,13 +600,39 @@
   --ts-calendar-glyph: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
 }
 
+/*
+ * ── TVP8 R1c-01: grayscale antialiasing, product-wide ──────────────────────
+ *
+ * Measured, not preferred. Chrome's default `-webkit-font-smoothing: auto` is
+ * SUBPIXEL rendering: it lights the red, green and blue elements of a pixel
+ * independently, which fattens every glyph and lifts it. On the dark chrome
+ * this product is built on, that put 8–25% more ink and 15–30 luminance levels
+ * into every label than the reference carries: the `1m` chip measured (84 px,
+ * mean 167) against TradingView's (78, 127); `15m` (134, 157) against
+ * (111, 136); the bottom row's `1D` (77, 163) against (70, 137).
+ *
+ * Injecting `-webkit-font-smoothing: antialiased` into the reviewed build
+ * reproduced TradingView's numbers EXACTLY — (78,127), (86,139), (111,136),
+ * (72,140), (70,137) — which is what identifies this as the whole of the
+ * difference rather than a font-stack or a weight problem.
+ *
+ * It is set on `html` because the property inherits, so one declaration
+ * reaches the toolbar, every popover, the watchlist and every dialog; it is
+ * repeated on `body` only so a stylesheet test can read the fact off the
+ * element the smoke check samples. The `-moz-osx-font-smoothing` pair is the
+ * same instruction for Gecko on macOS.
+ */
 html {
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   @apply bg-bg text-ink;
   font-family: var(--ts-font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /*
    * Tabular figures everywhere by default.
    *
@@ -555,6 +671,31 @@ body {
     min-width: 44px;
     min-height: 44px !important;
     touch-action: manipulation;
+  }
+  /*
+   * ── The drawing rail keeps its desktop cell size on a phone (R2c-14) ─────
+   *
+   * The 44px minimum above is the right default for a page of ordinary
+   * controls and the wrong one for this column. The reference keeps the rail
+   * a permanent 52px column at 390×844 with the SAME 52×38 cells at the same
+   * y's (48, 86, 124 … 619) and the same 40px flyout rows — the whole value of
+   * a tool rail is that the tool you reach for is where it always is, and a
+   * 44px cell moves every one of the fifteen and pushes the last off the
+   * bottom of the screen.
+   *
+   * Scoped to `[data-drawing-rail="true"]` so no other control on the phone
+   * loses its thumb target, and split in two so a rail flyout ROW keeps the
+   * menu grammar's own height rather than collapsing with the cells.
+   */
+  [data-drawing-rail="true"] button {
+    min-width: 0;
+    min-height: 0 !important;
+  }
+  [data-drawing-rail="true"] .tvc-menu-row {
+    min-height: var(--ts-workstation-menu-row-height) !important;
+  }
+  [data-drawing-rail="true"] .tvc-menu--compact .tvc-menu-row {
+    min-height: 32px !important;
   }
   input:not([type="checkbox"]):not([type="radio"]) {
     min-height: 44px !important;
@@ -607,6 +748,25 @@ body {
  */
 :is(.tv-workstation, .ts-app) :focus-visible {
   outline-offset: 1px;
+}
+
+/*
+ * TVP8 R4b-02: the symbol dialog's box is framed, not ringed.
+ *
+ * The dialog opens with its input focused, every time, so the generic rule
+ * above painted a 2px accent ring around the search box on EVERY open — the
+ * most saturated thing in a dialog whose whole grammar spends accent on the
+ * ticker and the matched text and on nothing else. The reference's box is a
+ * 1px grey border at rest AND while focused; what says where focus is there
+ * is the caret and the selected text, both of which are present here too.
+ *
+ * Scoped to the one input inside `[data-symbol-search]`, so nothing else in
+ * the workstation loses its ring: the rule the contract cares about is that
+ * keyboard focus stays visible, and inside this dialog the box is the only
+ * text field and it is focused from the moment it exists.
+ */
+:is(.tv-workstation, .ts-app) [role="dialog"][data-symbol-search] input:focus-visible {
+  outline: none;
 }
 
 /*

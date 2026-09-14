@@ -151,3 +151,66 @@ export function fmtAgo(ms: number | string): string {
 
 export const signClass = (n: number | null | undefined): string =>
   n === null || n === undefined || Number.isNaN(n) ? "text-ink-muted" : n >= 0 ? "text-up" : "text-down";
+
+/**
+ * A QUOTE, at the instrument's own tick precision and at a stable width.
+ *
+ * ── TVP8 R7b-04: two prices for one instrument, in one row ─────────────────
+ *
+ * The watchlist formatted every number with a magnitude heuristic that also
+ * dropped trailing zeros. Three things followed, all of them visible in the
+ * reviewer's capture beside a chart axis reading `77,728.80`:
+ *
+ *   · the precision came from the NUMBER, not from the instrument, so `Last`
+ *     and `Chg` in the same row were shown to different precisions —
+ *     `XRP 1.387 / 0.0367`, `DOGE 0.0842 / 0.00053`;
+ *   · the reference is flat: `77,762.76`, `0.1401`, `0.01177`, `0.2382` are
+ *     each the venue's own tick, 2 / 4 / 5 / 4 places;
+ *   · and because trailing zeros were dropped, DOGE flipped between `0.08421`
+ *     and `0.0842` from one tick to the next, so the column's right edge
+ *     jittered on every frame.
+ *
+ * So: the decimals are the INSTRUMENT's (`decimalsForStep` of its price tick,
+ * which `lib/priceTick.ts` already resolves from the symbols table), and
+ * `minimumFractionDigits === maximumFractionDigits` always, so a value never
+ * changes width between ticks. Where no tick is known — a catalogue row still
+ * in flight, a venue that does not publish one — the old magnitude heuristic
+ * decides the count, but the width is still pinned.
+ */
+export function formatQuote(value: number | null | undefined, tick: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const digits = quoteDigits(value, tick);
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: digits, maximumFractionDigits: digits,
+  });
+}
+
+/** How many decimals `formatQuote` will use — exported so a row can format its
+ *  change to the same precision as its last price, which is what TV does. */
+export function quoteDigits(value: number, tick: number | null): number {
+  if (tick !== null && Number.isFinite(tick) && tick > 0) {
+    // The same derivation the order ticket and the price axis use, so one
+    // instrument cannot be priced to two precisions on one screen.
+    const text = tick.toPrecision(12).replace(/0+$/, "");
+    const dot = text.indexOf(".");
+    return dot < 0 ? 0 : Math.min(8, text.length - dot - 1);
+  }
+  const abs = Math.abs(value);
+  return abs >= 1000 ? 1 : abs >= 100 ? 2 : abs >= 1 ? 3 : abs >= 0.01 ? 5 : 7;
+}
+
+/**
+ * How many trailing characters of `next` differ from `previous`.
+ *
+ * TVP8 R7b-17: the reference paints the digits that moved on the last tick in
+ * the direction colour — `77,762.7`**`6`** — which is how a reader sees WHICH
+ * of twenty rows just changed without watching all twenty. Zero when the two
+ * strings are identical, so a row that did not tick is never flashed.
+ */
+export function changedSuffix(previous: string, next: string): number {
+  if (previous === next) return 0;
+  const shared = Math.min(previous.length, next.length);
+  let i = 0;
+  while (i < shared && previous[i] === next[i]) i += 1;
+  return next.length - i;
+}

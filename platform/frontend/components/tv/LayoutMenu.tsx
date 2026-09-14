@@ -5,6 +5,8 @@ import { useAsk } from "@/components/AskDialog";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { Layout } from "@/lib/layouts";
 import { TOOL_BUTTON, TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/tv/toolbarChrome";
+import { displayTicker } from "@/lib/instrument";
+import { isMacPlatform } from "@/lib/shortcuts";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
@@ -26,13 +28,13 @@ import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
  * and a 24px caret that opens this menu. One button doing both meant the only
  * way to write your changes was to open a menu and find "Save layout" in it.
  *
- * "Make a copy…" and "Create new layout…" were the same operation: both
- * prompted for a name, both wrote the CURRENT workspace to a new record, both
- * made it the open layout. The only difference was the default text in the
- * prompt. Two menu items for one action is not extra capability, it is a
- * question the user has to answer before they can act, so they are one item
- * now — "Save as…" — which still calls the same persistence, and still picks
- * the sensible default name for whichever situation you are in.
+ * "Make a copy…" and "Create new layout…" were collapsed into one "Save as…"
+ * row once, on the grounds that both prompt for a name and both write the
+ * CURRENT workspace to a new record. TVP8 R1c-11 measured the reference and
+ * found both rows, in separate groups — because they answer different
+ * questions ("keep this arrangement and a copy of it" against "start a new
+ * arrangement"), and "Save as…" answers neither out loud. Both are back, each
+ * on the handler it always had.
  *
  * Opening a different layout while this one has unsaved changes now asks
  * first. Nothing is overwritten either way — the danger is the opposite one,
@@ -41,6 +43,42 @@ import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
  * This component decides nothing about persistence: `lib/useSavedLayouts` owns
  * the writes, the autosave and the authority over what a layout is.
  */
+/**
+ * The three glyphs the reference draws in this menu's left gutter.
+ *
+ * 15-unit boxes at 15px and a 1px stroke, on the same one-unit-one-pixel grid
+ * as every other icon in the workstation (R1c-02): two overlapping sheets for
+ * a copy, a pencil for a rename, a framed plus for a new layout. The rows that
+ * carry no glyph still reserve the gutter, which is what keeps the labels in
+ * one column.
+ */
+const GUTTER_GLYPH = {
+  width: 15, height: 15, viewBox: "0 0 15 15", fill: "none",
+  stroke: "currentColor", strokeWidth: 1,
+  strokeLinecap: "round", strokeLinejoin: "round",
+} as const;
+
+const COPY_GLYPH = (
+  <svg {...GUTTER_GLYPH}>
+    <rect x="5.5" y="1.5" width="8" height="8" rx="1.5" />
+    <path d="M10.5 12.5h-7a1 1 0 0 1-1-1v-7" />
+  </svg>
+);
+
+const RENAME_GLYPH = (
+  <svg {...GUTTER_GLYPH}>
+    <path d="M2.5 12.5v-2.5l7.5-7.5 2.5 2.5-7.5 7.5z" />
+    <path d="M9 3.5l2.5 2.5" />
+  </svg>
+);
+
+const NEW_GLYPH = (
+  <svg {...GUTTER_GLYPH}>
+    <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" />
+    <path d="M7.5 5.5v4M5.5 7.5h4" />
+  </svg>
+);
+
 export function LayoutMenu({
   layouts, currentId, autosave, dirty, autosaveError,
   onSelect, onSaveNow, onToggleAutosave, onCreate, onCopy, onRename, onDelete,
@@ -75,6 +113,14 @@ export function LayoutMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const edgeClamp = useEdgeClamp(menuRef, open);
   const current = layouts.find((l) => l.id === currentId) ?? null;
+  /*
+   * The cap printed beside `Save layout` (R1c-11).
+   *
+   * `useSavedLayouts` binds `metaKey || ctrlKey` + S, so both platforms
+   * genuinely have the chord and the cap has to name the right one — a menu
+   * that prints ⌘S to a Windows user is advertising a key they do not have.
+   */
+  const saveCap = isMacPlatform() ? "⌘S" : "Ctrl+S";
 
   useEffect(() => {
     if (!open) return;
@@ -116,7 +162,7 @@ export function LayoutMenu({
       ? {
         label: "Not saved",
         tone: "text-ink-faint",
-        help: "This workspace is not stored as a named layout yet. Save as… creates one.",
+        help: "This workspace is not stored as a named layout yet. Make a copy… creates one.",
       }
       : dirty
         ? autosave
@@ -145,15 +191,35 @@ export function LayoutMenu({
     setOpen(false);
   };
 
-  const Item = ({ onClick, children, disabled = false }: {
-    onClick: () => void; children: React.ReactNode; disabled?: boolean;
+  /*
+   * One 32px verb row (R1c-11).
+   *
+   * The reference's manage-layouts menu is a CONTEXT menu — a list of verbs
+   * you already know the names of — and it runs at 32px, not at the 40px
+   * dropdown pitch. Three of its rows carry a glyph in the left gutter and two
+   * carry a hotkey cap at the right; the rest carry neither, and the column
+   * they share is what makes the list scannable.
+   */
+  const Item = ({ onClick, children, disabled = false, glyph, cap }: {
+    onClick: () => void;
+    children: React.ReactNode;
+    disabled?: boolean;
+    glyph?: React.ReactNode;
+    cap?: string;
   }) => (
     <button
-      onClick={() => { if (!disabled) { onClick(); setOpen(false); } }}
+      role="menuitem"
+      onClick={() => { if (!disabled) { setOpen(false); onClick(); } }}
       disabled={disabled}
-      className="tvc-menu-row w-full gap-2.5 px-2.5 text-left text-sm text-ink disabled:opacity-40"
+      className="tvc-menu-row w-full gap-2 px-2.5 text-left text-sm text-ink disabled:opacity-40"
     >
-      {children}
+      <span className="flex w-[18px] shrink-0 items-center justify-center" aria-hidden="true">
+        {glyph}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {cap !== undefined && (
+        <span className="shrink-0 text-[12px] text-ink-faint">{cap}</span>
+      )}
     </button>
   );
 
@@ -182,7 +248,10 @@ export function LayoutMenu({
         title={`${current?.name ?? "Unnamed layout"} — ${status.label}. ${status.help}`}
         aria-label={`Saved layout — ${current?.name ?? "Unnamed"}, ${status.label}`}
       >
-        <span className="hidden min-w-0 max-w-[160px] truncate text-sm font-normal text-ink sm:inline">
+        {/* R1c-19: the 18.9px line box the interval chips use. `text-sm`'s own
+            20px box put the layout name's caps at y=13 where every other word
+            on the row sits at 15. */}
+        <span className="hidden min-w-0 max-w-[160px] truncate text-sm font-normal leading-[18.9px] text-ink sm:inline">
           {current?.name ?? "Unnamed"}
         </span>
         {/*
@@ -218,64 +287,75 @@ export function LayoutMenu({
         and it is the element the menu's Escape handler returns focus to —
         because it is the element that opened it.
       */}
-      <button
-        ref={buttonRef}
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label="Manage layouts"
-        title="Manage layouts"
-        className={TOOL_CARET_BUTTON}
-      >
-        {/* the shared 8×4 ink caret — the interval and style controls' own */}
-        <svg width={TOOL_CARET_GLYPH.width} height={TOOL_CARET_GLYPH.height}
-          viewBox={TOOL_CARET_GLYPH.viewBox} fill="none" stroke="currentColor"
-          strokeWidth={TOOL_CARET_GLYPH.stroke} strokeLinecap="round"
-          strokeLinejoin="round" aria-hidden="true">
-          <path d={TOOL_CARET_GLYPH.d} />
-        </svg>
-      </button>
+      {/*
+        R1c-11: the caret owns the positioning context.
+
+        The menu is anchored `left-0` to THIS box rather than to the group, so
+        it opens at the caret's own left edge as the reference's does. Anchored
+        to the group it would start at the layout NAME's left edge, and the
+        name's width is the user's own — the menu would move whenever they
+        renamed their workspace.
+      */}
+      <div className="relative flex shrink-0 items-center">
+        <button
+          ref={buttonRef}
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-label="Manage layouts"
+          title="Manage layouts"
+          className={TOOL_CARET_BUTTON}
+        >
+          {/* the shared 8×4 ink caret — the interval and style controls' own */}
+          <svg width={TOOL_CARET_GLYPH.width} height={TOOL_CARET_GLYPH.height}
+            viewBox={TOOL_CARET_GLYPH.viewBox} fill="none" stroke="currentColor"
+            strokeWidth={TOOL_CARET_GLYPH.stroke} strokeLinecap="round"
+            strokeLinejoin="round" aria-hidden="true">
+            <path d={TOOL_CARET_GLYPH.d} />
+          </svg>
+        </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          {/*
+            ── TVP8 R1c-11 / R8: the box, and where it hangs ────────────────
+
+            `tradingview/layouts-menu-1440-dark.png` +
+            `measurements/tv-layouts-menu-20260914.md`: [1106,40,201,523] — 201
+            wide, its LEFT edge on the caret's left edge, 2px under the 38px
+            bar, 32px rows, 12px hotkey caps.
+
+            Ours was 288 wide with `right-0`, so it hung 264px to the LEFT of
+            the caret that opened it, and it opened with a two-line header —
+            `Unnamed layout / Not saved — …` — that is the name button's own
+            tooltip printed twice. A menu is a list of things you can do; a
+            paragraph at the top of one is a paragraph in the way of them.
+          */}
           <div ref={menuRef} role="menu" aria-label="Saved layouts" onKeyDown={onMenuKeyDown}
             style={edgeClamp}
-          className="absolute right-0 top-full z-40 mt-1 w-72 tvc-menu">
-            <div className="px-3.5 pb-2 pt-1">
-              <div className="truncate text-[13px] font-semibold text-ink">
-                {current?.name ?? "Unnamed layout"}
-              </div>
-              <div className={`text-[11px] leading-tight ${status.tone}`}>
-                {status.label} — {status.help}
-              </div>
-            </div>
-            <div className="my-1 border-t border-border" />
-            <Item onClick={onSaveNow} disabled={!current}>
-              <span className="flex-1">Save layout</span>
-              <span className="text-xs text-ink-faint">⌘S</span>
-            </Item>
-            <Item onClick={current ? onCopy : onCreate}>
-              <span className="flex-1">Save as…</span>
-              <span className="text-xs text-ink-faint">new name</span>
-            </Item>
-            <Item onClick={onRename} disabled={!current}>Rename…</Item>
+            className="tvc-menu tvc-menu--compact absolute left-0 top-full z-40 mt-[2px] w-[201px]">
+            <Item onClick={onSaveNow} disabled={!current} cap={saveCap}>Save layout</Item>
             <button
               onClick={onToggleAutosave}
               role="switch"
               aria-checked={autosave}
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink transition-colors hover:bg-state-hover"
+              className="tvc-menu-row w-full gap-2 px-2.5 text-left text-sm text-ink"
             >
-              <span className="flex-1">
-                Autosave
-                {/* accent-is-meaning: the word echoes its own switch, as in SyncMenu. */}
-                <span className={`ml-1.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  autosave ? "text-accent" : "text-ink-faint"
-                }`}>
-                  {autosave ? "On" : "Off"}
-                </span>
+              <span className="w-[18px] shrink-0" aria-hidden="true" />
+              {/*
+                R1c-11: the switch says it, so the word does not.
+
+                This row carried an accent `ON` / `OFF` badge BESIDE the switch
+                track that already reports the same state: the accent colour
+                spent twice on one fact, on a row the reference draws as a
+                label and a track. An autosave failure is still said, because
+                that is a different fact and a silent one.
+              */}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">Autosave</span>
                 {autosaveError && (
-                  <span className="mt-0.5 block text-[11px] font-normal text-warn">
+                  <span className="mt-0.5 block truncate text-[11px] font-normal text-warn">
                     Last autosave failed: {autosaveError}
                   </span>
                 )}
@@ -285,33 +365,86 @@ export function LayoutMenu({
                 <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${autosave ? "left-[18px]" : "left-0.5"}`} />
               </span>
             </button>
+
+            <div role="separator" className="tvc-menu-sep" />
+
+            {/*
+              `Make a copy…`, which is what `Save as…` always did: write the
+              CURRENT workspace to a new record and open it. The reference's
+              name for the operation is the honest one — nothing is being saved
+              somewhere else, a copy is being made.
+            */}
+            <Item onClick={current ? onCopy : onCreate} glyph={COPY_GLYPH}>Make a copy…</Item>
+            <Item onClick={onRename} disabled={!current} glyph={RENAME_GLYPH}>Rename…</Item>
+            {/*
+              `Download chart data…` is deliberately absent. The reference's row
+              exports the loaded window as CSV and this product has no such
+              export — not in the More strip's history group, not anywhere. A
+              row that cannot do what it says is worse than a missing one.
+              Recorded for the owner in the round-4 report.
+            */}
+
+            <div role="separator" className="tvc-menu-sep" />
+
+            <Item onClick={onCreate} glyph={NEW_GLYPH}>Create new layout…</Item>
+
             {layouts.length > 0 && (
               <>
-                <div className="mt-1 border-t border-border px-3.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
-                  Open a layout
-                </div>
-                <div className="max-h-56 overflow-y-auto">
+                <div className="tvc-menu-heading">Recently used</div>
+                <div className="max-h-[240px] overflow-y-auto">
                   {layouts.map((l) => (
                     <div key={l.id} className="group flex items-center">
                       <button
-                        onClick={() => selectLayout(l.id, l.name)}
+                        role="menuitem"
+                        onClick={() => void selectLayout(l.id, l.name)}
                         aria-current={l.id === currentId ? "true" : undefined}
+                        data-active={l.id === currentId ? "true" : undefined}
                         /*
-                          `Item` above already uses `.tvc-menu-row`; this list
-                          was the one part of the same popover that did not,
-                          so its rows were ~28px in a 40px menu.
+                          ── R8: the row was BROKEN, not merely wrong ────────
+
+                          `.tvc-menu-row` is `display:flex; align-items:center`,
+                          and this row's two lines were plain `<div>`s — so
+                          they became flex COLUMNS side by side: the name was
+                          squeezed to 42px and wrapped one word per line, and
+                          the subtitle ran 294px wide out of a 288px menu.
+                          `flex-col` and a `min-w-0 truncate` on each line is
+                          the whole repair, and it is why the pitch below is a
+                          real 48px rather than whatever the wrap produced.
                         */
-                        className="tvc-menu-row flex-1 px-3.5 text-left"
+                        className="tvc-menu-row !min-h-[48px] min-w-0 flex-1 flex-col items-start justify-center gap-0 px-2.5 text-left"
                       >
-                        <div className={`text-[13px] text-ink ${l.id === currentId ? "font-semibold" : ""}`}>
-                          {l.name}{l.id === currentId ? " — open" : ""}
-                        </div>
-                        <div className="text-xs text-ink-faint">{l.symbol}, {l.interval}</div>
+                        <span className="w-full truncate text-sm">{l.name}</span>
+                        {/*
+                          R8: `displayTicker`, never the canonical id.
+
+                          This subtitle printed `instrument:v1:BINANCE:spot:…`
+                          — the id policy's single prohibition (contract §5),
+                          in the menu a user opens to recognise their own
+                          workspaces by.
+                        */}
+                        <span className="w-full truncate text-[12px] text-ink-faint">
+                          {displayTicker(l.symbol)}, {l.interval}
+                        </span>
                       </button>
                       {layouts.length > 1 && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); onDelete(l.id); }}
-                          className="mr-2 hidden rounded p-1 text-ink-faint hover:text-down focus-visible:block group-hover:block"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            /*
+                              R8: close FIRST, then ask.
+
+                              `onDelete` opens a confirm dialog, and it was
+                              being opened underneath this menu's own
+                              click-away overlay — so the reviewer's two
+                              deletions "closed the menu and deleted nothing".
+                              The confirmation is `useSavedLayouts`' and is
+                              unchanged; what changed is that the menu is out
+                              of the way before it appears.
+                            */
+                            setOpen(false);
+                            onDelete(l.id);
+                          }}
+                          className="mr-1.5 hidden rounded p-1 text-ink-faint hover:text-down focus-visible:block group-hover:block"
                           title={`Delete “${l.name}”`}
                           aria-label={`Delete the layout “${l.name}”`}
                         >
@@ -328,6 +461,7 @@ export function LayoutMenu({
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }

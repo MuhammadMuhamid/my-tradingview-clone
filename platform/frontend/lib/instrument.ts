@@ -384,3 +384,83 @@ export function displayVenue(raw: string): string | null {
   // Acronyms stay shouted; anything word-shaped is title-cased.
   return venue.length <= 3 ? venue : venue[0]! + venue.slice(1).toLowerCase();
 }
+
+/**
+ * The `Description` form of the status-line title (R3b-25).
+ *
+ * TradingView's `Title` dropdown offers `Name` / `Ticker` / `Description`, and
+ * its description is the exchange's own long name for the listing. This
+ * installation holds no such string — `ASSET_NAMES` is as long as it knows —
+ * so `Description` resolves to the descriptive name rather than to a
+ * placeholder or an empty headline. It is a separate function, not
+ * `displayName` under another name, because the day a provider hands us a real
+ * description this is the one place that has to learn it.
+ */
+export function displayDescription(raw: string): string {
+  return displayName(raw);
+}
+
+/*
+ * ── R3b-24: the instrument's own mark, for the status line ─────────────────
+ *
+ * The reference draws a 24px venue/asset logo before the name. We do not ship
+ * third-party logos (OV-K: our own vector, always), and the product already
+ * answers this question in two places — the symbol dialog's asset disc and the
+ * watchlist row's chip — with a tinted disc carrying the base asset's initial.
+ * This is that generator, moved to where both of them can eventually read it
+ * from: a component cannot import a private constant out of `SymbolSearch`,
+ * which is how the product ended up with the same table written twice.
+ *
+ * The tints are the assets a reader recognises BY colour; everything else is
+ * the neutral selected-chip grey, which says "an instrument" without inventing
+ * a brand for it.
+ */
+const ASSET_MARK_CLASSES: Readonly<Record<string, string>> = Object.freeze({
+  BTC: "bg-[#f7931a] text-[#0f0f0f]",
+  ETH: "bg-[#627eea] text-[#f2f2f2]",
+  SOL: "bg-[#9945ff] text-[#f2f2f2]",
+  USDT: "bg-[#26a17b] text-[#f2f2f2]",
+  USDC: "bg-[#2775ca] text-[#f2f2f2]",
+  BNB: "bg-[#f3ba2f] text-[#0f0f0f]",
+  XRP: "bg-[#23292f] text-[#f2f2f2]",
+  ADA: "bg-[#0033ad] text-[#f2f2f2]",
+  DOGE: "bg-[#c2a633] text-[#0f0f0f]",
+});
+
+export interface InstrumentMark {
+  /** One or two characters — never the whole ticker, which is beside it. */
+  initial: string;
+  /** Tailwind fill/ink pair for the disc. */
+  className: string;
+}
+
+/** The disc this installation draws for an instrument: initial and tint. */
+export function instrumentMark(raw: string): InstrumentMark {
+  const canonical = canonicalDisplayParts(raw);
+  const base = canonical?.base
+    ?? splitBareTicker(displayTicker(raw))?.[0]
+    ?? displayTicker(raw);
+  const key = base.toUpperCase();
+  return {
+    initial: key.slice(0, 1) || "?",
+    className: ASSET_MARK_CLASSES[key] ?? "bg-state-active text-ink",
+  };
+}
+
+/**
+ * Whether this instrument's market is open right now, or null when this build
+ * cannot know (R3b-24).
+ *
+ * The reference puts a market-status dot after the venue. Crypto spot and
+ * crypto derivatives trade continuously, which is a fact about the market and
+ * not a guess — the watchlist's details panel already says `Market open` for
+ * exactly these and `Streaming` for the rest. For an equity, an FX pair or a
+ * dated future the answer depends on a session calendar this installation does
+ * not hold, and a dot that guessed would be a green light on a closed market.
+ * Null renders nothing, which is the honest state.
+ */
+export function marketOpen(raw: string): boolean | null {
+  const canonical = canonicalDisplayParts(raw);
+  if (!canonical) return true; // legacy bare tickers here are Binance spot
+  return canonical.type === "spot" || canonical.type === "perpetual" ? true : null;
+}

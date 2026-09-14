@@ -86,6 +86,7 @@ import {
 } from "@/components/tv/toolbarChrome";
 import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
+import { BINDINGS, isMacPlatform } from "@/lib/shortcuts";
 import { toolbarDensityClasses } from "@/components/tv/toolbarDensity";
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import type {
@@ -114,17 +115,38 @@ function ctl(id: ToolbarControlId): { "data-toolbar-control": string; "data-tool
 }
 
 /**
- * One glyph frame for every icon on the bar (OV-K).
+ * One glyph frame for every icon on the bar (OV-K, R1c-02).
  *
- * The reference's toolbar icons share a size, a stroke and round caps; ours
- * were drawn one at a time at 18px/1.7 and read as a different family. The
- * frame is the family; the children are the silhouette.
+ * The reference's toolbar icons share a size, a stroke and a GRID; ours were
+ * drawn one at a time and read as a different family. The frame is the family;
+ * the children are the silhouette.
+ *
+ * ── Why the viewBox is 28 and the stroke is 1 ──────────────────────────────
+ *
+ * So that one user unit is one CSS pixel. At 24 units rendered at 22px every
+ * coordinate was scaled by 0.917 and every 1.5-wide stroke landed 1.375px
+ * across two pixel columns, half-lighting both: our layout glyph carried 128
+ * ink px where the reference's carries 68, and the difference was entirely
+ * blur rather than shape. At 1:1 a segment on an `x.5` coordinate covers
+ * exactly one column. See `toolbarChrome.TOOL_ICON_SIZE`.
+ *
+ * `crisp` is for the rectilinear glyphs — the ones made only of horizontal and
+ * vertical runs, where `crispEdges` plus butt caps and mitred joins removes
+ * the last half-pixel of antialiasing at the ends and corners. A glyph with a
+ * curve in it keeps round caps, because `crispEdges` would stair-step the arc.
  */
-function Glyph(props: { children: React.ReactNode; size?: number; stroke?: number }) {
+function Glyph(props: {
+  children: React.ReactNode; size?: number; stroke?: number; crisp?: boolean;
+}) {
   const size = props.size ?? TOOL_ICON_SIZE;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={props.stroke ?? TOOL_ICON_STROKE} strokeLinecap="round" strokeLinejoin="round"
+    <svg width={size} height={size} viewBox={`0 0 ${TOOL_ICON_SIZE} ${TOOL_ICON_SIZE}`}
+      fill="none" stroke="currentColor"
+      strokeWidth={props.stroke ?? TOOL_ICON_STROKE}
+      strokeLinecap={props.crisp ? "butt" : "round"}
+      strokeLinejoin={props.crisp ? "miter" : "round"}
+      vectorEffect="non-scaling-stroke"
+      {...(props.crisp ? { shapeRendering: "crispEdges" as const } : {})}
       aria-hidden="true">
       {props.children}
     </svg>
@@ -267,11 +289,12 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
           R1b-03: a plain magnifier was the blind reviewer's first clue. The
           reference's quick-search glyph is a lens with a LIGHTNING BOLT in it,
           the bolt breaking the ring at the top — 18×21, not 16×16.
+          R1c-02: same silhouette, redrawn at 1px on the 28-unit grid.
         */}
         <Glyph>
-          <circle cx="10.2" cy="11.2" r="7.3" />
-          <path d="M15.4 16.4L21 22" />
-          <path d="M12.4 1.4L8.2 10.4h4.2l-1.4 7 5.4-9h-4.2z" />
+          <circle cx="12" cy="13" r="7" />
+          <path d="M17.2 18.2L22.5 23.5" />
+          <path d="M14.5 4L9.5 13.5h4.5l-1.5 7 5.5-9.5h-4.5z" />
         </Glyph>
       </button>
 
@@ -283,8 +306,8 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
           reference's is a wide FLAT-TOP one at 22×18 with a ring inside.
         */}
         <Glyph>
-          <path d="M5.6 3.4h12.8L23.2 12l-4.8 8.6H5.6L0.8 12z" />
-          <circle cx="12" cy="12" r="3.7" />
+          <path d="M9 5.5h10l5.5 8.5-5.5 8.5H9L3.5 14z" />
+          <circle cx="14" cy="14" r="4" />
         </Glyph>
       </button>
 
@@ -303,10 +326,11 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
           aria-label={props.fullscreen ? "Exit fullscreen" : "Fullscreen"}
           className={TOOL_ICON_BUTTON}
         >
-          <Glyph>
+          {/* R1c-02: four 13px brackets, 52 ink px, on the pixel grid. */}
+          <Glyph crisp>
             {props.fullscreen
-              ? <><path d="M9 4v5H4" /><path d="M15 20v-5h5" /><path d="M20 9h-5V4" /><path d="M4 15h5v5" /></>
-              : <><path d="M4 9V4h5" /><path d="M20 15v5h-5" /><path d="M15 4h5v5" /><path d="M9 20H4v-5" /></>}
+              ? <><path d="M12.5 6.5v6h-6" /><path d="M15.5 21.5v-6h6" /><path d="M21.5 12.5h-6v-6" /><path d="M6.5 15.5h6v6" /></>
+              : <><path d="M6.5 12.5v-6h6" /><path d="M21.5 15.5v6h-6" /><path d="M15.5 6.5h6v6" /><path d="M12.5 21.5h-6v-6" /></>}
           </Glyph>
         </button>
       )}
@@ -316,7 +340,62 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
   );
 }
 
-/** The camera: Save image / Copy image, as the reference's own camera offers. */
+/**
+ * The two rows the camera menu offers, and the hotkeys that reach them.
+ *
+ * The glyphs are drawn in a 17-unit box at 17px for the same 1:1 reason the
+ * toolbar's are drawn in 28 at 28 (R1c-02): an arrow into a tray, and two
+ * overlapping sheets. The caps are the reference's own bindings, wired in
+ * `lib/shortcuts`.
+ */
+const SNAPSHOT_ROWS = [
+  {
+    mode: "save" as const,
+    action: "snapshot-save" as const,
+    label: "Download image",
+    glyph: (
+      <>
+        <path d="M8.5 2.5v7.5" />
+        <path d="M5.5 7.5l3 3 3-3" />
+        <path d="M2.5 11.5v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" />
+      </>
+    ),
+  },
+  {
+    mode: "copy" as const,
+    action: "snapshot-copy" as const,
+    label: "Copy image",
+    glyph: (
+      <>
+        <rect x="5.5" y="2.5" width="9" height="9" rx="1.5" />
+        <path d="M11.5 14.5h-8a1 1 0 0 1-1-1v-8" />
+      </>
+    ),
+  },
+];
+
+/**
+ * The cap a snapshot row prints, read from the keyboard table itself.
+ *
+ * Never a literal. A menu that prints `⌥⌘S` beside a row the app does not
+ * bind teaches the user the feature is broken the first time they press it,
+ * and the review's own repair for the alert dialog is the same rule applied to
+ * a different lie. `lib/shortcuts.BINDINGS` is the one place a chord exists,
+ * so if a binding is removed this cap disappears with it.
+ */
+function snapshotCap(action: "snapshot-save" | "snapshot-copy"): string {
+  const mac = isMacPlatform();
+  const binding = BINDINGS.find((b) => b.action === action && !b.chordless);
+  if (!binding) return "";
+  const parts: string[] = [];
+  if (binding.mod) parts.push(mac ? "⌘" : "Ctrl");
+  if (binding.alt) parts.push(mac ? "⌥" : "Alt");
+  if (binding.shift) parts.push(mac ? "⇧" : "Shift");
+  parts.push(binding.key.length === 1 ? binding.key.toUpperCase() : binding.key);
+  return parts.join(mac ? "" : "+");
+}
+
+/** The camera: Download image / Copy image, as the reference's own camera offers. */
 function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => void }) {
   const [open, setOpen] = useExclusivePopover("toolbar:snapshot");
   const ref = useRef<HTMLDivElement>(null);
@@ -336,23 +415,55 @@ function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => v
         aria-expanded={open}
         title="Chart image"
         aria-label="Chart image" className={TOOL_ICON_BUTTON}>
-        {/* R1b-03: 21×17, not 18×14 — the reference's camera nearly fills its cell. */}
+        {/*
+          R1b-03: 21×17, not 18×14 — the reference's camera nearly fills its
+          cell. R1c-02: a 21×15 body with a 3px lens ring and a 6×2 hump at the
+          top-left, at 1px on the grid.
+        */}
         <Glyph>
-          <path d="M1.2 8.6A1.9 1.9 0 013.1 6.7h3.2L8.2 3.6h7.6l1.9 3.1h3.2a1.9 1.9 0 011.9 1.9v9.6a1.9 1.9 0 01-1.9 1.9H3.1a1.9 1.9 0 01-1.9-1.9z" />
-          <circle cx="12" cy="13.2" r="4.1" />
+          <rect x="3.5" y="7.5" width="20" height="14" rx="1.5" />
+          <path d="M6.5 7.5v-2h5v2" />
+          <circle cx="13.5" cy="14.5" r="3" />
         </Glyph>
       </button>
       {open && (
+        /*
+          ── TVP8 R1c-12: the camera's menu, measured ───────────────────────
+
+          `tradingview/tv-snapshot-menu-1440-dark.png` +
+          `measurements/tv-snapshot-menu-20260914.md`: 212 wide, right-aligned
+          under the cell, top 2px below the 38px bar, a `CHART SNAPSHOT`
+          heading in 11px caps, then 32px rows each carrying a 17px glyph in
+          the left gutter, a 14px FULL-INK label and a hotkey cap at the right.
+
+          Ours was 196 wide, two 40px rows, no glyphs, no hotkeys, no heading,
+          and — the part that made it read as disabled — every label at
+          rgb(168). A menu whose entire contents are muted says "none of this
+          is available"; muted is the grammar for a row that is genuinely not
+          actionable, not for a row you are being offered.
+
+          Copy link / Open in new tab / Tweet image are TradingView's hosted
+          snapshot service and are deliberately absent (R1c-24).
+        */
         <div role="menu" aria-label="Chart image"
-          className="tvc-menu absolute right-0 top-[38px] z-50 w-[196px]">
-          {([["save", "Save image"], ["copy", "Copy image"]] as const).map(([mode, label]) => (
+          className="tvc-menu tvc-menu--compact absolute right-0 top-full z-50 mt-[2px] w-[212px]">
+          <div className="flex h-[22px] items-center px-2.5 text-[11px] uppercase tracking-wide text-ink-faint">
+            Chart snapshot
+          </div>
+          {SNAPSHOT_ROWS.map(({ mode, action, label, glyph }) => (
             <button
               key={mode}
               role="menuitem"
               onClick={() => { setOpen(false); onSnapshot(mode); }}
-              className="tvc-menu-row w-full px-3 text-left text-sm text-ink-muted hover:text-ink"
+              className="tvc-menu-row w-full gap-2.5 px-2.5 text-left text-sm text-ink"
             >
-              {label}
+              <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor"
+                strokeWidth={TOOL_ICON_STROKE} strokeLinecap="round" strokeLinejoin="round"
+                className="shrink-0" aria-hidden="true">
+                {glyph}
+              </svg>
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="shrink-0 text-[12px] text-ink-faint">{snapshotCap(action)}</span>
             </button>
           ))}
         </div>
@@ -378,11 +489,41 @@ function CompareButton(props: ChartToolbarProps & { className: string }) {
       aria-label="Compare with another instrument"
       className={`${TOOL_ICON_BUTTON} ${props.className}`}
     >
-      {/* R1b-03: 19×19. Ours drew the same ⊕ two pixels small in every direction. */}
-      <Glyph><circle cx="12" cy="12" r="9.6" /><path d="M12 6.6v10.8M6.6 12h10.8" /></Glyph>
+      {/*
+        R1b-03: 19×19. Ours drew the same ⊕ two pixels small in every
+        direction. R1c-02: a thin ring with a 1px plus, ink box 19×19 at (9,10)
+        inside the 38px cell.
+      */}
+      <Glyph><circle cx="13.5" cy="14.5" r="9" /><path d="M13.5 9.5v10M8.5 14.5h10" /></Glyph>
     </button>
   );
 }
+
+/**
+ * The word beside a glyph, at the one width the reference prints one (R1c-17).
+ *
+ * Measured at 1920×1080 on `tradingview/tv-shell-1920x1080-dark.png`: the bar
+ * grows a LABEL on exactly three cells — `Indicators` (x 654–715, 62px),
+ * `Alert` (811–840) and `Replay` (889–930) — and on nothing else. The
+ * favourite intervals and the chart styles stay icon-only, the toolbar stays
+ * 38px, the rails stay 52 and 45, and the chart absorbs every other pixel of
+ * the extra width. It is a density step, not a responsive layout.
+ *
+ * `2xl` (1536) is the breakpoint because the reference shows the words at 1920
+ * and does not show them at 1440, and 1536 is the only stop between the two.
+ * The cell gives up its fixed 38px width at the same breakpoint, or the word
+ * would be drawn outside the button it belongs to.
+ */
+function WideLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="hidden shrink-0 pl-1 pr-2 text-sm leading-[18px] text-ink 2xl:inline">
+      {children}
+    </span>
+  );
+}
+
+/** An icon cell that grows a word at `2xl`. See `WideLabel`. */
+const TOOL_LABELLED_BUTTON = `${TOOL_ICON_BUTTON} 2xl:w-auto`;
 
 /**
  * Studies, Alert and Replay — chart context, but the three pieces of it a
@@ -400,7 +541,7 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
         aria-label={props.indicatorCount > 0
           ? `Indicators — ${props.indicatorCount} on the focused chart`
           : "Indicators"}
-        className={TOOL_ICON_BUTTON}
+        className={TOOL_LABELLED_BUTTON}
       >
         {/*
           R1b-03 / BLIND clue 3: a rising line over three HOLLOW bars and NO
@@ -409,11 +550,12 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
           named as a tell.
         */}
         <Glyph>
-          <path d="M2.8 13.6l4.6-4.6 3.6 3.2 3.4-4.4 4.8-6" />
-          <rect x="2.8" y="15.6" width="5.4" height="6.4" />
-          <rect x="8.2" y="12.8" width="5.4" height="9.2" />
-          <rect x="13.6" y="9.6" width="5.4" height="12.4" />
+          <path d="M2.5 15.5l6-6 4.5 4 4-5.5 6.5-8" strokeLinejoin="miter" />
+          <rect x="2.5" y="18.5" width="6" height="6" />
+          <rect x="10.5" y="16.5" width="6" height="8" />
+          <rect x="18.5" y="13.5" width="6" height="11" />
         </Glyph>
+        <WideLabel>Indicators</WideLabel>
       </button>
 
       {/* The reference's 2×2-grid Indicator templates button, beside Indicators. */}
@@ -431,7 +573,7 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
         onClick={props.onOpenPriceAlert} disabled={replayBlocksLiveActions}
         title={replayActive ? "Exit Replay to create live alerts" : "Create alert"}
         aria-label="Create alert"
-        className={TOOL_ICON_BUTTON}
+        className={TOOL_LABELLED_BUTTON}
       >
         {/*
           R1b-03 / BLIND clue 2: a clock DIAL whose ring is broken at the lower
@@ -439,16 +581,19 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
           the plus INSIDE a closed ring with two bells on top, which reads as a
           stopwatch.
         */}
+        {/* R1c-02: ink box 21×21 at (8,9) in the cell — a 17px ring, a dashed
+            upper-right arc, two hands, and a 7×7 plus breaking the ring. */}
         <Glyph>
           {/* the dial, opened at the lower right so the plus breaks the ring */}
-          <path d="M20.2 16.4A9 9 0 1 0 14.8 21.2" />
+          <path d="M19.3 16.7A8 8 0 1 0 15.7 20.3" />
           {/* the hands */}
-          <path d="M12 7.2v5.4h4.1" />
-          {/* the alarm's two arcs, over the top */}
-          <path d="M2.6 5.4A10.6 10.6 0 0 1 6.9 1.9M17.1 1.9a10.6 10.6 0 0 1 4.3 3.5" />
+          <path d="M11.5 7.5v5h3.5" />
+          {/* the alarm's arc, over the upper right */}
+          <path d="M14.2 4.2a9 9 0 0 1 5.4 3.9" strokeDasharray="2 2" />
           {/* the plus, sitting in the gap */}
-          <path d="M18.6 15.5v7.2M15 19.1h7.2" />
+          <path d="M20.5 18.5v6M17.5 21.5h6" />
         </Glyph>
+        <WideLabel>Alert</WideLabel>
       </button>
 
       <button
@@ -457,13 +602,18 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
         aria-pressed={replayActive || props.replayPickerOpen}
         aria-label="Bar replay"
         title={replayActive ? "Replay is active" : "Bar replay — start from a historical point"}
-        className={TOOL_ICON_BUTTON}
+        className={TOOL_LABELLED_BUTTON}
       >
-        {/* Double rewind: two hollow triangles, each against its own bar. */}
+        {/*
+          Double rewind. R1c-02: the reference's is 15×13 at (12,13) — two
+          unfilled left-pointing triangles 7 wide sharing the vertical centre,
+          and no bars beside them (74 ink px, not 149).
+        */}
         <Glyph>
-          <path d="M10.4 5.4L3.4 12l7 6.6z" /><path d="M11.6 5.4v13.2" />
-          <path d="M19 5.4L12 12l7 6.6z" /><path d="M20.2 5.4v13.2" />
+          <path d="M14 8.5L7.5 14.5 14 20.5Z" />
+          <path d="M21.5 8.5L15 14.5 21.5 20.5Z" />
         </Glyph>
+        <WideLabel>Replay</WideLabel>
       </button>
     </div>
   );
@@ -563,13 +713,31 @@ export function ChartToolbar(props: ChartToolbarProps) {
           title={`${symbolLabel} — change symbol (/)`}
           aria-label={`Change symbol — currently ${symbolLabel}`}
           /*
-            R1b-01 / BLIND clue 8: 14px at REGULAR weight, and nothing in the
-            chip but the ticker. A semibold ticker was the one heavy string on
-            a row the reference sets entirely at 400.
+            ── R1c-04: the ticker is SEMIBOLD, and the pixels say so ─────────
+
+            Wave 2 set this to 400 on the blind reviewer's clue 8. Round 3
+            measured it instead: the reference's `BTCUSDT` is a 64px glyph run
+            carrying 306 ink px at 10px caps, and ours at 400 measured 61px and
+            286. Three pixels over seven glyphs is exactly the 400→600 step of
+            this font stack, and round 2 had already measured semibold in BOTH
+            products. Where a clue and a measurement disagree the measurement
+            wins.
+
+            R1c-18, PARTIAL and deliberately so: from `sm` up the pill no
+            longer shortens anything — `sm:shrink-0` with the ellipsis turned
+            off, so `BTCUSDT` is `BTCUSDT` at every width this product targets.
+            BELOW `sm` it still truncates, because this element is the row's
+            only compressible one (FC2-B1) and the alternative the reference
+            uses — letting the primary row scroll sideways — cannot be adopted
+            here: four of this row's controls open popovers, and an
+            `overflow-x-auto` ancestor clips every one of them. Removing the
+            truncation outright at 320px would put two interactive boxes on top
+            of each other, which is the defect the pairwise sweep exists to
+            prevent. Recorded for the owner in the round-4 report.
           */
-          className="flex h-7 min-w-[44px] shrink items-center rounded-full bg-state-active px-3 text-sm font-normal text-ink hover:brightness-110 sm:shrink-0"
+          className="flex h-7 min-w-[44px] shrink items-center rounded-full bg-state-active px-3 text-sm font-semibold text-ink hover:brightness-110 sm:shrink-0"
         >
-          <span className="min-w-0 truncate">{tickerLabel}</span>
+          <span className="min-w-0 truncate sm:overflow-visible sm:text-clip">{tickerLabel}</span>
         </button>
 
         <CompareButton {...props} className="hidden sm:flex" />
@@ -619,7 +787,8 @@ export function ChartToolbar(props: ChartToolbarProps) {
             title="Undo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            <Glyph><path d="M9.2 6.6L4.4 11.4l4.8 4.8" /><path d="M4.4 11.4h9.2a5.8 5.8 0 015.8 5.8v2" /></Glyph>
+            {/* R1c-02: 13×10 at (12,14) — an arc into an open 5×5 arrowhead. */}
+            <Glyph><path d="M11 9.5L7.5 13 11 16.5" /><path d="M7.5 13h8.5a3 3 0 0 1 0 6h-1" /></Glyph>
           </button>
           <button
             {...ctl("redo")}
@@ -629,7 +798,8 @@ export function ChartToolbar(props: ChartToolbarProps) {
             title="Redo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            <Glyph><path d="M14.8 6.6l4.8 4.8-4.8 4.8" /><path d="M19.6 11.4h-9.2a5.8 5.8 0 00-5.8 5.8v2" /></Glyph>
+            {/* The same 13×10 box, mirrored about the cell's centre. */}
+            <Glyph><path d="M16 9.5L19.5 13 16 16.5" /><path d="M19.5 13h-8.5a3 3 0 0 0 0 6h1" /></Glyph>
           </button>
         </div>
 
@@ -654,7 +824,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             title={moreOpen ? "Fewer controls" : "History depth, overlays, automation, strategy"}
             className={TOOL_ICON_BUTTON}
           >
-            <Glyph stroke={2.6}><path d="M5 12h.01M12 12h.01M19 12h.01" /></Glyph>
+            <Glyph stroke={2.6}><path d="M6.5 14h.01M14 14h.01M21.5 14h.01" /></Glyph>
           </button>
 
           <TradeButton {...props} className={`ml-1.5 ${density.cluster}`} />
@@ -666,6 +836,20 @@ export function ChartToolbar(props: ChartToolbarProps) {
         Deliberately opened, at every width. A full-width strip rather than a
         popover because the overlay control inside it opens its own menu
         downward, which a popover would clip.
+
+        ── TVP8 R1c-13: it has to be a row the layout can SEE ────────────────
+
+        It was rendered exactly here and was still invisible, because the page
+        wrapped this whole component in a hard `h-[38px]`: the strip laid out
+        at y=43 inside a 38px box, the chart canvas painted over it, and
+        `elementFromPoint` on every one of its buttons returned the CANVAS.
+        The container is a `min-h-[38px]` now (`app/chart/page.tsx`), so
+        opening the strip moves the workspace down by the strip's own height
+        instead of hiding it.
+
+        38px and not 47: the same row height as the bar above it, which is what
+        stops the two from reading as a toolbar and a tray. The chips inside it
+        are the bar's own 38px controls for the same reason.
       */}
       {moreOpen && (
         <div
@@ -673,7 +857,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           data-toolbar-row="secondary"
           role="group"
           aria-label="More chart controls"
-          className="flex flex-wrap items-center gap-1 border-t border-border px-1 py-1"
+          className="flex min-h-[38px] flex-wrap items-center gap-1 border-t border-border px-1"
         >
           {/* Phone: compare, studies, alert, replay, the workspace cluster and Trade. */}
           <CompareButton {...props} className="flex sm:hidden" />
@@ -694,7 +878,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
               <button key={h.label} onClick={() => props.onBars(h.bars)}
                 title={`Show up to ${h.bars.toLocaleString()} bars`}
                 aria-pressed={props.bars === h.bars}
-                className={`tvc-control flex h-[30px] items-center px-2 text-[13px] ${
+                className={`tvc-control flex h-[38px] items-center px-2 text-[13px] ${
                   props.bars === h.bars ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
                 }`}>
                 {h.label}
@@ -716,7 +900,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             onClick={props.onOpenAutomation} disabled={props.replayBlocksLiveActions}
             title={replayActive ? "Exit Replay to invoke Bot automation" : "Run this strategy server-side and send live orders to your bot"}
             className={TOOL_BUTTON}>
-            <Glyph size={18}><path d="M13 2L4 14h7l-1 8 9-12h-7z" /></Glyph>
+            <Glyph size={18}><path d="M15.2 2.3L4.7 16.3h8.2l-1.2 9.3 10.5-14h-8.2z" /></Glyph>
             Automate
           </button>
 
@@ -725,7 +909,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             onClick={props.onOpenStrategy}
             title="Strategy properties for the tester"
             className={TOOL_BUTTON}>
-            <Glyph size={18}><path d="M3 12h4l2-7 4 14 2-7h6" /></Glyph>
+            <Glyph size={18}><path d="M3.5 14h4.7l2.3-8.2 4.7 16.3 2.3-8.2h7" /></Glyph>
             Strategy
           </button>
 

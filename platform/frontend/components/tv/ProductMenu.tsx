@@ -63,7 +63,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
-import { HEALTH_DOT, useOpsHealth, useStreamSummary } from "@/lib/navStatus";
+import { useOpsHealth, useStreamSummary } from "@/lib/navStatus";
 import { productMenuLinks, PRODUCT_NAME, SYSTEM_LINKS } from "@/lib/navigation";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 import { THEME_KEY, type ThemeName } from "@/components/ThemeToggle";
@@ -270,29 +270,22 @@ export function ProductMenu(
    * The health truth moved to the menu's brand row, where it is a tooltip and
    * a dot that appears only when something is actually wrong.
    */
-  const streamBad = stream !== null
-    && stream.state.status !== "live" && stream.state.status !== "open";
-  const healthBad = health.tone !== "positive" && health.tone !== "neutral";
-
   /*
-   * And the brand row's TITLE, not a status row of its own.
+   * ── R1c-10: the whole of what health does on this control is a TOOLTIP ───
    *
-   * The menu used to print the stream line and the system line as body copy
-   * under the product name, then as one 32px `role="status"` row above it.
-   * TradingView has no health readout on this control (R1b-04), so the
-   * sentence is the brand row's tooltip and the only thing that ever reaches
-   * the screen is a 6px dot, and only while something is genuinely wrong.
-   * Which is also why the health SENTENCE is never the label (REV-UX-01):
-   * `useOpsHealth` separates the sentence from the cause, and a backend that
-   * answers an operations poll with an exception puts that text in a title,
-   * not on screen.
+   * It has shrunk twice for the same reason. It was a `role="status"` row of
+   * body copy at the top of the menu (R1b-04: TradingView has no health
+   * readout on its product control at all), then a 6px dot in the brand row
+   * drawn whenever anything was unwell — and the round-3 capture found that
+   * dot lit in every 1440 shot, which makes it decoration rather than a
+   * signal. It is one sentence in the brand row's `title` now.
+   *
+   * Nothing about the underlying truth changed: `useOpsHealth` still separates
+   * the SENTENCE from the CAUSE, so a backend that answers an operations poll
+   * with an exception puts that text in a tooltip and never on screen
+   * (REV-UX-01), and Operations — two rows down this menu — is the page that
+   * exists to say what is wrong and what to do about it.
    */
-  const degraded = streamBad || healthBad;
-  const showHealth = streamBad ? false : healthBad || stream === null;
-  const statusDot = showHealth ? HEALTH_DOT[health.tone] : stream!.dot;
-  const statusLabel = showHealth
-    ? (health.detail ? "System status unavailable" : `System ${health.label}`)
-    : stream!.label;
   const statusDetail = [
     stream ? `${stream.label} — ${stream.detail}` : null,
     health.detail ? `${health.summary} ${health.detail}` : health.summary,
@@ -317,6 +310,22 @@ export function ProductMenu(
           title={`${PRODUCT_NAME} — Screener, Trading, Alerts, Research, Operations`}
           className="tvc-control flex h-[38px] w-[52px] shrink-0 items-center justify-center text-ink"
         >
+          {/*
+            ── TVP8 R1c-10: an avatar, and a COUNT or nothing ───────────────
+
+            This corner carried a blue dot whenever the manual was unread. The
+            reference badges the same corner with a red pill carrying a NUMBER
+            — an unread count — and carries nothing at all when there is none,
+            which is the difference between "you have three of something" and a
+            mark that says only "there is a thing somewhere". A count is a fact
+            a user can act on and a bare dot on an account button is not, so
+            until this product has one to show, the corner is empty.
+
+            The unread manual has not gone quiet: the Help row inside this menu
+            still carries `Start here` in muted type, which is where the
+            reference puts the same nudge and where a person looking for the
+            manual is already looking.
+          */}
           <span className="relative inline-flex">
             <span
               aria-hidden="true"
@@ -324,15 +333,6 @@ export function ProductMenu(
             >
               {initial}
             </span>
-            {firstRun && (
-              <span
-                aria-hidden="true"
-                // accent-is-meaning: a notification dot. "Something is here",
-                // not "this one is chosen". TV badges the same corner with an
-                // unread count; ours carries the unread manual.
-                className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
-              />
-            )}
           </span>
         </button>
       ) : (
@@ -395,8 +395,17 @@ export function ProductMenu(
           style={edgeClamp}
           // 260px and anchored at the cell's right edge in the rail, at the
           // control's bottom edge on the bar — TV's box is [53,0,260,525].
+          /*
+            R1c-10: `left-[53px]`, and no top padding in the rail variant.
+
+            The reference's box is [53,0,260,525]: it starts one pixel past the
+            52px account cell, and its brand row occupies y 0–40 with the
+            hairline at 46 and the first link at 53. Ours inherited
+            `.tvc-menu`'s own 6px of top padding, so every one of those numbers
+            was six low and the first row landed at 59.
+          */
           className={`absolute z-50 w-[260px] tvc-menu ${
-            rail ? "left-[52px] top-0" : "left-0 top-full"
+            rail ? "left-[53px] top-0 !pt-0" : "left-0 top-full"
           }`}
         >
           {/*
@@ -418,13 +427,15 @@ export function ProductMenu(
             <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-ink">
               {PRODUCT_NAME}
             </span>
-            {degraded && (
-              <span
-                role="status"
-                aria-label={statusLabel}
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot}`}
-              />
-            )}
+            {/*
+              R1c-10: no dot here either. The reference's brand row is a
+              wordmark and nothing else, and a 6px amber mark in the corner of
+              it was on screen in every 1440 capture the round-3 reviewer took.
+              Stream and system health have a page of their own — Operations —
+              which is linked two rows below this one and can say what is
+              wrong; the whole sentence is still this row's `title`, so the
+              fact is one hover away and is never mistaken for a notification.
+            */}
           </div>
 
           <Spacer />

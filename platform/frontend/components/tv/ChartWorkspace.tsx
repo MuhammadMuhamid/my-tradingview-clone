@@ -178,7 +178,24 @@ export function ChartWorkspace({ workspace, renderPane }: ChartWorkspaceProps) {
 
   return (
     <div
-      className="relative grid min-h-0 flex-1 gap-px bg-border p-px"
+      /*
+        ── TVP8 R1c-05: no frame around the stack, and a 4px gutter inside it ─
+
+        This was `gap-px bg-border p-px`: a one-pixel sheet in the border colour
+        showing through as a hairline BETWEEN panes and, because of the
+        padding, as a hairline all the way AROUND the column as well. Measured,
+        that put the chart surface at (57,43) where the reference's is at
+        (56,42), widened the rail gutter from 4px to 5 and the toolbar gutter
+        from 4 to 5, and — on the light theme — drew a visible rgb(225) line
+        around the entire chart column that the reference does not have at all.
+
+        `gap-1 bg-bg p-0`: 4px of the workstation's own ground between panes,
+        which is what the reference puts there, and nothing at the edges. A
+        single-pane workspace has no gap to show, so its canvas starts exactly
+        where the gutters end. The study panes keep their own `border-t`
+        hairlines — those are inside a pane, not between two of them.
+      */
+      className="relative grid min-h-0 flex-1 gap-1 bg-bg"
       style={maximized
         ? presetGridStyle({ ...preset, cols: 1, rows: 1, cells: [SOLO_CELL] })
         : presetGridStyle(preset, fractions)}

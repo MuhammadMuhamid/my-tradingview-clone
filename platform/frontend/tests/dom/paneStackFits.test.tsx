@@ -211,3 +211,33 @@ test("R3-13 — a pane's actions are revealed by hovering THAT pane, not the col
   assert.ok(column === null || !column.className.includes("group/studypane"),
     "the chart column and the study pane cannot share a hover scope");
 });
+
+test("R1c-05 — nothing draws a frame around the pane stack", async () => {
+  const chart = await mountChart();
+  const pane = chart.container.querySelector<HTMLElement>("[data-pane-id]");
+  assert.ok(pane, "no pane mounted");
+  const grid = pane.parentElement?.parentElement ?? null;
+  assert.ok(grid, "the workspace grid is missing");
+
+  /*
+   * ── The defect, measured ─────────────────────────────────────────────────
+   *
+   * The grid carried `gap-px bg-border p-px`: a one-pixel sheet in the border
+   * colour showing through BETWEEN panes and, because of the padding, all the
+   * way AROUND the column. The reference's chart surface starts at (56,42);
+   * ours started at (57,43), its 4px rail gutter read as 5 and its 4px toolbar
+   * gutter read as 5, and on the light theme the frame drew a visible rgb(225)
+   * hairline around the whole chart column that the reference does not have.
+   *
+   * `gap-1 bg-bg`: 4px of the workstation's own ground between panes, and
+   * nothing at the edges — so a single-pane workspace has no inset at all.
+   */
+  assert.doesNotMatch(grid.className, /(^|\s)p-px(\s|$)/,
+    "a 1px pad is a 1px frame around the entire chart column");
+  assert.doesNotMatch(grid.className, /(^|\s)gap-px(\s|$)/,
+    "the reference's gutter between panes is 4px, not 1");
+  assert.doesNotMatch(grid.className, /(^|\s)bg-border(\s|$)/,
+    "the gutter is the workstation's ground, not its line colour");
+  assert.match(grid.className, /(^|\s)gap-1(\s|$)/);
+  assert.match(grid.className, /(^|\s)bg-bg(\s|$)/);
+});

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   formatPlotValue, labelDuplicateInstances, plotValueAt, type ChartOverlay,
 } from "@/lib/chartSeries";
+import { ContextMenu } from "@/components/tv/ContextMenu";
+import { legendStudyMenu, type LegendStudyMenuId } from "@/lib/menuPayloads";
 
 /**
  * Compact plot/value association for the active crosshair (latest off-chart).
@@ -18,6 +20,7 @@ export function IndicatorLegend({
   overlays, time, className = "", startCollapsed = false, collapsible = true,
   title, onAction, canAction, hidden = [],
   showTitles = true, showInputs = true, showValues = true,
+  background = true, backgroundOpacity = 60,
 }: {
   overlays: ChartOverlay[];
   time: number | null;
@@ -96,7 +99,32 @@ export function IndicatorLegend({
   showInputs?: boolean;
   /** The plot readings at the crosshair. */
   showValues?: boolean;
+  /**
+   * R3b-25: the reference's `Background` row.
+   *
+   * A translucent plate of the chart's own ground behind each text run, so a
+   * legend laid over a dense candle stays readable. On by default, because it
+   * is on in the reference and because every caller that does not carry the
+   * chart's settings — an indicator pane, the strategy tester — wants the
+   * readable form.
+   */
+  background?: boolean;
+  /** 0–100. The reference's default plate reads about 60 %. */
+  backgroundOpacity?: number;
 }) {
+  /**
+   * The plate, as a colour or nothing at all.
+   *
+   * `--ts-surface-rgb` rather than a literal: this is the CHART's ground in
+   * whichever theme is running, which is what makes the plate disappear
+   * against the plot instead of becoming the grey box R3-10 removed.
+   */
+  const plate = background && backgroundOpacity > 0
+    ? `rgb(var(--ts-surface-rgb) / ${Math.min(100, Math.max(0, backgroundOpacity)) / 100})`
+    : undefined;
+  /** Which study's `⋯` menu is open, and where it was opened from. */
+  const [moreMenu, setMoreMenu] = useState<
+    null | { id: string; title: string; at: { x: number; y: number } }>(null);
   const [collapsed, setCollapsed] = useState(startCollapsed && collapsible);
   // Follows the layout when the viewport crosses the phone breakpoint, but
   // never overrides a choice the user has already made at this size.
@@ -179,7 +207,7 @@ export function IndicatorLegend({
               full title is on the row's own `title`.
             */
             <div key={`${group.title}:${index}`}
-              className="group/study flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
+              className="group/study flex max-w-full items-center gap-x-2 overflow-hidden whitespace-nowrap">
               {/*
                 ── R3-11: the title is not the loudest thing on the chart ─────
 
@@ -195,41 +223,94 @@ export function IndicatorLegend({
                 still reaches the row's `group/study` from here, because
                 `:hover` applies to the ancestors of whatever was hit.
               */}
-              <span
-                title={group.params ? `${group.title} ${group.params}` : group.title}
-                className="pointer-events-auto -mx-1 flex min-w-0 shrink items-baseline gap-x-2
-                  overflow-hidden rounded-sm border border-transparent px-1
-                  group-hover/study:border-border"
-              >
-                {showTitles && <span className="shrink-[3] truncate text-ink">{group.title}</span>}
-                {showTitles && showInputs && group.params
-                  && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
-              </span>
               {/*
-                The actions sit BETWEEN the parameters and the values, which is
-                where the reference has them — not after the numbers, where a
-                cluster appearing on hover pushes the values the user is
-                reading sideways.
+                ── R3b-20: hover is ONE box around the title, the params AND
+                the action cluster ──────────────────────────────────────────
+
+                The hairline used to wrap the title/params span alone, so the
+                cluster that appeared beside it on the same hover sat OUTSIDE
+                the outline — two things reacting to one pointer, one of them
+                enclosed and one of them not. The reference draws a single
+                24px box, border rgb(61,61,61) over a fill of the chart's own
+                ground, enclosing everything that is about the STUDY; the
+                values stay outside it, because they are about the crosshair.
+
+                The fill is what makes it readable: this sits on the candles,
+                and rgb(15,15,15) is the plot's own background — so the box
+                knocks the bars back without becoming the `bg-surface/75`
+                container R3-10 removed from the resting state.
               */}
-              {onAction && canAction?.(group.id) && (
-                <span className="pointer-events-auto flex shrink-0 items-center gap-0.5
-                  opacity-0 transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
-                  <StudyButton label={`Hide ${group.title}`}
-                    onClick={() => onAction(group.id, "hide")}>
-                    <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
-                    <circle cx="12" cy="12" r="2.6" />
-                  </StudyButton>
-                  <StudyButton label={`${group.title} settings`}
-                    onClick={() => onAction(group.id, "settings")}>
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
-                  </StudyButton>
-                  <StudyButton label={`Remove ${group.title}`}
-                    onClick={() => onAction(group.id, "remove")}>
-                    <path d="M4 6h16M9 6V4h6v2M6.5 6l1 14h9l1-14" />
-                  </StudyButton>
+              <span
+                className="pointer-events-auto -mx-1 flex h-6 min-w-0 shrink items-center gap-x-2
+                  overflow-hidden rounded-sm border border-transparent px-1
+                  group-hover/study:border-state-active group-hover/study:bg-surface"
+              >
+                <span
+                  title={group.params ? `${group.title} ${group.params}` : group.title}
+                  className="flex min-w-0 shrink items-baseline gap-x-2 overflow-hidden whitespace-nowrap"
+                  style={plate ? { backgroundColor: plate } : undefined}
+                >
+                  {showTitles && <span className="shrink-[3] truncate text-ink">{group.title}</span>}
+                  {showTitles && showInputs && group.params
+                    && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
                 </span>
-              )}
+                {/*
+                  The actions sit BETWEEN the parameters and the values, which
+                  is where the reference has them — not after the numbers,
+                  where a cluster appearing on hover pushes the values the user
+                  is reading sideways.
+
+                  ── R3b-19: a 28px pitch, with no gap ───────────────────────
+
+                  The buttons are 28×24 and carried a `gap-0.5` on top, so the
+                  cluster ran at a 30px pitch against the reference's 28. The
+                  button IS the pitch; the space belongs inside it.
+                */}
+                {onAction && canAction?.(group.id) && (
+                  <span className="flex shrink-0 items-center
+                    opacity-0 transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
+                    <StudyButton label={`Hide ${group.title}`}
+                      onClick={() => onAction(group.id, "hide")}>
+                      <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
+                      <circle cx="12" cy="12" r="2.6" />
+                    </StudyButton>
+                    <StudyButton label={`${group.title} settings`}
+                      onClick={() => onAction(group.id, "settings")}>
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                    </StudyButton>
+                    <StudyButton label={`Remove ${group.title}`}
+                      onClick={() => onAction(group.id, "remove")}>
+                      <path d="M4 6h16M9 6V4h6v2M6.5 6l1 14h9l1-14" />
+                    </StudyButton>
+                    {/*
+                      ── R3b-19: `⋯`, the study's own menu ──────────────────
+
+                      The reference's cluster ends in a More button opening the
+                      indicator menu. Ours carries the three things a legend
+                      row can actually resolve — the same three
+                      `ChartPane.paneAction` owns — because a menu row that
+                      cannot act is the defect this campaign has removed twice
+                      already. `Move to`, `Pin to scale`, `Visual order`,
+                      `Copy` and `Add alert on …` are the reference's other
+                      rows and are NOT invented here: each needs a resolver the
+                      legend cannot reach yet (see `lib/menuPayloads`).
+                    */}
+                    <StudyButton
+                      label={`More for ${group.title}`}
+                      onClick={(event) => setMoreMenu({
+                        id: group.id,
+                        title: group.title,
+                        at: { x: event.clientX, y: event.clientY },
+                      })}
+                    >
+                      <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                      <circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                    </StudyButton>
+                  </span>
+                )}
+              </span>
               {/*
                 ── TVP8 round two: three values that could never have one ─────
 
@@ -266,16 +347,29 @@ export function IndicatorLegend({
               */}
               {showValues && group.plots.filter((plot) => plot.constantValue === undefined).map((plot) => {
                 const value = plotValueAt(plot.data, time);
+                /*
+                  ── R3b-22: an ABSENT reading wears no plot colour ─────────
+
+                  `∅` was drawn in the plot's own colour, so a purple `∅`
+                  read as a purple value — the colour on this row means "this
+                  is that line's number", and there is no number. The
+                  reference draws its empty marker in a neutral light grey for
+                  exactly that reason. The plot's name stays on the tooltip
+                  and in the screen-reader text, so which line is silent is
+                  still answerable.
+                */
+                const absent = value === null || !Number.isFinite(value);
                 return (
                   <span
                     key={plot.id}
                     title={plot.title}
-                    className="pointer-events-auto shrink-0 tabular"
-                    style={{ color: plot.color }}
+                    className={`pointer-events-auto shrink-0 tabular ${absent ? "text-ink-muted" : ""}`}
+                    style={{
+                      ...(absent ? {} : { color: plot.color }),
+                      ...(plate ? { backgroundColor: plate } : {}),
+                    }}
                   >
-                    {value === null || !Number.isFinite(value)
-                      ? "∅"
-                      : formatPlotValue(value, plot.precision)}
+                    {absent ? "∅" : formatPlotValue(value, plot.precision)}
                     <span className="sr-only"> {plot.title}</span>
                   </span>
                 );
@@ -289,7 +383,7 @@ export function IndicatorLegend({
             className="group/study flex max-w-full items-baseline gap-x-2 overflow-hidden whitespace-nowrap">
             <span className="shrink truncate text-ink-faint line-through
               decoration-1">{study.title}</span>
-            <span className="pointer-events-auto flex shrink-0 items-center gap-0.5 opacity-60
+            <span className="pointer-events-auto flex shrink-0 items-center opacity-60
               transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
               <StudyButton label={`Show ${study.title}`}
                 onClick={() => onAction(study.id, "hide")}>
@@ -323,8 +417,14 @@ export function IndicatorLegend({
             ? `Show values for ${groups.length} indicator${groups.length === 1 ? "" : "s"}`
             : "Hide indicator values"}
           title={collapsed ? "Show indicator legend" : "Hide indicator legend"}
-          className="pointer-events-auto mt-0.5 flex h-5 w-[26px] shrink-0 items-center
-            justify-center rounded-sm border border-border text-ink-faint transition-colors
+          /*
+            R3b-20: 28×20 inside a rgb(61,61,61) border — the reference's box,
+            measured at 29×21 outer. It was 26×20 inside `border-border`
+            (rgb 46), which is the hairline the legend uses for nothing else
+            and reads as absent over the plot.
+          */
+          className="pointer-events-auto mt-0.5 flex h-5 w-7 shrink-0 items-center
+            justify-center rounded-sm border border-state-active text-ink-faint transition-colors
             hover:bg-state-hover hover:text-ink"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
@@ -332,6 +432,30 @@ export function IndicatorLegend({
           </svg>
         </button>
       )}
+      {/*
+        R3b-19: the `⋯` menu, through the product's ONE context menu.
+
+        Escape, the outside click, the arrow keys that skip a separator and the
+        focus that goes back to the glyph are `ContextMenu`'s, not a second
+        implementation of them — the same component the chart, a drawing, the
+        price axis and a watchlist row open.
+      */}
+      <ContextMenu
+        at={moreMenu?.at ?? null}
+        label={moreMenu?.title ?? ""}
+        entries={moreMenu ? legendStudyMenu({ title: moreMenu.title }) : []}
+        onSelect={(id) => {
+          if (!moreMenu || !onAction) return;
+          const action: Record<LegendStudyMenuId, "hide" | "settings" | "remove"> = {
+            "study-legend:settings": "settings",
+            "study-legend:toggle-visible": "hide",
+            "study-legend:remove": "remove",
+          };
+          const verb = action[id as LegendStudyMenuId];
+          if (verb) onAction(moreMenu.id, verb);
+        }}
+        onClose={() => setMoreMenu(null)}
+      />
     </div>
   );
 }
@@ -344,14 +468,19 @@ export function IndicatorLegend({
  * reveal it for someone who never uses a pointer.
  */
 function StudyButton(
-  { label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }
+  { label, onClick, children }: {
+    label: string;
+    /** The event, because `⋯` opens a menu at the pointer. */
+    onClick: (event: React.MouseEvent) => void;
+    children: React.ReactNode;
+  }
 ) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
-      onClick={(event) => { event.stopPropagation(); onClick(); }}
+      onClick={(event) => { event.stopPropagation(); onClick(event); }}
       /*
         28×24 with a 16px glyph — the reference's legend-action size, measured.
         The 18×18 button with a 12px glyph it replaces was a sixth smaller than

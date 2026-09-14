@@ -12,7 +12,10 @@ import { INTERVAL_MS, type Candle, type Trade } from "@/lib/types";
 import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
-import { displayName, displaySymbol, displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
+import {
+  displayDescription, displayName, displayTicker, instrumentMark, isCanonicalInstrumentId,
+  marketOpen,
+} from "@/lib/instrument";
 import { useBookQuote } from "@/lib/useBookQuote";
 import { useWatchlistTickers } from "@/lib/useWatchlistTickers";
 import { datasetKey as datasetKeyOf, LiveTickGate, type DatasetIdentity } from "@/lib/liveDataset";
@@ -59,7 +62,7 @@ import {
   togglePriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
 import {
-  DEFAULT_CHART_SETTINGS, scaleMarginsFor, type ChartSettings,
+  DEFAULT_CHART_SETTINGS, resolveBackgroundGradient, scaleMarginsFor, type ChartSettings,
 } from "@/lib/chartSettings";
 import {
   loadedWindow, rangeShortcutChoices, resolveRangeShortcut, sameViewport,
@@ -73,7 +76,8 @@ import {
   type PaneLayoutState,
 } from "@/lib/indicatorPaneLayout";
 import {
-  CHART_TIME_ZONE, CHART_TIME_ZONE_NOTE, dayOfWeekTickFormatter, fmtChartBarTime, fmtChartClock,
+  CHART_TIME_ZONE, CHART_TIME_ZONE_NOTE, dayOfWeekFormatter, fmtChartBarTime, fmtChartClock,
+  hoursFormatter,
 } from "@/lib/chartClock";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
@@ -696,6 +700,9 @@ export function CandleChart({
   onDrawingSelection, onChartContextMenu, onGoToDate,
   magnet = "off", drawingsLocked = false, drawingsHidden = false,
   onPriceSelect,
+  onBarSelect,
+  onAxisAlert,
+  replayStrip,
   onAnnotationSelect,
   compact = false,
   identity,
@@ -775,6 +782,43 @@ export function CandleChart({
    * typed from memory.
    */
   onPriceSelect?: (price: number) => void;
+  /**
+   * Pick a BAR by clicking it — Bar Replay's own arming gesture (R8-02).
+   *
+   * ── Why this is a second selection prop and not `onPriceSelect` ──────────
+   *
+   * They are different questions with different answers and different marks.
+   * `onPriceSelect` asks "which price?", is answered by a y coordinate, and
+   * draws nothing; this asks "which bar?", is answered by that bar's close
+   * time, and draws a vertical guide down the whole plot at the bar under the
+   * pointer — which is the affordance the reference uses to say the chart is
+   * waiting for a bar, and which this product had no equivalent of at all. A
+   * replay armed from a calendar alone is a replay nobody can start by looking
+   * at the chart.
+   */
+  onBarSelect?: ((closeTime: number) => void) | null;
+  /**
+   * Arm an alert from the PRICE AXIS's own `⊕` (R8-08).
+   *
+   * The reference draws a 22×22 plus at the inner edge of the price scale, at
+   * the crosshair's price, whenever the pointer is on the plot: the axis route
+   * to an alert, and the one a user looking at a level reaches for. Passing
+   * null (or omitting it) leaves the axis bare, which is what Replay does —
+   * the price under the pointer is not the market.
+   */
+  onAxisAlert?: ((price: number) => void) | null;
+  /**
+   * Chrome drawn BETWEEN the time axis and the range row (R8-01).
+   *
+   * Bar Replay's strip, and nothing else so far. It is a slot rather than a
+   * component because the replay clock is one per WORKSPACE — `app/chart/page`
+   * owns the session, the speed and the horizon — while the row it has to sit
+   * in belongs to this chart, under its axis and above its ranges. Rendered as
+   * a sibling of the pane stack (which is where it used to live) it landed
+   * BELOW the range row and took its height out of the page rather than out of
+   * the panes, which is the whole of R8-01.
+   */
+  replayStrip?: ReactNode;
   /** Select a read-only marker or price line by its stable evidence identity. */
   onAnnotationSelect?: (id: string) => void;
   // ── pane synchronisation (split view) ──
@@ -1360,11 +1404,15 @@ export function CandleChart({
          * year, the month, the intraday times — returns `null`, which is the
          * library's own "you format it" and keeps `localization.dateFormat`
          * and the 12/24-hour choice above authoritative over the rest of the
-         * axis. Off, no formatter is installed at all.
+         * axis.
+         *
+         * R6b-13: OFF is a FUNCTION, never `undefined`. The library merges
+         * options with a spread, so `tickMarkFormatter: undefined` overwrote
+         * nothing and the ON formatter stayed installed for ever — the row
+         * was inert on every chart that had ever had it on, which (the
+         * default being ON) is every chart.
          */
-        ...(settings.dayOfWeekOnLabels
-          ? { tickMarkFormatter: dayOfWeekTickFormatter }
-          : { tickMarkFormatter: undefined }),
+        tickMarkFormatter: dayOfWeekFormatter(settings.dayOfWeekOnLabels),
       },
       localization: {
         /*
@@ -1395,14 +1443,14 @@ export function CandleChart({
          * `timeVisible` formatter is 24-hour and takes no locale. The date
          * half is left alone so the axis keeps the library's own density
          * decisions about when to show a day, a month or a year.
+         *
+         * R6b-14: BOTH states are a function. `timeFormatter: undefined` was
+         * ignored by the same option merge as the tick formatter above, so
+         * going back to 24-hours left the 12-hour formatter installed — the
+         * row moved once, in one direction, and never again. `lib/chartClock`
+         * owns the pair, because the visible axis is not always this chart's.
          */
-        timeFormatter: settings.timeFormat24h ? undefined : (time: number) => {
-          const d = new Date((time as number) * 1000);
-          const h = d.getUTCHours();
-          const suffix = h < 12 ? "am" : "pm";
-          const hour = h % 12 === 0 ? 12 : h % 12;
-          return `${hour}:${String(d.getUTCMinutes()).padStart(2, "0")} ${suffix}`;
-        },
+        timeFormatter: hoursFormatter(settings.timeFormat24h),
         // TVP8: the reference offers five, and a reader who writes dates
         // day-first should not have to read an axis that writes them
         // month-first. `dateFormat` is a library option, so this is one line.
@@ -1582,20 +1630,34 @@ export function CandleChart({
        * controls in that row compose instead of one cancelling the other.
        */
       const ground = settings.backgroundColor || "rgba(0,0,0,0)";
+      /*
+       * R6b-18: the gradient has two wells and both ends are real.
+       *
+       * It used to be 6% of accent blue over transparent — three points of
+       * luminance across the whole plot, i.e. a dropdown option that moved
+       * nothing a user could see. `resolveBackgroundGradient` derives the
+       * theme pair from the surface and the ink instead, and the second well
+       * is the reference's own second well.
+       */
+      const gradient = resolveBackgroundGradient(
+        settings.backgroundColor, settings.backgroundColor2);
       chart.applyOptions({
         layout: settings.backgroundGradient
           ? {
               background: {
                 type: ColorType.VerticalGradient,
-                topColor: settings.backgroundColor || "rgba(41,98,255,0.06)",
-                bottomColor: "rgba(0,0,0,0)",
+                topColor: gradient.top,
+                bottomColor: gradient.bottom,
               },
             }
           : { background: { type: ColorType.Solid, color: ground } },
       });
     } catch { /* disposed */ }
     // The theme rewrites `layout.background`; the user's choice goes back on top.
-  }, [settings.backgroundGradient, settings.backgroundColor, chartReady, themeTick]);
+  }, [
+    settings.backgroundGradient, settings.backgroundColor, settings.backgroundColor2,
+    chartReady, themeTick,
+  ]);
 
   const resetSignalRef = useRef(resetSignal);
   useEffect(() => {
@@ -2435,6 +2497,75 @@ export function CandleChart({
     return () => chart.unsubscribeClick(onClick);
   }, [onPriceSelect, chartReady]);
 
+  /*
+   * ── R8-02: arming a Replay by clicking a bar ──────────────────────────────
+   *
+   * While `onBarSelect` is set the chart is asking "which bar?". Two things
+   * follow, and both are this component's because both are about the plot's
+   * own coordinate system: a 1px vertical guide at the bar under the pointer,
+   * so the chart LOOKS like it is waiting, and a left-click that answers with
+   * that bar's close time.
+   *
+   * The guide is a DOM line rather than a series: lightweight-charts 4.2 draws
+   * horizontal price lines and nothing vertical, and a one-bar series would be
+   * a fake candle in the data the study layer reads.
+   */
+  const [barPickX, setBarPickX] = useState<number | null>(null);
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !onBarSelect) { setBarPickX(null); return; }
+    const barAt = (time: unknown): Candle | undefined => {
+      if (typeof time !== "number") return undefined;
+      return candles.find((bar) => Math.floor(canonicalOpenTime(bar) / 1000) === time);
+    };
+    const onMove = (param: MouseEventParams): void => {
+      setBarPickX(param.point && barAt(param.time) ? param.point.x : null);
+    };
+    const onClick = (param: MouseEventParams): void => {
+      const bar = barAt(param.time);
+      // A click in the margin past the newest bar has no bar to stand on, and
+      // starting a session "at nothing" is what the calendar route already
+      // guards against with `min`/`max`.
+      if (bar) onBarSelect(bar.closeTime);
+    };
+    chart.subscribeCrosshairMove(onMove);
+    chart.subscribeClick(onClick);
+    return () => {
+      try {
+        chart.unsubscribeCrosshairMove(onMove);
+        chart.unsubscribeClick(onClick);
+      } catch { /* the chart was disposed with its handlers */ }
+      setBarPickX(null);
+    };
+  }, [onBarSelect, candles, chartReady]);
+
+  /*
+   * ── R8-08: the price axis's own `⊕` ──────────────────────────────────────
+   *
+   * The reference draws it at the crosshair's price, at the inner edge of the
+   * scale, whenever the pointer is on the plot. It is the axis route to an
+   * alert, and this product had none: the only way in from the chart was a
+   * right-click, which is a gesture a user has to already know about.
+   */
+  const [axisAlert, setAxisAlert] = useState<{ y: number; price: number } | null>(null);
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series || !onAxisAlert) { setAxisAlert(null); return; }
+    const onMove = (param: MouseEventParams): void => {
+      if (!param.point) { setAxisAlert(null); return; }
+      const price = series.coordinateToPrice(param.point.y);
+      if (price === null || !Number.isFinite(price)) { setAxisAlert(null); return; }
+      setAxisAlert({ y: Math.round(param.point.y), price: Number(price) });
+    };
+    chart.subscribeCrosshairMove(onMove);
+    return () => {
+      try { chart.unsubscribeCrosshairMove(onMove); }
+      catch { /* the chart was disposed with its handlers */ }
+      setAxisAlert(null);
+    };
+  }, [onAxisAlert, chartReady]);
+
   // lightweight-charts v4 does not expose a marker identity in click events.
   // Resolve only exact marker bar times, or a price line within an 8px hit
   // target; no nearest-bar shifting is used for trading evidence.
@@ -2854,6 +2985,47 @@ export function CandleChart({
     );
   }, [crosshairTime, chartReady, chartType]);
 
+  /*
+   * ── TVP8 R1c-20 / R1b-08: no time label without a crosshair ──────────────
+   *
+   * `25 Aug '26 09:00` was parked on the time axis at x 87–198 on EVERY fresh
+   * load, with no pointer on the chart and no crosshair drawn — and it stayed
+   * there through the replay and compare captures. A time-axis label is the
+   * chart saying "this is the moment you are pointing at"; one that is there
+   * when the user is pointing at nothing is a reading of a bar they never
+   * asked about, and on arrival it names a bar in the middle of history.
+   *
+   * It comes from a PROGRAMMATIC `setCrosshairPosition` — the initial fit and
+   * the cross-pane mirror both call it, and lightweight-charts keeps the
+   * label until something clears it. Nothing did: the mirror clears only when
+   * the incoming time is null, and on a first load it never arrives at all.
+   *
+   * So two things clear it, and between them they cover every way the pointer
+   * can end up off the plot: this effect, once the chart exists and nothing is
+   * being hovered, and `pointerleave` on the host below.
+   */
+  useEffect(() => {
+    if (chartReady === 0) return;
+    if (crosshairTime != null || indicatorHoverTime !== null) return;
+    chartRef.current?.clearCrosshairPosition();
+  }, [chartReady, crosshairTime, indicatorHoverTime, candles]);
+
+  /*
+   * And the pointer leaving the plot (R1c-20).
+   *
+   * `subscribeCrosshairMove` fires with `param.time === undefined` on the way
+   * out, which clears the LEGEND but not a crosshair that was positioned
+   * programmatically. Attached to the host element rather than to the library
+   * so it fires even when the pointer leaves across the axis.
+   */
+  useEffect(() => {
+    const host = containerRef.current;
+    if (!host || chartReady === 0) return;
+    const clear = (): void => { chartRef.current?.clearCrosshairPosition(); };
+    host.addEventListener("pointerleave", clear);
+    return () => host.removeEventListener("pointerleave", clear);
+  }, [chartReady]);
+
   /** Adopt the other pane's exact visible span (date-range sync). */
   useEffect(() => {
     const chart = chartRef.current;
@@ -3079,6 +3251,20 @@ export function CandleChart({
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
   const px = up ? "text-up" : "text-down";
+  /*
+   * R3b-25: the status line's own plate.
+   *
+   * The reference's `Background` row paints the chart's ground behind the
+   * legend's TEXT RUNS at about 60 %, which is what keeps `O H L C` legible
+   * over a dense candle. Behind the runs, never around the column: the box
+   * around the whole legend is the chrome R3-10 removed and this must not
+   * quietly bring back. `--ts-surface-rgb` is the plot's own ground in
+   * whichever theme is running.
+   */
+  const legendPlate = settings.statusLegendBackground
+    && settings.statusLegendBackgroundOpacity > 0
+    ? `rgb(var(--ts-surface-rgb) / ${settings.statusLegendBackgroundOpacity / 100})`
+    : undefined;
   const legendLabel = legend?.kind === "heikinAshi" ? "HA"
     : legend?.kind === "renkoBrick" ? "Brick"
       : legend?.kind === "pointFigureColumn" ? "P&F"
@@ -3245,9 +3431,49 @@ export function CandleChart({
         is the right answer there and was never the defect.
       */}
       <div className="flex max-w-full flex-wrap items-baseline gap-x-2">
+        {/*
+          ── R3b-24: the logo, the identity and the market dot, in one run ────
+
+          The reference's status line opens with a 24px instrument logo at
+          x=65 and closes the identity with a market-status dot after the
+          venue. Both are drawn HERE rather than inside `PaneLegend` because
+          this is the component that holds the chart's settings — the `Logo`
+          and `Open market status` rows have to reach something, and a pane
+          legend that had to be told about them would be a third place that
+          decides what the status line says.
+
+          The disc is the product's own (`instrumentMark`), not a licensed
+          mark: OV-K, and the same disc the symbol dialog and the watchlist
+          already draw for this instrument. The dot is absent — not grey —
+          for an instrument whose session calendar this build does not hold.
+        */}
+        {/*
+          The three are SIBLINGS in this row, not a wrapper around the
+          identity: the legend's column is read by depth in several places —
+          `[data-pane-legend]`'s parent chain is how the chart's own tests
+          reach the study rows — and a decorative box around it would move
+          every one of them.
+        */}
+        {settings.showStatusLine && settings.statusSymbol && settings.statusLogo && (
+          <InstrumentLogo symbol={symbol} />
+        )}
         {settings.showStatusLine && settings.statusSymbol ? <>{identity}</> : null}
+        {settings.showStatusLine && settings.statusSymbol && settings.statusMarketStatus
+          && marketOpen(symbol) === true && (
+          <span
+            data-market-status="open"
+            title="This market is open"
+            className="flex h-4 w-4 shrink-0 items-center justify-center self-center"
+          >
+            <span aria-hidden="true"
+              className="h-2 w-2 rounded-full bg-[var(--ts-positive-strong)]" />
+            <span className="sr-only">Market open</span>
+          </span>
+        )}
         {settings.showStatusLine && legend && (
-          <div className="flex flex-wrap items-baseline gap-x-2 text-[13px] leading-[20px] tabular text-ink-muted">
+          <div
+            style={legendPlate ? { backgroundColor: legendPlate } : undefined}
+            className="flex flex-wrap items-baseline gap-x-2 text-[13px] leading-[20px] tabular text-ink-muted">
             {/*
               Named here only when nothing above named them. A pane passes an
               `identity` slot whose whole job is to say which instrument and
@@ -3260,10 +3486,16 @@ export function CandleChart({
                 {/* R6 SL-2: the Status-line tab's `Title` dropdown, for a
                     chart rendered without a pane legend of its own. `Name` is
                     R3-14's headline; `Full symbol` is the qualified identity. */}
+                {/* R6 SL-2 / R3b-25: `Name`, `Ticker` or `Description` —
+                    never the qualified `BINANCE:BTC/USDT · SPOT` form, which
+                    the reference does not offer and §5 keeps out of primary
+                    copy. R3b-16: one ink for the whole line. */}
                 <span className="text-[16px] text-ink">{
-                  settings.statusTitle === "symbol" ? displaySymbol(symbol) : displayName(symbol)
+                  settings.statusTitle === "symbol" ? displayTicker(symbol)
+                    : settings.statusTitle === "description" ? displayDescription(symbol)
+                      : displayName(symbol)
                 }</span>
-                <span className="text-[16px]">· {interval} ·</span>
+                <span className="text-[16px] text-ink">· {interval} ·</span>
               </>
             )}
             {/*
@@ -3308,12 +3540,23 @@ export function CandleChart({
                 {/* O/H/L and volume are the first things to go on a phone: the close
                     and the change are what the eye actually reads at a glance.
                     Each group is also a Status-line switch of its own. */}
+                {/*
+                  ── R3b-17: the LETTERS are ink, the values are the bar ──────
+
+                  `O`, `H`, `L` and `C` inherited `text-ink-muted` from the
+                  readout row, so the four labels sat a step below the numbers
+                  they name; the reference draws them at the same rgb(219) as
+                  the headline and spends colour only on the values. The
+                  letters are the row's only labels — making them the faintest
+                  thing in it is the one place this line could afford to lose
+                  contrast and did.
+                */}
                 {settings.statusOhlc && (
                   <>
-                    <span className="hidden sm:inline">O<span className={px}>{fmtPrice(legend.open)}</span></span>
-                    <span className="hidden sm:inline">H<span className={px}>{fmtPrice(legend.high)}</span></span>
-                    <span className="hidden sm:inline">L<span className={px}>{fmtPrice(legend.low)}</span></span>
-                    <span>C<span className={px}>{fmtPrice(legend.close)}</span></span>
+                    <span className="hidden sm:inline text-ink">O<span className={px}>{fmtPrice(legend.open)}</span></span>
+                    <span className="hidden sm:inline text-ink">H<span className={px}>{fmtPrice(legend.high)}</span></span>
+                    <span className="hidden sm:inline text-ink">L<span className={px}>{fmtPrice(legend.low)}</span></span>
+                    <span className="text-ink">C<span className={px}>{fmtPrice(legend.close)}</span></span>
                   </>
                 )}
                 {settings.statusBarChange && (
@@ -3441,6 +3684,9 @@ export function CandleChart({
           showTitles={settings.statusIndicatorTitles}
           showInputs={settings.statusIndicatorInputs}
           showValues={settings.statusIndicatorValues}
+          /* R3b-25: the reference's `Background` plate, behind the text runs. */
+          background={settings.statusLegendBackground}
+          backgroundOpacity={settings.statusLegendBackgroundOpacity}
           overlays={groupedOverlays.price}
           time={indicatorHoverTime}
           startCollapsed={compact || groupedOverlays.price.length > 6}
@@ -3666,6 +3912,47 @@ export function CandleChart({
                 lastValue={settings.indicatorLastValue}
                 /* R6 SC-5(d): and the axis under the lowest pane is THE axis. */
                 dayOfWeekOnLabels={settings.dayOfWeekOnLabels}
+                /*
+                  R6b-H: the Status-line tab's three indicator rows move a
+                  study in its OWN pane too. They were threaded into the price
+                  pane's overlay legend below and stopped there, so `Inputs`
+                  off dropped `Length 14 · Source close` from a moving average
+                  and left the RSI pane's legend untouched — one switch, two
+                  answers, on one chart.
+                */
+                showTitles={settings.statusIndicatorTitles}
+                showInputs={settings.statusIndicatorInputs}
+                showValues={settings.statusIndicatorValues}
+                legendBackground={settings.statusLegendBackground}
+                legendBackgroundOpacity={settings.statusLegendBackgroundOpacity}
+                /*
+                  R6b-14/19: the Canvas and Time-scale rows reach EVERY pane.
+                  
+                  The reference's oscillator pane carries the chart's grid, its
+                  ground, its crosshair and its axis colours; ours carried none
+                  of them, so `Background colour` moved 470,512 pixels of the
+                  price pane and 27 of the RSI pane — and the date and hour
+                  formats moved nothing at all for anybody with a study open,
+                  because the visible time axis is drawn by the LOWEST pane.
+                */
+                dateFormat={settings.dateFormat}
+                timeFormat24h={settings.timeFormat24h}
+                backgroundColor={settings.backgroundColor}
+                backgroundColor2={settings.backgroundColor2}
+                backgroundGradient={settings.backgroundGradient}
+                gridVertical={settings.gridVertical}
+                gridVertColor={settings.gridVertColor}
+                gridVertStyle={settings.gridVertStyle}
+                gridHorizontal={settings.gridHorizontal}
+                gridHorzColor={settings.gridHorzColor}
+                gridHorzStyle={settings.gridHorzStyle}
+                showCrosshair={settings.showCrosshair}
+                crosshairColor={settings.crosshairColor}
+                crosshairWidth={settings.crosshairWidth}
+                crosshairStyle={settings.crosshairStyle}
+                scaleTextColor={settings.scaleTextColor}
+                scaleLineColor={settings.scaleLineColor}
+                scaleFontSize={settings.scaleFontSize}
                 collapsed={collapsed}
                 onToggleCollapsed={togglePaneCollapse}
                 maximized={maximized}
@@ -3681,6 +3968,12 @@ export function CandleChart({
                 onHeightChange={resizeIndicatorPane}
                 defaultHeight={defaultPaneHeight(stackPanes.length)}
                 showTimeAxis={pane.id === axisPaneId}
+                /*
+                  R8: the study panes had no product menu at all — right-click
+                  opened Chrome's. The payload is this chart's own, so it lands
+                  in the same `openChartMenu` the price pane's does.
+                */
+                onContextMenu={onChartContextMenu}
                 compact={compact}
               />
             );
@@ -3705,9 +3998,24 @@ export function CandleChart({
           price axis, revealed on hover of that axis — which is where they now
           are, below the plot.
         */
-        <div className="flex shrink-0 items-center gap-1 border-t border-border bg-surface px-1.5 py-0.5">
+        /*
+          ── TVP8 R1c-07: the row is 38px, and the chips have no gaps ────────
+
+          Measured on the reference at 1440x900: the hairline is at y=861 and
+          the row runs 862–899 — 38px, the same height as the toolbar at the
+          top of the window. Ours was 33px with a 1px frame under it, so the
+          bottom of the screen was five pixels shorter than the reference's and
+          the chart above it five pixels taller.
+
+          The chips are `px-[7px]` with NOTHING between them: the reference's
+          pitch is the label's own width plus 14, and ours was width plus 16
+          (`px-1.5` plus a 2px gap). Two pixels per chip over nine chips put
+          `All` fifteen pixels right of where the reference has it, which is
+          what moved the separator and the go-to-date button off their marks.
+        */
+        <div className="flex h-[38px] shrink-0 items-center border-t border-border bg-surface pl-[9px] pr-1.5">
           {showRanges && (
-          <div role="group" aria-label="Visible range" className="flex items-center gap-0.5">
+          <div role="group" aria-label="Visible range" className="flex items-center">
             {shortcuts.map(({ shortcut, enabled }) => (
               <button
                 key={shortcut.id}
@@ -3724,7 +4032,9 @@ export function CandleChart({
                 title={enabled
                   ? `${shortcut.hint} — the visible range only; the timeframe stays ${interval}`
                   : `${shortcut.hint} — shows all the ${interval} history this pane has loaded`}
-                className={`tvc-control flex h-[28px] items-center px-1.5 text-[13px] text-ink ${
+                /* R1c-07/R1c-19: pitch = label + 14, and the 18px line box
+                   the toolbar's own chips use — ours inked a pixel high. */
+                className={`tvc-control flex h-[28px] items-center px-[7px] text-[13px] leading-[18px] text-ink ${
                   activeRange === shortcut.id ? "font-semibold" : ""
                 }`}
               >
@@ -3745,7 +4055,13 @@ export function CandleChart({
           */}
           {showRanges && (onGoToDate || onChartContextMenu) && (
             <>
-              <span className={SEPARATOR} aria-hidden="true" />
+              {/*
+                R1c-07: the rule lands at x=355 and the go-to-date cell starts
+                8px after it, which is what puts that button's 19px glyph at
+                x=369. `mx-2` either side would push the rule eight pixels past
+                the last chip and take the button with it.
+              */}
+              <span className={`${SEPARATOR} !ml-px !mr-2`} aria-hidden="true" />
               <button
                 type="button"
                 aria-label="Go to date"
@@ -3759,12 +4075,19 @@ export function CandleChart({
                 }}
                 className="tvc-control flex h-[28px] w-[28px] items-center justify-center text-ink"
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  {/* A calendar with an arrow going into it — the reference's silhouette. */}
-                  <path d="M11 4h7a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-3" />
-                  <path d="M10 2.5v3M16 2.5v3M7 9h12" />
-                  <path d="M3 13h6M6.5 10.5 9 13l-2.5 2.5" />
+                {/*
+                  R1c-07/R1c-02: a 19×19 ink box at 1px, one unit to one pixel
+                  — a 17×15 calendar with an arrow running into it. Ours drew
+                  the same silhouette three pixels small at 1.5px of stroke, on
+                  a 24-unit box scaled to 22px, so every edge was two half-lit
+                  columns rather than one lit one.
+                */}
+                <svg width="19" height="19" viewBox="0 0 19 19" fill="none" stroke="currentColor"
+                  strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke" aria-hidden="true">
+                  <path d="M8.5 3.5h9a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-2.5" />
+                  <path d="M10.5 1.5v3M16.5 1.5v3M7.5 7.5h11" />
+                  <path d="M0.5 10.5h6M4 8l2.5 2.5L4 13" />
                 </svg>
               </button>
             </>
@@ -3834,6 +4157,31 @@ export function tradeMarkerCount(
     if (t.exitTime !== null && inWindow(t.exitTime / 1000)) n += 1;
   }
   return n;
+}
+
+/**
+ * The instrument's own mark, before the status line's name (R3b-24).
+ *
+ * 24px, because that is what the reference's logo measures at 1440×900, and a
+ * disc rather than a licensed logo because this installation ships none — see
+ * `instrumentMark`, which is also what the symbol dialog and the watchlist
+ * row draw. `aria-hidden`: the name it stands for is the very next thing in
+ * the row, and a screen reader reading "B" before "Bitcoin / TetherUS" would
+ * be reading the decoration twice.
+ */
+function InstrumentLogo({ symbol }: { symbol: string }) {
+  const mark = instrumentMark(symbol);
+  return (
+    <span
+      data-status-logo=""
+      aria-hidden="true"
+      title={displayName(symbol)}
+      className={`flex h-6 w-6 shrink-0 items-center justify-center self-center rounded-full
+        text-[12px] font-semibold ${mark.className}`}
+    >
+      {mark.initial}
+    </span>
+  );
 }
 
 export { INTERVAL_MS };

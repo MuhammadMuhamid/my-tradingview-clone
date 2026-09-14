@@ -31,6 +31,8 @@ import assert from "node:assert/strict";
 import { fireEvent, within } from "@testing-library/react";
 import { closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
 import { mountChart } from "./harness/chart";
+import fs from "node:fs";
+import path from "node:path";
 
 beforeEach(() => {
   resetBrowser();
@@ -316,4 +318,99 @@ test("the pane menus are exclusive: two panes cannot both hold a menu open", asy
   assert.equal(
     document.querySelectorAll('[role="menu"][aria-label="Pane timeframe"]').length, 1,
     "two menus open at once is two products");
+});
+
+// ── TVP8 round 3 (R1c): the density steps, measured ─────────────────────────
+
+test("R1c-01 — the whole product is grayscale-antialiased", () => {
+  /*
+   * A stylesheet assertion, deliberately: jsdom does not render glyphs, so the
+   * only honest thing a DOM test can pin here is the RULE. The pixels are the
+   * capture's job (`tradingscene/a5-wave3/`), and the numbers to beat are the
+   * reference's own: the `1m` chip at (78 ink px, mean 127), `5m` (86, 139),
+   * `15m` (111, 136), `4h` (72, 140), the bottom row's `1D` (70, 137).
+   *
+   * Chrome's default is SUBPIXEL rendering, which lights the three colour
+   * elements of a pixel separately and so fattens and brightens every glyph:
+   * ours measured 8-25% more ink and 15-30 luminance levels above the
+   * reference's on every label on the bar. Injecting this one declaration into
+   * the reviewed build reproduced TradingView's numbers exactly, which is what
+   * identifies it as the whole of the difference.
+   */
+  const css = fs.readFileSync(path.join(__dirname, "..", "..", "app", "globals.css"), "utf8");
+  const html = /(?:^|\n)html\s*\{[^}]*\}/.exec(css)?.[0] ?? "";
+  assert.ok(html, "globals.css has no bare `html` block");
+  assert.match(html, /-webkit-font-smoothing:\s*antialiased/);
+  assert.match(html, /-moz-osx-font-smoothing:\s*grayscale/);
+  // Repeated on `body` so the smoke check can sample the element it samples.
+  const body = /(?:^|\n)body\s*\{[^}]*\}/.exec(css)?.[0] ?? "";
+  assert.match(body, /-webkit-font-smoothing:\s*antialiased/);
+});
+
+test("R1c-17 — at 1920 the bar grows exactly three words", async () => {
+  const chart = await mountChart();
+  /*
+   * Measured on `tradingview/tv-shell-1920x1080-dark.png`: the reference
+   * labels `Indicators` (x 654-715), `Alert` (811-840) and `Replay` (889-930)
+   * at 1920 and nothing else, at 1440 it labels none of them, and every other
+   * number on the shell — toolbar 38, rail 52, right rail, bottom row — is
+   * unchanged by the extra width. It is a density step, not a layout.
+   *
+   * jsdom has no media queries, so what is asserted is the gate: each of the
+   * three carries a label that is `hidden` until `2xl` (1536, the only stop
+   * between the two widths), and its cell gives up its fixed 38px there too.
+   */
+  const labelled = ["Indicators", "Create alert", "Bar replay"].map((name) => {
+    const button = [...chart.container.querySelectorAll<HTMLElement>("button")]
+      .find((b) => (b.getAttribute("aria-label") ?? "").startsWith(name));
+    assert.ok(button, `${name} is not on the bar`);
+    return button;
+  });
+  for (const button of labelled) {
+    const label = [...button.querySelectorAll<HTMLElement>("span")]
+      .find((s) => /2xl:inline/.test(s.className));
+    assert.ok(label, `${button.getAttribute("aria-label")} has no wide-viewport label`);
+    assert.match(label.className, /(^|\s)hidden(\s|$)/,
+      "the word must not be on the bar at 1440, where the reference has none");
+    assert.match(button.className, /2xl:w-auto/,
+      "a 38px-wide cell cannot hold a word");
+  }
+  // And nothing else on the row grows one.
+  const wide = [...chart.container.querySelectorAll<HTMLElement>(
+    '[data-toolbar-row="primary"] span')].filter((s) => /2xl:inline/.test(s.className));
+  assert.equal(wide.length, 3, `${wide.length} controls are labelled at 2xl, not 3`);
+});
+
+test("R1c-07 — the bottom range row is 38px, and its chips have no gaps", async () => {
+  const chart = await mountChart();
+  const group = chart.container.querySelector<HTMLElement>(
+    '[role="group"][aria-label="Visible range"]');
+  assert.ok(group, "the bottom row has no range group");
+
+  /*
+   * Measured: the hairline at y=861 and the row 862-899 — 38px, the toolbar's
+   * own height. Ours was 33 with a 1px frame under it.
+   */
+  const row = group.parentElement;
+  assert.ok(row);
+  assert.match(row.className, /h-\[38px\]/);
+  assert.match(row.className, /border-t border-border/, "the hairline is inside the row");
+
+  /*
+   * And the pitch: the reference's chips are the label plus 14, ours were the
+   * label plus 16 (`px-1.5` and a 2px gap), so `All` sat fifteen pixels right
+   * of where the reference has it and took the separator and the go-to-date
+   * cell with it.
+   */
+  assert.doesNotMatch(group.className, /gap-/, "a gap between chips is 2px of extra pitch each");
+  for (const chip of group.querySelectorAll<HTMLElement>("button")) {
+    assert.match(chip.className, /px-\[7px\]/);
+  }
+  // The go-to-date glyph is a 19x19 ink box at one unit to one pixel.
+  const goTo = chart.container.querySelector<HTMLElement>('button[aria-label="Go to date"]');
+  assert.ok(goTo, "the go-to-date control is missing");
+  const glyph = goTo.querySelector("svg");
+  assert.equal(glyph?.getAttribute("viewBox"), "0 0 19 19");
+  assert.equal(glyph?.getAttribute("width"), "19");
+  assert.equal(glyph?.getAttribute("stroke-width"), "1");
 });

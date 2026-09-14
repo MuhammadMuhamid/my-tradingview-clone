@@ -62,6 +62,19 @@ import type { Resolution } from "./resolution";
 import { resolutionMs } from "./resolution";
 import { useVolumeProfileRefinement } from "./useVolumeProfileRefinement";
 
+/**
+ * Whether a study's own timeframe allow-list admits the chart's resolution.
+ *
+ * The same rule as `drawingVisibleOnTimeframe`, stated for studies: absent or
+ * empty means every timeframe, which is what every study already on disk is.
+ */
+export function onThisTimeframe(
+  study: { visibleOn?: readonly Resolution[] }, interval: Resolution,
+): boolean {
+  return !study.visibleOn || study.visibleOn.length === 0
+    || study.visibleOn.includes(interval);
+}
+
 /** One study, as the panel and the legend want to read it. */
 export interface NativeStudyRow {
   study: AppliedNativeStudy;
@@ -99,6 +112,8 @@ export interface NativeStudiesApi {
   toggleVisible: (key: string) => void;
   setParam: (key: string, param: string, value: NativeInputValue) => void;
   setStyle: (key: string, plotId: string, style: PlotStyleOverride) => void;
+  /** R6b-29: the per-timeframe allow-list the study's Visibility tab writes. */
+  setVisibleOn: (key: string, visibleOn: Resolution[] | undefined) => void;
   resetParams: (key: string) => void;
   move: (key: string, direction: -1 | 1) => void;
   /**
@@ -338,7 +353,8 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
       signatures.set(key, signature);
 
       const issue = graph.issues.get(key);
-      const needed = study.visible || readBy.has(key);
+      const needed = (study.visible && onThisTimeframe(study, ctx.interval))
+        || readBy.has(key);
       if (issue || !needed) {
         out.set(key, HIDDEN_OUTPUT);
         continue;
@@ -394,12 +410,23 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
     }];
   }), [list, outputs, graph]);
 
+  /*
+   * R6b-29: `visible` is the user's own switch; `visibleOn` is the chart's.
+   *
+   * A study allowed only on daily bars draws nothing on an hourly chart and
+   * keeps its row in the panel — exactly as a drawing with a `visibleOn` does,
+   * and for the same reason: the study has not been removed, it is out of
+   * scope for the resolution on screen.
+   */
+  const drawn = useCallback(
+    (s: AppliedNativeStudy) => s.visible && onThisTimeframe(s, ctx.interval),
+    [ctx.interval]);
   const overlays = useMemo<ChartOverlay[]>(
-    () => list.filter((s) => s.visible).flatMap((s) => outputs.get(s.key)?.overlays ?? []),
-    [list, outputs]);
+    () => list.filter(drawn).flatMap((s) => outputs.get(s.key)?.overlays ?? []),
+    [list, outputs, drawn]);
   const decorations = useMemo<ChartDecoration[]>(
-    () => list.filter((s) => s.visible).flatMap((s) => outputs.get(s.key)?.decorations ?? []),
-    [list, outputs]);
+    () => list.filter(drawn).flatMap((s) => outputs.get(s.key)?.decorations ?? []),
+    [list, outputs, drawn]);
 
   const add = useCallback((defId: string, params?: NativeParams): string | null => {
     const def = studyById(defId);
@@ -446,6 +473,19 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
   const clear = useCallback(() => {
     cache.current.clear();
     setList([]);
+  }, []);
+
+  /**
+   * R6b-29: the study's own `Visibility` tab, written back.
+   *
+   * An empty list is stored as `undefined` — "every timeframe" — for the same
+   * reason a drawing's is: a frozen list of today's resolutions would silently
+   * exclude a resolution added tomorrow.
+   */
+  const setVisibleOn = useCallback((key: string, visibleOn: Resolution[] | undefined) => {
+    setList((current) => current.map((s) => (s.key === key
+      ? { ...s, visibleOn: visibleOn && visibleOn.length > 0 ? visibleOn : undefined }
+      : s)));
   }, []);
 
   const toggleVisible = useCallback((key: string) => {
@@ -506,9 +546,11 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
 
   return useMemo(() => ({
     list, rows, overlays, decorations,
-    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
+    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setVisibleOn,
+    resetParams, move,
     sourceOptions, issues: graph.issues,
   }), [list, rows, overlays, decorations,
-    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, resetParams, move,
+    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setVisibleOn,
+    resetParams, move,
     sourceOptions, graph.issues]);
 }

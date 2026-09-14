@@ -2,20 +2,34 @@
 /**
  * What this chart is compared against.
  *
- * A small control rather than a dialog, because the whole decision is three
- * fields: which instrument, which comparison, and over what window. It sits on
- * the pane because that is what it belongs to — a four-pane layout comparing
- * four different things against four different benchmarks is an ordinary way
- * to use one.
+ * ── TVP8 R4b-06 / R1c-14: the way IN is the symbol search ─────────────────
+ *
+ * This used to be a 512×374 form: a free-text `Instrument` field validated by
+ * a regex, a `Comparison` `<select>`, a window box and a paragraph — under a
+ * title that read
+ *
+ *     Compare instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot with
+ *
+ * three lines deep, because the pane handed it the CANONICAL id. A canonical
+ * id as primary copy is exactly what the contract's symbol-display rule
+ * forbids, and a text field with a regex behind it is the opposite of what
+ * the reference does: TradingView's ⊕ opens THE SYMBOL SEARCH in compare
+ * mode — same panel, same chips, same dropdown row, same 40px rows — and a
+ * row adds an overlay instead of moving the chart.
+ *
+ * So the picker IS `SymbolSearch` now (`mode="compare"`, title `Compare
+ * symbol`), and the three fields that have no equivalent in the reference —
+ * which comparison, over what window, and remove — are a small menu hanging
+ * off the legend's own `vs …` chip, which is where a reader who already has a
+ * comparison goes to change it.
+ *
+ * The pane's own instrument is never touched by either surface.
  */
-import { useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button, FIELD as SHARED_FIELD } from "@/components/ui";
-import { DEFAULT_BENCHMARK, isSelfCompare } from "@/lib/compare";
-import { tryStoredSymbol } from "@/lib/instrument";
+import { Button } from "@/components/ui";
+import { SymbolSearch } from "@/components/tv/SymbolSearch";
+import { displayTicker } from "@/lib/instrument";
 import { DEFAULT_COMPARE_LENGTH, type PaneCompare } from "@/lib/workspace";
-
-const FIELD = `w-full ${SHARED_FIELD}`;
 
 const MODES: { value: PaneCompare["mode"]; label: string; hint: string }[] = [
   {
@@ -46,91 +60,115 @@ const MODES: { value: PaneCompare["mode"]; label: string; hint: string }[] = [
 const WINDOWED: ReadonlySet<PaneCompare["mode"]> =
   new Set<PaneCompare["mode"]>(["correlation", "beta", "zspread"]);
 
+/**
+ * Pick the instrument to compare against.
+ *
+ * `baseTicker` is a TICKER — the type says so, and the dialog never prints a
+ * canonical id. It is not shown in the header at all, because the reference's
+ * compare header is two words; it names the pane for assistive technology and
+ * for the self-comparison notice below.
+ */
 export function CompareControl({
-  open, current, baseSymbol, onClose, onApply,
+  open, current, baseTicker, onClose, onApply,
 }: {
   open: boolean;
   current: PaneCompare | null;
-  baseSymbol: string;
+  /** The pane's own instrument as a ticker — never `instrument:v1:…`. */
+  baseTicker: string;
   onClose: () => void;
   onApply: (next: PaneCompare | null) => void;
 }) {
-  const [symbol, setSymbol] = useState(current?.symbol ?? DEFAULT_BENCHMARK);
-  const [mode, setMode] = useState<PaneCompare["mode"]>(current?.mode ?? "percent");
-  const [length, setLength] = useState(current?.length ?? DEFAULT_COMPARE_LENGTH);
-  const [error, setError] = useState<string | null>(null);
+  return (
+    <SymbolSearch
+      open={open}
+      mode="compare"
+      current={baseTicker}
+      onClose={onClose}
+      /*
+       * A chosen row ADDS an overlay. The pane's symbol is not this dialog's
+       * to change in compare mode — that is the whole difference between the
+       * two modes, and it is the caller that knows it.
+       */
+      onSelect={(symbol) => {
+        onApply({
+          /*
+           * A TICKER, never a canonical id. `setPaneCompare` normalises with
+           * `trim().toUpperCase()`, which would mangle `instrument:v1:…` into
+           * something no resolver answers, and the legend prints this value
+           * verbatim beside `vs`. `displayTicker` is the same form the old
+           * free-text field could produce, so nothing downstream changes.
+           */
+          symbol: displayTicker(symbol),
+          mode: current?.mode ?? "percent",
+          length: current?.length ?? DEFAULT_COMPARE_LENGTH,
+        });
+      }}
+    />
+  );
+}
 
-  const apply = (): void => {
-    const ticker = symbol.trim().toUpperCase();
-    if (!/^[A-Z0-9:]{2,32}$/.test(ticker)) {
-      setError("Enter a symbol like BTCUSDT.");
-      return;
-    }
-    /*
-     * And it has to be an instrument this installation can actually resolve.
-     *
-     * The shape check above passes `COINBASE:BTCUSDT`, which `tryStoredSymbol`
-     * then refuses — correctly, because no second venue is registered — after
-     * which the comparison silently drew nothing and said nothing. Refusing a
-     * venue is right; being quiet about it is not.
-     */
-    if (tryStoredSymbol(ticker) === null) {
-      setError(
-        `${ticker} is not an instrument this installation knows. ` +
-        "Use a bare symbol like BTCUSDT, or one qualified with BINANCE:."
-      );
-      return;
-    }
-    if (!Number.isInteger(length) || length < 2 || length > 1000) {
-      setError("The window must be a whole number from 2 to 1000.");
-      return;
-    }
-    onApply({ symbol: ticker, mode, length });
-    onClose();
+/**
+ * How the comparison is drawn, and the way out of it.
+ *
+ * The secondary half of the old form, reached from the legend's `vs …` chip
+ * rather than standing between a reader and choosing an instrument. Nothing
+ * it says was dropped: the mode hints, the two self-comparison notices and
+ * the returns/prices caveats are the reason a reader can tell a rolling beta
+ * from a pair ratio without reading the source.
+ */
+export function CompareSettings({
+  open, current, baseTicker, onClose, onApply,
+}: {
+  open: boolean;
+  current: PaneCompare | null;
+  baseTicker: string;
+  onClose: () => void;
+  onApply: (next: PaneCompare | null) => void;
+}) {
+  const mode = current?.mode ?? "percent";
+  const length = current?.length ?? DEFAULT_COMPARE_LENGTH;
+  const hint = MODES.find((m) => m.value === mode)?.hint ?? "";
+  const self = current !== null
+    && current.symbol.trim().toUpperCase() === baseTicker.trim().toUpperCase();
+
+  const set = (next: Partial<PaneCompare>): void => {
+    if (!current) return;
+    onApply({ ...current, ...next });
   };
 
-  const hint = MODES.find((m) => m.value === mode)?.hint ?? "";
-
   return (
-    <Modal open={open} onClose={onClose} title={`Compare ${baseSymbol} with`}>
+    <Modal open={open} onClose={onClose} title={`Comparing with ${current?.symbol ?? ""}`.trim()}>
       <div className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm text-ink-muted">
-          Instrument
-          <input
-            className={FIELD}
-            value={symbol}
-            onChange={(e) => { setSymbol(e.target.value); setError(null); }}
-            aria-label="Instrument to compare against"
-            placeholder={DEFAULT_BENCHMARK}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-ink-muted">
-          Comparison
-          <select
-            className={FIELD}
-            value={mode}
-            onChange={(e) => setMode(e.target.value as PaneCompare["mode"])}
-            aria-label="Which comparison"
-          >
-            {MODES.map((m) => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-        </label>
+        <div role="group" aria-label="Which comparison" className="flex flex-col gap-1">
+          {MODES.map((m) => (
+            <button
+              key={m.value}
+              role="menuitemradio"
+              aria-checked={m.value === mode}
+              onClick={() => set({ mode: m.value })}
+              className="tvc-menu-row justify-start px-3 text-sm"
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         {WINDOWED.has(mode) && (
           <label className="flex flex-col gap-1 text-sm text-ink-muted">
             Window, in bars
             <input
-              className={FIELD}
+              className="w-full rounded-md border border-control-border bg-transparent px-2 py-1 text-sm text-ink"
               type="number" min={2} max={1000}
               value={length}
-              onChange={(e) => { setLength(parseInt(e.target.value || "0", 10)); setError(null); }}
+              onChange={(e) => {
+                const next = parseInt(e.target.value || "0", 10);
+                if (Number.isInteger(next) && next >= 2 && next <= 1000) set({ length: next });
+              }}
               aria-label="Rolling window in bars"
             />
           </label>
         )}
         <p className="text-xs text-ink-faint">{hint}</p>
-        {isSelfCompare(baseSymbol, symbol) && (mode === "ratio" || mode === "zspread") && (
+        {self && (mode === "ratio" || mode === "zspread") && (
           /*
            * A pair with itself is a constant 1, and a z-score of a constant is
            * a division by zero. Worth naming separately from the correlation
@@ -142,8 +180,7 @@ export function CompareControl({
             bar, and a z-score of a constant has nothing to measure.
           </p>
         )}
-        {isSelfCompare(baseSymbol, symbol) && (mode === "correlation" || mode === "beta"
-          || mode === "percent") && (
+        {self && (mode === "correlation" || mode === "beta" || mode === "percent") && (
           /*
            * Legal, and worth saying out loud rather than refusing: the
            * correlation is 1 and the beta is 1 by construction, and seeing
@@ -186,7 +223,6 @@ export function CompareControl({
               + "against its own window — it is not a claim that the spread returns."}
           </p>
         )}
-        {error && <p className="text-xs text-down">{error}</p>}
         <div className="flex items-center justify-between gap-2 pt-1">
           <Button
             variant="ghost"
@@ -195,10 +231,7 @@ export function CompareControl({
           >
             Remove comparison
           </Button>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={apply}>Compare</Button>
-          </div>
+          <Button variant="ghost" onClick={onClose}>Done</Button>
         </div>
       </div>
     </Modal>

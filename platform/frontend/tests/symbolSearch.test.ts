@@ -18,7 +18,7 @@ import {
   degradedSources, degradedSummary, describeResult, dialogClosed, matchParts, moveCursor, pressEnter,
   queryChanged, quoteFilters, responseArrived, rowAtCursor, rowDescription, rowTicker, rowTitle,
   rowTypeWords, searchKey, searchSummary, showsExpiry, sourceLabel, typeOptionsFor, venueFilters,
-  venueOptions, type SearchInstrumentType,
+  venueOptions, assetName, reasonForSource, type SearchInstrumentType,
 } from "../lib/symbolSearch";
 import { shortReason } from "../lib/errorCopy";
 import { displayTicker } from "../lib/instrument";
@@ -170,7 +170,18 @@ test("the box opens on the chart's TICKER and the chart's instrument leads the l
   assert.deepEqual(currentFirst([], current), []);
 
   const source = readCode(DIALOG);
-  assert.match(source, /setTerm\(displayTicker\(current\)\)/, "the box opens on the ticker, not the base asset");
+  /*
+   * TVP8 R4b-05/R4b-06 rewrote this assertion rather than deleting it: the
+   * box has three starting terms now — the letter that OPENED the dialog,
+   * empty in compare mode, and otherwise the chart's ticker — so a match on
+   * the bare call no longer describes the code. What it still pins is the
+   * rule this test exists for: the default is `displayTicker(current)` and
+   * never the base asset.
+   */
+  assert.match(source, /displayTicker\(current\)\)/,
+    "the box opens on the ticker, not the base asset");
+  assert.doesNotMatch(source, /setTerm\(current\.baseAsset|setTerm\(baseAsset/,
+    "pre-filling the BASE asset is the defect R4-04 found");
   assert.match(source, /currentFirst\(res\.results, currentRef\.current\)/);
   assert.match(source, /const row = ordered\[0\];/,
     "an armed Enter must select from the ORDERED rows, or it re-introduces the defect");
@@ -181,11 +192,20 @@ test("the box opens on the chart's TICKER and the chart's instrument leads the l
 test("a row says what it is in the reference's words, and keeps every fact one hover away", () => {
   const spot = row({ canonicalId: "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot" });
   assert.equal(rowTicker(spot), "SOLUSDT");
-  assert.equal(rowDescription(spot), "SOL / USDT");
+  /*
+   * R4b-13: the middle column is the instrument's NAME, not the ticker
+   * spelled with a slash. `BTCUSDT` beside `BTC / USDT` said the identity
+   * twice on one 40px row and said the instrument not at all; the reference
+   * spends that column on `Bitcoin / TetherUS`. Rewritten, not deleted — the
+   * claim it protects (the description is not the ticker again) is stronger
+   * now, and the fallback for an asset the table does not know is checked
+   * below.
+   */
+  assert.equal(rowDescription(spot), "Solana / Tether");
   assert.equal(rowTypeWords(spot), "spot crypto");
 
   const perp = row({ instrumentType: "perpetual", baseAsset: "BTC", quoteAsset: "USD" });
-  assert.equal(rowDescription(perp), "BTC / USD perpetual");
+  assert.equal(rowDescription(perp), "Bitcoin / U.S. dollar perpetual");
   assert.equal(rowTypeWords(perp), "perpetual crypto");
 
   const dated = row({ instrumentType: "future", baseAsset: "ES", quoteAsset: "USD",
@@ -195,7 +215,7 @@ test("a row says what it is in the reference's words, and keeps every fact one h
     futures: { contractCode: "ESZ26", chainPosition: "front",
       feed: { status: "auth_subscription_gated", label: "gated", delaySeconds: null },
     } as unknown as SymbolSearchResult["futures"] });
-  assert.equal(rowDescription(dated), "ES / USD Dec 2026");
+  assert.equal(rowDescription(dated), "E-Mini S&P 500 / U.S. dollar Dec 2026");
   assert.equal(rowTypeWords(dated), "futures", "a traditional contract is not crypto futures");
   const title = rowTitle(dated, "other");
   assert.match(title, /ESZ26 · front · auth subscription gated/,
@@ -216,6 +236,10 @@ test("a row says what it is in the reference's words, and keeps every fact one h
   assert.deepEqual(matchParts("Bitcoin / TetherUS", "bit"), { pre: "", hit: "Bit", post: "coin / TetherUS" });
   assert.equal(matchParts("SOL / USDT", ""), null);
   assert.equal(matchParts("SOL / USDT", "zz"), null);
+
+  // An asset the table does not know keeps its code, rather than acquiring a
+  // name this installation cannot stand behind.
+  assert.equal(rowDescription(row({ baseAsset: "XYZ", quoteAsset: "USDT" })), "XYZ / Tether");
 });
 
 /**
@@ -551,4 +575,76 @@ test("a chosen symbol persists canonical identity with a Binance compatibility f
   const source = readCode(DIALOG);
   assert.match(source, /onSelect\(row\.canonicalId \?\? storedSymbol\(row\.symbol\)\)/,
     "canonical results keep identity while legacy Binance rows reduce through the resolver");
+});
+
+/**
+ * TVP8 R4b-09: the popover said "Hover for the reason reported." — inside the
+ * popover that IS the hover.
+ *
+ * Four of the six sources failing on the running installation carried that
+ * sentence as their REASON, because `shortReason` reads a status code out of
+ * prose and falls back to a hover prompt when it finds none. The six live
+ * causes quoted in the review are readable sentences; `reasonForSource`
+ * classifies them and, when it recognises nothing, quotes the cause's own
+ * first clause rather than inventing one.
+ */
+const LIVE_CAUSES = [
+  "bybit endpoints require an API key and signature; no credential was supplied",
+  "official derivative API returned HTTP 451",
+  "HTTP 403 unverified credential",
+  "coinbase futures require an eligible, approved account",
+  "robinhood crypto requires a signed request; no credential is configured",
+  "alpaca returned HTTP 401",
+];
+
+test("a degraded source says why, and never tells the reader to hover for it", () => {
+  const venues = [
+    { id: "ROBINHOOD", label: "Robinhood Crypto" },
+    { id: "BINANCE", label: "Binance" },
+    { id: "BYBIT", label: "Bybit" },
+  ];
+
+  // The stutter: the venue's own LABEL already ends in the slug's tail word.
+  assert.equal(sourceLabel("robinhood-crypto", venues), "Robinhood Crypto",
+    "`Robinhood Crypto Crypto` is the venue label plus a word it already had");
+  assert.equal(sourceLabel("binance-derivatives", venues), "Binance derivatives",
+    "a tail that names a DIFFERENT book is not a stutter and must survive");
+  assert.equal(sourceLabel("bybit-spot", venues), "Bybit");
+
+  const errors = LIVE_CAUSES.map((error, i) => ({ providerId: `venue-${i}`, error }));
+  const down = degradedSources(errors, venues, reasonForSource);
+  for (const source of down) {
+    assert.notEqual(source.reason, "Hover for the reason reported.",
+      `the reason column printed the hover prompt for: ${source.error}`);
+    assert.ok(source.reason.length > 0 && source.reason.length <= 62, source.reason);
+    assert.equal(source.error.length > 0, true, "the raw cause is still kept verbatim");
+  }
+
+  // The classifications the review named, one by one.
+  assert.equal(reasonForSource("official derivative API returned HTTP 451"),
+    "Not available from this region.");
+  assert.equal(reasonForSource("require an API key and signature; no credential was supplied"),
+    "No credential is configured.");
+  assert.equal(reasonForSource("coinbase futures require an eligible, approved account"),
+    "Needs an approved account.");
+  assert.equal(reasonForSource("HTTP 403"), "The venue refused the request.");
+  // Nothing recognised: the cause's first clause, not a fallback sentence.
+  assert.equal(reasonForSource("the upstream answered nonsense; retrying did not help"),
+    "the upstream answered nonsense.");
+
+  // And the chip's tooltip is built from the same function.
+  const stocks = ASSET_CLASS_CHIPS.find((chip) => chip.id === "stocks")!;
+  const why = chipDegradedTitle(stocks,
+    [{ providerId: "alpaca-us-equities", error: "HTTP 403 unverified credential" }], reasonForSource);
+  assert.ok(!(why ?? "").includes("Hover"),
+    "a disabled chip that says `Hover for the reason reported.` says nothing");
+});
+
+test("an instrument's name is a fact from a table, or its code", () => {
+  assert.equal(assetName("BTC"), "Bitcoin");
+  assert.equal(assetName("usdt"), "Tether");
+  assert.equal(assetName("USD"), "U.S. dollar");
+  assert.equal(assetName("WBTC"), "Wrapped Bitcoin");
+  assert.equal(assetName("ZZZ"), "ZZZ", "an unknown asset keeps its code");
+  assert.equal(assetName(""), "");
 });

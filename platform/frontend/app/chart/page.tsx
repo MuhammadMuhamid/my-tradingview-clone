@@ -68,7 +68,10 @@ import { drawingStore } from "@/lib/drawingStore";
 import { cloneDrawing } from "@/lib/drawingHistory";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import type { MenuEntry } from "@/lib/contextMenu";
-import { chartMenu, drawingMenu, priceAxisMenu, timeAxisMenu } from "@/lib/menuPayloads";
+import {
+  CHART_ADD_TO_LIST_PREFIX, chartMenu, drawingMenu, drawingToolName, priceAxisMenu,
+  timeAxisMenu,
+} from "@/lib/menuPayloads";
 import { useShortcuts } from "@/lib/useShortcuts";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
@@ -555,6 +558,23 @@ export default function TvWorkspace() {
   const [alertOpen, setAlertOpen] = useState(false);
   /** Which pane the symbol dialog will retarget, or null when it is closed. */
   const [searchPaneId, setSearchPaneId] = useState<string | null>(null);
+  /**
+   * The letter that opened the dialog, when a letter is what opened it.
+   *
+   * R4b-05: TradingView opens its symbol search on any bare letter with that
+   * character already in the box. Cleared when the dialog closes, so the next
+   * open from the pill starts on the chart's own ticker again.
+   */
+  const [searchSeed, setSearchSeed] = useState<string | undefined>(undefined);
+  /**
+   * Which pane a typed letter retargets, read at the moment of the keystroke.
+   *
+   * `useShortcuts` subscribes once and holds its handlers in a ref, so the
+   * opener must not close over a pane id captured when the page first
+   * rendered — a user who focuses a second chart and types a letter means
+   * THAT chart.
+   */
+  const activeIdRef = useRef("");
 
   // ── drawings (persisted per symbol, shared by every pane on it) ──
   const [tool, setTool] = useState<DrawingTool>("cursor");
@@ -1142,20 +1162,27 @@ export default function TvWorkspace() {
     }).catch(() => {});
   }, [refreshSymbols]);
 
-  // "/" opens symbol search, like TV. ⌘S is the saved-layout hook's.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Never while typing in a field.
-      const el = e.target as HTMLElement | null;
-      const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
-      if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        setSearchPaneId(active.id);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [active.id]);
+  /*
+   * ── R4b-05: a letter over the chart opens the symbol search ──────────────
+   *
+   * TradingView's shortcut sheet says it in four words — "Change symbol: any
+   * letter" — and it is one of the three ways into that dialog, beside the
+   * pill and ⌘K. This product had only the pill and `/`; a letter over the
+   * chart armed a drawing tool instead, because `lib/shortcuts` spent eleven
+   * bare letters on tools. Those letters are now the reference's ⌥ chords
+   * (see §7c-i of the UI contract), which leaves the alphabet free.
+   *
+   * The listener itself is `useShortcuts` — one window listener and one
+   * table, which is the property that file exists to have. A second listener
+   * of this page's own would have had to re-implement the typing guard, the
+   * dialog guard and the interval buffer, and would have raced the first one
+   * for the key. `onTypeSymbol` below is what it calls; the effect this
+   * replaced was the `/`-only opener.
+   */
+  const openSearchWithLetter = useCallback((letter: string) => {
+    setSearchSeed(letter);
+    setSearchPaneId(activeIdRef.current);
+  }, []);
 
 
   // ── workspace actions ──
@@ -1520,6 +1547,26 @@ export default function TvWorkspace() {
   const [selectedDrawings, setSelectedDrawings] = useState<Record<string, string | null>>({});
   /** One clipboard for the workspace, so a copy can be pasted onto any chart. */
   const clipboard = useRef<Drawing | null>(null);
+  /**
+   * The workspace's watchlists, for the chart menu's `Add {TICKER} to
+   * watchlist` row (R8-17).
+   *
+   * Read here rather than lifted out of `Watchlist`: that component owns the
+   * list editing surface and its state is already large, and a right-click on
+   * the chart must be able to offer the row whether or not the watchlist panel
+   * has ever been opened. One GET, at mount, refreshed when the menu is about
+   * to need it — a stale name on a submenu row is a cosmetic error; a missing
+   * route is a functional one.
+   */
+  const [watchlists, setWatchlists] = useState<{ id: string; name: string }[]>([]);
+  const refreshWatchlists = useCallback(() => {
+    api.listWatchlists()
+      .then((rows) => setWatchlists(rows.map((r) => ({ id: r.id, name: r.name }))))
+      // A workspace whose watchlists cannot be read still has a chart. The row
+      // is simply absent, which is what `lists: []` already means in the payload.
+      .catch(() => setWatchlists([]));
+  }, []);
+  useEffect(() => { refreshWatchlists(); }, [refreshWatchlists]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const selectedDrawingId = selectedDrawings[workspace.activePaneId] ?? null;
@@ -1564,7 +1611,7 @@ export default function TvWorkspace() {
         paneId,
         price: null,
         drawingId: null,
-        entries: timeAxisMenu(),
+        entries: timeAxisMenu({ mac: isMacPlatform() }),
       });
       return;
     }
@@ -1585,6 +1632,19 @@ export default function TvWorkspace() {
           percentScale: paneScale(paneId).mode === "percentage",
           indexedScale: paneScale(paneId).mode === "indexedTo100",
           inverted: paneScale(paneId).invert === true,
+          mac: isMacPlatform(),
+          // R8-20: the reference's `Move scale to left` and its `Labels ›` /
+          // `Lines ›` submenus, over the Scales-tab settings this pane holds.
+          onLeft: paneChartSettings(workspace, paneId).scalePlacement === "left",
+          labels: {
+            lastValue: paneChartSettings(workspace, paneId).lastValueLabel,
+            indicatorValue: paneChartSettings(workspace, paneId).indicatorLastValue,
+            dayOfWeek: paneChartSettings(workspace, paneId).dayOfWeekOnLabels,
+          },
+          lines: {
+            lastValue: paneChartSettings(workspace, paneId).lastValueLine,
+            bidAsk: paneChartSettings(workspace, paneId).bidAskLines !== "hidden",
+          },
         }),
       });
       return;
@@ -1599,6 +1659,9 @@ export default function TvWorkspace() {
         price: event.price,
         drawingId: event.drawingId,
         entries: drawingMenu({
+          // R8-21: the reference writes `Add alert on trendline…`; this wrote
+          // "Add alert on this level" whatever had been right-clicked.
+          toolName: drawing ? drawingToolName(drawing.tool) : "drawing",
           locked: drawing?.locked === true,
           hidden: drawing?.hidden === true,
           mac: isMacPlatform(),
@@ -1616,12 +1679,23 @@ export default function TvWorkspace() {
     }
     setMenu({
       at: { x: event.x, y: event.y },
-      label: `${paneSymbol} chart`,
+      /*
+       * R8-18, contract §5: this was `${paneSymbol} chart`, and on a canonical
+       * instrument `paneSymbol` IS the storage key — so the menu announced
+       * itself to a screen reader as
+       * "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot chart". The DOM test
+       * passed only because its fixture symbol happens to be a plain ticker.
+       */
+      label: `${displayTicker(paneSymbol)} chart`,
       kind: "chart",
       paneId,
       price: event.price,
       drawingId: null,
       entries: chartMenu({
+        ticker: paneSymbol,
+        mac: isMacPlatform(),
+        canPaste: clipboard.current !== null,
+        lists: watchlists,
         price: event.price,
         priceLabel: event.price === null ? "" : fmtPrice(event.price),
         replayActive,
@@ -1639,7 +1713,7 @@ export default function TvWorkspace() {
       }),
     });
   }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
-    paneScale, manualState, candleOverlays, classicalOverlays]);
+    paneScale, manualState, candleOverlays, classicalOverlays, watchlists]);
 
   /*
    * One handler per menu, keyed by the menu's own namespace.
@@ -1656,6 +1730,38 @@ export default function TvWorkspace() {
     const price = menu.price;
     const paneId = menu.paneId;
     const scale = paneScale(paneId);
+    const paneSymbol = paneById(workspace, paneId)?.symbol ?? symbol;
+    /** The pane's Scales-tab settings, which the axis submenus toggle. */
+    const chartSettings = paneChartSettings(workspace, paneId);
+    const writeSettings = (next: Partial<ChartSettings>): void => {
+      setWorkspace((ws) => setPaneChartSettings(
+        ws, paneId, { ...paneChartSettings(ws, paneId), ...next }));
+    };
+    /*
+     * R8-17: `Add {TICKER} to watchlist ›`. With one list the parent row is
+     * the action, so it carries the list's own id here.
+     */
+    if (id === "chart:add-to-watchlist" || id.startsWith(CHART_ADD_TO_LIST_PREFIX)) {
+      const listId = id === "chart:add-to-watchlist"
+        ? watchlists[0]?.id ?? null
+        : id.slice(CHART_ADD_TO_LIST_PREFIX.length);
+      const list = watchlists.find((l) => l.id === listId);
+      if (!list) { setToast("This workspace has no watchlist to add to"); return; }
+      api.listWatchlists()
+        .then(async (rows) => {
+          const row = rows.find((r) => r.id === list.id);
+          if (!row) throw new Error("that list no longer exists");
+          if (row.symbols.some((s) => sameSymbol(s, paneSymbol))) {
+            setToast(`${displayTicker(paneSymbol)} is already in ${row.name}`);
+            return;
+          }
+          await api.updateWatchlist(row.id, { symbols: [...row.symbols, paneSymbol] });
+          setToast(`${displayTicker(paneSymbol)} added to ${row.name}`);
+          refreshWatchlists();
+        })
+        .catch((e: Error) => setToast(describeAction(e, "add the symbol to that list").headline));
+      return;
+    }
     switch (id) {
       case "chart:copy-price":
         if (price !== null) copyPrice(price);
@@ -1668,7 +1774,35 @@ export default function TvWorkspace() {
         // this product ever will — that is the alert/automation boundary.
         setPanel("manual");
         return;
-      case "chart:indicators": setIndicatorBrowserOpen(true); return;
+      case "chart:indicators":
+      // R8-17: the reference's own row, which reaches the same browser the
+      // toolbar's `Indicators` control does. One dialog, three routes.
+      case "chart:add-indicator":
+        setIndicatorBrowserOpen(true);
+        return;
+      case "chart:symbol-info":
+        /*
+         * The reference's `Symbol info…` is a read-only card about the
+         * instrument. This product's equivalent is the watchlist panel's
+         * details view, which the panel opens on the focused symbol.
+         */
+        setPanel("watchlist");
+        return;
+      case "chart:paste":
+        // The same clipboard ⌘V reads. `pasteDrawing` is the keyboard's own
+        // handler, so the two routes cannot drift apart.
+        shortcutActionRef.current?.("paste");
+        return;
+      case "chart:text-note":
+        /*
+         * The reference's `Add text note for {TICKER} ⌥N` arms a text tool at
+         * the price under the pointer. Arming the tool is what this product
+         * has; the next click places the note, which is one gesture more than
+         * the reference and zero guesses about where the user wants it.
+         */
+        setTool("text");
+        setToast("Click the chart to place the note");
+        return;
       case "chart:chart-settings": setChartSettingsOpen(true); return;
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
@@ -1691,19 +1825,54 @@ export default function TvWorkspace() {
         setPaneScale(paneId, togglePriceScaleAuto(scale));
         return;
       case "chart:toggle-log":
-      case "axis:toggle-log":
         setPaneScale(paneId, togglePriceScaleMode(scale));
         return;
+      /*
+       * ── R8-20: the axis's four readings are a RADIO group ────────────────
+       *
+       * On the axis menu these four SET a mode rather than toggling one, which
+       * is what `menuitemradio` promises the reader. `chart:toggle-log` above
+       * keeps toggling, because on the chart menu it is a lone switch with no
+       * siblings to be exclusive against.
+       */
+      case "axis:mode-regular":
+        setPaneScale(paneId, setPriceScaleMode(scale, "normal"));
+        return;
+      case "axis:toggle-log":
+        setPaneScale(paneId, setPriceScaleMode(scale, "logarithmic"));
+        return;
       case "axis:toggle-percent":
-        setPaneScale(paneId, togglePercentScale(scale));
+        setPaneScale(paneId, setPriceScaleMode(scale, "percentage"));
         return;
       case "axis:toggle-indexed":
-        setPaneScale(paneId, setPriceScaleMode(
-          scale, scale.mode === "indexedTo100" ? "normal" : "indexedTo100"));
+        setPaneScale(paneId, setPriceScaleMode(scale, "indexedTo100"));
         return;
       case "axis:toggle-invert":
         setPaneScale(paneId, togglePriceScaleInvert(scale));
         return;
+      case "axis:move-left":
+        writeSettings({
+          scalePlacement: chartSettings.scalePlacement === "left" ? "right" : "left",
+        });
+        return;
+      case "axis:label-last-value":
+        writeSettings({ lastValueLabel: !chartSettings.lastValueLabel });
+        return;
+      case "axis:label-indicator-value":
+        writeSettings({ indicatorLastValue: !chartSettings.indicatorLastValue });
+        return;
+      case "axis:label-day-of-week":
+        writeSettings({ dayOfWeekOnLabels: !chartSettings.dayOfWeekOnLabels });
+        return;
+      case "axis:line-last-value":
+        writeSettings({ lastValueLine: !chartSettings.lastValueLine });
+        return;
+      case "axis:line-bid-ask":
+        writeSettings({
+          bidAskLines: chartSettings.bidAskLines === "hidden" ? "line" : "hidden",
+        });
+        return;
+      case "axis:more-settings": setChartSettingsOpen(true); return;
       default: break;
     }
     if (menu.kind !== "drawing" || !menu.drawingId) return;
@@ -1751,7 +1920,8 @@ export default function TvWorkspace() {
       default: return;
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
-    copyPrice, candleOverlays, classicalOverlays]);
+    copyPrice, candleOverlays, classicalOverlays, workspace, symbol, watchlists,
+    refreshWatchlists, setTool]);
 
   /*
    * What the palette can reach. Every one of these is the SAME handler the
@@ -1876,6 +2046,7 @@ export default function TvWorkspace() {
   const shortcuts = useShortcuts({
     onAction: runShortcutAction,
     onInterval: (next) => changePaneInterval(workspace.activePaneId, next),
+    onTypeSymbol: openSearchWithLetter,
     /*
      * ── TVP8 round two: the picker used to switch the keyboard off ───────────
      *
@@ -1891,6 +2062,7 @@ export default function TvWorkspace() {
      * open the picker but never close it.
      */
   }, { replayActive });
+  activeIdRef.current = active.id;
 
   /**
    * "Hide indicators" (R2b-03): every study on the focused pane hidden at
@@ -2067,7 +2239,22 @@ export default function TvWorkspace() {
         left-rail column — and so does this one now. The rails and the panel
         start below it, on the second row.
       */}
-      <div className="relative flex h-[38px] shrink-0 items-stretch bg-surface">
+      {/*
+        ── TVP8 R1c-13: `min-h`, not `h` ──────────────────────────────────────
+
+        This row was a HARD 38px, and `ChartToolbar` renders two rows: the
+        primary bar, and the `More` strip under it when it is open. The strip
+        was laid out at y=43 inside a 38px box and painted over by the chart
+        canvas below — `elementFromPoint` on every one of its five groups
+        returned the CANVAS, and the screenshot with `More` open was pixel
+        identical to the one without it except for the pressed chip. A toggle
+        that does nothing visible is worse than an absent one.
+
+        A minimum rather than a fixed height: the bar is 38px at rest, exactly
+        as measured, and the workspace below moves down by the strip's own
+        height only while the strip is open.
+      */}
+      <div className="relative flex min-h-[38px] shrink-0 items-stretch bg-surface">
         <ProductMenu variant="rail" onOpenShortcuts={() => setShortcutsOpen(true)} />
         {/*
           The chart's title is the symbol and timeframe already shown in the
@@ -2169,22 +2356,24 @@ export default function TvWorkspace() {
         rails' first cell lands at y=48 (38 + 4 + 6px of rail padding).
       */}
       <div className="flex min-h-0 flex-1 gap-1 bg-bg pt-1">
-      {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
-      <div className="hidden md:flex">
+      {/*
+        ── left drawing rail — one permanent column at every width (R2c-14) ──
+
+        It used to be `hidden md:flex` beside a phone-only modal drawer: a 50%
+        black backdrop over the whole viewport, a close cell, and the same
+        fifteen cells at 52×44 because of the coarse-pointer minimum. Three
+        costs came with that. The rail was MODAL on the surface where drawing
+        needs the chart visible underneath it; the cells moved, so the muscle
+        memory a rail exists for did not survive the rotation; and the last
+        cell fell off the bottom of an 844px screen.
+
+        The reference keeps the column — 52px wide, the same 52×38 cells at the
+        same y's, the chart starting at x=56 — at 390×844. So does this, and
+        `globals.css` scopes the 44px touch minimum out of the rail to let it.
+      */}
+      <div className="flex">
         <DrawingToolbar {...drawingToolbarProps} />
       </div>
-      {toolsOpen && (
-        <>
-          <button
-            aria-label="Close drawing tools"
-            onClick={() => setToolsOpen(false)}
-            className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          />
-          <div className="fixed left-0 top-0 z-40 h-full md:hidden">
-            <DrawingToolbar {...drawingToolbarProps} floating onClose={() => setToolsOpen(false)} />
-          </div>
-        </>
-      )}
 
       {/* ── main column ── */}
       <div className="flex min-w-0 flex-1 flex-col">
@@ -2430,6 +2619,8 @@ export default function TvWorkspace() {
         onParam={(key, param, value) => activeNativeStudies?.setParam(key, param, value)}
         onStyle={(key, plotId, style) => activeNativeStudies?.setStyle(key, plotId, style)}
         onReset={(key) => activeNativeStudies?.resetParams(key)}
+        /* R6b-29: the study dialog's Visibility tab, backed by the pane. */
+        onVisibleOn={(key, visibleOn) => activeNativeStudies?.setVisibleOn(key, visibleOn)}
         sourceOptions={(key) => activeNativeStudies?.sourceOptions(key) ?? []}
       />
 
@@ -2501,7 +2692,8 @@ export default function TvWorkspace() {
         onOpenInEditor={openInEditor}
         searchPaneId={searchPaneId}
         searchSymbol={(searchPaneId ? paneById(workspace, searchPaneId)?.symbol : symbol) ?? symbol}
-        onCloseSearch={() => setSearchPaneId(null)}
+        searchSeed={searchSeed}
+        onCloseSearch={() => { setSearchPaneId(null); setSearchSeed(undefined); }}
         onSelectSymbol={(s) => { if (searchPaneId) changePaneSymbol(searchPaneId, s); }}
         onSymbolAdded={refreshSymbols}
         maAlerts={maAlerts}

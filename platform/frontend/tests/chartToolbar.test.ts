@@ -147,21 +147,44 @@ test("the toolbar's markers appear in the registry's order", () => {
   }
 });
 
-test("nothing on the primary row is a word except the ticker, the chips, the layout name and Trade", () => {
+test("nothing on the primary row is a word except the ticker, the chips, the layout name, Trade — and, at 2xl, TradingView's own three", () => {
   /*
    * The owner's screenshot: `Last close 77,799 · 9,999 bars · Unnamed` in
    * prime toolbar space, plus `Indicators`, `Replay`, `Alert`, `Trade`, `Sync`
-   * as labels at wide widths. The reference's controls are icon-only; the only
-   * words on its bar are the ticker, the interval chips, the layout name and
-   * the two pills. So: no readout prop, no label class, no count badge.
+   * as labels at wide widths. The reference's controls are icon-only at 1440
+   * and the only words on its bar are the ticker, the interval chips, the
+   * layout name and the two pills. So: no readout prop, no count badge, and no
+   * per-control label class.
+   *
+   * ── TVP8 R1c-17: rewritten, because the blanket ban was wrong at 1920 ─────
+   *
+   * This test used to forbid the string `TOOL_LABEL` outright. Measured on
+   * `tradingview/tv-shell-1920x1080-dark.png`, the reference grows a label on
+   * exactly three cells above 1536 — `Indicators` (x 654–715), `Alert`
+   * (811–840), `Replay` (889–930) — and on nothing else. A rule that says
+   * "never a word" therefore forbids parity at the one width where the
+   * reference has words, so the rule is now the reference's own: at most those
+   * three, each hidden until `2xl`, and every other cell icon-only at every
+   * width. The readout and the badge are still banned outright, because the
+   * reference has neither at any width.
    */
   const source = readCode(TOOLBAR);
   assert.doesNotMatch(source, /readout/, "the price/bar-count readout must not exist on the bar");
-  assert.doesNotMatch(source, /labelClass|density\.label|TOOL_LABEL/, "there are no text labels beside icons");
+  assert.doesNotMatch(source, /labelClass|density\.label/, "no per-control label class");
   assert.doesNotMatch(source, /bg-accent px-1\.5 text-\[10px\]/, "no count badge on Indicators");
   assert.doesNotMatch(read("app/chart/page.tsx"), /readout=\{/, "the page no longer supplies a readout");
   assert.match(source, /<TradeButton/, "Trade is a pill, rendered from one component");
   assert.match(source, /TOOL_PILL_OUTLINE/);
+
+  // The three, and only the three.
+  const labelled = [...source.matchAll(/<WideLabel>([^<]+)<\/WideLabel>/g)].map((m) => m[1]);
+  assert.deepEqual(labelled, ["Indicators", "Alert", "Replay"],
+    "the reference labels these three cells at 1920 and no others");
+  // And they are invisible below the breakpoint the reference draws them at.
+  assert.match(source, /function WideLabel[\s\S]{0,400}?2xl:inline/,
+    "a label that is not gated on 2xl is a label at 1440, where the reference has none");
+  assert.match(source, /TOOL_LABELLED_BUTTON = `\$\{TOOL_ICON_BUTTON\} 2xl:w-auto`/,
+    "the cell has to give up its fixed 38px width at the same breakpoint");
 });
 
 test("the secondary tier is a deliberate set, not whatever did not fit", () => {

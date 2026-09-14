@@ -50,3 +50,44 @@ test("ON A FIRST RUN THE DEFAULT LIST IS SEEDED FROM THE TRACKED SYMBOLS, NOT FR
   assert.equal(rows.some((t) => t.startsWith("SOLUSDT")) && rows.some((t) => t.startsWith("BTCUSDT")), true,
     "both tracked symbols must be rows in the seeded list");
 });
+
+/**
+ * ── TVP8 R7b-03: the ticker cell had 30 pixels ─────────────────────────────
+ *
+ * The row's grid was `24px minmax(0,1fr) 72px 70px 60px` with `gap-x-1` on top
+ * of it, in a panel whose content was 296 wide rather than 300 (the gutter was
+ * being painted twice — R7b-05). Sixteen pixels went to four column gaps and
+ * four to the duplicated band, and the cell that paid was the one with
+ * `1fr`: a computed 30px, so the reviewer's rows read `BTC▏`, `ETH▏`, `LINK`,
+ * `AVA)` against the reference's six glyphs at 50px.
+ *
+ * ── Why this asserts the template and not `clientWidth` ────────────────────
+ *
+ * jsdom does no layout: `clientWidth` is 0 for every element on this page
+ * whatever the product does, so an assertion on it would pass for the wrong
+ * reason and keep passing if the grid were deleted. What IS real here is the
+ * inline `grid-template-columns` the row builds — the widths are no longer a
+ * Tailwind literal because the `⋯` menu chooses which columns exist (R7b-08),
+ * and a `grid-cols-[…]` assembled at runtime is a class Tailwind never emits.
+ * The measured 50px ticker is verified at the browser, in the capture set.
+ */
+test("R7b-03 — THE ROW'S FIVE COLUMNS ARE THE REFERENCE'S WIDTHS, WITH NOTHING SPENT ON GAPS", async () => {
+  const release = server.hold((request) => request.method === "GET" && request.path === "/api/symbols");
+  const chart = await mountChart();
+  await settle();
+  release();
+  await settle(6);
+
+  const button = chart.container.querySelector<HTMLElement>(
+    `[data-watchlist-row="${CANONICAL.BTCUSDT}"] button`);
+  assert.ok(button, "the seeded list has no BTC row to measure");
+  assert.equal(button.style.gridTemplateColumns, "24px minmax(0,1fr) 72px 70px 60px",
+    "the mark, the ticker and Last / Chg / Chg% as the reference measures them");
+  assert.equal(button.className.includes("gap-x-"), false,
+    "16px of a 300px panel spent on column gaps is 16px the ticker does not have");
+
+  const ticker = button.querySelector<HTMLElement>("[data-ticker]");
+  assert.ok(ticker, "the row has no ticker cell");
+  assert.match(ticker.style.maskImage ?? "", /linear-gradient\(to right/,
+    "the reference's ticker cell FADES at its right edge; ours clipped mid-glyph");
+});

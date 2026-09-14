@@ -28,6 +28,8 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { fireEvent, within } from "@testing-library/react";
 import { advance, closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
 import { CANONICAL, searchResponse } from "./harness/market";
@@ -163,11 +165,22 @@ test("a class whose only provider is down is offered, disabled, and says why", a
 
 test("the footer counts the failing sources and names them by venue, on demand", async () => {
   const { dialog } = await openDialog();
-  const indicator = within(dialog).getByRole("status", { name: "3 sources unavailable" });
+  /*
+   * TVP8 R4b-08 rewrote the query rather than the claim: the indicator is a
+   * BUTTON with `aria-expanded` now, and `role="status"` sits on the text it
+   * announces, not on the control. A live region is not a control, and it was
+   * the only thing in the footer a keyboard user could reach — and reaching
+   * it closed the whole dialog (R4b-04).
+   */
+  const indicator = within(dialog).getByRole("button", { name: "3 sources unavailable" });
   assert.match(indicator.textContent ?? "", /3 sources unavailable/);
+  assert.equal(indicator.getAttribute("aria-expanded"), "false");
+  assert.ok(indicator.querySelector('[role="status"]'),
+    "the count is still announced; it is the text that is the live region");
 
   fireEvent.click(indicator);
   await settle();
+  assert.equal(indicator.getAttribute("aria-expanded"), "true");
   const popover = (dialog.textContent ?? "").replace(/\s+/g, " ");
   for (const label of ["Alpaca U.S. Equities", "Bybit", "Binance derivatives"]) {
     assert.ok(popover.includes(label), `${label} is not named in the popover`);
@@ -244,4 +257,308 @@ test("open, then Enter, cannot change the symbol", async () => {
     assert.equal(symbol, CURRENT,
       "the fastest gesture in the dialog changed the chart's instrument");
   }
+});
+
+/* ── TVP8 R4b ─────────────────────────────────────────────────────────────
+ *
+ * Everything below was found on the LIVE build by the after-review and was
+ * green in this file, because the defects are either a class the workstation's
+ * global CSS defeats or a key handler that never asked who the target was.
+ *
+ * jsdom serves no stylesheet, so where a rule is defeated by `globals.css` the
+ * pair is: the component's class here, AND the defeating rule's exception read
+ * out of `app/globals.css` — plus a measured number in the capture report.
+ * Where the defect is behaviour, the behaviour itself is asserted.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+const CSS = fs.readFileSync(path.join(process.cwd(), "app", "globals.css"), "utf8");
+
+test("R4b-01 the chips are pills, and the selected one is not a chrome control", async () => {
+  const { dialog } = await openDialog();
+  const selected = chip(dialog, "Crypto");
+  const rest = chip(dialog, "Forex");
+
+  /*
+   * `.tvc-control` forces `background-color: transparent` on the ELEMENT and
+   * paints state on an inset `::before`, at a specificity (0,2,0) these
+   * utilities (0,1,0) cannot reach. On the live build that left every
+   * unselected chip with no pill at all and painted the selected one
+   * `--ts-state-active` (#3d3d3d) under `--ts-menu-selected-ink` (#0f0f0f) —
+   * dark ink on dark grey, about 2.3:1.
+   */
+  for (const control of [selected, rest]) {
+    assert.ok(!control.className.split(/\s+/).includes("tvc-control"),
+      "a chip is a pill, not a chrome control: `.tvc-control` erases its ground");
+  }
+  assert.match(selected.className, /bg-\[var\(--ts-menu-selected-bg\)\]/);
+  assert.match(selected.className, /text-\[var\(--ts-menu-selected-ink\)\]/);
+  assert.match(rest.className, /bg-state-hover/);
+  assert.ok(!rest.className.includes("--ts-menu-selected-bg"),
+    "the pressed chip and the rest must not share a class list");
+
+  // And the selection is still DECLARED, not only painted.
+  assert.equal(selected.getAttribute("aria-pressed"), "true");
+  assert.equal(rest.getAttribute("aria-pressed"), "false");
+});
+
+test("R4b-02 / R4b-10 the box is framed, not ringed, and its text is 16px", async () => {
+  const { dialog } = await openDialog();
+  const box = dialog.querySelector<HTMLInputElement>("input");
+  assert.ok(box, "the dialog has no search box");
+
+  /*
+   * The accent ring was drawn on EVERY open, because the dialog focuses its
+   * box the moment it exists. `globals.css`'s `:focus-visible` (0,1,0 plus a
+   * pseudo-class) beats the element's `outline-none` utility, so the fix has
+   * to be a rule in the same file — and this is the pair jsdom allows: the
+   * hook the rule selects on, and the rule itself.
+   */
+  assert.equal(dialog.getAttribute("data-symbol-search"), "symbol",
+    "the CSS exception selects on this attribute");
+  assert.match(CSS,
+    /\[role="dialog"\]\[data-symbol-search\] input:focus-visible \{\s*outline: none;/,
+    "the accent focus ring is drawn on every open without this exception");
+
+  /*
+   * And the size: `:is(.tv-workstation,.ts-app) input { font-size: inherit }`
+   * scores (0,1,1) and beat the plain `text-[16px]` utility (0,1,0), so the
+   * box rendered at 14px while its class said 16.
+   */
+  assert.match(box.className, /!text-\[16px\]/,
+    "a plain text-[16px] loses to the workstation's `input { font-size: inherit }`");
+  assert.match(CSS, /:is\(\.tv-workstation, \.ts-app\) button,\n:is\(\.tv-workstation, \.ts-app\) input/,
+    "the rule this `!` exists to defeat is still there — if it goes, drop the `!`");
+});
+
+test("R4b-03 the ticker column is a fixed width, so nothing is truncated to fit itself", async () => {
+  const { dialog } = await openDialog();
+  const rows = rowsOf(dialog);
+  assert.ok(rows.length > 0);
+  for (const row of rows) {
+    assert.match(row.className, /grid-cols-\[24px_211px_minmax\(0,1fr\)_auto_auto_20px\]/,
+      "the middle column moved 89px between two queries of the same dialog");
+    assert.ok(!row.className.includes("--ss-ticker"),
+      "a `ch`-sized column is the width of `0`, and capitals are wider — `WBTCUSDT` printed `WBTCU…`");
+  }
+  const list = dialog.querySelector<HTMLElement>('[data-idx="0"]')?.parentElement;
+  assert.ok(list && !(list.getAttribute("style") ?? "").includes("--ss-ticker"),
+    "the list no longer publishes a ticker width for its rows to read");
+});
+
+test("R4b-04 Enter belongs to the box and the rows, not to every focused control", async () => {
+  const { dialog, selected } = await openDialog();
+
+  // A chip: Enter must press the CHIP. jsdom does not synthesise a click from
+  // Enter, so the click is fired separately — what is under test is that the
+  // dialog did not swallow the key and close on the cursor row.
+  const forex = chip(dialog, "Forex");
+  forex.focus();
+  fireEvent.keyDown(forex, { key: "Enter", bubbles: true });
+  await settle();
+  assert.deepEqual(selected, [], "Enter on a chip selected a symbol and closed the dialog");
+  fireEvent.click(forex);
+  await advance(220);
+  assert.equal(chip(dialog, "Forex").getAttribute("aria-pressed"), "true");
+
+  // The Clear button.
+  const clear = within(dialog).getByRole("button", { name: "Clear the search" });
+  clear.focus();
+  fireEvent.keyDown(clear, { key: "Enter", bubbles: true });
+  await settle();
+  assert.deepEqual(selected, [], "Enter on Clear selected a symbol and closed the dialog");
+
+  // A filter trigger.
+  const trigger = within(dialog).getByRole("button", { name: "Filter by venue" });
+  trigger.focus();
+  fireEvent.keyDown(trigger, { key: "Enter", bubbles: true });
+  await settle();
+  assert.deepEqual(selected, [], "Enter on a filter trigger selected a symbol and closed the dialog");
+
+  // And the box itself still owns it. Back to `All` first, because `Forex`
+  // answers nothing for a crypto ticker and an empty list has no cursor row —
+  // which would make this assertion pass for the wrong reason.
+  fireEvent.click(chip(dialog, "All"));
+  await advance(220);
+  assert.ok(rowsOf(dialog).length > 0, "the fixture answered nothing — this proves nothing");
+  const box = dialog.querySelector<HTMLInputElement>("input")!;
+  box.focus();
+  fireEvent.keyDown(box, { key: "Enter", bubbles: true });
+  await advance(220);
+  assert.ok(selected.length > 0, "Enter in the box must still select the cursor row");
+});
+
+test("R4b-04 ↓ on a closed filter trigger opens its menu instead of moving the rows", async () => {
+  const { dialog } = await openDialog();
+  const trigger = within(dialog).getByRole("button", { name: "Filter by venue" });
+  trigger.focus();
+  fireEvent.keyDown(trigger, { key: "ArrowDown", bubbles: true });
+  await settle();
+  assert.ok(dialog.querySelector('[role="menu"]'), "↓ on a menu button opens the menu");
+  assert.equal(trigger.getAttribute("aria-expanded"), "true");
+});
+
+test("R4b-07 Escape closes the menu, then the dialog, and no outsider gets the key", async () => {
+  /*
+   * The live build took THREE presses and, on the first one, moved focus to
+   * the toolbar's symbol pill — outside the modal. The cause was a
+   * window-level Escape listener belonging to another component
+   * (`ChartSidePanel`) running alongside the dialog's own, `preventDefault`ing
+   * and restoring its own focus. A dialog is modal to the keyboard layer, so
+   * this asserts it against a deliberately hostile competing listener.
+   *
+   * The panel-side half of R4b-07 — the dialog guard inside `ChartSidePanel`
+   * itself — is another implementer's; this is the dialog's half, and it holds
+   * whether or not that one lands.
+   */
+  const outside = document.createElement("button");
+  outside.textContent = "outside";
+  document.body.appendChild(outside);
+  let heard = 0;
+  const hostile = (e: KeyboardEvent): void => {
+    if (e.key !== "Escape") return;
+    heard += 1;
+    e.preventDefault();
+    outside.focus();
+  };
+  window.addEventListener("keydown", hostile);
+  try {
+    let closed = 0;
+    const view = render(
+      <SymbolSearch open current={CURRENT} onClose={() => { closed += 1; }} onSelect={() => {}} />
+    );
+    await settle();
+    await advance(220);
+    const dialog = view.baseElement.querySelector<HTMLElement>('[role="dialog"]')!;
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Filter by venue" }));
+    await settle();
+    assert.ok(dialog.querySelector('[role="menu"]'), "the venue menu did not open");
+
+    fireEvent.keyDown(document.activeElement ?? window, { key: "Escape", bubbles: true });
+    await settle();
+    assert.equal(dialog.querySelector('[role="menu"]'), null, "Escape 1 must close the menu");
+    assert.equal(closed, 0, "Escape 1 must not close the dialog under an open menu");
+    assert.equal(heard, 0, "a window listener outside the modal got a key aimed at it");
+    assert.ok(dialog.contains(document.activeElement),
+      "focus left the modal on the first Escape");
+
+    fireEvent.keyDown(document.activeElement ?? window, { key: "Escape", bubbles: true });
+    await settle();
+    assert.equal(closed, 1, "Escape 2 must close the dialog — two presses, not three");
+    assert.equal(heard, 0);
+  } finally {
+    window.removeEventListener("keydown", hostile);
+    outside.remove();
+  }
+});
+
+test("R4b-08 the sources popover opens on a click and never closes on one", async () => {
+  const { dialog, selected } = await openDialog();
+  const indicator = within(dialog).getByRole("button", { name: "3 sources unavailable" });
+
+  fireEvent.click(indicator);
+  await settle();
+  const shown = (): boolean => indicator.getAttribute("aria-expanded") === "true";
+  assert.equal(shown(), true, "a click must open it");
+
+  // The live defect: `onMouseEnter` opened and `onClick` toggled, so a click
+  // while hovering CLOSED what the hover had opened and a tap never showed it.
+  fireEvent.mouseEnter(indicator);
+  fireEvent.click(indicator);
+  await settle();
+  assert.equal(shown(), true, "a second click closed what hover had opened");
+
+  // Keyboard: Enter must not reach the dialog's Enter branch (R4b-04).
+  fireEvent.keyDown(indicator, { key: "Enter", bubbles: true });
+  await settle();
+  assert.deepEqual(selected, [], "Enter on the indicator closed the whole dialog");
+
+  // Escape closes the POPOVER first, and leaves the dialog standing.
+  fireEvent.keyDown(indicator, { key: "Escape", bubbles: true });
+  await settle();
+  assert.equal(shown(), false, "Escape must close the popover");
+  assert.ok(dialog.isConnected, "…and not the dialog with it");
+});
+
+test("R4b-09 nothing in the popover tells the reader to hover for the reason", async () => {
+  const { dialog } = await openDialog();
+  fireEvent.click(within(dialog).getByRole("button", { name: "3 sources unavailable" }));
+  await settle();
+  const said = (dialog.textContent ?? "").replace(/\s+/g, " ");
+  assert.ok(!said.includes("Hover for the reason reported"),
+    "the popover that IS the hover told the reader to hover for the reason");
+  for (const name of ["Stocks", "Funds"]) {
+    assert.ok(!(chip(dialog, name).getAttribute("title") ?? "").includes("Hover"),
+      `${name}'s reason is a sentence, not a prompt to do what the reader is already doing`);
+  }
+});
+
+test("R4b-11 / R4b-12 / R4b-14 the glyphs, the hairline and the panel's edge", async () => {
+  const { dialog } = await openDialog();
+
+  // The close glyph: 18px of a 24 viewBox at full ink, not 16px at muted.
+  const close = within(dialog).getByRole("button", { name: "Close" });
+  const cross = close.querySelector("svg")!;
+  assert.equal(cross.getAttribute("width"), "18");
+  assert.match(close.className, /text-ink\b/);
+  assert.ok(!close.className.includes("text-ink-muted"),
+    "the reference's × is the same ink as the title beside it");
+
+  // The magnifier: 20px, r=8.5 — the live one measured 12×12 against 19×19.
+  const magnifier = dialog.querySelector<SVGElement>("svg circle")?.parentElement;
+  assert.ok(magnifier, "the box has no magnifier");
+  assert.equal(magnifier.getAttribute("width"), "20");
+  assert.equal(magnifier.querySelector("circle")?.getAttribute("r"), "8.5");
+
+  // The row hairline is `--ts-state-active` (#3d3d3d), not `--ts-border`.
+  const row = rowsOf(dialog)[0]!;
+  assert.match(row.className, /border-\[var\(--ts-state-active\)\]/);
+  assert.ok(!/border-border\b/.test(row.className));
+
+  // The type words are 13px, not `text-xs`.
+  const words = [...row.querySelectorAll<HTMLElement>("span")]
+    .find((el) => /^(spot|perpetual|futures|forex|index|stock|etf)/.test(el.textContent ?? ""));
+  assert.ok(words, "the row no longer says what kind of instrument it is");
+  assert.match(words.className, /text-\[13px\]/);
+
+  // The panel's shadow is a STYLE: the arbitrary-value utility never resolved,
+  // so the live panel read `box-shadow: none` over the backdrop.
+  assert.equal(dialog.style.boxShadow, "var(--ts-popover-shadow)");
+  assert.ok(!dialog.className.includes("shadow-[var(--ts-popover-shadow)]"));
+
+  // And each filter trigger is a 28px chip with 12px of padding.
+  const trigger = within(dialog).getByRole("button", { name: "Filter by venue" });
+  assert.match(trigger.className, /\bh-7\b/);
+  assert.match(trigger.className, /\bpx-3\b/);
+});
+
+test("R4b-13 the middle column is the instrument, not the ticker spelled again", async () => {
+  const { dialog } = await openDialog();
+  const row = rowsOf(dialog)[0]!;
+  const said = (row.textContent ?? "").replace(/\s+/g, " ");
+  assert.match(said, /SOLUSDT/, "the ticker is still the ticker");
+  assert.match(said, /Solana \/ Tether/,
+    "`SOLUSDT` beside `SOL / USDT` is the identity twice on one 40px row");
+  assert.ok(!said.includes("SOL / USDT"));
+});
+
+test("R4b-05 a seeded box continues what the user typed, rather than selecting over it", async () => {
+  /*
+   * The page-level half of this — a letter over the chart opening the dialog
+   * at all — is `tests/dom/keyboard.test.tsx`. This is the dialog's half: a
+   * seed is a STARTING POINT. The unseeded box opens on the chart's ticker
+   * with the whole of it selected, so the next keystroke replaces it; doing
+   * that to a seed would delete the letter the user had just pressed.
+   */
+  const view = render(
+    <SymbolSearch open current={CURRENT} seed="e" onClose={() => {}} onSelect={() => {}} />
+  );
+  await settle();
+  await advance(220);
+  const box = view.baseElement.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  assert.equal(box.value, "e");
+  assert.equal(box.selectionStart, 1);
+  assert.equal(box.selectionEnd, 1);
+  assert.equal(asked.at(-1)?.searchParams.get("q"), "e",
+    "the seeded term is what the dialog searched for");
 });

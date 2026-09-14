@@ -7,8 +7,8 @@ import {
   ALL_QUOTES, ALL_TYPES, ALL_VENUES, ASSET_CLASS_CHIPS, EXPIRY_LABELS, EXPIRY_OPTIONS, LIVE_EXPIRIES,
   NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, TYPE_LABELS, chipById, chipDegradedTitle, chipForInstrument,
   chipTypeDefault, currentFirst, degradedSources, degradedSummary, dialogClosed, matchParts, moveCursor,
-  pressEnter, queryChanged, quoteFilters, responseArrived, rowAtCursor, rowDescription, rowTicker,
-  rowTitle, rowTypeWords, searchKey, searchSummary, showsExpiry, typeOptionsFor, venueOptions,
+  pressEnter, queryChanged, quoteFilters, reasonForSource, responseArrived, rowAtCursor, rowDescription,
+  rowTicker, rowTitle, rowTypeWords, searchKey, searchSummary, showsExpiry, typeOptionsFor, venueOptions,
   type SearchAssetClass, type SearchExpiry, type SearchInstrumentType, type SearchIntent,
 } from "@/lib/symbolSearch";
 import { displayTicker, storedSymbol } from "@/lib/instrument";
@@ -139,9 +139,37 @@ function VenueMark({ label }: { label: string }) {
   );
 }
 
-export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }: {
+/**
+ * What a chosen row DOES.
+ *
+ * `symbol` replaces the pane's instrument; `compare` adds an overlay and
+ * leaves the pane's own instrument alone. Same panel, same bands, same rows —
+ * which is what the reference does, and why the comparison entry is no longer
+ * a 512px form with a text field and a regex behind it (R4b-06 / R1c-14).
+ */
+export type SymbolSearchMode = "symbol" | "compare";
+
+const TITLES: Readonly<Record<SymbolSearchMode, string>> = Object.freeze({
+  symbol: "Symbol search", compare: "Compare symbol",
+});
+
+export function SymbolSearch({
+  open, current, mode = "symbol", seed, onClose, onSelect, onSymbolAdded,
+}: {
   open: boolean;
   current: string;
+  /** `compare` adds an overlay instead of moving the pane. */
+  mode?: SymbolSearchMode;
+  /**
+   * The letter that OPENED the dialog.
+   *
+   * TradingView opens its symbol search on any printable key pressed over the
+   * chart, with that character already in the box. When the caller passes one
+   * the box starts from it with the caret at the end rather than from the
+   * chart's own ticker selected — typing `e` must not leave `BTCUSDT`
+   * highlighted and about to be replaced by the NEXT key.
+   */
+  seed?: string;
   onClose: () => void;
   onSelect: (symbol: string) => void;
   /** a new pair was registered locally — refresh the caller's symbol list */
@@ -194,6 +222,11 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   const menuCursorRef = useRef(0);
   menuCursorRef.current = menuCursor;
   const menusRef = useRef<FilterMenu[]>([]);
+  /** Whether the footer's sources popover is showing, for the key handler. */
+  const sourcesRef = useRef(false);
+  sourcesRef.current = sourcesOpen;
+  /** The indicator and its popover, so a pointer outside them dismisses it. */
+  const sourcesBoxRef = useRef<HTMLDivElement>(null);
 
   // Fresh dialog every time it opens, pre-seeded with the chart's own TICKER
   // so Enter re-selects it and typing replaces it (the selection is
@@ -201,7 +234,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
   useEffect(() => {
     if (!open) return;
     const chart = chipForInstrument(current);
-    setTerm(displayTicker(current));
+    /*
+     * Three ways in, three starting terms.
+     *
+     *   a letter typed on the chart  that letter, caret at the end;
+     *   compare mode                 empty — "open, Enter" must not compare
+     *                                the chart with itself;
+     *   everything else              the chart's own ticker, selected.
+     */
+    setTerm(seed !== undefined && seed.length > 0 ? seed : mode === "compare" ? "" : displayTicker(current));
     setChip(chart);
     setQuote(ALL_QUOTES);
     setVenue(ALL_VENUES);
@@ -219,7 +260,14 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       ? null : (document.activeElement as HTMLElement | null);
     const t = setTimeout(() => {
       inputRef.current?.focus();
-      inputRef.current?.select();
+      // A seeded box continues what the user started typing; selecting it
+      // would make their second keystroke delete their first.
+      if (seed !== undefined && seed.length > 0) {
+        const at = inputRef.current?.value.length ?? 0;
+        inputRef.current?.setSelectionRange(at, at);
+      } else {
+        inputRef.current?.select();
+      }
     }, 0);
     return () => {
       clearTimeout(t);
@@ -229,7 +277,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       const target = restoreTo.current;
       if (target?.isConnected) target.focus();
     };
-  }, [open, current, bumpIntent]);
+  }, [open, current, mode, seed, bumpIntent]);
 
   /*
    * Closing drops the armed Enter AND invalidates every request in flight.
@@ -321,7 +369,9 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
       }
       // The one place a chosen symbol leaves this dialog. Reduced through the
       // canonical resolver so the pane, the workspace and every request that
-      // follows receive the bare stored ticker — see `lib/instrument`.
+      // follows receive the bare stored ticker — see `lib/instrument`. In
+      // compare mode the same value means "overlay this", and the caller is
+      // the one that knows the pane's comparison is not its symbol.
       onSelect(row.canonicalId ?? storedSymbol(row.symbol));
       onClose();
     } catch (e) {
@@ -346,51 +396,95 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
      * dialog that closed out from under an open menu on one Escape is how a
      * user loses the query they had typed.
      */
+    /*
+     * A key this dialog CONSUMES stops here.
+     *
+     * R4b-07: the workstation is full of window-level Escape listeners —
+     * `ChartSidePanel`, `LayoutSelector`, `SyncMenu`, the toolbar — and a
+     * bubble-phase listener registered by an open dialog is simply one of
+     * them, in mount order. So the first Escape over an open filter menu ran
+     * the side panel's handler as well, which `preventDefault`ed, closed the
+     * panel and pulled focus to a toolbar button OUTSIDE the modal. Capturing
+     * and stopping immediately is how `ChartSettingsModal` already does it,
+     * and it makes the dialog modal to the keyboard layer by construction
+     * rather than by every other listener remembering to check.
+     */
+    const claim = (e: KeyboardEvent): void => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    };
     const handleMenuKey = (e: KeyboardEvent, openId: string): void => {
       const key = e.key;
       const model = menusRef.current.find((item) => item.id === openId);
-      if (key === "Escape") { e.preventDefault(); e.stopPropagation(); setMenu(null); return; }
+      if (key === "Escape") { claim(e); setMenu(null); return; }
       if (key === "ArrowDown" || key === "ArrowUp") {
-        e.preventDefault();
+        claim(e);
         setMenuCursor((c) => moveCursor(c, key === "ArrowDown" ? 1 : -1, model?.options.length ?? 0));
         return;
       }
       if (key === "Enter") {
-        e.preventDefault();
+        claim(e);
         const option = model?.options[menuCursorRef.current];
         if (option && !option.disabled) { model?.pick(option.value); setMenu(null); }
       }
     };
     const onKey = (e: KeyboardEvent) => {
+      // Escape order is popover → menu → dialog, innermost first.
+      if (e.key === "Escape" && sourcesRef.current) { claim(e); setSourcesOpen(false); return; }
       const openMenuId = menuRef.current;
       if (openMenuId !== null) { handleMenuKey(e, openMenuId); return; }
       if (e.key === "Escape") {
-        e.preventDefault();
+        claim(e);
         intent.current = dialogClosed();
         onClose();
         return;
       }
+      /*
+       * ── R4b-04: Enter and the arrows belong to the box and the rows ───────
+       *
+       * The Enter branch used to run for EVERY target. A keyboard user on the
+       * `Forex` chip pressed Enter and the dialog closed on the cursor row
+       * instead of pressing the chip; the same for `Clear the search`, for a
+       * filter trigger and for the sources indicator — three controls and a
+       * whole filter axis unreachable without a mouse. The window listener is
+       * how the box and the list share one cursor; it is not a licence to
+       * take the activation key off every focused control inside the panel.
+       */
+      const target = e.target as HTMLElement | null;
+      const trigger = target?.closest?.('[aria-haspopup="menu"]') as HTMLElement | null;
+      if (trigger && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        // The arrows open a closed menu rather than moving the row cursor
+        // behind it, which is what every menu button on the web does.
+        const model = menusRef.current.find((item) => item.name === trigger.getAttribute("aria-label"));
+        if (model) {
+          claim(e);
+          setMenu(model.id);
+          setMenuCursor(Math.max(0, model.options.findIndex((o) => o.value === model.value)));
+          return;
+        }
+      }
+      const ownsKey = target === null || target === inputRef.current
+        || target.matches?.("[data-idx]") === true;
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         setCursor((c) => moveCursor(c, e.key === "ArrowDown" ? 1 : -1, rows.length));
         return;
       }
       if (e.key === "Enter") {
+        if (!ownsKey) return;
         // Results that answer a previous query are not an answer to this one.
         // Selecting from them is exactly the defect: see the module header.
         const decision = pressEnter(intent.current, `${searchKey(term, quote, venue, type, expiry)}|${chip}`);
         intent.current = decision.intent;
         if (decision.action === "flush") {
-          // Only now is Enter this dialog's key. Left un-prevented above, a
-          // keyboard user on a chip or the Clear button keeps their ordinary
-          // Enter-to-activate.
-          e.preventDefault();
+          claim(e);
           bumpIntent();
           flushSearch.current?.();
           return;
         }
         const row = rowAtCursor(rows, cursor);
-        if (row) { e.preventDefault(); void choose(row); }
+        if (row) { claim(e); void choose(row); }
         return;
       }
       if (e.key !== "Tab") return;
@@ -411,8 +505,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         first.focus();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
     // `intentVersion` is a deliberate re-subscribe trigger, not a value read.
   }, [open, rows, intentVersion, term, quote, venue, type, expiry, chip, cursor, choose, onClose, bumpIntent]);
 
@@ -433,6 +527,28 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     return () => window.removeEventListener("mousedown", onDown, true);
   }, [open, menu]);
 
+  /*
+   * The sources popover dismisses on a pointer outside it — not on a second
+   * click of the thing that opened it.
+   *
+   * R4b-08: the indicator opened on `onMouseEnter` AND toggled on `onClick`,
+   * so a click while hovering CLOSED what the hover had opened, a tap (which
+   * is enter + click) could never show it at all, and it was unreachable by
+   * keyboard. Open is now open — hover, click, Enter and Space all say the
+   * same thing — and it closes on Escape, on a pointer elsewhere, or on the
+   * pointer leaving the footer cluster.
+   */
+  useEffect(() => {
+    if (!open || !sourcesOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node | null;
+      if (target !== null && sourcesBoxRef.current?.contains(target)) return;
+      setSourcesOpen(false);
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
+  }, [open, sourcesOpen]);
+
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {
     if (cursor < 0) return;
@@ -442,9 +558,9 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
 
   if (!open) return null;
 
-  const down = degradedSources(errors, venues, shortReason);
+  const down = degradedSources(errors, venues, reasonForSource);
   const typeChoices = typeOptionsFor(chip);
-  const sources = venueOptions({ venues, rows, chip, selected: venue, errors, reason: shortReason });
+  const sources = venueOptions({ venues, rows, chip, selected: venue, errors, reason: reasonForSource });
   const menus: FilterMenu[] = [
     {
       id: "venue", name: "Filter by venue", value: venue,
@@ -479,10 +595,6 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
     }] : []),
   ];
   menusRef.current = menus;
-  // TradingView sizes the ticker column to the widest ticker in the answer;
-  // a per-row grid cannot align across rows, so the width is a variable the
-  // list owns and every row reads.
-  const tickerChars = Math.min(24, Math.max(7, ...rows.map((r) => rowTicker(r).length)));
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/60">
@@ -491,7 +603,15 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Symbol search"
+        aria-label={TITLES[mode]}
+        /*
+          One hook for the two rules the workstation's global CSS would
+          otherwise win: the accent focus ring (R4b-02) and — in a light theme
+          — anything else that needs to know this surface is the search. An
+          `aria-label` selector could not do it once the dialog grew a second
+          title in compare mode.
+        */
+        data-symbol-search={mode}
         aria-describedby="symbol-search-keys"
         /*
           The dialog surface, not a second one, at the reference's own place
@@ -502,20 +622,31 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         */
         className="absolute left-1/2 top-[110px] flex h-[680px] max-h-[calc(100vh-140px)] w-[840px]
           max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-md bg-popover
-          shadow-[var(--ts-popover-shadow)] max-sm:top-4 max-sm:h-[calc(100vh-32px)]"
+          max-sm:top-4 max-sm:h-[calc(100vh-32px)]"
+        /*
+          R4b-14: `shadow-[var(--ts-popover-shadow)]` does not resolve — the
+          arbitrary-value shadow utility needs a literal, so the panel read
+          `box-shadow: none` and sat on the backdrop with no edge at all. The
+          same variable applied directly is what `.tvc-popover` does, and that
+          one renders.
+        */
+        style={{ boxShadow: "var(--ts-popover-shadow)" }}
       >
         {/* The keyboard contract, said to a screen reader instead of printed
             in the footer, which the reference spends on one sentence. */}
         <p id="symbol-search-keys" className="sr-only">↑↓ navigate · Enter select · Esc close</p>
 
         <div className="flex h-[68px] shrink-0 items-center justify-between px-5">
-          <h2 className="text-xl font-semibold text-ink">Symbol search</h2>
+          <h2 className="text-xl font-semibold text-ink">{TITLES[mode]}</h2>
           {/* Composed rather than `IconButton`, which is fixed at 28×28: the
-              reference's close is a 34×34 hit box with a 16px glyph. */}
+              reference's close is a 34×34 hit box whose INK measures 14×14 at
+              the same ink value as the title. R4b-11: an 18px svg drawing
+              6→18 of a 24 viewBox left an 8×8 mark at `text-ink-muted`,
+              barely half the reference's glyph and a step darker. */}
           <button onClick={onClose} title="Close" aria-label="Close"
-            className="tvc-control -mr-2 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md text-ink-muted hover:text-ink">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
+            className="tvc-control -mr-2 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md text-ink">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M5 5l14 14M19 5L5 19" />
             </svg>
           </button>
         </div>
@@ -523,8 +654,10 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         {/* search box — grey at rest and grey while focused, as the reference
             is; the caret and the selected text are what say where focus is. */}
         <div className="mx-5 flex h-10 shrink-0 items-center gap-2 rounded-md border border-control-border px-3">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0 text-ink-faint" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+          {/* R4b-11: the reference's magnifier ink is 19×19; an 18px svg with
+              r=7 of a 24 viewBox drew 12×12. */}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0 text-ink-muted" aria-hidden="true">
+            <circle cx="11" cy="11" r="8.5" /><path d="M21 21l-4.6-4.6" />
           </svg>
           <input
             ref={inputRef}
@@ -532,7 +665,13 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
             onChange={(e) => setTerm(e.target.value)}
             placeholder="Symbol"
             aria-label={`Search ${SEARCH_VENUE} ${SEARCH_MARKET}`}
-            className="w-full bg-transparent text-[16px] leading-6 text-ink outline-none placeholder:text-ink-faint"
+            /*
+              R4b-10: the utility is `!`-important because
+              `:is(.tv-workstation,.ts-app) input { font-size: inherit }`
+              scores (0,1,1) and beats a plain `text-[16px]` (0,1,0) — the box
+              rendered at 14px while the class said 16.
+            */
+            className="w-full bg-transparent !text-[16px] leading-6 text-ink outline-none placeholder:text-ink-faint"
           />
           {term && (
             <button onClick={() => { setTerm(""); inputRef.current?.focus(); }} title="Clear" aria-label="Clear the search"
@@ -553,7 +692,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         */}
         <div role="group" aria-label="Asset class" className="mt-4 flex h-7 shrink-0 gap-[5px] px-5">
           {ASSET_CLASS_CHIPS.map((item) => {
-            const disabledWhy = chipDegradedTitle(item, errors, shortReason);
+            const disabledWhy = chipDegradedTitle(item, errors, reasonForSource);
             return (
               <button
                 key={item.id}
@@ -567,9 +706,23 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                 aria-pressed={chip === item.id}
                 aria-disabled={disabledWhy ? "true" : undefined}
                 title={disabledWhy ?? undefined}
-                className={`tvc-control h-7 shrink-0 rounded-full px-3 text-sm ${chip === item.id
+                /*
+                  ── R4b-01: a chip is a PILL, not a chrome control ──────────
+                  `.tvc-control` exists for toolbar and rail buttons: it forces
+                  `background-color: transparent` on the element and paints
+                  state on an inset `::before`. Both halves are wrong here.
+                  The transparent declaration (0,2,0) beat these utilities
+                  (0,1,0), so an unselected chip had NO pill at all — it read
+                  as bare text on the dialog ground — and the `::before`
+                  painted the SELECTED chip `--ts-state-active` (#3d3d3d)
+                  under `--ts-menu-selected-ink` (#0f0f0f): dark ink on dark
+                  grey, about 2.3:1. The reference's chips are filled #2e2e2e
+                  pills, inverted to #f2f2f2 when selected.
+                */
+                className={`h-7 shrink-0 rounded-full px-3 text-sm leading-7 transition-colors ${
+                  disabledWhy ? "cursor-not-allowed opacity-50 " : ""}${chip === item.id
                   ? "bg-[var(--ts-menu-selected-bg)] text-[var(--ts-menu-selected-ink)]"
-                  : "bg-state-hover text-ink"}`}
+                  : "bg-state-hover text-ink hover:bg-state-active"}`}
               >
                 {item.label}
               </button>
@@ -580,9 +733,13 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         {/* Venue, product type, quote asset and — for futures — expiry. One
             borderless row of labels with chevrons, not four bands of
             controls stacked between the reader and the first result. */}
-        <div className="mt-[18px] flex h-6 shrink-0 items-center gap-6 px-5">
+        {/* R4b-14: each trigger is a 28px chip with 12px of padding, so its
+            hover ground is a control rather than a 2px inset on a 20px box,
+            and its text starts at x=332 as the reference's does. The ROW
+            stays 24px at the same offset, so the cap ink does not move. */}
+        <div className="mt-[18px] flex h-6 shrink-0 items-center gap-2 px-5">
           {menus.map((model) => (model.options.length === 0 ? (
-            <span key={model.id} className="text-sm text-ink">{model.trigger}</span>
+            <span key={model.id} className="px-3 text-sm text-ink">{model.trigger}</span>
           ) : (
             <div key={model.id} className="relative">
               <button
@@ -594,7 +751,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                   setMenu(next);
                   setMenuCursor(Math.max(0, model.options.findIndex((o) => o.value === model.value)));
                 }}
-                className="tvc-control inline-flex items-center gap-1.5 rounded-md text-sm text-ink"
+                className="tvc-control inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-sm text-ink"
               >
                 {model.trigger}
                 <CaretGlyph size={10} />
@@ -624,8 +781,7 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         </div>
 
         {/* results */}
-        <div ref={listRef} className="mt-[10px] min-h-0 flex-1 overflow-y-auto"
-          style={{ ["--ss-ticker" as string]: `${tickerChars}ch` }}>
+        <div ref={listRef} className="mt-[10px] min-h-0 flex-1 overflow-y-auto">
           {err && (
             <div role="alert" className="px-5 py-6 text-center">
               <p className="text-sm text-ink">Symbol search is unavailable.</p>
@@ -647,7 +803,16 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
             const isCurrent = (r.canonicalId ?? r.symbol) === current;
             const venueLabel = venues.find((v) => v.id === r.venueId)?.label ?? r.venueId ?? SEARCH_VENUE;
             const description = rowDescription(r);
+            const ticker = rowTicker(r);
             const hit = matchParts(description, term);
+            /*
+             * R4b-13: the description is the instrument's NAME now, so a term
+             * that matched the CODE (`BTC` against `Bitcoin / Tether`) no
+             * longer matches the description at all. The mark moves to the
+             * ticker in that case rather than disappearing — the accent still
+             * says "this is the part you typed", which is the whole grammar.
+             */
+            const tickerHit = hit === null ? matchParts(ticker, term) : null;
             return (
               <button
                 key={r.canonicalId ?? `${r.venueId ?? "BINANCE"}:${r.symbol}`}
@@ -656,16 +821,31 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                 onClick={() => void choose(r)}
                 aria-current={isCurrent ? "true" : undefined}
                 title={rowTitle(r, current)}
-                className={`grid h-10 w-full grid-cols-[24px_var(--ss-ticker,7ch)_minmax(0,1fr)_auto_auto_20px] items-center gap-x-2
-                  border-b border-border px-5 text-left ${i === cursor
+                /*
+                  ── R4b-03: the ticker column is FIXED at 211px ─────────────
+                  It used to be `max(7, widest ticker) ch`, which moved the
+                  description column 89px between two queries of the same
+                  dialog and — because `ch` is the width of `0` and capitals
+                  are wider — truncated `WBTCUSDT` to `WBTCU…` inside a cell
+                  sized from its own text. The reference's description starts
+                  at x=563 whatever it answered; 24 + 8 + 211 + 8 from the
+                  panel's 320px content edge is exactly that.
+                */
+                className={`grid h-10 w-full grid-cols-[24px_211px_minmax(0,1fr)_auto_auto_20px] items-center gap-x-2
+                  border-b border-[var(--ts-state-active)] px-5 text-left ${i === cursor
                   ? "outline outline-2 -outline-offset-2 outline-[var(--ts-menu-selected-bg)]"
                   : "hover:bg-state-hover"}`}
               >
                 <AssetMark asset={r.baseAsset} />
                 {/* accent-is-meaning: the ticker is the link — the reference's
                     row grammar spends accent on the instrument's name and on
-                    nothing else in this list. */}
-                <span className="truncate text-sm text-accent">{rowTicker(r)}</span>
+                    nothing else in this list. `truncate` is a guard now, not
+                    the layout: the column is wider than any ticker. */}
+                <span className="truncate text-sm text-accent">
+                  {tickerHit === null ? ticker : <>
+                    {tickerHit.pre}<span className="underline decoration-accent">{tickerHit.hit}</span>{tickerHit.post}
+                  </>}
+                </span>
                 <span className="truncate text-sm text-ink">
                   {hit === null ? description : <>
                     {hit.pre}
@@ -676,7 +856,8 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
                     {hit.post}
                   </>}
                 </span>
-                <span className="shrink-0 text-right text-xs text-ink-faint">{rowTypeWords(r)}</span>
+                {/* R4b-12: the reference's type words are ~13px; `text-xs` is 12. */}
+                <span className="shrink-0 text-right text-[13px] text-ink-faint">{rowTypeWords(r)}</span>
                 <span className="shrink-0 truncate text-sm text-ink">{venueLabel}</span>
                 <VenueMark label={venueLabel} />
               </button>
@@ -692,13 +873,25 @@ export function SymbolSearch({ open, current, onClose, onSelect, onSymbolAdded }
         <div className="relative flex h-10 shrink-0 items-center justify-center bg-state-hover text-[13px] text-ink-faint">
           <span role="status">{searchSummary({ busy, shown: rows.length, total })}</span>
           {down.length > 0 && (
-            <div className="absolute right-5">
-              <button role="status" aria-label={degradedSummary(down.length)}
-                onClick={() => setSourcesOpen((v) => !v)}
-                onMouseEnter={() => setSourcesOpen(true)}
-                onMouseLeave={() => setSourcesOpen(false)}
+            <div ref={sourcesBoxRef} className="absolute right-5"
+              onMouseEnter={() => setSourcesOpen(true)}
+              onMouseLeave={() => setSourcesOpen(false)}>
+              {/*
+                R4b-08: open is open.
+
+                This used to open on `mouseEnter` and TOGGLE on `click`, so a
+                click while hovering closed what the hover had opened; a tap,
+                which is an enter followed by a click, therefore never showed
+                it at all. The count keeps `role="status"`, the button carries
+                `aria-expanded`, and hover, click, Enter and Space all mean
+                "show me" — Escape, a pointer elsewhere and leaving the
+                cluster are what mean "hide".
+              */}
+              <button aria-label={degradedSummary(down.length)}
+                aria-expanded={sourcesOpen}
+                onClick={() => setSourcesOpen(true)}
                 className="flex items-center gap-1.5 rounded text-xs text-ink-faint hover:text-ink">
-                {degradedSummary(down.length)}
+                <span role="status">{degradedSummary(down.length)}</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
                   <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 7.6v.6" />
                 </svg>

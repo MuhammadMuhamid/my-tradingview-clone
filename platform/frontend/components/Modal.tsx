@@ -43,7 +43,7 @@ const FOCUSABLE =
  */
 export function Modal({
   title, open, onClose, children, footer, wide = false, panelClassName = "", contentClassName = "",
-  headerClassName = "", scrollBody = true,
+  headerClassName = "", footerClassName = "", scrollBody = true,
 }: {
   title: ReactNode;
   open: boolean;
@@ -57,6 +57,16 @@ export function Modal({
   contentClassName?: string;
   /** Optional header sizing for a dialog with a measured header height. */
   headerClassName?: string;
+  /**
+   * Optional footer sizing for a dialog with a measured footer height.
+   *
+   * R6b-02: the reference's settings footer is 67px — a 34px button with 17
+   * above it and 16 below, against this component's `py-3` 12/12, so every
+   * dialog in the product sat 8px shallower than the one it is copied from.
+   * Passed rather than re-tokened here because 59px is right for the small
+   * confirms (`AskDialog`) and 67 is right for the measured settings dialogs.
+   */
+  footerClassName?: string;
   /**
    * Whether the body is the scroller.
    *
@@ -238,7 +248,7 @@ export function Modal({
         </div>
         <div className={`min-h-0 flex-1 ${scrollBody ? "overflow-y-auto" : "flex flex-col"} px-5 py-4 ${contentClassName}`}>{children}</div>
         {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <div className={`flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3 ${footerClassName}`}>
             {footer}
           </div>
         )}

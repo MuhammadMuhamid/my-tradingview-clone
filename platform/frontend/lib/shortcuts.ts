@@ -160,9 +160,31 @@ export interface Binding {
 /**
  * The table.
  *
- * Single letters are tool selections, matching what a chart user expects from
- * every other charting product. Everything destructive or stateful takes a
- * modifier, so nothing irreversible is one keystroke away from a stray press.
+ * ── TVP8 R4b-05: a bare letter belongs to the SYMBOL, not to a tool ────────
+ *
+ * This table used to give single letters to tool selections — `t` trendline,
+ * `h` horizontal, `f` fib, `x` text, `m` magnet, `l` lock, `j` hide, `i`
+ * indicators, `b` replay, `r` reset, `p` panel, `d` stay-in-drawing-mode.
+ * TradingView gives EVERY bare letter to one thing: it opens the symbol
+ * search with that letter already typed ("Change symbol: any letter"), and
+ * puts the drawing tools on ⌥-chords — ⌥T, ⌥H, ⌥J, ⌥V, ⌥C, ⌥F, ⇧⌥R — which
+ * this table has advertised on the rail's flyout rows since TVP7.
+ *
+ * Since the owner's rule is that live TradingView is the spec for a shared
+ * surface, the bare letters are gone and each tool keeps the ⌥ chord it was
+ * already printing. Actions the reference has no chord for keep their letter
+ * under ⌥ (⌥X text, ⌥M magnet, ⌥B replay), and the three whose same-letter ⌥
+ * chord the reference has already spent go one modifier further (⇧⌥D stay in
+ * drawing mode, ⇧⌥L lock, ⇧⌥P bottom panel) rather than taking a chord the
+ * reference means for something else. `hide-drawings` takes the reference's
+ * own ⌘⌥H. `/` moves to Indicators and `,`-style number typing still means
+ * the interval, both as the reference has them.
+ *
+ * `docs/TRADING_SCENE_UI_UX_CONTRACT.md` §7c holds the policy; this table is
+ * what implements it, and the rail, the sheet and the palette all read it.
+ *
+ * Everything destructive or stateful still takes a modifier, so nothing
+ * irreversible is one keystroke away from a stray press.
  */
 export const BINDINGS: readonly Binding[] = [
   { action: "undo", key: "z", mod: true, label: "Undo", group: "Edit" },
@@ -176,37 +198,48 @@ export const BINDINGS: readonly Binding[] = [
 
   { action: "tool:cursor", key: "Escape", label: "Back to the cursor", group: "Drawing tools" },
   /*
-   * Two chords per tool, on purpose.
+   * One chord per tool, and it is the reference's.
    *
-   * The bare letters are this product's own and are documented in the palette
-   * and this sheet; the ⌥ chords are the reference's, and they are what its
-   * flyout rows print beside the tool. A user arriving from the reference
-   * presses ⌥T; a user who learned it here presses T. Both are cheap, neither
-   * collides, and the rail reads its printed cap off THIS table rather than
-   * hard-coding a string that could drift from what the keyboard does.
+   * The bare twins (`t`, `h`, `v`, `f`) are gone: a bare letter now opens the
+   * symbol search with that letter in the box, which is what TradingView does
+   * with every letter of the alphabet. The rail reads its printed cap off
+   * THIS table rather than hard-coding a string, so its flyout rows follow.
    */
-  { action: "tool:trend", key: "t", label: "Trendline", group: "Drawing tools" },
   { action: "tool:trend", key: "t", alt: true, label: "Trendline", group: "Drawing tools" },
-  { action: "tool:horizontal", key: "h", label: "Horizontal line", group: "Drawing tools" },
   { action: "tool:horizontal", key: "h", alt: true, label: "Horizontal line", group: "Drawing tools" },
-  { action: "tool:vertical", key: "v", label: "Vertical line", group: "Drawing tools" },
   { action: "tool:vertical", key: "v", alt: true, label: "Vertical line", group: "Drawing tools" },
-  { action: "tool:fib", key: "f", label: "Fibonacci retracement", group: "Drawing tools" },
   { action: "tool:fib", key: "f", alt: true, label: "Fibonacci retracement", group: "Drawing tools" },
-  // The reference's remaining rail chords. ⌥-only: the bare letters are taken
-  // (J hides drawings, C would collide with copy on a plain press).
   { action: "tool:horizontal-ray", key: "j", alt: true, label: "Horizontal ray", group: "Drawing tools" },
   { action: "tool:crossline", key: "c", alt: true, label: "Crossline", group: "Drawing tools" },
   { action: "tool:rectangle", key: "r", alt: true, shift: true, label: "Rectangle", group: "Drawing tools" },
-  { action: "tool:text", key: "x", label: "Text", group: "Drawing tools" },
-  { action: "magnet", key: "m", label: "Magnet", group: "Drawing tools" },
-  { action: "stay-in-drawing-mode", key: "d", label: "Stay in drawing mode", group: "Drawing tools" },
-  { action: "lock-drawings", key: "l", label: "Lock drawings", group: "Drawing tools" },
-  { action: "hide-drawings", key: "j", label: "Hide drawings", group: "Drawing tools" },
+  // No reference chord: the letter this product taught, promoted to ⌥.
+  { action: "tool:text", key: "x", alt: true, label: "Text", group: "Drawing tools" },
+  { action: "magnet", key: "m", alt: true, label: "Magnet", group: "Drawing tools" },
+  // ⌥D is the reference's data window and ⌥L its log scale, so these two go
+  // one modifier further rather than taking a chord that means something else
+  // to a user arriving from it.
+  { action: "stay-in-drawing-mode", key: "d", alt: true, shift: true, label: "Stay in drawing mode", group: "Drawing tools" },
+  { action: "lock-drawings", key: "l", alt: true, shift: true, label: "Lock drawings", group: "Drawing tools" },
+  // The reference's own chord for this one.
+  { action: "hide-drawings", key: "h", mod: true, alt: true, label: "Hide drawings", group: "Drawing tools" },
 
-  { action: "symbol-search", key: "/", label: "Symbol search", group: "Navigation" },
-  { action: "indicators", key: "i", label: "Indicators", group: "Navigation" },
+  /*
+   * The symbol search has no chord of its own, because its chord is EVERY
+   * letter: `app/chart/page.tsx` opens it, seeded, on any bare printable
+   * letter this table does not claim. Declared here so the command palette
+   * and the shortcuts sheet still offer it — that is what `chordless` is for.
+   */
+  { action: "symbol-search", key: "", chordless: true, label: "Symbol search — type any letter", group: "Navigation" },
+  { action: "indicators", key: "/", label: "Indicators", group: "Navigation" },
   { action: "chart-settings", key: ",", mod: true, label: "Chart settings", group: "Navigation" },
+  /*
+   * R8: the reference opens this sheet with ⌘/, from its own product menu row.
+   *
+   * `?` stays as an alias — the reference binds nothing to it, so it collides
+   * with nothing, and it is what this product taught. Both are declared, so
+   * the sheet prints both caps and `resolveShortcut` answers to both.
+   */
+  { action: "shortcuts-sheet", key: "/", mod: true, label: "Keyboard shortcuts", group: "Navigation" },
   { action: "shortcuts-sheet", key: "?", label: "Keyboard shortcuts", group: "Navigation" },
   { action: "command-palette", key: "k", mod: true, label: "Search tool or function", group: "Navigation" },
   /*
@@ -227,8 +260,11 @@ export const BINDINGS: readonly Binding[] = [
    * `p`, not `b`: `b` is Bar Replay, and the replay tests caught the collision
    * on the first run — which is what a keyboard table that two suites read is
    * for.
+   *
+   * TVP8 R4b-05: ⇧⌥P rather than the bare `p`, because a bare letter is the
+   * symbol search now. ⌥P alone is the reference's percent scale.
    */
-  { action: "bottom-panel", key: "p", label: "Positions, tester and Pine editor", group: "Navigation" },
+  { action: "bottom-panel", key: "p", alt: true, shift: true, label: "Positions, tester and Pine editor", group: "Navigation" },
   /*
    * TVP8 round two: ⌘⇧C was Chrome's element inspector.
    *
@@ -239,16 +275,24 @@ export const BINDINGS: readonly Binding[] = [
    * the palette, and no chord the browser will take first. ⌘⇧S is free and
    * stays.
    *
-   * Alt is not an option here: `resolveShortcut` rejects every Alt press on
-   * purpose, because Alt+ArrowLeft is Back and must stay Back.
+   * TVP8 R1c-12: the reference's camera menu prints ⌥⌘S beside `Download
+   * image` and ⇧⌘S beside `Copy image`, and the menu now reads THIS table to
+   * draw those caps — so a cap it prints is a chord that works, or there is no
+   * cap. Both are available: ⌥⌘S was unreachable while the sentence above this
+   * one was true, and it no longer is. `resolveShortcut` claims Alt binding by
+   * binding rather than rejecting every Alt press, so Alt+ArrowLeft is still
+   * the browser's Back — see the comment in that function. ⌘⇧S moves from Save
+   * to Copy, which is where the reference has it, and neither is a chord
+   * Chrome takes first (⌘⇧C, the obvious copy chord, is the element inspector
+   * and is the reason this pair was broken in the first place).
    */
-  { action: "snapshot-save", key: "s", mod: true, shift: true, label: "Save a chart image", group: "Chart" },
-  { action: "snapshot-copy", key: "", chordless: true, label: "Copy a chart image", group: "Chart" },
+  { action: "snapshot-save", key: "s", mod: true, alt: true, label: "Save a chart image", group: "Chart" },
+  { action: "snapshot-copy", key: "s", mod: true, shift: true, label: "Copy a chart image", group: "Chart" },
   { action: "fullscreen", key: "F", shift: true, label: "Fullscreen", group: "Chart" },
-  // ⌘⇧R is a cache-bypassing reload the page cannot cancel. Resetting the view
-  // is neither destructive nor persistent, so it can have the bare key.
-  { action: "reset-view", key: "r", label: "Reset the view", group: "Chart" },
-  { action: "toggle-log", key: "l", mod: true, shift: true, label: "Logarithmic scale", group: "Chart" },
+  // The reference's own ⌥R and ⌥L. `r` and `l` used to be bare; a bare letter
+  // is the symbol search now (R4b-05).
+  { action: "reset-view", key: "r", alt: true, label: "Reset the view", group: "Chart" },
+  { action: "toggle-log", key: "l", alt: true, label: "Logarithmic scale", group: "Chart" },
   { action: "toggle-auto", key: "a", mod: true, shift: true, label: "Auto scale", group: "Chart" },
 
   /*
@@ -256,11 +300,12 @@ export const BINDINGS: readonly Binding[] = [
    * was no keyboard or palette route INTO a session and none out of one. The
    * only way to leave was a 12px × at the end of a strip below the chart.
    *
-   * `b` for Bar Replay: bare, because entering and leaving a replay is exactly
-   * as reversible as `r` for reset-view, which this table gives a bare key on
-   * the same reasoning. Not `replayOnly`, because it is the way in.
+   * ⌥B for Bar Replay. The reference has no chord for entering a session at
+   * all, and `b` was bare here until R4b-05 gave every bare letter to the
+   * symbol search; ⌥B is free on the reference's own sheet. Not `replayOnly`,
+   * because it is the way in.
    */
-  { action: "replay-toggle", key: "b", label: "Bar Replay", group: "Replay" },
+  { action: "replay-toggle", key: "b", alt: true, label: "Bar Replay", group: "Replay" },
   { action: "replay-step-back", key: "ArrowLeft", replayOnly: true, label: "Step back", group: "Replay" },
   { action: "replay-step-forward", key: "ArrowRight", replayOnly: true, label: "Step forward", group: "Replay" },
   { action: "replay-play-pause", key: " ", replayOnly: true, label: "Play / pause", group: "Replay" },

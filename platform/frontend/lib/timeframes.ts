@@ -50,14 +50,42 @@ export interface ResolutionGroup {
  * `tests/timeframes.test.ts` asserts exactly that rather than trusting the list
  * to have been typed correctly.
  *
- * The seconds are TradingView's own set minus `45s`, plus `1s`, which Binance
- * publishes directly. The minutes and hours add `10m`, `45m` and `3h`, each a
- * whole multiple of a stored interval. Nothing longer than a day is offered:
- * see `lib/resolution` for why a week is not arithmetic.
+ * The seconds are TradingView's own set, plus `1s`, which Binance publishes
+ * directly. The minutes and hours add `10m`, `45m` and `3h`, each a whole
+ * multiple of a stored interval.
+ *
+ * ── TVP8 R1c-09: what was added, and what could not be ────────────────────
+ *
+ * ADDED, because `lib/resolution` can fold them from bars the venue publishes
+ * and the backend's own copy of that module agrees: `45s` (45 × 1s, the one
+ * entry of TradingView's Seconds run this list was missing) and `2m` (2 × 1m).
+ *
+ * NOT ADDED — `1W`, `1M`, `3M`, `6M`, `12M`. The review asks for them and the
+ * market layer cannot serve them, which is a data fact rather than a menu
+ * decision: `lib/resolution` caps a resolution at one day (`MAX_RESOLUTION_MS
+ * = DAY_MS`, `MAX_COUNT.d = 1`), its parser accepts only `[smhd]`, and the
+ * file exists BYTE FOR BYTE as `backend/src/data/resolution.ts` with a test
+ * that fails the build if the two copies diverge. A week is 7 exact days and
+ * could in principle be folded; a month, a quarter and a year cannot — their
+ * length varies and their anchor is a venue policy, not arithmetic — so the
+ * module refuses all of them rather than serve three real resolutions and
+ * three invented ones under one heading. Offering the rows without the bars
+ * behind them is the one thing a parity campaign must not copy. Recorded in
+ * the round-4 report for the owner: lifting the ceiling is a market-layer
+ * change on both sides of the wire, not a toolbar change.
+ *
+ * KEPT against the review's default — `6h`, `8h`, `12h`. TradingView's Hours
+ * run is 1/2/3/4 and the review's default was to delete the other three. They
+ * are intervals the candle store actually HOLDS (`types.INTERVAL_VALUES`), and
+ * `tests/timeframes.test.ts` pins the invariant that every stored interval
+ * stays reachable from this picker — the module was written because five
+ * served intervals had fallen off the toolbar once already. Removing a served
+ * resolution to match a menu is a functional regression dressed as parity, so
+ * these stay until the owner says otherwise.
  */
 export const RESOLUTION_CATALOGUE: readonly ResolutionGroup[] = [
-  { label: "Seconds", items: ["1s", "5s", "10s", "15s", "30s"] },
-  { label: "Minutes", items: ["1m", "3m", "5m", "10m", "15m", "30m", "45m"] },
+  { label: "Seconds", items: ["1s", "5s", "10s", "15s", "30s", "45s"] },
+  { label: "Minutes", items: ["1m", "2m", "3m", "5m", "10m", "15m", "30m", "45m"] },
   { label: "Hours", items: ["1h", "2h", "3h", "4h", "6h", "8h", "12h"] },
   { label: "Days", items: ["1d"] },
 ];

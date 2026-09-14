@@ -7,17 +7,17 @@ import {
   type ChartType, type ChartTypeSpec, type TransformSettings,
 } from "@/lib/chartType";
 import {
-  TOOL_CARET_BUTTON, TOOL_CARET_GLYPH, TOOL_ICON_STROKE, TOOL_STATE, TOOLBAR_H,
+  TOOL_CARET_BUTTON, TOOL_CARET_GLYPH, TOOL_ICON_SIZE, TOOL_ICON_STROKE, TOOL_STATE,
+  TOOLBAR_H,
 } from "@/components/tv/toolbarChrome";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
- * 22px glyphs, one per type, drawn rather than imported.
+ * One glyph per type, drawn rather than imported, on the toolbar's own grid.
  *
  * Ours, not the reference's: these are silhouettes of the same CHARTS — two
  * OHLC ticks, two candles, a staircase, a stack of bricks — which is the part
- * that has to be recognisable at 22px, and the drawing is original. Stroke
- * `TOOL_ICON_STROKE` with round caps, matching every other icon on this bar.
+ * that has to be recognisable at this size, and the drawing is original.
  *
  * ── TVP8 R1b-03: each silhouette has to be DISTINCT, and thin ──────────────
  *
@@ -25,57 +25,70 @@ import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
  * candles / Volume candles), the strip's Heikin Ashi was a three-candle
  * cluster carrying 2.5× the reference's ink, and Columns was three FILLED
  * ascending bars — a signal-strength icon. The rule the reference follows and
- * this now follows: hollow bodies, one difference per type, and ~19–22px of
- * the 24-unit box rather than 16.
+ * this now follows: hollow bodies, and one difference per type.
+ *
+ * ── TVP8 R1c-02: and every coordinate sits on a half-pixel ────────────────
+ *
+ * The box is `TOOL_ICON_SIZE` units rendered at `TOOL_ICON_SIZE` pixels, so
+ * one unit is one pixel and a `x.5` coordinate with a 1px stroke covers
+ * exactly one pixel column. The measured ink boxes from
+ * `tradingview/chart-type-menu-1440-dark.png` are named per glyph below: Line
+ * 22×14, Step 19×19, Area 23×17, Columns 19×14 (bars 5 wide at heights
+ * 6/10/14), Kagi 17×19, Hollow 13×19, Volume 16×20, Renko 15×21, Footprint
+ * 17×19.
  */
 const ICONS: Record<ChartType, React.ReactNode> = {
   bars: (
     <>
-      <path d="M8 4v16M16 5v14" />
-      <path d="M5 8h3M8 14h3M13 9h3M16 16h3" />
+      <path d="M9.5 4.5v19M19.5 6.5v15" />
+      <path d="M4.5 9.5h5M9.5 16.5h5M14.5 11.5h5M19.5 18.5h5" />
     </>
   ),
   // Two thin HOLLOW candles of different heights, each with both wicks.
   candles: (
     <>
-      <path d="M7.6 2.2v19.6M16.4 3.8v16.4" />
-      <rect x="4.6" y="6.4" width="6" height="11.2" rx="0.5" />
-      <rect x="13.4" y="8.6" width="6" height="7" rx="0.5" />
+      <path d="M8.5 3.5v21M19.5 5.5v17" />
+      <rect x="5.5" y="8.5" width="6" height="11" />
+      <rect x="16.5" y="10.5" width="6" height="7" />
     </>
   ),
-  // The same glyph as candles, with the up body unfilled — which is the
-  // only difference between the two types.
+  // R1c-02: 13×19 — one FILLED body and one hollow one, which is the only
+  // difference between this type and Candles.
   hollowCandles: (
     <>
-      <path d="M7.6 2.2v19.6M16.4 3.8v16.4" />
-      <rect x="4.6" y="6.4" width="6" height="11.2" rx="0.5" fill="currentColor" />
-      <rect x="13.4" y="8.6" width="6" height="7" rx="0.5" fill="none" />
+      <path d="M10.5 4.5v18" />
+      <rect x="8.5" y="8.5" width="4" height="10" fill="currentColor" />
+      <path d="M18.5 8.5v9" />
+      <rect x="16.5" y="10.5" width="4" height="5" fill="none" />
     </>
   ),
-  // Bodies of DIFFERENT WIDTHS, which is what a volume candle actually is:
-  // the width carries the bar's traded volume.
+  // R1c-02: 16×20 — bodies of DIFFERENT WIDTHS (4 and 8), which is what a
+  // volume candle actually is: the width carries the bar's traded volume.
   volumeCandles: (
     <>
-      <path d="M6.4 2.6v18.8M16.6 4.6v15.4" />
-      <rect x="2.4" y="7" width="8" height="10" rx="0.5" />
-      <rect x="14.4" y="8.6" width="4.4" height="7" rx="0.5" />
+      <path d="M10.5 4.5v19" />
+      <rect x="6.5" y="8.5" width="7" height="11" />
+      <path d="M20.5 7.5v13" />
+      <rect x="18.5" y="10.5" width="3" height="7" />
     </>
   ),
-  // Straight SEGMENTS, mitred: the reference's line forms are zigzags, and a
-  // rounded join at 22px is what made ours read as smooth waves (R1b-03).
-  line: <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />,
+  // R1c-02: 22×14, four straight MITRED segments. A rounded join at this size
+  // is what made ours read as a smooth wave rather than as a price line.
+  line: <path d="M3.5 20.5L9 14.5l5 3.5 4.5-6 6-4.5" strokeLinejoin="miter" />,
   lineWithMarkers: (
     <>
-      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />
-      <circle cx="7.4" cy="11.4" r="1.6" fill="currentColor" />
-      <circle cx="11.8" cy="15" r="1.6" fill="currentColor" />
+      <path d="M3.5 20.5L9 14.5l5 3.5 4.5-6 6-4.5" strokeLinejoin="miter" />
+      <circle cx="9" cy="14.5" r="1.8" fill="currentColor" />
+      <circle cx="14" cy="18" r="1.8" fill="currentColor" />
     </>
   ),
-  stepLine: <path d="M2 18.4h4.8v-6h4.8v3.6h4.8v-7.2H22" strokeLinejoin="miter" />,
+  // R1c-02: 19×19, three risers.
+  stepLine: <path d="M4.5 23.5h5v-6h5v-5h4v-7h5" strokeLinejoin="miter" />,
+  // R1c-02: 23×17 — a two-segment line with the area under it.
   area: (
     <>
-      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />
-      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4V21.4H2.4z"
+      <path d="M2.5 21.5L12 12.5l13.5-5" strokeLinejoin="miter" />
+      <path d="M2.5 21.5L12 12.5l13.5-5V24.5H2.5z"
         fill="currentColor" fillOpacity="0.25" stroke="none" />
     </>
   ),
@@ -83,110 +96,108 @@ const ICONS: Record<ChartType, React.ReactNode> = {
   // which is the whole of what an HLC area draws.
   hlcArea: (
     <>
-      <path d="M3 9L8 5L12 9L15 5L21 9L21 17L15 13L12 17L8 13L3 17Z"
+      <path d="M3.5 10.5L9.3 5.8 14 10.5 17.5 5.8 24.5 10.5V19.8L17.5 15.2 14 19.8 9.3 15.2 3.5 19.8Z"
         fill="currentColor" fillOpacity="0.2" stroke="none" />
-      <path d="M3 9l5-4 4 4 3-4 6 4" />
-      <path d="M3 17l5-4 4 4 3-4 6 4" />
+      <path d="M3.5 10.5l5.8-4.7 4.7 4.7 3.5-4.7 7 4.7" strokeLinejoin="miter" />
+      <path d="M3.5 19.8l5.8-4.6 4.7 4.6 3.5-4.6 7 4.6" strokeLinejoin="miter" />
     </>
   ),
   // A dashed reference with the line crossing it, which is the idea.
   baseline: (
     <>
-      <path d="M2 12h20" strokeDasharray="2 2" />
-      <path d="M2.4 17.4l5-6 4.4 3.6 10-9.4" strokeLinejoin="miter" />
+      <path d="M2.5 14.5h23" strokeDasharray="2 2" />
+      <path d="M3.5 20.5L9 14.5l5 3.5 4.5-6 6-4.5" strokeLinejoin="miter" />
     </>
   ),
-  // Three HOLLOW bars. Filled ascending bars are a signal-strength icon, and
-  // that is exactly what a viewer read them as (R1b-03).
+  // R1c-02: 19×14 — three HOLLOW bars 5 wide, of heights 6, 10 and 14. Filled
+  // ascending bars are a signal-strength icon, and that is exactly what a
+  // viewer read them as (R1b-03).
   columns: (
     <>
-      <rect x="2.6" y="12.4" width="5.2" height="9.4" />
-      <rect x="9.4" y="6.6" width="5.2" height="15.2" />
-      <rect x="16.2" y="2.6" width="5.2" height="19.2" />
+      <rect x="4.5" y="18.5" width="4" height="5" />
+      <rect x="11.5" y="14.5" width="4" height="9" />
+      <rect x="18.5" y="10.5" width="4" height="13" />
     </>
   ),
-  // Ranges and nothing else: no open, no close, no body.
   // Two hollow RANGE bars: no open, no close, no body — only the extremes.
   highLow: (
     <>
-      <rect x="4.2" y="4.2" width="6.4" height="12.6" />
-      <rect x="13.4" y="8" width="6.4" height="11.8" />
+      <rect x="5.5" y="5.5" width="6" height="14" />
+      <rect x="16.5" y="9.5" width="6" height="12" />
     </>
   ),
-  // Stacked cells — a footprint prints a number in every price cell of every
-  // bar, and the grid is what distinguishes it from a candle at this size.
-  // A candle beside the rows of numbers a footprint prints in every cell.
+  // R1c-02: 17×19 — a candle beside the rows of numbers a footprint prints in
+  // every price cell of every bar.
   footprint: (
     <>
-      <path d="M6 2.4v19.2" />
-      <rect x="3" y="6.2" width="6" height="11.6" rx="0.5" />
-      <path d="M12 6.4h9.6M12 11h9.6M12 15.6h9.6" />
+      <path d="M8.5 4.5v18" />
+      <rect x="5.5" y="8.5" width="6" height="10" />
+      <path d="M14.5 8.5h7.5M14.5 13.5h7.5M14.5 18.5h7.5" />
     </>
   ),
   // Letter blocks, stacked into the profile they build.
   tpo: (
     <>
-      <rect x="4" y="5" width="4" height="3.4" rx="0.4" />
-      <rect x="9" y="5" width="4" height="3.4" rx="0.4" />
-      <rect x="4" y="10.3" width="4" height="3.4" rx="0.4" />
-      <rect x="9" y="10.3" width="4" height="3.4" rx="0.4" />
-      <rect x="14" y="10.3" width="4" height="3.4" rx="0.4" />
-      <rect x="4" y="15.6" width="4" height="3.4" rx="0.4" />
+      <rect x="4.5" y="5.5" width="5" height="4" rx="0.5" />
+      <rect x="10.5" y="5.5" width="5" height="4" rx="0.5" />
+      <rect x="4.5" y="11.5" width="5" height="4" rx="0.5" />
+      <rect x="10.5" y="11.5" width="5" height="4" rx="0.5" />
+      <rect x="16.5" y="11.5" width="5" height="4" rx="0.5" />
+      <rect x="4.5" y="17.5" width="5" height="4" rx="0.5" />
     </>
   ),
   // A horizontal histogram BESIDE a candle, which is the layout of the thing.
   sessionVolumeProfile: (
     <>
-      <path d="M6.5 4v16" />
-      <rect x="4" y="8" width="5" height="8" rx="0.5" />
-      <path d="M12 6h8M12 10h5M12 14h7M12 18h3" />
+      <path d="M7.5 4.5v19" />
+      <rect x="4.5" y="9.5" width="6" height="9" />
+      <path d="M14.5 7.5h9M14.5 12.5h6M14.5 17.5h8M14.5 21.5h3.5" />
     </>
   ),
-  // Heikin Ashi: candle bodies that abut, because HA bars open at the previous
-  // bar's midpoint rather than at a gap.
-  // One candle and a small square, which is the reference's own 13×19
-  // silhouette. Ours was a three-candle cluster carrying 2.5× its ink.
+  // R1c-02: 13×19 — one candle and a small square, which is the reference's
+  // own Heikin Ashi silhouette. Ours was a three-candle cluster carrying 2.5×
+  // its ink.
   heikinAshi: (
     <>
-      <path d="M7.6 2.4v19.2" />
-      <rect x="4.6" y="7.6" width="6" height="10.4" rx="0.5" />
-      <path d="M16.6 3.4v3" />
-      <rect x="13.8" y="6.4" width="5.6" height="5.6" rx="0.5" />
+      <path d="M10.5 4.5v18" />
+      <rect x="8.5" y="8.5" width="4" height="10" />
+      <path d="M18.5 9.5v2" />
+      <rect x="16.5" y="11.5" width="4" height="4" />
     </>
   ),
-  // Renko: equal bricks stepping on a diagonal, with no wicks and no gaps.
+  // R1c-02: 15×21 — equal bricks stepping on a diagonal, no wicks, no gaps.
   renko: (
     <>
-      <rect x="3.4" y="15.4" width="5.8" height="5.8" rx="0.5" />
-      <rect x="9.2" y="8.6" width="5.8" height="5.8" rx="0.5" />
-      <rect x="15" y="1.8" width="5.8" height="5.8" rx="0.5" />
+      <rect x="6.5" y="17.5" width="6" height="6" />
+      <rect x="10.5" y="10.5" width="6" height="6" />
+      <rect x="14.5" y="3.5" width="6" height="6" />
     </>
   ),
   // Line break: TALL blocks of unequal height — a line runs from the previous
   // close to the breaking one, so its height is whatever the break was worth.
   lineBreak: (
     <>
-      <rect x="4" y="11" width="4" height="8" rx="0.5" />
-      <rect x="10" y="5" width="4" height="9" rx="0.5" />
-      <rect x="16" y="8" width="4" height="7" rx="0.5" />
+      <rect x="5.5" y="12.5" width="5" height="9" />
+      <rect x="12.5" y="6.5" width="5" height="10" />
+      <rect x="19.5" y="9.5" width="5" height="8" />
     </>
   ),
-  // Kagi: one path whose WIDTH changes at the shoulder, which is the entire
-  // signal the chart carries.
+  // R1c-02: 17×19 — one path whose WIDTH changes at the shoulder, which is the
+  // entire signal the chart carries.
   kagi: (
     <>
-      <path d="M5 19v-8h4" strokeWidth="2.6" />
-      <path d="M9 11v6h4" strokeWidth="1.2" />
-      <path d="M13 17V6h5" strokeWidth="2.6" />
+      <path d="M6.5 22.5v-9h4" strokeWidth="2.4" />
+      <path d="M10.5 13.5v7h4" strokeWidth="1" />
+      <path d="M14.5 20.5V5.5h6" strokeWidth="2.4" />
     </>
   ),
   pointAndFigure: (
     <>
-      <path d="M4 6l4 4M8 6l-4 4" />
-      <path d="M4 13l4 4M8 13l-4 4" />
-      <circle cx="14" cy="8" r="2" />
-      <circle cx="14" cy="14" r="2" />
-      <path d="M18 10l3 3M21 10l-3 3" />
+      <path d="M4.5 7.5l5 5M9.5 7.5l-5 5" />
+      <path d="M4.5 15.5l5 5M9.5 15.5l-5 5" />
+      <circle cx="16.5" cy="9.5" r="2.4" />
+      <circle cx="16.5" cy="16.5" r="2.4" />
+      <path d="M21 12l3.5 3.5M24.5 12L21 15.5" />
     </>
   ),
   // Range: bodies of EQUAL height at different levels — a range bar completes
@@ -194,10 +205,10 @@ const ICONS: Record<ChartType, React.ReactNode> = {
   // same size.
   range: (
     <>
-      <path d="M5.5 10v10M11.5 6v10M17.5 9v10" />
-      <rect x="3.5" y="12" width="4" height="6" rx="0.5" />
-      <rect x="9.5" y="8" width="4" height="6" rx="0.5" />
-      <rect x="15.5" y="11" width="4" height="6" rx="0.5" />
+      <path d="M6.5 11.5v12M13.5 6.5v12M20.5 10.5v12" />
+      <rect x="4.5" y="14.5" width="4" height="6" />
+      <rect x="11.5" y="9.5" width="4" height="6" />
+      <rect x="18.5" y="13.5" width="4" height="6" />
     </>
   ),
 };
@@ -264,10 +275,21 @@ const STRIP_BUTTON =
   // R1b-01: full ink at rest. The hover state on this bar is the chip.
   "text-ink";
 
-function Glyph({ type, size }: { type: ChartType; size: number }) {
+/**
+ * The same 1:1 frame the toolbar's own glyphs use (R1c-02).
+ *
+ * `TOOL_ICON_SIZE` units rendered at `TOOL_ICON_SIZE` pixels, so a segment on
+ * an `x.5` coordinate covers exactly one pixel column and a 1px stroke is one
+ * lit row rather than two half-lit ones. Ours were 1.5-wide strokes in a
+ * 24-unit box at 22px: Hollow candles carried 172 ink px where the reference's
+ * carries 82, Volume 132 against 78, Columns 153 against 76.
+ */
+function Glyph({ type, size = TOOL_ICON_SIZE }: { type: ChartType; size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg width={size} height={size} viewBox={`0 0 ${TOOL_ICON_SIZE} ${TOOL_ICON_SIZE}`}
+      fill="none" stroke="currentColor"
       strokeWidth={TOOL_ICON_STROKE} strokeLinecap="round" strokeLinejoin="round"
+      vectorEffect="non-scaling-stroke"
       className="shrink-0" aria-hidden="true">
       {ICONS[type]}
     </svg>
@@ -440,9 +462,16 @@ export function ChartTypeMenu({
             ? `${t.label} — a synthetic display transform`
             : t.label}
           onClick={() => { onChange(t.value); setOpen(false); }}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+          /*
+            R1c-02: `gap-0.5`, not `gap-2`. The glyph box grew from 22 to 28
+            units so a 22-wide silhouette can be drawn at 1:1 — and the LABEL
+            has to stay where the reference puts it, 42px from the menu's left
+            edge. 6px of menu padding + 6px of row padding + 28px of box + 2px
+            of gap is that 42; with the old 8px gap it would have drifted to 48.
+          */
+          className="flex min-w-0 flex-1 items-center gap-0.5 text-left text-sm"
         >
-          <Glyph type={t.value} size={22} />
+          <Glyph type={t.value} />
           <span className="min-w-0 flex-1 truncate">{t.label}</span>
           {/*
             No check glyph. The live inventory claimed one; the pixels in
@@ -513,7 +542,7 @@ export function ChartTypeMenu({
                */
               className={`${STRIP_BUTTON} ${selected ? "flex" : "hidden sm:flex"}`}
             >
-              <Glyph type={t.value} size={22} />
+              <Glyph type={t.value} />
             </button>
           );
         })}
@@ -568,9 +597,17 @@ export function ChartTypeMenu({
             {CHART_TYPES.flatMap((t) => (
               GROUP_STARTS.has(t.value)
                 ? [
-                    // 19px of space between groups, measured: the hairline plus
-                    // 9px either side, overriding `.tvc-menu-sep`'s own 6px.
-                    <div key={`sep-${t.value}`} className="tvc-menu-sep !my-[9px]" role="separator" />,
+                    /*
+                      R1c-03: 13px between groups, not 19.
+                      Measured on `tradingview/chart-type-menu-1440-dark.png`:
+                      the Volume-candles row ends at y=166, the hairline is at
+                      172 and the Line row starts at 179 — 6px either side of
+                      the rule, not 9. The extra 3px a side compounded down the
+                      list at +6 per group, and by the sixth group the `Range`
+                      row landed at y=910 on a 900px viewport: a scroll the
+                      reference does not have, on the last row of the menu.
+                    */
+                    <div key={`sep-${t.value}`} className="tvc-menu-sep !my-[6px]" role="separator" />,
                     row(t),
                   ]
                 : [row(t)]

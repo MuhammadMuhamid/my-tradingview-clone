@@ -19,8 +19,10 @@ import { NATIVE_STUDIES } from "../lib/native/catalog";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { matchPositions } from "../components/tv/IndicatorBrowser";
 import {
-  MAX_TEMPLATES, TEMPLATE_STORAGE_KEY, applyTemplateTo, deleteTemplate, findTemplate,
+  MAX_TEMPLATES, TEMPLATE_STORAGE_KEY, applyTemplateTo, defaultTemplates, deleteTemplate,
+  findTemplate,
   loadTemplates, parseTemplates, saveTemplates, serializeTemplates, templateFromIndicators,
   upsertTemplate, type IndicatorTemplate,
 } from "../lib/indicatorTemplates";
@@ -203,7 +205,15 @@ test("SEARCH IS GROUPED BY LIBRARY AND LIGHTS WHAT IT MATCHED", () => {
   assert.match(source, /<GroupHeader>Technicals<\/GroupHeader>/);
   assert.match(source, /<GroupHeader>My scripts<\/GroupHeader>/);
   assert.match(source, /function Highlight/);
-  assert.match(source, /<span className="text-accent">\{text\.slice\(at, at \+ needle\.length\)\}<\/span>/,
+  /*
+   * R3b-06: this used to pin the ONE spelling the highlighter had — a
+   * contiguous `text.slice(at, at + needle.length)` — which is the very
+   * limitation the finding is about, pinned as though it were the rule. The
+   * rule is "light every character the query matched", and `matchPositions`
+   * is exported so it can be driven rather than grepped; see the test named
+   * after it below.
+   */
+  assert.match(source, /className=\{RUN\[run\.lit \? "lit" : "rest"\]\}/,
     "accent-is-meaning: which characters the query found is DATA about the row");
   // While a query runs, the rail's selection is not applied — search spans both
   // libraries, so a library filter would be describing a list it does not own.
@@ -590,7 +600,7 @@ test("THE TEMPLATE CONTROL ACTUALLY SAVES AND RESTORES THE BUILT-INS", () => {
   assert.match(lib, /nativeStudies\?\.setStyle\(key, plot,/, "and restore their styling");
 });
 
-test("APPLYING A TEMPLATE CANNOT SILENTLY WIPE A CHART", () => {
+test("APPLYING A TEMPLATE REPLACES THE CHART'S STUDIES, AND COUNTS WHAT IT REPLACED", () => {
   /*
    * ── What this replaces, and why the rule got stronger ───────────────────
    *
@@ -602,17 +612,99 @@ test("APPLYING A TEMPLATE CANNOT SILENTLY WIPE A CHART", () => {
    * number in the title was the Pine count, so it under-reported what was
    * about to be destroyed.
    *
-   * Applying is now additive, always: `applyTemplateTo` has no `replace` mode
-   * and calls `clear()` on neither list. That is a stronger guarantee than a
-   * correctly-counted confirmation, and it is asserted structurally — the
-   * destructive call simply is not in the module.
+   * ── R3b-12: why this rule is now the other way round ───────────────────
+   *
+   * "Additive, always" was the repair for a badly-counted confirmation, and it
+   * overshot: applying a template to a chart that already held studies gave
+   * the union of both, and applying the same template TWICE gave
+   * `RSI (1), MACD (1), MACD (2), RSI (2), MACD (3)`. A template is a STATE of
+   * the indicator list — the reference replaces — so the destruction is back,
+   * and what makes it safe is what was missing the first time: it is one
+   * function's documented behaviour, it clears BOTH lists or neither, and it
+   * reports `replaced` so the count can never be the Pine list's alone again.
+   *
+   * The original defect is still pinned, below: the browser has no per-row
+   * `Replace`, and the count the user is shown is not a half-count.
    */
   const lib = readCode("lib/indicatorTemplates.ts");
-  assert.doesNotMatch(lib, /\.clear\(\)/,
-    "applying a template must never clear a chart's studies");
+  assert.match(lib, /indicators\?\.clear\(\);\s*nativeStudies\?\.clear\(\);/,
+    "both lists, or neither — a half-cleared chart is the original defect");
+  assert.match(lib, /const replaced = replace/,
+    "what was removed is counted, from BOTH lists");
+  const browser = readCode(BROWSER);
+  assert.doesNotMatch(browser, /Replace/,
+    "the per-row Add/Replace pair stays gone from the dialog (R3-06)");
+});
+
+test("A TEMPLATE APPLIED ONTO A CHART LEAVES EXACTLY THE TEMPLATE'S STUDIES", () => {
+  /*
+   * R3b-12, driven rather than grepped: two lists standing in for a pane's,
+   * each already holding a study the template does not name.
+   */
+  const native = ["nat_old"]; const pine = ["ind_old"];
+  const nativeStudies = {
+    list: [{ key: "nat_old" }],
+    add: (defId: string) => { native.push(`key:${defId}`); return `key:${defId}`; },
+    setStyle: () => {},
+    toggleVisible: () => {},
+    clear: () => { native.length = 0; },
+  };
+  const indicators = {
+    list: [{ key: "ind_old" }],
+    add: (row: { name: string }) => { pine.push(row.name); return `pine:${row.name}`; },
+    toggleVisible: () => {},
+    clear: () => { pine.length = 0; },
+  };
+  const result = applyTemplateTo(
+    template({
+      indicators: [{ scriptId: "s1", name: "Alpha", source: "//", params: {}, visible: true }],
+      studies: [{ defId: "rsi", params: {}, visible: true, styles: {} }],
+    }),
+    indicators as never, nativeStudies as never,
+  );
+  assert.deepEqual(native, ["key:rsi"], "the chart holds the template's built-ins and nothing else");
+  assert.deepEqual(pine, ["Alpha"]);
+  assert.equal(result.replaced, 2, "and it says how many studies it removed");
+  assert.equal(result.applied, 2);
+
+  // `replace: false` is the opt-out, and it leaves what was there.
+  const keptNative = ["nat_old"];
+  const kept = {
+    list: [{ key: "nat_old" }],
+    add: (defId: string) => { keptNative.push(`key:${defId}`); return `key:${defId}`; },
+    setStyle: () => {}, toggleVisible: () => {}, clear: () => { keptNative.length = 0; },
+  };
+  const additive = applyTemplateTo(
+    template({ indicators: [], studies: [{ defId: "rsi", params: {}, visible: true, styles: {} }] }),
+    null, kept as never, { replace: false });
+  assert.deepEqual(keptNative, ["nat_old", "key:rsi"]);
+  assert.equal(additive.replaced, 0);
+});
+
+test("THE TEMPLATES MENU SHIPS A DEFAULT SET, AND APOLOGISES FOR NOTHING", () => {
+  /*
+   * R3b-14. The menu was `Save indicator template…` and, when nothing was
+   * saved, a paragraph explaining what to do about it — an apology where the
+   * reference has a library. Every study in every default set is a built-in
+   * this installation computes, so no set can promise a study it cannot apply.
+   */
+  const sets = defaultTemplates();
+  assert.ok(sets.length >= 3, `expected a shipped set, saw ${sets.length}`);
+  const known = new Set(NATIVE_STUDIES.map((def) => def.id));
+  for (const set of sets) {
+    assert.ok(set.studies.length > 0, `${set.name} promises nothing`);
+    for (const study of set.studies) {
+      assert.ok(known.has(study.defId),
+        `${set.name} names ${study.defId}, which this build cannot compute`);
+    }
+  }
   const menu = readCode("components/tv/IndicatorTemplatesMenu.tsx");
-  assert.doesNotMatch(menu, /\.clear\(\)/,
-    "and the control that applies them must not do it either");
+  assert.match(menu, /Default templates/);
+  assert.match(menu, /defaultTemplates\(\)\.map/, "the menu lists them, rather than naming them twice");
+  assert.doesNotMatch(menu, /No templates yet/,
+    "an empty section is empty; it does not explain itself");
+  assert.doesNotMatch(menu, /Studies and their inputs only/,
+    "R3b-13: a name field's placeholder says what to type in it");
 });
 
 test("A TEMPLATE NAMING A STUDY THIS BUILD LACKS SAYS SO", () => {
@@ -650,7 +742,11 @@ test("APPLYING IS ONE IMPLEMENTATION, AND IT RESTORES WHAT IT PROMISED", () => {
   const styled: string[] = [];
   const hidden: string[] = [];
   const pineAdded: string[] = [];
+  // R3b-12: applying REPLACES, so both lists are cleared first — these stand
+  // in for a pane's own APIs and record that it happened.
+  const cleared: string[] = [];
   const nativeStudies = {
+    list: [],
     add: (defId: string, params?: unknown) => {
       if (defId === "from-the-future") return null;
       nativeAdded.push({ defId, params });
@@ -658,10 +754,13 @@ test("APPLYING IS ONE IMPLEMENTATION, AND IT RESTORES WHAT IT PROMISED", () => {
     },
     setStyle: (key: string, plot: string) => { styled.push(`${key}/${plot}`); },
     toggleVisible: (key: string) => { hidden.push(key); },
+    clear: () => { cleared.push("native"); },
   };
   const indicators = {
+    list: [],
     add: (row: { name: string }) => { pineAdded.push(row.name); return `pine:${row.name}`; },
     toggleVisible: (key: string) => { hidden.push(key); },
+    clear: () => { cleared.push("pine"); },
   };
 
   const result = applyTemplateTo(
@@ -688,4 +787,115 @@ test("APPLYING IS ONE IMPLEMENTATION, AND IT RESTORES WHAT IT PROMISED", () => {
   assert.deepEqual(styled, ["key:rsi/rsi"], "a template restores how the chart LOOKED");
   assert.deepEqual(hidden, ["pine:Quiet"], "and only the study that was saved hidden");
   assert.deepEqual(pineAdded, ["Alpha", "Quiet"]);
+  assert.deepEqual(cleared.sort(), ["native", "pine"],
+    "both lists are cleared, or neither — see R3b-12");
+});
+
+// ── R3b: the dialog's own measurements ─────────────────────────────────────
+
+test("THE SEARCH FIELD IS 40px OF 16px TYPE, AND OPENS WITHOUT A RING", () => {
+  /*
+   * ── R3b-01 ───────────────────────────────────────────────────────────────
+   *
+   * Three separate defects in one control.
+   *
+   * The field was 34px because the measurement NOTE said 34; the reference
+   * image says 40 (border rows at y=199 and y=238), and the note was wrong.
+   *
+   * Its text was `text-sm`, which could never have applied:
+   * `:is(.tv-workstation,.ts-app) input { font-size: inherit }` in
+   * `app/globals.css` is unlayered, so it beats any layered utility and the
+   * field ran at the workstation's inherited 14px. That is the same rule that
+   * defeated the legend's 16px headline (R3b-15), and the same repair — the
+   * `!` utility, which raises the utility to `!important` and wins.
+   *
+   * And the ring: R3-04 removed `focus:border-accent` and the accent outline
+   * STAYED, because the class was never what drew it. The field is focused
+   * programmatically when the dialog opens, and a programmatically-focused
+   * `<input>` always matches `:focus-visible` — so the product's one focus
+   * rule painted a 2px accent ring on every open. The old test checked the
+   * class list, which is why it stayed green through the whole round.
+   */
+  const source = readCode(BROWSER);
+  assert.match(source, /className="h-\[40px\] w-full rounded-md/, "the reference's field is 40px");
+  assert.match(source, /!text-\[16px\]/,
+    "and 16px — which only an important utility can be, over the unlayered global rule");
+  assert.match(source, /focus-visible:outline-none/,
+    "no ring on open: the dialog's own border is this field's edge");
+  assert.doesNotMatch(source, /focus:border-accent/);
+  // The magnifier and the clear glyph are the reference's sizes.
+  assert.match(source, /<svg width="20" height="20"[\s\S]{0,200}left-\[13px\]/,
+    "a 20px magnifier, 13px inside the field");
+});
+
+test("THE SELECTED KIND IS THE INVERTED CHIP, NOT A DARKER GREY", () => {
+  /*
+   * R3b-02. Selected was `bg-surface-3` (rgb 46) with ink text and unselected
+   * was transparent with muted text, so the two states were one step of grey
+   * apart on a control whose whole job is to say which list you are looking
+   * at. The reference's selected tab is the same inverted chip this product
+   * already uses for a selected dropdown row — rgb(242) on rgb(15) in dark —
+   * and its unselected one is a filled rgb(46) chip with INK text.
+   */
+  const source = readCode(BROWSER);
+  assert.match(source, /bg-\[var\(--ts-menu-selected-bg\)\] font-medium text-\[var\(--ts-menu-selected-ink\)\]/,
+    "selected is the inverted chip, from the tokens R6 introduced");
+  assert.match(source, /"bg-surface-3 text-ink hover:bg-state-active"/,
+    "and unselected is a filled chip with ink text, not a muted ghost");
+  assert.match(source, /const PILL = "flex h-7 items-center rounded-md px-3/,
+    "28px tall, 12px of padding — `Indicators` measures 88 wide");
+  assert.match(source, /className="flex shrink-0 items-center gap-1"/, "4px between them");
+});
+
+test("SEARCH LIGHTS EVERY CHARACTER IT MATCHED, INCLUDING INITIALS", () => {
+  /*
+   * R3b-06. The registry matches aliases and initials; the highlighter
+   * understood only a contiguous substring. So `bb` returned Bollinger Bands
+   * with NOTHING lit and `MACD` found the Pine "Moving Average Convergence
+   * Divergence" with nothing lit — the row that best answered the query was
+   * the row carrying no evidence, which is what makes an alias hit look like
+   * a mistake.
+   */
+  assert.deepEqual(matchPositions("Relative Strength Index", "rsi"), [0, 9, 18],
+    "initials, in order");
+  assert.deepEqual(matchPositions("Bollinger Bands", "bb"), [0, 10]);
+  assert.deepEqual(
+    matchPositions("Moving Average Convergence Divergence", "MACD"), [0, 7, 15, 27]);
+  // A literal substring still wins, and lights exactly itself.
+  assert.deepEqual(matchPositions("MACD", "acd"), [1, 2, 3]);
+  assert.deepEqual(matchPositions("Bollinger Bands", "boll"), [0, 1, 2, 3]);
+  // And a query that matches neither lights nothing at all.
+  assert.deepEqual(matchPositions("Bollinger Bands", "zz"), []);
+  assert.deepEqual(matchPositions("Bollinger Bands", ""), []);
+  // A partial initials run is not a match: `bbx` must not light `B`, `B`.
+  assert.deepEqual(matchPositions("Bollinger Bands", "bbx"), []);
+});
+
+test("AN EMPTY LIBRARY IS EMPTY, NOT A PARAGRAPH ABOUT THIS BUILD", () => {
+  /*
+   * R3b-09. `Strategies` over Technicals printed "This build ships no
+   * built-in strategies. Strategies you write in the Pine Editor appear under
+   * My scripts." — the product explaining itself, in the middle of a library
+   * list, where the reference prints nothing at all.
+   */
+  const source = readCode(BROWSER);
+  assert.doesNotMatch(source, /This build ships no built-in strategies/);
+  assert.doesNotMatch(source, /appear under\s+My scripts/);
+});
+
+test("THE LIST COLUMN CARRIES ITS OWN SCROLLBAR, AND ITS ROWS REACH PAST THE NAMES", () => {
+  /*
+   * R3b-03/05/08. The rows started where the names start, so hover lit a
+   * column rather than a row; the reference's fill runs [540..1120] with the
+   * name at 571. And the column showed no scrollbar at rest — 2,014px of list
+   * inside 485px, with the only sign of it hidden behind the OS overlay.
+   */
+  const source = readCode(BROWSER);
+  assert.match(source, /-ml-\[30px\]/, "the row starts 30px left of the name column");
+  assert.match(source, /pl-\[31px\]/, "and the name sits at +31");
+  assert.match(source, /\[scrollbar-gutter:stable\]/);
+  assert.match(source, /\[&::-webkit-scrollbar\]:w-\[3px\]/, "a 3px thumb, as the reference shows");
+  assert.match(source, /hover:bg-\[rgb\(56,56,56\)\]/, "row hover is rgb(56,56,56)");
+  // R3b-03: the group header is a 32px row, so the first script row is at 324.
+  assert.match(source, /flex h-8 items-center px-2 pl-\[31px\] text-\[11px\] uppercase/);
 });

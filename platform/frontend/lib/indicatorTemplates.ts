@@ -266,6 +266,17 @@ export interface TemplateApplication {
   applied: number;
   /** Study ids the template names and this build has no definition for. */
   missing: string[];
+  /** R3b-12: how many studies the template REPLACED on the way in. */
+  replaced: number;
+}
+
+/** How `applyTemplateTo` treats what is already on the chart. */
+export interface ApplyTemplateOptions {
+  /**
+   * Remove the chart's studies first, so the chart ends up holding the
+   * template's set and nothing else. Default TRUE — see `applyTemplateTo`.
+   */
+  replace?: boolean;
 }
 
 /**
@@ -279,9 +290,27 @@ export interface TemplateApplication {
  * function over the two study APIs, so the browser, the menu, a command
  * palette entry and a test all get the identical behaviour.
  *
- * `replace` is the caller's decision and is NOT taken here: clearing a chart
- * is destructive and must be confirmed against a count the user can see, which
- * is a question only a UI can ask.
+ * ── R3b-12: a template REPLACES the chart's studies ────────────────────────
+ *
+ * This was additive, always: applying a two-study template to a chart that
+ * already held RSI and MACD gave five studies, and applying it twice gave
+ * `RSI (1), MACD (1), MACD (2), RSI (2), MACD (3)` — a legend nobody asked
+ * for, from a control whose name says it sets the chart's indicators. The
+ * reference replaces: a template is a STATE of the chart's indicator list, not
+ * a bundle to paste into it. So `replace` defaults to true and the caller
+ * opts OUT, which is the way round that matches what the control claims to do.
+ *
+ * The old rule was written against a real defect and is not being thrown away:
+ * the browser used to offer `Add` and `Replace` per row, with the confirmation
+ * counting only the PINE studies while `nativeStudies.clear()` ran regardless,
+ * so a chart of built-ins was wiped with no prompt and a wrong count. What
+ * replaces that guarantee is that the destruction is now (a) the documented
+ * behaviour of one function, (b) COUNTED — `replaced` says how many studies
+ * went — and (c) applied to both lists or to neither.
+ *
+ * MAIN: `verify-TV` — the capture that settles this is a saved template
+ * applied onto a TV chart that already carries different studies. If TV adds
+ * rather than replaces, this default flips to false and nothing else changes.
  *
  * A `defId` this build has no definition for — a template written by a newer
  * build, or carried from an installation with a study this one has dropped —
@@ -293,8 +322,22 @@ export function applyTemplateTo(
   template: IndicatorTemplate,
   indicators: IndicatorsApi | null,
   nativeStudies: NativeStudiesApi | null,
+  options: ApplyTemplateOptions = {},
 ): TemplateApplication {
   const missing: string[] = [];
+  const replace = options.replace !== false;
+  /*
+   * Counted BEFORE anything is removed, and from both lists — the count that
+   * used to be reported was the Pine list's alone while both were being
+   * cleared.
+   */
+  const replaced = replace
+    ? (indicators?.list.length ?? 0) + (nativeStudies?.list.length ?? 0)
+    : 0;
+  if (replace) {
+    indicators?.clear();
+    nativeStudies?.clear();
+  }
   for (const study of template.studies) {
     const key = nativeStudies?.add(study.defId, study.params);
     if (!key) { missing.push(study.defId); continue; }
@@ -316,7 +359,49 @@ export function applyTemplateTo(
   return {
     applied: template.indicators.length + template.studies.length - missing.length,
     missing,
+    replaced,
   };
+}
+
+/*
+ * ── R3b-14: the shipped sets, under `Default templates ▸` ──────────────────
+ *
+ * The reference's templates menu opens `Save indicator template…` and then a
+ * shipped set (Oscillators, Volatility and friends) before the user's own, so
+ * a chart that has never saved a template still has something to apply. Ours
+ * opened with one row and, when nothing was saved, an 11px paragraph
+ * apologising for it.
+ *
+ * Every study named here is a BUILT-IN this installation actually computes —
+ * the ids are `lib/native/catalog`'s, and a set naming an id this build lacks
+ * would be reported by `applyTemplateTo` like any other missing study. They
+ * carry no params, so each study arrives on its own defaults; a default
+ * template that also pinned somebody else's tuning would be a preference
+ * wearing a library's clothes.
+ *
+ * MAIN: `verify-TV` — `measurements/tv-indicator-templates-menu-20260914.md`
+ * records the live menu as `Save indicator template…` · separator ·
+ * `Open template…` with no shipped set visible on that account, while R3b-14
+ * describes a `Default templates ▸` submenu. The capture that settles it is
+ * the menu opened on an account that HAS templates.
+ */
+const DEFAULT_TEMPLATE_SETS: readonly { name: string; studies: readonly string[] }[] = [
+  { name: "Oscillators", studies: ["rsi", "macd", "stoch"] },
+  { name: "Volatility", studies: ["bb", "atr"] },
+  { name: "Trend", studies: ["adx", "cci"] },
+  { name: "Volume", studies: ["volume", "obv"] },
+];
+
+/** The shipped sets, as ordinary templates — nothing about them is special. */
+export function defaultTemplates(): IndicatorTemplate[] {
+  return DEFAULT_TEMPLATE_SETS.map((set) => ({
+    name: set.name,
+    createdAt: "",
+    indicators: [],
+    studies: set.studies.map((defId) => ({
+      defId, params: {}, visible: true, styles: {},
+    })),
+  }));
 }
 
 export function findTemplate(

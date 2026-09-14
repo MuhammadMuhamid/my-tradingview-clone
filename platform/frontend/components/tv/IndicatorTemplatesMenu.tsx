@@ -34,7 +34,8 @@ import {
   TOOL_ICON_BUTTON, TOOL_ICON_SIZE, TOOL_ICON_STROKE,
 } from "@/components/tv/toolbarChrome";
 import {
-  deleteTemplate, loadTemplates, saveTemplates, templateFromIndicators, upsertTemplate,
+  defaultTemplates, deleteTemplate, loadTemplates, saveTemplates, templateFromIndicators,
+  upsertTemplate,
   type IndicatorTemplate, type TemplateApplication, type TemplateStudySnapshot,
 } from "@/lib/indicatorTemplates";
 import type { AppliedIndicator } from "@/lib/indicators";
@@ -75,11 +76,17 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const defaultsRef = useRef<HTMLDivElement>(null);
   const ask = useAsk();
   const [templates, setTemplates] = useState<IndicatorTemplate[]>([]);
+  /** R3b-14: whether the shipped sets' submenu is showing. */
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
 
   // Read on every open: another tab may have saved one since the last look.
-  useEffect(() => { if (open) setTemplates(loadTemplates()); }, [open]);
+  useEffect(() => {
+    if (!open) { setDefaultsOpen(false); return; }
+    setTemplates(loadTemplates());
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -131,7 +138,17 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
     const name = await ask.promptFor({
       title: `Save ${onChart} stud${onChart === 1 ? "y" : "ies"} as a template`,
       label: "Template name",
-      placeholder: "Studies and their inputs only — not the symbol or the layout",
+      /*
+        R3b-13: the placeholder is a placeholder.
+
+        It carried a sentence about what a template is and is not — "Studies
+        and their inputs only — not the symbol or the layout" — inside the one
+        field whose job is to take a name, which is the same defect the
+        Indicators search box had (R3-04). What a template holds is the
+        module's contract and this file's own header; a field says what to
+        type in it.
+      */
+      placeholder: "Template name",
       confirmLabel: "Save",
     });
     if (name === null || name.trim().length === 0) return;
@@ -234,6 +251,57 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
           >
             Save indicator template…
           </button>
+          <div role="separator" className="tvc-menu-sep" />
+          {/*
+            ── R3b-14: the shipped sets ──────────────────────────────────────
+
+            The reference's menu is `Save indicator template…`, then a set of
+            DEFAULT templates, then the user's own. Ours had the first and the
+            third, and when the third was empty it printed a paragraph
+            explaining what to do about it — an apology where the reference has
+            a library. Every study in these four sets is a built-in this
+            installation computes; see `defaultTemplates`.
+          */}
+          <div
+            className="relative"
+            onMouseEnter={() => setDefaultsOpen(true)}
+            onMouseLeave={() => setDefaultsOpen(false)}
+          >
+            <button
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={defaultsOpen}
+              onClick={() => setDefaultsOpen((v) => !v)}
+              onKeyDown={(e) => {
+                if (e.key !== "ArrowRight" && e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                e.stopPropagation();
+                setDefaultsOpen(true);
+                requestAnimationFrame(() => menuItems(defaultsRef.current)[0]?.focus());
+              }}
+              className="tvc-menu-row w-full justify-between gap-2 px-3 text-left text-[13px] text-ink"
+            >
+              Default templates
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+                strokeWidth="1.5" aria-hidden="true"><path d="M3.5 2l3 3-3 3" /></svg>
+            </button>
+            {defaultsOpen && (
+              <div ref={defaultsRef} role="menu" aria-label="Default templates"
+                className="absolute left-full top-0 z-50 ml-1 w-[220px] tvc-menu">
+                {defaultTemplates().map((t) => (
+                  <button
+                    key={t.name}
+                    role="menuitem"
+                    onClick={() => { setOpen(false); void apply(t); }}
+                    title={`Apply the ${t.name} set — ${t.studies.length} built-in studies`}
+                    className="tvc-menu-row w-full px-3 text-left text-[13px] text-ink"
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {templates.length > 0 && <div role="separator" className="tvc-menu-sep" />}
           {templates.map((t) => (
             /*
@@ -246,8 +314,8 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
               <button
                 role="menuitem"
                 onClick={() => { setOpen(false); void apply(t); }}
-                title={`Apply “${t.name}” — ${t.indicators.length + t.studies.length} `
-                  + "studies, added to what is already on the chart"}
+                title={`Apply “${t.name}” — this chart's studies become the `
+                  + `${t.indicators.length + t.studies.length} in this template`}
                 className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
               >
                 {t.name}
@@ -267,11 +335,6 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
               </button>
             </div>
           ))}
-          {templates.length === 0 && (
-            <p className="px-3 pb-2 pt-1 text-[11px] leading-tight text-ink-faint">
-              No templates yet. Put the studies you want on a chart, then save them here.
-            </p>
-          )}
         </div>
       )}
     </div>

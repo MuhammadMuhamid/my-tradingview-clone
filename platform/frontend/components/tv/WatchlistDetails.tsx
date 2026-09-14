@@ -27,6 +27,8 @@
  * them on the way through (see `backend/src/data/binanceRest.ts`).
  */
 import type { WatchlistTicker } from "@/lib/useWatchlistTickers";
+import { formatQuote } from "@/lib/format";
+import { PERFORMANCE_PERIODS, type PerformancePeriod } from "@/lib/instrumentStats";
 
 /**
  * The asset's mark.
@@ -77,9 +79,19 @@ export interface MarketLine {
   detail: string;
 }
 
+/** What `lib/instrumentStats` made of the instrument's daily bars. */
+export interface DailyStats {
+  averageVolume30D: number | null;
+  performance: Record<PerformancePeriod, number | null> | null;
+  /** Set when the series could not be read; shown as the `—`'s reason. */
+  unavailable: string | null;
+}
+
 export interface WatchlistDetailsProps {
   /** The storage key, for the accessible name only. */
   qualifiedName: string;
+  /** `Bitcoin / TetherUS` where the catalogue knows both legs (R7b-10). */
+  longName: string;
   ticker_: string;
   base: string;
   quote: string;
@@ -91,7 +103,9 @@ export interface WatchlistDetailsProps {
   market: MarketLine;
   /** Whether the 24h statistics can come from the connected provider at all. */
   statsProvider: "binance-24h" | "none";
-  formatPrice: (value: number) => string;
+  /** The instrument's tick, so price and change are shown to ITS precision. */
+  priceTick: number | null;
+  daily: DailyStats;
   /** Opens the same action list the row's right-click offers. */
   onMenu: (at: { x: number; y: number }) => void;
 }
@@ -114,9 +128,10 @@ function compact(value: number): string {
 const NOT_SUPPLIED = "Not supplied by the connected provider";
 
 export function WatchlistDetails({
-  qualifiedName, ticker_, base, quote, venue, typeLabel, classLabel,
-  quote24h, market, statsProvider, formatPrice, onMenu,
+  qualifiedName, longName, ticker_, base, quote, venue, typeLabel, classLabel,
+  quote24h, market, statsProvider, priceTick, daily, onMenu,
 }: WatchlistDetailsProps) {
+  const formatPrice = (value: number): string => formatQuote(value, priceTick);
   const changeKnown = quote24h !== null && quote24h.changeKnown !== false;
   const up = (quote24h?.chgPct ?? 0) >= 0;
   const directionClass = changeKnown ? (up ? "text-up" : "text-down") : "text-ink-faint";
@@ -138,10 +153,21 @@ export function WatchlistDetails({
       /* Honest by omission of a number, not by omission of the row: the
          reference has this line and a person looking for it should find it
          saying why it is empty rather than not find it at all. */
+      /*
+       * R7b-11: computed, not refused.
+       *
+       * This row used to read `—` with the tooltip "computing one needs daily
+       * bars this panel does not read yet" — honest about the panel and wrong
+       * about the product: `GET /api/symbols/:symbol/candles?interval=1d` has
+       * been served the whole time. The `—` is kept for the case it was
+       * written for: a series that genuinely is not there.
+       */
       label: "Average volume (30D)",
-      value: null,
+      value: daily.averageVolume30D === null
+        ? null : `${compact(daily.averageVolume30D)} ${base}`,
       why: statsProvider === "binance-24h"
-        ? "The 24h ticker carries no 30-day average; computing one needs daily bars this panel does not read yet."
+        ? daily.unavailable
+          ?? "Fewer than thirty closed daily bars are available for this instrument."
         : NOT_SUPPLIED,
     },
   ];
@@ -149,7 +175,10 @@ export function WatchlistDetails({
   return (
     <section
       data-watchlist-details
-      aria-label={`Details for ${qualifiedName}`}
+      /* R7b-09: a name, not a storage identity. `qualifiedName` stays as the
+         `<h2>`'s tooltip, where the exact key is occasionally what a reader
+         wants. */
+      aria-label={`Details for ${longName}`}
       className="shrink-0 bg-surface px-4 pb-3 pt-3"
     >
       {/* The 4px drag-divider band the reference puts between list and details.
@@ -178,11 +207,18 @@ export function WatchlistDetails({
         </button>
       </div>
 
-      {/* No invented long names: the product's catalogue has base, quote and
-          venue, so that is what this line says. `Bitcoin / TetherUS` would be
-          a name we do not hold. */}
+      {/*
+        R7b-10: the catalogue DOES hold the name.
+
+        This line said `BTC / USDT • BINANCE` under a comment claiming
+        "`Bitcoin / TetherUS` would be a name we do not hold" — while
+        `lib/instrument.ts`'s `displayName()` produced exactly that string and
+        `PaneLegend` painted it a thousand pixels to the left on the same
+        screen. Where the catalogue does NOT name both legs, `displayName`
+        returns the ticker and the pair form is still the honest fallback.
+      */}
       <p className="mt-2 truncate text-[14px] leading-tight text-ink">
-        {base} / {quote} • {venue}
+        {longName !== ticker_ ? longName : `${base} / ${quote}`} • {venue}
       </p>
       <p className="mt-1 truncate text-[14px] leading-tight text-ink-faint">
         {typeLabel} • {classLabel}
@@ -226,9 +262,40 @@ export function WatchlistDetails({
       </dl>
 
       <h3 className="mt-4 text-[14px] font-semibold leading-none text-ink">Performance</h3>
-      <p className="mt-1.5 text-[14px] leading-snug text-ink-faint">
-        Not computed for this instrument.
-      </p>
+      {/*
+        R7b-11: six tiles, 2x3, measured on `tv-shell-1920x1080-dark.png` —
+        three columns about 82 wide with a 10px gap, two rows about 42 tall,
+        the value 14px/600 in the direction colour on a ~12% tint of it, the
+        period label 11px muted under it, radius 6.
+
+        A period the series cannot support keeps the `—`: `instrumentStats`
+        returns `null` rather than reaching for the oldest bar it happens to
+        have and labelling the answer "1Y".
+      */}
+      {daily.performance === null ? (
+        <p className="mt-1.5 text-[14px] leading-snug text-ink-faint">
+          {daily.unavailable ?? "Reading this instrument\u2019s daily bars\u2026"}
+        </p>
+      ) : (
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          {PERFORMANCE_PERIODS.map((period) => {
+            const value = daily.performance![period];
+            const up = (value ?? 0) >= 0;
+            return (
+              <div key={period} data-performance={period}
+                className="flex h-[42px] flex-col items-center justify-center rounded-md"
+                style={{ backgroundColor: value === null ? "var(--ts-surface-2)"
+                  : `rgb(var(--ts-${up ? "positive" : "negative"}-rgb) / 0.12)` }}>
+                <span className={`tabular text-[14px] font-semibold leading-none ${
+                  value === null ? "text-ink-faint" : up ? "text-up" : "text-down"}`}>
+                  {value === null ? "\u2014" : `${value.toFixed(2)}%`}
+                </span>
+                <span className="mt-1 text-[11px] leading-none text-ink-faint">{period}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

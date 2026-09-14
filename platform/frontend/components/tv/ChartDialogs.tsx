@@ -54,6 +54,8 @@ export interface ChartDialogsProps {
   searchPaneId: string | null;
   /** The symbol that pane is currently on. */
   searchSymbol: string;
+  /** The letter that opened it, when a bare letter over the chart did (R4b-05). */
+  searchSeed?: string;
   onCloseSearch: () => void;
   onSelectSymbol: (symbol: string) => void;
   onSymbolAdded: () => void;
@@ -132,6 +134,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
     <SymbolSearch
       open={props.searchPaneId !== null}
       current={props.searchSymbol}
+      seed={props.searchSeed}
       onClose={props.onCloseSearch}
       onSelect={props.onSelectSymbol}
       onSymbolAdded={props.onSymbolAdded}

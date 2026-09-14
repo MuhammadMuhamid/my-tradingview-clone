@@ -375,7 +375,19 @@ export interface DegradedSource {
 const SOURCE_WORD = (word: string): string =>
   word === "us" ? "U.S." : word.charAt(0).toUpperCase() + word.slice(1);
 
-/** The venue a provider id belongs to, as a reader would name it. */
+/**
+ * The venue a provider id belongs to, as a reader would name it.
+ *
+ * ── R4b-09: a tail word the venue's own label already carries ──────────────
+ *
+ * `robinhood-crypto` against a catalogue whose venue label is already
+ * `Robinhood Crypto` produced `Robinhood Crypto Crypto` — the head is the
+ * venue's registered LABEL, not the slug, and a label is free to contain the
+ * book word the slug's tail names. So a tail word the head already ends with
+ * is dropped: it adds nothing and reads as a stutter. `Binance` +
+ * `derivatives` is untouched, because that tail names a different book from
+ * the one the head alone means.
+ */
 export function sourceLabel(providerId: string,
   venues: readonly { id: string; label: string }[] | null | undefined): string {
   const parts = String(providerId ?? "").split("-").filter(Boolean);
@@ -384,8 +396,45 @@ export function sourceLabel(providerId: string,
   const head = venue?.label.trim() || SOURCE_WORD(parts[0]!);
   // `-spot` says nothing a reader needs; `-derivatives` names a different book.
   const tail = parts.slice(1).filter((part) => part !== "spot")
-    .map((part) => part === "derivatives" ? "derivatives" : SOURCE_WORD(part));
+    .map((part) => part === "derivatives" ? "derivatives" : SOURCE_WORD(part))
+    .filter((word) => !new RegExp(`(^|\\s)${word}$`, "i").test(head));
   return [head, ...tail].join(" ");
+}
+
+/**
+ * Why one source did not answer, in the reader's vocabulary.
+ *
+ * ── R4b-09: `shortReason` printed its own fallback as the reason ──────────
+ *
+ * `lib/errorCopy`'s `shortReason` reads a status code out of prose and, when
+ * it finds none, answers `Hover for the reason reported.` That sentence is
+ * correct as a TOOLTIP PROMPT and absurd as the content of the tooltip: four
+ * of the six live failures landed in the popover's reason column telling the
+ * reader to hover for the reason they were already hovering to read.
+ *
+ * The live causes are readable sentences — `…require an API key and
+ * signature; no credential was supplied`, `official derivative API returned
+ * HTTP 451` — so the classification here reads the SENTENCE rather than only
+ * a code, and when it recognises nothing it quotes the cause's first clause
+ * instead of inventing one. Provider prose in a popover's detail column is
+ * allowed under REV-UX-01: the headline (`N sources unavailable`) is ours,
+ * and the raw string stays in `title` either way.
+ */
+export function reasonForSource(error: string): string {
+  const raw = String(error ?? "").trim();
+  if (raw.length === 0) return "The source did not answer.";
+  if (/\b451\b|geo-?block|unavailable for legal/i.test(raw)) return "Not available from this region.";
+  if (/credential|api[- ]?key|signature|secret|token/i.test(raw)) return "No credential is configured.";
+  if (/eligible|approved|entitle|subscription|account/i.test(raw)) return "Needs an approved account.";
+  if (/\b(401|403)\b|forbidden|unauthor/i.test(raw)) return "The venue refused the request.";
+  if (/\b(404)\b|no route/i.test(raw)) return "This environment does not serve it.";
+  if (/\b5\d\d\b|timeout|timed out|fetch failed|network/i.test(raw)) {
+    return "The service did not answer. Try again shortly.";
+  }
+  // Nothing recognised: the cause's own first clause, trimmed to a phrase.
+  const clause = raw.split(/[;(]/)[0]!.trim().replace(/[.,]$/, "");
+  const short = clause.length > 60 ? `${clause.slice(0, 57).trimEnd()}…` : clause;
+  return short.endsWith("…") ? short : `${short}.`;
 }
 
 /** The venue id a failing provider belongs to, for matching against a row. */
@@ -456,15 +505,52 @@ export function rowTicker(row: SymbolSearchResult): string {
   return displayTicker(row.canonicalId ?? row.symbol);
 }
 
+/* ── R4b-13: the middle column was the ticker, spelled with a slash ────────
+ *
+ * `BTCUSDT` and `BTC / USDT` on one 40px row is the identity said twice and
+ * the instrument said not at all; the reference spends that column on
+ * `Bitcoin / TetherUS`. The provider contract carries no display name, so the
+ * names come from a small table of the bases and quotes this catalogue
+ * actually lists — names are FACTS, not a guess, and an asset the table does
+ * not know falls back to its code rather than to an invented name.
+ *
+ * Frontend rather than `marketCatalog.ts` because nothing about the API
+ * changes: a name is a rendering of an identity the response already carries.
+ * ──────────────────────────────────────────────────────────────────────── */
+export const ASSET_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  // Crypto bases the running catalogue returns.
+  BTC: "Bitcoin", WBTC: "Wrapped Bitcoin", ETH: "Ethereum", WETH: "Wrapped Ethereum",
+  SOL: "Solana", BNB: "BNB", XRP: "XRP", ADA: "Cardano", DOGE: "Dogecoin",
+  AVAX: "Avalanche", LINK: "Chainlink", DOT: "Polkadot", MATIC: "Polygon",
+  LTC: "Litecoin", TRX: "TRON", ATOM: "Cosmos", UNI: "Uniswap", AAVE: "Aave",
+  ARB: "Arbitrum", OP: "Optimism", SUI: "Sui", APT: "Aptos", TON: "Toncoin",
+  NEAR: "NEAR", FIL: "Filecoin", ETC: "Ethereum Classic", BCH: "Bitcoin Cash",
+  SHIB: "Shiba Inu", PEPE: "Pepe", HYPE: "Hyperliquid",
+  // Quotes.
+  USDT: "Tether", USDC: "USD Coin", DAI: "Dai", BUSD: "Binance USD", FDUSD: "First Digital USD",
+  USD: "U.S. dollar", EUR: "Euro", GBP: "British pound", JPY: "Japanese yen",
+  CHF: "Swiss franc", AUD: "Australian dollar", CAD: "Canadian dollar",
+  NZD: "New Zealand dollar", CNY: "Chinese yuan", MXN: "Mexican peso",
+  // Exchange futures roots.
+  ES: "E-Mini S&P 500", NQ: "E-Mini Nasdaq 100", YM: "E-Mini Dow", RTY: "E-Mini Russell 2000",
+  GC: "Gold", SI: "Silver", HG: "Copper", CL: "Crude oil", NG: "Natural gas",
+  ZB: "U.S. Treasury bond", ZN: "10-year T-note", ZC: "Corn", ZS: "Soybeans", ZW: "Wheat",
+});
+
+/** The instrument an asset code names, or the code when nothing is known. */
+export function assetName(code: string): string {
+  const key = String(code ?? "").trim().toUpperCase();
+  return ASSET_NAMES[key] ?? String(code ?? "");
+}
+
 /**
  * The row's description: the instrument, not the ticker spelled a second way.
  *
- * The provider contract carries no display name today, so this is built from
- * the identity — with the series word that makes two contracts on one
- * underlying tell themselves apart.
+ * Built from the identity and the name table above — with the series word
+ * that makes two contracts on one underlying tell themselves apart.
  */
 export function rowDescription(row: SymbolSearchResult): string {
-  const pair = `${row.baseAsset} / ${row.quoteAsset}`;
+  const pair = `${assetName(row.baseAsset)} / ${assetName(row.quoteAsset)}`;
   if (row.instrumentType === "perpetual") return `${pair} perpetual`;
   if (row.series?.kind === "dated") return `${pair} ${contractMonth(row.series.expiry)}`;
   if (row.instrumentType === "continuous_future") return `${pair} continuous`;

@@ -37,11 +37,14 @@
  */
 import { useCallback, useState } from "react";
 import { fmtPrice } from "@/lib/format";
-import { CompareControl } from "@/components/tv/CompareControl";
+import { CompareControl, CompareSettings } from "@/components/tv/CompareControl";
 import { LegendTimeframe, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { Resolution } from "@/lib/resolution";
 import type { PaneCompare } from "@/lib/workspace";
-import { displayName, displaySymbol, displayTicker, displayVenue } from "@/lib/instrument";
+import {
+  displayDescription, displayName, displaySymbol, displayTicker, displayVenue,
+} from "@/lib/instrument";
+import type { StatusTitleForm } from "@/lib/chartSettings";
 import { DerivativeIdentity } from "@/components/tv/DerivativeIdentity";
 import { EquityIdentity } from "@/components/tv/EquityIdentity";
 import { TraditionalIdentity } from "@/components/tv/TraditionalIdentity";
@@ -69,6 +72,19 @@ export interface PaneLegendProps {
   /**
    * Which form of the instrument's name the headline carries (R6 SL-2).
    *
+   * ── R3b-25: the three forms the reference offers ──────────────────────────
+   *
+   * TradingView's `Title` dropdown is `Name` / `Ticker` / `Description`, and
+   * this offered `Name` / `Full symbol` — where `Full symbol` rendered
+   * `BINANCE:BTC/USDT · SPOT`, a form the reference does not have and which
+   * §5 keeps out of primary copy in the first place. So the stored value
+   * `symbol` now resolves to the TICKER (`BTCUSDT`), which is what the
+   * reference's second option prints; the key is unchanged, so a workspace
+   * that stored it keeps working and simply stops printing the qualified id.
+   * `description` is the third, and resolves to `displayName` until
+   * `lib/instrument` knows a longer description — the same string, never a
+   * canonical id.
+   *
    * ── Why `ticker` draws `displayName` and not `displayTicker` ─────────────
    *
    * The reference's `Title` dropdown reads `Name`, and TVP8 R3-14 already made
@@ -81,7 +97,7 @@ export interface PaneLegendProps {
    * opt-in to the qualified form. `displayName` can never answer with a
    * canonical `instrument:v1:…` id, which is the rule §5 exists for.
    */
-  titleForm?: "ticker" | "symbol";
+  titleForm?: StatusTitleForm;
 
   /** Set by the pane so the toolbar's Compare control can open this dialog. */
   compareOpen?: boolean;
@@ -140,7 +156,11 @@ export function PaneLegend(props: PaneLegendProps) {
    * kept for the tooltip, where a reader who wants "Solana / TetherUS" can
    * still find it.
    */
-  const titleLabel = props.titleForm === "symbol" ? symbolLabel : nameLabel;
+  const titleLabel = props.titleForm === "symbol"
+    ? tickerLabel
+    : props.titleForm === "description"
+      ? displayDescription(symbol)
+      : nameLabel;
   const venueLabel = displayVenue(symbol);
   /*
    * Controlled when the pane supplies it, so the toolbar's Compare control can
@@ -150,6 +170,15 @@ export function PaneLegend(props: PaneLegendProps) {
   const [ownCompareOpen, setOwnCompareOpen] = useState(false);
   const compareOpen = props.compareOpen ?? ownCompareOpen;
   const setCompareOpen = props.onCompareOpenChange ?? setOwnCompareOpen;
+  /*
+   * R4b-06: the chip that SAYS a comparison is on opens how it is DRAWN.
+   *
+   * Choosing the instrument is the symbol search in compare mode (the `+`
+   * control's job); changing the mode or the window, or taking the comparison
+   * off, is a small menu on the chip that announces it. Two decisions, two
+   * surfaces, neither of them a form with a regex in it.
+   */
+  const [compareSettingsOpen, setCompareSettingsOpen] = useState(false);
 
   const pickInterval = useCallback((next: Resolution) => {
     props.onInterval(paneId, next);
@@ -174,10 +203,10 @@ export function PaneLegend(props: PaneLegendProps) {
       */}
       <div
         data-pane-legend={paneId}
-        className="pointer-events-none flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5"
+        className="pointer-events-none flex max-w-full flex-wrap items-center gap-x-[5px] gap-y-0.5"
       >
         <button
-          {...{ className: `${HIT} tvc-control -mx-1 flex h-6 shrink-0 items-center rounded-md px-1 text-[16px] leading-6 text-ink` }}
+          {...{ className: `${HIT} tvc-control -mx-1 flex h-6 shrink-0 items-center rounded-md px-1 !text-[16px] leading-6 text-ink` }}
           onClick={() => props.onOpenSymbolSearch(paneId)}
           title={`Change this pane's symbol — currently ${tickerLabel} (${nameLabel}, ${symbolLabel}) · ${props.bars.toLocaleString()} bars loaded`}
           aria-label={`Change symbol for the ${symbolLabel} pane`}
@@ -197,7 +226,7 @@ export function PaneLegend(props: PaneLegendProps) {
           autonomous without being a second, divergent implementation of the
           timeframe UI.
         */}
-        {!dense && <span aria-hidden="true" className="shrink-0 text-[16px] text-ink-muted">&middot;</span>}
+        {!dense && <span aria-hidden="true" className="shrink-0 text-[16px] text-ink">&middot;</span>}
         {/*
           R3-14: the interval reads as TEXT, at the headline's own size.
 
@@ -209,8 +238,8 @@ export function PaneLegend(props: PaneLegendProps) {
           than by forking a second timeframe control.
         */}
         <LegendTimeframe
-          className={`${HIT} [&>button]:h-6 [&>button]:text-[16px] [&>button]:font-normal
-            [&>button]:text-ink-muted [&>button>svg]:hidden`}
+          className={`${HIT} [&>button]:h-6 [&>button]:!text-[16px] [&>button]:font-normal
+            [&>button]:!px-0 [&>button]:text-ink [&>button>svg]:hidden`}
           scope={paneId}
           interval={interval}
           onInterval={pickInterval}
@@ -218,7 +247,7 @@ export function PaneLegend(props: PaneLegendProps) {
         />
 
         {venueLabel && !dense && (
-          <span className="shrink-0 text-[16px] text-ink-muted" title={symbolLabel}>
+          <span className="shrink-0 text-[16px] text-ink" title={symbolLabel}>
             &middot; {venueLabel}
           </span>
         )}
@@ -243,7 +272,7 @@ export function PaneLegend(props: PaneLegendProps) {
         {compare && (
           <button
             {...{ className: `${HIT} tvc-control flex h-5 shrink-0 items-center px-1 text-[11px] font-semibold text-ink` }}
-            onClick={() => setCompareOpen(true)}
+            onClick={() => setCompareSettingsOpen(true)}
             title={`Comparing with ${compare.symbol} — ${compare.mode}`}
             aria-label={`Comparing with ${compare.symbol}. Change or remove.`}
           >
@@ -314,11 +343,28 @@ export function PaneLegend(props: PaneLegendProps) {
         </div>
       )}
 
+      {/*
+        R4b-06 / R1c-14: `baseTicker`, not the pane's canonical `symbol`.
+
+        This used to pass the pane's raw canonical symbol — an
+        `instrument:v1:…` id — which the old form printed verbatim in its own
+        `<h2>`, three lines deep, under the close button. A canonical id as
+        primary copy is the one thing §5's symbol-display rule forbids
+        outright, and typing the prop as a ticker is what stops it coming
+        back.
+      */}
       <CompareControl
         open={compareOpen}
         current={compare}
-        baseSymbol={symbol}
+        baseTicker={tickerLabel}
         onClose={() => setCompareOpen(false)}
+        onApply={(next) => props.onCompareChange?.(paneId, next)}
+      />
+      <CompareSettings
+        open={compareSettingsOpen}
+        current={compare}
+        baseTicker={tickerLabel}
+        onClose={() => setCompareSettingsOpen(false)}
         onApply={(next) => props.onCompareChange?.(paneId, next)}
       />
     </>

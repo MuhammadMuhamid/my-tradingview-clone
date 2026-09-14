@@ -57,9 +57,10 @@ import {
   clearUserDefaultChartSettings, DATE_FORMATS, dateFormatExample, DEFAULT_CHART_SETTINGS,
   deleteChartSettingsTemplate, loadChartSettingsTemplates, PRECISIONS, PLACEMENTS,
   precisionLabel, saveChartSettingsTemplate, saveUserDefaultChartSettings,
+  STATUS_TITLE_FORMS,
   type ChartSettingsTemplate,
   type ChartSettings, type DateFormatName,
-  type PricePrecision, type ScalePlacement, type WatermarkMode,
+  type PricePrecision, type ScalePlacement, type StatusTitleForm, type WatermarkMode,
 } from "@/lib/chartSettings";
 import { chartTransform, chartTypeLabel, renderKind, type ChartType } from "@/lib/chartType";
 import {
@@ -73,6 +74,12 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
+
+/** The `Title` dropdown writes one of the three forms and nothing else. */
+function statusTitleForm(value: string): StatusTitleForm {
+  return STATUS_TITLE_FORMS.includes(value as StatusTitleForm)
+    ? value as StatusTitleForm : "ticker";
+}
 
 type Tab = "symbol" | "status" | "scales" | "canvas" | "trading" | "alerts" | "events";
 
@@ -215,6 +222,18 @@ export function ChartSettingsModal(props: {
   const thinBarsApplies = renderKind(chartType) === "bars";
 
   /*
+   * R6b-24: ONE section per chart type, not two.
+   *
+   * The candle-appearance rows opened a section titled with the chart type,
+   * and then each presentation's own parameters opened a SECOND section with
+   * the same title — so the Symbol tab under Renko read `RENKO … RENKO`, and
+   * the same under Point & figure, Line break and Range. The appearance rows
+   * and the parameters are one section about one presentation; whichever block
+   * comes first opens it.
+   */
+  const typeSectionOpen = seriesColoursApply || thinBarsApplies;
+
+  /*
    * The two colour wells reach further than the three toggles beside them: on
    * a Line, Area, Baseline or Columns chart the volume histogram under the
    * price still takes `upColor` / `downColor`. Volume is not drawn under a
@@ -292,7 +311,18 @@ export function ChartSettingsModal(props: {
        * 30px of vertical padding rather than the default 16: it is what puts
        * the 280px rail in the 342px content band the reference measures.
        */
-      contentClassName="!py-[30px]"
+      /*
+       * R6b-01: the rail's first tab sits at the dialog top + 76 in the
+       * reference (a 62px header + 14), and the content column at + 84 (the
+       * header + 22). `!py-[30px]` put both at + 92. The body's own top pad is
+       * the rail's 14; the tab panel adds the remaining 8 for the content.
+       */
+      contentClassName="!pt-[14px] !pb-[30px]"
+      /*
+       * R6b-02: the reference's footer is 67px — 17 above and 16 below the
+       * 34px buttons, plus the hairline. `Modal`'s own `py-3` is 12/12 → 59.
+       */
+      footerClassName="!py-4"
       scrollBody={false}
       footer={
         <div className="flex w-full items-center gap-2">
@@ -308,7 +338,15 @@ export function ChartSettingsModal(props: {
             onSaveAsDefault={() => saveUserDefaultChartSettings(settings)}
           />
           <span className="flex-1" />
-          <Button variant="ghost" onClick={cancel} className="w-[74px]">Cancel</Button>
+          {/*
+            R6b-04: the reference's `Cancel` DOES carry an outline — pixel
+            edges at x=945 and x=1017/1018 on the button's centre row in the
+            symbol, events and alerts captures. R6 read it as a ghost and this
+            file said so in a comment; the pixels say otherwise, so `default`
+            (a 1px `--ts-control-border` on a transparent ground) is the
+            variant and the comment in `ui.tsx` is corrected with it.
+          */}
+          <Button variant="default" onClick={cancel} className="w-[74px]">Cancel</Button>
           <Button variant="contrast" onClick={onClose} className="w-[44px] px-0">Ok</Button>
         </div>
       }
@@ -323,8 +361,20 @@ export function ChartSettingsModal(props: {
                 already draws, plus the reference's weight change. It was 400
                 either way, on a 42px pitch (`mb-0.5`) rather than 40.
               */
+              /*
+                R6b-05: the reference's rail is one step brighter on BOTH
+                states — unselected 219, selected 255, against our 168/219. The
+                unselected label is `--ts-ink` now; the selected one is the
+                brightest ink the theme defines, which is the light half of the
+                contrast pair the `Ok` button and the selected menu row already
+                use (242 on dark, near-black on light). There is no 255 token
+                in this product, and inventing one in `globals.css` would
+                repaint more than a tab rail.
+              */
               className={`tvc-control flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm ${
-                tab === item.id ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
+                tab === item.id
+                  ? "font-semibold text-[var(--ts-menu-selected-bg)]"
+                  : "text-ink hover:text-[var(--ts-menu-selected-bg)]"
               }`}>
               <span className="flex h-7 w-7 shrink-0 items-center justify-center">{item.glyph}</span>
               {item.label}
@@ -338,8 +388,23 @@ export function ChartSettingsModal(props: {
         */}
         <section
           role="tabpanel"
-          className="grid min-h-0 min-w-0 flex-1 auto-rows-min content-start gap-x-5 overflow-y-auto"
-          style={{ gridTemplateColumns: `minmax(${VALUE_COLUMN[tab]}px, max-content) 1fr` }}
+          className="grid min-h-0 min-w-0 flex-1 auto-rows-min content-start gap-x-5 overflow-y-auto pt-2"
+          /*
+            R6b-06: the Status tab's column is FIXED, not `max-content`.
+
+            Every other tab's value column is a floor the widest label may
+            push right; on Status the widest label is `Last day change values`
+            (179px), which pushed the `Title` dropdown to x=790 against the
+            reference's 714. TradingView lets that label overflow visibly into
+            the empty second column instead — the labels are `whitespace-nowrap`
+            already — so the column is the reference's 123px and nothing moves
+            it.
+          */
+          style={{
+            gridTemplateColumns: tab === "status"
+              ? "103px 1fr"
+              : `minmax(${VALUE_COLUMN[tab]}px, max-content) 1fr`,
+          }}
         >
           {tab === "symbol" && (
             <>
@@ -402,7 +467,7 @@ export function ChartSettingsModal(props: {
               */}
               {chartType === "range" && (
                 <>
-                  <Section>Range</Section>
+                  {!typeSectionOpen && <Section>{chartTypeLabel(chartType)}</Section>}
                   <FieldRow label="Range size">
                     <NumberField value={settings.rangeTicks} min={1} max={10000} unit="ticks"
                       onChange={(v) => set("rangeTicks", v)} label="Range size in ticks" />
@@ -412,7 +477,7 @@ export function ChartSettingsModal(props: {
 
               {chartType === "renko" && (
                 <>
-                  <Section>Renko</Section>
+                  {!typeSectionOpen && <Section>{chartTypeLabel(chartType)}</Section>}
                   <FieldRow label="ATR length">
                     <NumberField value={settings.renkoAtrPeriod} min={2} max={200}
                       onChange={(v) => set("renkoAtrPeriod", v)} label="Renko ATR length" />
@@ -422,7 +487,7 @@ export function ChartSettingsModal(props: {
 
               {chartType === "lineBreak" && (
                 <>
-                  <Section>Line break</Section>
+                  {!typeSectionOpen && <Section>{chartTypeLabel(chartType)}</Section>}
                   <FieldRow label="Number of lines">
                     <NumberField value={settings.lineBreakLines} min={2} max={10}
                       onChange={(v) => set("lineBreakLines", v)} label="Line break count" />
@@ -432,7 +497,7 @@ export function ChartSettingsModal(props: {
 
               {chartType === "kagi" && (
                 <>
-                  <Section>Kagi</Section>
+                  {!typeSectionOpen && <Section>{chartTypeLabel(chartType)}</Section>}
                   <FieldRow label="Reversal">
                     <NumberField value={settings.kagiReversalPercent} min={0.1} max={50} step={0.1}
                       unit="%" onChange={(v) => set("kagiReversalPercent", v)}
@@ -443,7 +508,7 @@ export function ChartSettingsModal(props: {
 
               {chartType === "pointAndFigure" && (
                 <>
-                  <Section>Point &amp; figure</Section>
+                  {!typeSectionOpen && <Section>{chartTypeLabel(chartType)}</Section>}
                   <FieldRow label="Box size">
                     <NumberField value={settings.pnfBoxPercent} min={0.1} max={50} step={0.1}
                       unit="%" onChange={(v) => set("pnfBoxPercent", v)}
@@ -459,7 +524,7 @@ export function ChartSettingsModal(props: {
 
               {(chartType === "sessionVolumeProfile" || chartType === "tpo") && (
                 <>
-                  <Section>{chartType === "tpo" ? "Time price opportunity" : "Session volume profile"}</Section>
+                  {!typeSectionOpen && <Section>{chartTypeLabel(chartType)}</Section>}
                   <FieldRow label="Rows">
                     <NumberField value={settings.profileRows} min={4} max={400}
                       onChange={(v) => set("profileRows", v)} label="Profile row count" />
@@ -540,24 +605,49 @@ export function ChartSettingsModal(props: {
               */}
               <CheckRow label="Status line" checked={settings.showStatusLine}
                 onChange={(v) => set("showStatusLine", v)} />
+              {/*
+                R3b-24: the reference's first Instrument row is `Logo`, and the
+                product already draws an asset disc in the watchlist and the
+                symbol dialog. The row is the reference's; the artwork is ours
+                (OV-K), because this installation ships no third-party marks.
+              */}
+              <CheckRow label="Logo" checked={settings.statusLogo} disabled={statusOff}
+                onChange={(v) => set("statusLogo", v)} />
               <CheckRow label="Title" checked={settings.statusSymbol} disabled={statusOff}
                 onChange={(v) => set("statusSymbol", v)}>
                 <Dropdown value={settings.statusTitle} label="Title form" width={150}
                   disabled={statusOff || !settings.statusSymbol}
-                  onChange={(v) => set("statusTitle", v === "symbol" ? "symbol" : "ticker")}
+                  onChange={(v) => set("statusTitle", statusTitleForm(v))}
                   options={[
                     /*
-                      The reference's own two useful forms. `Name` is
-                      `displayName` — the descriptive name where this
-                      installation knows one, the venue's listing code where it
-                      does not — which is R3-14's headline and what every chart
-                      draws today; `Full symbol` is `displaySymbol`. Neither can
-                      answer with a canonical `instrument:v1:…` id (§5).
+                      R3b-25: the reference's three forms, on the two stored
+                      values plus one new one — see `StatusTitleForm`.
+
+                      `Name` is `displayName`, the descriptive name where this
+                      installation knows one and the venue's listing code where
+                      it does not; `Ticker` is `displayTicker` (`BTCUSDT`), the
+                      form the toolbar pill and every watchlist row use;
+                      `Description` is the long description, which this build
+                      resolves to the same descriptive name until a provider
+                      hands us a real one. `Full symbol` is GONE: it rendered
+                      `BINANCE:BTC/USDT · SPOT`, which is not one of the
+                      reference's forms and is exactly what §5 keeps out of
+                      primary copy. None of the three can answer with a
+                      canonical `instrument:v1:…` id.
                     */
                     { value: "ticker", label: "Name" },
-                    { value: "symbol", label: "Full symbol" },
+                    { value: "symbol", label: "Ticker" },
+                    { value: "description", label: "Description" },
                   ]} />
               </CheckRow>
+              {/*
+                R3b-24: and the market-status dot, where the reference puts its
+                row — under Title. It draws nothing at all for an instrument
+                whose session calendar this build does not hold, which is why
+                the row says `Open market status` and not `Market open`.
+              */}
+              <CheckRow label="Open market status" checked={settings.statusMarketStatus}
+                disabled={statusOff} onChange={(v) => set("statusMarketStatus", v)} />
               <CheckRow label="Chart values" checked={settings.statusOhlc} disabled={statusOff}
                 onChange={(v) => set("statusOhlc", v)} />
               <CheckRow label="Bar change values" checked={settings.statusBarChange} disabled={statusOff}
@@ -579,6 +669,30 @@ export function ChartSettingsModal(props: {
                 onChange={(v) => set("statusIndicatorInputs", v)} />
               <CheckRow label="Values" checked={settings.statusIndicatorValues}
                 onChange={(v) => set("statusIndicatorValues", v)} />
+              {/*
+                R3b-25: the reference's `Background` row and its opacity
+                slider, which is what makes a legend readable over a dense
+                candle. It is a plate behind the TEXT runs, never a box around
+                the legend — the box is what R3-10 removed.
+              */}
+              <CheckRow label="Background" checked={settings.statusLegendBackground}
+                onChange={(v) => set("statusLegendBackground", v)}>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={settings.statusLegendBackgroundOpacity}
+                  disabled={!settings.statusLegendBackground}
+                  aria-label="Background opacity"
+                  onChange={(e) => set("statusLegendBackgroundOpacity", Number(e.target.value))}
+                  className="h-1 w-[120px] cursor-pointer appearance-none rounded bg-surface-3
+                    accent-[var(--ts-accent)] disabled:cursor-not-allowed disabled:opacity-40"
+                />
+                <span className="w-9 text-right text-xs tabular text-ink-muted">
+                  {settings.statusLegendBackgroundOpacity}%
+                </span>
+              </CheckRow>
             </>
           )}
 
@@ -649,8 +763,9 @@ export function ChartSettingsModal(props: {
                   })} />
               </FieldRow>
               <FieldRow label="Indicators">
+                {/* R6b-15: 180, as the reference's `Indicators and financials`. */}
                 <Dropdown value={settings.indicatorLastValue ? "value" : "hidden"}
-                  label="Indicator last value" width={150}
+                  label="Indicator last value" width={180}
                   onChange={(v) => set("indicatorLastValue", v === "value")}
                   options={[{ value: "value", label: "Value" }, { value: "hidden", label: "Hidden" }]} />
               </FieldRow>
@@ -698,6 +813,18 @@ export function ChartSettingsModal(props: {
                   options={[{ value: "solid", label: "Solid" }, { value: "gradient", label: "Gradient" }]} />
                 <Swatch label="Background colour" allowTheme value={settings.backgroundColor}
                   onChange={(v) => set("backgroundColor", v)} />
+                {/*
+                  R6b-18: `Gradient` shows a SECOND well, as the reference
+                  does. Both wells on `Theme` is still a visible wash — see
+                  `resolveBackgroundGradient`, which derives the pair from the
+                  surface and the ink rather than laying 6% of accent blue over
+                  transparent, which measured three points of luminance.
+                */}
+                {settings.backgroundGradient && (
+                  <Swatch label="Background second colour" allowTheme
+                    value={settings.backgroundColor2}
+                    onChange={(v) => set("backgroundColor2", v)} />
+                )}
               </FieldRow>
               {/*
                 R6 C-1: each direction carries its own appearance, as the
@@ -826,7 +953,13 @@ export function ChartSettingsModal(props: {
               */}
               <CheckRow label="Alert lines" checked={settings.showAlertLines}
                 onChange={(v) => set("showAlertLines", v)} />
-              <CheckRow label="Only active alerts" checked={settings.onlyActiveAlerts} indent
+              {/*
+                R6b-22: the reference does NOT indent this row — its checkbox
+                is at the content edge, x=591, with `Alert lines`. It stays
+                disabled while alert lines are off, because with no lines drawn
+                there is nothing for it to filter.
+              */}
+              <CheckRow label="Only active alerts" checked={settings.onlyActiveAlerts}
                 disabled={!settings.showAlertLines}
                 onChange={(v) => set("onlyActiveAlerts", v)} />
               <CheckRow label="Fired-alert markers" checked={settings.showAlerts}
@@ -869,7 +1002,12 @@ function Section({ children }: { children: React.ReactNode }) {
 function Note({ children, indent }: { children: React.ReactNode; indent: boolean }) {
   return (
     <div
-      style={{ gridColumn: "1 / -1", paddingLeft: indent ? 54 : 28 }}
+      /*
+        R6b-07: the note starts at the CHECKBOX's edge, not at the label's.
+        Measured on the reference: x=591 under a plain row (the content edge
+        itself) and x=617 under an indented one. 28/54 put it at 619/645.
+      */
+      style={{ gridColumn: "1 / -1", paddingLeft: indent ? 26 : 0 }}
       className="-mt-3 pb-3 text-xs leading-[18px] text-ink-faint"
     >
       {children}
@@ -990,7 +1128,12 @@ function TemplateMenu({
         aria-expanded={open}
         aria-label="Chart settings template"
         onClick={() => setOpen(!open)}
-        className="tvc-control flex h-[34px] w-[100px] items-center justify-between rounded-md px-3 text-sm text-ink-muted hover:text-ink"
+        /*
+          R6b-03: the reference's `Template ▾` carries a 1px outline — pixel
+          edges at x=365 and x=463/464 on the button's centre row in all three
+          captures. It was a borderless ghost.
+        */
+        className="tvc-control flex h-[34px] w-[100px] items-center justify-between rounded-md border border-control-border px-3 text-sm text-ink-muted hover:text-ink"
       >
         Template
         <CaretGlyph size={10} />

@@ -119,28 +119,73 @@ test("the caret is a control of its own, with its own name", () => {
   assert.match(caret, /aria-haspopup="menu"/);
 });
 
-test("save, save as, rename, autosave and open are all reachable", () => {
+test("save, make a copy, rename, create, autosave and the recent list are all reachable", () => {
+  /*
+   * ── TVP8 R1c-11: the reference's own rows, in the reference's own order ───
+   *
+   * `measurements/tv-layouts-menu-20260914.md` measured the live menu:
+   * `Save layout ⌘S` · `Autosave` · `Share layout` · ─ · `Make a copy…` ·
+   * `Rename…` · `Download chart data…` · ─ · `Create new layout…` ·
+   * `RECENTLY USED` · two-line recent rows · `Open layout…`.
+   *
+   * Two of those are deliberately absent and each has a reason that is not
+   * "we did not get to it": `Share layout` publishes to TradingView's own
+   * hosting, and `Download chart data…` exports the loaded window as CSV,
+   * which this product cannot do anywhere. `Open layout…` opens a full layout
+   * BROWSER dialog; the recent list below is this product's way into a saved
+   * layout, and a row that opens nothing would be a row that lies.
+   */
   const source = read(MENU);
   assert.match(source, /Save layout/);
-  assert.match(source, /Save as…/);
+  assert.match(source, /Make a copy…/);
   assert.match(source, /Rename…/);
   assert.match(source, /Autosave/);
-  assert.match(source, /Open a layout/);
+  assert.match(source, /Create new layout…/);
+  assert.match(source, /Recently used/);
   // Save is disabled with no current layout, because there is nothing to
-  // overwrite — Save as… is the path that creates one.
-  assert.match(source, /<Item onClick=\{onSaveNow\} disabled=\{!current\}>/);
-  assert.match(source, /<Item onClick=\{current \? onCopy : onCreate\}>/);
+  // overwrite — Make a copy… is the path that creates one.
+  assert.match(source, /<Item onClick=\{onSaveNow\} disabled=\{!current\} cap=\{saveCap\}>/);
+  assert.match(source, /<Item onClick=\{current \? onCopy : onCreate\} glyph=\{COPY_GLYPH\}>/);
+
+  /*
+   * The box, measured: [1106,40,201,523] — 201 wide, anchored at the CARET's
+   * left edge, 2px under the 38px bar, 32px rows. Ours was 288 wide with
+   * `right-0`, so it hung 264px to the left of the control that opened it.
+   */
+  assert.match(source, /w-\[201px\]/);
+  assert.match(source, /tvc-menu--compact absolute left-0 top-full z-40 mt-\[2px\]/);
+
+  /*
+   * And no header block. `Unnamed layout / Not saved — …` was the name
+   * button's own tooltip printed again at the top of the menu it opens, in
+   * two lines of prose above a list of verbs.
+   */
+  assert.doesNotMatch(readCode(MENU), /Not saved —|\{status\.label\} — \{status\.help\}/);
 });
 
-test("one Save as, not two menu items for the same operation", () => {
-  // `onCreate` and `onCopy` are the same write with a different default name in
-  // the prompt. Offering both is a question the user must answer before acting,
-  // not extra capability — and both are still wired, so nothing was removed.
+test("copying and creating are named the way the reference names them, and each reaches its own handler", () => {
+  /*
+   * ── Rewritten, with the reason ───────────────────────────────────────────
+   *
+   * This used to assert the OPPOSITE: that neither `Make a copy…` nor `Create
+   * new layout…` appears, because the two were collapsed into one `Save as…`
+   * row on the grounds that they are the same write with a different default
+   * name in the prompt.
+   *
+   * That was true of the implementation and false of the user's question. The
+   * reference has both rows, in separate groups, because they answer different
+   * questions — "keep this arrangement AND a copy of it" versus "start a new
+   * arrangement" — and `Save as…` answers neither out loud. R1c-11 measured
+   * both rows on the live menu. Nothing was removed to get here: `onCopy` and
+   * `onCreate` were already both wired, and each now has the row that names
+   * what it does.
+   */
   const source = readCode(MENU);
-  assert.doesNotMatch(source, /Make a copy…/);
-  assert.doesNotMatch(source, /Create new layout…/);
+  assert.match(source, /Make a copy…/);
+  assert.match(source, /Create new layout…/);
+  assert.doesNotMatch(source, /Save as…/, "the ambiguous middle name is gone");
   assert.match(source, /onCopy/);
-  assert.match(source, /onCreate/);
+  assert.match(source, /<Item onClick=\{onCreate\} glyph=\{NEW_GLYPH\}>/);
 });
 
 test("opening another layout over unsaved changes asks first", () => {
@@ -159,8 +204,48 @@ test("deleting a layout is named, and the open one is marked", () => {
   assert.match(source, /aria-label=\{`Delete the layout “\$\{l\.name\}”`\}/,
     "a bare ✕ in a list is an ambiguous destructive action");
   assert.match(source, /aria-current=\{l\.id === currentId \? "true" : undefined\}/);
-  assert.match(source, /\{l\.id === currentId \? " — open" : ""\}/,
+  /*
+   * R1c-11: the open layout is the INVERTED row, which is the workstation's
+   * one selection grammar (`.tvc-menu-row[data-active="true"]` — rgb(242) on
+   * rgb(15)) and is what the reference paints on the current entry of its own
+   * `Recently used` list. It replaces a ` — open` suffix appended to the
+   * layout's name: a word inside a name is not a state, it is a different
+   * name, and it truncated away the moment the name was long. It is still not
+   * told by colour alone — `aria-current` above says it, and the chip is a
+   * full-row inversion rather than a tint.
+   */
+  assert.match(source, /data-active=\{l\.id === currentId \? "true" : undefined\}/,
     "which layout is open must not be told by an accent colour alone");
+  assert.doesNotMatch(source, / — open/);
+
+  /*
+   * ── R8: the recent row was structurally BROKEN ───────────────────────────
+   *
+   * `.tvc-menu-row` is `display:flex; align-items:center`, so this row's two
+   * lines became flex COLUMNS side by side: the reviewer measured the name at
+   * 42×70, wrapping one word per line, and the subtitle running 294px wide out
+   * of a 288px menu. `flex-col` with a `truncate` on each line is the repair,
+   * and it is what makes the 48px pitch the measurement says it should be.
+   */
+  assert.match(source, /!min-h-\[48px\] min-w-0 flex-1 flex-col items-start justify-center/);
+  /*
+   * ── R8: and it printed the canonical id ──────────────────────────────────
+   *
+   * `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` as the subtitle of a row
+   * whose whole job is letting a person recognise their own workspace. The
+   * symbol policy has exactly one prohibition and this was it (contract §5).
+   */
+  assert.match(source, /\{displayTicker\(l\.symbol\)\}, \{l\.interval\}/);
+  assert.doesNotMatch(source, /\{l\.symbol\}, \{l\.interval\}/);
+
+  /*
+   * ── R8: the delete asked underneath its own menu ─────────────────────────
+   *
+   * `onDelete` opens `useSavedLayouts`' confirm dialog, and it was appearing
+   * below this menu's click-away overlay — the reviewer's two deletions
+   * "closed the menu and deleted nothing". The menu closes first now.
+   */
+  assert.match(source, /setOpen\(false\);\s*\n\s*onDelete\(l\.id\);/);
 });
 
 test("the menu decides nothing about persistence", () => {

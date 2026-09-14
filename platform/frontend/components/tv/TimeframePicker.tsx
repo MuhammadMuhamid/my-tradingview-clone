@@ -42,9 +42,9 @@ import {
   addCustom, chipLabel, isFavourite, parseCustomEntry, parseStoredResolutions,
   recordRecent, removeCustom, timeframeStrip, toggleFavourite, type CustomUnit,
 } from "@/lib/timeframes";
-import { describeResolution, explainResolution, parseResolution, type Resolution } from "@/lib/resolution";
+import { describeResolution, explainResolution, type Resolution } from "@/lib/resolution";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
-import { TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/tv/toolbarChrome";
+import { TEXT_BASELINE, TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/tv/toolbarChrome";
 
 /**
  * Read a stored list without letting a corrupt entry take the page down.
@@ -144,21 +144,21 @@ interface RowProps {
   onRemove?: (resolution: Resolution) => void;
 }
 
-/** The check on the row the chart is actually on. */
-function CurrentCheck() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      className="ml-1 shrink-0" aria-hidden="true">
-      <path d="M5 12.5l4.5 4.5L19 7" />
-    </svg>
-  );
-}
+/*
+ * ── TVP8 R1c-08: there is no check, and there was never meant to be two ───
+ *
+ * This menu used to draw a tick beside the star on the selected row. Measured
+ * on `tradingview/timeframe-menu-1440-dark.png`, the reference's selection
+ * grammar is the INVERTED CHIP and the filled star, and nothing else — the
+ * same grammar the chart-style menu was corrected to in R1b-05. Two marks for
+ * one fact, on the one row that is already the brightest thing in the list,
+ * read as a second state rather than as emphasis. The fact is unchanged and
+ * still announced: `aria-checked` on the row.
+ */
 
 function PickerRow({
   resolution, current, favourite, onPick, onToggleFavourite, onRemove,
 }: RowProps) {
-  const plan = parseResolution(resolution);
   const selected = current === resolution;
   return (
     /*
@@ -178,19 +178,24 @@ function PickerRow({
         role="menuitemradio"
         aria-checked={selected}
         data-resolution={resolution}
+        /*
+          R1c-08: the derivation is still SAID, and no longer printed.
+
+          Every derived row used to carry an 11px `3 × 15m` after its name. The
+          fact is load-bearing — a person choosing 45m is entitled to know it
+          is three real fifteens rather than a feed the venue publishes — but
+          the reference prints row WORDS and nothing else, and a second column
+          of grey type in a thirty-row list is what made ours read as a data
+          table. It is the row's tooltip and its accessible name now, which is
+          where a workstation puts an explanation it does not want in the way,
+          and `tests/dom/intervals.test.tsx` asserts it is still reachable.
+        */
+        title={explainResolution(resolution)}
         aria-label={`${describeResolution(resolution)} — ${explainResolution(resolution)}`}
         onClick={() => onPick(resolution)}
-        className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left text-[13px]"
+        className="flex min-w-0 flex-1 items-center text-left text-[13px]"
       >
         <span className="min-w-0 truncate">{describeResolution(resolution)}</span>
-        {plan !== null && !plan.native && (
-          // Said on the row, not in a tooltip: what a derived bar is made of is
-          // the reason it can be trusted, and a tooltip is not an answer to a
-          // question a reader did not know to ask.
-          <span className={`shrink-0 text-[11px] ${selected ? "opacity-70" : "text-ink-faint"}`}>
-            {plan.factor} × {plan.source}
-          </span>
-        )}
       </button>
       {onRemove && (
         <button
@@ -222,12 +227,14 @@ function PickerRow({
           favourite ? "opacity-100" : "opacity-0 focus:opacity-100 group-hover:opacity-100"
         }`}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"
+        {/* R1c-08: 15×15. The reference's star inks 113 px; ours at 14 on a
+            24-unit box inked 73 — the mark that says "this is on your toolbar"
+            was two thirds of the size of the one it is copied from. */}
+        <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
           fill={favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
           <path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z" />
         </svg>
       </button>
-      {selected && <CurrentCheck />}
     </div>
   );
 }
@@ -386,9 +393,20 @@ export function ResolutionMenu({ interval, onPick, preferences }: ResolutionMenu
         heading would be advertising a resolution class that does not exist.
         See `RESOLUTION_CATALOGUE`.
       */}
-      {RESOLUTION_CATALOGUE.map((group) => (
+      {RESOLUTION_CATALOGUE.map((group, index) => (
         <section key={group.label} aria-label={group.label}>
-          <Separator />
+          {/*
+            R1c-08: the FIRST catalogue group draws no rule of its own.
+
+            There are two hairlines under `Add custom interval…` in the shipped
+            build — one closing that row, and one opening this loop — 7px
+            apart, which reads as a rendering fault rather than as a divider.
+            The reference has exactly one. Guarded by the index rather than by
+            moving the rule, because `Current`, `Custom` and `Recent` may or
+            may not be rendered above this and each already closes itself.
+          */}
+          {(index > 0 || orphanCurrent !== null || preferences.custom.length > 0
+            || preferences.recents.length > 0) && <Separator />}
           <SectionTitle>{group.label}</SectionTitle>
           {group.items.map((r) => row(r))}
         </section>
@@ -405,8 +423,26 @@ export function ResolutionMenu({ interval, onPick, preferences }: ResolutionMenu
  */
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h4 className="flex h-[26px] items-center px-2.5 text-[11px] uppercase tracking-wide text-ink-faint">
-      {children}
+    /*
+      R1c-08: `px-[14px]`, and a caret at the right end.
+
+      The reference sets its run markers 14px from the menu's edge (ours sat at
+      10) and hangs the same 8×4 chevron every other disclosure on this bar
+      uses at the right of each one. It is drawn here and does nothing: TV's
+      collapses the section, and a caret that collapses nothing would be a
+      control that lies. Drawn rather than omitted because the marker's SHAPE
+      is what the eye reads when it scans a thirty-row list for "Hours", and
+      because collapsing is a behaviour this menu can grow into without the
+      list moving a pixel when it does.
+    */
+    <h4 className="flex h-[26px] items-center gap-1 px-[14px] text-[11px] uppercase tracking-wide text-ink-faint">
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      <svg width={TOOL_CARET_GLYPH.width} height={TOOL_CARET_GLYPH.height}
+        viewBox={TOOL_CARET_GLYPH.viewBox} fill="none" stroke="currentColor"
+        strokeWidth={TOOL_CARET_GLYPH.stroke} strokeLinecap="round"
+        strokeLinejoin="round" className="shrink-0 text-ink" aria-hidden="true">
+        <path d={TOOL_CARET_GLYPH.d} />
+      </svg>
     </h4>
   );
 }
@@ -445,8 +481,21 @@ function useMenuKeys(
   menuRef: { current: HTMLElement | null },
   triggerRef: { current: HTMLElement | null },
 ): void {
+  /*
+   * ── TVP8 R1c-08: opening the menu highlights NOTHING ─────────────────────
+   *
+   * This focused the first row, and `.tvc-menu-row:focus` paints rgb(46) — so
+   * every time the catalogue opened, `Add custom interval…` was lit as though
+   * the pointer were on it, and the row that is actually armed was the second
+   * brightest thing in the list. The reference highlights no row on open.
+   *
+   * The MENU takes the focus instead (it carries `tabIndex={-1}`), which keeps
+   * everything the focus was there for: Escape still returns to the trigger,
+   * and ArrowDown still lands on the first row because `moveMenuFocus` starts
+   * from "no item focused".
+   */
   useEffect(() => {
-    if (open) menuItems(menuRef.current)[0]?.focus();
+    if (open) menuRef.current?.focus();
   }, [open, menuRef]);
   useEffect(() => {
     if (!open) return;
@@ -457,7 +506,21 @@ function useMenuKeys(
         triggerRef.current?.focus();
       } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
         e.preventDefault();
-        moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
+        const items = menuItems(menuRef.current);
+        /*
+          R1c-08: on open the focus is on the MENU BOX, not on a row, so that
+          no row is painted. `moveMenuFocus` reads "not an item" as index 0 and
+          would step to the SECOND row on the first ArrowDown — one row skipped
+          every time the catalogue is opened from the keyboard. From the box,
+          the first press lands on an end.
+        */
+        if (document.activeElement === menuRef.current) {
+          (e.key === "ArrowUp" || e.key === "End"
+            ? items[items.length - 1]
+            : items[0])?.focus();
+          return;
+        }
+        moveMenuFocus(items, document.activeElement, e.key);
       }
     };
     const menu = menuRef.current;
@@ -532,7 +595,8 @@ export function LegendTimeframe(props: LegendTimeframeProps) {
         </svg>
       </button>
       {open && (
-        <div ref={menuRef} role="menu" aria-label="Pane timeframe" className={`${MENU_BOX} left-0 top-[22px] max-h-[70vh]`}>
+        <div ref={menuRef} role="menu" aria-label="Pane timeframe" tabIndex={-1}
+          className={`${MENU_BOX} left-0 top-[22px] max-h-[70vh]`}>
           <ResolutionMenu
             interval={props.interval}
             onPick={pick}
@@ -578,7 +642,11 @@ function StripChip(props: {
         chips of the same control. The armed one is told by its chip, which is
         what the reference uses too; nothing here is told by weight.
       */
-      className="tvc-control flex h-[38px] shrink-0 items-center px-1.5 text-[13px] font-normal text-ink"
+      /*
+        R1c-19: the shared 18px line box. The reference's `1m` inks rows 15–24
+        and ours inked 14–23 — every word on the bar sat a pixel high.
+      */
+      className={`tvc-control flex h-[38px] shrink-0 items-center px-1.5 text-[13px] font-normal text-ink ${TEXT_BASELINE}`}
     >
       {chipLabel(props.resolution)}
     </button>
@@ -725,7 +793,7 @@ export function TimeframePicker(props: TimeframePickerProps) {
             of it. A thirty-row list hung under a 38px bar loses a row to
             nothing and still does not fit.
           */
-          <div ref={menuRef} role="menu" aria-label="All timeframes"
+          <div ref={menuRef} role="menu" aria-label="All timeframes" tabIndex={-1}
             className={`${MENU_BOX} left-0 top-0 max-h-[100vh]`}>
             <ResolutionMenu interval={interval} onPick={pick} preferences={preferences} />
           </div>

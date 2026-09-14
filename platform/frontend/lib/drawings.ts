@@ -83,10 +83,60 @@ export interface Anchor {
   price: number;
 }
 
+/** How far a two-anchor line is drawn past its own anchors. */
+export type DrawingExtend = "none" | "left" | "right" | "both";
+
+/** Where a line tool's statistics box sits relative to the line. */
+export type DrawingStatsPosition = "left" | "center" | "right";
+
+/** Vertical and horizontal placement of a drawing's own text. */
+export type DrawingTextVAlign = "top" | "middle" | "bottom";
+export type DrawingTextHAlign = "left" | "center" | "right";
+
 export interface DrawingStyle {
   color: string;
   width: number;
   dashed?: boolean;
+  /**
+   * R6b-28: the dash pattern, in the product's own three-value vocabulary.
+   *
+   * `dashed` is a boolean and the reference's line-style button offers solid,
+   * DOTTED and dashed. The boolean is kept in step beside it — every renderer
+   * in `DrawingCanvas` reads `dashed` and none of them has been asked to read
+   * anything else — so an older drawing still draws exactly as it did and a
+   * dotted one degrades to dashed rather than to solid on an older build.
+   */
+  lineStyle?: "solid" | "dotted" | "dashed";
+  /**
+   * R6b-28: the reference's `Extend` row, which this dialog did not have.
+   *
+   * `none` is the trendline the product has always drawn. The ray tools
+   * already draw an extended line, so this is the same geometry reached from
+   * the settings dialog rather than from a second tool.
+   */
+  extend?: DrawingExtend;
+  /** R6b-28: a handle at the midpoint of a two-anchor line. */
+  middlePoint?: boolean;
+  /** R6b-28: the axis price tags the reference draws for both anchors. */
+  priceLabels?: boolean;
+  /**
+   * R6b-28: the `INFO` block — bar count, price change and angle.
+   *
+   * The maths is already in the product: the `Info line` tool computes all
+   * three. This is the same computation offered on the tools that have two
+   * anchors to compute it from.
+   */
+  stats?: boolean;
+  statsPosition?: DrawingStatsPosition;
+  /** Stats drawn even when the drawing is not selected. */
+  alwaysShowStats?: boolean;
+  /** R6b-28 Text tab: the label's own colour, size and weight. */
+  textColor?: string;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  textVAlign?: DrawingTextVAlign;
+  textHAlign?: DrawingTextHAlign;
   /** shapes: translucent interior */
   filled?: boolean;
   text?: string;
@@ -127,6 +177,15 @@ export interface DrawingStyle {
 export interface Drawing {
   id: string;
   tool: DrawingTool;
+  /**
+   * R6b-28: the drawing's own name, editable in the settings dialog's header.
+   *
+   * The reference puts an editable `Trendline` field where a dialog title
+   * usually goes, so two trendlines on one chart can be told apart. Absent, the
+   * tool's own label is the name — which is what every drawing already reads
+   * as, so nothing on disk changes.
+   */
+  name?: string;
   points: Anchor[];
   style: DrawingStyle;
   locked?: boolean;
@@ -207,15 +266,25 @@ export const isCursorMode = (tool: DrawingTool): boolean => CURSOR_TOOLS.has(too
  */
 export interface GlyphCategory {
   id: string;
-  /** The category cell's own glyph, and its accessible name. */
+  /** The category cell's own accessible name. */
   label: string;
+  /*
+   * The category cell's mark, as a KEY into the rail's own `ICONS` set —
+   * never a code point (R2c-11).
+   *
+   * These were colour emoji: the operating system's artwork, at the operating
+   * system's size and hue, in the one row of a picker whose every other glyph
+   * is this product's monochrome outline set. The reference draws outline
+   * category marks and says which one is open with an accent bar under the
+   * cell, not by tinting the emoji's chip.
+   */
   icon: string;
   glyphs: readonly string[];
 }
 
 export const EMOJI_CATEGORIES: readonly GlyphCategory[] = [
   {
-    id: "smileys", label: "Smileys", icon: "\u{1F642}",
+    id: "smileys", label: "Smileys", icon: "catSmileys",
     glyphs: [
       "\u{1F600}", "\u{1F603}", "\u{1F604}", "\u{1F609}", "\u{1F60A}", "\u{1F60E}", "\u{1F929}", "\u{1F914}",
       "\u{1F610}", "\u{1F611}", "\u{1F636}", "\u{1F62E}", "\u{1F632}", "\u{1F631}", "\u{1F628}", "\u{1F625}",
@@ -224,7 +293,7 @@ export const EMOJI_CATEGORIES: readonly GlyphCategory[] = [
     ],
   },
   {
-    id: "gestures", label: "Gestures", icon: "\u{1F44D}",
+    id: "gestures", label: "Gestures", icon: "catGestures",
     glyphs: [
       "\u{1F44D}", "\u{1F44E}", "\u{1F44C}", "\u{270C}\uFE0F", "\u{1F918}", "\u{1F44F}", "\u{1F64C}", "\u{1F64F}",
       "\u{1F4AA}", "\u{270B}", "\u{1F44A}", "\u{1F91D}", "\u{1F446}", "\u{1F447}", "\u{1F448}", "\u{1F449}",
@@ -232,7 +301,7 @@ export const EMOJI_CATEGORIES: readonly GlyphCategory[] = [
     ],
   },
   {
-    id: "marks", label: "Marks", icon: "\u2757",
+    id: "marks", label: "Marks", icon: "catMarks",
     glyphs: [
       "\u2757", "\u2753", "\u2705", "\u274C", "\u2B55", "\u26A0\uFE0F", "\u26D4", "\u{1F6D1}",
       "\u{1F534}", "\u{1F7E0}", "\u{1F7E1}", "\u{1F7E2}", "\u{1F535}", "\u{1F7E3}", "\u26AB", "\u26AA",
@@ -240,35 +309,35 @@ export const EMOJI_CATEGORIES: readonly GlyphCategory[] = [
     ],
   },
   {
-    id: "weather", label: "Weather", icon: "\u{1F525}",
+    id: "weather", label: "Weather", icon: "catWeather",
     glyphs: [
       "\u{1F525}", "\u{1F4A5}", "\u26A1", "\u2600\uFE0F", "\u{1F319}", "\u2601\uFE0F", "\u{1F30A}", "\u2744\uFE0F",
       "\u{1F32A}\uFE0F", "\u{1F308}", "\u{1F327}\uFE0F", "\u{1F326}\uFE0F", "\u{1F32B}\uFE0F", "\u{1F30D}", "\u{1F311}", "\u{1F31E}",
     ],
   },
   {
-    id: "markets", label: "Markets", icon: "\u{1F4C8}",
+    id: "markets", label: "Markets", icon: "catMarkets",
     glyphs: [
       "\u{1F4C8}", "\u{1F4C9}", "\u{1F4CA}", "\u{1F4B0}", "\u{1F48E}", "\u{1F4B5}", "\u{1F4B3}", "\u{1F3E6}",
       "\u{1F4B9}", "\u{1FA99}", "\u2696\uFE0F", "\u{1F9EE}", "\u{1F4CB}", "\u{1F4C5}", "\u{1F4DD}", "\u{1F4CC}",
     ],
   },
   {
-    id: "animals", label: "Animals", icon: "\u{1F42E}",
+    id: "animals", label: "Animals", icon: "catAnimals",
     glyphs: [
       "\u{1F402}", "\u{1F43B}", "\u{1F988}", "\u{1F40B}", "\u{1F419}", "\u{1F985}", "\u{1F98A}", "\u{1F981}",
       "\u{1F42E}", "\u{1F418}", "\u{1F40E}", "\u{1F422}", "\u{1F40C}", "\u{1F41D}", "\u{1F98B}", "\u{1F41E}",
     ],
   },
   {
-    id: "travel", label: "Travel", icon: "\u{1F680}",
+    id: "travel", label: "Travel", icon: "catTravel",
     glyphs: [
       "\u{1F680}", "\u{1F3C1}", "\u{1F6A6}", "\u{1F6A7}", "\u26F5", "\u2708\uFE0F", "\u{1F697}", "\u{1F6F0}\uFE0F",
       "\u{1F5FA}\uFE0F", "\u{1F9ED}", "\u23F0", "\u23F3", "\u{1F514}", "\u{1F50D}", "\u{1F9F2}", "\u{1F4A1}",
     ],
   },
   {
-    id: "objects", label: "Objects", icon: "\u{1F4CE}",
+    id: "objects", label: "Objects", icon: "catObjects",
     glyphs: [
       "\u{1F4CE}", "\u{1F510}", "\u{1F512}", "\u{1F513}", "\u{1F511}", "\u{1F5DD}\uFE0F", "\u{1F528}", "\u{1F527}",
       "\u2699\uFE0F", "\u{1F9F0}", "\u{1F4E6}", "\u{1F4C1}", "\u{1F4C4}", "\u{1F4D0}", "\u{1F4CF}", "\u{1F58D}\uFE0F",
@@ -278,7 +347,7 @@ export const EMOJI_CATEGORIES: readonly GlyphCategory[] = [
 
 export const OUTLINE_CATEGORIES: readonly GlyphCategory[] = [
   {
-    id: "arrows", label: "Arrows", icon: "\u2192",
+    id: "arrows", label: "Arrows", icon: "catArrows",
     glyphs: [
       "\u2190", "\u2191", "\u2192", "\u2193", "\u2194", "\u2195", "\u2196", "\u2197",
       "\u2198", "\u2199", "\u21B0", "\u21B1", "\u21BA", "\u21BB", "\u21C4", "\u21C5",
@@ -287,7 +356,7 @@ export const OUTLINE_CATEGORIES: readonly GlyphCategory[] = [
     ],
   },
   {
-    id: "shapes", label: "Shapes", icon: "\u25C6",
+    id: "shapes", label: "Shapes", icon: "catShapes",
     glyphs: [
       "\u25A0", "\u25A1", "\u25B2", "\u25B3", "\u25BC", "\u25BD", "\u25C6", "\u25C7",
       "\u25CF", "\u25CB", "\u25D0", "\u25D1", "\u25E6", "\u2B1B", "\u2B1C", "\u2B22",
@@ -295,7 +364,7 @@ export const OUTLINE_CATEGORIES: readonly GlyphCategory[] = [
     ],
   },
   {
-    id: "signs", label: "Signs", icon: "\u2713",
+    id: "signs", label: "Signs", icon: "catSigns",
     glyphs: [
       "\u2713", "\u2714", "\u2717", "\u2718", "\u2795", "\u2796", "\u00D7", "\u00F7",
       "\u00B1", "\u2260", "\u2248", "\u221E", "\u2211", "\u220F", "\u221A", "\u2206",
@@ -303,7 +372,7 @@ export const OUTLINE_CATEGORIES: readonly GlyphCategory[] = [
     ],
   },
   {
-    id: "stars", label: "Stars", icon: "\u2605",
+    id: "stars", label: "Stars", icon: "catStars",
     glyphs: [
       "\u2605", "\u2606", "\u272A", "\u272B", "\u272C", "\u2739", "\u273F", "\u2740",
       "\u2660", "\u2661", "\u2662", "\u2663", "\u2664", "\u2665", "\u2666", "\u2667",
@@ -538,9 +607,56 @@ export function saveDrawings(symbol: string, drawings: Drawing[]): void {
   if (typeof window === "undefined") return;
   const store = readStore();
   const key = drawingKey(symbol);
+  if (drawings.length === 0 && (store[key]?.length ?? 0) > 0) {
+    console.error("!!! LOCAL WIPE", key, (store[key]!).length, new Error("here").stack);
+  }
   if (drawings.length === 0) delete store[key];
   else store[key] = drawings;
   // Quota, or a browser that refuses to store: the drawings stay in memory for
   // this session rather than taking the page down. See `lib/browserStorage`.
   rememberJson(KEY, store);
+}
+
+/* ── R6b-28: drawing style templates ──────────────────────────────────────── */
+
+/**
+ * The settings dialog's `Template ▾` menu, which the reference has and this
+ * product had nowhere at all.
+ *
+ * A template is a STYLE, not a drawing: applying one to a trendline must not
+ * move its anchors or change which timeframes it appears on. That is the whole
+ * reason this stores `DrawingStyle` rather than `Drawing`.
+ */
+export const DRAWING_TEMPLATES_KEY = "tv.drawingTemplates.v1";
+
+export interface DrawingTemplate {
+  name: string;
+  style: DrawingStyle;
+}
+
+export function loadDrawingTemplates(): DrawingTemplate[] {
+  const raw = recallJson<unknown>(DRAWING_TEMPLATES_KEY, []);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is DrawingTemplate =>
+    !!item && typeof item === "object"
+    && typeof (item as DrawingTemplate).name === "string"
+    && !!(item as DrawingTemplate).style
+    && typeof (item as DrawingTemplate).style.color === "string");
+}
+
+export function saveDrawingTemplate(
+  templates: readonly DrawingTemplate[], name: string, style: DrawingStyle,
+): DrawingTemplate[] {
+  const next = [...templates.filter((t) => t.name !== name), { name, style: { ...style } }]
+    .sort((a, b) => a.name.localeCompare(b.name));
+  rememberJson(DRAWING_TEMPLATES_KEY, next);
+  return next;
+}
+
+export function deleteDrawingTemplate(
+  templates: readonly DrawingTemplate[], name: string,
+): DrawingTemplate[] {
+  const next = templates.filter((t) => t.name !== name);
+  rememberJson(DRAWING_TEMPLATES_KEY, next);
+  return next;
 }

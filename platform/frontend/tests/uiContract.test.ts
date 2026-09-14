@@ -559,9 +559,38 @@ test("CONTRACT — the product entry is a rail cell, and its menu is the row gra
   assert.match(menu, /h-\[38px\] w-\[52px\]/, "TV's cell is 52 wide and 38 tall");
   assert.match(menu, /h-7 w-7 items-center justify-center rounded-full bg-state-active/,
     "…holding a 28px circular avatar");
-  // The badge moved onto the avatar's corner, where a 28px circle can carry it.
-  assert.match(menu, /-right-0\.5 -top-0\.5 h-2\.5 w-2\.5 rounded-full/,
-    "the first-run dot is a 10px badge at the avatar's top-right");
+  /*
+   * ── TVP8 R1c-10: the corner carries a COUNT, or nothing ──────────────────
+   *
+   * This used to REQUIRE a 10px dot at the avatar's top-right whenever the
+   * manual was unread. Measured on the reference at 1440, the same corner
+   * carries a red pill with a NUMBER in it and is empty otherwise — and ours
+   * was a blue dot with no count, lit on every first run, in every capture
+   * round 3 took. A number is a fact a user can act on; a bare mark on an
+   * account button says only "there is a thing somewhere", which is the kind
+   * of signal that trains people to ignore the corner.
+   *
+   * Nothing was lost with it: the unread manual is still nudged, on the Help
+   * row inside this menu, in the muted `Start here` note the reference uses
+   * for the same purpose — asserted below.
+   */
+  assert.doesNotMatch(menu, /-right-0\.5 -top-0\.5 h-2\.5 w-2\.5 rounded-full/,
+    "the account cell carries a numeric badge or nothing — never a bare dot");
+  assert.match(menu, /note=\{l\.href === HELP_HREF && firstRun \? "Start here" : undefined\}/,
+    "the unread manual keeps the nudge the reference gives it");
+  /*
+   * R1c-10: and the brand row has no dot either. Same finding, other end of
+   * the same control — an amber health mark at x≈297 in every 1440 capture.
+   */
+  assert.doesNotMatch(menu, /role="status"[\s\S]{0,200}?rounded-full \$\{statusDot\}/,
+    "the brand row is a wordmark; health is its tooltip and Operations' page");
+  /*
+   * R1c-10: the menu's own geometry. TV's box is [53,0,260,525] and its first
+   * link is at y=53 — a 40px brand row from y=0, the hairline at 46, the row
+   * at 53. `.tvc-menu`'s own 6px of top padding put every one of those six
+   * low, and the menu started one pixel early at x=52.
+   */
+  assert.match(menu, /rail \? "left-\[53px\] top-0 !pt-0"/);
   /*
    * R1b-04: and it is a NOTIFICATION, never an ops readout.
    *
@@ -576,7 +605,8 @@ test("CONTRACT — the product entry is a rail cell, and its menu is the row gra
 
   // The menu's box: 260px, anchored beside the cell rather than under it.
   assert.match(menu, /w-\[260px\]/, "TV's menu box is 260px wide");
-  assert.match(menu, /left-\[52px\] top-0/, "…opening at the cell's right edge, at y=0");
+  // R1c-10: 53, not 52 — the reference's box starts one pixel past the cell.
+  assert.match(menu, /left-\[53px\] top-0/, "…opening beside the cell, at y=0");
 
   // The row grammar, on every row: 40px (`.tvc-menu-row`), a 28px glyph box,
   // 14px/400 label, and 13px spacer separators between sections.
@@ -597,18 +627,26 @@ test("CONTRACT — the product entry is a rail cell, and its menu is the row gra
    * I go" was the loudest non-TradingView signal the shared chrome had.
    *
    * What survives, and must: the detail — including the cause `useOpsHealth`
-   * separates out — is the brand row's `title` (REV-UX-01), and a 6px dot
-   * appears on that row only while something is genuinely degraded.
+   * separates out — is the brand row's `title` (REV-UX-01).
+   *
+   * ── TVP8 R1c-10: and the dot went with the readout ───────────────────────
+   *
+   * This used to REQUIRE a 6px dot on the brand row whenever anything was
+   * degraded. Round 3 found it lit in every 1440 capture, which makes it
+   * decoration rather than a signal, and the reference's own brand row is a
+   * wordmark and nothing else. The escalation path is unchanged and better
+   * than a dot: the sentence is this row's tooltip, and Operations — two rows
+   * below — is the page that can say what is wrong and what to do about it.
    */
   const brandRow = /className="flex h-10 items-center[^"]*"[\s\S]{0,900}?<\/div>/.exec(menu)?.[0] ?? "";
   assert.ok(brandRow, "the menu has no 40px brand row");
   assert.match(brandRow, /\{PRODUCT_NAME\}/, "…carrying the product's own wordmark");
   assert.match(brandRow, /title=\{statusDetail\}/,
     "…and the whole of both readouts, in its title");
-  assert.match(brandRow, /\{degraded && \(/,
-    "…with a dot only when the stream or the system is actually unwell");
-  assert.doesNotMatch(menu, /role="status"[\s\S]{0,200}\{statusLabel\}\s*<\/span>\s*<\/div>/,
-    "the ops readout must not be a row of the menu");
+  assert.doesNotMatch(brandRow, /rounded-full/,
+    "the brand row is a wordmark: no status dot at any health (R1c-10)");
+  assert.doesNotMatch(menu, /role="status"/,
+    "the ops readout must not be a row, a chip or a dot of this menu");
   assert.doesNotMatch(menu, />\s*\{health\.summary\}/,
     "the health SENTENCE is a tooltip, never rendered copy");
 
@@ -1150,4 +1188,173 @@ test("CONTRACT — ANYTHING THAT CALLS ITSELF A MENU LOOKS LIKE ONE", () => {
   const menus = PRODUCT.filter((f) => f.endsWith(".tsx") && /role="menu"/.test(read(f)));
   assert.ok(menus.length >= 6,
     `found role="menu" in only ${menus.length} files — this rule has stopped reading`);
+});
+
+/*
+ * ── The watchlist column (TVP8 R7b, R1c-06) ────────────────────────────────
+ *
+ * Every number below was measured by the R7b reviewer on
+ * `tradingview/watchlist-open-1440-dark.png` against
+ * `fable-reviews/r7b-captures/base-1440.png`, and every one of them was wrong
+ * in the shipped build by between one and nine pixels. They are pinned as
+ * CLASSES because that is where they live — a 29px row is a `md:h-[29px]` in
+ * one file, and the failure it caused (eight rows ending 8px early, every row
+ * below the first offset from the reference by one pixel per row) is invisible
+ * to any assertion that does not read it.
+ */
+const WATCHLIST = read("components/tv/Watchlist.tsx");
+const SIDE_PANEL = read("components/tv/ChartSidePanel.tsx");
+
+test("CONTRACT — the watchlist row is 30px of pitch, separator included", () => {
+  /*
+   * R7b-01. `box-sizing: border-box` puts the `border-b` INSIDE the height, so
+   * `md:h-[29px]` is a 29px pitch and not 29 + 1. Round 1 shipped 31 and this
+   * is the same class of slip in the other direction.
+   */
+  assert.match(WATCHLIST, /md:h-\[30px\]/,
+    "the row wrapper must be 30px — 29 of content plus the 1px separator inside it");
+  assert.doesNotMatch(WATCHLIST, /md:h-\[29px\]/,
+    "29 was the defect, not the target");
+  const row = /className=\{`group relative h-11 border-b md:h-\[30px\]/.exec(WATCHLIST);
+  assert.ok(row, "the row must still carry `border-b` — the separator is what the 30th pixel is");
+});
+
+test("CONTRACT — a token that has both spellings has the SAME colour in both", () => {
+  /*
+   * R7b-02, and the most expensive single line in the batch. `tailwind.config`
+   * builds every colour as `rgb(var(--ts-X-rgb) / <alpha-value>)`, so the hex
+   * twins are read by almost nothing — `lib/chartTheme` and a handful of
+   * inline `var()`s. Round 1 moved `--ts-positive` to the reference's `#22ab94`
+   * and left `--ts-positive-rgb: 46 189 133` beside it, so the whole watchlist
+   * went on painting the OLD green under a token that said the new one, and
+   * the repair reported itself as landed for a round.
+   */
+  /*
+   * Comments stripped first: the dark block's own prose quotes
+   * `--ts-surface: #121722` while explaining why that legacy value is gone,
+   * and a rule that reads its own documentation is a rule that reports a
+   * repair as a regression.
+   */
+  const declarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const blocks = declarations.split(/:root\s*(?:\[data-theme="light"\])?\s*\{/);
+  assert.ok(blocks.length >= 3, "expected a dark :root block and a light one");
+  for (const [theme, block] of [["dark", blocks[1]!], ["light", blocks[2]!]] as const) {
+    for (const name of ["positive", "negative", "ink", "ink-faint", "line", "surface"]) {
+      const hex = new RegExp(`--ts-${name}:\\s*#([0-9a-f]{6})`, "i").exec(block)?.[1];
+      const triple = new RegExp(`--ts-${name}-rgb:\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)`).exec(block);
+      assert.ok(hex && triple, `${theme}: --ts-${name} must be declared in both spellings`);
+      const fromHex = [0, 2, 4].map((i) => parseInt(hex!.slice(i, i + 2), 16));
+      assert.deepEqual(triple!.slice(1, 4).map(Number), fromHex,
+        `${theme}: --ts-${name}-rgb is #${hex} written as numbers, or the two disagree and `
+        + "the -rgb one is the one that paints");
+    }
+  }
+});
+
+test("CONTRACT — the watchlist row has no inter-column gap, and its ticker fades", () => {
+  /*
+   * R7b-03. `gap-x-1` gave four gaps' worth of the 300px away, and the cell
+   * that paid was the ticker: a computed 30px, so the rows read `BTC▏`,
+   * `ETH▏`, `LINK`, `AVA)` against the reference's six glyphs. The reference's
+   * own ticker cell is 50px and MASKS its right edge, so a long name ends in a
+   * gradient rather than mid-glyph.
+   */
+  assert.doesNotMatch(WATCHLIST, /gap-x-1/,
+    "16px of a 300px panel spent on gaps is 16px the ticker does not have");
+  for (const [name, value] of [
+    ["mark", "24px"], ["ticker", "minmax(0,1fr)"], ["last", "72px"],
+    ["change", "70px"], ["changePct", "60px"],
+  ] as const) {
+    assert.match(WATCHLIST, new RegExp(`${name}:\\s*"${value.replace(/[()]/g, "\\$&")}"`),
+      `the ${name} column is ${value} on the reference`);
+  }
+  assert.match(WATCHLIST, /maskImage:\s*"linear-gradient\(to right,#000 calc\(100% - 12px\),transparent\)"/,
+    "the ticker cell fades rather than clipping");
+});
+
+test("CONTRACT — the watchlist gutter is 4px, once, and outside the panel's 300", () => {
+  /*
+   * R7b-05 / R1c-06. The workspace row already lays its regions out with a 4px
+   * `gap` of page ground; the panel ALSO painted a `w-[4px] bg-border` strip as
+   * its own first column, so the seam measured 9px (chart frame 1085 + gutter
+   * 1086–1089 + strip 1090–1093) and the panel's content was 296 wide instead
+   * of 300. The reference: chart to 1089, gutter 1090–1093, panel 1094–1393,
+   * a 1px line at 1394, rail 1395–1439.
+   */
+  assert.doesNotMatch(WATCHLIST, /w-\[4px\] shrink-0 bg-border/,
+    "the gutter is the layout gap; a second one inside the panel is 4px of the panel's width");
+  assert.match(SIDE_PANEL, /md:-mr-1/,
+    "the panel's right edge meets the rail through a hairline, not through the row's gap");
+  assert.match(SIDE_PANEL, /w-\[46px\][^"]*border-l border-border/,
+    "46px of layout, 45 of paint: the last pixel is the rail's hairline to the watchlist");
+  assert.match(SIDE_PANEL, /h-\[46px\] w-\[45px\]/,
+    "R1c-06: the rail's painted cells are 45 wide (1395–1439 at 1440)");
+});
+
+test("CONTRACT — the watchlist grip is always drawn, 10x24, near the bottom", () => {
+  /*
+   * R7b-05b. Ours was 10x42, vertically centred and `opacity-0` until the
+   * panel was hovered — so the one control that closes the column could not be
+   * found by looking at it. The reference's is a notch cut into the band,
+   * always painted, anchored about 60px above the bottom edge.
+   */
+  const grip = /aria-label="Hide the watchlist"[\s\S]{0,600}?\/>/.exec(WATCHLIST)?.[0]
+    ?? WATCHLIST.slice(WATCHLIST.indexOf('aria-label="Hide the watchlist"') - 400,
+      WATCHLIST.indexOf('aria-label="Hide the watchlist"') + 600);
+  assert.match(grip, /h-\[24px\] w-\[10px\]/, "the reference's notch is 10 x 24");
+  assert.doesNotMatch(grip, /opacity-0/,
+    "a control that only exists under the pointer cannot be found by looking");
+  assert.match(grip, /calc\(100% - 64px\)/, "anchored above the bottom edge, not centred");
+});
+
+test("CONTRACT — the right rail's first chip is at y=47, in the strong line colour", () => {
+  /*
+   * R7b-12. Six pixels of column padding plus the chip's own 4px inset put the
+   * first chip at y=52 where the reference has it at 47, and every glyph
+   * centre below it inherited the same five. The chip itself was
+   * `--ts-state-active` (rgb 61) where the reference paints `--ts-line-strong`
+   * (rgb 74) — the only painted thing in a column of bare glyphs.
+   */
+  assert.match(SIDE_PANEL, /data-side-rail="true"[\s\S]{0,400}?pt-\[1px\]/,
+    "the rail column starts at y=42, so 1px of padding puts its first cell at 43 and its chip at 47");
+  assert.match(css,
+    /\[data-side-rail="true"\] \.tvc-control\[aria-pressed="true"\]::before[\s\S]{0,200}background-color:\s*var\(--ts-line-strong\)/,
+    "the rail's active chip is a step stronger than a menu chip");
+});
+
+test("CONTRACT — the light theme's watchlist neutrals are measured, not mirrored", () => {
+  /*
+   * R7b-13. The separator, the selection ring and the news tint were all dark
+   * values reflected onto white: separators heavier than the text hierarchy, a
+   * ring that disappeared, and a card at 10% where the reference measures 13%.
+   */
+  const blocks = css.replace(/\/\*[\s\S]*?\*\//g, "")
+    .split(/:root\s*(?:\[data-theme="light"\])?\s*\{/);
+  for (const [theme, block] of [["dark", blocks[1]!], ["light", blocks[2]!]] as const) {
+    for (const token of ["--ts-line-soft", "--ts-ring", "--ts-control-border-strong"]) {
+      assert.match(block, new RegExp(`${token}:`), `${theme} must declare ${token}`);
+    }
+  }
+  assert.match(blocks[2]!, /--ts-line-soft:\s*#f2f2f2/,
+    "the light reference separates rows with rgb(242,242,242)");
+  assert.match(blocks[2]!, /--ts-ring:\s*#2e2e2e/,
+    "the light reference rings the selected row in rgb(46,46,46)");
+  assert.match(blocks[1]!, /--ts-news-tint:\s*rgba\(179, 136, 255, 0\.20\)/);
+  assert.match(blocks[2]!, /--ts-news-tint:\s*rgba\(69, 39, 160, 0\.13\)/);
+  assert.match(WATCHLIST, /var\(--ts-line-soft\)/, "the row's separator reads the token");
+  assert.match(WATCHLIST, /var\(--ts-ring\)/, "the selected row's ring reads the token");
+});
+
+test("CONTRACT — the section band is a 6px gap over a 36px row, and carries no count", () => {
+  /*
+   * R7b-14. The band was 36px INCLUDING its 6px of top padding, so its label
+   * sat high in its own row and the first quote arrived at y=153 where the
+   * reference has it at 161. The count at the right end is the reference's own
+   * absence — it paints none, and a number beside a group heading in a 300px
+   * column is one more digit competing with eight prices.
+   */
+  assert.match(WATCHLIST, /data-watchlist-band[\s\S]{0,200}?mt-\[6px\] flex h-\[36px\]/,
+    "6px of gap ABOVE a 36px row, not 6px of padding inside one");
+  assert.doesNotMatch(WATCHLIST, /\{section\.rows\.length\}/,
+    "the reference paints no count on its section band");
 });

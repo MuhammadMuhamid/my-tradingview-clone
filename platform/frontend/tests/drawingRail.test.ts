@@ -411,11 +411,18 @@ test("RAIL — the silhouettes the review named are the ones the set draws", () 
     return rest.slice(0, end ? end.index : rest.length);
   };
 
-  // Fib: the dot on an UPPER level is at its right end, the lower one's at its
-  // left. They were mirrored.
+  /*
+   * Fib: the dot on an UPPER level is at its right end, the lower one's at its
+   * left. They were mirrored (R2b-01) and they have since MOVED, because
+   * R2c-09 redrew the glyph to the reference's ink box — four levels at
+   * y = 4.5 / 10.5 / 16.5 / 22.5 across a 26-unit span instead of the old
+   * 22-unit one. The assertion is the RULE (which end each dot is at),
+   * re-anchored on the coordinates that rule now produces, rather than a
+   * screenshot of the old geometry.
+   */
   const fib = glyph("fib");
-  assert.match(fib, /cx="22\.5" cy="10\.5"/, "the upper fib dot is not at the right end");
-  assert.match(fib, /cx="5\.5" cy="22\.5"/, "the lower fib dot is not at the left end");
+  assert.match(fib, /cx="23\.5" cy="10\.5"/, "the upper fib dot is not at the right end");
+  assert.match(fib, /cx="3\.5" cy="22\.5"/, "the lower fib dot is not at the left end");
 
   // XABCD: five nodes and the crossing strokes, not an open zigzag.
   const xabcd = glyph("xabcd");
@@ -508,12 +515,59 @@ test("RAIL — every cell names itself in the product's chrome, not the OS toolt
    */
   const rail = source.slice(source.indexOf("  return (\n    <div\n      ref={railRef}"));
   assert.doesNotMatch(rail, /\btitle=\{?"?(Remove objects|Measure)/);
-  assert.match(source, /const tip = \(label: string\)/);
+  assert.match(source, /const tip = \(label: string, trigger: "peer" \| "group"/);
   assert.match(source, /data-rail-tip/);
-  assert.match(source, /bg-state-active px-\[8px\]/);
   // The pill is decoration: the control it belongs to already has a NAME, and
   // a tooltip that also announced itself would say it twice.
   assert.match(source, /<span aria-hidden="true" data-rail-tip/);
+
+  /*
+   * R2c-07 replaces the round-2 assertion that used to stand here
+   * (`bg-state-active px-[8px]`). It was not wrong about the code; it was
+   * wrong about the reference, and it went green on a pill that was never
+   * painted — see `tests/dom/drawingRail.test.tsx` for the structural half.
+   *
+   * Measured on `rail-remove-hover-1440-dark` and `tv-rail-trend-flyout-light`:
+   * the pill's left edge is 1px past the 52px rail (x=53), its top is cell+7,
+   * it is 24 tall with 7px of side padding ("Remove objects" = 117px, "Trend
+   * tools" = 89 at the same 14px), and its ink is WHITE in BOTH themes on a
+   * ground the theme owns — `bg-state-active`/`text-ink` gave a light-theme
+   * pill of #ebebeb with near-black ink, which is not a tooltip, it is a chip.
+   */
+  const tip = source.slice(source.indexOf("  const tip = ("), source.indexOf("  const strip = ("));
+  for (const geometry of [/ml-\[1px\]/, /top-\[7px\]/, /h-\[24px\]/, /px-\[7px\]/]) {
+    assert.match(tip, geometry, `the pill has lost ${geometry.source}`);
+  }
+  assert.match(tip, /bg-\[var\(--ts-tooltip-bg\)\]/);
+  /*
+   * The ink is `text-white`, not a token: it is pure white in BOTH themes (the
+   * pill's ground is dark in both), and a token whose two themes carry the
+   * same value is exactly what `tests/lightTheme.test.ts` exists to catch.
+   */
+  assert.match(tip, /text-white/);
+  assert.doesNotMatch(tip.replace(/\/\*[\s\S]*?\*\//g, ""), /bg-state-active/,
+    "the pill is not a chip and must not borrow the chip's token");
+
+  // A cell's pill answers the CELL's hover and the strip's answers the strip's,
+  // which is what keeps one hover from lighting two pills (R2c-01).
+  assert.match(tip, /peer-hover\/cell:flex/);
+  assert.match(tip, /group-hover\/tip:flex/);
+  assert.match(source, /"tvc-control peer\/cell flex/);
+
+  // And both tokens exist in both theme blocks.
+  const css = read("app/globals.css");
+  const dark = css.slice(css.indexOf(":root {"), css.indexOf(':root[data-theme="light"]'));
+  const light = css.slice(css.indexOf(':root[data-theme="light"]'));
+  assert.match(dark, /--ts-tooltip-bg: #3d3d3d;/);
+  assert.match(light, /--ts-tooltip-bg: #2e2e2e;/);
+
+  /*
+   * R2c-08: the LIGHT rail's hairline is #ebebeb (sampled 235 on
+   * `tv-rail-trend-flyout-light` at y=358), not the #d1d1d1 (209) a mirror of
+   * the dark value's contrast produced.
+   */
+  assert.match(light, /--ts-rail-separator: #ebebeb;/);
+  assert.doesNotMatch(light, /--ts-rail-separator: #d1d1d1;/);
 });
 
 test("RAIL — a flyout is clamped to the viewport and scrolls only when it cannot fit", () => {
@@ -524,7 +578,14 @@ test("RAIL — a flyout is clamped to the viewport and scrolls only when it cann
    * with nothing hidden behaved as though it had.
    */
   const flyout = source.slice(source.indexOf("function Flyout("), source.indexOf("/**\n * The Icons picker"));
-  assert.match(flyout, /Math\.min\(cell - 6, viewport - height - 8\)/);
+  /*
+   * R2c-04: no margin under a clamped menu. `- 8` left an 8px band of page
+   * below a menu the reference rests flush on the viewport's bottom edge —
+   * Shapes opened at y=148 against its 150, Icons at 213 against its 221.
+   */
+  assert.match(flyout, /Math\.min\(cell - 6, viewport - height\)/);
+  // Comments describe what the rule USED to be, so the prohibition is on code.
+  assert.doesNotMatch(flyout.replace(/\/\*[\s\S]*?\*\//g, ""), /viewport - height - 8/);
   assert.match(flyout, /maxHeight === undefined \? "" : "overflow-y-auto "/);
   assert.doesNotMatch(source.replace(/\/\*[\s\S]*?\*\//g, ""), /max-h-\[calc\(100vh-120px\)\]/,
     "the blanket scroll fallback is what hid the clamp being absent");
@@ -532,7 +593,14 @@ test("RAIL — a flyout is clamped to the viewport and scrolls only when it cann
   // And the reference's 30px of blank surface above a tool flyout's first row
   // (6px of menu padding plus 24), and its 37px section block (6 + 1 + 30,
   // which needs the separator's bottom margin dropped under a heading).
-  assert.match(source, /<Flyout className="!pt-\[24px\]">/);
+  /*
+   * R2c-03: 30, not 24. `!pt-` REPLACES `.tvc-menu`'s own 6px rather than
+   * adding to it — the `!` is there because the menu's rule outscores a
+   * utility — so "24 on top of 6" was arithmetic the cascade never performed
+   * and every tool flyout opened 6px high and stood 6px short.
+   */
+  assert.match(source, /<Flyout menuLabel=\{group\.title\} className="!pt-\[30px\]">/);
+  assert.doesNotMatch(source.replace(/\/\*[\s\S]*?\*\//g, ""), /!pt-\[24px\]/);
   assert.match(source, /tvc-menu-sep\$\{section\.heading \? " !mb-0" : ""\}/);
 });
 
@@ -547,8 +615,16 @@ test("RAIL — a flyout row places its icon and label where the reference does",
   const row = source.slice(source.indexOf("const toolRow = ("), source.indexOf("const optionRow = ("));
   assert.match(row, /gap-\[5px\] pl-\[4px\]/, "the icon column is not at x=63");
   assert.match(row, /<Icon name=\{t\.icon\} size=\{28\} \/>/);
-  assert.match(row, /ml-\[18px\]/, "the reserved hotkey/star column is gone");
-  assert.match(row, /mr-\[10px\]/, "the cap no longer ends 44px from the menu's edge");
+  /*
+   * R2c-02 re-measures what round 2 got half right. The reserved column is
+   * 43px, not 18: the menu is sized by its widest row, so this reservation IS
+   * the menu's width, and at 18 the Trend flyout came out 260 against the
+   * reference's 285 — the whole 25px shortfall was here. The cap's own margin
+   * drops to 5 so its right edge lands 39px from the row's edge (45 from the
+   * panel's), which is where the reference prints it.
+   */
+  assert.match(row, /ml-\[43px\]/, "the reserved hotkey/star column is not the reference's 43");
+  assert.match(row, /mr-\[5px\]/, "the cap no longer ends 45px from the panel's edge");
   assert.match(row, /mr-\[6px\] flex h-7 w-7/);
 });
 
@@ -568,10 +644,38 @@ test("RAIL — the Icons picker is the reference's picker, minus the tab it cann
   const picker = source.slice(source.indexOf("function IconPicker("), source.indexOf("/**\n * The left icon rail."));
   assert.match(picker, /h-\[679px\] w-\[354px\]/);
   assert.match(picker, /h-\[38px\] w-\[38px\]/, "no 38×38 category cells");
-  assert.match(picker, /grid-cols-8/);
+  /*
+   * R2c-11: eight FIXED 37px columns, not `grid-cols-8`. Eighths of whatever
+   * width is available put 37px cells inside 42.75px columns, so the glyph
+   * centres drifted up to 40px across the row from the reference's and nothing
+   * lined up with the category cells above.
+   */
+  assert.match(picker, /gridTemplateColumns: "repeat\(8, 37px\)"/);
+  assert.doesNotMatch(picker.replace(/\/\*[\s\S]*?\*\//g, ""), /grid-cols-8/);
   assert.match(picker, /h-\[38px\] w-\[37px\][\s\S]{0,60}text-\[24px\]/, "no 37×38 cells with 24px glyphs");
   assert.match(picker, /overflow-y-auto/, "the grid does not scroll inside the popover");
-  assert.match(picker, /h-\[37px\]/, "no bottom tab bar");
+  assert.match(picker, /h-\[47px\]/, "the bottom tab bar is not the reference's 47px");
+  assert.doesNotMatch(picker.replace(/\/\*[\s\S]*?\*\//g, ""), /flex-1 items-center justify-center text-\[16px\]/,
+    "the tabs are a centred group with 26px between them, not two halves of the bar");
+  assert.match(picker, /gap-\[26px\]/);
+  /*
+   * The accent exception, owner decision (endgame addendum §1, contract §7c):
+   * where TradingView uses its accent for an INDICATOR — the category bar and
+   * the open tab's underline — this shared surface follows TradingView. The
+   * contract's "selection is a neutral chip" rule is about CHIPS and still
+   * holds everywhere else, including on this picker's own cells.
+   */
+  assert.match(picker, /h-\[4px\] w-full bg-accent/);
+  assert.match(picker, /data-\[active=true\]:text-accent/);
+  assert.doesNotMatch(picker.replace(/\/\*[\s\S]*?\*\//g, ""), /data-\[active=true\]:bg-state-active/,
+    "the open category is marked by the bar, not by a chip");
+  // The category row's marks are the product's own outline glyphs, not the
+  // operating system's colour emoji.
+  assert.match(picker, /<Icon name=\{c\.icon\} size=\{20\} \/>/);
+  for (const c of [...EMOJI_CATEGORIES, ...OUTLINE_CATEGORIES]) {
+    assert.match(c.icon, /^[A-Za-z][A-Za-z0-9]*$/,
+      `${c.id} still carries a code point (${c.icon}) where an ICONS key belongs`);
+  }
   assert.match(picker, /"Emojis" : "Icons"/);
   assert.doesNotMatch(picker, /Stickers/);
 
@@ -601,4 +705,369 @@ test("RAIL — the column is bounded by the shell's gutter, not by a hairline", 
     .replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(rail, /border-r/);
   assert.match(rail, /w-\[52px\] shrink-0 flex-col items-center bg-surface pt-\[6px\]/);
+});
+
+/*
+ * ── TVP8 / R2c: the rail's glyphs, measured rather than described ───────────
+ *
+ * Round three measured every cell's ink box against the reference's and found
+ * eight of the fifteen 2px too large (Zoom in 4–5px), and found the STROKE
+ * profile wrong in two opposite directions at once: axis-aligned strokes
+ * carried a 12–24% halo into both neighbouring pixels, and diagonals had a dim
+ * asymmetric core.
+ *
+ * Neither is describable as a class string, and neither can be measured in
+ * jsdom, which has no rasteriser. What CAN be done here is the thing the pixel
+ * sample is a consequence of: parse the path data itself, walk it, and assert
+ * the geometry. A glyph redrawn "about the same size" fails this file rather
+ * than the next capture.
+ */
+
+/** One parsed path segment, with its command and its numbers. */
+interface Seg { cmd: string; args: number[] }
+
+function tokenizePath(d: string): Seg[] {
+  const out: Seg[] = [];
+  const re = /([MmLlHhVvCcSsQqTtAaZz])|(-?\d*\.?\d+(?:e[-+]?\d+)?)/g;
+  const arity: Record<string, number> = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 };
+  let m: RegExpExecArray | null;
+  let cmd: string | null = null;
+  let nums: number[] = [];
+  const flush = (): void => {
+    if (!cmd) return;
+    const n = arity[cmd.toUpperCase()]!;
+    if (n === 0) { out.push({ cmd, args: [] }); nums = []; return; }
+    while (nums.length >= n) {
+      out.push({ cmd, args: nums.splice(0, n) });
+      // A repeated pair after `M` is an implicit `L`, per the SVG grammar.
+      if (cmd === "M") cmd = "L"; else if (cmd === "m") cmd = "l";
+    }
+    nums = [];
+  };
+  while ((m = re.exec(d)) !== null) {
+    if (m[1]) { flush(); cmd = m[1]; if (cmd === "Z" || cmd === "z") flush(); }
+    else nums.push(parseFloat(m[2]!));
+  }
+  flush();
+  return out;
+}
+
+/** An elliptical arc, sampled — its extremes are not at its endpoints. */
+function arcPoints(
+  x0: number, y0: number, rx: number, ry: number, rot: number,
+  laf: number, sf: number, x: number, y: number,
+): [number, number][] {
+  if (rx === 0 || ry === 0) return [[x, y]];
+  rx = Math.abs(rx); ry = Math.abs(ry);
+  const phi = (rot * Math.PI) / 180;
+  const dx2 = (x0 - x) / 2, dy2 = (y0 - y) / 2;
+  const x1 = Math.cos(phi) * dx2 + Math.sin(phi) * dy2;
+  const y1 = -Math.sin(phi) * dx2 + Math.cos(phi) * dy2;
+  const lam = (x1 * x1) / (rx * rx) + (y1 * y1) / (ry * ry);
+  if (lam > 1) { const s = Math.sqrt(lam); rx *= s; ry *= s; }
+  const sign = laf === sf ? -1 : 1;
+  const num = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1;
+  const den = rx * rx * y1 * y1 + ry * ry * x1 * x1;
+  const co = sign * Math.sqrt(Math.max(0, num / den));
+  const cx1 = (co * rx * y1) / ry, cy1 = (-co * ry * x1) / rx;
+  const cx = Math.cos(phi) * cx1 - Math.sin(phi) * cy1 + (x0 + x) / 2;
+  const cy = Math.sin(phi) * cx1 + Math.cos(phi) * cy1 + (y0 + y) / 2;
+  const ang = (ux: number, uy: number, vx: number, vy: number): number => {
+    const dot = (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy));
+    const a = Math.acos(Math.min(1, Math.max(-1, dot)));
+    return ux * vy - uy * vx < 0 ? -a : a;
+  };
+  const t1 = ang(1, 0, (x1 - cx1) / rx, (y1 - cy1) / ry);
+  let dt = ang((x1 - cx1) / rx, (y1 - cy1) / ry, (-x1 - cx1) / rx, (-y1 - cy1) / ry);
+  if (!sf && dt > 0) dt -= 2 * Math.PI;
+  if (sf && dt < 0) dt += 2 * Math.PI;
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= 48; i += 1) {
+    const t = t1 + (dt * i) / 48;
+    pts.push([
+      Math.cos(phi) * rx * Math.cos(t) - Math.sin(phi) * ry * Math.sin(t) + cx,
+      Math.sin(phi) * rx * Math.cos(t) + Math.cos(phi) * ry * Math.sin(t) + cy,
+    ]);
+  }
+  return pts;
+}
+
+const bezier = (p: [number, number][], t: number): [number, number] => {
+  const n = p.length - 1;
+  const choose = (a: number, b: number): number => {
+    let r = 1;
+    for (let i = 0; i < b; i += 1) r = (r * (a - i)) / (i + 1);
+    return r;
+  };
+  let x = 0, y = 0;
+  for (let i = 0; i <= n; i += 1) {
+    const w = choose(n, i) * (1 - t) ** (n - i) * t ** i;
+    x += w * p[i]![0]; y += w * p[i]![1];
+  }
+  return [x, y];
+};
+
+interface Walked {
+  points: [number, number][];
+  /** Every purely horizontal or vertical segment, with the coordinate it is fixed at. */
+  axis: { kind: "h" | "v"; fixed: number }[];
+  /** True when any segment moves in both axes at once, or curves. */
+  diagonal: boolean;
+}
+
+function walkPath(d: string): Walked {
+  const segs = tokenizePath(d);
+  const points: [number, number][] = [];
+  const axis: { kind: "h" | "v"; fixed: number }[] = [];
+  let diagonal = false;
+  let cx = 0, cy = 0, sx = 0, sy = 0;
+  let prevC: [number, number] | null = null, prevQ: [number, number] | null = null;
+  for (const { cmd, args: a } of segs) {
+    const rel = cmd === cmd.toLowerCase();
+    const up = cmd.toUpperCase();
+    const X = (v: number): number => (rel ? cx + v : v);
+    const Y = (v: number): number => (rel ? cy + v : v);
+    if (up === "M") {
+      cx = X(a[0]!); cy = Y(a[1]!); sx = cx; sy = cy; points.push([cx, cy]); prevC = prevQ = null;
+    } else if (up === "L") {
+      const nx = X(a[0]!), ny = Y(a[1]!);
+      const dx = Math.abs(nx - cx), dy = Math.abs(ny - cy);
+      if (dy < 1e-9 && dx > 1e-9) axis.push({ kind: "h", fixed: cy });
+      else if (dx < 1e-9 && dy > 1e-9) axis.push({ kind: "v", fixed: cx });
+      else if (dx > 1e-9 && dy > 1e-9) diagonal = true;
+      cx = nx; cy = ny; points.push([cx, cy]); prevC = prevQ = null;
+    } else if (up === "H") {
+      axis.push({ kind: "h", fixed: cy });
+      cx = rel ? cx + a[0]! : a[0]!; points.push([cx, cy]); prevC = prevQ = null;
+    } else if (up === "V") {
+      axis.push({ kind: "v", fixed: cx });
+      cy = rel ? cy + a[0]! : a[0]!; points.push([cx, cy]); prevC = prevQ = null;
+    } else if (up === "C" || up === "S") {
+      diagonal = true;
+      const c1: [number, number] = up === "C"
+        ? [X(a[0]!), Y(a[1]!)]
+        : (prevC ? [2 * cx - prevC[0], 2 * cy - prevC[1]] : [cx, cy]);
+      const c2: [number, number] = up === "C" ? [X(a[2]!), Y(a[3]!)] : [X(a[0]!), Y(a[1]!)];
+      const e: [number, number] = up === "C" ? [X(a[4]!), Y(a[5]!)] : [X(a[2]!), Y(a[3]!)];
+      for (let i = 0; i <= 24; i += 1) points.push(bezier([[cx, cy], c1, c2, e], i / 24));
+      prevC = c2; prevQ = null; cx = e[0]; cy = e[1];
+    } else if (up === "Q" || up === "T") {
+      diagonal = true;
+      const c1: [number, number] = up === "Q"
+        ? [X(a[0]!), Y(a[1]!)]
+        : (prevQ ? [2 * cx - prevQ[0], 2 * cy - prevQ[1]] : [cx, cy]);
+      const e: [number, number] = up === "Q" ? [X(a[2]!), Y(a[3]!)] : [X(a[0]!), Y(a[1]!)];
+      for (let i = 0; i <= 24; i += 1) points.push(bezier([[cx, cy], c1, e], i / 24));
+      prevQ = c1; prevC = null; cx = e[0]; cy = e[1];
+    } else if (up === "A") {
+      diagonal = true;
+      const e: [number, number] = [X(a[5]!), Y(a[6]!)];
+      for (const p of arcPoints(cx, cy, a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, e[0], e[1])) points.push(p);
+      cx = e[0]; cy = e[1]; prevC = prevQ = null;
+    } else if (up === "Z") {
+      cx = sx; cy = sy; points.push([cx, cy]);
+    }
+  }
+  return { points, axis, diagonal };
+}
+
+/** The ICONS block, split into one entry per glyph key. */
+function glyphEntries(): { key: string; body: string }[] {
+  const block = source.slice(source.indexOf("const ICONS"), source.indexOf("const Icon ="));
+  const keys = [...block.matchAll(/\n {2}([A-Za-z][A-Za-z0-9]*): /g)];
+  assert.ok(keys.length > 80, `parsed only ${keys.length} glyphs — the ICONS shape changed`);
+  return keys.map((m, i) => ({
+    key: m[1]!,
+    body: block.slice(m.index! + 3 + m[1]!.length, i + 1 < keys.length ? keys[i + 1]!.index! : block.length),
+  }));
+}
+
+/** Every drawn element's sampled extent, in the 28-unit box. */
+function glyphBox(body: string): { x0: number; x1: number; y0: number; y1: number } {
+  const xs: number[] = [], ys: number[] = [];
+  for (const m of body.matchAll(/<path d="([^"]+)"/g)) {
+    for (const [x, y] of walkPath(m[1]!).points) { xs.push(x); ys.push(y); }
+  }
+  for (const m of body.matchAll(/<circle cx="([-\d.]+)" cy="([-\d.]+)" r="([-\d.]+)"/g)) {
+    const [cx, cy, r] = [parseFloat(m[1]!), parseFloat(m[2]!), parseFloat(m[3]!)];
+    xs.push(cx - r, cx + r); ys.push(cy - r, cy + r);
+  }
+  for (const m of body.matchAll(/<ellipse cx="([-\d.]+)" cy="([-\d.]+)" rx="([-\d.]+)" ry="([-\d.]+)"/g)) {
+    const [cx, cy, rx, ry] = [parseFloat(m[1]!), parseFloat(m[2]!), parseFloat(m[3]!), parseFloat(m[4]!)];
+    xs.push(cx - rx, cx + rx); ys.push(cy - ry, cy + ry);
+  }
+  for (const m of body.matchAll(/<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)"/g)) {
+    const [x, y, w, h] = [parseFloat(m[1]!), parseFloat(m[2]!), parseFloat(m[3]!), parseFloat(m[4]!)];
+    xs.push(x, x + w); ys.push(y, y + h);
+  }
+  assert.ok(xs.length > 0, "a glyph drew nothing measurable");
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+
+test("RAIL — the eight over-sized glyphs are redrawn to the reference's ink box", () => {
+  /*
+   * R2c-09. Eight of the fifteen cells drew 2px larger than the reference's
+   * (Zoom in 4–5px): a rail whose silhouettes are right and whose optical
+   * weight is not, which is what makes a column read as "nearly it".
+   *
+   * The targets below are the reference's ink boxes measured on the 52×38
+   * CELL, converted to the 28-unit box the glyph is drawn in — a 28px glyph is
+   * centred in a 52×38 cell, so the origin is (12, 5). The tolerance is 1 unit
+   * per edge, which is the stroke's own half-width plus the sampling error of
+   * a threshold measurement.
+   */
+  const target: Record<string, [number, number, number, number]> = {
+    // key: [cell x0, cell x1, cell y0, cell y1] — the review's own table.
+    zoomIn: [16, 34, 9, 26],
+    fib: [13, 38, 9, 29],
+    xabcd: [15, 37, 8, 29],
+    long: [15, 36, 9, 29],
+    short: [15, 36, 9, 29],
+    text: [19, 33, 10, 27],
+    iconSmiley: [15, 36, 8, 29],
+    lock: [18, 33, 8, 27],
+    unlock: [18, 33, 8, 27],
+    trash: [17, 34, 9, 28],
+  };
+  const entries = new Map(glyphEntries().map((e) => [e.key, e.body]));
+  for (const [key, [cx0, cx1, cy0, cy1]] of Object.entries(target)) {
+    const body = entries.get(key);
+    assert.ok(body, `no ${key} glyph`);
+    const box = glyphBox(body);
+    const want = { x0: cx0 - 12, x1: cx1 - 12, y0: cy0 - 5, y1: cy1 - 5 };
+    for (const edge of ["x0", "x1", "y0", "y1"] as const) {
+      const delta = Math.abs(box[edge] - want[edge]);
+      assert.ok(delta <= 1,
+        `${key}.${edge} is ${box[edge].toFixed(2)}, the reference's is ${want[edge]} `
+        + `(cell ${cx0}..${cx1} × ${cy0}..${cy1}) — off by ${delta.toFixed(2)}`);
+    }
+  }
+});
+
+test("RAIL — every axis-aligned stroke is on a half-unit and every diagonal opts into 1.4", () => {
+  /*
+   * R2c-10, both halves.
+   *
+   * A 1.25 stroke on a half-unit-aligned vertical fills its own pixel column
+   * and bleeds 0.125 into each neighbour: the rail sampled `66,219,15` where
+   * the reference shows `15,219,15`, and Lock's keyhole — the one stroke in
+   * the set still on an INTEGER x — smeared across four rows at half ink. The
+   * same 1.25 on a 45° diagonal is not enough: it peaks 189 asymmetric where
+   * the reference reaches 219 with a symmetric halo.
+   *
+   * So the rule has two halves and this asserts both: the `<svg>` default is 1
+   * and every axis-aligned coordinate is `n + 0.5`; every path that moves in
+   * both axes at once, every ring and the one ellipse carry 1.4.
+   */
+  assert.match(source, /strokeWidth="1" strokeLinecap/,
+    "the icon svg's default weight is no longer the axis-aligned 1");
+
+  const half = (v: number): boolean => Math.abs(Math.abs(v % 1) - 0.5) < 1e-6;
+  const offGrid: string[] = [];
+  const unweighted: string[] = [];
+  const overweight: string[] = [];
+  let diagonals = 0;
+  for (const { key, body } of glyphEntries()) {
+    for (const m of body.matchAll(/<path d="([^"]+)"([^/]*)\/>/g)) {
+      const { axis, diagonal } = walkPath(m[1]!);
+      for (const a of axis) {
+        if (!half(a.fixed)) offGrid.push(`${key}: ${a.kind} at ${a.fixed}`);
+      }
+      const weighted = /strokeWidth=\{1\.4\}/.test(m[2]!);
+      if (diagonal) { diagonals += 1; if (!weighted) unweighted.push(`${key}: ${m[1]!.slice(0, 40)}`); }
+      else if (weighted) overweight.push(`${key}: ${m[1]!.slice(0, 40)}`);
+    }
+    for (const m of body.matchAll(/<rect x="([-\d.]+)" y="([-\d.]+)"/g)) {
+      if (!half(parseFloat(m[1]!))) offGrid.push(`${key}: rect x=${m[1]}`);
+      if (!half(parseFloat(m[2]!))) offGrid.push(`${key}: rect y=${m[2]}`);
+    }
+    for (const m of body.matchAll(/<(circle|ellipse)\b([^/]*)\/>/g)) {
+      if (/stroke="none"/.test(m[2]!)) continue; // a filled dot carries no stroke
+      if (!/strokeWidth=\{1\.4\}/.test(m[2]!)) unweighted.push(`${key}: <${m[1]}>`);
+    }
+  }
+  assert.deepEqual(offGrid, [],
+    `these land between pixels and render as two greys:\n  ${offGrid.join("\n  ")}`);
+  assert.ok(diagonals > 80, `only ${diagonals} diagonal paths found — the parser is not seeing the set`);
+  assert.deepEqual(unweighted, [],
+    `these curve or run diagonally and are stroked at 1, which peaks ~160:\n  ${unweighted.join("\n  ")}`);
+  assert.deepEqual(overweight, [],
+    `these are purely axis-aligned and 1.4 gives them a halo:\n  ${overweight.join("\n  ")}`);
+});
+
+test("RAIL — the column is permanent, at every width", () => {
+  /*
+   * R2c-14. The rail was `hidden md:flex` beside a phone-only modal drawer:
+   * a 50% backdrop over the whole viewport, a close cell, and 52×44 cells
+   * because of the coarse-pointer minimum in `globals.css`. The reference
+   * keeps the 52px column and the same 52×38 cells at 390×844.
+   */
+  const page = read("app/chart/page.tsx");
+  assert.doesNotMatch(page, /className="hidden md:flex">\s*<DrawingToolbar/,
+    "the rail column is still hidden below the md breakpoint");
+  assert.doesNotMatch(page.replace(/\/\*[\s\S]*?\*\//g, ""), /aria-label="Close drawing tools"/,
+    "the phone drawer's close cell is still rendered");
+  assert.doesNotMatch(source.replace(/\/\*[\s\S]*?\*\//g, ""), /floating\?: boolean/,
+    "the rail still carries the drawer mode it no longer has a caller for");
+
+  /*
+   * And the 44px touch minimum is scoped out of the rail, which is what lets
+   * the cells stay 38 on a phone. Scoped to the rail's own root, so no other
+   * control on the page loses its thumb target.
+   */
+  const css = read("app/globals.css");
+  const coarse = css.slice(css.indexOf("@media (max-width: 640px)"));
+  assert.match(coarse, /\[data-drawing-rail="true"\] button \{\s*min-width: 0;\s*min-height: 0 !important;/);
+  assert.match(coarse, /\[data-drawing-rail="true"\] \.tvc-menu-row \{/,
+    "a flyout row inside the rail must keep the menu grammar's own height");
+});
+
+test("RAIL — a flyout is a menu, and it answers the keyboard", () => {
+  /*
+   * R2c-05. An open flyout was a mouse-only object: Escape reached the global
+   * `tool:cursor` binding untouched (so the key everybody presses to dismiss a
+   * menu dismissed the armed TOOL and left the menu standing), the arrows
+   * moved nothing, and opening one from the keyboard left focus behind it.
+   */
+  const rail = source.slice(source.indexOf("  const onRailKeyDown ="));
+  assert.match(rail, /e\.key === "Escape"/);
+  assert.match(rail, /e\.stopPropagation\(\)/,
+    "Escape must be stopped, or `useShortcuts` drops the tool as well");
+  assert.match(rail, /ArrowDown|ArrowUp/);
+  assert.match(source, /onKeyDown=\{onRailKeyDown\}/);
+  assert.match(source, /role="menuitem"/);
+  assert.match(source, /role="menuitemradio"/);
+});
+
+test("RAIL — an option row is the reference's width, not 8px wider", () => {
+  /*
+   * R2c-12 (the part that is this component's own): the reference's Hide
+   * flyout is 193px wide for "Hide positions and orders"; this one was 201.4
+   * for the same string at the same size, and the whole 8px was `px-3`.
+   */
+  const row = source.slice(source.indexOf("  const optionRow = ("), source.indexOf("  /**\n   * A footer switch"));
+  assert.match(row, /px-\[8px\]/);
+  assert.doesNotMatch(row.replace(/\/\*[\s\S]*?\*\//g, ""), /px-3/);
+});
+
+test("RAIL — a starred tool reaches a floating favourites bar", () => {
+  /*
+   * R2c-06, measured live on `tradingview/tv-favourites-bar-1440-dark.png`
+   * (`measurements/tv-favourites-bar-20260914.md`): a 62×38 bar for one
+   * favourite — a 24×38 drag grip plus one 38×38 cell per tool — on the
+   * popover ground with its radius and shadow, draggable, its position
+   * persisted, absent when nothing is starred; and a star cell at the FOOT of
+   * the rail that shows and hides it.
+   *
+   * The star used to write the list to storage and paint nothing anywhere.
+   */
+  assert.match(source, /const FAVOURITES_GRIP_WIDTH = 24;/);
+  assert.match(source, /const FAVOURITES_CELL = 38;/);
+  assert.match(source, /const FAVOURITES_BAR_HOME = \{ x: 960, y: 99 \};/);
+  assert.match(source, /data-drawing-favourites="true"/);
+  assert.match(source, /aria-label="Move the favourite tools bar"/);
+  assert.match(source, /const DRAWING_FAVOURITES_BAR_KEY = "tv\.drawing-tools\.favourites\.bar\.v1"/);
+  assert.match(source, /barOpen \? "Hide the favourite tools bar" : "Show the favourite tools bar"/);
+  // A starred row's star sits on the 28px active chip, as the reference's does.
+  assert.match(source, /data-\[starred=true\]:bg-state-active/);
 });

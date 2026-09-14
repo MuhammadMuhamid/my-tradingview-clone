@@ -21,7 +21,20 @@
  * ours" is how the two come to disagree.
  */
 
-export type SortColumn = "manual" | "symbol" | "last" | "change";
+/*
+ * ── TVP8 R7b-07: `Chg` and `Chg%` were the same column ────────────────────
+ *
+ * `columns[]` in `Watchlist.tsx` gave both headers the key `"change"`, so
+ * clicking either marked BOTH with an arrow and gave both the accessible name
+ * "Sorted by …, descending" — two sorted columns in a table that can only
+ * have one, which for a screen-reader user is a table reporting an impossible
+ * state. The two also mean different things: sorting by absolute change puts
+ * BTC's 900 above ADA's 0.006 on a day ADA moved five times as far.
+ *
+ * So `change` reads `chg` and `changePct` reads `chgPct`, and the header marks
+ * exactly the one that is sorted.
+ */
+export type SortColumn = "manual" | "symbol" | "last" | "change" | "changePct";
 export type SortDirection = "asc" | "desc";
 
 export interface WatchlistSort {
@@ -33,6 +46,8 @@ export const MANUAL_SORT: WatchlistSort = { column: "manual", direction: "asc" }
 
 export interface WatchlistQuote {
   last: number;
+  /** The absolute 24h move, which `change` sorts by. */
+  chg: number;
   chgPct: number;
 }
 
@@ -72,7 +87,9 @@ export function sortSymbols(
   const value = (symbol: string): number | null => {
     const quote = quotes[symbol];
     if (!quote) return null;
-    const v = sort.column === "last" ? quote.last : quote.chgPct;
+    const v = sort.column === "last" ? quote.last
+      : sort.column === "change" ? quote.chg
+      : quote.chgPct;
     return Number.isFinite(v) ? v : null;
   };
   return [...symbols].sort((a, b) => {
@@ -122,6 +139,17 @@ export function canReorder(sort: WatchlistSort): boolean {
   return sort.column === "manual";
 }
 
+/**
+ * Why a drop was refused, said WHEN it is refused.
+ *
+ * TVP8 R7b-07: this sentence used to be painted permanently, as a 44px
+ * two-line paragraph above the section band, for as long as any sort was
+ * active — so choosing to sort by Chg% pushed the first row 44px down the
+ * panel and spent a seventh of a 300px column explaining a gesture the reader
+ * had not made. The rule it states is still the rule; it is now the answer to
+ * a drag, not a standing notice. The caller shows it for a few seconds after
+ * a refused drop and as the drag image's `title`.
+ */
 export function reorderRefusal(sort: WatchlistSort): string | null {
   return canReorder(sort)
     ? null

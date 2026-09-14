@@ -76,19 +76,93 @@ test("R6 SL-2 — the Title row changes which form of the name the chart carries
     "the headline opens as R3-14 left it: the instrument's name");
 
   await openSettings(chart, "Status line");
-  await chooseInDropdown("Title form", "Full symbol");
+  /*
+   * ── R3b-25: `Full symbol` became `Ticker` ────────────────────────────────
+   *
+   * The dropdown offered `Name` and `Full symbol`, and `Full symbol` printed
+   * `BINANCE:SOL/USDT · SPOT` — a form TradingView's `Title` row does not
+   * offer at all, and one §5 keeps out of primary copy. The reference's three
+   * are `Name`, `Ticker` and `Description`; the stored literals are unchanged
+   * so a workspace that had chosen the qualified form keeps working and now
+   * gets the ticker.
+   */
+  await chooseInDropdown("Title form", "Ticker");
 
-  const qualified = legendText(chart);
-  assert.doesNotMatch(qualified, /Solana \/ TetherUS/,
-    "choosing Full symbol must replace the name, not sit beside it");
-  assert.match(qualified, /SOLUSDT/,
-    "the qualified identity names the instrument the venue lists");
-  assert.doesNotMatch(qualified, /instrument:v1:/,
-    "neither form may ever print a canonical id — contract §5");
+  const ticker = legendText(chart);
+  assert.doesNotMatch(ticker, /Solana \/ TetherUS/,
+    "choosing Ticker must replace the name, not sit beside it");
+  assert.match(ticker, /SOLUSDT/, "the ticker is what the venue lists");
+  assert.doesNotMatch(ticker, /SOL\/USDT · SPOT/,
+    "the qualified form is not one of the reference's three");
+  assert.doesNotMatch(ticker, /instrument:v1:/,
+    "no form may ever print a canonical id — contract §5");
+
+  // Description, which this build resolves to the descriptive name until a
+  // provider hands us a longer one.
+  await chooseInDropdown("Title form", "Description");
+  assert.match(legendText(chart), /Solana \/ TetherUS/);
 
   // And back, because a setting that only goes one way is half a setting.
   await chooseInDropdown("Title form", "Name");
   assert.match(legendText(chart), /Solana \/ TetherUS/);
+});
+
+test("R3b-24 — Logo and Open market status put a mark and a dot on the status line", async () => {
+  /*
+   * The reference's status line opens with a 24px instrument logo and closes
+   * its identity with a market-status dot after the venue; ours had neither,
+   * and the repair queue's reason ("no source") was refuted by the product's
+   * own right panel, which draws a `BT` avatar and `Market open` for the same
+   * instrument.
+   */
+  const chart = await mountChart();
+  const logo = (): HTMLElement | null =>
+    chart.pane(0).querySelector<HTMLElement>("[data-status-logo]");
+  const dot = (): HTMLElement | null =>
+    chart.pane(0).querySelector<HTMLElement>('[data-market-status="open"]');
+
+  assert.ok(logo(), "the reference draws the logo before anybody chooses, and so does this");
+  assert.equal(logo()!.textContent, "S", "our own disc, carrying the base asset's initial");
+  assert.ok(dot(), "a crypto pair trades continuously — that is a fact, not a guess");
+
+  await openSettings(chart, "Status line");
+  await toggle("Logo");
+  assert.equal(logo(), null, "the row has to take it off the chart, not merely record a preference");
+  await toggle("Open market status");
+  assert.equal(dot(), null);
+
+  // Both back: a switch that only goes one way is half a switch.
+  await toggle("Logo");
+  await toggle("Open market status");
+  assert.ok(logo());
+  assert.ok(dot());
+});
+
+test("R3b-25 — Background paints a plate behind the legend's text runs", async () => {
+  /*
+   * The reference's `Background` row is on by default with an opacity slider,
+   * and it is what keeps `O H L C` legible over a dense candle. A plate behind
+   * the TEXT RUNS — never a box around the legend, which is the chrome R3-10
+   * removed.
+   */
+  const chart = await mountChart();
+  const readout = (): HTMLElement => {
+    const legend = chart.pane(0).querySelector<HTMLElement>("[data-pane-legend]");
+    const row = legend!.parentElement!.parentElement!
+      .querySelector<HTMLElement>("div[style*='background-color']");
+    assert.ok(row, "no legend text run carries the plate");
+    return row;
+  };
+  assert.match(readout().style.backgroundColor, /rgb\(var\(--ts-surface-rgb\)/,
+    "the plate is the CHART's ground in whichever theme is running, not a literal");
+  assert.match(readout().style.backgroundColor, /0\.6\)/, "and the reference's default weight");
+
+  await openSettings(chart, "Status line");
+  await toggle("Background");
+  const legend = chart.pane(0).querySelector<HTMLElement>("[data-pane-legend]");
+  assert.equal(
+    legend!.parentElement!.parentElement!.querySelector("div[style*='background-color']"), null,
+    "Background off leaves the legend as bare type on the plot");
 });
 
 test("R6 SC-2 — the Scale mode buttons row decides when the axis strip is drawn", async () => {
@@ -202,6 +276,62 @@ test("R6 SL-1 — the legend's three parts are three independent props", async (
   const noValues = view.container.textContent ?? "";
   assert.match(noValues, /Relative Strength Index/);
   assert.doesNotMatch(noValues, /45\.28/);
+});
+
+test("R6b-H — Inputs off reaches a study in its OWN pane, not only the price overlays", async () => {
+  /*
+   * ── The defect ───────────────────────────────────────────────────────────
+   *
+   * `IndicatorPane` mounted `IndicatorLegend` without the three props, so the
+   * Status-line tab's `Titles` / `Inputs` / `Values` rows moved the price
+   * pane's overlay legend and moved an RSI pane by 0px. One switch, two
+   * answers, on one chart — and the one it did not reach is the legend most
+   * charts actually carry.
+   *
+   * Driven through the real dialog on a chart with a real study pane: a study
+   * injected past the browser is a study that never went through the code
+   * that decides where it goes.
+   */
+  const chart = await mountChart();
+  await settle();
+
+  const open = chart.container.querySelector<HTMLElement>('button[aria-label="Indicators"]');
+  assert.ok(open, "the toolbar has no Indicators control");
+  fireEvent.click(open);
+  await settle();
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Relative Strength Index" }));
+  await settle();
+  fireEvent.keyDown(document, { key: "Escape" });
+  await settle();
+
+  const studyPane = (): HTMLElement => {
+    const pane = chart.container
+      .querySelector<HTMLElement>("section[aria-label$='indicator pane']");
+    assert.ok(pane, "the study did not get a pane");
+    return pane;
+  };
+  const paneLegend = (): string => {
+    const legend = studyPane().querySelector<HTMLElement>(".flex.flex-col.items-start");
+    return legend?.textContent ?? "";
+  };
+  assert.match(paneLegend(), /Relative Strength Index/);
+  assert.match(paneLegend(), /Length 14/,
+    "the study pane's legend opens with its inputs, as the price pane's does");
+
+  await openSettings(chart, "Status line");
+  await toggle("Inputs");
+  assert.doesNotMatch(paneLegend(), /Length 14/,
+    "Inputs off must reach the pane legend too — that is the whole finding");
+  assert.match(paneLegend(), /Relative Strength Index/, "and must leave the title alone");
+
+  await toggle("Inputs");
+  assert.match(paneLegend(), /Length 14/, "and back, because a one-way switch is half a switch");
+
+  // Leave the chart as it was found: the workspace is server-synced.
+  const remove = studyPane()
+    .querySelector<HTMLElement>('button[aria-label^="Remove Relative Strength Index"]');
+  if (remove) { fireEvent.click(remove); await settle(); }
 });
 
 test("R6 SL-3 — Last day change values prints the 24h figure the quote contract carries", async () => {

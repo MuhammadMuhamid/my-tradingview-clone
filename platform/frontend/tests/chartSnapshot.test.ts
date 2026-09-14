@@ -52,7 +52,21 @@ test("THE CAMERA IS REACHABLE THREE WAYS, AND ALL OF THEM RUN ONE IMPLEMENTATION
    * only Save — a screen reader was told half the control.
    */
   assert.match(toolbar, /<SnapshotMenu onSnapshot=\{props\.onSnapshot\} \/>/);
-  assert.match(toolbar, /\["save", "Save image"\], \["copy", "Copy image"\]/);
+  /*
+   * ── TVP8 R1c-12: two rows, TradingView's words, TradingView's chords ──────
+   *
+   * This used to pin the literal `["save", "Save image"], ["copy", "Copy
+   * image"]`, which pinned the SHAPE of the menu as much as its contents — and
+   * the measured reference (`measurements/tv-snapshot-menu-20260914.md`) has a
+   * heading, a glyph in the left gutter and a hotkey cap on each row, none of
+   * which a two-tuple can carry. So the rows are a table now, and this asserts
+   * the facts rather than the spelling of the literal: the reference's first
+   * row is `Download image`, not `Save image`.
+   */
+  assert.match(toolbar, /const SNAPSHOT_ROWS = \[/);
+  assert.match(toolbar, /mode: "save" as const,\s*\n\s*action: "snapshot-save" as const,\s*\n\s*label: "Download image"/);
+  assert.match(toolbar, /mode: "copy" as const,\s*\n\s*action: "snapshot-copy" as const,\s*\n\s*label: "Copy image"/);
+  assert.match(toolbar, /Chart snapshot/, "the reference's menu carries a heading");
   assert.match(toolbar, /aria-haspopup="menu"/);
   assert.match(page, /onSnapshot=\{snapshot\}/);
 
@@ -60,15 +74,31 @@ test("THE CAMERA IS REACHABLE THREE WAYS, AND ALL OF THEM RUN ONE IMPLEMENTATION
   const save = BINDINGS.find((b) => b.action === "snapshot-save");
   const copy = BINDINGS.find((b) => b.action === "snapshot-copy");
   assert.ok(save && copy, "a camera with no keyboard route is half a feature");
-  assert.equal(save!.mod, true);
-  assert.equal(save!.shift, true);
   /*
-   * Copy has no chord on purpose: ⌘⇧C is Chrome's element inspector, and a
-   * shortcut the browser eats is worse than none. It is in the table so the
-   * command palette can offer it, and `chordless` keeps it out of the sheet
-   * and out of `resolveShortcut`.
+   * ── R1c-12: ⌥⌘S downloads and ⇧⌘S copies, as the reference's caps say ─────
+   *
+   * Copy used to be `chordless`. The reasoning was sound at the time — ⌘⇧C is
+   * Chrome's element inspector, and a shortcut the browser eats is worse than
+   * none — but the conclusion drawn from it was that Alt could not be used
+   * either, and that has not been true since `resolveShortcut` started
+   * claiming Alt binding by binding rather than refusing every Alt press. So
+   * Save takes the reference's own ⌥⌘S, Copy takes the ⌘⇧S that Save was
+   * sitting on, and neither is a chord Chrome takes first.
+   *
+   * The menu READS this table to draw its caps, which is the part that
+   * matters: a cap printed beside a row is a chord that works, or there is no
+   * cap. Asserted here so a binding cannot be removed while the menu keeps
+   * advertising it.
    */
-  assert.equal(copy!.chordless, true);
+  assert.equal(save!.mod, true);
+  assert.equal(save!.alt, true);
+  assert.equal(save!.shift, undefined);
+  assert.equal(copy!.mod, true);
+  assert.equal(copy!.shift, true);
+  assert.equal(copy!.chordless, undefined, "copy has a chord again");
+  assert.match(toolbar, /function snapshotCap/,
+    "the cap is read from BINDINGS, never typed into the menu");
+  assert.match(toolbar, /BINDINGS\.find\(\(b\) => b\.action === action/);
   assert.match(page, /case "snapshot-save": void snapshot\("save"\)/);
   assert.match(page, /case "snapshot-copy": void snapshot\("copy"\)/);
 

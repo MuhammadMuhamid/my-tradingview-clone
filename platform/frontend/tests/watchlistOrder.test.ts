@@ -15,10 +15,16 @@ import {
 } from "../lib/watchlistOrder";
 
 const LIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"];
+/*
+ * TVP8 R7b-07: a quote now carries `chg` as well as `chgPct`, because `Chg`
+ * and `Chg%` are two columns that sort differently — BTC's 900 is a bigger
+ * move than ADA's 0.006 and a smaller one in percent. These figures keep that
+ * disagreement live: SOL leads on percent, BTC on absolute change.
+ */
 const quotes: Record<string, WatchlistQuote> = {
-  BTCUSDT: { last: 64_000, chgPct: 1.2 },
-  ETHUSDT: { last: 3_200, chgPct: -0.8 },
-  SOLUSDT: { last: 150, chgPct: 5.4 },
+  BTCUSDT: { last: 64_000, chg: 760, chgPct: 1.2 },
+  ETHUSDT: { last: 3_200, chg: -25.8, chgPct: -0.8 },
+  SOLUSDT: { last: 150, chg: 7.7, chgPct: 5.4 },
   // ADAUSDT has no quote yet.
 };
 
@@ -27,8 +33,28 @@ test("the manual order is returned untouched, because it is the user's", () => {
 });
 
 test("a numeric sort runs biggest-first, because that is what a watchlist is read for", () => {
-  const byChange = sortSymbols(LIST, quotes, { column: "change", direction: "desc" });
-  assert.deepEqual(byChange.slice(0, 3), ["SOLUSDT", "BTCUSDT", "ETHUSDT"]);
+  const byChangePct = sortSymbols(LIST, quotes, { column: "changePct", direction: "desc" });
+  assert.deepEqual(byChangePct.slice(0, 3), ["SOLUSDT", "BTCUSDT", "ETHUSDT"]);
+});
+
+/*
+ * ── R7b-07: `Chg` and `Chg%` were the same sort ───────────────────────────
+ *
+ * `columns[]` in `Watchlist.tsx` gave both headers the key `"change"`, and
+ * `sortSymbols` read `chgPct` for it — so the `Chg` header sorted by percent
+ * while claiming to sort by change, and BOTH headers wore the arrow. Run
+ * against that, the first assertion below returns `["SOLUSDT","BTCUSDT"]`.
+ */
+test("R7b-07 — Chg sorts by the absolute move and Chg% by the percentage", () => {
+  const two = ["BTCUSDT", "ADAUSDT"];
+  const twoQuotes: Record<string, WatchlistQuote> = {
+    BTCUSDT: { last: 77_000, chg: 900, chgPct: 1.1 },
+    ADAUSDT: { last: 0.21, chg: 0.006, chgPct: 3 },
+  };
+  assert.deepEqual(sortSymbols(two, twoQuotes, { column: "change", direction: "desc" }),
+    ["BTCUSDT", "ADAUSDT"], "900 is a bigger move than 0.006");
+  assert.deepEqual(sortSymbols(two, twoQuotes, { column: "changePct", direction: "desc" }),
+    ["ADAUSDT", "BTCUSDT"], "3% is a bigger move than 1.1%");
 });
 
 test("a row with no quote sorts last in BOTH directions", () => {
@@ -85,7 +111,7 @@ test("a drag that ends somewhere unexpected does nothing, rather than something 
 });
 
 test("sorting never adds or loses a row", () => {
-  for (const column of ["symbol", "last", "change"] as const) {
+  for (const column of ["symbol", "last", "change", "changePct"] as const) {
     for (const direction of ["asc", "desc"] as const) {
       const sorted = sortSymbols(LIST, quotes, { column, direction });
       assert.deepEqual([...sorted].sort(), [...LIST].sort(), `${column} ${direction}`);
@@ -97,7 +123,7 @@ test("the quote belongs to the symbol, not to the row's position", () => {
   // The reason a reorder cannot show the wrong price: `sortSymbols` returns
   // names, and every quote is looked up by name. A positional list of quotes
   // is what makes a reordered watchlist display the previous occupant's price.
-  const sorted = sortSymbols(LIST, quotes, { column: "change", direction: "desc" });
+  const sorted = sortSymbols(LIST, quotes, { column: "changePct", direction: "desc" });
   assert.equal(quotes[sorted[0]!]!.chgPct, 5.4, "SOLUSDT's own change, wherever it now sits");
   const reordered = reorderSymbols(LIST, "SOLUSDT", 0);
   assert.equal(quotes[reordered[0]!]!.last, 150);

@@ -60,16 +60,42 @@ async function textInput(container: HTMLElement): Promise<HTMLInputElement> {
   return input;
 }
 
-test("a bare letter arms its tool when nothing is focused", async () => {
+/*
+ * TVP8 R4b-05 rewrote this test rather than deleting it.
+ *
+ * It used to read "a bare letter arms its tool", which was this product's own
+ * decision and the reference's opposite: TradingView spends every bare letter
+ * on "Change symbol: any letter" and puts the tools on ⌥-chords. The claim
+ * the test protects — the workspace's one listener is what makes a keystroke
+ * arm a tool at all — is unchanged; the chord is the reference's now, and the
+ * bare letter is asserted to do the reference's thing instead.
+ */
+test("an ⌥ chord arms its tool, and the bare letter opens the symbol search", async () => {
   const chart = await mountChart();
   assert.equal(armedTool(chart.container), "Cross");
 
-  await press("t", {}, document.body);
+  await press("t", { altKey: true }, document.body);
   assert.equal(armedTool(chart.container), "Trendline",
-    "t is the trend tool, and the workspace listener is what makes it so");
+    "⌥T is the trend tool, and the workspace listener is what makes it so");
 
-  await press("h", {}, document.body);
+  await press("h", { altKey: true }, document.body);
   assert.equal(armedTool(chart.container), "Horizontal line");
+
+  // And the bare letter is the SYMBOL, with the letter already in the box.
+  await press("e", {}, document.body);
+  const dialog = screen.queryByRole("dialog");
+  assert.ok(dialog, "a bare letter over the chart must open the symbol search");
+  assert.equal(dialog.getAttribute("aria-label"), "Symbol search");
+  const box = dialog.querySelector<HTMLInputElement>("input");
+  assert.ok(box, "the search has no box");
+  assert.equal(box.value, "e", "the letter that opened it is what it is searching for");
+  assert.equal(box.selectionStart, 1, "the seed is a starting point, not a selection to overwrite");
+  assert.equal(box.selectionEnd, 1);
+  assert.equal(armedTool(chart.container), "Horizontal line",
+    "and no tool changed underneath it");
+
+  await press("Escape", {}, dialog);
+  await settle();
 });
 
 test("no shortcut fires while the user is typing, and the field keeps the key", async () => {
@@ -85,8 +111,14 @@ test("no shortcut fires while the user is typing, and the field keeps the key", 
   assert.equal(input.value, "BT");
 
   input.blur();
-  await press("t", {}, document.body);
+  await press("t", { altKey: true }, document.body);
   assert.equal(armedTool(chart.container), "Trendline");
+
+  // Nor does a bare letter typed into a field escape it as a symbol search.
+  input.focus();
+  await press("e", {}, input);
+  assert.equal(screen.queryByRole("dialog"), null,
+    "an `e` taken from the middle of a symbol to open a SEARCH for symbols is the same defect");
 });
 
 test("a surface that owns its keys keeps Cmd+Z, so undo cannot reach the chart", async () => {
@@ -118,13 +150,14 @@ test("a surface that owns its keys keeps Cmd+Z, so undo cannot reach the chart",
 test("an open dialog is modal to the keyboard layer", async () => {
   const chart = await mountChart();
 
-  // `/` opens the symbol search, which is a real dialog.
-  await press("/", {}, document.body);
+  // A bare letter opens the symbol search, which is a real dialog (R4b-05;
+  // `/` is the reference's Indicators, and opens a different one).
+  await press("b", {}, document.body);
   const dialog = screen.queryByRole("dialog");
-  assert.ok(dialog, "/ must open the symbol search");
+  assert.ok(dialog, "a bare letter must open the symbol search");
 
-  // A bare letter must not reach the chart behind it, wherever focus landed.
-  await press("t", {}, dialog);
+  // A chord must not reach the chart behind it, wherever focus landed.
+  await press("t", { altKey: true }, dialog);
   assert.equal(armedTool(chart.container), "Cross",
     "a shortcut that acts on the chart behind an open dialog is how `/` came " +
     "to stack a second search on top of the first");
@@ -156,20 +189,42 @@ test("an interval with a unit letter can actually be typed", async () => {
   assert.equal(armedInterval(chart.container), "1h");
 });
 
-test("a bare unit letter is still its tool, because no interval is being typed", async () => {
+/*
+ * Rewritten with R4b-05: `h` on its own is a search for `h`, not the
+ * horizontal line — which is exactly why the interval buffer has to win over
+ * it while one is open, and that is what the test above this one pins. The
+ * tool's chord is ⌥H.
+ */
+test("a bare unit letter with no interval open is the symbol, not the tool", async () => {
   const chart = await mountChart();
   await press("h", {}, document.body);
-  assert.equal(armedTool(chart.container), "Horizontal line");
+  const dialog = screen.queryByRole("dialog");
+  assert.ok(dialog, "a bare `h` opens the symbol search");
+  assert.equal(dialog.querySelector<HTMLInputElement>("input")?.value, "h");
+  assert.equal(armedTool(chart.container), "Cross", "no tool was armed");
   assert.equal(armedInterval(chart.container), "15m", "no interval was typed");
+  await press("Escape", {}, dialog);
+  await settle();
+
+  await press("h", { altKey: true }, document.body);
+  assert.equal(armedTool(chart.container), "Horizontal line");
 });
 
-test("a tool key that cannot continue an interval clears the half-typed buffer", async () => {
+test("a letter that cannot continue an interval clears the half-typed buffer", async () => {
   const chart = await mountChart();
+  /*
+   * R4b-05 rewrote what the letter DOES — `t` opens the symbol search rather
+   * than arming the trendline — and left the rule this test exists for
+   * exactly where it was: the `15` must not still be waiting behind whatever
+   * the letter did, or the next Enter is a silent timeframe change.
+   */
   await pressAll(["1", "5", "t"]);
-  assert.equal(armedTool(chart.container), "Trendline");
+  const dialog = screen.queryByRole("dialog");
+  assert.ok(dialog, "`t` is not an interval key, so it is a symbol search");
+  assert.equal(dialog.querySelector<HTMLInputElement>("input")?.value, "t");
+  await press("Escape", {}, dialog);
+  await settle();
 
-  // The `15` must not still be waiting behind the tool change: pressing Enter
-  // now would otherwise silently change timeframe.
   await press("Enter", {}, document.body);
   assert.equal(armedInterval(chart.container), "15m", "the chart's own default, unchanged");
 

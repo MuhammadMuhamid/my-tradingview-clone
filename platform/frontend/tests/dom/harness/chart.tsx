@@ -71,6 +71,52 @@ export async function rightClickAt(el: HTMLElement, x: number, y: number): Promi
   await settle();
 }
 
+/**
+ * Right-click one of the chart's three strips, ON the strip.
+ *
+ * `rightClickAt` fires at the chart's root element, which is the right target
+ * for the plot and the wrong one for either axis: the axes are their own table
+ * cells, and the product now classifies a right-click by the cell it landed in
+ * rather than by arithmetic over the pane's scale geometry — because that
+ * arithmetic was a model of the chart rather than the chart, and it made the
+ * `Time scale` menu unreachable the moment a study pane hid this pane's own
+ * time axis.
+ *
+ * The library lays its panes out as a table: a row per pane, `[left axis]
+ * [pane][right axis]`, then a final row for the time axis. So this finds the
+ * cell a person would be pointing at and fires there.
+ */
+export async function rightClickRegion(
+  pane: HTMLElement, region: "plot" | "axis" | "time",
+  /** Override the pointer coordinate, to prove the CELL decides and not it. */
+  override?: { x: number; y: number },
+): Promise<void> {
+  const host = plotOf(pane);
+  const table = host.querySelector("table");
+  if (!table) throw new Error("the chart host has no pane table");
+  const row = region === "time" ? table.rows[table.rows.length - 1] : table.rows[0];
+  if (!row) throw new Error(`the chart has no ${region} row`);
+  const cell = region === "axis"
+    ? row.cells[row.cells.length - 1]
+    : region === "time"
+      ? (row.cells[1] ?? row.cells[0])
+      : row.cells[1];
+  if (!cell) throw new Error(`the chart has no ${region} cell`);
+  /*
+   * A plausible pointer position inside the strip, for the code paths that
+   * still read one (the price under the pointer, on the plot). jsdom lays
+   * nothing out, so these come from the sizes the library wrote inline.
+   */
+  const host_ = host.getBoundingClientRect();
+  const point = override ?? (region === "axis"
+    ? { x: host_.width - 20, y: 200 }
+    : region === "time"
+      ? { x: 300, y: host_.height - 10 }
+      : { x: 300, y: 200 });
+  fireEvent.contextMenu(cell, { button: 2, ...at(point.x, point.y) });
+  await settle();
+}
+
 /** The open context menu, or null. Its accessible name is the menu's label. */
 export function openMenu(): HTMLElement | null {
   return screen.queryByRole("menu");

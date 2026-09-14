@@ -648,8 +648,31 @@ test("SHORTCUTS — the bottom row is time only; the scale controls sit on the a
   // The row itself: a hairline and a go-to-date control after the chips, and
   // the clock at 13px in the FULL ink (TVP8 R1b-01: the reference's bottom
   // row is not a muted row) rather than 11px faint.
-  assert.match(CHART, /<span className=\{SEPARATOR\} aria-hidden="true" \/>/);
+  /*
+   * ── TVP8 R1c-07: the row's own measurements ──────────────────────────────
+   *
+   * `tradingview/tv-shell-1920x1080-dark.png` and the 1440 baseline: the
+   * hairline is at y=861 and the row runs 862–899 — 38px, the toolbar's own
+   * height. Ours was 33 with `py-0.5`, so the bottom of the window was five
+   * pixels shorter than the reference's.
+   *
+   * The chips have NO gap and 7px of padding a side, because the reference's
+   * pitch is the label plus 14 and ours was the label plus 16 — two pixels a
+   * chip, nine chips, and `All` landed fifteen pixels right of the
+   * reference's, which took the separator and the go-to-date cell with it.
+   *
+   * The separator's own margins are `!ml-px !mr-2`, which is what puts the
+   * rule at x=355 and the go-to-date glyph's 19px box at x=369.
+   */
+  assert.match(CHART, /className="flex h-\[38px\] shrink-0 items-center border-t border-border bg-surface pl-\[9px\] pr-1\.5"/,
+    "the range row is 38px with the hairline inside it");
+  assert.match(CHART, /role="group" aria-label="Visible range" className="flex items-center"/,
+    "no gap class between the chips: the pitch is the label plus its own padding");
+  assert.match(CHART, /tvc-control flex h-\[28px\] items-center px-\[7px\] text-\[13px\] leading-\[18px\] text-ink/);
+  assert.match(CHART, /<span className=\{`\$\{SEPARATOR\} !ml-px !mr-2`\} aria-hidden="true" \/>/);
   assert.match(CHART, /aria-label="Go to date"/);
+  // The glyph is 19×19 at one unit to one pixel (R1c-02), not 22 on a 24 box.
+  assert.match(CHART, /<svg width="19" height="19" viewBox="0 0 19 19" fill="none" stroke="currentColor"\s*\n\s*strokeWidth="1"/);
   // …wired to the pane's existing time-axis menu, which carries `time:go-to`,
   // which opens `GoToDateModal`, which sets the `goTo` signal this chart
   // already honours. No second path to the same dialog.

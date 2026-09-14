@@ -24,6 +24,8 @@ export interface StoredNativeStudy {
   params: NativeParams;
   visible: boolean;
   styles: Record<string, PlotStyleOverride>;
+  /** R6b-29: the study's own per-timeframe allow-list. Absent = everywhere. */
+  visibleOn?: string[];
 }
 
 const STORAGE_KEY = "tv.nativeStudies.v1";
@@ -82,6 +84,9 @@ export function loadStoredNative(scope: string = PRIMARY_SCOPE): StoredNativeStu
         params: normalizeParams(def, entry.params as NativeParams | undefined),
         visible: entry.visible !== false,
         styles: sanitizeStyles(def.plots.map((p) => p.id), entry.styles),
+        ...(Array.isArray(entry.visibleOn) && entry.visibleOn.length > 0
+          ? { visibleOn: entry.visibleOn.filter((r) => typeof r === "string") }
+          : {}),
       }];
     });
   } catch {
@@ -151,6 +156,7 @@ export function saveStoredNative(
   if (typeof window === "undefined") return;
   const slim: unknown[] = list.map((s) => ({
     key: s.key, defId: s.defId, params: s.params, visible: s.visible, styles: s.styles,
+    ...(s.visibleOn && s.visibleOn.length > 0 ? { visibleOn: s.visibleOn } : {}),
   }));
   const preserved = unknownStoredNative(scope);
   try {

@@ -79,3 +79,51 @@ export function dayOfWeekTickFormatter(time: unknown, tickMarkType: number): str
   const d = new Date(time * 1000);
   return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
 }
+
+/*
+ * ── R6b-13/14: `undefined` is not "off" ────────────────────────────────────
+ *
+ * `tickMarkFormatter: undefined` and `timeFormatter: undefined` were how this
+ * product turned the two formatters OFF. lightweight-charts merges options with
+ * an object spread, and a key whose value is `undefined` overwrites nothing —
+ * so the formatter installed when the setting was ON stayed installed for ever
+ * and both rows were inert on every chart that had ever had them on. (Day of
+ * week defaults to ON, so that row could only ever be inert.)
+ *
+ * The cure is that OFF is a FUNCTION too. `defaultTickFormatter` returns `null`
+ * for every tick, which is the library's own "you did not format it, use your
+ * own" — the axis goes back to `29`, `Sep`, `07:00`. `hour24Formatter` and
+ * `hour12Formatter` are a real pair, so the 12/24 row moves in both directions
+ * rather than only into 12-hour and never back out.
+ */
+
+/** OFF, as a function: every tick falls back to the library's own label. */
+export function defaultTickFormatter(): string | null {
+  return null;
+}
+
+/** `15:00` — the library's own intraday label, written by us so OFF can exist. */
+export function hour24Formatter(time: unknown): string {
+  const d = new Date((typeof time === "number" ? time : 0) * 1000);
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+/** `3:00 pm`, in UTC — the 12-hour half of the `Time hours format` row. */
+export function hour12Formatter(time: unknown): string {
+  const d = new Date((typeof time === "number" ? time : 0) * 1000);
+  const h = d.getUTCHours();
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${pad(d.getUTCMinutes())} ${h < 12 ? "am" : "pm"}`;
+}
+
+/** The pair the `Time hours format` row chooses between. */
+export function hoursFormatter(twentyFourHour: boolean): (time: unknown) => string {
+  return twentyFourHour ? hour24Formatter : hour12Formatter;
+}
+
+/** The pair the `Day of week on labels` row chooses between. */
+export function dayOfWeekFormatter(
+  on: boolean,
+): (time: unknown, tickMarkType: number) => string | null {
+  return on ? dayOfWeekTickFormatter : defaultTickFormatter;
+}

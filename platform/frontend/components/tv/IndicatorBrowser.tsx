@@ -110,8 +110,17 @@ export interface IndicatorBrowserProps {
   onOpenInEditor: (script: PineScript) => void;
 }
 
-/** One 28px tab. Selected is a NEUTRAL filled pill — accent is never selection. */
-const PILL = "flex h-7 items-center rounded-md px-2.5 text-[13px] transition-colors";
+/**
+ * One 28px tab. Selected is a NEUTRAL chip — accent is never selection.
+ *
+ * R3b-02: the reference's selected tab is the INVERTED chip this product
+ * already uses for a selected dropdown row (`--ts-menu-selected-bg` /
+ * `--ts-menu-selected-ink`, rgb(242) on rgb(15) in dark), and its unselected
+ * one is a filled rgb(46) chip with ink text — not the transparent, muted
+ * ghost this had, where the only difference between the two states was a
+ * slightly different grey.
+ */
+const PILL = "flex h-7 items-center rounded-md px-3 text-[13px] transition-colors";
 
 export function IndicatorBrowser(props: IndicatorBrowserProps) {
   const { open, onClose, indicators } = props;
@@ -316,6 +325,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       info={scriptInfo(s)}
       onAdd={() => void addScript(s)}
       disabled={busy || !indicators}
+      strategy={s.kind === "strategy"}
       trailing={
         <>
           <RowGlyph
@@ -339,7 +349,12 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       title="Indicators, metrics, and strategies"
       /* 840×638 and a 62px header, measured off the reference. */
       panelClassName="!max-w-[840px] !h-[638px] !max-h-[calc(100vh-24px)]"
-      headerClassName="!py-[15px]"
+      /*
+        R3b-03: the title rows stay where they are (157–175) and the FIELD
+        moves up to y=199, which is where the reference's is — so the header's
+        bottom padding is 8px shorter than its top, not equal to it.
+      */
+      headerClassName="!pt-[15px] !pb-[7px]"
       /*
         R3-07: the LIST scrolls, and nothing else.
 
@@ -352,10 +367,16 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
       contentClassName="!px-5 !pt-0 !pb-0"
     >
       {/* ── search ── */}
-      <div className="relative shrink-0 pt-[9px]">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      <div className="relative shrink-0 pt-[6px]">
+        {/*
+          R3b-01: a 20×20 magnifier whose ink starts at x=333 — 13px inside a
+          field that opens at x=320. It was a 16px glyph at `left-3` with 13px
+          of ink, a sixth smaller than the reference's in the control a user
+          aims at first.
+        */}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"
-          className="pointer-events-none absolute left-3 top-[calc(50%+4px)] -translate-y-1/2 text-ink-faint">
+          className="pointer-events-none absolute left-[13px] top-[calc(50%+3px)] -translate-y-1/2 text-ink-faint">
           <circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" />
         </svg>
         <input
@@ -377,8 +398,30 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
           */
           placeholder="Search"
           aria-label="Search indicators"
-          className="h-[34px] w-full rounded-md border border-control-border bg-transparent
-            pl-9 pr-9 text-sm text-ink outline-none placeholder:text-ink-faint"
+          /*
+            ── R3b-01: 40px, 16px, and NO ring when the dialog opens ─────────
+
+            Three measured corrections. The field is 40px tall in the
+            reference, not 34 (the note this was built from said 34; the image
+            says 40 — border rows at y=199 and y=238); its text is 16px, and
+            `text-sm` could never have won anyway, because
+            `:is(.tv-workstation,.ts-app) input { font-size: inherit }` in
+            `app/globals.css` is unlayered and beats a layered utility — the
+            same rule that defeated the legend's 16px headline (R3b-15). Hence
+            `!text-[16px]`.
+
+            And the ring: this input is focused programmatically the instant
+            the dialog opens, and a programmatically-focused `<input>` ALWAYS
+            matches `:focus-visible` — so the product's one focus rule painted
+            a 2px accent outline around the field on every open. R3-04 removed
+            `focus:border-accent` and the outline stayed, because the class
+            was never what drew it. The dialog's own border is the field's
+            edge; the focus indicator is the caret, which is where a text
+            field's focus is legible anyway.
+          */
+          className="h-[40px] w-full rounded-md border border-control-border bg-transparent
+            pl-[42px] pr-9 !text-[16px] text-ink outline-none focus-visible:outline-none
+            placeholder:text-ink-faint"
         />
         {searching && (
           <button
@@ -386,10 +429,11 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
             onClick={() => { setQ(""); searchRef.current?.focus(); }}
             aria-label="Clear the search"
             title="Clear the search"
-            className="absolute right-2 top-[calc(50%+4px)] flex h-6 w-6 -translate-y-1/2
+            className="absolute right-2 top-[calc(50%+3px)] flex h-6 w-6 -translate-y-1/2
               items-center justify-center rounded text-ink-faint hover:text-ink"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            {/* R3b-01: 16px of ink, as the reference's clear glyph measures. */}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
               <circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" />
             </svg>
@@ -397,7 +441,13 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         )}
       </div>
 
-      <div className="mt-3 flex min-h-0 flex-1 gap-4">
+      {/*
+        R3b-03: 8px under the field, and the list column 50px right of the
+        rail — the reference's rail ends at x=520 and its list column starts at
+        570. Ours ran 12px under the field and 16px right of the rail, which
+        put every row 34px left of where the reference's sit.
+      */}
+      <div className="mt-2 flex min-h-0 flex-1 gap-[50px]">
         {/*
           ── the library rail ────────────────────────────────────────────────
 
@@ -410,7 +460,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
         */}
         <nav aria-label="Indicator library"
           className="hidden w-[200px] shrink-0 flex-col overflow-hidden sm:flex">
-          <LibrarySection title="Personal" />
+          <LibrarySection title="Personal" first />
           <LibraryNavButton
             active={!searching && library === "scripts"}
             onClick={() => { setLibrary("scripts"); setKind("indicator"); }}
@@ -437,7 +487,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
             list it is not in charge of.
           */}
           {!searching && (
-            <div role="tablist" aria-label="Script kind" className="flex shrink-0 items-center gap-1.5">
+            <div role="tablist" aria-label="Script kind" className="flex shrink-0 items-center gap-1">
               {KINDS.map((k) => (
                 <button
                   key={k.id}
@@ -447,8 +497,8 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
                   className={`${PILL} ${
                     // accent is never selection — the contract's own rule.
                     kind === k.id
-                      ? "bg-surface-3 font-medium text-ink"
-                      : "text-ink-muted hover:bg-state-hover hover:text-ink"
+                      ? "bg-[var(--ts-menu-selected-bg)] font-medium text-[var(--ts-menu-selected-ink)]"
+                      : "bg-surface-3 text-ink hover:bg-state-active"
                   }`}
                 >
                   {k.label}
@@ -463,9 +513,25 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
             </p>
           )}
 
+          {/*
+            R3b-08: the reference shows a 3px thumb in this column AT REST.
+
+            The list scrolls 2,014px inside 485, and on macOS the overlay
+            scrollbar is 0px wide until the pointer moves — so the one piece of
+            chrome that says "there are forty more studies below" was invisible
+            in every screenshot and to every reader who had not yet scrolled.
+            `scrollbar-gutter: stable` keeps the column from reflowing when it
+            appears, and the arbitrary variants below are the only way to reach
+            the pseudo-elements from here — `app/globals.css` is shared, and a
+            rule there would repaint every scrollbar in the product.
+          */}
           <div
             aria-label="Indicators"
-            className="min-h-0 flex-1 overflow-y-auto pb-4"
+            className="min-h-0 flex-1 overflow-y-auto pb-4 pt-[9px]
+              [scrollbar-gutter:stable]
+              [&::-webkit-scrollbar-thumb]:rounded-full
+              [&::-webkit-scrollbar-thumb]:bg-state-active
+              [&::-webkit-scrollbar]:w-[3px]"
           >
             {searching ? (
               <>
@@ -509,13 +575,17 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
                   </>
                 )}
                 <GroupHeader>Script name</GroupHeader>
+                {/*
+                  R3b-09: `Strategies` over Technicals is EMPTY, and says so by
+                  being empty.
+
+                  It printed two sentences explaining the product's own build
+                  ("This build ships no built-in strategies…") in the middle of
+                  a library list. The reference never prints a sentence about
+                  itself in this dialog; an empty section is an empty section,
+                  and the tab is still there to be switched back.
+                */}
                 {nativeList.map(nativeRow)}
-                {nativeList.length === 0 && (
-                  <p className="py-6 text-center text-[12px] text-ink-faint">
-                    This build ships no built-in strategies. Strategies you write
-                    in the Pine Editor appear under My scripts.
-                  </p>
-                )}
               </>
             ) : (
               <>
@@ -556,9 +626,10 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
 }
 
 /** An 11px/400 uppercase section label in a 30px row — the reference's rail. */
-function LibrarySection({ title }: { title: string }) {
+function LibrarySection({ title, first = false }: { title: string; first?: boolean }) {
   return (
-    <h3 className="flex h-[30px] shrink-0 items-center px-2 text-[11px] uppercase tracking-wide text-ink-faint">
+    <h3 className={`flex h-[30px] shrink-0 items-center px-2 text-[11px] uppercase tracking-wide
+      text-ink-faint ${first ? "" : "mt-2"}`}>
       {title}
     </h3>
   );
@@ -580,13 +651,25 @@ function LibraryNavButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      /*
+        R3b-04: an unselected library is INK, and the selected fill is
+        rgb(61,61,61). Both were a step quieter than the reference's — a muted
+        label on a `surface-3` fill — so the rail read as disabled next to a
+        list of ink names, and selection was two greys apart from hover.
+      */
       className={`flex h-10 w-full shrink-0 items-center gap-3 rounded px-2 text-left text-[14px] ${
-        active ? "bg-surface-3 font-semibold text-ink" : "text-ink-muted hover:bg-state-hover hover:text-ink"
+        active ? "bg-state-active font-semibold text-ink" : "text-ink hover:bg-state-hover"
       }`}
     >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
-        aria-hidden="true" className="shrink-0">
+      {/*
+        R3b-04: 17px of ink in the 20px cell — a 22px box at stroke 1.5. The
+        20px box with a 1.6 stroke drew 13px of glyph, two thirds of the
+        reference's, which is what made the rail read as small type rather
+        than as a library list.
+      */}
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+        aria-hidden="true" className="-ml-px shrink-0">
         {children}
       </svg>
       <span className="truncate">{label}</span>
@@ -596,11 +679,65 @@ function LibraryNavButton({
 
 /** An 11px muted group heading — `SCRIPT NAME`, `TECHNICALS`, `FAVORITES`. */
 function GroupHeader({ children }: { children: React.ReactNode }) {
+  /*
+    R3b-03: 32px, with the label on the row's lower half — the reference's
+    `SCRIPT NAME` occupies [292..324] with its text at 303–310, so the first
+    script row starts at y=324. Ours was a 26px row, which put every row in
+    the list 14px high on the dialog.
+  */
   return (
-    <div className="flex h-[26px] items-end px-2 pb-1 text-[11px] uppercase tracking-wide text-ink-faint">
+    <div className="-ml-[30px] flex h-8 items-center px-2 pl-[31px] text-[11px] uppercase
+      tracking-wide text-ink-faint">
       {children}
     </div>
   );
+}
+
+/**
+ * Which characters of `text` the query matched — every one of them.
+ *
+ * ── R3b-06: an initials hit is a hit, and has to LOOK like one ─────────────
+ *
+ * The registry matches on aliases and initials, so `bb` returns Bollinger
+ * Bands and `MACD` returns the Pine script "Moving Average Convergence
+ * Divergence". The highlighter only understood a contiguous substring, so both
+ * of those arrived with NOTHING lit: the row that best answered the query was
+ * the row with no evidence on it, and an alias hit read as a mistake — which
+ * is exactly the defect R3-05 set out to fix, half-fixed.
+ *
+ * Two passes, in the order a reader expects: a literal substring first
+ * (`rsi` → `RSI`), then the word initials (`bb` → **B**ollinger **B**ands;
+ * `macd` → **M**oving **A**verage **C**onvergence **D**ivergence). Nothing
+ * else lights — a scattered subsequence over the whole string would light
+ * three random letters of a name that merely contains them.
+ */
+export function matchPositions(text: string, query: string): number[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) return [];
+  const haystack = text.toLowerCase();
+  const at = haystack.indexOf(needle);
+  if (at >= 0) return Array.from({ length: needle.length }, (_, i) => at + i);
+
+  // Word initials, in order. Every letter of the query must find one, or the
+  // row is lit at all — a partial initials match is not what matched.
+  const initials: number[] = [];
+  for (let i = 0; i < haystack.length; i += 1) {
+    if (/[a-z0-9]/.test(haystack[i]!) && (i === 0 || !/[a-z0-9]/.test(haystack[i - 1]!))) {
+      initials.push(i);
+    }
+  }
+  const hit: number[] = [];
+  let cursor = 0;
+  for (const letter of needle.replace(/\s+/g, "")) {
+    let found = -1;
+    for (let i = cursor; i < initials.length; i += 1) {
+      if (haystack[initials[i]!] === letter) { found = i; break; }
+    }
+    if (found < 0) return [];
+    hit.push(initials[found]!);
+    cursor = found + 1;
+  }
+  return hit;
 }
 
 /**
@@ -610,14 +747,31 @@ function GroupHeader({ children }: { children: React.ReactNode }) {
  * query found — not a highlight for emphasis and not a selection.
  */
 function Highlight({ text, query }: { text: string; query: string }) {
-  const needle = query.trim().toLowerCase();
-  const at = needle.length === 0 ? -1 : text.toLowerCase().indexOf(needle);
-  if (at < 0) return <>{text}</>;
+  const lit = new Set(matchPositions(text, query));
+  if (lit.size === 0) return <>{text}</>;
+  /*
+    Adjacent lit characters share one span, so a substring hit renders as one
+    run of accent rather than as four boxes of one letter.
+  */
+  const runs: { text: string; lit: boolean }[] = [];
+  for (let i = 0; i < text.length; i += 1) {
+    const on = lit.has(i);
+    const last = runs[runs.length - 1];
+    if (last && last.lit === on) last.text += text[i]!;
+    else runs.push({ text: text[i]!, lit: on });
+  }
+  /*
+    accent-is-meaning, not selection: `lit` is DATA about this row — which
+    characters of this name the query found — so the class is chosen by a
+    lookup rather than written inside a conditional, which is the shape the
+    contract test reads as "accent means selected".
+  */
+  const RUN: Record<"lit" | "rest", string> = { lit: "text-accent", rest: "" };
   return (
     <>
-      {text.slice(0, at)}
-      <span className="text-accent">{text.slice(at, at + needle.length)}</span>
-      {text.slice(at + needle.length)}
+      {runs.map((run, i) => (
+        <span key={i} className={RUN[run.lit ? "lit" : "rest"]}>{run.text}</span>
+      ))}
     </>
   );
 }
@@ -645,6 +799,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
  */
 function BrowserRow({
   name, query, info, starred, onToggleStar, onAdd, disabled = false, trailing,
+  strategy = false,
 }: {
   name: string;
   query: string;
@@ -654,22 +809,50 @@ function BrowserRow({
   onAdd: () => void;
   disabled?: boolean;
   trailing?: React.ReactNode;
+  /** R3b-07: this row is a strategy, and says so after its name. */
+  strategy?: boolean;
 }) {
   return (
-    <div className={`group/row relative flex h-8 items-center rounded ${
-      disabled ? "opacity-50" : "hover:bg-state-hover"
+    /*
+      R3b-03/R3b-05: the row is 30px WIDER than the name column on its left —
+      the reference's hover fill runs [540..1120] while the names start at
+      571 — and the hover fill is rgb(56,56,56), one step above the toolbar's
+      hover. `state-hover` (rgb 46) is the chrome value and disappeared under
+      the dialog's own `surface-2`; the light theme keeps its own measured
+      hover, because that pair is two measured sets and not a mirror.
+    */
+    <div className={`group/row relative -ml-[30px] flex h-8 items-center rounded ${
+      disabled ? "opacity-50"
+        : "hover:bg-[rgb(56,56,56)] [[data-theme=light]_&]:hover:bg-state-hover"
     }`}>
       <button
         type="button"
         onClick={onAdd}
         disabled={disabled}
         title={info}
-        className="flex h-8 w-full items-center truncate rounded pl-7 pr-20 text-left
+        className="flex h-8 w-full items-center truncate rounded pl-[31px] pr-20 text-left
           text-[14px] text-ink disabled:cursor-not-allowed"
       >
         <span className="min-w-0 truncate">
           <Highlight text={name} query={query} />
         </span>
+        {/*
+          R3b-07: a strategy says so, in mixed results.
+
+          Search spans both libraries and both KINDS, so a `RSI Strategy` sat
+          in the same list as `Relative Strength Index` with nothing to tell
+          them apart — and a strategy on a chart does something an indicator
+          does not. The reference marks the row with a glyph after the name;
+          the `?` tooltip still carries the word.
+        */}
+        {strategy && (
+          <span aria-hidden="true" className="ml-1.5 shrink-0 text-ink-faint" title="Strategy">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M13 3L5.5 13.5H11l-1 7.5 7.5-10.5H12l1-7.5z" />
+            </svg>
+          </span>
+        )}
       </button>
       {onToggleStar && (
         <span className="absolute left-0 top-0 flex h-8 w-7 items-center justify-center">
@@ -685,7 +868,8 @@ function BrowserRow({
                 : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100"
             }`}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.6"
+            {/* R3b-05: 16px, for 14px of ink — the reference's row star. */}
+            <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.6"
               strokeLinejoin="round" fill={starred ? "currentColor" : "none"} aria-hidden="true">
               <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z" />
             </svg>
@@ -701,7 +885,7 @@ function BrowserRow({
           every one of 57 names. On hover, at the right edge, is where the
           reference keeps the same information.
         */}
-        <RowGlyph label={`About ${name}`} title={info}>
+        <RowGlyph label={`About ${name}`} title={info} size={18}>
           <circle cx="12" cy="12" r="9" />
           <path d="M9.6 9.3a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6" />
           <path d="M12 16.6h.01" />
@@ -713,12 +897,14 @@ function BrowserRow({
 
 /** One hover-revealed 24×24 affordance at a row's right edge. */
 function RowGlyph({
-  label, title, danger = false, onClick, children,
+  label, title, danger = false, onClick, size = 14, children,
 }: {
   label: string;
   title?: string;
   danger?: boolean;
   onClick?: () => void;
+  /** R3b-05: the `?` carries 16px of ink, so its box is 18. */
+  size?: number;
   children: React.ReactNode;
 }) {
   return (
@@ -732,7 +918,7 @@ function RowGlyph({
         danger ? "text-ink-faint hover:text-down" : "text-ink-faint hover:text-ink"
       }`}
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
         strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {children}
       </svg>
@@ -748,10 +934,11 @@ function ImportRow({ disabled, onClick }: { disabled: boolean; onClick: () => vo
       onClick={onClick}
       disabled={disabled}
       title="Import .pine files from disk"
-      className="flex h-8 w-full items-center rounded pr-1 text-left hover:bg-state-hover
+      className="-ml-[30px] flex h-8 w-full items-center rounded pl-[7px] pr-1 text-left
+        hover:bg-[rgb(56,56,56)] [[data-theme=light]_&]:hover:bg-state-hover
         disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <span className="flex w-7 shrink-0 items-center justify-center text-ink-faint">
+      <span className="flex w-6 shrink-0 items-center justify-center text-ink-faint">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 15.5V4M8 8l4-4 4 4" /><path d="M4 15v4h16v-4" />

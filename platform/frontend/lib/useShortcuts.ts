@@ -38,6 +38,18 @@ export interface ShortcutHandlers {
   onAction: (action: ShortcutAction) => boolean | void;
   /** A complete interval was typed and confirmed with Enter. */
   onInterval: (interval: Interval) => void;
+  /**
+   * A bare letter was pressed over the chart (TVP8 R4b-05).
+   *
+   * TradingView's shortcut sheet spends the whole alphabet on one thing —
+   * "Change symbol: any letter" — and the letter is already in the box when
+   * the dialog appears. It belongs in THIS handler rather than in a second
+   * window listener of the page's own, for the reason this file exists: the
+   * typing guard, the dialog guard, the interval buffer and the table all
+   * have to agree about a key before anyone acts on it, and `4`,`h` must stay
+   * the four-hour interval rather than becoming a search for `h`.
+   */
+  onTypeSymbol?: (letter: string) => void;
 }
 
 export interface ShortcutOptions {
@@ -148,6 +160,26 @@ export function useShortcuts(
           if (bufferRef.current.text.length > 0) setBuffer(EMPTY_INTERVAL_BUFFER);
           return;
         }
+      }
+
+      /*
+       * Nothing claimed it and it is a letter: it is the SYMBOL.
+       *
+       * Last, deliberately. Everything above has had its chance — the typing
+       * guard, an open dialog, a half-typed interval, and the table itself —
+       * so ⇧F is still fullscreen and `4`,`h` is still four hours, and what
+       * reaches here is a letter no rule in this product wanted. The buffer
+       * is cleared on the way out for the same reason a tool selection clears
+       * it: a `15` left waiting behind a symbol change would turn the next
+       * Enter into a silent timeframe change.
+       */
+      const typeSymbol = handlersRef.current.onTypeSymbol;
+      if (typeSymbol && !event.metaKey && !event.ctrlKey && !event.altKey
+          && event.key.length === 1 && /^[A-Za-z]$/.test(event.key)) {
+        event.preventDefault();
+        if (bufferRef.current.text.length > 0) setBuffer(EMPTY_INTERVAL_BUFFER);
+        typeSymbol(event.key);
+        return;
       }
 
       if (!event.metaKey && !event.ctrlKey && !event.altKey) {

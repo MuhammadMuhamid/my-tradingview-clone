@@ -72,9 +72,22 @@ export const TOOL_STATE = "tvc-control";
  * controls is what made our bar read as a greyed-out bar with two bright words
  * on it. The hover state is the CHIP (`.tvc-control::before`), never the ink.
  */
+/**
+ * The line box every word on the 38px row shares (R1c-19).
+ *
+ * Measured on the reference, an interval chip's `1m` inks rows 15–24 and `4h`
+ * 14–24; ours inked 14–23 and 13–23 — a whole pixel high, on every label on
+ * the bar at once, which is the kind of difference that reads as "not quite
+ * the same product" without ever being nameable. An 18px line box pinned with
+ * one pixel of top padding puts the caps where the reference's are, and it is
+ * one constant so the chips, the layout name and the More strip's worded
+ * buttons cannot drift a pixel apart from each other again.
+ */
+export const TEXT_BASELINE = "leading-[18px] pt-px";
+
 export const TOOL_BUTTON =
   `${TOOL_STATE} flex ${TOOLBAR_H} shrink-0 items-center gap-1.5 px-1.5 text-sm ` +
-  "text-ink";
+  `text-ink ${TEXT_BASELINE}`;
 
 /**
  * The hairline between groups of controls.
@@ -89,21 +102,35 @@ export const SEPARATOR = "mx-1 !h-[22px] w-px self-center !bg-border-strong";
 /**
  * The glyph inside a 38×38 control.
  *
- * TVP8 (owner veto OV-K): TradingView's toolbar glyphs are drawn in a 28px
- * box and read at roughly 22px optical size with a hairline-to-medium stroke;
- * ours were 18px at 1.7, which is the single most repeated first-glance tell
- * across every screenshot the owner supplied. One size, one stroke, round
- * caps — every toolbar SVG uses these two constants.
+ * ── TVP8 R1c-02: one unit is one pixel, and one pixel is the stroke ────────
+ *
+ * The reference's toolbar glyphs are CRISP 1px line work sitting on the pixel
+ * grid. Measured at the pixel level: its layout glyph carries 68 ink px, of
+ * which 56 are fully lit and 12 half-lit — that is the exact perimeter of a
+ * 19×17 rectangle drawn at one device pixel. Its fullscreen glyph is 52 (four
+ * 13px brackets), templates 112, settings 116, indicators 109, alert 114,
+ * replay 74, quick search 110, snapshot 112, compare 101.
+ *
+ * Ours were 1.5-wide strokes in a 24-unit viewBox rendered at 22px, so every
+ * stroke landed 1.375 device pixels wide and, being off the grid, was drawn as
+ * two half-lit rows instead of one lit row: layout 128 ink px (56 lit / 72
+ * half-lit), fullscreen 76, templates 220, settings 164 — 1.4–2.0× the
+ * reference's ink at the same silhouette size. That is why our bar read as a
+ * heavier icon family even after the silhouettes were corrected in wave 2.
+ *
+ * The fix is arithmetic, not taste. A 28-unit viewBox rendered at 28px makes
+ * one user unit exactly one CSS pixel, so a rectilinear segment placed on an
+ * `x.5` coordinate with a 1px stroke covers exactly one pixel column and
+ * nothing bleeds into its neighbours. Every silhouette in
+ * `ChartToolbar.Glyph` and `ChartTypeMenu.ICONS` is drawn on that grid.
+ *
+ * The two constants must move together: the viewBox is `0 0 ${TOOL_ICON_SIZE}
+ * ${TOOL_ICON_SIZE}`, and the whole 1:1 property is lost the moment they
+ * disagree.
  */
-export const TOOL_ICON_SIZE = 22;
-/*
- * TVP8 R1b-03: 1.5, not 1.6. The reference's glyphs are a single hairline
- * weight at a LARGER optical extent — ours were heavier strokes on smaller
- * silhouettes, which is why the two rows read as two icon families at 3x. The
- * silhouettes in `ChartToolbar.Glyph` and `ChartTypeMenu.ICONS` now fill
- * 19–22px of this 24-unit viewBox; this is the weight they are drawn at.
- */
-export const TOOL_ICON_STROKE = 1.5;
+export const TOOL_ICON_SIZE = 28;
+/** One device pixel (R1c-02). See `TOOL_ICON_SIZE` for why this is not 1.5. */
+export const TOOL_ICON_STROKE = 1;
 
 /**
  * A pill with a word in it — `Trade`, at the right end of the reference's
@@ -111,7 +138,10 @@ export const TOOL_ICON_STROKE = 1.5;
  * row, the way the symbol pill is the one filled one.
  */
 export const TOOL_PILL_OUTLINE =
-  "flex h-7 shrink-0 items-center rounded-full border border-border-strong px-3 text-sm " +
+  // R1c-19: `px-[11px]`, not `px-3`. The reference's pill is 61px wide and
+  // ours measured 62.8 — one pixel of padding a side is the whole difference,
+  // and the pill is the row's last control, so it sets where the row ends.
+  "flex h-7 shrink-0 items-center rounded-full border border-border-strong px-[11px] text-sm " +
   "text-ink hover:bg-state-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
 /**

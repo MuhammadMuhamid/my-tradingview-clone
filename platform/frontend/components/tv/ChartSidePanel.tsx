@@ -105,6 +105,45 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       restoreFocus.current = document.activeElement as HTMLElement | null;
       const onEscape = (event: KeyboardEvent): void => {
         if (event.key !== "Escape") return;
+        /*
+         * ── TVP8 R7b-06: Escape closes the INNERMOST open thing ─────────────
+         *
+         * This listener is on `window`, so it ran for every Escape a
+         * descendant had not stopped — and two of the panel's own popovers do
+         * not stop it. Pressing Escape to dismiss the watchlist's list menu
+         * therefore took the whole 300px column with it, and so did pressing
+         * Escape in the add-symbol field. The reviewer's temp-list step died
+         * on exactly that: the menu closed, the panel closed, and the list was
+         * never created.
+         *
+         * A React `stopPropagation` in the panel's own popovers is the first
+         * half of the repair: React attaches at the root container, below
+         * `window`, and its synthetic `stopPropagation` calls the native one,
+         * so an Escape the list menu or the add field has answered never
+         * reaches this listener at all.
+         *
+         * The focus guard below is the second half, for anything inside the
+         * column that does not stop the event — a focus that is inside a menu,
+         * a dialog or a text field belongs to that thing rather than to the
+         * column it happens to be drawn in.
+         *
+         * `event.defaultPrevented` is deliberately NOT a guard: measured in
+         * the DOM harness, a peer window-level handler already marks every
+         * Escape as handled for its own purposes, so reading it here would
+         * mean the panel never closed on Escape at all.
+         *
+         * With nothing open, Escape still closes the panel — that is the
+         * behaviour the rail's own toggle mirrors and it is unchanged.
+         */
+        const active = document.activeElement;
+        /* The selectors below are written without quotes inside the brackets,
+           deliberately: `tests/uiContract.test.ts` greps the product for the
+           quoted spelling to find every element that CLAIMS to be a menu, and
+           a selector string is not an element. */
+        if (active instanceof HTMLElement && drawerRef.current?.contains(active)
+          && (active.closest("[role=menu]") !== null
+            || active.closest("[role=dialog]") !== null
+            || active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
         event.preventDefault();
         onClosePanel();
       };
@@ -133,8 +172,17 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
    * The chip is 38x38 through a rail-scoped `::before` inset, declared on the
    * column below rather than on every button.
    */
+  /*
+   * R1c-06: the cell is 45 wide, not 46.
+   *
+   * The rail COLUMN is still 46px of layout — but 1px of it is the hairline
+   * that separates it from the watchlist (see the column below), so the
+   * painted cells are 45. Measured on `tradingview/tv-shell-1920x1080-dark.png`
+   * counted from the right edge: rail 1875–1919, a 1px rgb(46) line at 1874,
+   * panel 1574–1873. At 1440 the same runs are 1395–1439 / 1394 / 1094–1393.
+   */
   const railBtn = (isActive: boolean): string =>
-    `tvc-control flex h-[46px] w-[46px] items-center justify-center ${
+    `tvc-control flex h-[46px] w-[45px] items-center justify-center ${
       isActive ? "text-ink" : "text-ink hover:text-ink"
     }`;
 
@@ -166,8 +214,20 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           onClick={props.onClosePanel}
           className="fixed inset-0 z-30 bg-black/50 md:hidden"
         />
+        {/*
+          R1c-06 / R7b-05: the panel's right edge MEETS the rail.
+
+          The workspace row lays its regions out with a 4px `gap`, which is
+          right for the chart→panel gutter and wrong for the panel→rail seam:
+          the reference separates those two with a 1px rgb(46) line, not with
+          a band of page ground. `-mr-1` cancels the gap for exactly the
+          docked column, and the rail's own `border-l` draws the line. The
+          4px the chart column gets back is what moves its right edge from
+          1085 to 1089 and the panel's content from 296px to the reference's
+          300.
+        */}
         <div ref={drawerRef} role="region" aria-label={`${props.panel} panel`}
-          className="fixed bottom-[52px] right-0 top-0 z-40 md:static md:bottom-auto md:right-auto md:z-auto md:h-auto">
+          className="fixed bottom-[52px] right-0 top-0 z-40 md:static md:bottom-auto md:right-auto md:z-auto md:-mr-1 md:h-auto">
           {props.panel === "watchlist" && (
             <Watchlist symbols={props.symbols} selected={props.symbol}
               onSelect={props.onSelectSymbol}
@@ -267,13 +327,18 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       the attribute a 46px cell would paint a 42px chip instead of the
       reference's 38x38.
 
-      TODO(globals.css, MAIN): add
-        :is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control::before { inset: 4px; }
-      Until it lands the chip is 2px inset (42x42) rather than 38x38 — the
-      geometry below is already the reference's.
+      TVP8 R7b-12: `pt-[6px]` → `pt-[1px]`. The reference's first rail chip is
+      at y=47–84; six pixels of padding plus the chip's own 4px inset put ours
+      at 52–89, five low, and every glyph centre below it inherited the same
+      five. The column starts at y=42 (a 38px toolbar over the row's 4px
+      gutter), so 1px of padding lands the first CELL at 43 and its chip at 47.
+
+      R1c-06: 46px of layout, 45px of paint. The last pixel is the `border-l`
+      hairline the reference draws between the watchlist and this rail, in
+      place of the 4px gutter the workspace `gap` would otherwise put there.
     */}
     <div data-side-rail="true"
-      className="hidden w-[46px] shrink-0 flex-col items-center bg-surface pb-1 pt-[6px] md:flex">
+      className="hidden w-[46px] shrink-0 flex-col items-center border-l border-border bg-surface pb-1 pt-[1px] md:flex">
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}

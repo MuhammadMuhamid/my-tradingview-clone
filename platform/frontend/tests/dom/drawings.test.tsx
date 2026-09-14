@@ -18,7 +18,9 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { advance, closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
-import { clickAt, drag, mountChart, press, selectTool } from "./harness/chart";
+import {
+  clickAt, drag, menuLabel, mountChart, press, rightClickRegion, selectTool,
+} from "./harness/chart";
 import { fireEvent } from "@testing-library/react";
 import { drawingStore } from "@/lib/drawingStore";
 import { loadDrawings } from "@/lib/drawings";
@@ -290,3 +292,55 @@ function resetBrowserKeepingStorage(): void {
   for (const [key, value] of panes) server.panes.set(key, value);
   server.setDefaultCandles(compactSeries(600));
 }
+
+/*
+ * ── TVP8 R2c follow-up: a right-click is classified by WHAT IT HIT ─────────
+ *
+ * `DrawingCanvas` decided which of the chart's three strips a right-click
+ * landed on with arithmetic over this pane's own scales —
+ * `clientWidth − priceScale("right").width()` and
+ * `clientHeight − timeScale().height()`. That is a model of the chart rather
+ * than the chart, and where the model and the chart disagreed the user got the
+ * wrong menu with nothing said about it.
+ *
+ * The worst case is not hypothetical: the time axis is drawn ONCE, under the
+ * lowest pane on screen, so the moment a study pane is mounted this pane's own
+ * time scale is hidden, `timeScale().height()` is 0, and no point in this pane
+ * can be classified "time" at all — `Time scale` became unreachable for anyone
+ * with an RSI open.
+ */
+
+test("a right-click on the price axis opens the Price scale menu", async () => {
+  const chart = await mountChart();
+
+  await rightClickRegion(chart.pane(0), "axis");
+  assert.equal(menuLabel(), "Price scale");
+});
+
+test("the CELL decides the menu, not the pane's own scale arithmetic", async () => {
+  /*
+   * The same event on the same axis cell, carrying a pointer coordinate the
+   * old rule would have called the plot. A real browser produces exactly this
+   * disagreement whenever the scale object's reported width and the cell the
+   * axis is painted in are not the same number.
+   *
+   * RED before the fix: the arithmetic wins and the plot's chart menu opens.
+   */
+  const chart = await mountChart();
+
+  await rightClickRegion(chart.pane(0), "axis", { x: 300, y: 200 });
+  assert.equal(menuLabel(), "Price scale");
+});
+
+test("a right-click in the time-axis row opens the Time scale menu, hidden scale or not", async () => {
+  /*
+   * RED before the fix: with this pane's own time scale reporting height 0 —
+   * which is its state whenever a study pane below owns the visible axis — the
+   * arithmetic classified every point in the pane as plot, so the row that IS
+   * the time axis opened the chart menu.
+   */
+  const chart = await mountChart();
+
+  await rightClickRegion(chart.pane(0), "time", { x: 300, y: 200 });
+  assert.equal(menuLabel(), "Time scale");
+});

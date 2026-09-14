@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   DATE_FORMATS, dateFormatExample, DEFAULT_CHART_SETTINGS, isDefaultChartSettings,
   MAX_SCALE_MARGIN_SUM, normalizeChartSettings, scaleMarginsFor,
+  colorLuminance, resolveBackgroundGradient,
   type ChartSettings,
 } from "../lib/chartSettings";
 
@@ -155,7 +156,20 @@ test("EVERY NEW R6 KEY HAS A DEFAULT AND A CONTROL THAT WRITES IT", () => {
     ["borderDownColor", /set\("borderDownColor", v\)/],
     ["wickUpColor", /set\("wickUpColor", v\)/],
     ["wickDownColor", /set\("wickDownColor", v\)/],
-    ["statusTitle", /set\("statusTitle", v === "symbol" \? "symbol" : "ticker"\)/],
+    /*
+     * R3b-25: the `Title` row writes one of THREE forms now — `Name`,
+     * `Ticker` and `Description`, which are the reference's — through a
+     * helper that refuses anything else, instead of a two-way ternary whose
+     * else-branch was the default. `Full symbol` is gone: it printed
+     * `BINANCE:BTC/USDT · SPOT`, a form the reference does not offer.
+     */
+    ["statusTitle", /set\("statusTitle", statusTitleForm\(v\)\)/],
+    // R3b-24: the logo and the market dot the reference's Instrument section has.
+    ["statusLogo", /set\("statusLogo", v\)/],
+    ["statusMarketStatus", /set\("statusMarketStatus", v\)/],
+    // R3b-25: the legend's `Background` plate and its opacity slider.
+    ["statusLegendBackground", /set\("statusLegendBackground", v\)/],
+    ["statusLegendBackgroundOpacity", /set\("statusLegendBackgroundOpacity", Number\(e\.target\.value\)\)/],
     ["statusDayChange", /set\("statusDayChange", v\)/],
     ["statusIndicatorTitles", /set\("statusIndicatorTitles", v\)/],
     ["statusIndicatorInputs", /set\("statusIndicatorInputs", v\)/],
@@ -458,8 +472,20 @@ test("no settings row can outgrow the dialog's content column", () => {
   const dialog = read("components/tv/ChartSettingsModal.tsx");
   const ui = read("components/ui.tsx");
 
-  assert.match(dialog, /gridTemplateColumns: `minmax\(\$\{VALUE_COLUMN\[tab\]\}px, max-content\) 1fr`/,
-    "the rows share one grid, so a tab's controls line up in one column");
+  /*
+   * R6b-06 REWROTE this assertion rather than deleting it.
+   *
+   * It pinned the floor-and-grow column as the ONLY column, and the Status tab
+   * measured wrong because of it: `max-content` let the widest label on that
+   * tab (`Last day change values`, 179px) push the `Title` dropdown to x=790
+   * against the reference's 714. TradingView lets that label overflow into the
+   * empty second column instead. So the Status tab is a FIXED 103px and every
+   * other tab keeps the measured floor — which is what this now asks for.
+   */
+  assert.match(dialog, /tab === "status"\s*\?\s*"103px 1fr"/,
+    "the Status tab's value column is fixed, or `Title` lands at x=790");
+  assert.match(dialog, /minmax\(\$\{VALUE_COLUMN\[tab\]\}px, max-content\) 1fr/,
+    "every other tab's rows share one grid, so its controls line up in one column");
 
   const numbers = (pattern: RegExp, source: string): number[] => {
     const found = [...source.matchAll(pattern)].map((m) => Number(m[1]));
@@ -624,7 +650,19 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
     ["scaleLineColor", "CandleChart", /settings\.scaleLineColor \? \{ borderColor: settings\.scaleLineColor \}/],
 
     // Scales and lines.
-    ["dayOfWeekOnLabels", "CandleChart", /settings\.dayOfWeekOnLabels\s*\? \{ tickMarkFormatter: dayOfWeekTickFormatter \}/],
+    /*
+     * R6b-13 REWROTE this row rather than deleting it.
+     *
+     * The expression it pinned — `dayOfWeekOnLabels ? { tickMarkFormatter:
+     * dayOfWeekTickFormatter } : { tickMarkFormatter: undefined }` — was an
+     * apply site that could not turn OFF: lightweight-charts merges options
+     * with a spread, and a key whose value is `undefined` overwrites nothing,
+     * so the ON formatter was never uninstalled and the row was inert on every
+     * chart that had ever had it on. The test passed the whole time, because
+     * it asked whether the setting was READ and not whether OFF was written.
+     * It asks for the pair now.
+     */
+    ["dayOfWeekOnLabels", "CandleChart", /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels\)/],
     ["indicatorLastValue", "CandleChart", /const lastValueVisible = settings\.indicatorLastValue/],
     ["bidAskLines", "CandleChart", /settings\.bidAskLines === "line" && live && !isCanonicalInstrumentId\(symbol\)/],
     ["bidColor", "CandleChart", /price: bookQuote\.bid, color: settings\.bidColor/],
@@ -639,7 +677,18 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
     ["showPnlValue", "CandleChart", /settings\.showPnlValue && l\.pnl \? `\$\{l\.title\} \$\{l\.pnl\}` : l\.title/],
 
     // Status line.
-    ["statusTitle", "CandleChart", /settings\.statusTitle === "symbol" \? displaySymbol\(symbol\) : displayName\(symbol\)/],
+    /*
+     * R3b-25: three forms, and the `symbol` value now resolves to the TICKER.
+     * The stored literals are unchanged so every workspace on disk keeps
+     * working — see `StatusTitleForm`.
+     */
+    ["statusTitle", "CandleChart", /settings\.statusTitle === "symbol" \? displayTicker\(symbol\)/],
+    // R3b-24: the mark before the name, and the dot after the venue.
+    ["statusLogo", "CandleChart", /settings\.statusLogo && <InstrumentLogo symbol=\{symbol\} \/>/],
+    ["statusMarketStatus", "CandleChart", /settings\.statusMarketStatus && marketOpen\(symbol\) === true/],
+    // R3b-25: the plate behind the legend's text runs.
+    ["statusLegendBackground", "CandleChart", /const legendPlate = settings\.statusLegendBackground/],
+    ["statusLegendBackgroundOpacity", "CandleChart", /\$\{settings\.statusLegendBackgroundOpacity \/ 100\}/],
     ["statusDayChange", "CandleChart", /settings\.statusDayChange && dayChange !== null/],
     ["statusIndicatorTitles", "CandleChart", /showTitles=\{settings\.statusIndicatorTitles\}/],
     ["statusIndicatorInputs", "CandleChart", /showInputs=\{settings\.statusIndicatorInputs\}/],
@@ -658,7 +707,21 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
    */
   // SL-2: the pane's own legend is the identity the chart shows when it has one.
   assert.match(pane, /titleForm=\{\(pane\.chartSettings\?\.statusTitle\) === "symbol" \? "symbol" : "ticker"\}/);
-  assert.match(paneLegend, /props\.titleForm === "symbol" \? symbolLabel : nameLabel/);
+  /*
+   * R3b-25: `symbol` is the TICKER form now (`BTCUSDT`), not the qualified
+   * `BINANCE:BTC/USDT · SPOT` — which is not one of the reference's three
+   * `Title` options and is exactly what §5 keeps out of primary copy.
+   */
+  assert.match(paneLegend, /props\.titleForm === "symbol"\s*\?\s*tickerLabel/);
+  /*
+   * R6b-H: and the same three indicator rows reach a study in its OWN pane.
+   * They were threaded into the price pane's overlay legend and stopped
+   * there, so `Inputs` off moved an RSI pane by 0px.
+   */
+  assert.equal((chart.match(/showInputs=\{settings\.statusIndicatorInputs\}/g) ?? []).length, 2,
+    "both legends — the price pane's overlays AND the study panes — take the row");
+  assert.match(studyPane, /showInputs=\{showInputs\}/,
+    "and the pane hands them to the legend it mounts");
   // SL-1: the legend's three parts are three props, not one mount decision.
   for (const prop of [/showTitles && /, /showTitles && showInputs && group\.params/, /showValues && group\.plots/]) {
     assert.match(studyLegend, prop, "the legend must hide its own parts, not be unmounted whole");
@@ -673,7 +736,9 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
    * move nothing for any user with an oscillator open.
    */
   assert.match(chart, /dayOfWeekOnLabels=\{settings\.dayOfWeekOnLabels\}/);
-  assert.match(studyPane, /tickMarkFormatter: dayOfWeekOnLabels \? dayOfWeekTickFormatter : undefined/);
+  // R6b-13: and the pane's own OFF is a function too — see the rewritten row
+  // in the table above.
+  assert.match(studyPane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels\)/);
   // A-1: `Only active alerts` is the filter, and it is a parameter now.
   assert.match(workspace, /\(!onlyActive \|\| isAlertActive\(a\)\)/,
     "onlyActiveAlerts must be able to turn the filter OFF, or the row moves nothing");
@@ -685,4 +750,79 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
   // T-2: the only positions in this product that prove a P&L.
   assert.match(overlays, /manualPnl\.get\(item\.identifiers\.manualPositionId \?\? ""\)/);
   assert.match(workspace, /manualPositions: manualState\?\.positions \?\? \[\]/);
+});
+
+test("R6b-18 — the theme's own gradient is a gradient a user can see", () => {
+  /*
+   * ── The measurement this replaces ─────────────────────────────────────────
+   *
+   * `Background → Gradient` with both wells on `Theme` laid
+   * `rgba(41,98,255,0.06)` over transparent: rows 60..70 of the plot went from
+   * 45/30/32 to 46/34/43 — three points of luminance across the whole canvas,
+   * i.e. a dropdown option that moved nothing. The reference shows a second
+   * well the moment Gradient is chosen and draws a visible wash.
+   */
+  const pair = resolveBackgroundGradient("", "");
+  assert.notEqual(pair.top, pair.bottom, "both ends resolved to one colour");
+  const separation = Math.abs(colorLuminance(pair.top) - colorLuminance(pair.bottom));
+  assert.ok(separation >= 24,
+    `the two ends differ by ${separation.toFixed(1)} points of luminance; the previous answer was 3`);
+});
+
+test("R6b-18 — a chosen colour wins over the theme, in either well", () => {
+  const pair = resolveBackgroundGradient("#2a2e39", "");
+  assert.equal(pair.top, "#2a2e39");
+  assert.ok(pair.bottom.startsWith("#"), "the untouched well is still a real colour");
+  const both = resolveBackgroundGradient("#2a2e39", "#131722");
+  assert.deepEqual(both, { top: "#2a2e39", bottom: "#131722" });
+});
+
+test("R6b-13/14/19 — the reach rows are applied to the STUDY PANES, not only to price", () => {
+  /*
+   * ── Why this is a source assertion and what it is NOT ────────────────────
+   *
+   * That the pane HONOURS these options is driven against a real
+   * lightweight-charts chart in `tests/dom/studyPaneCanvas.test.tsx`. What a
+   * DOM test cannot see is the WIRE — whether `CandleChart` hands them over at
+   * the pane's mount — because with the props missing the pane simply falls
+   * back to the theme and looks plausible. That is exactly the shape R6b
+   * found: six rows moving the price pane and nothing else.
+   */
+  const strip = (rel: string): string => read(rel)
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const chart = strip("components/CandleChart.tsx");
+  const clock = strip("lib/chartClock.ts");
+
+  for (const prop of [
+    "dateFormat={settings.dateFormat}",
+    "timeFormat24h={settings.timeFormat24h}",
+    "backgroundColor={settings.backgroundColor}",
+    "backgroundGradient={settings.backgroundGradient}",
+    "gridVertical={settings.gridVertical}",
+    "gridHorizontal={settings.gridHorizontal}",
+    "showCrosshair={settings.showCrosshair}",
+    "scaleTextColor={settings.scaleTextColor}",
+    "scaleLineColor={settings.scaleLineColor}",
+  ]) {
+    assert.ok(chart.includes(prop),
+      `the study panes never receive ${prop} — the row moves the price pane only`);
+  }
+
+  /*
+   * And the formatter bug itself: `undefined` is not "off". The library merges
+   * options with a spread, so a key whose value is `undefined` overwrites
+   * nothing and the ON formatter is never uninstalled.
+   */
+  assert.doesNotMatch(chart, /tickMarkFormatter: undefined/);
+  assert.doesNotMatch(chart, /timeFormatter: settings\.timeFormat24h \? undefined/);
+  assert.match(chart, /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels\)/);
+  assert.match(chart, /timeFormatter: hoursFormatter\(settings\.timeFormat24h\)/);
+  assert.match(clock, /export function defaultTickFormatter/);
+  assert.match(clock, /export function hour12Formatter/);
+  assert.match(clock, /export function hour24Formatter/);
+
+  const pane = strip("components/tv/IndicatorPane.tsx");
+  assert.doesNotMatch(pane, /tickMarkFormatter: dayOfWeekOnLabels \? dayOfWeekTickFormatter : undefined/);
+  assert.match(pane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels\)/);
+  assert.match(pane, /timeFormatter: hoursFormatter\(timeFormat24h\)/);
 });

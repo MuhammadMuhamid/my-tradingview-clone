@@ -57,11 +57,35 @@ export interface MenuPlacement {
 const DEFAULT_MARGIN = 8;
 
 /**
+ * One context-menu row, used to decide whether sliding a menu up has left the
+ * pointer sitting ON the menu rather than beside its first item.
+ *
+ * The contract's context-menu pitch (`docs/TRADING_SCENE_UI_UX_CONTRACT.md`,
+ * and `.tvc-menu--compact` in `globals.css`), so the rule below is expressed in
+ * the same unit the reader sees.
+ */
+export const MENU_ROW_HEIGHT = 32;
+
+/**
  * Place a menu so it is fully visible, preferring down-and-right of the pointer.
  *
- * Flip first, clamp second. Clamping alone would slide the menu so that the
- * pointer sits in the middle of it, and the item under the cursor when the
- * button is released would be one the user never aimed at.
+ * ── R8-28: slide before you flip ───────────────────────────────────────────
+ *
+ * This used to flip first and clamp second, and the comment defending that
+ * said clamping alone would leave the pointer in the middle of the menu. For a
+ * SHORT menu near the bottom edge that is true. For a TALL one it is exactly
+ * backwards: a 570px menu opened at y=420 in a 900px viewport cannot flip (the
+ * flipped top would be −150), so the old rule flipped nothing, clamped to
+ * `maxTop`… but only after having already decided `flippedY` from a test the
+ * geometry could not satisfy. Worse, on the builds where the flip DID apply,
+ * the whole menu jumped above the pointer and the item under the cursor was
+ * the LAST one — `Remove`, on the drawing menu.
+ *
+ * Live TradingView slides: the menu's bottom edge stops at the viewport's, the
+ * first row stays under the pointer, and nothing is reordered. So: slide first,
+ * and flip only when sliding would still leave the pointer more than one row
+ * deep inside the panel — which is the short-menu-at-the-bottom case the old
+ * comment was really about.
  */
 export function placeMenu(geometry: MenuGeometry): MenuPlacement {
   const margin = geometry.margin ?? DEFAULT_MARGIN;
@@ -70,13 +94,21 @@ export function placeMenu(geometry: MenuGeometry): MenuPlacement {
 
   const flippedX = geometry.x + geometry.width + margin > geometry.viewportWidth
     && geometry.x - geometry.width >= margin;
-  const flippedY = geometry.y + geometry.height + margin > geometry.viewportHeight
+
+  // Where sliding alone would put it: never above the top margin, never lower
+  // than the point at which the menu's own bottom edge reaches the viewport's.
+  const slid = Math.max(margin, Math.min(geometry.y, Math.max(margin, maxTop)));
+  /*
+   * Flipping is the fallback, not the default. Two conditions, both necessary:
+   * the slide left the pointer buried in the panel by more than one row, and
+   * the flipped menu actually fits above the pointer.
+   */
+  const flippedY = geometry.y - slid > MENU_ROW_HEIGHT
     && geometry.y - geometry.height >= margin;
 
   const left = flippedX ? geometry.x - geometry.width : geometry.x;
-  const top = flippedY ? geometry.y - geometry.height : geometry.y;
+  const placedTop = flippedY ? geometry.y - geometry.height : slid;
 
-  const placedTop = Math.max(margin, Math.min(top, Math.max(margin, maxTop)));
   return {
     left: Math.max(margin, Math.min(left, Math.max(margin, maxLeft))),
     top: placedTop,
@@ -88,6 +120,22 @@ export function placeMenu(geometry: MenuGeometry): MenuPlacement {
   };
 }
 
+/**
+ * The drawn marks a menu row may carry in its 20px leading column.
+ *
+ * A KEY, not an SVG. `lib/menuPayloads` is pure and testable precisely because
+ * it contains no markup, and a payload that returned React elements could not
+ * be asserted on by `tests/powerUx.test.ts` without a renderer. `ContextMenu`
+ * owns the paths; this names them.
+ *
+ * The column is shared with the check mark, which wins: a row that is both
+ * glyphed and checked is a toggle, and its state is the thing the reader needs.
+ */
+export type MenuGlyph =
+  | "alarm" | "order" | "indicator" | "info" | "copy" | "paste" | "note"
+  | "watchlist" | "gear" | "clone" | "lock" | "eye" | "trash" | "reset"
+  | "template" | "tree" | "clock" | "calendar";
+
 export interface MenuItem {
   id: string;
   label: string;
@@ -98,8 +146,29 @@ export interface MenuItem {
   disabledReason?: string;
   /** A checked state, for toggles like Auto and Log. */
   checked?: boolean;
+  /**
+   * Radio semantics rather than checkbox.
+   *
+   * R8-20: the reference's price axis offers `Regular / Percent / Indexed to
+   * 100 / Logarithmic` as FOUR MUTUALLY EXCLUSIVE readings of one scale, and
+   * this product drew them as four independent checkboxes — so a reader was
+   * told "Percent is on" and "Logarithmic is off" as two separate facts rather
+   * than as one choice with four positions. `menuitemradio` says the true
+   * thing, and it is the role assistive technology announces as "1 of 4".
+   */
+  radio?: boolean;
   /** Destructive items are tinted and are never the initially focused item. */
   destructive?: boolean;
+  /** The row's 20px leading mark. Suppressed while `checked` is true. */
+  glyph?: MenuGlyph;
+  /**
+   * A submenu, drawn with `›` and opened on hover or `→`.
+   *
+   * One level deep, deliberately: the reference's own menus never go further,
+   * and each additional level is a fresh placement, focus-restore and
+   * keyboard contract rather than more of the same one.
+   */
+  children?: readonly MenuEntry[];
 }
 
 export interface MenuSeparator {

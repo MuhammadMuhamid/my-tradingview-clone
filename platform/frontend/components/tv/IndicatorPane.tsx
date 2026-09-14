@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createChart, LineStyle, LineType,
+  ColorType, createChart, CrosshairMode, LineStyle, LineType,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
   type IChartApi, type ISeriesApi, type LineData, type Time, type UTCTimestamp,
   type WhitespaceData,
@@ -11,7 +11,8 @@ import {
   type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { baseChartOptions, subscribeChartTheme } from "@/lib/chartTheme";
-import { dayOfWeekTickFormatter } from "@/lib/chartClock";
+import { resolveBackgroundGradient, type DateFormatName, type LineStyleName } from "@/lib/chartSettings";
+import { dayOfWeekFormatter, hoursFormatter } from "@/lib/chartClock";
 import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
 import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicatorPaneLayout";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
@@ -30,6 +31,12 @@ function seriesKind(overlay: ChartOverlay): SeriesEntry["kind"] {
   if (overlay.style === "candles") return "Candlestick";
   if (overlay.style === "bars") return "Bar";
   return "Line";
+}
+
+/** A settings dash pattern as the library's own enum — the price chart's rule. */
+function paneLineStyle(style: LineStyleName): LineStyle {
+  return style === "dotted" ? LineStyle.Dotted
+    : style === "dashed" ? LineStyle.Dashed : LineStyle.Solid;
 }
 
 function visible(point: ChartPoint): boolean {
@@ -143,6 +150,27 @@ export function IndicatorPane({
   compact = false,
   lastValue = true,
   dayOfWeekOnLabels = true,
+  dateFormat,
+  timeFormat24h = true,
+  backgroundColor = "",
+  backgroundColor2 = "",
+  backgroundGradient = false,
+  gridVertical = true,
+  gridVertColor = "",
+  gridVertStyle = "solid",
+  gridHorizontal = true,
+  gridHorzColor = "",
+  gridHorzStyle = "solid",
+  showCrosshair = true,
+  crosshairColor = "",
+  crosshairWidth = 1,
+  crosshairStyle = "dashed",
+  scaleTextColor = "",
+  scaleLineColor = "",
+  scaleFontSize,
+  showTitles = true, showInputs = true, showValues = true,
+  legendBackground = true, legendBackgroundOpacity = 60,
+  onContextMenu,
 }: {
   id: string;
   title: string;
@@ -210,6 +238,77 @@ export function IndicatorPane({
    * open would find the row moves nothing.
    */
   dayOfWeekOnLabels?: boolean;
+  /*
+   * ── R6b-14/19: the Canvas and Time-scale rows reach EVERY pane ───────────
+   *
+   * Measured: `Background colour #2a2e39` moved 470,512 pixels of the price
+   * pane and 27 of the RSI pane (noise); `Text`/`Lines` colour moved the panes
+   * 0 px; the study panes drew no grid at all; `Crosshair` off left the synced
+   * vertical line drawn in them; and at the 1D range `12-hours` and
+   * `yyyy-MM-dd` changed nothing on the ONE time axis a user can see, because
+   * that axis is drawn under the lowest pane by THIS chart and not by the
+   * price chart.
+   *
+   * None of these is a new capability: every one is a lightweight-charts
+   * option this component's own `applyOptions` could always have carried. Each
+   * defaults to the library or theme answer, so a pane mounted without them —
+   * the strategy tester's, a preview — looks exactly as it did.
+   */
+  /** The axis's date pattern; omitted leaves the library's own. */
+  dateFormat?: DateFormatName;
+  /** 24-hour axis labels; false is 12-hour with am/pm. */
+  timeFormat24h?: boolean;
+  backgroundColor?: string;
+  backgroundColor2?: string;
+  backgroundGradient?: boolean;
+  gridVertical?: boolean;
+  gridVertColor?: string;
+  gridVertStyle?: LineStyleName;
+  gridHorizontal?: boolean;
+  gridHorzColor?: string;
+  gridHorzStyle?: LineStyleName;
+  showCrosshair?: boolean;
+  crosshairColor?: string;
+  crosshairWidth?: number;
+  crosshairStyle?: LineStyleName;
+  scaleTextColor?: string;
+  scaleLineColor?: string;
+  /** Axis label size in px; omitted leaves the theme's own. */
+  scaleFontSize?: number;
+  /**
+   * ── R8: a study pane had NO product menu at all ──────────────────────────
+   *
+   * Right-clicking an RSI or MACD pane — its plot, its price axis, the time
+   * axis under it — left `defaultPrevented` false and opened CHROME's menu
+   * (Back, Reload, Save as, Inspect) over a trading chart. The price pane has
+   * had its own handler since TVP8; the panes below it never got one, so the
+   * product's `timeAxisMenu()` and `priceAxisMenu()` were unreachable for any
+   * user with a study open — and the time axis is drawn under the LOWEST pane,
+   * which means the time-scale menu was unreachable at all.
+   *
+   * The payload is the price chart's own, so the pane's owner routes it
+   * through the one `openChartMenu` that already exists.
+   */
+  onContextMenu?: (event: {
+    x: number; y: number; drawingId: string | null; price: number | null;
+    region: "plot" | "axis" | "time";
+  }) => void;
+  /**
+   * ── R6b-H: the Status-line tab's three indicator rows reach HERE too ─────
+   *
+   * `Titles`, `Inputs` and `Values` were threaded into the price pane's
+   * overlay legend and stopped there, so turning `Inputs` off dropped
+   * `Length 14 · Source close` from a moving average on the candles and moved
+   * an RSI pane's own legend by nothing at all — the same switch, two answers,
+   * on one chart. `IndicatorLegend` has carried the three props since R6 SL-1;
+   * this mount simply never passed them.
+   */
+  showTitles?: boolean;
+  showInputs?: boolean;
+  showValues?: boolean;
+  /** R3b-25: the legend's `Background` plate and its opacity. */
+  legendBackground?: boolean;
+  legendBackgroundOpacity?: number;
   /**
    * Opening height. Shrinks as panes are added so a third oscillator does not
    * push the stack past the space it is allowed and get clipped mid-body.
@@ -248,6 +347,9 @@ export function IndicatorPane({
    *  rebuilt when a pane is added below this one. */
   const showTimeAxisRef = useRef(showTimeAxis);
   showTimeAxisRef.current = showTimeAxis;
+  /** Read in an event handler, so the pane is not rebuilt when it changes. */
+  const onContextMenuRef = useRef(onContextMenu);
+  onContextMenuRef.current = onContextMenu;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -259,7 +361,7 @@ export function IndicatorPane({
       timeScale: {
         ...base.timeScale,
         visible: showTimeAxisRef.current,
-        tickMarkFormatter: dayOfWeekRef.current ? dayOfWeekTickFormatter : undefined,
+        tickMarkFormatter: dayOfWeekFormatter(dayOfWeekRef.current),
       },
     });
     const unsubscribeTheme = subscribeChartTheme(chart);
@@ -406,7 +508,14 @@ export function IndicatorPane({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    if (hoverTime === null) {
+    /*
+     * R6b-19: the SYNCED crosshair follows the Canvas switch too.
+     *
+     * `setCrosshairPosition` draws the line whatever `crosshair.mode` says, so
+     * with `Crosshair` off the price pane lost its rule and every study pane
+     * below it went on drawing one under the pointer.
+     */
+    if (hoverTime === null || !showCrosshair) {
       chart.clearCrosshairPosition();
       return;
     }
@@ -419,7 +528,7 @@ export function IndicatorPane({
       }
     }
     chart.clearCrosshairPosition();
-  }, [hoverTime, overlays, ready]);
+  }, [hoverTime, overlays, ready, showCrosshair]);
 
   const priceToCoordinate = useCallback((overlayId: string, value: number): number | null => {
     const entry = seriesRef.current.get(overlayId);
@@ -432,11 +541,98 @@ export function IndicatorPane({
 
   const dayOfWeekRef = useRef(dayOfWeekOnLabels);
   dayOfWeekRef.current = dayOfWeekOnLabels;
+  /*
+   * ── R6b-13: OFF is a FUNCTION, never `undefined` ──────────────────────────
+   *
+   * lightweight-charts merges options with a spread, so a key whose value is
+   * `undefined` overwrites nothing: the formatter installed when the row was ON
+   * stayed installed for ever and `Day of week` OFF moved nothing, anywhere.
+   * `dayOfWeekFormatter(false)` returns every tick as `null`, which is the
+   * library's own "you did not format it".
+   */
   useEffect(() => {
     chartRef.current?.applyOptions({
-      timeScale: { tickMarkFormatter: dayOfWeekOnLabels ? dayOfWeekTickFormatter : undefined },
+      timeScale: { tickMarkFormatter: dayOfWeekFormatter(dayOfWeekOnLabels) },
     });
   }, [dayOfWeekOnLabels, ready]);
+
+  /*
+   * ── R6b-14/19: the pane takes the whole Canvas tab ───────────────────────
+   *
+   * One `applyOptions`, for the same reason the price chart has one: these are
+   * all chart-level options, and applying them from six effects would mean six
+   * races against the theme subscription. `subscribeChartTheme` rewrites the
+   * base options whenever the root theme flips, so the values and `ready` are
+   * the deps and the user's answers go back on top of the theme's.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const gradient = resolveBackgroundGradient(backgroundColor, backgroundColor2);
+    try {
+      chart.applyOptions({
+        layout: {
+          background: backgroundGradient
+            ? {
+                type: ColorType.VerticalGradient,
+                topColor: gradient.top,
+                bottomColor: gradient.bottom,
+              }
+            : { type: ColorType.Solid, color: backgroundColor || "rgba(0,0,0,0)" },
+          ...(scaleFontSize === undefined ? {} : { fontSize: scaleFontSize }),
+          ...(scaleTextColor ? { textColor: scaleTextColor } : {}),
+        },
+        grid: {
+          vertLines: {
+            visible: gridVertical,
+            ...(gridVertColor ? { color: gridVertColor } : {}),
+            style: paneLineStyle(gridVertStyle),
+          },
+          horzLines: {
+            visible: gridHorizontal,
+            ...(gridHorzColor ? { color: gridHorzColor } : {}),
+            style: paneLineStyle(gridHorzStyle),
+          },
+        },
+        crosshair: {
+          mode: showCrosshair ? CrosshairMode.Normal : CrosshairMode.Hidden,
+          vertLine: {
+            width: Math.max(1, Math.min(4, crosshairWidth)) as 1 | 2 | 3 | 4,
+            style: paneLineStyle(crosshairStyle),
+            ...(crosshairColor ? { color: crosshairColor } : {}),
+          },
+          horzLine: {
+            width: Math.max(1, Math.min(4, crosshairWidth)) as 1 | 2 | 3 | 4,
+            style: paneLineStyle(crosshairStyle),
+            ...(crosshairColor ? { color: crosshairColor } : {}),
+          },
+        },
+        ...(scaleLineColor
+          ? {
+              rightPriceScale: { borderColor: scaleLineColor },
+              leftPriceScale: { borderColor: scaleLineColor },
+              timeScale: { borderColor: scaleLineColor },
+            }
+          : {}),
+        localization: {
+          /*
+           * The same pair the price chart uses, from `lib/chartClock`: two
+           * functions, so 12-hours and 24-hours are both reachable. With a
+           * study open this is the axis a user is actually reading.
+           */
+          timeFormatter: hoursFormatter(timeFormat24h),
+          ...(dateFormat === undefined ? {} : { dateFormat }),
+        },
+      });
+    } catch { /* the chart went away between render and effect */ }
+  }, [
+    backgroundColor, backgroundColor2, backgroundGradient,
+    gridVertical, gridVertColor, gridVertStyle,
+    gridHorizontal, gridHorzColor, gridHorzStyle,
+    showCrosshair, crosshairColor, crosshairWidth, crosshairStyle,
+    scaleTextColor, scaleLineColor, scaleFontSize,
+    dateFormat, timeFormat24h, ready,
+  ]);
 
   /*
    * R6 SC-3: the axis badge, re-applied when the SETTING changes.
@@ -530,7 +726,35 @@ export function IndicatorPane({
           className="absolute -top-1 z-20 h-2 w-full cursor-row-resize touch-none bg-transparent hover:bg-state-hover focus-visible:bg-state-hover"
         />
       )}
-      <div ref={containerRef} className="absolute inset-0 z-[1]" />
+      <div
+        ref={containerRef}
+        className="absolute inset-0 z-[1]"
+        /*
+         * R8: the same three regions the price pane reports, measured from
+         * this pane's own axes — the price scale on the right, and the time
+         * scale only when this is the pane that draws it.
+         */
+        onContextMenu={(e) => {
+          const handler = onContextMenuRef.current;
+          if (!handler) return;
+          e.preventDefault();
+          const host = containerRef.current;
+          if (!host) return;
+          const rect = host.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const chart = chartRef.current;
+          let scaleWidth = 0;
+          let timeHeight = 0;
+          try {
+            scaleWidth = chart?.priceScale("right").width() ?? 0;
+            timeHeight = showTimeAxisRef.current ? chart?.timeScale().height() ?? 0 : 0;
+          } catch { /* the chart went away between render and event */ }
+          const region = x > host.clientWidth - scaleWidth ? "axis"
+            : y > host.clientHeight - timeHeight ? "time" : "plot";
+          handler({ x: e.clientX, y: e.clientY, drawingId: null, price: null, region });
+        }}
+      />
       {/*
         Collapsed panes keep their chart: it is squashed to the header's own
         height, which is small but never zero, and covered. Unmounting it here
@@ -571,6 +795,12 @@ export function IndicatorPane({
           collapsible={compact || collapsed}
           startCollapsed={compact || collapsed}
           className="min-w-0"
+          /* R6b-H: a study in its own pane obeys the same three rows. */
+          showTitles={showTitles}
+          showInputs={showInputs}
+          showValues={showValues}
+          background={legendBackground}
+          backgroundOpacity={legendBackgroundOpacity}
           onAction={onAction && ((_instanceId, action) => onAction(id, action))}
           canAction={onAction ? () => true : undefined}
         />
@@ -583,7 +813,14 @@ export function IndicatorPane({
         the oscillator it sits on. Each is a real button so the stack can be
         rearranged from the keyboard.
       */}
-      <span className="absolute right-2 top-1 z-[3] flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/studypane:opacity-100">
+      {/*
+        R3b-21: 4px gaps, and the last box 4px from the pane's content edge.
+
+        The cluster ran at `gap-0.5` (2px) inset `right-2` (8px); the
+        reference's four boxes sit at a 28px pitch with 4px between them and
+        the right-most one ends 4px before the axis.
+      */}
+      <span className="absolute right-1 top-1 z-[3] flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/studypane:opacity-100">
         {/*
           ── R3-12: only the direction that is possible ──────────────────────
 
@@ -617,9 +854,16 @@ export function IndicatorPane({
             pressed={collapsed}
             onClick={() => onToggleCollapsed(id)}
           >
+            {/*
+              R3b-21: collapse is TWO chevrons pointing inward, expand is two
+              pointing outward — the reference's ⤡ / ⤢ pair. One chevron is
+              the "open this dropdown" glyph the whole product uses, and on a
+              pane-height control it said nothing about which way the pane was
+              about to move.
+            */}
             {collapsed
-              ? <path d="M3.5 8.5L7 5l3.5 3.5" />
-              : <path d="M3.5 5.5L7 9l3.5-3.5" />}
+              ? <><path d="M3.5 3L7 6.5L10.5 3" /><path d="M3.5 12L7 8.5L10.5 12" /></>
+              : <><path d="M3.5 6.5L7 3l3.5 3.5" /><path d="M3.5 8.5L7 12l3.5-3.5" /></>}
           </PaneButton>
         )}
         {onToggleMaximized && canMaximize && (
@@ -675,10 +919,19 @@ function PaneButton({
         control on the top pane and another on the bottom one. A control that
         cannot act is absent; there is therefore nothing here to style.
       */
-      className={`flex h-6 w-6 items-center justify-center rounded-sm border border-transparent transition-colors ${
-        danger ? "text-ink-faint hover:border-down/60 hover:text-down"
-          : pressed ? "border-border text-ink"
-          : "text-ink-faint hover:border-border hover:text-ink"
+      /*
+        ── R3b-21: revealed means DRAWN AS A BOX ──────────────────────────────
+
+        Each button was transparent until it was itself hovered, so a pane
+        whose cluster had appeared showed four floating glyphs and no targets;
+        the reference draws four bordered 24×24 boxes — border rgb(74,74,74)
+        over the chart's own ground — the moment the cluster is revealed, and
+        spends hover on the INK rather than on discovering the button.
+      */
+      className={`flex h-6 w-6 items-center justify-center rounded-sm border bg-surface transition-colors ${
+        danger ? "border-border-strong text-ink-faint hover:border-down/60 hover:text-down"
+          : pressed ? "border-border-strong bg-state-active text-ink"
+          : "border-border-strong text-ink-faint hover:text-ink"
       }`}
     >
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"

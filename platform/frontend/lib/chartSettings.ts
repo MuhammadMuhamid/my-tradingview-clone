@@ -52,8 +52,26 @@ export type ScaleButtonsMode = "hover" | "always" | "hidden";
 /** Whether the pane draws the ticker's bid and ask as price lines. */
 export type BidAskLines = "hidden" | "line";
 
-/** Which form of the instrument's name the status line carries. */
-export type StatusTitleForm = "ticker" | "symbol";
+/**
+ * Which form of the instrument's name the status line carries.
+ *
+ * ── R3b-25: the reference's three forms, on the two stored values ──────────
+ *
+ * TradingView offers `Name` / `Ticker` / `Description`; this offered `Name` /
+ * `Full symbol`, and `Full symbol` printed `BINANCE:BTC/USDT · SPOT` — a form
+ * the reference does not have and that §5 keeps out of primary copy anyway.
+ *
+ * The LITERALS are unchanged so that every workspace already on disk, and the
+ * pane that forwards them, keep working: `ticker` is still the descriptive
+ * NAME (which is what it has always rendered), `symbol` is now the TICKER
+ * (`BTCUSDT`) instead of the qualified id, and `description` is new. A stored
+ * `symbol` therefore stops printing a canonical-looking string and starts
+ * printing what the reference's second option prints, which is the repair.
+ */
+export type StatusTitleForm = "ticker" | "symbol" | "description";
+
+/** The three `Title` options, in the reference's order. */
+export const STATUS_TITLE_FORMS: readonly StatusTitleForm[] = ["ticker", "symbol", "description"];
 
 export interface ChartSettings {
   // ── Series appearance (the reference's "Symbol" tab) ──────────────────────
@@ -109,6 +127,23 @@ export interface ChartSettings {
    * not a licence to print a canonical `instrument:v1:…` id anywhere.
    */
   statusTitle: StatusTitleForm;
+  /**
+   * R3b-24: the instrument's own mark before the name.
+   *
+   * The reference draws a 24px logo there and has a `Logo` row for it. Ours is
+   * the product's own asset disc (`instrumentMark`), because we ship no
+   * third-party marks — the shape of the row is the reference's, the artwork
+   * is this product's.
+   */
+  statusLogo: boolean;
+  /**
+   * R3b-24: the market-status dot after the venue.
+   *
+   * Green while the instrument's market is open. Absent — not grey, and not
+   * green — for an instrument whose session calendar this build does not hold,
+   * because a dot that guessed would be a light on a closed market.
+   */
+  statusMarketStatus: boolean;
   /** O/H/L/C values within it. */
   statusOhlc: boolean;
   /** The bar's absolute and percentage change. */
@@ -137,6 +172,17 @@ export interface ChartSettings {
   statusIndicatorInputs: boolean;
   /** Indicator values in the legend below the status line. */
   statusIndicatorValues: boolean;
+  /**
+   * R3b-25: the translucent plate behind every legend text run.
+   *
+   * The reference's `Background` row, default on with an opacity slider. The
+   * legend sits on the candles, and at the crosshair a run of numbers over a
+   * dense green candle is unreadable without it. It is a fill behind the TEXT
+   * runs, not a box around the legend — the box is the thing R3-10 removed.
+   */
+  statusLegendBackground: boolean;
+  /** How opaque that plate is, 0–100. The reference's default reads ~60. */
+  statusLegendBackgroundOpacity: number;
 
   // ── Scales and lines ──────────────────────────────────────────────────────
   scalePlacement: ScalePlacement;
@@ -253,6 +299,18 @@ export interface ChartSettings {
   backgroundGradient: boolean;
   /** R6 C-2: the ground's colour; `""` is the theme's own. */
   backgroundColor: string;
+  /**
+   * R6b-18: the gradient's SECOND well, which the reference draws beside the
+   * first the moment `Gradient` is chosen and this dialog did not have.
+   *
+   * `""` is the theme's own, in both wells, and that pair must still be a
+   * VISIBLE wash — the previous answer was 6% of accent blue over transparent,
+   * measured at three points of luminance across the whole plot, i.e. a
+   * dropdown option that moved nothing. `resolveBackgroundGradient` is where
+   * the theme pair is derived, and `tests/chartSettings.test.ts` pins that the
+   * two ends differ.
+   */
+  backgroundColor2: string;
   /** Axis label size in px. */
   scaleFontSize: number;
   /** R6 C-4: axis text colour (`layout.textColor`); `""` is the theme's own. */
@@ -378,6 +436,9 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   showStatusLine: true,
   statusSymbol: true,
   statusTitle: "ticker",
+  // R3b-24: the reference draws both before anybody chooses.
+  statusLogo: true,
+  statusMarketStatus: true,
   statusOhlc: true,
   statusBarChange: true,
   /*
@@ -394,6 +455,8 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   statusIndicatorTitles: true,
   statusIndicatorInputs: true,
   statusIndicatorValues: true,
+  statusLegendBackground: true,
+  statusLegendBackgroundOpacity: 60,
 
   scalePlacement: "right",
   timeFormat24h: true,
@@ -438,6 +501,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   watermarkColor: "",
   backgroundGradient: false,
   backgroundColor: "",
+  backgroundColor2: "",
   scaleFontSize: 12,
   scaleTextColor: "",
   scaleLineColor: "",
@@ -635,7 +699,10 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
 
     showStatusLine: bool(value.showStatusLine, true),
     statusSymbol: bool(value.statusSymbol, true),
-    statusTitle: value.statusTitle === "symbol" ? "symbol" : "ticker",
+    statusTitle: STATUS_TITLE_FORMS.includes(value.statusTitle as StatusTitleForm)
+      ? value.statusTitle as StatusTitleForm : "ticker",
+    statusLogo: bool(value.statusLogo, true),
+    statusMarketStatus: bool(value.statusMarketStatus, true),
     statusOhlc: bool(value.statusOhlc, true),
     statusBarChange: bool(value.statusBarChange, true),
     statusVolume: bool(value.statusVolume, false),
@@ -645,6 +712,9 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     statusIndicatorTitles: bool(value.statusIndicatorTitles, legacyIndicators),
     statusIndicatorInputs: bool(value.statusIndicatorInputs, legacyIndicators),
     statusIndicatorValues: legacyIndicators,
+    statusLegendBackground: bool(value.statusLegendBackground, true),
+    statusLegendBackgroundOpacity:
+      Math.round(num(value.statusLegendBackgroundOpacity, 60, 0, 100)),
 
     scalePlacement: PLACEMENTS.includes(value.scalePlacement as ScalePlacement)
       ? value.scalePlacement as ScalePlacement : "right",
@@ -687,6 +757,7 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     watermarkColor: hex(value.watermarkColor, ""),
     backgroundGradient: bool(value.backgroundGradient, false),
     backgroundColor: hex(value.backgroundColor, ""),
+    backgroundColor2: hex(value.backgroundColor2, ""),
     scaleFontSize: Math.round(num(value.scaleFontSize, 12, 8, 20)),
     scaleTextColor: hex(value.scaleTextColor, ""),
     scaleLineColor: hex(value.scaleLineColor, ""),
@@ -812,4 +883,73 @@ export function scaleMarginsFor(topPct: number, bottomPct: number): {
   if (sum <= MAX_SCALE_MARGIN_SUM) return { top, bottom };
   const factor = MAX_SCALE_MARGIN_SUM / sum;
   return { top: top * factor, bottom: bottom * factor };
+}
+
+/* ── R6b-18: `Background → Gradient` has to be visible ────────────────────── */
+
+/**
+ * The chart surface and the chart ink, as this build's tokens or their dark
+ * fallbacks.
+ *
+ * Read here rather than imported from `lib/chartTheme` so this module stays
+ * free of `lightweight-charts` — it is imported by the pure unit suite, and a
+ * settings model that cannot be loaded without a charting library is a model
+ * nothing can test. The two literals are `--ts-surface` and `--ts-ink`'s own
+ * dark values, which is what `chartTheme` falls back to as well.
+ */
+function themeToken(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const read = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return /^#[0-9a-fA-F]{6}$/.test(read) ? read : fallback;
+}
+
+function channelsOf(color: string): [number, number, number] | null {
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return null;
+  return [1, 3, 5].map((at) => parseInt(color.slice(at, at + 2), 16)) as [number, number, number];
+}
+
+/** Rec. 601 luma, 0–255 — enough to say "these two ends differ to the eye". */
+export function colorLuminance(color: string): number {
+  const rgb = channelsOf(color);
+  if (!rgb) return 0;
+  return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+}
+
+function mix(from: string, to: string, weight: number): string {
+  const a = channelsOf(from);
+  const b = channelsOf(to);
+  if (!a || !b) return from;
+  const w = Math.max(0, Math.min(1, weight));
+  return `#${a.map((value, i) => Math.round(value + (b[i]! - value) * w)
+    .toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * How much of the ink the theme's own gradient mixes into its top end.
+ *
+ * R6b-18 measured the previous answer: `rgba(41,98,255,0.06)` over transparent
+ * moved rows 60..70 of the plot from 45/30/32 to 46/34/43 — three points of
+ * luminance, which is nothing a user sees, on a dropdown option. 12% of the
+ * ink is the smallest step that reads as a wash on both themes, and the test
+ * in `tests/chartSettings.test.ts` holds it to ≥ 24 points of separation.
+ */
+const THEME_GRADIENT_MIX = 0.14;
+
+/**
+ * The two ends of the canvas gradient, resolved.
+ *
+ * `""` in either well means "the theme's own", and the two `""` ends are NOT
+ * the same colour: the top is the surface mixed toward the ink, the bottom is
+ * the surface. A user who chooses `Gradient` and touches nothing else must see
+ * a gradient.
+ */
+export function resolveBackgroundGradient(top: string, bottom: string): {
+  top: string; bottom: string;
+} {
+  const surface = themeToken("--ts-surface", "#0f0f0f");
+  const ink = themeToken("--ts-ink", "#dbdbdb");
+  return {
+    top: top || mix(surface, ink, THEME_GRADIENT_MIX),
+    bottom: bottom || surface,
+  };
 }

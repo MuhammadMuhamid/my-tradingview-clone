@@ -146,6 +146,71 @@ test("every Operations card says which system owns its numbers", () => {
   assert.match(source, /No platform daily-loss limit/);
 });
 
+// ── R3b-15: the headline is 16px in the BROWSER, not only in the source ────
+
+test("THE STATUS LINE'S HEADLINE WINS AGAINST THE WORKSTATION'S OWN BUTTON RULE", () => {
+  /*
+   * ── The regression this exists to make impossible ────────────────────────
+   *
+   * R3-14 set the pane legend's name to `text-[16px]`, the reviewer measured
+   * it, and the class was in the file — so every source test passed. In the
+   * browser the headline computed to FOURTEEN: `app/globals.css` carries
+   *
+   *     :is(.tv-workstation, .ts-app) button { font-size: inherit }
+   *
+   * unlayered and after `@tailwind utilities`, and at equal specificity
+   * (0,1,1 — one class, one element, `:is()` taking its most specific
+   * argument) the later rule wins. So the name ran at the inherited
+   * `--ts-workstation-font-size: 14px` while the `1h` and the venue beside it
+   * ran at 16, and one line carried three sizes.
+   *
+   * This is NOT a class-name assertion — a class name is exactly what was
+   * green while the defect shipped. It is the cascade: IF that rule is in
+   * globals.css, THEN the legend's own size must be an `!important` utility,
+   * which is the one thing that beats an unlayered normal declaration. Either
+   * half changing — the rule going away, the utility losing its `!` — is a
+   * state this test has an answer for.
+   *
+   * jsdom cannot stand in for the browser here: asked the same question with
+   * both rules loaded it answers 16px for the DEFEATED class too, so a
+   * `getComputedStyle` assertion in `tests/dom` would have been green through
+   * the whole regression. The live number belongs to the capture protocol
+   * (`scripts/ts-capture.mjs --measure '[data-pane-legend] > button'`), and
+   * the cascade belongs here.
+   */
+  const globals = fs.readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
+  const legend = fs.readFileSync(
+    path.join(ROOT, "components", "tv", "PaneLegend.tsx"), "utf8");
+
+  const defeats = /:is\(\.tv-workstation,\s*\.ts-app\)[^{]*\bbutton\b[^{]*\{[^}]*font-size:\s*inherit/
+    .test(globals);
+
+  // The headline button, and the size utility it carries.
+  const headline = /data-pane-legend=\{paneId\}[\s\S]{0,600}?<button[\s\S]{0,400}?className:\s*`([^`]*)`/
+    .exec(legend);
+  assert.ok(headline, "the pane legend no longer opens with a headline button");
+  const size = /(!?)text-\[(\d+)px\]/.exec(headline[1]!);
+  assert.ok(size, `the headline carries no explicit size: ${headline[1]}`);
+  assert.equal(size[2], "16", "the reference's status line is 16px throughout");
+  if (defeats) {
+    assert.equal(size[1], "!",
+      "globals.css still sets `font-size: inherit` on every workstation button, so the "
+      + "headline's 16px must be an important utility or it computes to 14px in the browser");
+  }
+
+  /*
+   * And the two things beside it: the reference's `· 1h · Binance` is ONE ink
+   * (rgb 219) at the same 16px, where this drew the name in ink and the rest
+   * in muted — three tokens, two colours, one line (R3b-16).
+   */
+  assert.doesNotMatch(legend, /text-\[16px\] text-ink-muted/,
+    "R3b-16: the dots, the interval and the venue are ink, not muted");
+  assert.match(legend, /\[&>button\]:!text-\[16px\]/,
+    "the interval is a button too, and the same rule defeats it");
+  assert.match(legend, /\[&>button\]:!px-0/,
+    "R3b-16: and it carries no padding of its own, so the gaps around the dots are equal");
+});
+
 // ── The chart keeps its height budget ──────────────────────────────────────
 
 test("an oscillator pane spends no height on a header row", () => {
@@ -164,8 +229,16 @@ test("an oscillator pane spends no height on a header row", () => {
    * scoped to this pane (`group/studypane`) rather than to the whole chart
    * column (`group/pane`, which lit every pane at once).
    */
-  assert.match(pane, /absolute right-2 top-1 z-\[?\d/,
+  /*
+   * R3b-21: `right-1`, not `right-2` — the reference's right-most pane box
+   * ends 4px before the axis, and ours ended 8px in. The rule this test is
+   * about is unchanged: the cluster is OVERLAID at the pane's own top-right
+   * edge and costs the oscillator no height.
+   */
+  assert.match(pane, /absolute right-1 top-1 z-\[?\d/,
     "the pane actions are no longer overlaid at the pane's own edge");
+  assert.match(pane, /items-center gap-1 opacity-0/,
+    "R3b-21: 4px between the boxes, as the reference has");
   assert.match(pane, /group-hover\/studypane:opacity-100/, "the controls are always-on, or gone");
   // Hide / settings / remove act on the STUDY and now live in the legend row —
   // the same row a study overlaid on the price pane gets. The pane still owns
@@ -179,7 +252,7 @@ test("an oscillator pane spends no height on a header row", () => {
   // Neither cluster reserves a row: both are absolutely positioned over the
   // plot, so a pane still spends zero height on chrome.
   assert.equal((pane.match(/absolute left-2 top-1 z-/g) ?? []).length, 1);
-  assert.equal((pane.match(/absolute right-2 top-1 z-/g) ?? []).length, 1);
+  assert.equal((pane.match(/absolute right-1 top-1 z-/g) ?? []).length, 1);
   /*
    * And neither paints a surface. Two `bg-surface/8x` boxes — one behind the
    * legend, one behind the cluster — were the "bordered mini-toolbar" the

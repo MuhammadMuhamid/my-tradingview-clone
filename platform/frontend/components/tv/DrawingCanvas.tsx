@@ -381,12 +381,57 @@ export function DrawingCanvas({
       return p.x >= 0 && p.x <= w && p.y >= 0 && p.y <= h;
     };
 
-    /** Which strip of the chart a point is in: the plot, the price axis, or the time axis. */
-    const regionOf = (p: Pt): "plot" | "axis" | "time" => {
-      const w = container.clientWidth - (chart.priceScale("right").width() ?? 0);
-      const h = container.clientHeight - (chart.timeScale().height() ?? 0);
-      if (p.y > h) return "time";
-      return p.x > w ? "axis" : "plot";
+    /**
+     * Which strip of the chart the POINTER landed on: plot, price axis, time
+     * axis.
+     *
+     * ── Why this asks the DOM rather than the scales ─────────────────────────
+     *
+     * It used to be arithmetic over this pane's own scale geometry —
+     * `clientWidth − priceScale("right").width()` and
+     * `clientHeight − timeScale().height()` — and that is a model of the chart
+     * rather than the chart. Two things went wrong with it, and both are the
+     * same mistake:
+     *
+     *   The time axis is drawn ONCE, under the lowest pane on screen. As soon
+     *   as a study pane is mounted this chart's own time scale is hidden, so
+     *   `timeScale().height()` is 0, `h` is the full height, and no point in
+     *   this pane can ever be classified "time" — the `Time scale` menu became
+     *   unreachable for anyone with an RSI open. (The visible axis then belongs
+     *   to an `IndicatorPane`, which reports its own right-click.)
+     *
+     *   And a price-axis click was classified by a WIDTH the library reports
+     *   for the scale object, not by the cell the axis is actually painted in;
+     *   where the two disagreed the axis silently returned the plot's menu.
+     *
+     * The library renders its panes as a table: a row per pane — `[left axis]
+     * [pane][right axis]` — and a final row for the time axis. So the honest
+     * question is which `<td>` the event landed in, and the geometry below is
+     * only the fallback for an event synthesised without a real target.
+     */
+    const regionOf = (e: MouseEvent, p: Pt): "plot" | "axis" | "time" => {
+      const table = container.querySelector("table");
+      const target = e.target as Element | null;
+      const cell = target && typeof target.closest === "function"
+        ? target.closest("td") : null;
+      if (table && cell && table.contains(cell)) {
+        const row = cell.parentElement as HTMLTableRowElement | null;
+        if (row) {
+          // The last row is the time axis, whatever its cells contain.
+          if (table.rows.length > 1 && row.rowIndex === table.rows.length - 1) return "time";
+          // A price axis is the first or last cell of a pane's row; the pane
+          // itself is between them. The hidden left axis is a 0-width cell and
+          // cannot be hit, so "first or last" needs no special case for it.
+          return cell.cellIndex === 0 || cell.cellIndex === row.cells.length - 1
+            ? "axis" : "plot";
+        }
+      }
+      const axisWidth = chart.priceScale("right").width() ?? 0;
+      const timeHeight = chart.timeScale().height() ?? 0;
+      const w = container.clientWidth - axisWidth;
+      const h = container.clientHeight - timeHeight;
+      if (timeHeight > 0 && p.y > h) return "time";
+      return axisWidth > 0 && p.x > w ? "axis" : "plot";
     };
 
     /*
@@ -401,7 +446,7 @@ export function DrawingCanvas({
       const handler = onContextMenuRef.current;
       if (!handler) return;
       const p = rectOf(e);
-      const region = regionOf(p);
+      const region = regionOf(e, p);
       e.preventDefault();
       /*
        * TVP8: and claim the event.

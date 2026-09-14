@@ -499,6 +499,84 @@ width, with 40px tool rows and 32px option rows. The caret is an 11×34
 hover-revealed edge strip, never a corner triangle. Glyphs are our own, one
 silhouette per tool, full ink at rest.
 
+#### 7c-i. The keyboard: a bare letter is the SYMBOL (TVP8 R4b-05, measured 2026-09-14)
+
+Reference: `TradingView-Parity-TVP8-20260913/measurements/tv-keyboard-shortcuts-20260914.md`.
+
+TradingView spends the whole alphabet on one thing — "Change symbol: any
+letter" — and puts the drawing tools on ⌥-chords. Trading Scene did the
+opposite: eleven bare letters were tools, and a letter typed over the chart
+armed one instead of opening the symbol search. The owner's endgame rule is
+that live TradingView is the spec for a shared surface, so:
+
+- **A bare printable letter, with no modifier, focus not in a field and no
+  dialog open, opens the symbol search with that letter already in the box**,
+  caret at the end, nothing selected. `app/chart/page.tsx` owns that listener,
+  in the capture phase, and it consults `resolveShortcut` rather than a second
+  copy of the table — so a letter the table still claims (⇧F) keeps its
+  meaning, and a letter continuing a half-typed interval (`4`,`h`) belongs to
+  the interval.
+- **Any number key is the interval**, as it already was (`15` Enter → 15m).
+- **The reference's chords, exactly**: ⌥T trendline · ⌥H horizontal line ·
+  ⌥J horizontal ray · ⌥V vertical line · ⌥C crossline · ⌥F fib retracement ·
+  ⇧⌥R rectangle · ⌘⌥H hide drawings · ⌥R reset view · ⌥L log scale ·
+  ⇧F fullscreen · ⌘K quick search · `/` indicators · ⌘, chart settings ·
+  ⌘/ keyboard shortcuts · ⌥⌘S save chart image · ⇧⌘S copy chart image ·
+  ⌘Z / ⌘⇧Z / ⌘Y undo and redo · ⌘C / ⌘V / Delete on a drawing.
+- **Trading Scene's own actions keep their letter under ⌥** — ⌥X text,
+  ⌥M magnet, ⌥B Bar Replay — and the three whose same-letter ⌥ chord the
+  reference has already spent take one more modifier rather than a chord that
+  means something else to a user arriving from it: ⇧⌥D stay in drawing mode
+  (⌥D is TradingView's data window), ⇧⌥L lock drawings (⌥L is log scale),
+  ⇧⌥P bottom panel (⌥P is percent scale).
+- **Not yet implemented, and therefore not advertised**: ⌥A add alert, ⌥G go
+  to date, ⌥I invert scale, ⌥P percent scale, ⌥W add to watchlist, `.` load
+  layout, ⌘S save layout (the saved-layout hook owns ⌘S already but it is not
+  in `BINDINGS`), ⌥D data window, ⌥N text note. A chord with no action behind
+  it is never printed on a cap.
+- `lib/shortcuts.ts` `BINDINGS` is the single table; the rail's flyout caps,
+  the shortcuts sheet and the command palette all read it, so a printed cap is
+  a chord that works. Tests: `tests/powerUx.test.ts`,
+  `tests/dom/keyboard.test.tsx`, `tests/dom/typeToSearch.test.tsx`.
+
+#### 7c-ii. The symbol search, and Compare (TVP8 R4b, measured 2026-09-14)
+
+Reference: `measurements/tv-symbol-search-20260914.md` and
+`tradingview/symbol-search-*-1440-dark.png`.
+
+- The panel is `[300,110,840,680]`, radius 6, on `--ts-popover` with
+  `--ts-popover-shadow` applied as a STYLE (the arbitrary-value Tailwind
+  shadow utility does not resolve). Bands: 68px header · 40px box · 28px chip
+  row · 24px dropdown row · 40px rows · 40px footer.
+- The chips are filled PILLS — `--ts-state-hover` ground at rest, inverted to
+  `--ts-menu-selected-bg` / `--ts-menu-selected-ink` when selected. They do
+  NOT carry `.tvc-control`: that class forces `background-color: transparent`
+  and paints state on a `::before`, which erased the pill and put dark ink on
+  dark grey.
+- The ticker column is FIXED at 211px, so the description starts at x=563 in
+  every state and no ticker is ever truncated to fit its own text.
+- The box's text is 16px and it draws NO focus ring — the 1px
+  `--ts-control-border` frame is the frame at rest and while focused, as the
+  reference's is, and the caret and selection say where focus is. The
+  exception lives in `app/globals.css`, scoped to
+  `[role="dialog"][data-symbol-search] input:focus-visible`.
+- Enter belongs to the box and the rows only. A focused chip, filter trigger,
+  Clear button or sources indicator keeps its native Enter-to-activate; the
+  arrows open a closed filter menu rather than moving the row cursor behind
+  it. Escape order is popover → menu → dialog, and the dialog's own key
+  handler captures and stops what it consumes, so no other window listener can
+  act on a key aimed at an open modal.
+- The middle column is the instrument's NAME (`Bitcoin / Tether`), from a
+  frontend table of the bases and quotes the running catalogue returns; an
+  unknown asset falls back to its code. When the typed term matches the code
+  rather than the name, the mark moves to the ticker.
+- **Compare is the same dialog in compare mode**: title `Compare symbol`,
+  same bands, same rows; a row ADDS an overlay and never moves the pane's own
+  instrument. It never prints a canonical `instrument:v1:…` id — the old form
+  titled itself `Compare instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot with`.
+  Which comparison, over what window, and Remove are a secondary menu on the
+  legend's own `vs …` chip.
+
 **Deliberately omitted, and why** (owner decision recorded here, not in a
 code comment): the Demonstration and Magic cursors (TradingView presentation
 and pattern-recognition engines, not drawing tools), Ghost feed (a projection
@@ -513,29 +591,102 @@ with an inert control. Everything else in TradingView's flyouts exists here.
 
 Reference: `TradingView-Parity-TVP8-20260913/measurements/tv-watchlist-20260914.md`.
 
-- The right side is a **46px icon rail** (Watchlist, Automations, Indicators,
-  Moving averages, Correlation, Order ticket; a bottom-anchored Help cell
-  above a `--ts-line-strong` hairline) beside a **300px panel**. Rail cells
-  are 46×46 with a 38×38 chip; glyphs are 20px at stroke 1.5 in `text-ink`
-  at rest. A count badge is a 14px red numeric dot, never an accent pill.
+- The right side is a **46px icon rail COLUMN** (Watchlist, Automations,
+  Indicators, Moving averages, Correlation, Order ticket; a bottom-anchored
+  Help cell above a `--ts-line-strong` hairline) beside a **300px panel**.
+  Of those 46 pixels, 1 is the `border-l` hairline that separates the rail
+  from the panel and **45 are painted** — the reference's seam there is a
+  1px rgb(46) line, not a gutter (R1c-06: rail 1395–1439, line 1394 at
+  1440; 1875–1919 / 1874 at 1920). Cells are 45 wide × 46 tall with a 38×38
+  chip; the column carries 1px of top padding so its **first chip is at
+  y=47**, and an active chip is `--ts-line-strong`, a step above the
+  `--ts-state-active` every other selected control wears. Glyphs are 20px at
+  stroke 1.5 in `text-ink` at rest. A count badge is a 14px red numeric dot,
+  never an accent pill.
+- **The gutter is drawn once.** The chart→panel band is the workspace row's
+  own 4px `gap` (x=1090–1093 at 1440, 1570–1573 at 1920) and the panel draws
+  no strip of its own: its 300 pixels are 300 of CONTENT. The grip that
+  closes the panel is a **persistent** 10×24 notch in that band, the colour
+  of the panel, anchored 60px above the bottom edge — never hover-only. The
+  band is also a `col-resize` handle: the width is device-local under
+  `tv.watchlist.width.v1`, bounded 260–420, because the reference serves one
+  account 300 at 1440 and 346 at 1920.
 - The watchlist panel: 46px title row (`{list name} ⌄` + three 38×38
   cells: add, compact, `⋯`), 29px column row on a `--ts-state-active`
-  hairline, 34px add row with a magnifier, 36px asset-class group headers
-  (display-only grouping; nothing persisted), 30px rows on
-  `[24px_1fr_72px_70px_60px]` — asset mark, `displayTicker` 14px/400,
-  last, change, change %. The selected row is transparent with a 2px inset
-  `--ts-ink-faint` ring. No inline `×`, no `+` prefix on a change, no
-  truncation of a value.
+  hairline, 34px add row with a magnifier, asset-class group bands of
+  **6px of gap over a 36px row with no count** (display-only grouping;
+  nothing persisted), **30px rows** — 29 of content and the 1px `border-b`
+  inside it, `border-box` — on `24px minmax(0,1fr) 72px 70px 60px` with
+  **no inter-column gap**: asset mark, ticker 14px/400, last, change,
+  change %. The ticker cell **fades** at its right edge (a 12px mask), never
+  clips mid-glyph. The selected row is transparent with a 2px inset
+  `--ts-ring`. Row separators are `--ts-line-soft`. No inline `×` as a
+  column, no `+` prefix on a change, no truncation of a value.
+- **Quotes are printed at the instrument's tick precision**, never at the
+  magnitude of the individual number, and always with
+  `minimumFractionDigits === maximumFractionDigits` so a value cannot change
+  width between two ticks. `Chg` takes the same decimals as `Last`, because
+  it is the same instrument. The digits that changed on the last tick are
+  painted in the direction colour for 600ms.
+- **A row is removable from the row.** Hover or focus reveals a 16px neutral
+  `×` over the last column, `Delete`/`Backspace` on a focused row does the
+  same, and the row's `title` is `{name} · {VENUE} · Real-time|Delayed ·
+  {market}` — never a qualified storage identity, and never the venue twice.
+- **Escape closes the innermost open thing.** The panel's window-level
+  Escape closes the panel only when focus is not inside a menu, a dialog or
+  a text field within it; the list menu and the add field stop the event
+  themselves. `event.defaultPrevented` is not a guard — a peer handler marks
+  every Escape as handled.
+- **The list's NAME holds list editing** (`Make a copy…` · `Rename…` ·
+  `Clear list` · `Create new list…` · the lists as `menuitemradio`s under a
+  `MY WATCHLISTS` heading · `Delete list`), and **`⋯` holds view settings**
+  (`Compact list` · CUSTOMIZE COLUMNS `Last` `Change` `Change %`
+  `Volume (24h)` · SYMBOL DISPLAY `Mark`, `Symbol` ◉ / `Name` ○). View
+  preferences are device-local under `tv.watchlist.view.v1`; the header's
+  compact cell mirrors the same one. One sorted column carries one
+  indicator — `Chg` sorts by the absolute move and `Chg%` by the percentage
+  — and the refusal to drag while sorted is shown for a few seconds AFTER a
+  refused drop, never as a standing paragraph.
+- The row's context menu keeps `Open in the focused chart` ·
+  `Open in a new pane` · `Add {TICKER} to watchlist…` (only with more than
+  one list) · `Add alert on {TICKER}` · `Add symbol…` · `Remove from this
+  list`. The reference's flag row and swatches, `Add to compare`, `Add note`
+  and `Add section` are GENUINELY_DIFFERENT (R7b-18, R8-22): this product
+  has none of those, and a menu row that opens nothing is the defect
+  `lib/menuPayloads.ts` exists to prevent. No hotkey caps are printed on
+  these rows for the same reason — the reference prints one only on Flag.
 - The details block below the list: 24px mark + 16px/600 ticker + 32px `⋯`;
-  `{base} / {quote} • {VENUE}` 14px; `Spot • Crypto` faint; 28px/600 price;
-  16px change line; a market line in `--ts-positive-strong` only when a
-  crypto venue's stream is live; a News card on `--ts-news-tint` with its
-  label in `--ts-news-ink`; Key stats from the provider's 24h fields.
-- Direction tokens are the reference's: dark `--ts-positive: #22ab94`,
-  `--ts-negative: #f7525f`; light `#089981` / `#f23645`.
+  the identity line is **`displayName()` where the catalogue holds both legs**
+  (`Bitcoin / TetherUS • BINANCE`) and falls back to `{base} / {quote}`;
+  `Spot • Crypto` faint; 28px/600 price; 16px change line; a market line in
+  `--ts-positive-strong` only when a crypto venue's stream is live; a News
+  card on `--ts-news-tint` with its label in `--ts-news-ink`; Key stats from
+  the provider's 24h fields plus **`Average volume (30D)` computed from the
+  last 30 CLOSED daily bars**; and **six 2×3 Performance tiles**
+  (1W · 1M · 3M · 6M · YTD · 1Y), each 42px, the value 14px/600 in the
+  direction colour on a 12% tint of it. A period the series cannot support
+  keeps its `—`.
+- Direction tokens are the reference's, **in both spellings**: a token that
+  has a hex and an `-rgb` twin must declare the same colour in both, because
+  `tailwind.config.ts` builds every colour from the `-rgb` one and the hex
+  is read by almost nothing. Dark `--ts-positive: #22ab94` / `34 171 148`,
+  `--ts-negative: #f7525f` / `247 82 95`. Light `--ts-positive: #22ab94` /
+  `34 171 148` too — the reference's light watchlist cells are the same
+  teal, and only `Market open` (`--ts-positive-strong`) is `#089981` in both
+  themes. **The light DOWN colour is UNMEASURED**: neither light reference
+  capture holds a falling row, so it stays at `#f23645` / `242 54 69` until
+  one is captured rather than being guessed from the dark value.
+- Light-theme neutrals here are measured, not mirrored: `--ts-line-soft`
+  `#f2f2f2` (dark: `= --ts-line`), `--ts-ring` `#2e2e2e` (dark `#8c8c8c`),
+  news tint `rgba(69,39,160,0.13)` (dark `rgba(179,136,255,0.20)`). Light
+  column-header labels stay `--ts-ink-faint` (120); the reference's ≈173 is
+  one step lighter and is recorded here rather than given a token.
 - Omitted on purpose: a vendored brand-icon set (a deterministic monogram
-  stands in), a draggable list/details split (a static 4px band), and
-  `Average volume (30D)` (no 30-day series — shown as `—` with the reason).
+  stands in), a draggable list/details split (a static 4px band), a news
+  provider (REAL_EXTERNAL_BLOCKER — none is connected), and the reference's
+  `Advanced view` table and its Alerts / Data window / Chat / streams /
+  ideas / calendar / RSS / notifications / apps rail cells, which are
+  destinations this product does not have.
 
 ### 7e. The chrome converges on live TradingView (owner decision 2026-09-14)
 

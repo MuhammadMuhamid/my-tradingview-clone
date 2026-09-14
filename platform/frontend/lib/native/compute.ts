@@ -1,5 +1,5 @@
 "use client";
-import { resolutionMs } from "@/lib/resolution";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 /**
  * Turning a native study into what the chart already knows how to draw.
  *
@@ -54,6 +54,16 @@ export interface AppliedNativeStudy {
   visible: boolean;
   /** Per-plot style overrides. Absent keys keep the definition's defaults. */
   styles: Record<string, PlotStyleOverride>;
+  /**
+   * R6b-29: the timeframes this study is drawn on, as the reference's
+   * `Visibility` tab writes them.
+   *
+   * The same shape and the same meaning as a drawing's `visibleOn`
+   * (`lib/drawings`): absent or empty is EVERY timeframe, which is what every
+   * study on disk already is. A study hidden by resolution is not computed and
+   * not drawn — `visible` is the user's own switch and this is the chart's.
+   */
+  visibleOn?: Resolution[];
 }
 
 export interface PlotStyleOverride {
