@@ -117,12 +117,30 @@ export function armedTool(container: HTMLElement): string | null {
 
 /** The interval the focused pane is on, read from the toolbar's pressed key. */
 export function armedInterval(container: HTMLElement): string | null {
-  const pressed = [...container.querySelectorAll<HTMLElement>('button[aria-pressed="true"]')]
+  const pressed = [...container.querySelectorAll<HTMLElement>('button[aria-pressed="true"]')];
+  /*
+   * The id, not the label.
+   *
+   * A strip chip PRINTS `1D` and IS `1d` — the reference writes day-and-longer
+   * resolutions uppercase, and every request, persisted pane and assertion
+   * still names the canonical id. `data-resolution` is where the chip puts it,
+   * so this helper reads the chart's actual resolution rather than a casing
+   * decision made for a 29px chip.
+   */
+  const byData = pressed
+    .map((el) => el.getAttribute("data-resolution") ?? "")
+    .find((id) => /^\d+[smhd]$/.test(id));
+  if (byData !== undefined) return byData;
+  /*
+   * The fallback stays case-SENSITIVE and lowercase on purpose. The bottom
+   * row's range shortcuts are pressable and are written `1D 5D 1M 3M 6M`; a
+   * case-insensitive match here would report "the chart is on 1D" because a
+   * range chip was armed, which is a different control setting a different
+   * thing. Seconds joined the resolutions a chart can be on, so `30s` is in.
+   */
+  return pressed
     .map((el) => (el.textContent ?? "").trim())
-    // Seconds joined the resolutions a chart can be on; a helper that could not
-    // see `30s` would report "no timeframe armed" on a perfectly good chart.
-    .find((text) => /^\d+[smhd]$/.test(text));
-  return pressed ?? null;
+    .find((text) => /^\d+[smhd]$/.test(text)) ?? null;
 }
 
 /**
@@ -143,8 +161,20 @@ export async function selectTool(container: HTMLElement, title: string): Promise
   for (const caret of carets) {
     fireEvent.click(caret);
     await settle();
+    /*
+     * The row's NAME, not the row's text.
+     *
+     * A flyout row is now `[icon] [label] [⌥T] [★]`, and the key cap and the
+     * star are siblings of the button rather than inside it — but a future row
+     * that nests either would make `textContent` read "Trendline⌥T" and this
+     * helper would stop finding a tool that is perfectly visible. The label
+     * span marks itself, and the text is the fallback.
+     */
     const row = [...container.querySelectorAll<HTMLElement>("button")]
-      .find((b) => (b.textContent ?? "").trim() === title);
+      .find((b) => {
+        const label = b.querySelector<HTMLElement>("[data-tool-label]");
+        return ((label ?? b).textContent ?? "").trim() === title;
+      });
     if (row) { fireEvent.click(row); await settle(); return; }
     fireEvent.click(caret); // close it again before trying the next group
     await settle();

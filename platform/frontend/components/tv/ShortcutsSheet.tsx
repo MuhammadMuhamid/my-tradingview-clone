@@ -26,6 +26,8 @@ const GROUP_ORDER: Binding["group"][] = [
 function keyLabel(binding: Binding, mac: boolean): string {
   const parts: string[] = [];
   if (binding.mod) parts.push(mac ? "⌘" : "Ctrl");
+  // Option before Shift, the way a Mac writes ⌥⇧R.
+  if (binding.alt) parts.push(mac ? "⌥" : "Alt");
   if (binding.shift) parts.push(mac ? "⇧" : "Shift");
   parts.push(prettyKey(binding.key));
   return parts.join(mac ? "" : "+");

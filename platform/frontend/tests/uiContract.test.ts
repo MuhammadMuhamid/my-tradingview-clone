@@ -145,7 +145,13 @@ test("CONTRACT — the shared grammar reaches the whole product, not only the ch
    * asked to — and every dialog, which portals outside the chart, silently
    * lost the grammar entirely.
    */
-  for (const rule of ["\\.tvc-control", "\\.tvc-menu"]) {
+  /*
+   * `.tvc-menu-heading` joined the list when the drawing flyouts took the
+   * reference's sections: a seventeen-row menu with no section labels is a
+   * list you read rather than scan, and the heading is only a heading while
+   * the rule that styles it is in scope for both roots.
+   */
+  for (const rule of ["\\.tvc-control", "\\.tvc-menu", "\\.tvc-menu-heading"]) {
     assert.match(css, new RegExp(`:is\\(\\.tv-workstation, \\.ts-app\\) ${rule}`),
       `${rule} must be available to both roots`);
   }
@@ -495,11 +501,103 @@ test("CONTRACT — nothing floats over the chart", () => {
   assert.match(panel, /<nav data-phone-nav/);
   assert.match(panel, /min-h-\[var\(--ts-phone-nav-height\)\]/);
 
-  // And the control is where the shell keeps its other controls.
-  assert.match(read("components/tv/ProductMenu.tsx"), /<ThemeToggle/);
+  /*
+   * And the control is where the shell keeps its other controls.
+   *
+   * TVP8 R1-02: this used to assert `<ThemeToggle` in BOTH shells, which was
+   * the right rule wearing the wrong spelling. The chart's menu took
+   * TradingView's grammar, in which a setting is a row that names the SETTING
+   * and shows a switch on the right — not an icon button whose accessible name
+   * is the verb ("Use Light theme") and whose only content is a sun. A single
+   * button has no slot for a label AND a switch, so the chart's menu writes the
+   * row itself.
+   *
+   * What matters is not which component draws it: it is that two theme
+   * controls cannot become two themes. So what is pinned is the part that can
+   * break silently — the same storage key, and the same announcement — rather
+   * than the tag name.
+   */
+  const productMenu = read("components/tv/ProductMenu.tsx");
+  assert.match(productMenu, /Dark theme/, "the chart's menu still carries the theme");
+  assert.match(productMenu, /THEME_KEY/,
+    "…written through the same storage key as `ThemeToggle`, not a second one");
+  assert.match(productMenu, /"trading-scene-theme"/,
+    "…and announced the same way, so the other control follows it");
   assert.match(read("components/Nav.tsx"), /<ThemeToggle/);
   assert.doesNotMatch(read("app/layout.tsx"), /ThemeToggle/,
     "it is no longer rendered outside the shell");
+});
+
+test("CONTRACT — the product entry is a rail cell, and its menu is the row grammar", () => {
+  /*
+   * TVP8 R1-02, measured live at 1440×900 dark
+   * (`measurements/tv-product-menu-20260914.md`).
+   *
+   * TradingView's account/product entry is not on the toolbar at all: it is a
+   * 52×38 cell at the very top-left of the WINDOW, above the left rail,
+   * holding a 28px circular avatar with the user's initial and a small badge
+   * at its top-right. Nothing product-branded sits on the bar, which is why
+   * TV's symbol pill is the first thing there at x=56. Ours was a glyph plus a
+   * chevron plus a separator INSIDE the row, and it pushed every control after
+   * it 57px right (our pill measured at x=113).
+   *
+   * The menu it opens is 260px at [53,0]: 40px rows, a 28px glyph box on every
+   * one of them, 14px/400 labels, 13px spacer separators, a switch row for the
+   * theme, a key hint on the shortcuts row and a red sign-out at the end. Ours
+   * was 288px of 30px rows at 13px with no glyphs, under a product name and
+   * two sentences of status prose.
+   *
+   * Read as CODE: this file's own header describes the cell it replaced, and a
+   * rule that reads prose about a shape cannot tell it from the shape.
+   */
+  const menu = code(read("components/tv/ProductMenu.tsx"));
+
+  // Two shapes for the trigger, so the bar keeps working until the page moves.
+  assert.match(menu, /variant\?:\s*"bar"\s*\|\s*"rail"/,
+    "the trigger must offer both shapes, not swap one for the other");
+  assert.match(menu, /h-\[38px\] w-\[52px\]/, "TV's cell is 52 wide and 38 tall");
+  assert.match(menu, /h-7 w-7 items-center justify-center rounded-full bg-state-active/,
+    "…holding a 28px circular avatar");
+  // The badge moved onto the avatar's corner, where a 28px circle can carry it.
+  assert.match(menu, /-right-0\.5 -top-0\.5 h-2\.5 w-2\.5 rounded-full/,
+    "the status/first-run dot is a 10px badge at the avatar's top-right");
+
+  // The menu's box: 260px, anchored beside the cell rather than under it.
+  assert.match(menu, /w-\[260px\]/, "TV's menu box is 260px wide");
+  assert.match(menu, /left-\[52px\] top-0/, "…opening at the cell's right edge, at y=0");
+
+  // The row grammar, on every row: 40px (`.tvc-menu-row`), a 28px glyph box,
+  // 14px/400 label, and 13px spacer separators between sections.
+  assert.match(menu, /tvc-menu-row/, "rows are the shared 40px row");
+  assert.match(menu, /text-\[14px\] font-normal/, "labels are 14px/400, not 13px");
+  assert.match(menu, /className="flex h-7 w-7 shrink-0 items-center justify-center"/,
+    "every row carries a 28px glyph box");
+  assert.match(menu, /tvc-menu-sep/, "sections are separated by the 13px spacer");
+
+  /*
+   * The two live readouts are a STATUS ROW, not a paragraph.
+   *
+   * They used to be two lines of 11px prose under the product name — a menu is
+   * a list of places, and the answer to "is the feed alive" is one line with a
+   * dot on it. The detail, including the cause `useOpsHealth` separates out,
+   * belongs in the title (REV-UX-01): a backend that answers an operations
+   * poll with an exception must never put that text on screen as copy.
+   */
+  assert.match(menu, /role="status"/, "the two readouts survive as one status row");
+  assert.equal((menu.match(/role="status"/g) ?? []).length, 1, "…exactly one of them");
+  assert.match(menu, /role="status"[\s\S]{0,120}h-8 items-center/, "…32px tall");
+  assert.doesNotMatch(menu, />\s*\{health\.summary\}/,
+    "the health SENTENCE is a tooltip, never rendered copy");
+
+  // A menu entry that does nothing is worse than no entry, so the shortcuts
+  // row exists only when something can open the sheet.
+  assert.match(menu, /onOpenShortcuts && /,
+    "the shortcuts row renders only behind an opener");
+  assert.match(menu, /BINDINGS\.find/,
+    "and its key hint is read from the binding table, so it cannot advertise a dead key");
+
+  // Sign out is the last row, and it is the only red one.
+  assert.match(menu, /text-down[\s\S]{0,400}Sign out/, "sign out reads as destructive");
 });
 
 test("CONTRACT — collapsing a legend never makes it taller", () => {

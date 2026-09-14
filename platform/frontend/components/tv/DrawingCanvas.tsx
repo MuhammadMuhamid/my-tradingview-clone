@@ -1,4 +1,5 @@
 "use client";
+import type { MagnetMode } from "@/components/tv/DrawingToolbar";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
 import type { Candle } from "@/lib/types";
@@ -7,7 +8,8 @@ import { fmtPrice } from "@/lib/format";
 import { isTypingTarget } from "@/lib/shortcuts";
 import {
   DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
-  distToEllipse, distToLine, distToRay, distToRect, drawingVisibleOnTimeframe, distToSegment, newId,
+  currentIconGlyph, distToEllipse, distToLine, distToRay, distToRect, drawingVisibleOnTimeframe,
+  distToSegment, isCursorMode, newId,
   type Anchor, type Drawing, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
@@ -28,6 +30,10 @@ import {
 } from "@/lib/drawingGeometry";
 
 const HIT_PX = 7;
+
+/** The faces that actually hold colour emoji, per platform. */
+const EMOJI_FONT =
+  '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 const HANDLE_PX = 4.5;
 
 interface Drag {
@@ -111,7 +117,8 @@ export function DrawingCanvas({
    * see `lib/drawingHistory`.
    */
   onChange: (next: Drawing[], gesture?: string | null) => void;
-  magnet: boolean;
+  /** Off, or snap to O/H/L/C only near one ("weak"), or always to the nearest ("strong"). */
+  magnet: MagnetMode;
   locked: boolean;
   hidden: boolean;
   /**
@@ -183,6 +190,14 @@ export function DrawingCanvas({
   askRef.current = ask;
   const onToolDoneRef = useRef(onToolDone);
   onToolDoneRef.current = onToolDone;
+  /*
+   * The chart itself, for the one gesture that moves the VIEWPORT rather than
+   * drawing on it. `commit` is memoised with no dependencies on purpose — it
+   * is called from pointer handlers that must not be rebuilt per render — so
+   * it reaches the chart the same way it reaches everything else.
+   */
+  const chartRef = useRef(chart);
+  chartRef.current = chart;
 
   // ── time ↔ logical-index mapping ──────────────────────────────────────────
   // Stored anchors use bar time; the chart positions by logical index. Bars may
@@ -228,7 +243,7 @@ export function DrawingCanvas({
     const price = series?.coordinateToPrice(y) ?? 0;
     const snappedLogical = Math.round(logical as number);
     const time = logicalToTime(snappedLogical);
-    if (!magnetRef.current) return { time, price: Number(price) };
+    if (magnetRef.current === "off") return { time, price: Number(price) };
     const bar = candles[snappedLogical];
     if (!bar) return { time, price: Number(price) };
     // Magnet: jump to whichever of O/H/L/C is nearest in pixels.
@@ -240,7 +255,8 @@ export function DrawingCanvas({
       const d = Math.abs(py - y);
       if (d < bestPx) { bestPx = d; best = p; }
     }
-    return { time, price: bestPx <= 24 ? best : Number(price) };
+    // Weak: only when the pointer is already near a level. Strong: always.
+    return { time, price: magnetRef.current === "strong" || bestPx <= 24 ? best : Number(price) };
   }, [chart, series, candles, logicalToTime]);
 
   // ── hit testing ───────────────────────────────────────────────────────────
@@ -264,6 +280,28 @@ export function DrawingCanvas({
 
   // ── committing drawings ───────────────────────────────────────────────────
   const commit = useCallback((tl: DrawingTool, points: Anchor[]) => {
+    /*
+     * Zoom in: the drag chose a span of time, not a shape.
+     *
+     * It goes through the chart's own `setVisibleRange` — the primitive the
+     * range shortcuts under the chart already use — so the result is a normal
+     * viewport change that pans, zooms and syncs like any other, and nothing
+     * is added to the drawing list.
+     */
+    if (tl === "zoom") {
+      const from = Math.min(points[0]!.time, points[1]!.time);
+      const to = Math.max(points[0]!.time, points[1]!.time);
+      draftRef.current = null;
+      previewRef.current = null;
+      // A tap rather than a drag selects no span at all; zooming to it would
+      // leave the user on an empty chart with no way back but Reset.
+      if (to > from) {
+        chartRef.current?.timeScale().setVisibleRange(
+          { from: from as never, to: to as never });
+      }
+      onToolDoneRef.current();
+      return;
+    }
     let pts = points;
     // Long/short carry a third, draggable stop anchor derived at 2:1 R:R.
     if (tl === "long" || tl === "short") {
@@ -275,7 +313,12 @@ export function DrawingCanvas({
         id: newId(),
         tool: tl,
         points: pts,
-        style: { ...styleRef.current, ...(text !== undefined ? { text } : {}) },
+        style: {
+          ...styleRef.current,
+          ...(text !== undefined ? { text } : {}),
+          // The emoji the rail's picker last armed. See `armIconGlyph`.
+          ...(tl === "icon" ? { glyph: currentIconGlyph() } : {}),
+        },
       };
       // Measurement tools are one-at-a-time, like TV's measure.
       const kept = EPHEMERAL_TOOLS.has(tl)
@@ -322,7 +365,7 @@ export function DrawingCanvas({
       const cleaned = drawingsRef.current.filter((d) => !EPHEMERAL_TOOLS.has(d.tool));
       if (cleaned.length !== drawingsRef.current.length) onChangeRef.current(cleaned);
     }
-    if (tool !== "cursor") setSelected(null);
+    if (!isCursorMode(tool)) setSelected(null);
   }, [tool]);
 
   // ── pointer handling (capture phase on the chart container) ───────────────
@@ -432,7 +475,7 @@ export function DrawingCanvas({
         return;
       }
 
-      if (t === "cursor") {
+      if (isCursorMode(t)) {
         const hit = hitTest(p);
         if (hit) {
           const d = drawingsRef.current.find((x) => x.id === hit.id)!;
@@ -511,12 +554,12 @@ export function DrawingCanvas({
         e.stopPropagation();
         return;
       }
-      if (toolRef.current === "cursor" && !hiddenRef.current) {
+      if (isCursorMode(toolRef.current) && !hiddenRef.current) {
         const hit = hitTest(p);
         hoverRef.current = hit?.id ?? null;
         container.style.cursor = hit ? "pointer" : "";
       } else {
-        container.style.cursor = toolRef.current === "cursor" ? "" : "crosshair";
+        container.style.cursor = isCursorMode(toolRef.current) ? "" : "crosshair";
       }
     };
 
@@ -595,7 +638,7 @@ export function DrawingCanvas({
       onDown(asMouse(e, touch));
       touchDrawing = draftRef.current !== before
         || dragRef.current !== null
-        || (toolRef.current !== "cursor" && toolRef.current !== "eraser");
+        || (!isCursorMode(toolRef.current) && toolRef.current !== "eraser");
     };
     const onTouchMove = (e: TouchEvent): void => {
       if (!touchDrawing || e.touches.length !== 1) return;
@@ -1275,6 +1318,11 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx, candles: Candle[] = []): n
     }
     case "text": case "note": case "priceNote": case "pin": case "comment": case "callout": case "pricelabel": case "signpost": case "flagMark":
       return Math.hypot(p.x - a.x, p.y - a.y) <= 40 ? 0 : Infinity;
+    // The glyph is painted centred on its anchor at 22px, so its own box is
+    // what can be grabbed — not the 40px reach the text tools need for a
+    // caption that trails off to the right of theirs.
+    case "icon":
+      return Math.max(Math.abs(p.x - a.x), Math.abs(p.y - a.y)) <= 14 ? 0 : Infinity;
     default:
       return Infinity;
   }
@@ -1710,6 +1758,33 @@ function drawOne(
       }
       if (d.tool === "flagMark") { line(a, { x: a.x, y: a.y - 24 }); ctx.beginPath(); ctx.moveTo(a.x, a.y - 24); ctx.lineTo(a.x + 22, a.y - 16); ctx.lineTo(a.x, a.y - 8); ctx.closePath(); ctx.fill(); }
       ctx.fillText(caption, a.x + 4, a.y);
+      break;
+    }
+    /*
+     * Zoom in, mid-drag. Nothing is ever committed with this tool, so this
+     * branch only ever draws the DRAFT: the band of time the release will
+     * become the viewport.
+     */
+    case "zoom": {
+      const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
+      fillAlpha(() => ctx.fillRect(x1, 0, x2 - x1, h), 0.12);
+      line({ x: x1, y: 0 }, { x: x1, y: h });
+      line({ x: x2, y: 0 }, { x: x2, y: h });
+      break;
+    }
+    case "icon": {
+      /*
+       * Text, not artwork: the glyph is a Unicode character the platform draws
+       * with its own emoji face, so it needs no asset, scales with the canvas
+       * and carries no third-party image.
+       */
+      ctx.font = "22px " + EMOJI_FONT;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = color;
+      ctx.fillText(d.style.glyph ?? "\u{1F600}", a.x, a.y);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
       break;
     }
     case "callout": {

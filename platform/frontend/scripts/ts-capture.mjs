@@ -2,31 +2,39 @@
 /**
  * Trading Scene live capture — the local half of the parity pair.
  *
- * Opens the REAL running product (default http://127.0.0.1:3000) in a
- * dedicated, persistent Chrome profile — the same profile the project's
- * `playwright-ts` MCP target uses, and never the TradingView one — at a fixed
- * viewport and theme, optionally performs a scripted interaction, then writes
- * a screenshot and, if asked, measured geometry for a list of selectors.
+ * Opens the REAL running product (default http://127.0.0.1:3000) in a fresh
+ * throwaway Chrome profile — never the TradingView one — at a fixed viewport
+ * and theme, optionally performs a scripted interaction, then writes a
+ * screenshot and, if asked, measured geometry for a list of selectors.
  *
  *   node scripts/ts-capture.mjs --out shell.png
  *   node scripts/ts-capture.mjs --route /chart --theme light --viewport 390x844 --out phone.png
  *   node scripts/ts-capture.mjs --click 'button[aria-label="Indicators"]' --out indicators.png
  *   node scripts/ts-capture.mjs --press / --out symbol-search.png
+ *   node scripts/ts-capture.mjs --click 'button[aria-label^="Change symbol"]' --type '[role="dialog"] input' BTC --out search.png
  *   node scripts/ts-capture.mjs --measure '[role="toolbar"]' --measure '[data-drawing-rail]' --json geometry.json
  *   node scripts/ts-capture.mjs --script ./actions.mjs --out after.png   # export default async (page) => {...}
  *
  * Every option is repeatable where it makes sense (`--click`, `--hover`,
- * `--press`, `--type sel=text`, `--wait ms`, `--measure`), applied in the
- * order given. Nothing here reaches the internet; the profile is created on
- * first use under ~/Library/Caches/ms-playwright/trading-scene.
+ * `--press`, `--type <sel> <text>`, `--wait ms`, `--measure`), applied in the
+ * order given. Nothing here reaches the internet.
  */
 import { chromium } from "playwright-core";
-import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 
-const PROFILE = resolve(homedir(), "Library/Caches/ms-playwright/trading-scene");
+/*
+ * A throwaway profile per run, not the shared `trading-scene` one.
+ *
+ * `launchPersistentContext` locks its profile directory, and two captures at
+ * once — a reviewer's and MAIN's — made the second one fail with the
+ * browser's "profile in use" error. Nothing a capture needs survives between
+ * runs: the theme is stated per run, and the state script drives the symbol
+ * and timeframe every time. The MCP target keeps the persistent profile.
+ */
+const PROFILE = mkdtempSync(resolve(tmpdir(), "ts-capture-"));
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** `.next/BUILD_ID` beside this script — what `next start` in this checkout serves. */
 const readBuildId = () => { try { return readFileSync(resolve(HERE, "../.next/BUILD_ID"), "utf8").trim(); } catch { return null; } };
@@ -50,7 +58,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (a === "--right-click") opt.steps.push({ kind: "rightclick", target: v() });
   else if (a === "--hover") opt.steps.push({ kind: "hover", target: v() });
   else if (a === "--press") opt.steps.push({ kind: "press", key: v() });
-  else if (a === "--type") { const [sel, ...rest] = v().split("="); opt.steps.push({ kind: "type", target: sel, text: rest.join("=") }); }
+  else if (a === "--type") { const target = v(); opt.steps.push({ kind: "type", target, text: v() }); }
   else if (a === "--wait") opt.steps.push({ kind: "wait", ms: Number(v()) });
   else if (a === "--measure") opt.measure.push(v());
   else { console.error(`unknown option ${a}`); process.exit(2); }
@@ -105,4 +113,5 @@ try {
   console.log(JSON.stringify({ out: opt.out, json: opt.json, url: result.url, buildId: result.buildId }));
 } finally {
   await context.close();
+  rmSync(PROFILE, { recursive: true, force: true });
 }

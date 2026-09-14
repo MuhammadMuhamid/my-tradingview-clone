@@ -69,13 +69,17 @@ test("the toolbar's primary row can give width back", () => {
   const strip = /ctl\("timeframe"\)[\s\S]{0,400}?className="([^"]*)"/.exec(bar);
   assert.ok(strip, "the timeframe strip could not be located");
 
-  // `flex-none` pinned the absorber at its content width, which made the whole
-  // row incompressible: with the 341px trading panel open the row overflowed
-  // the main column and painted the saved-layout button over the ticket header.
-  assert.doesNotMatch(strip[1]!, /\bsm:flex-none\b/,
-    "the one element allowed to absorb width pressure must not be flex-none");
-  assert.match(strip[1]!, /\bmin-w-0\b/);
-  assert.match(strip[1]!, /\bsm:flex-initial\b/);
+  /*
+   * TVP8 (owner veto R1-03): the timeframe strip is no longer the row's
+   * absorber. The toolbar is the workstation's first full-width row, so
+   * nothing narrows it at desktop widths, and the favourites strip — the
+   * thing a trader aims at — must never clip (`1h 4 ⌄` at 1440 was the
+   * defect). The wrapper is `shrink-0`; the SYMBOL pill truncates below `sm`,
+   * and the saved-layout name below.
+   */
+  assert.match(strip[1]!, /\bshrink-0\b/, "the timeframe strip must not be squeezable");
+  assert.doesNotMatch(strip[1]!, /\bmin-w-0\b|\bsm:flex-initial\b|\bflex-1\b/,
+    "a shrinkable wrapper lets the favourites clip mid-glyph");
 
   // The strip alone was 6px short at 1024 with the ticket open. The saved-layout
   // name is the row's second absorber and must be able to truncate.
@@ -83,7 +87,9 @@ test("the toolbar's primary row can give width back", () => {
   assert.ok(saved, "the saved-layout identity could not be located");
   assert.doesNotMatch(saved[1]!, /\bshrink-0\b/);
   assert.match(saved[1]!, /\bmin-w-0\b/);
-  assert.match(read("components/tv/LayoutMenu.tsx"), /min-w-0 max-w-\[130px\] truncate/);
+  // TVP8 R1-07: the name is now on the bar at every width from `sm` up, so it
+  // absorbs more of the row and is allowed a little more of it (130 -> 160).
+  assert.match(read("components/tv/LayoutMenu.tsx"), /min-w-0 max-w-\[160px\] truncate/);
 });
 
 test("the feed-state badge is not drawn over the price scale", () => {

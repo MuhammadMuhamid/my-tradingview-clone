@@ -27,7 +27,10 @@ after(closeBrowser);
 
 /** Open the toolbar's timeframe picker and return its menu. */
 async function openPicker(container: HTMLElement): Promise<HTMLElement> {
-  const button = container.querySelector<HTMLElement>('button[aria-label*="All timeframes"]')
+  // The trigger is a bare 24px caret with no text at any width, so it is found
+  // by its accessible name — `Chart interval — all timeframes` — and never by
+  // what it prints.
+  const button = container.querySelector<HTMLElement>('button[aria-label^="Chart interval"]')
     ?? container.querySelector<HTMLElement>('button[title="All timeframes"]');
   assert.ok(button, "the toolbar has no timeframe picker");
   fireEvent.click(button);
@@ -56,19 +59,38 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
   const strip = chart.container.querySelector<HTMLElement>('[role="group"][aria-label="Timeframe"]');
   assert.ok(strip, "the toolbar has no timeframe group");
   /*
-   * The picker's own trigger lives inside this group and is excluded: at
-   * desktop widths it is a bare caret, but below `sm` the strip is not
-   * rendered at all and the trigger names the armed resolution instead, so its
-   * text IS a resolution in the DOM. jsdom applies no CSS and cannot tell the
-   * two widths apart. `aria-haspopup` is the thing that actually separates a
-   * favourite from the way into the catalogue.
+   * The picker's own trigger lives inside this group and is excluded by
+   * `aria-haspopup`: it is a bare caret with no text at any width, and
+   * `aria-haspopup` is what separates a favourite from the way into the
+   * catalogue whatever it happens to be printing.
    */
   const stripButtons = [...strip.querySelectorAll<HTMLElement>("button")]
     .filter((b) => b.getAttribute("aria-haspopup") !== "menu")
     .map((b) => (b.textContent ?? "").trim())
-    .filter((t) => /^\d+[smhd]$/.test(t));
-  assert.deepEqual(stripButtons, ["1m", "5m", "15m", "1h", "4h", "1d"],
+    .filter((t) => /^\d+[smhd]$/i.test(t));
+  /*
+   * `1D`, not `1d`: the reference writes day-and-longer resolutions uppercase
+   * and sub-day lowercase, so `1M` (a month) can never be read as `1m` (a
+   * minute) on a 29px chip. The canonical id is unchanged and still `1d` —
+   * see the chips' `data-resolution`.
+   */
+  assert.deepEqual(stripButtons, ["1m", "5m", "15m", "1h", "4h", "1D"],
     "a new user's strip is the six the toolbar has always shown");
+  assert.deepEqual(
+    [...strip.querySelectorAll<HTMLElement>("button[data-resolution]")]
+      .map((b) => b.getAttribute("data-resolution")),
+    ["1m", "5m", "15m", "1h", "4h", "1d"],
+    "the chip's label is presentation; its resolution id is not");
+
+  // The trigger says nothing. TradingView's is a 24px caret, and the word
+  // "Timeframe" on ours was the thing that made the strip clip at 1440.
+  const trigger = strip.querySelector<HTMLElement>('button[aria-haspopup="menu"]');
+  assert.ok(trigger, "the group has no way into the catalogue");
+  assert.equal((trigger.textContent ?? "").trim(), "",
+    "the interval trigger must print no label at any width");
+  assert.equal(trigger.getAttribute("title"), "All timeframes");
+  assert.equal(trigger.getAttribute("aria-pressed"), null,
+    "a menu button is not a toggle");
 
   const menu = await openPicker(chart.container);
   const offered = [...menu.querySelectorAll<HTMLElement>('button[role="menuitemradio"]')]
@@ -189,6 +211,23 @@ test("a custom interval can be typed, is applied, and is remembered", async () =
 
   assert.equal(armedInterval(chart.container), "7m");
   assert.ok(candleCallsFor("7m").length >= 1, "the custom resolution was not loaded");
+
+  /*
+   * A resolution no favourite carries still gets a chip.
+   *
+   * The trigger used to print it, which is how one control ended up meaning
+   * two things. TradingView appends the armed interval to the strip instead,
+   * pressed, immediately before the caret — so "which timeframe am I on" is
+   * answerable by looking at the chips and nowhere else.
+   */
+  const group = chart.container
+    .querySelector<HTMLElement>('[role="group"][aria-label="Timeframe"]')!;
+  const armedChip = group.querySelector<HTMLElement>('button[data-resolution="7m"]');
+  assert.ok(armedChip, "the armed custom resolution has no chip on the bar");
+  assert.equal(armedChip.getAttribute("aria-pressed"), "true");
+  assert.equal((armedChip.textContent ?? "").trim(), "7m");
+  assert.ok(armedChip.nextElementSibling?.querySelector('button[aria-haspopup="menu"]'),
+    "the armed chip must sit immediately before the caret");
 
   // It is kept, under Custom, so it costs one click the next time.
   const reopened = await openPicker(chart.container);

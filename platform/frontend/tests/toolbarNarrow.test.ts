@@ -58,14 +58,10 @@ test("COMPARE HAS BOTH HOMES, AND ONE IMPLEMENTATION BEHIND THEM", () => {
     "two copies of a control is two things to keep in step");
   assert.equal((code.match(/ctl\("compare"\)/g) ?? []).length, 1);
 
-  /*
-   * Icon-only beside the symbol, labelled in the More strip — the same
-   * asymmetry Indicators and Replay already have. `labelClass` carries it,
-   * so the caller decides and the button does not guess from a breakpoint.
-   */
-  assert.match(code,
-    /className=\{`\$\{props\.labelClass \? TOOL_BUTTON : TOOL_ICON_BUTTON\} \$\{props\.className\}`\}/);
-  assert.match(code, /\{props\.labelClass && <span className=\{props\.labelClass\}>Compare<\/span>\}/);
+  // Icon-only in both places (TVP8: the reference's bar has no text labels);
+  // the caller decides the placement class and the button does not guess
+  // from a breakpoint.
+  assert.match(code, /className=\{`\$\{TOOL_ICON_BUTTON\} \$\{props\.className\}`\}/);
 });
 
 test("the More strip is where every overflowing control goes", () => {

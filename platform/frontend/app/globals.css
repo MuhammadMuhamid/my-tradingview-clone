@@ -49,6 +49,17 @@
   --ts-surface-3: #2e2e2e;
   --ts-line: #2e2e2e;
   --ts-line-strong: #4a4a4a;
+  /*
+   * The hairline between the drawing rail's blocks.
+   *
+   * Measured on the reference at 1440x900 dark: 1px x 36px, luminance 74
+   * (#4a4a4a), centred in a 13px cell gap. `--ts-line` (46) was what the rail
+   * used, and at that value the three blocks the rail is built from did not
+   * read as separated at all. It is its own token rather than `--ts-line-strong`
+   * because the light theme's strong line is #ebebeb, which is a divider on a
+   * white sheet and a ghost on the rail.
+   */
+  --ts-rail-separator: #4a4a4a;
   --ts-ink: #dbdbdb;
   --ts-ink-muted: #a8a8a8;
   --ts-ink-faint: #8c8c8c;
@@ -208,6 +219,7 @@
   --ts-state-hover: #f2f2f2;
   --ts-state-active: #ebebeb;
   --ts-line-strong: #ebebeb;
+  --ts-rail-separator: #d1d1d1;
   --ts-popover: #ffffff;
   --ts-popover-shadow: 0 2px 4px rgba(0, 0, 0, 0.16);
   --ts-control-border: #c9c9c9;
@@ -405,6 +417,32 @@
   height: 1px;
   margin: var(--ts-workstation-popover-padding);
   background-color: var(--ts-line-strong);
+}
+
+/*
+ * ── `.tvc-menu-heading`: the section label inside a flyout ──────────────────
+ *
+ * Measured in the reference's Trend-tools flyout at 1440x900 dark: the
+ * hairline sits 6px below the previous row (which is what `.tvc-menu-sep`
+ * already does), and the heading occupies a 30px row below it — about 11px,
+ * uppercase, letter-spaced, #8c8c8c, its left edge 15px from the menu's edge.
+ * A 37px block in total, and the reason a seventeen-row flyout can be scanned
+ * at all.
+ *
+ * The first section of a group carries NO heading: the reference shows none
+ * above "Trendline", because the group's own name is already on the cell the
+ * flyout opened from.
+ */
+:is(.tv-workstation, .ts-app) .tvc-menu-heading {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  margin: 0 var(--ts-workstation-popover-padding);
+  padding: 0 9px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ts-ink-faint);
 }
 
 /*

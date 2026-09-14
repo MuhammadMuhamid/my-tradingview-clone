@@ -65,7 +65,7 @@ test("a bare letter arms its tool when nothing is focused", async () => {
   assert.equal(armedTool(chart.container), "Cross");
 
   await press("t", {}, document.body);
-  assert.equal(armedTool(chart.container), "Trend line",
+  assert.equal(armedTool(chart.container), "Trendline",
     "t is the trend tool, and the workspace listener is what makes it so");
 
   await press("h", {}, document.body);
@@ -86,12 +86,12 @@ test("no shortcut fires while the user is typing, and the field keeps the key", 
 
   input.blur();
   await press("t", {}, document.body);
-  assert.equal(armedTool(chart.container), "Trend line");
+  assert.equal(armedTool(chart.container), "Trendline");
 });
 
 test("a surface that owns its keys keeps Cmd+Z, so undo cannot reach the chart", async () => {
   const chart = await mountChart();
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
   assert.equal(drawingStore.get(SYMBOL).length, 1);
 
@@ -166,7 +166,7 @@ test("a bare unit letter is still its tool, because no interval is being typed",
 test("a tool key that cannot continue an interval clears the half-typed buffer", async () => {
   const chart = await mountChart();
   await pressAll(["1", "5", "t"]);
-  assert.equal(armedTool(chart.container), "Trend line");
+  assert.equal(armedTool(chart.container), "Trendline");
 
   // The `15` must not still be waiting behind the tool change: pressing Enter
   // now would otherwise silently change timeframe.

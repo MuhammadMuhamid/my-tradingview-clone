@@ -373,9 +373,20 @@ test("the platform modifier is honoured, and a foreign one is left to the browse
     null, "Ctrl+Z on a Mac is not this app's undo");
   assert.equal(resolveShortcut(key({ key: "z", ctrlKey: true }), { mac: false, replayActive: false }),
     "undo");
-  // Alt combinations belong to the browser and the OS: Alt+← is Back.
+  /*
+   * Alt combinations no binding claims still belong to the browser and the OS:
+   * Alt+← is Back. The refusal is a consequence of the table rather than a
+   * rule above it, so the two directions are both checked — a chord the table
+   * DOES claim resolves, and its unmodified twin still resolves to the bare
+   * binding.
+   */
   assert.equal(resolveShortcut(key({ key: "ArrowLeft", altKey: true }),
     { mac: true, replayActive: true }), null);
+  assert.equal(resolveShortcut(key({ key: "t", altKey: true }), CONTEXT), "tool:trend",
+    "the reference's ⌥T arms the trendline");
+  assert.equal(resolveShortcut(key({ key: "t" }), CONTEXT), "tool:trend");
+  assert.equal(resolveShortcut(key({ key: "b", altKey: true }), CONTEXT), null,
+    "an Alt chord no binding claims is still the browser's");
   // A bare tool letter arriving with the modifier held is a browser command.
   assert.equal(resolveShortcut(key({ key: "t", metaKey: true }), CONTEXT), null,
     "Cmd+T opens a browser tab; taking it would be hostile");
@@ -419,8 +430,23 @@ test("both redo bindings resolve, and every binding is reachable", () => {
       ? [binding.shift === true]
       : [true, false];
     for (const shiftKey of shifts) {
+      /*
+       * `altKey` comes from the binding now.
+       *
+       * The reference prints ⌥-chords on its drawing rows — ⌥T, ⌥H, ⌥F — so
+       * the table can express one, and `resolveShortcut` matches Alt binding
+       * by binding instead of refusing every Alt press above the loop. An
+       * event synthesised with `altKey: false` for an Alt binding is an event
+       * no keyboard emits, which is the exact mistake the `?` note below this
+       * one records.
+       */
       const resolved = resolveShortcut(
-        key({ key: binding.key, metaKey: binding.mod === true, shiftKey }),
+        key({
+          key: binding.key,
+          metaKey: binding.mod === true,
+          altKey: binding.alt === true,
+          shiftKey,
+        }),
         { mac: true, replayActive: true });
       assert.ok(resolved !== null,
         `${binding.label} (${binding.key}${shiftKey ? " with shift" : ""}) resolves to nothing`);

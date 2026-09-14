@@ -26,6 +26,7 @@
  * instrument. It reports events upwards tagged with its own id; it never
  * reaches for another pane.
  */
+import type { MagnetMode } from "@/components/tv/DrawingToolbar";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { CandleChart, type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
@@ -110,7 +111,7 @@ export interface ChartPaneProps {
   // ── drawing tools, which are workspace-wide controls ──
   drawingTool: DrawingTool;
   onDrawingToolDone: () => void;
-  magnet: boolean;
+  magnet: MagnetMode;
   drawingsLocked: boolean;
   drawingsHidden: boolean;
 
@@ -146,6 +147,8 @@ export interface ChartPaneProps {
   /** Bumped by the workspace to refit this pane. */
   resetSignal?: number;
   goTo?: { time: number; signal: number } | null;
+  /** Open the go-to-date dialog — the range row's calendar button, one click. */
+  onGoToDate?: () => void;
   /** Bumped to move focus into the selected drawing's style bar. */
   drawingStyleFocusSignal?: number;
   /** This pane's comparison changed. Never synced to other panes. */
@@ -1068,6 +1071,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 ? (next) => props.onPriceScaleChange?.(paneId, next) : undefined}
             resetSignal={props.resetSignal}
             goTo={props.goTo}
+            onGoToDate={props.onGoToDate}
             drawingStyleFocusSignal={props.drawingStyleFocusSignal}
             paneActive={props.active}
             /*

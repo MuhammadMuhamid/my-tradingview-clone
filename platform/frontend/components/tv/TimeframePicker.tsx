@@ -39,11 +39,12 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
   CUSTOM_KEY, CUSTOM_UNITS, DEFAULT_FAVOURITES, FAVOURITES_KEY, MAX_CUSTOM,
   CATALOGUE_RESOLUTIONS, MAX_FAVOURITES, MAX_RECENTS, RECENTS_KEY, RESOLUTION_CATALOGUE,
-  addCustom, isFavourite, parseCustomEntry, parseStoredResolutions, recordRecent,
-  removeCustom, timeframeStrip, toggleFavourite, type CustomUnit,
+  addCustom, chipLabel, isFavourite, parseCustomEntry, parseStoredResolutions,
+  recordRecent, removeCustom, timeframeStrip, toggleFavourite, type CustomUnit,
 } from "@/lib/timeframes";
 import { describeResolution, explainResolution, parseResolution, type Resolution } from "@/lib/resolution";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { TOOL_CARET_BUTTON } from "@/components/tv/toolbarChrome";
 
 /**
  * Read a stored list without letting a corrupt entry take the page down.
@@ -488,12 +489,61 @@ export interface TimeframePickerProps {
 }
 
 /**
- * The favourites strip plus the picker button.
+ * One chip on the favourites strip.
  *
- * The strip is the row's compressible element — it scrolls rather than pushing
- * the controls beside it off the bar, which is what keeps the toolbar a single
- * row at every width. The picker button sits OUTSIDE that scrolling box on
- * purpose: a popover inside an `overflow-x-auto` container is clipped by it.
+ * `data-resolution` carries the canonical id beside the printed label because
+ * they are deliberately not the same string: the reference writes a day as
+ * `1D` and a minute as `1m`, while every request, persisted pane and test
+ * names `1d`. Anything reading the strip programmatically reads the id.
+ */
+function StripChip(props: {
+  resolution: Resolution;
+  armed: boolean;
+  onPick: (resolution: Resolution) => void;
+}) {
+  return (
+    <button
+      data-resolution={props.resolution}
+      onClick={() => props.onPick(props.resolution)}
+      aria-pressed={props.armed}
+      title={explainResolution(props.resolution)}
+      className={`tvc-control flex h-[38px] shrink-0 items-center px-1.5 text-sm ${
+        props.armed ? "text-ink" : "text-ink-muted hover:text-ink"
+      }`}
+    >
+      {chipLabel(props.resolution)}
+    </button>
+  );
+}
+
+/**
+ * The favourites strip, the armed chip, and the caret that opens the rest.
+ *
+ * ── R1-03: the strip stopped being the row's absorber above `sm` ───────────
+ *
+ * It was, and the owner's own 1440 screenshot is what it cost: the wrapper
+ * measured 150px while holding 194px of chips, so the bar read `1h 4 ⌄` — one
+ * favourite cut in half mid-glyph and the next one parked underneath the caret
+ * at x=440. A control that silently drops part of what it was asked to show is
+ * worse than one that is not there, because nothing on the screen says so.
+ *
+ * So from `sm` up the strip is `shrink-0`: it takes its content width and
+ * gives none of it back. The `overflow-x-auto` survives only BELOW `md`, where
+ * a small tablet can genuinely be narrower than six chips plus a symbol
+ * control and a scroller is still better than an overlap. At every width this
+ * product targets — 1280 and up — the strip's scrollWidth is its clientWidth
+ * and nothing about it moves.
+ *
+ * ── Why the trigger is a bare caret ───────────────────────────────────────
+ *
+ * It used to print the word "Timeframe" (or, below `sm`, the armed
+ * resolution), and both were wrong for the same reason: the reference draws a
+ * 24px caret there and nothing else, and a control that sometimes names a
+ * category and sometimes names a value is two controls sharing one box. The
+ * armed resolution is now always a CHIP — its own favourite when it has one,
+ * and an extra pressed chip immediately before the caret when it does not
+ * (a starred-away `1h`, a typed `45m`). That is the reference's behaviour and
+ * it keeps "which timeframe am I on" answerable by looking at the chips alone.
  *
  * ── FC2-B1: why the strip is not rendered on a phone ───────────────────────
  *
@@ -510,20 +560,22 @@ export interface TimeframePickerProps {
  * middle of a visible label opened a different menu — a functional break, and
  * an accessibility one, on the primary mobile toolbar of the primary surface.
  *
- * Two changes fix it, and both are needed:
+ * Two things keep that fixed, and both are still here:
  *
- *   1. The wrapper is only flexible from `sm` up. Below that it sizes to its
- *      content, so it can never be smaller than the button inside it.
+ *   1. Nothing in this control may shrink. The wrapper and everything in it
+ *      are `shrink-0`, so no box on this bar can ever be squeezed narrower
+ *      than the button inside it. (This used to hold only below `sm`; R1-03
+ *      made it true at every width, which is strictly stronger.)
  *   2. The quick strip itself is hidden below `sm`. Six 44px touch targets
  *      cannot share a 390px row with a symbol, a presentation menu and an
- *      overflow control, and the honest answer at that width is the picker —
+ *      overflow control, and the honest answer at that width is the caret —
  *      which reaches every resolution rather than six of them.
  *
- * Because the strip is gone there, the picker button stops saying "Timeframe"
- * and says the CURRENT resolution instead, which is both narrower and more
- * useful: on a phone it is the only thing on the bar that names the timeframe.
- * Both labels are rendered and CSS chooses, so there is no second source of
- * truth and no hydration branch.
+ * What a phone loses with the word gone is a label naming the armed
+ * resolution on the BAR. It has not lost the fact: the pane legend states it
+ * (`LegendTimeframe`, above), which is where the reference states it too, and
+ * an armed resolution that is not a favourite still renders its own chip here
+ * at every width.
  *
  * The row's remaining give comes from the symbol button in `ChartToolbar`,
  * which truncates. That is what keeps the guarantee — no two interactive boxes
@@ -549,24 +601,28 @@ export function TimeframePicker(props: TimeframePickerProps) {
     <div
       role="group"
       aria-label="Timeframe"
-      className={props.className ?? "flex shrink-0 items-center sm:min-w-0 sm:flex-initial"}
+      className={props.className ?? "flex shrink-0 items-center"}
     >
-      <div className="no-scrollbar hidden min-w-0 items-center overflow-x-auto sm:flex">
+      <div className="no-scrollbar hidden min-w-0 shrink-0 items-center overflow-x-auto sm:flex md:overflow-x-visible">
         {strip.quick.map((i) => (
-          <button key={i} onClick={() => pick(i)}
-            aria-pressed={interval === i}
-            title={explainResolution(i)}
-            className={`tvc-control flex h-[38px] shrink-0 items-center px-1.5 text-sm ${
-              interval === i ? "text-ink" : "text-ink-muted hover:text-ink"
-            }`}>
-            {i}
-          </button>
+          <StripChip key={i} resolution={i} armed={interval === i} onPick={pick} />
         ))}
       </div>
 
       {/*
-        The picker button sits OUTSIDE the scrolling strip on purpose: a popover
-        inside an `overflow-x-auto` container is clipped by it.
+        The armed resolution, when no favourite carries it.
+
+        Outside the scroller and rendered at every width, including below `sm`
+        where the strip is not: a chart on a resolution nothing on the bar
+        names is the state this chip exists to prevent.
+      */}
+      {strip.armedChip !== null && (
+        <StripChip resolution={strip.armedChip} armed onPick={pick} />
+      )}
+
+      {/*
+        The caret sits OUTSIDE the scrolling strip on purpose: a popover inside
+        an `overflow-x-auto` container is clipped by it.
       */}
       <div ref={boxRef} className="relative shrink-0">
         <button
@@ -574,48 +630,18 @@ export function TimeframePicker(props: TimeframePickerProps) {
           onClick={() => setOpen(!open)}
           aria-expanded={open}
           aria-haspopup="menu"
-          aria-pressed={strip.currentInQuick ? undefined : true}
           title="All timeframes"
           /*
-           * `aria-pressed` only when this button IS the armed chip.
-           *
-           * It used to be present unconditionally, as `!currentInQuick`, so on
-           * an ordinary chart the control announced itself as an unpressed
-           * toggle as well as a menu button — two contradictory roles. It is
-           * neither when the strip already shows the armed resolution: then
-           * this is purely the way into the rest of the catalogue, and the
-           * pressed state belongs to the strip button that is actually on.
-           *
-           * When the armed resolution is NOT a favourite, nothing in the strip
-           * can carry it and this button becomes the chip that does — which is
-           * what the attribute is for.
+           * No `aria-pressed`. It used to be set when this button was standing
+           * in for the armed chip, so the control announced itself as a toggle
+           * AND as a menu button — two contradictory roles on one box. The
+           * armed chip is a chip now, and this is only ever the way into the
+           * catalogue.
            */
-          aria-label={`Timeframe — currently ${interval}. All timeframes`}
-          className={`tvc-control flex h-[38px] shrink-0 items-center gap-1 px-1.5 text-sm ${
-            strip.currentInQuick ? "text-ink-muted hover:text-ink" : "font-semibold text-ink"
-          } sm:px-0 sm:font-normal`}
+          aria-label="Chart interval — all timeframes"
+          className={TOOL_CARET_BUTTON}
         >
-          {/*
-            Below `sm` the favourites strip is not rendered, so this control is
-            the only thing on the bar that says what resolution the chart is on.
-            It names it. From `sm` up the strip is back and shows the armed
-            resolution itself, so the button goes back to being the way into
-            the rest of the catalogue and says so.
-
-            The two variants are only needed when the strip HAS the current
-            resolution — otherwise `menuLabel` is already the resolution and
-            both widths want the same string. Rendering one span in that case
-            is not a micro-optimisation: two spans put the text in the
-            accessible name twice ("45m45m"), because CSS is what hides one of
-            them and an accessibility tree is not styled.
-          */}
-          {strip.currentInQuick ? (
-            <span aria-hidden="true" className="font-semibold sm:hidden">{interval}</span>
-          ) : (
-            <span aria-hidden="true" className="font-semibold">{strip.menuLabel}</span>
-          )}
-          <svg width="9" height="9" viewBox="0 0 10 10" fill="none"
-            className="shrink-0 text-ink-faint sm:mx-[7.5px]" aria-hidden="true">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
             <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>

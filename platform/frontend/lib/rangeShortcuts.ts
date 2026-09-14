@@ -122,6 +122,35 @@ export function availableRangeShortcuts(window_: LoadedWindow): RangeShortcut[] 
   return RANGE_SHORTCUTS.filter((shortcut) => rangeShortcutAvailable(shortcut, window_));
 }
 
+/** One row button: the shortcut, and whether this pane can honour it. */
+export interface RangeShortcutChoice {
+  shortcut: RangeShortcut;
+  enabled: boolean;
+}
+
+/**
+ * The whole row, always — nine buttons, with the unreachable ones disabled.
+ *
+ * TVP8 R1-11. The row used to be `availableRangeShortcuts()`, so a pane loaded
+ * at 1m simply had no `1Y` button and a pane loaded at 1D had no `1D` button.
+ * The set of buttons therefore CHANGED as the user changed timeframe, and the
+ * one the eye was aiming at moved out from under the pointer; worse, a row
+ * that is sometimes eight wide and sometimes nine reads as a row that has lost
+ * something rather than as a chart that cannot reach that far back.
+ *
+ * The rule this module exists to hold is untouched: `enabled` is still
+ * `rangeShortcutAvailable`, `resolveRangeShortcut` still refuses the same
+ * windows, and a disabled button cannot be pressed. What changed is only that
+ * the refusal is now VISIBLE — a greyed `1Y` says "not with this much history"
+ * where an absent `1Y` said nothing at all.
+ */
+export function rangeShortcutChoices(window_: LoadedWindow | null): RangeShortcutChoice[] {
+  return RANGE_SHORTCUTS.map((shortcut) => ({
+    shortcut,
+    enabled: window_ !== null && rangeShortcutAvailable(shortcut, window_),
+  }));
+}
+
 /**
  * The visible window a shortcut resolves to, or null when it cannot be
  * honoured.

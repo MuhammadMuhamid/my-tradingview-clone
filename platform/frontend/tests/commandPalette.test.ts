@@ -23,11 +23,37 @@ import { BINDINGS } from "../lib/shortcuts";
 const ROOT = path.join(__dirname, "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
 
-/** The rail's taxonomy, read the way the component does. */
+/**
+ * The rail's taxonomy, read the way the component declares it.
+ *
+ * TVP8 round three: a group's tools sit inside `sections` — the reference's
+ * own "Lines", "Channels", "Pitchforks" — and the "— click a drawing to delete
+ * it" half of a label moved to a `hint`, because in a fixed-width menu it
+ * rendered as an ellipsis. `buildCommands` flattens the sections and keeps the
+ * hint searchable; both are asserted below.
+ */
 const GROUPS = [
-  { id: "cursors", tools: [{ tool: "cursor", label: "Cross" }, { tool: "eraser", label: "Eraser — click a drawing to delete it" }] },
-  { id: "trend-line", tools: [{ tool: "trend", label: "Trend line" }, { tool: "hline", label: "Horizontal line" }] },
-  { id: "gann-and-fibonacci", tools: [{ tool: "fib", label: "Fib retracement" }, { tool: "fibWedge", label: "Fib wedge" }] },
+  {
+    id: "cursors",
+    sections: [{ tools: [
+      { tool: "cursor", label: "Cross" },
+      { tool: "eraser", label: "Eraser", hint: "Click a drawing to delete it" },
+    ] }],
+  },
+  {
+    id: "trend-line",
+    sections: [
+      { tools: [{ tool: "trend", label: "Trendline" }] },
+      { heading: "Channels", tools: [{ tool: "hline", label: "Horizontal line" }] },
+    ],
+  },
+  {
+    id: "gann-and-fibonacci",
+    sections: [{ tools: [
+      { tool: "fib", label: "Fib retracement" },
+      { tool: "fibWedge", label: "Fib wedge" },
+    ] }],
+  },
 ];
 
 test("the palette indexes every drawing, study, chart type and action", () => {
@@ -93,8 +119,8 @@ test("an exact name outranks a prefix, and a prefix outranks a substring", () =>
   const commands = buildCommands(GROUPS, true);
   const byLabel = (label: string) => commands.find((c) => c.label === label)!;
 
-  assert.equal(scoreCommand(byLabel("Trend line"), "trend line"), 4);
-  assert.equal(scoreCommand(byLabel("Trend line"), "trend"), 3);
+  assert.equal(scoreCommand(byLabel("Trendline"), "trendline"), 4);
+  assert.equal(scoreCommand(byLabel("Trendline"), "trend"), 3);
   assert.equal(scoreCommand(byLabel("Fib retracement"), "retracement"), 2);
   assert.equal(scoreCommand(byLabel("Fib wedge"), "edge"), 1);
   assert.equal(scoreCommand(byLabel("Fib wedge"), "gann"), 0, "its group is a keyword");

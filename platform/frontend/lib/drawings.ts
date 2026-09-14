@@ -14,7 +14,29 @@ import { isResolution, type Resolution } from "./resolution";
 
 export type DrawingTool =
   // cursors / modes
-  | "cursor" | "dot" | "eraser"
+  //
+  // `arrowCursor` is the reference's second cursor: it selects and drags
+  // exactly as `cursor` does and differs only in the pointer it paints, which
+  // is why it is a MODE here and not a shape — see `isCursorMode`.
+  | "cursor" | "dot" | "arrowCursor" | "eraser"
+  /*
+   * Zoom in — a gesture, not a drawing.
+   *
+   * It is in this union because the union is the only channel the rail has to
+   * the canvas: the rail arms a tool, the canvas reads it. Dragging with it
+   * armed selects a span of time and hands it to the chart's own
+   * `setVisibleRange`; nothing is committed to the drawing list, which is why
+   * `TOOL_POINTS.zoom` is two (a drag) and no renderer branch exists for it.
+   */
+  | "zoom"
+  /*
+   * A Unicode emoji placed at one anchor.
+   *
+   * The glyph itself travels on `style.glyph` rather than in the tool id,
+   * because otherwise every emoji in the picker would be its own member of
+   * this union and its own key in every record that is exhaustive over it.
+   */
+  | "icon"
   // lines
   | "trend" | "trendAngle" | "infoline" | "ray" | "extended" | "arrow" | "hline" | "hray" | "vline" | "crossline"
   | "parallel" | "disjointChannel" | "pitchfork"
@@ -68,6 +90,8 @@ export interface DrawingStyle {
   /** shapes: translucent interior */
   filled?: boolean;
   text?: string;
+  /** `icon`: the Unicode emoji this drawing paints at its anchor. */
+  glyph?: string;
   /**
    * Anchored VWAP: how many standard-deviation bands to draw either side.
    *
@@ -141,9 +165,67 @@ export const FILLABLE_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>([
   "rect", "rotatedRectangle", "ellipse", "circle", "triangle", "sector",
 ]);
 
+/**
+ * The tools that SELECT rather than draw.
+ *
+ * TVP8: the canvas asked `tool === "cursor"` in four places to decide whether
+ * a press selects a drawing or starts one. A second cursor mode would have
+ * been a drawing tool with no anchors — a press that armed a freeform draft
+ * nothing could finish — so the question is asked of this set instead, and
+ * adding a third cursor is one line here rather than four there.
+ */
+export const CURSOR_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>([
+  "cursor", "arrowCursor",
+]);
+
+export const isCursorMode = (tool: DrawingTool): boolean => CURSOR_TOOLS.has(tool);
+
+/**
+ * The glyphs the Icons cell offers.
+ *
+ * Unicode characters, drawn by the platform's own emoji face: no artwork is
+ * bundled and none is borrowed, which is also why the canvas can paint one
+ * with a single `fillText`. They live here rather than in the rail because
+ * they are a drawing's CONTENT — the same kind of value as a trendline's
+ * colour — and because a pictograph inside a `.tsx` is a control glyph as far
+ * as the product's icon rule is concerned, and it is right about that.
+ */
+export const ICON_GLYPHS: readonly string[] = [
+  "😀", "😉", "😎", "🤔", "😐", "😮", "😱", "😡",
+  "👍", "👎", "👀", "🙏", "💪", "✋", "👆", "👇",
+  "❤️", "💔", "⭐", "✨", "🔥", "💥", "⚡", "☀️",
+  "🌙", "☁️", "🌊", "❄️", "🎯", "🏁", "🚀", "🛑",
+  "⚠️", "❗", "❓", "✅", "❌", "🔒", "🔑", "💡",
+  "📈", "📉", "📊", "💰", "💎", "🐂", "🐻", "🦈",
+  "⏰", "⏳", "📌", "📎", "🔔", "🔍", "🧲", "🧠",
+];
+
+/**
+ * The emoji the next `icon` drawing will carry.
+ *
+ * The rail arms a tool through one `(tool) => void` callback that the whole
+ * page, the command palette and the keyboard layer share; widening it to
+ * carry a payload for one tool would touch every caller. This is the payload,
+ * written by the icon picker and read once by the canvas at the moment it
+ * commits — a default so that arming `icon` from the palette, where no glyph
+ * was chosen, still places something.
+ */
+let pendingIconGlyph = "😀";
+
+export function armIconGlyph(glyph: string): void {
+  if (glyph) pendingIconGlyph = glyph;
+}
+
+export function currentIconGlyph(): string {
+  return pendingIconGlyph;
+}
+
 export const TOOL_POINTS: Record<DrawingTool, number> = {
-  cursor: 0, eraser: 0,
-  dot: 1,
+  cursor: 0, arrowCursor: 0, eraser: 0,
+  // Two anchors, because the gesture is a drag across a span of time. Nothing
+  // is committed: `DrawingCanvas` reads the span and moves the viewport.
+  zoom: 2,
+  dot: 1, icon: 1,
   trend: 2, trendAngle: 2, infoline: 2, ray: 2, extended: 2, arrow: 2,
   hline: 1, hray: 1, vline: 1, crossline: 1,
   parallel: 3, disjointChannel: 3, pitchfork: 3,

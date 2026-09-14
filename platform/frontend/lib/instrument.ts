@@ -264,17 +264,29 @@ export function displaySymbol(raw: string): string {
  * A canonical FX id rendered through `displaySymbol` reads
  * `OANDA:EUR/USD · FX`: 184px of chrome spent restating three things the chart
  * header already says, in a control whose job is to say WHICH instrument. The
- * same id here is `EUR/USD`. Dated series keep their expiry, because two
+ * same id here is `EURUSD`. Dated series keep their expiry, because two
  * contracts on the same underlying are genuinely different instruments and a
- * bare `BTC/USD` would name both.
+ * bare `BTCUSD` would name both.
  *
  * Legacy bare tickers are unchanged: `BTCUSDT` was already the ticker.
  */
 export function displayTicker(raw: string): string {
   const canonical = canonicalDisplayParts(raw);
   if (canonical) {
-    const pair = `${canonical.base}/${canonical.quote}`;
-    return canonical.expiry ? `${pair} ${canonical.expiry}` : pair;
+    /*
+     * TVP8 owner veto (OV-B, R1-08): the reference writes a ticker the way
+     * the venue lists it — `BTCUSDT`, `EURUSD`, `AAPL` — with no slash. The
+     * slash form read as a different product in the one control a user
+     * aims at first, and in every watchlist row. Pairs concatenate; an
+     * equity, an index or a commodity is its root alone; a perpetual keeps
+     * the `.P` suffix the reference uses; a dated series keeps its expiry,
+     * because two contracts on one underlying are different instruments.
+     */
+    const single = canonical.type === "stock" || canonical.type === "etf" ||
+      canonical.type === "index" || canonical.type === "commodity";
+    const root = single ? canonical.base : `${canonical.base}${canonical.quote}`;
+    if (canonical.expiry) return `${root} ${canonical.expiry}`;
+    return canonical.type === "perpetual" ? `${root}.P` : root;
   }
   const id = tryResolveInstrument(raw);
   return id ? id.ticker : String(raw ?? "").toUpperCase();

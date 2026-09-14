@@ -62,10 +62,12 @@ TradingView profile.
 
 For evidence that has to be reproducible — a named state, a fixed viewport, a
 theme, a geometry sidecar — the MCP session is the wrong tool: it is
-interactive and its output names are timestamps. The capture script opens the
-same `trading-scene` profile headlessly (it needs the `playwright-core`
-devDependency and the installed Chrome), performs the interaction, and writes a
-PNG plus a JSON sidecar with the served build id, the viewport, the theme and
+interactive and its output names are timestamps. The capture script opens a
+throwaway profile per run, headlessly (it needs the `playwright-core`
+devDependency and the installed Chrome) — never the persistent MCP profile,
+because a persistent profile is locked while in use and two captures at once
+must not collide — performs the interaction, and writes a PNG plus a JSON
+sidecar with the served build id, the viewport, the theme and
 the measured boxes and computed styles of any selectors asked for.
 
 ```bash
@@ -80,7 +82,7 @@ node scripts/ts-capture.mjs --route /chart --theme light --viewport 390x844 --ou
 node scripts/ts-capture.mjs --press / --out symbol-search.png
 ```
 
-`--click`, `--hover`, `--press`, `--type sel=text`, `--wait ms` repeat and
+`--click`, `--hover`, `--press`, `--type <sel> <text>`, `--wait ms` repeat and
 apply in order; `--script file.mjs` runs `export default async (page) => {}`
 first (`scripts/ts-state-btc1h.mjs` puts the pane on BINANCE BTCUSDT 1h and
 waits for the bars). `HEADED=1` shows the browser.

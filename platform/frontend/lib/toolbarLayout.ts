@@ -5,41 +5,59 @@
  *
  * The toolbar had one tier. Everything from "change the instrument" to "apply
  * the optimizer's best saved config" sat in the same undifferentiated run of
- * buttons, and which of them you could see depended on the viewport: below
- * 1280px they collapsed behind a ⋯ toggle, at or above it they all appeared at
- * once and wrapped. So a 13" laptop showed a compact bar and a 27" monitor
- * showed three ragged rows of chrome — the opposite of what more space should
- * buy, and impossible to reason about because the ordering existed only as JSX.
+ * buttons, and which of them you could see depended on the viewport. Naming
+ * the tiers here makes two things possible: the component renders from this
+ * registry, so a control cannot be added without deciding what tier it is in;
+ * and a test can assert the hierarchy without a screenshot.
  *
- * Naming the tiers here makes two things possible. The component renders from
- * this registry, so a control cannot be added without deciding what tier it is
- * in; and a test can assert that the controls a trader reaches for constantly
- * are on the primary row at every desktop width, rather than asserting a
- * screenshot.
+ * ── TVP8 owner veto (OV-B): the order IS the reference's ───────────────────
+ *
+ * The primary row's sequence is TradingView's, measured live on 2026-09-14
+ * (`TradingView-Parity-TVP8-20260913/measurements/tv-shell-live-inventory-20260914.md`):
+ *
+ *   symbol · compare │ interval favourites + caret │ style favourites + caret │
+ *   indicators │ alert · replay │ undo · redo   …   layout · saved layout name
+ *   + caret · (sync) │ quick search · settings · fullscreen · snapshot · (more)
+ *   · Trade
+ *
+ * Sync and More are Trading Scene's own and sit inside that sequence without
+ * breaking it: Sync beside the layout controls it belongs with (rendered only
+ * when there is more than one pane), More as the last icon before the Trade
+ * pill. Publish has no counterpart here and is not imitated.
  *
  * ── The tiers ──────────────────────────────────────────────────────────────
  *
  *   context   — what am I looking at: instrument, timeframe, presentation,
- *               studies, replay. Changing any of these changes the chart.
- *   workspace — what am I doing with it: arm an alert, open the ticket, change
- *               the pane layout, synchronise panes, go fullscreen.
+ *               studies, alert, replay, and the drawing history that edits
+ *               the chart.
+ *   workspace — what am I doing with it: pane layout, saved layouts, sync,
+ *               the utilities, the ticket.
  *   secondary — real controls used a few times a session: history depth,
  *               read-only trading overlays, server-side automation, strategy
- *               properties, the optimizer's best config. These live behind an
- *               explicit "More" toggle at EVERY width, so the primary row is
- *               the same bar on a laptop and on a monitor.
+ *               properties, the optimizer's best config. Behind More at EVERY
+ *               width, so the primary row is the same bar on a laptop and on
+ *               a monitor.
  *
- * Nothing here is decorative and nothing was removed: every id below is a
- * control that already existed and still does something.
+ * ── Why the row no longer measures itself against the panel ───────────────
+ *
+ * The row used to be narrowed by the watchlist panel and the manual ticket,
+ * which were flex siblings of the toolbar's column, and a whole arithmetic
+ * (`toolbarRowWidth`, `WIDGET_PANEL_ROW_WIDTH`, four density branches) existed
+ * to keep labels from overprinting. TVP8 made the toolbar the first FULL-WIDTH
+ * row of the workstation, above the rails, the chart and the panel — which is
+ * where the reference has it — so the row is always the viewport minus the
+ * 52px account cell, the labels are gone (every control on the reference is
+ * icon-only), and the one decision left is the phone breakpoint.
  */
 
 export type ToolbarGroup = "context" | "workspace" | "secondary";
 
 export type ToolbarControlId =
-  | "symbol" | "compare" | "timeframe" | "chartType" | "indicators" | "replay"
-  | "alert" | "trade" | "layout" | "sync" | "fullscreen"
-  | "snapshot" | "commandPalette" | "chartSettings" | "more"
-  | "history" | "overlays" | "automate" | "strategy" | "best" | "savedLayouts";
+  | "symbol" | "compare" | "timeframe" | "chartType" | "indicators"
+  | "alert" | "replay" | "undo" | "redo"
+  | "layout" | "savedLayouts" | "sync"
+  | "commandPalette" | "chartSettings" | "fullscreen" | "snapshot" | "more" | "trade"
+  | "history" | "overlays" | "automate" | "strategy" | "best";
 
 export interface ToolbarControl {
   id: ToolbarControlId;
@@ -48,28 +66,29 @@ export interface ToolbarControl {
   group: ToolbarGroup;
 }
 
+/** In RENDER order: the primary row left → right, then the More strip. */
 export const TOOLBAR_CONTROLS: readonly ToolbarControl[] = [
   // ── chart context ──
   { id: "symbol", label: "Symbol", group: "context" },
   { id: "compare", label: "Compare", group: "context" },
   { id: "timeframe", label: "Timeframe", group: "context" },
-  { id: "chartType", label: "Chart type", group: "context" },
+  { id: "chartType", label: "Chart style", group: "context" },
   { id: "indicators", label: "Indicators", group: "context" },
-  { id: "replay", label: "Replay", group: "context" },
+  { id: "alert", label: "Create alert", group: "context" },
+  { id: "replay", label: "Bar replay", group: "context" },
+  { id: "undo", label: "Undo", group: "context" },
+  { id: "redo", label: "Redo", group: "context" },
 
-  // ── workspace and actions ──
-  { id: "alert", label: "Alert", group: "workspace" },
-  { id: "trade", label: "Trade", group: "workspace" },
+  // ── workspace, right-aligned ──
   { id: "layout", label: "Chart layout", group: "workspace" },
-  { id: "sync", label: "Sync", group: "workspace" },
-  { id: "fullscreen", label: "Fullscreen", group: "workspace" },
-  // TVP8: the reference puts its camera beside fullscreen and its magnifier
-  // immediately before the gear.
-  { id: "snapshot", label: "Save a chart image", group: "workspace" },
-  { id: "commandPalette", label: "Search tool or function", group: "workspace" },
-  { id: "chartSettings", label: "Chart settings", group: "workspace" },
-  { id: "more", label: "More controls", group: "workspace" },
   { id: "savedLayouts", label: "Saved layouts", group: "workspace" },
+  { id: "sync", label: "Sync", group: "workspace" },
+  { id: "commandPalette", label: "Quick search", group: "workspace" },
+  { id: "chartSettings", label: "Chart settings", group: "workspace" },
+  { id: "fullscreen", label: "Fullscreen", group: "workspace" },
+  { id: "snapshot", label: "Chart image", group: "workspace" },
+  { id: "more", label: "More controls", group: "workspace" },
+  { id: "trade", label: "Trade", group: "workspace" },
 
   // ── secondary, behind More ──
   { id: "history", label: "History depth", group: "secondary" },
@@ -110,101 +129,23 @@ export function isPrimaryControl(id: ToolbarControlId): boolean {
   return toolbarGroup(id) !== "secondary";
 }
 
-/**
- * ── Why the toolbar's breakpoints are not the viewport's ───────────────────
- *
- * Every collapse decision on the bar was a Tailwind viewport query, and the bar
- * is not the viewport. Open the manual-trading ticket and `ChartSidePanel`
- * stops being a phone overlay and becomes a STATIC flex sibling of the chart
- * column (`fixed … md:static`), so the toolbar's row loses the ticket's whole
- * width. At a 1280px viewport that leaves a 939px row — but `xl:` had already
- * fired, so every control's text label rendered, the row overflowed its column,
- * and the saved-layout identity was painted over the ticket's own instrument
- * header. Two live controls, one on top of the other, at a mainstream laptop
- * size. The same arithmetic explains 1024 (a 683px row) and why 1152 and 1366
- * were clean: it is not a new defect at each width, it is one comparison made
- * against the wrong number.
- *
- * The fix is to make the comparison against the width the row actually has.
- * These are the only two numbers that need to be shared between that decision
- * and the class names that express it in `ChartToolbar`.
- */
+/** The account cell at the top of the left-rail column; the row starts after it. */
+export const TOOLBAR_ACCOUNT_CELL_WIDTH = 52;
 
-/** `w-[340px]` plus its own left border, from `ManualTradingPanel`. */
-export const MANUAL_TICKET_ROW_WIDTH = 341;
-
-/** Tailwind's `md` and `2xl`, in pixels, because the row has to do the sum itself. */
+/** Tailwind's `md`, in pixels: below it the workspace cluster moves into the More strip. */
 export const TOOLBAR_CLUSTER_WIDTH = 768;
-/*
- * FC2R: 1536, not 1280.
- *
- * The same class of error as the ticket one described above, one level up. The
- * chart column is not the viewport either: the watchlist and the two 52px
- * rails take a fixed ~400px out of it, so a 1440px screen gives this row 1040px
- * — and at 1280 the labels had already fired. Measured on the repaired bar at
- * 1440: 1123px of content in a 1040px row, which the timeframe strip absorbed
- * by scrolling, so a laptop user saw `1m 5m 15m 1|` with the rest of their own
- * favourites clipped mid-glyph. The favourites strip is the thing a trader
- * actually aims at; the word "Indicators" beside an already-legible chart icon
- * is not. So the labels wait for a row that can hold both, and every control
- * that loses its label keeps its `title` and its `aria-label`.
- */
-export const TOOLBAR_LABEL_WIDTH = 1536;
-
-/**
- * The widget panel — Watchlist, Studies, MAs, Automate — is the OTHER thing
- * that takes width out of this row, and it was not accounted for.
- *
- * The reasoning above is about the manual ticket, and it is right: open the
- * ticket and `ChartSidePanel` becomes a flex sibling that shrinks the column
- * the toolbar lives in. The widget panel does exactly the same thing for 300px
- * and nothing here knew it. Measured at 1440 with the panel open, the row is
- * 1036px against 940px of content — 96px of headroom, where the same viewport
- * with the panel closed has 396px. So between 1536 and 1836 the labels turned
- * on against a row that was 300px narrower than the number that turned them
- * on, which is the identical mistake the ticket paragraph describes, one size
- * up.
- */
-export const WIDGET_PANEL_ROW_WIDTH = 300;
-
-/** The viewports at which the ROW reaches those widths with the ticket open. */
-export const TOOLBAR_CLUSTER_WIDTH_WITH_TICKET = TOOLBAR_CLUSTER_WIDTH + MANUAL_TICKET_ROW_WIDTH;
-export const TOOLBAR_LABEL_WIDTH_WITH_TICKET = TOOLBAR_LABEL_WIDTH + MANUAL_TICKET_ROW_WIDTH;
-/** And with the widget panel open. */
-export const TOOLBAR_LABEL_WIDTH_WITH_PANEL = TOOLBAR_LABEL_WIDTH + WIDGET_PANEL_ROW_WIDTH;
-
-/**
- * How wide the toolbar's own row is. Below `md` both the ticket and the widget
- * panel are fixed overlays rather than flex siblings, so neither takes width
- * out of the row.
- */
-export function toolbarRowWidth(
-  viewport: number, ticketOpen: boolean, panelOpen = false
-): number {
-  if (viewport < TOOLBAR_CLUSTER_WIDTH) return viewport;
-  return viewport
-    - (ticketOpen ? MANUAL_TICKET_ROW_WIDTH : 0)
-    - (panelOpen ? WIDGET_PANEL_ROW_WIDTH : 0);
-}
 
 export interface ToolbarDensity {
-  /** Control labels sit beside their icons instead of collapsing to them. */
-  labels: boolean;
-  /** The workspace-action cluster and the saved-layout identity are on the primary row. */
+  /** The workspace-action cluster, the saved-layout identity and Trade are on the primary row. */
   clusterOnPrimaryRow: boolean;
 }
 
 /**
- * The bar's two collapse decisions, resolved against the row rather than the
- * screen. `ChartToolbar` expresses exactly this in CSS; this function is what
- * makes it assertable without a browser.
+ * The bar's one collapse decision. The row is the viewport minus the account
+ * cell at every width, so this is a plain viewport query and
+ * `toolbarDensityClasses` in `components/tv/toolbarDensity.ts` is the same
+ * rule as a Tailwind literal.
  */
-export function toolbarDensity(
-  viewport: number, ticketOpen: boolean, panelOpen = false
-): ToolbarDensity {
-  const row = toolbarRowWidth(viewport, ticketOpen, panelOpen);
-  return {
-    labels: row >= TOOLBAR_LABEL_WIDTH,
-    clusterOnPrimaryRow: row >= TOOLBAR_CLUSTER_WIDTH,
-  };
+export function toolbarDensity(viewport: number): ToolbarDensity {
+  return { clusterOnPrimaryRow: viewport >= TOOLBAR_CLUSTER_WIDTH };
 }

@@ -20,13 +20,36 @@ const readCode = (rel: string): string =>
 
 const MENU = "components/tv/LayoutMenu.tsx";
 
+/**
+ * Everything the component renders ON THE BAR: the split control, not the menu.
+ *
+ * Comments stripped, because several of these assertions are about what the
+ * markup no longer does and the comments explain what it used to.
+ */
+const triggerOf = (source: string): string =>
+  source.slice(source.indexOf("\n  return ("), source.indexOf("{open && ("))
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+
 test("the current layout's name is visible without opening the menu", () => {
   const source = read(MENU);
   assert.match(source, /\{current\?\.name \?\? "Unnamed"\}/);
-  assert.match(source, /aria-label=\{`Saved layouts — \$\{current\?\.name \?\? "not saved"\}, \$\{status\.label\}`\}/);
+  assert.match(source, /aria-label=\{`Saved layout — \$\{current\?\.name \?\? "Unnamed"\}, \$\{status\.label\}`\}/);
+
+  /*
+   * TVP8 R1-07. "Visible" used to mean `hidden … 2xl:inline`: below 1536 the
+   * control was a grid icon and a caret with no name on it, and 1440 is the
+   * width this product is actually used at. The name is the only thing on this
+   * control a user can recognise their workspace by, so it is the part that
+   * survives a narrow row — the status word is what left instead.
+   */
+  const name = /<span className="([^"]*)">\s*\n\s*\{current\?\.name \?\? "Unnamed"\}/.exec(source);
+  assert.ok(name, "the name is no longer rendered on the trigger");
+  assert.match(name[1]!, /\bsm:inline\b/);
+  assert.doesNotMatch(name[1]!, /2xl:/, "the name must not wait for a 1536px viewport");
+  assert.match(name[1]!, /max-w-\[160px\] truncate/, "and it must still give the row its width back");
 });
 
-test("the unsaved state is a word, not an unlabelled dot", () => {
+test("the unsaved state is a sentence somewhere, and never a bare dot", () => {
   const source = read(MENU);
   for (const label of ["Not saved", "Unsaved changes", "Saving…", "Saved", "Autosave failing"]) {
     assert.ok(source.includes(`"${label}"`), `the menu never says “${label}”`);
@@ -35,13 +58,65 @@ test("the unsaved state is a word, not an unlabelled dot", () => {
   // name and no tooltip, carrying the whole difference between "on the server"
   // and "only in this tab".
   assert.doesNotMatch(source, /dirty && !autosave \? " •" : ""/);
+
+  /*
+   * TVP8 R1-07/R1-10: the sentence is said in the tooltip, in the accessible
+   * name and in the menu's header — not as a second line of copy on the
+   * primary row. "UNSAVED CHANGES" in 10px caps beside the layout's name is a
+   * second sentence competing with the one thing that identifies the
+   * workspace, and the bar is the most expensive place to spend a word.
+   */
+  const trigger = triggerOf(source);
+  assert.match(trigger, /aria-label=\{`Saved layout — [^`]*\$\{status\.label\}`\}/);
+  assert.match(trigger, /title=\{`[^`]*\$\{status\.label\}\. \$\{status\.help\}`\}/,
+    "the word AND the sentence behind it are the tooltip");
+  // ...and nowhere in the markup is it a child, i.e. visible text.
+  assert.doesNotMatch(trigger, />\s*\{status\.label\}|\{status\.label\}\s*</,
+    "the status word must not be rendered on the bar");
+  assert.doesNotMatch(trigger, /status\.tone/,
+    "the tint that painted that word belonged to the word");
 });
 
-test("below the width where the words fit, the state keeps a shape as well as a colour", () => {
+test("the state keeps a shape as well as a colour, at every width", () => {
   const source = read(MENU);
-  assert.match(source, /\{\(dirty \|\| autosaveError\) && \(/);
-  assert.match(source, /2xl:hidden/);
-  assert.match(source, /2xl:inline/);
+  const trigger = triggerOf(source);
+
+  /*
+   * The save cloud, which is TradingView's affordance here and the reason the
+   * word is no longer needed on the bar: it is on screen at every width, it
+   * grows a filled badge when the workspace is ahead of what is stored, and it
+   * takes the warn tint when autosave has stopped working. The old shape-only
+   * fallback was `2xl:hidden`, i.e. the state had a shape at the widths where
+   * it also had words and only a colour everywhere else.
+   */
+  assert.match(trigger, /\{dirty && \(/, "drift must be a shape, not only a tooltip");
+  assert.match(trigger, /rounded-full bg-current/);
+  assert.match(trigger, /autosaveError \? "text-warn" : ""/);
+  assert.doesNotMatch(trigger, /2xl:(hidden|inline)/,
+    "nothing about the save state is gated on a 1536px viewport any more");
+
+  // Clicking the name writes the drift; the menu is no longer the only way to
+  // save. With nothing to write the click does nothing but take focus.
+  assert.match(trigger, /onClick=\{\(\) => \{ if \(dirty && current\) onSaveNow\(\); \}\}/);
+});
+
+test("the caret is a control of its own, with its own name", () => {
+  /*
+   * TVP8 R1-07: one button answered three questions — which layout am I in,
+   * is it safe, and what else can I do — so the only way to save was to open a
+   * menu and find "Save layout" in it. TradingView splits the same control:
+   * a name button that saves, a 24px caret that opens the list.
+   */
+  const source = read(MENU);
+  const trigger = triggerOf(source);
+  assert.match(trigger, /aria-label="Manage layouts"/);
+  assert.match(trigger, /className=\{TOOL_CARET_BUTTON\}/, "24px, the measured width");
+  // The caret is what opens the menu, so it is what `aria-expanded` and the
+  // Escape handler's focus return belong to.
+  const caret = trigger.slice(trigger.indexOf("aria-label=\"Manage layouts\"") - 400);
+  assert.match(caret, /ref=\{buttonRef\}/);
+  assert.match(caret, /aria-expanded=\{open\}/);
+  assert.match(caret, /aria-haspopup="menu"/);
 });
 
 test("save, save as, rename, autosave and open are all reachable", () => {

@@ -23,6 +23,7 @@ import {
 } from "@/lib/chartLifecycle";
 import { autoPriceDigits, fmtPrice, fmtPriceAt, fmtPriceDelta } from "@/lib/format";
 import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
+import type { MagnetMode } from "@/components/tv/DrawingToolbar";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { IndicatorPane, type PaneAction } from "@/components/tv/IndicatorPane";
@@ -59,9 +60,10 @@ import {
   DEFAULT_CHART_SETTINGS, scaleMarginsFor, type ChartSettings,
 } from "@/lib/chartSettings";
 import {
-  availableRangeShortcuts, loadedWindow, resolveRangeShortcut, sameViewport,
+  loadedWindow, rangeShortcutChoices, resolveRangeShortcut, sameViewport,
   type LoadedWindow, type RangeShortcutId,
 } from "@/lib/rangeShortcuts";
+import { SEPARATOR } from "@/components/tv/toolbarChrome";
 import {
   canMovePane, COLLAPSED_PANE_HEIGHT, EMPTY_PANE_LAYOUT, isPaneCollapsed,
   isPaneMaximized, movePane, orderedPanes, paneHeight, reconcilePaneLayout,
@@ -665,8 +667,8 @@ export function CandleChart({
   live = true, fill = false,
   chartType = "candles",
   drawingTool = "cursor", onDrawingToolDone, drawings, onDrawingsChange,
-  onDrawingSelection, onChartContextMenu,
-  magnet = false, drawingsLocked = false, drawingsHidden = false,
+  onDrawingSelection, onChartContextMenu, onGoToDate,
+  magnet = "off", drawingsLocked = false, drawingsHidden = false,
   onPriceSelect,
   onAnnotationSelect,
   compact = false,
@@ -725,7 +727,7 @@ export function CandleChart({
       region: "plot" | "axis" | "time";
     }
   ) => void;
-  magnet?: boolean;
+  magnet?: MagnetMode;
   drawingsLocked?: boolean;
   drawingsHidden?: boolean;
   /**
@@ -805,6 +807,12 @@ export function CandleChart({
    * — which is exactly what a user who has since panned away expects.
    */
   goTo?: { time: number; signal: number } | null;
+  /**
+   * Open the go-to-date dialog directly. The reference's calendar button is
+   * one click; without this the button falls back to the time-axis menu,
+   * which is the same dialog two clicks away.
+   */
+  onGoToDate?: () => void;
   /** Bumped to move focus into the selected drawing's style bar. */
   drawingStyleFocusSignal?: number;
   /** Whether this pane has the workspace's focus; gates Delete and Escape. */
@@ -2751,6 +2759,43 @@ export function CandleChart({
     chartRef.current?.timeScale().applyOptions({ visible: axisPaneId === null });
   }, [axisPaneId, chartCreated]);
 
+  // ── the price axis's own controls ────────────────────────────────────────
+
+  /**
+   * Where the price axis actually is, so its controls can sit at its foot.
+   *
+   * Both numbers belong to the library and neither can be a constant here: the
+   * scale's width grows with the number of digits in the price (a 7-figure
+   * instrument and a 5-decimal one differ by ~30px) and the time axis's height
+   * follows the font size in chart settings — and is zero on a pane that is not
+   * the one drawing the axis. A guessed offset would put the buttons over the
+   * prices on one chart and under the time labels on another.
+   */
+  const [axisFoot, setAxisFoot] = useState<{ width: number; bottom: number }>(
+    { width: 0, bottom: 0 });
+  const axisSide = settings.scalePlacement === "left" ? "left" : "right";
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || priceHidden) return;
+    const measure = (): void => {
+      try {
+        const next = {
+          width: Math.round(chart.priceScale(axisSide).width()),
+          bottom: Math.round(chart.timeScale().height()),
+        };
+        setAxisFoot((current) =>
+          current.width === next.width && current.bottom === next.bottom ? current : next);
+      } catch { /* the chart went away between render and effect */ }
+    };
+    measure();
+    try { chart.timeScale().subscribeSizeChange(measure); }
+    catch { return undefined; }
+    return () => {
+      try { chart.timeScale().unsubscribeSizeChange(measure); }
+      catch { /* the chart is already disposed; the handler went with it */ }
+    };
+  }, [chartReady, priceHidden, axisSide, axisPaneId, candles, scale, settings.scaleFontSize]);
+
   // ── the bottom range bar ─────────────────────────────────────────────────
 
   /**
@@ -2760,15 +2805,20 @@ export function CandleChart({
    */
   const window_: LoadedWindow | null = useMemo(
     () => loadedWindow(candles, resolutionMs(interval)), [candles, interval]);
-  const shortcuts = useMemo(
-    () => (window_ ? availableRangeShortcuts(window_) : []), [window_]);
+  /*
+   * All nine, every time — the ones this pane cannot fill come back
+   * `enabled: false` and are rendered disabled rather than dropped, so the row
+   * does not change width or lose a target as the timeframe changes. See
+   * `rangeShortcutChoices`.
+   */
+  const shortcuts = useMemo(() => rangeShortcutChoices(window_), [window_]);
   /*
    * Ranges are a statement about a time axis, and Renko does not have one, so
    * the shortcuts go with the rest of the time-anchored layers. The price
    * scale is a different question — it is about price, which every
-   * presentation has — so the bar itself stays.
+   * presentation has — so it stays, on the axis it acts on.
    */
-  const showRanges = timeAnchored && shortcuts.length > 0;
+  const showRanges = timeAnchored;
   /*
    * Below `large` density there is no room: a pane at 480x250 in a 4x4
    * workspace would spend a tenth of its height on chrome. The library's own
@@ -3177,6 +3227,110 @@ export function CandleChart({
         </div>
       )}
       </div>
+      {/*
+        The price axis's own controls, at the foot of the axis they act on.
+
+        TVP8 R1-11. These four were a permanent `log % auto reset` group in the
+        bottom row, where the reference has nothing at all: they are statements
+        about PRICE sitting on a row that is otherwise entirely about time, and
+        they were on screen at full strength on every chart whether or not the
+        scale was in a state anyone needed to change. TradingView keeps them on
+        the axis and reveals them when the pointer is on it, which is also the
+        only place a user looking for them would think to look.
+
+        What is NOT hover-revealed is the mode badge. A logarithmic or percent
+        axis that does not say so is a chart whose shape is lying about the
+        moves on it, and a disclosure you have to hover to find is not a
+        disclosure — so the badge stays lit whenever the axis is not showing
+        prices, and only the controls fade.
+      */}
+      {!priceHidden && (
+        <div
+          className={`group/axis absolute z-20 flex flex-col items-center justify-end ${
+            axisSide === "left" ? "left-0" : "right-0"
+          }`}
+          style={{ bottom: axisFoot.bottom, width: axisFoot.width > 0 ? axisFoot.width : undefined }}
+        >
+          <span
+            role="group"
+            aria-label={`Price scale — ${priceScaleLabel(scale)}`}
+            /*
+             * Under percent or indexed-to-100 the axis stops reading in the
+             * instrument's currency, and a reader who did not switch it — a
+             * second person at the same screen, or the same person an hour
+             * later — has no other way to know that "−1.24" beside the last
+             * candle is not a price. The drawings, the alerts and the studies
+             * are all still on real prices; only the axis changed.
+             */
+            title={scaleShowsPrices(scale) ? undefined
+              : `${priceScaleModeLabel(scale.mode)} axis — these numbers are movement `
+                + "since the first bar in view, not prices"}
+            className="flex flex-col items-center gap-px pb-1"
+          >
+            {!scaleShowsPrices(scale) && (
+              <span className="rounded bg-surface-2 px-1 text-[13px] font-semibold leading-[18px] text-ink">
+                {priceScaleModeLabel(scale.mode)}
+              </span>
+            )}
+            <span className="flex flex-col items-center gap-px opacity-0 transition-opacity duration-75 focus-within:opacity-100 group-hover/axis:opacity-100">
+              <button
+                type="button"
+                onClick={() => applyScale(togglePriceScaleAuto(scale))}
+                aria-pressed={scale.autoScale}
+                title="Auto-fit the price scale to the bars in view"
+                className={`tvc-control flex h-5 items-center rounded px-1 text-[11px] leading-none ${
+                  scale.autoScale ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                auto
+              </button>
+              <button
+                type="button"
+                onClick={() => applyScale(togglePriceScaleMode(scale))}
+                aria-pressed={scale.mode === "logarithmic"}
+                title="Logarithmic price scale — equal percentage moves take equal vertical space"
+                className={`tvc-control flex h-5 items-center rounded px-1 text-[11px] leading-none ${
+                  scale.mode === "logarithmic" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                log
+              </button>
+              {/*
+                Percent, beside log rather than inside a cycle through four.
+                Linear-or-log and currency-or-percent are two independent
+                questions, and a single stepping button would make answering
+                one of them mean passing through the other.
+              */}
+              <button
+                type="button"
+                onClick={() => applyScale(togglePercentScale(scale))}
+                aria-pressed={scale.mode === "percentage"}
+                title="Percent price scale — movement since the first bar in view"
+                className={`tvc-control flex h-5 items-center rounded px-1 text-[11px] leading-none ${
+                  scale.mode === "percentage" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                %
+              </button>
+              {/*
+                Only while there is something to undo. `reset` on an axis that
+                is already linear and auto-fitting is a button whose whole
+                effect is to refit a view that is already fitted.
+              */}
+              {!scale.autoScale && (
+                <button
+                  type="button"
+                  onClick={resetView}
+                  title="Reset — fit every loaded bar and return the price scale to linear auto"
+                  className="flex h-5 items-center rounded px-1 text-[11px] leading-none text-ink-muted hover:bg-state-hover hover:text-ink"
+                >
+                  reset
+                </button>
+              )}
+            </span>
+          </span>
+        </div>
+      )}
       </div>
       {hasPanes && (
         /*
@@ -3248,24 +3402,37 @@ export function CandleChart({
           The range bar, on the pane it acts on.
 
           Each shortcut is a VIEWPORT, never a timeframe — `1D` on a 5-minute
-          chart shows one day of five-minute bars. Only the ranges this pane's
-          loaded history can actually fill are offered, so a button never
-          scrolls to an empty window and presents it as a quiet market; and the
-          window always ends at the newest bar the pane holds, which under Bar
-          Replay is the horizon, so no shortcut can reveal a hidden bar.
+          chart shows one day of five-minute bars. All nine are always here;
+          the ones this pane's loaded history cannot fill are DISABLED rather
+          than absent, so a button never scrolls to an empty window and
+          presents it as a quiet market, and the row never changes width under
+          the pointer. The window always ends at the newest bar the pane holds,
+          which under Bar Replay is the horizon, so no shortcut can reveal a
+          hidden bar.
+
+          TVP8 R1-11: `log / % / auto / reset` no longer live here. They are
+          about PRICE, not time, and the reference puts them at the foot of the
+          price axis, revealed on hover of that axis — which is where they now
+          are, below the plot.
         */
         <div className="flex shrink-0 items-center gap-1 border-t border-border bg-surface px-1.5 py-0.5">
           {showRanges && (
           <div role="group" aria-label="Visible range" className="flex items-center gap-0.5">
-            {shortcuts.map((shortcut) => (
+            {shortcuts.map(({ shortcut, enabled }) => (
               <button
                 key={shortcut.id}
                 type="button"
+                disabled={!enabled}
+                aria-disabled={!enabled}
                 onClick={() => applyRangeShortcut(shortcut.id)}
                 aria-pressed={activeRange === shortcut.id}
-                title={`${shortcut.hint} — the visible range only; the timeframe stays ${interval}`}
-                className={`tvc-control flex h-[26px] items-center px-1.5 text-[13px] ${
-                  activeRange === shortcut.id ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
+                title={enabled
+                  ? `${shortcut.hint} — the visible range only; the timeframe stays ${interval}`
+                  : `${shortcut.hint} — this pane has not loaded enough ${interval} history to fill it`}
+                className={`tvc-control flex h-[28px] items-center px-1.5 text-[13px] ${
+                  !enabled ? "cursor-not-allowed text-ink-faint opacity-40"
+                    : activeRange === shortcut.id ? "font-semibold text-ink"
+                      : "text-ink-muted hover:text-ink"
                 }`}
               >
                 {shortcut.label}
@@ -3273,95 +3440,57 @@ export function CandleChart({
             ))}
           </div>
           )}
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] leading-[18px] tabular text-ink-faint">
-            {/*
-              The clock names the zone the axis beside it is already in. It is
-              a label on an existing authority, not a new one: lightweight-
-              charts formats from the UTC fields of the timestamp and Binance
-              stamps its klines in UTC. See `lib/chartClock`.
-            */}
-            {clock !== null && (
-              <span className="hidden lg:inline" title={CHART_TIME_ZONE_NOTE}>
-                {clock} {CHART_TIME_ZONE}
-                <span className="sr-only"> — {CHART_TIME_ZONE_NOTE}</span>
-              </span>
-            )}
-            {/*
-              The price scale — the one control on this bar that is not about
-              time. Its current mode is always identifiable: a chart on a
-              logarithmic axis that does not say so is a chart whose shape is
-              lying about the moves on it.
-            */}
+          {/*
+            Go to a date, from the row rather than only from a right-click.
+
+            It raises the pane's OWN time-axis menu — the one that already
+            carries `time:go-to`, which opens `GoToDateModal`, which sets the
+            `goTo` signal this chart already honours. There is deliberately no
+            second path to the same dialog: the workstation owns the modal, and
+            a chart that opened its own copy would be a second mechanism to
+            keep in step with the first.
+          */}
+          {showRanges && (onGoToDate || onChartContextMenu) && (
+            <>
+              <span className={SEPARATOR} aria-hidden="true" />
+              <button
+                type="button"
+                aria-label="Go to date"
+                title="Go to a date — scroll the chart to a moment in its loaded history"
+                onClick={(e) => {
+                  if (onGoToDate) { onGoToDate(); return; }
+                  const box = e.currentTarget.getBoundingClientRect();
+                  onChartContextMenu?.({
+                    x: box.left, y: box.top, drawingId: null, price: null, region: "time",
+                  });
+                }}
+                className="tvc-control flex h-[28px] w-[28px] items-center justify-center text-ink-muted hover:text-ink"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {/* A calendar with an arrow going into it — the reference's silhouette. */}
+                  <path d="M11 4h7a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-3" />
+                  <path d="M10 2.5v3M16 2.5v3M7 9h12" />
+                  <path d="M3 13h6M6.5 10.5 9 13l-2.5 2.5" />
+                </svg>
+              </button>
+            </>
+          )}
+          {/*
+            The clock names the zone the axis beside it is already in. It is a
+            label on an existing authority, not a new one: lightweight-charts
+            formats from the UTC fields of the timestamp and Binance stamps its
+            klines in UTC. See `lib/chartClock`.
+          */}
+          {clock !== null && (
             <span
-              role="group"
-              aria-label={`Price scale — ${priceScaleLabel(scale)}`}
-              /*
-               * Under percent or indexed-to-100 the axis stops reading in the
-               * instrument's currency, and a reader who did not switch it — a
-               * second person at the same screen, or the same person an hour
-               * later — has no other way to know that "−1.24" beside the last
-               * candle is not a price. The drawings, the alerts and the
-               * studies are all still on real prices; only the axis changed.
-               */
-              title={scaleShowsPrices(scale) ? undefined
-                : `${priceScaleModeLabel(scale.mode)} axis — these numbers are movement `
-                  + "since the first bar in view, not prices"}
-              className="flex items-center gap-0.5"
+              className="ml-auto hidden pr-1 text-[13px] leading-[18px] tabular text-ink-muted lg:inline"
+              title={CHART_TIME_ZONE_NOTE}
             >
-              {!scaleShowsPrices(scale) && (
-                <span className="rounded bg-surface-2 px-1 py-0.5 font-semibold text-ink">
-                  {priceScaleModeLabel(scale.mode)}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => applyScale(togglePriceScaleMode(scale))}
-                aria-pressed={scale.mode === "logarithmic"}
-                title="Logarithmic price scale — equal percentage moves take equal vertical space"
-                className={`tvc-control rounded px-1.5 py-0.5 ${
-                  scale.mode === "logarithmic" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                log
-              </button>
-              {/*
-                Percent, beside log rather than inside a cycle through four.
-                Linear-or-log and currency-or-percent are two independent
-                questions, and a single stepping button would make answering
-                one of them mean passing through the other.
-              */}
-              <button
-                type="button"
-                onClick={() => applyScale(togglePercentScale(scale))}
-                aria-pressed={scale.mode === "percentage"}
-                title="Percent price scale — movement since the first bar in view"
-                className={`tvc-control rounded px-1.5 py-0.5 ${
-                  scale.mode === "percentage" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                %
-              </button>
-              <button
-                type="button"
-                onClick={() => applyScale(togglePriceScaleAuto(scale))}
-                aria-pressed={scale.autoScale}
-                title="Auto-fit the price scale to the bars in view"
-                className={`tvc-control rounded px-1.5 py-0.5 ${
-                  scale.autoScale ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                auto
-              </button>
-              <button
-                type="button"
-                onClick={resetView}
-                title="Reset — fit every loaded bar and return the price scale to linear auto"
-                className="rounded px-1.5 py-0.5 text-ink-muted transition-colors hover:bg-state-hover hover:text-ink"
-              >
-                reset
-              </button>
+              {clock} {CHART_TIME_ZONE}
+              <span className="sr-only"> — {CHART_TIME_ZONE_NOTE}</span>
             </span>
-          </span>
+          )}
         </div>
       )}
     </div>

@@ -20,13 +20,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_FAVOURITES, timeframeStrip } from "../lib/timeframes";
+import { DEFAULT_FAVOURITES, chipLabel, timeframeStrip } from "../lib/timeframes";
 import {
-  MANUAL_TICKET_ROW_WIDTH, TOOLBAR_CLUSTER_WIDTH, TOOLBAR_CLUSTER_WIDTH_WITH_TICKET,
-  TOOLBAR_CONTROLS, TOOLBAR_LABEL_WIDTH, TOOLBAR_LABEL_WIDTH_WITH_TICKET,
-  TOOLBAR_LABEL_WIDTH_WITH_PANEL, WIDGET_PANEL_ROW_WIDTH,
+  TOOLBAR_ACCOUNT_CELL_WIDTH, TOOLBAR_CLUSTER_WIDTH, TOOLBAR_CONTROLS,
   controlsInGroup, isPrimaryControl, primaryControls, secondaryControls,
-  toolbarControl, toolbarDensity, toolbarGroup, toolbarRowWidth, type ToolbarControlId,
+  toolbarControl, toolbarDensity, toolbarGroup, type ToolbarControlId,
 } from "../lib/toolbarLayout";
 import { toolbarDensityClasses } from "../components/tv/toolbarDensity";
 import {
@@ -95,14 +93,75 @@ test("the high-value chart controls are primary, not behind an overflow", () => 
   for (const id of mustBePrimary) {
     assert.ok(isPrimaryControl(id), `${id} must stay on the primary row`);
   }
+  /*
+   * TVP8 owner veto (OV-B): the registry is in RENDER order and the order is
+   * the reference's, measured live — symbol, compare, interval, style,
+   * indicators, alert, replay, undo, redo; then, right-aligned, layout, the
+   * saved layout, sync, quick search, settings, fullscreen, snapshot, more,
+   * Trade. A control that moves here moves on the bar.
+   */
   assert.deepEqual(
     controlsInGroup("context").map((c) => c.id),
-    // `compare` joined this group when the comparison's entry point moved off
-    // the chart's status line and onto the bar, beside the instrument it
-    // compares FROM — which is where the reference has it.
-    ["symbol", "compare", "timeframe", "chartType", "indicators", "replay"],
-    "the chart-context group is what tells you what you are looking at"
+    ["symbol", "compare", "timeframe", "chartType", "indicators", "alert", "replay", "undo", "redo"],
+    "the chart-context group is what tells you what you are looking at, in the reference's order"
   );
+  assert.deepEqual(
+    controlsInGroup("workspace").map((c) => c.id),
+    ["layout", "savedLayouts", "sync", "commandPalette", "chartSettings", "fullscreen", "snapshot", "more", "trade"],
+    "the right-hand group ends in the Trade pill, as the reference's bar does"
+  );
+});
+
+test("the toolbar's markers appear in the registry's order", () => {
+  // The registry IS the order. A control rendered out of sequence is the bar
+  // drifting from the reference one refactor at a time.
+  const source = read(TOOLBAR);
+  const primaryRow = source.indexOf('data-toolbar-row="primary"');
+  const secondaryRow = source.indexOf('data-toolbar-row="secondary"');
+  // Markers rendered inside the reusable clusters (WorkspaceActions,
+  // ContextActions, CompareButton, TradeButton, SavedLayoutIdentity) are
+  // declared above the row; what is asserted is the sequence of the clusters
+  // and the inline controls as the ROW composes them.
+  const row = source.slice(primaryRow, secondaryRow);
+  const sequence = [
+    'ctl("symbol")', "<CompareButton", "<TimeframePicker", "<ChartTypeMenu",
+    "<ContextActions", 'ctl("undo")', 'ctl("redo")', "<WorkspaceActions", 'ctl("more")', "<TradeButton",
+  ];
+  let at = -1;
+  for (const marker of sequence) {
+    const next = row.indexOf(marker, at + 1);
+    assert.ok(next > at, `${marker} is out of order on the primary row (or missing)`);
+    at = next;
+  }
+  const contextCluster = source.slice(source.indexOf("function ContextActions"), source.indexOf("function SavedLayoutIdentity"));
+  for (const [a, b] of [['ctl("indicators")', 'ctl("alert")'], ['ctl("alert")', 'ctl("replay")']]) {
+    assert.ok(contextCluster.indexOf(a) < contextCluster.indexOf(b), `${a} must precede ${b}`);
+  }
+  const workspaceCluster = source.slice(source.indexOf("function WorkspaceActions"), source.indexOf("function SnapshotMenu"));
+  const utilities = ['ctl("layout")', "<SavedLayoutIdentity", 'ctl("sync")', 'ctl("commandPalette")', 'ctl("chartSettings")', 'ctl("fullscreen")', "<SnapshotMenu"];
+  at = -1;
+  for (const marker of utilities) {
+    const next = workspaceCluster.indexOf(marker, at + 1);
+    assert.ok(next > at, `${marker} is out of order in the workspace cluster (or missing)`);
+    at = next;
+  }
+});
+
+test("nothing on the primary row is a word except the ticker, the chips, the layout name and Trade", () => {
+  /*
+   * The owner's screenshot: `Last close 77,799 · 9,999 bars · Unnamed` in
+   * prime toolbar space, plus `Indicators`, `Replay`, `Alert`, `Trade`, `Sync`
+   * as labels at wide widths. The reference's controls are icon-only; the only
+   * words on its bar are the ticker, the interval chips, the layout name and
+   * the two pills. So: no readout prop, no label class, no count badge.
+   */
+  const source = readCode(TOOLBAR);
+  assert.doesNotMatch(source, /readout/, "the price/bar-count readout must not exist on the bar");
+  assert.doesNotMatch(source, /labelClass|density\.label|TOOL_LABEL/, "there are no text labels beside icons");
+  assert.doesNotMatch(source, /bg-accent px-1\.5 text-\[10px\]/, "no count badge on Indicators");
+  assert.doesNotMatch(read("app/chart/page.tsx"), /readout=\{/, "the page no longer supplies a readout");
+  assert.match(source, /<TradeButton/, "Trade is a pill, rendered from one component");
+  assert.match(source, /TOOL_PILL_OUTLINE/);
 });
 
 test("the secondary tier is a deliberate set, not whatever did not fit", () => {
@@ -168,113 +227,103 @@ test("the primary row never wraps — the timeframe strip absorbs the pressure",
   const className = rowTag.slice(0, rowTag.indexOf(">"));
   assert.match(className, /flex-nowrap/, "the primary row must stay one row");
   assert.doesNotMatch(className, /flex-wrap/);
-  // The scroller is what lets it stay one row without pushing controls off.
-  // It moved into the timeframe control with the picker; the property being
-  // asserted is unchanged — the favourites strip is still the element that
-  // gives width back rather than pushing its neighbours off the bar.
-  assert.match(read("components/tv/TimeframePicker.tsx"), /overflow-x-auto/);
+  /*
+   * The strip is still the row's give — but only below `md`.
+   *
+   * R1-03: at 1440 the wrapper measured 150px around 194px of chips, so the
+   * bar printed `1h 4 ⌄` — one favourite sliced mid-glyph, the next one hidden
+   * under the caret. A scroller is the right answer on a small tablet and the
+   * wrong one on the viewport this product is designed for, so the scroller
+   * survives below `md` and the strip is `shrink-0` from `sm` up.
+   *
+   * jsdom performs no layout, so scrollWidth is 0 everywhere and the widths
+   * R1-03 names (1280/1366/1440/1536/1920) cannot be measured here. What can
+   * be pinned is the only thing that made them clip: permission to shrink.
+   */
+  const picker = read("components/tv/TimeframePicker.tsx");
+  assert.match(picker, /overflow-x-auto/, "a narrow tablet still scrolls rather than overlaps");
+  assert.match(picker, /md:overflow-x-visible/, "the scroller must stop at `md`");
+  assert.match(picker, /shrink-0 items-center overflow-x-auto sm:flex/,
+    "the favourites strip must not be shrinkable at `sm` and above");
+  assert.doesNotMatch(picker, /sm:flex-initial|sm:min-w-0/,
+    "nothing in the timeframe control may be given permission to shrink below "
+    + "its content — that is what clipped `4h` and hid `1d` at 1440");
+});
+
+test("the interval trigger is a caret, not a word", () => {
+  const picker = read("components/tv/TimeframePicker.tsx");
+  /*
+   * The reference draws a 24px caret-only menu button after the favourites and
+   * no label at all. Ours printed "Timeframe" (90px at desktop, the armed
+   * resolution below `sm`), which is both a word TradingView does not draw and
+   * the 90px that the strip had to give up to fit beside it.
+   */
+  assert.match(picker, /className=\{TOOL_CARET_BUTTON\}/,
+    "the trigger must use the bar's shared 24px caret chrome");
+  assert.match(picker, /aria-label="Chart interval — all timeframes"/);
+  assert.match(picker, /title="All timeframes"/);
+  assert.doesNotMatch(picker, /menuLabel/,
+    "the trigger no longer prints a label, so it no longer computes one");
+  // `role="group" aria-label="Timeframe"` names the GROUP for assistive tech
+  // and is not drawn; the only other "Timeframe" left is the pane legend's
+  // accessible name. Neither is visible copy.
+  assert.doesNotMatch(picker, /className[^\n]*>\s*Timeframe\s*</,
+    "the word Timeframe must not be rendered as visible copy at any width");
 });
 
 // ── the collapse breakpoints measure the row, not the screen ───────────────
 
 /**
- * The seven widths Phase 02E measured live with the ticket open. 1024 and 1280
- * overprinted the saved-layout label onto the ticket's instrument header;
- * 1152, 1366, 1440, 1512 and 1680 were clean. The behaviour was non-monotonic,
- * which is what identified a breakpoint compared against the wrong number
- * rather than a separate defect at each width.
+ * TVP8: the row is the viewport minus the account cell at EVERY width.
+ *
+ * The four-branch arithmetic that used to live here — the row narrowed by the
+ * manual ticket's 341px and the widget panel's 300px — described a toolbar
+ * boxed inside the chart column. The toolbar is the workstation's first
+ * full-width row now, above the rails, the chart and the panel, so nothing
+ * narrows it and the one decision left is Tailwind's `md`.
  */
-const MEASURED_VIEWPORTS = [1024, 1152, 1280, 1366, 1440, 1512, 1680];
-
-test("the toolbar's row is the viewport minus the ticket, and only when the ticket is static", () => {
-  assert.equal(MANUAL_TICKET_ROW_WIDTH, 341, "340px panel plus its own left border");
-  for (const viewport of MEASURED_VIEWPORTS) {
-    assert.equal(toolbarRowWidth(viewport, false), viewport,
-      "a closed ticket takes no width from the row");
-    assert.equal(toolbarRowWidth(viewport, true), viewport - MANUAL_TICKET_ROW_WIDTH);
+test("the toolbar's one collapse decision is the phone breakpoint, and the CSS carries the same number", () => {
+  assert.equal(TOOLBAR_CLUSTER_WIDTH, 768, "Tailwind's md, which is what the class literal says");
+  assert.equal(TOOLBAR_ACCOUNT_CELL_WIDTH, 52, "the rail's width: the account cell sits above the rail");
+  for (const viewport of [320, 640, 767, 768, 1024, 1280, 1440, 1920]) {
+    assert.deepEqual(toolbarDensity(viewport), { clusterOnPrimaryRow: viewport >= 768 });
   }
-  // Below md the ticket is a fixed overlay (ChartSidePanel's `fixed … md:static`),
-  // so it is not a flex sibling and subtracts nothing.
-  assert.equal(toolbarRowWidth(600, true), 600);
+  const classes = toolbarDensityClasses();
+  assert.equal(classes.cluster, "hidden md:flex");
+  assert.equal(classes.clusterInMore, "flex md:hidden");
+  assert.equal(classes.separator, "hidden md:inline-block");
+  assert.equal(classes.separatorInMore, "md:hidden");
+  // No shifted breakpoint survives anywhere in the density module.
+  assert.doesNotMatch(read(DENSITY), /min-\[\d+px\]/, "a shifted breakpoint is the boxed toolbar coming back");
+  // And the page no longer tells the bar about the ticket or the panel,
+  // because neither takes width from a full-width row.
+  assert.doesNotMatch(read(TOOLBAR), /ticketOpen|panelOpen/);
+  assert.doesNotMatch(read("app/chart/page.tsx"), /ticketOpen=|panelOpen=/);
 });
 
-test("no measured viewport asks for labels the row cannot hold", () => {
-  // The defect, stated as an invariant: the label decision must never be true
-  // while the row is narrower than the width labels need.
-  for (const viewport of MEASURED_VIEWPORTS) {
-    for (const ticketOpen of [false, true]) {
-      const density = toolbarDensity(viewport, ticketOpen);
-      const row = toolbarRowWidth(viewport, ticketOpen);
-      assert.equal(density.labels, row >= TOOLBAR_LABEL_WIDTH,
-        `labels at ${viewport}px with ticket ${ticketOpen} disagree with a ${row}px row`);
-      assert.equal(density.clusterOnPrimaryRow, row >= TOOLBAR_CLUSTER_WIDTH);
-    }
-  }
-
-  // The two widths that overprinted. 1280 kept its labels because xl had fired
-  // on a 939px row; 1024 kept the saved-layout identity on a 683px row.
-  assert.deepEqual(toolbarDensity(1280, true), { labels: false, clusterOnPrimaryRow: true });
-  assert.deepEqual(toolbarDensity(1024, true), { labels: false, clusterOnPrimaryRow: false });
-  // The clean ones stay exactly as they were measured.
-  assert.deepEqual(toolbarDensity(1152, true), { labels: false, clusterOnPrimaryRow: true });
-  // 1680 with the ticket open leaves a 1339px row, which is below the FC2R
-  // label threshold. It used to clear the old 1280 one; the whole point of
-  // raising it is that a 1339px row cannot hold the labels AND the timeframe
-  // favourites at the same time.
-  assert.deepEqual(toolbarDensity(1680, true), { labels: false, clusterOnPrimaryRow: true });
-  assert.deepEqual(toolbarDensity(1920, true), { labels: true, clusterOnPrimaryRow: true });
+test("the toolbar is the first full-width row of the workstation, above the rails and the panel", () => {
+  const page = read("app/chart/page.tsx");
+  const container = page.indexOf('tv-workstation">');
+  const toolbar = page.indexOf("<ChartToolbar", container);
+  const rail = page.indexOf("<DrawingToolbar", container);
+  const panel = page.indexOf("<ChartSidePanel", container);
+  const account = page.indexOf('<ProductMenu variant="rail"', container);
+  assert.ok(container > 0 && account > container, "the account cell is the first thing in the workstation");
+  assert.ok(account < toolbar, "the account cell precedes the toolbar on the first row");
+  assert.ok(toolbar < rail, "the toolbar is rendered before the rail — it is the row above it");
+  assert.ok(rail < panel, "the rail, the chart column and the panel share the second row");
+  assert.match(page.slice(Math.max(0, container - 160), container), /flex-col/, "the workstation stacks its two rows");
 });
 
-test("with the ticket closed the decisions are plain md / 2xl viewport queries", () => {
-  // FC2R moved the label threshold from xl to 2xl: the chart column is not the
-  // viewport either, and at 1440 a 1040px row could not hold both the labels
-  // and the user's own timeframe favourites. The cluster threshold is
-  // untouched. Everything here is still one comparison against the row width.
-  for (const viewport of [320, 640, 767, 768, 1023, 1024, 1279, 1280, 1535, 1536, 1920]) {
-    assert.deepEqual(toolbarDensity(viewport, false), {
-      labels: viewport >= 1536,
-      clusterOnPrimaryRow: viewport >= 768,
-    }, `${viewport}px with the ticket closed must behave as md/2xl`);
-  }
-});
-
-test("the classes the bar actually ships are the shifted breakpoints, not a second opinion", () => {
-  // tailwind.config.ts scans only app/ and components/, so the class names have
-  // to live in the component. This is what keeps them and toolbarLayout's
-  // arithmetic from drifting apart.
-  const source = read(DENSITY);
-  assert.equal(TOOLBAR_CLUSTER_WIDTH_WITH_TICKET, 1109);
-  assert.equal(TOOLBAR_LABEL_WIDTH_WITH_TICKET, 1877);
-  for (const variant of [
-    `min-[${TOOLBAR_LABEL_WIDTH_WITH_TICKET}px]:inline`,
-    `min-[${TOOLBAR_CLUSTER_WIDTH_WITH_TICKET}px]:flex`,
-    `min-[${TOOLBAR_CLUSTER_WIDTH_WITH_TICKET}px]:hidden`,
-    `min-[${TOOLBAR_CLUSTER_WIDTH_WITH_TICKET}px]:inline-block`,
-  ]) {
-    assert.ok(source.includes(variant), `${variant} is not what the bar renders`);
-  }
-  // And the ticket-closed set is untouched Tailwind.
-  assert.match(source, /label: "hidden 2xl:inline"/);
-  assert.match(source, /cluster: "hidden md:flex"/);
-
-  // The bar can only make this decision if it is told; the page is the only
-  // place that knows the ticket is open. That prop stays on the component
-  // even though the class table moved out of it.
-  assert.match(read(TOOLBAR), /ticketOpen: boolean;/);
-  assert.match(read(TOOLBAR), /panelOpen: boolean;/);
-  assert.match(read("app/chart/page.tsx"),
-    /ticketOpen=\{panel === "manual" && !replayActive\}/,
-    "the flag must be exactly the condition under which the ticket takes row width");
-});
-
-test("the saved-layout identity and the workspace cluster share one placement decision", () => {
-  // These are the two elements that overprinted, so the fix has to reach both
-  // placements of each — the primary row and the More strip — from one source.
+test("every control that leaves the primary row on a phone has a second home in the More strip", () => {
   const source = read(TOOLBAR);
-  assert.equal((source.match(/<SavedLayoutIdentity /g) ?? []).length, 2);
   assert.equal((source.match(/<WorkspaceActions /g) ?? []).length, 2);
-  assert.match(source, /className=\{`ml-auto \$\{density\.cluster\} 2xl:ml-0`\}/);
-  assert.match(source, /<SavedLayoutIdentity \{\.\.\.props\} className=\{density\.clusterInMore\} \/>/);
+  assert.equal((source.match(/<ContextActions /g) ?? []).length, 2);
+  assert.equal((source.match(/<CompareButton /g) ?? []).length, 2);
+  assert.equal((source.match(/<TradeButton /g) ?? []).length, 2);
+  assert.match(source, /<WorkspaceActions \{\.\.\.props\} className=\{density\.cluster\} \/>/);
+  assert.match(source, /<WorkspaceActions \{\.\.\.props\} className=\{density\.clusterInMore\} \/>/);
+  assert.match(source, /<TradeButton \{\.\.\.props\} className=\{density\.clusterInMore\} \/>/);
   assert.doesNotMatch(source, /className="hidden md:flex"/,
     "a hard-coded viewport placement is the defect coming back");
   assert.doesNotMatch(source, /className="flex md:hidden"/);
@@ -333,16 +382,33 @@ test("the strip is the browser's favourites, and defaults to the historical six"
     "the strip renders the favourites it was given, not a fixed list");
 });
 
-test("the picker button names the current resolution when the strip does not", () => {
+test("the armed resolution always has a chip, even when no favourite carries it", () => {
   const onStrip = timeframeStrip("15m");
   assert.equal(onStrip.currentInQuick, true);
-  assert.equal(onStrip.menuLabel, "Timeframe");
+  assert.equal(onStrip.armedChip, null,
+    "a favourite already carries it; a second pressed chip beside it is noise");
 
-  // Otherwise the strip would show nothing pressed beside a button saying
-  // "Timeframe", which reads as "no timeframe selected".
+  /*
+   * Otherwise the strip would show nothing pressed at all, which reads as "no
+   * timeframe selected". The extra chip is where the picker button's label
+   * used to be — the reference appends the armed interval to the strip rather
+   * than printing it inside the caret.
+   */
   const offStrip = timeframeStrip("45m");
   assert.equal(offStrip.currentInQuick, false);
-  assert.equal(offStrip.menuLabel, "45m");
+  assert.equal(offStrip.armedChip, "45m");
+});
+
+test("a chip prints a day uppercase and everything shorter lowercase", () => {
+  // `1M` is a month and `1m` is a minute; on a 29px chip the case of one
+  // letter is the whole of the difference, so the reference's casing is
+  // copied rather than approximated.
+  assert.equal(chipLabel("1d"), "1D");
+  assert.equal(chipLabel("4h"), "4h");
+  assert.equal(chipLabel("30s"), "30s");
+  assert.equal(chipLabel("15m"), "15m");
+  // The label is presentation only — the id it is made from is untouched.
+  assert.deepEqual([...DEFAULT_FAVOURITES], ["1m", "5m", "15m", "1h", "4h", "1d"]);
 });
 
 test("the bar mounts the shared picker rather than a second interval control", () => {
@@ -385,6 +451,34 @@ test("the active preset is marked by more than a colour", () => {
   assert.match(source, /aria-checked=\{isCurrent\}/, "the arrangement must announce its state");
   assert.match(source, /Current/, "and say it in words, not only in a tint");
   assert.match(source, /aria-label=\{`Chart layout — \$\{current\.label\}`\}/);
+});
+
+test("the layout-setup control is an icon cell, not a thumbnail with a digit", () => {
+  /*
+   * TVP8 R1-07. The trigger drew `PresetThumbnail`, whose panes are washed at
+   * 0.18 so a row in the MENU can be told from the row above it. On the bar
+   * that wash is a light-grey square sitting inside a chip that also fills on
+   * hover — the one control on the row that read as permanently pressed rather
+   * than as an icon. TradingView draws a plain outline square here.
+   */
+  const source = read("components/tv/LayoutSelector.tsx");
+  assert.match(source, /TOOL_ICON_BUTTON/,
+    "the layout trigger is a 38x38 cell like every other icon on the bar");
+  assert.match(source, /<LayoutGlyph preset=\{current\} \/>/);
+
+  const glyph = /function LayoutGlyph[\s\S]*?\n}/.exec(source);
+  assert.ok(glyph, "the trigger's own glyph could not be located");
+  assert.match(glyph[0], /fill="none"/, "line work, not a filled block");
+  assert.doesNotMatch(glyph[0], /fillOpacity/);
+
+  // The pane count is exactly what the glyph draws, and it was ALSO printed as
+  // a digit — which made this the only control whose width changed with its
+  // value, so the icons to its left moved when the layout changed.
+  assert.doesNotMatch(source, /current\.panes > 1 &&/);
+
+  // The menu rows keep the washed thumbnails: there the fill is what separates
+  // one arrangement from the next.
+  assert.match(source, /<PresetThumbnail preset=\{preset\} \/>/);
 });
 
 test("asymmetric arrangements are exposed, not only grids", () => {
@@ -576,7 +670,7 @@ test("the fullscreen control targets the chart workspace, not the whole document
   // height cannot resolve against a `flex-1` parent, which was costing the
   // workspace its last 10px). What matters to this test is unchanged: the ref
   // is on the workspace root and not on the document.
-  assert.match(page, /<div ref=\{fullscreen\.ref\} className="flex min-h-0 flex-1 bg-bg/);
+  assert.match(page, /<div ref=\{fullscreen\.ref\} className="flex min-h-0 flex-1 flex-col bg-bg/);
   assert.match(page, /onToggleFullscreen=\{fullscreen\.toggle\}/);
   assert.match(page, /fullscreenSupported=\{fullscreen\.supported\}/);
 
@@ -594,53 +688,3 @@ test("fullscreen uses the standard API rather than a fixed-position clone", () =
   assert.match(source, /fullscreenchange/);
 });
 
-test("TOOLBAR — the model and the CSS agree in all four combinations", () => {
-  /*
-   * The ticket's 341px was accounted for and the widget panel's 300px was not,
-   * so between 1536 and 1836 the labels turned on against a row 300px narrower
-   * than the number that turned them on. The first fix for that shifted only
-   * the LABEL decision and left the cluster on `md` — so between 768 and 1068
-   * with a panel open the model said the cluster did not fit and the CSS
-   * showed it anyway, and with BOTH open the CSS shifted by the ticket alone.
-   *
-   * This asserts the whole grid rather than the one literal the previous
-   * version pinned, which is the difference between a claim and a guarantee.
-   */
-  assert.equal(WIDGET_PANEL_ROW_WIDTH, 300);
-  assert.equal(TOOLBAR_LABEL_WIDTH_WITH_PANEL, TOOLBAR_LABEL_WIDTH + WIDGET_PANEL_ROW_WIDTH);
-
-  assert.equal(toolbarRowWidth(1920, false, true), 1920 - 300);
-  assert.equal(toolbarRowWidth(1920, true, true), 1920 - 341 - 300);
-  assert.equal(toolbarRowWidth(1920, false, false), 1920);
-  // Below `md` both are fixed overlays and take nothing out of the row.
-  assert.equal(toolbarRowWidth(390, true, true), 390);
-
-  const src = fs.readFileSync(
-    path.join(__dirname, "..", "components", "tv", "toolbarDensity.ts"), "utf8");
-  const TICKET = 341;
-  const PANEL = WIDGET_PANEL_ROW_WIDTH;
-
-  for (const [ticket, panel] of [[false, false], [true, false], [false, true], [true, true]] as const) {
-    const shift = (ticket ? TICKET : 0) + (panel ? PANEL : 0);
-    const labelAt = TOOLBAR_LABEL_WIDTH + shift;
-    const clusterAt = TOOLBAR_CLUSTER_WIDTH + shift;
-    const name = `ticket=${ticket} panel=${panel}`;
-
-    // The model flips exactly at the arithmetic width, and not before.
-    assert.equal(toolbarDensity(labelAt, ticket, panel).labels, true, `${name}: labels at ${labelAt}`);
-    assert.equal(toolbarDensity(labelAt - 1, ticket, panel).labels, false, `${name}: labels below ${labelAt}`);
-    assert.equal(toolbarDensity(clusterAt, ticket, panel).clusterOnPrimaryRow, true, `${name}: cluster at ${clusterAt}`);
-
-    // And the CSS carries that same number, as a literal Tailwind can emit.
-    const classes = toolbarDensityClasses(ticket, panel);
-    const expectLabel = shift === 0 ? "2xl:inline" : `min-[${labelAt}px]:inline`;
-    const expectCluster = shift === 0 ? "md:flex" : `min-[${clusterAt}px]:flex`;
-    assert.ok(classes.label.includes(expectLabel), `${name}: label class ${classes.label} ≠ ${expectLabel}`);
-    assert.ok(classes.cluster.includes(expectCluster), `${name}: cluster class ${classes.cluster} ≠ ${expectCluster}`);
-    // Tailwind only emits what it can see, so the literal must be in the file.
-    if (shift !== 0) {
-      assert.ok(src.includes(`min-[${labelAt}px]`), `${name}: ${labelAt}px missing from the source`);
-      assert.ok(src.includes(`min-[${clusterAt}px]`), `${name}: ${clusterAt}px missing from the source`);
-    }
-  }
-});

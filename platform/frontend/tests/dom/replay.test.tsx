@@ -68,8 +68,8 @@ after(closeBrowser);
 
 /** Open the replay picker and start a session at the suggested bar. */
 async function startReplay(chart: MountedChart): Promise<void> {
-  const open = [...chart.container.querySelectorAll<HTMLElement>("button")]
-    .find((b) => (b.textContent ?? "").trim() === "Replay");
+  // TVP8: icon-only on the bar, like the reference; the name is the accessible one.
+  const open = chart.container.querySelector<HTMLElement>('button[aria-label="Bar replay"]');
   assert.ok(open, "the toolbar has no Replay control");
   fireEvent.click(open);
   await settle();
@@ -127,7 +127,7 @@ test("a drawing made during a Replay is session state and is never persisted", a
 
   // A real drawing on the instrument first, so "nothing was written" is
   // distinguishable from "nothing was ever there".
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
   await advance(1_400);
   const realCount = loadDrawings(SYMBOL).length;
@@ -136,7 +136,7 @@ test("a drawing made during a Replay is session state and is never persisted", a
   assert.equal(serverVersion, 1);
 
   await startReplay(chart);
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [340, 300], [560, 420]);
   await advance(1_400);
 
@@ -185,12 +185,12 @@ test("a study run during a Replay is bounded by the horizon, not by today", asyn
 
 test("leaving a Replay restores the instrument's own drawings", async () => {
   const chart = await mountChart();
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
   const before = drawingStore.get(SYMBOL).map((d) => d.id);
 
   await startReplay(chart);
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [340, 300], [560, 420]);
 
   // By accessible name, not by visible text: the exit is an icon button now,
@@ -210,7 +210,7 @@ test("leaving a Replay restores the instrument's own drawings", async () => {
  * narrow shell the toolbar draws it without one.
  */
 function replayChip(chart: MountedChart): HTMLElement {
-  const chip = chart.container.querySelector<HTMLElement>('button[aria-label="Bar Replay"]');
+  const chip = chart.container.querySelector<HTMLElement>('button[aria-label="Bar replay"]');
   assert.ok(chip, "the toolbar has no Replay control");
   return chip;
 }

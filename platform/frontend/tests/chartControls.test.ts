@@ -31,7 +31,8 @@ import {
 } from "../lib/priceScale";
 import {
   availableRangeShortcuts, loadedWindow, MIN_BARS_IN_RANGE, RANGE_SHORTCUTS,
-  rangeShortcut, rangeShortcutAvailable, resolveRangeShortcut, sameViewport, startOfYearSec,
+  rangeShortcut, rangeShortcutAvailable, rangeShortcutChoices, resolveRangeShortcut,
+  sameViewport, startOfYearSec,
   type LoadedWindow, type RangeShortcutId,
 } from "../lib/rangeShortcuts";
 import {
@@ -581,12 +582,73 @@ test("SHORTCUTS — the library's snap-to-bars does not un-press the button", ()
   assert.equal(sameViewport({ from: 0, to: 86_400 }, { from: 86_400, to: 86_400 }), false);
 });
 
-test("SHORTCUTS — the price scale stays available where the ranges cannot", () => {
-  // Renko has no time axis, so it has no ranges — but it has prices, so the
-  // scale controls remain. The two are gated separately and deliberately.
-  assert.match(CHART, /const showRanges = timeAnchored && shortcuts\.length > 0;/);
-  assert.match(CHART, /const showBottomBar = !compact;/);
+test("SHORTCUTS — the row always offers all nine, and disables what it cannot fill", () => {
+  /*
+   * TVP8 R1-11. The row used to be `availableRangeShortcuts()`, so the BUTTONS
+   * changed with the timeframe: `5Y` was simply absent on a 1h pane and `1D`
+   * absent on a daily one. `rangeShortcutChoices` returns the full nine with an
+   * `enabled` flag instead, so the row keeps its width and the refusal becomes
+   * visible rather than silent.
+   */
+  const thin = rangeShortcutChoices(window1h(48));
+  assert.deepEqual(thin.map((c) => c.shortcut.id),
+    ["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y", "ALL"]);
+  assert.deepEqual(thin.filter((c) => c.enabled).map((c) => c.shortcut.id), ["1D", "ALL"],
+    "the availability rule itself is unchanged — only the presentation is");
+  // A pane with no loaded window at all still shows the row, all of it dead.
+  assert.equal(rangeShortcutChoices(null).length, 9);
+  assert.equal(rangeShortcutChoices(null).some((c) => c.enabled), false);
+
+  // The chart renders every choice, and marks the unreachable ones disabled
+  // both for the pointer and for a screen reader.
   assert.match(CHART, /\{showRanges && \(\s*\n\s*<div role="group" aria-label="Visible range"/);
+  assert.match(CHART, /shortcuts\.map\(\(\{ shortcut, enabled \}\) => \(/);
+  assert.match(CHART, /disabled=\{!enabled\}\s*\n\s*aria-disabled=\{!enabled\}/);
+
+  // Renko has no time axis, so it has no ranges. The price scale is a
+  // different question — it is about price, which every presentation has — so
+  // it lives on the axis and is gated separately.
+  assert.match(CHART, /const showRanges = timeAnchored;/);
+  assert.match(CHART, /const showBottomBar = !compact;/);
+});
+
+test("SHORTCUTS — the bottom row is time only; the scale controls sit on the axis", () => {
+  /*
+   * TVP8 R1-11. `log % auto reset` were a permanent group in the bottom row,
+   * where the reference has nothing at all: they are statements about PRICE on
+   * a row that is otherwise entirely about time. They moved to the foot of the
+   * price axis and are revealed on hover of it — except the mode badge, which
+   * is a truth disclosure and may not be something you have to hover to find.
+   */
+  const bottomBar = CHART.slice(CHART.indexOf("{showBottomBar && ("));
+  assert.equal(bottomBar.includes('aria-label={`Price scale'), false,
+    "the price scale group must not be in the bottom row");
+
+  // It is on the axis instead, hover-revealed, with the same handlers.
+  const axis = CHART.slice(CHART.indexOf("group/axis"));
+  assert.match(axis, /aria-label=\{`Price scale — \$\{priceScaleLabel\(scale\)\}`\}/);
+  assert.match(axis, /group-hover\/axis:opacity-100/);
+  assert.match(axis, /togglePriceScaleAuto\(scale\)/);
+  assert.match(axis, /togglePriceScaleMode\(scale\)/);
+  assert.match(axis, /togglePercentScale\(scale\)/);
+  // `reset` only while there is something to undo.
+  assert.match(axis, /\{!scale\.autoScale && \(/);
+  // The non-price mode badge is OUTSIDE the hover-revealed group.
+  const badge = axis.indexOf("{!scaleShowsPrices(scale) && (");
+  const revealed = axis.indexOf("group-hover/axis:opacity-100");
+  assert.ok(badge > 0 && badge < revealed,
+    "a logarithmic or percent axis must say so without being hovered");
+
+  // The row itself: a hairline and a go-to-date control after the chips, and
+  // the clock at 13px in the muted ink rather than 11px faint.
+  assert.match(CHART, /<span className=\{SEPARATOR\} aria-hidden="true" \/>/);
+  assert.match(CHART, /aria-label="Go to date"/);
+  // …wired to the pane's existing time-axis menu, which carries `time:go-to`,
+  // which opens `GoToDateModal`, which sets the `goTo` signal this chart
+  // already honours. No second path to the same dialog.
+  assert.match(CHART, /onChartContextMenu\?\.\(\{\s*\n\s*x: box\.left, y: box\.top, drawingId: null, price: null, region: "time",/);
+  assert.match(CHART, /\{clock\} \{CHART_TIME_ZONE\}/);
+  assert.match(CHART, /text-\[13px\] leading-\[18px\] tabular text-ink-muted/);
 });
 
 test("SHORTCUTS — a degenerate window offers nothing at all", () => {

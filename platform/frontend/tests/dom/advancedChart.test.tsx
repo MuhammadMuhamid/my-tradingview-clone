@@ -30,8 +30,16 @@ test("a fixed-range profile is selected by gesture and keeps independent setting
   server.setCandles(SYMBOL, "1m", compactSeries(10_000, { intervalMs: 60_000 }));
   const chart = await mountChart();
 
-  fireEvent.click(screen.getByRole("button", { name: "More anchored tools" }));
-  fireEvent.click(screen.getByRole("button", { name: /Fixed Range Volume Profile/ }));
+  /*
+   * The `anchored` group is gone: the reference files Anchored VWAP and the
+   * two volume profiles under "Volume-based" inside its forecasting group, and
+   * keeps its eighth rail cell for Icons. The label lost its trailing
+   * "— drag across the bars to profile" at the same time; that half is a
+   * `hint` now, surfaced in `title`, because in a fixed-width menu it rendered
+   * as "Fixed Range Volume Pro…".
+   */
+  fireEvent.click(screen.getByRole("button", { name: "More prediction-and-measurement tools" }));
+  fireEvent.click(screen.getByRole("button", { name: /Fixed range volume profile/ }));
   await drag(chart.plot, [280, 260], [720, 380]);
 
   const created = drawingStore.get(SYMBOL);

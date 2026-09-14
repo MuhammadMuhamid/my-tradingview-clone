@@ -30,6 +30,7 @@
 export type ShortcutAction =
   | "undo" | "redo" | "clone" | "copy" | "paste" | "delete"
   | "tool:cursor" | "tool:trend" | "tool:horizontal" | "tool:vertical" | "tool:fib"
+  | "tool:horizontal-ray" | "tool:crossline" | "tool:rectangle"
   | "tool:text" | "magnet" | "stay-in-drawing-mode" | "lock-drawings" | "hide-drawings"
   | "symbol-search" | "indicators" | "chart-settings" | "shortcuts-sheet"
   | "command-palette" | "snapshot-save" | "snapshot-copy"
@@ -129,6 +130,16 @@ export interface Binding {
   /** Cmd on macOS, Ctrl elsewhere. */
   mod?: boolean;
   shift?: boolean;
+  /**
+   * Option / Alt.
+   *
+   * The reference's drawing rail advertises ⌥-chords on its flyout rows — ⌥T
+   * for the trendline, ⌥F for the Fibonacci retracement — so the table has to
+   * be able to express one. It is opt-in per binding, and `resolveShortcut`
+   * still refuses every Alt press that no binding here claims, which is what
+   * keeps Alt+← as the browser's Back.
+   */
+  alt?: boolean;
   /** Only meaningful while a Replay session is running. */
   replayOnly?: boolean;
   /**
@@ -164,10 +175,29 @@ export const BINDINGS: readonly Binding[] = [
   { action: "delete", key: "Backspace", label: "Delete the selected drawing", group: "Edit" },
 
   { action: "tool:cursor", key: "Escape", label: "Back to the cursor", group: "Drawing tools" },
-  { action: "tool:trend", key: "t", label: "Trend line", group: "Drawing tools" },
+  /*
+   * Two chords per tool, on purpose.
+   *
+   * The bare letters are this product's own and are documented in the palette
+   * and this sheet; the ⌥ chords are the reference's, and they are what its
+   * flyout rows print beside the tool. A user arriving from the reference
+   * presses ⌥T; a user who learned it here presses T. Both are cheap, neither
+   * collides, and the rail reads its printed cap off THIS table rather than
+   * hard-coding a string that could drift from what the keyboard does.
+   */
+  { action: "tool:trend", key: "t", label: "Trendline", group: "Drawing tools" },
+  { action: "tool:trend", key: "t", alt: true, label: "Trendline", group: "Drawing tools" },
   { action: "tool:horizontal", key: "h", label: "Horizontal line", group: "Drawing tools" },
+  { action: "tool:horizontal", key: "h", alt: true, label: "Horizontal line", group: "Drawing tools" },
   { action: "tool:vertical", key: "v", label: "Vertical line", group: "Drawing tools" },
+  { action: "tool:vertical", key: "v", alt: true, label: "Vertical line", group: "Drawing tools" },
   { action: "tool:fib", key: "f", label: "Fibonacci retracement", group: "Drawing tools" },
+  { action: "tool:fib", key: "f", alt: true, label: "Fibonacci retracement", group: "Drawing tools" },
+  // The reference's remaining rail chords. ⌥-only: the bare letters are taken
+  // (J hides drawings, C would collide with copy on a plain press).
+  { action: "tool:horizontal-ray", key: "j", alt: true, label: "Horizontal ray", group: "Drawing tools" },
+  { action: "tool:crossline", key: "c", alt: true, label: "Crossline", group: "Drawing tools" },
+  { action: "tool:rectangle", key: "r", alt: true, shift: true, label: "Rectangle", group: "Drawing tools" },
   { action: "tool:text", key: "x", label: "Text", group: "Drawing tools" },
   { action: "magnet", key: "m", label: "Magnet", group: "Drawing tools" },
   { action: "stay-in-drawing-mode", key: "d", label: "Stay in drawing mode", group: "Drawing tools" },
@@ -275,9 +305,17 @@ export function resolveShortcut(
   // Space on a focused button presses the button. See `ownsActivationKeys`.
   if (ACTIVATION_KEYS.has(event.key) && ownsActivationKeys(event.target)) return null;
   const mod = context.mac ? event.metaKey : event.ctrlKey;
-  // A modifier this table never uses means the press belongs to the browser
-  // or the OS: Alt+ArrowLeft is Back, and must stay Back.
-  if (event.altKey) return null;
+  /*
+   * Alt is claimed binding by binding, never by default.
+   *
+   * This used to be `if (event.altKey) return null` — every Alt press rejected
+   * outright, so the ⌥ chords the reference prints on its drawing rows could
+   * not exist. Alt+ArrowLeft is still Back and Alt+F still opens a menu,
+   * because no binding below declares `alt` for them and the loop's
+   * `binding.alt !== event.altKey` test drops them all the same. The
+   * difference is that the refusal is now a CONSEQUENCE of the table rather
+   * than a rule above it.
+   */
   /*
    * And the modifier that is NOT this platform's.
    *
@@ -294,6 +332,7 @@ export function resolveShortcut(
       ? binding.key.toLowerCase() !== event.key.toLowerCase()
       : binding.key !== event.key) continue;
     if ((binding.mod ?? false) !== mod) continue;
+    if ((binding.alt ?? false) !== event.altKey) continue;
     if (shiftIsAModifier(binding.key) && (binding.shift ?? false) !== event.shiftKey) continue;
     return binding.action;
   }

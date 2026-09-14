@@ -37,11 +37,22 @@ test("only the types this chart actually implements are offered", () => {
    * assertion. It is not alphabetical and not arbitrary: bars, candles,
    * hollow, volume candles are the four price-bar forms, and the reference
    * puts the plainest first.
+   *
+   * TVP8: re-pinned to the live reference, measured at 1440x900. Two runs
+   * moved. The profiles now read footprint, TPO, session volume profile — the
+   * order they appear in the reference, not the order they were implemented
+   * in. And `range` moved from the middle of the profiles to the very END,
+   * after the five transforms, because that is where a trader looks for it:
+   * beside the other bars whose count and spacing come from price rather than
+   * from the clock.
    */
   assert.deepEqual(CHART_TYPES.map((t) => t.value), [
-    "bars", "candles", "hollowCandles", "volumeCandles", "line", "lineWithMarkers",
-    "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo", "range", "footprint",
-    "heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure",
+    "bars", "candles", "hollowCandles", "volumeCandles",
+    "line", "lineWithMarkers", "stepLine",
+    "area", "hlcArea", "baseline",
+    "columns", "highLow",
+    "footprint", "tpo", "sessionVolumeProfile",
+    "heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure", "range",
   ]);
   for (const absent of ["pnf", "heikinashi", "Renko", "tpoo"]) {
     assert.equal(isChartType(absent), false, absent);
@@ -62,12 +73,30 @@ test("presentations and transforms are separate, and the split is data", () => {
    */
   assert.deepEqual(presentations,
     ["bars", "candles", "hollowCandles", "volumeCandles", "line", "lineWithMarkers",
-      "stepLine", "area", "hlcArea", "baseline", "columns", "highLow", "sessionVolumeProfile", "tpo", "range", "footprint"]);
+      "stepLine", "area", "hlcArea", "baseline", "columns", "highLow",
+      "footprint", "tpo", "sessionVolumeProfile", "range"]);
   assert.deepEqual(transforms, ["heikinAshi", "renko", "lineBreak", "kagi", "pointAndFigure"]);
 
-  // The transforms come last, so the menu can render them as a terminal group.
-  assert.deepEqual(CHART_TYPES.map((t) => t.group),
-    [...presentations.map(() => "presentation"), ...transforms.map(() => "transform")]);
+  /*
+   * POSITION NO LONGER IMPLIES GROUP, AND NOTHING MAY ASSUME IT DOES.
+   *
+   * This used to assert that every presentation preceded every transform, so
+   * the menu could render `filter(presentation)` then `filter(transform)` and
+   * get the list back in order. The reference puts Range LAST — after Point &
+   * figure — and Range is a presentation: it draws the market's own
+   * trade-driven bars and invents no price. Both facts are true at once, and
+   * the menu now renders `CHART_TYPES` in sequence rather than in two passes,
+   * which is what lets them be.
+   *
+   * What still has to hold is that `group` answers only its own question, for
+   * every type, wherever it sits.
+   */
+  const last = CHART_TYPES[CHART_TYPES.length - 1]!;
+  assert.equal(last.value, "range");
+  assert.equal(last.group, "presentation",
+    "Range sits with the price-driven forms in the menu and invents no price — "
+    + "its position must not be read as a claim that it is synthetic");
+  assert.equal(syntheticDisclosure("range"), null);
 
   for (const t of CHART_TYPES) {
     assert.equal(isSyntheticChartType(t.value), t.group === "transform");
@@ -198,7 +227,29 @@ test("THE MENU OFFERS NO TYPE THE RENDERER CANNOT DRAW", () => {
     assert.ok(menu.includes(`${t.value}:`), `${t.value} has no icon in the menu`);
   }
   assert.ok(!/disabled/.test(menu), "the menu grew an entry that cannot be chosen");
-  assert.match(menu, /Transforms · display only/, "the transform group lost its heading");
+
+  /*
+   * THE HEADING IS GONE AND THE DISCLOSURE IS NOT.
+   *
+   * The transform group used to sit under a written heading, "Transforms ·
+   * display only". The reference has no headings in this menu at all — six
+   * runs of related shapes, separated by a space and a hairline — and a
+   * heading that applies to five of twenty-one rows reads as a warning label
+   * on a list the other sixteen rows are also on.
+   *
+   * So the sentence moved onto the ROWS it is about, where it is attached to
+   * the thing it describes: every transform's `title` carries the whole
+   * "display only" statement and its accessible name says so too. The
+   * load-bearing copy was never here — it is the amber chip `CandleChart`
+   * paints on the chart itself, which is on screen the entire time a
+   * transform is drawing and is asserted below.
+   */
+  assert.doesNotMatch(menu, /Transforms · display only/,
+    "the reference's menu has no headings; the disclosure belongs on the rows");
+  assert.match(menu, /SYNTHETIC_DISCLOSURE_HINT/,
+    "a transform row must still carry the whole display-only sentence");
+  assert.match(menu, /a synthetic display transform/,
+    "and must still say so in its accessible name");
   // And the chart discloses the transform on the chart itself, not only in the
   // toolbar — sixteen panes, one toolbar. It passes the pane's settings, so
   // the chip names the parameters actually in force.
@@ -206,6 +257,82 @@ test("THE MENU OFFERS NO TYPE THE RENDERER CANNOT DRAW", () => {
   // The chip stands down while the unavailable notice is speaking: a label
   // asserting "Kagi · 1% reversal" over a blank plot is worse than silence.
   assert.match(chart, /syntheticDisclosure\(chartType, settings\) && !chartUnavailable/);
+});
+
+test("THE BAR IS A SPLIT CONTROL AND THE MENU OPENS AT THE TOP OF THE ROW", () => {
+  /*
+   * The measured shape of the reference's own control, at 1440x900.
+   *
+   * The bar carries the account's favourite styles as 38px icon-only radio
+   * buttons followed by a 24px caret, and the caret's menu is 273px wide,
+   * opening at the caret's left edge and at y=0 of the toolbar row — over the
+   * bar it came from, running the height of the viewport. Twenty-one 40px
+   * rows do not fit beneath a 38px bar on a 900px screen, which is why the
+   * reference does not try.
+   */
+  const menu = read("components/tv/ChartTypeMenu.tsx");
+
+  // The split: radios on the bar, a caret-only disclosure after them.
+  assert.match(menu, /role="radiogroup"/);
+  assert.match(menu, /role="radio"/);
+  assert.match(menu, /aria-checked=\{selected\}/);
+  assert.match(menu, /w-\[38px\]/, "a style chip on the bar is 38px square");
+  assert.match(menu, /className=\{TOOL_CARET_BUTTON\}/,
+    "the caret is the shared 24px half of a split button, not a bespoke one");
+  assert.match(menu, /aria-label="Chart style"/);
+  assert.match(menu, /aria-haspopup="menu"/);
+
+  // The menu's own geometry.
+  assert.match(menu, /absolute left-0 top-0 z-50 max-h-\[100vh\] w-\[273px\]/);
+
+  /*
+   * NO WRITTEN DISCLOSURE ON THE BAR, AND NOT BECAUSE IT STOPPED MATTERING.
+   *
+   * The trigger used to grow an amber word — "Renko · ATR(14)" — whenever a
+   * transform was on. It was the widest thing on the row at the moment the
+   * row was most under pressure, and it was the THIRD copy of a statement the
+   * chart itself already makes: `CandleChart` paints the same chip on the
+   * plot for as long as the transform is drawing, which is asserted above and
+   * is the copy that cannot be missed.
+   *
+   * So the value is computed here and spent on the tooltip and the accessible
+   * name, and no ink on the bar.
+   */
+  assert.doesNotMatch(menu, /\{synthetic\}/,
+    "the disclosure must not be drawn as a label on the toolbar");
+  assert.match(menu, /\$\{SYNTHETIC_DISCLOSURE_HINT\}/,
+    "…but the caret must still carry the whole sentence in its tooltip");
+
+  /*
+   * The favourites are a PER-BROWSER toolbar preference, stored beside the
+   * timeframe strip's own and under a versioned key — not workspace state,
+   * because it is a fact about this toolbar and not about any chart.
+   */
+  assert.match(menu, /"tv\.chart-type\.favourites\.v1"/);
+  assert.match(menu, /"candles", "heikinAshi", "renko"/,
+    "the reference's own defaults for a fresh account");
+});
+
+test("THE MENU IS SIX RUNS OF SHAPES, IN THE REFERENCE'S ORDER", () => {
+  const menu = read("components/tv/ChartTypeMenu.tsx");
+  const starts = /const GROUP_STARTS = new Set<ChartType>\(\[([\s\S]*?)\]\)/.exec(menu);
+  assert.ok(starts, "the group breaks could not be located");
+  const declared = [...starts[1]!.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]!);
+  assert.deepEqual(declared, ["line", "area", "columns", "footprint", "heikinAshi"],
+    "five hairlines, splitting the twenty-one rows into the reference's six runs");
+
+  // Every break names a type that exists and is not the first row — a stale
+  // one would silently draw a hairline above nothing or above everything.
+  const order = CHART_TYPES.map((t) => t.value);
+  for (const start of declared) {
+    assert.ok(order.includes(start as ChartType), `${start} is not a chart type`);
+    assert.notEqual(order[0], start, "a break above the first row is a rule above a list");
+  }
+
+  // The label the reference prints, without the acronym it does not print.
+  assert.equal(chartTypeLabel("tpo"), "Time price opportunity");
+  assert.equal(chartTypeLabel("footprint"), "Volume footprint");
+  assert.equal(chartTypeLabel("sessionVolumeProfile"), "Session volume profile");
 });
 
 test("isChartType rejects anything that is not a mode", () => {

@@ -46,9 +46,17 @@ function symbolControls(container: HTMLElement): HTMLElement[] {
 
 /** Every control that sets a timeframe by clicking it, anywhere on screen. */
 function timeframeButtons(container: HTMLElement): string[] {
-  return [...container.querySelectorAll<HTMLElement>("button")]
-    .filter((b) => b.getAttribute("aria-pressed") !== null
-      && /^\d+[smhd]$/.test((b.textContent ?? "").trim()))
+  /*
+   * Found by `data-resolution`, not by the shape of the printed text.
+   *
+   * A chip prints day-and-longer resolutions uppercase (`1D`) and sub-day
+   * lowercase (`4h`), which is also how the bottom row's RANGE shortcuts are
+   * written — `1D 5D 1M 3M 6M`, a different control setting a different thing,
+   * and one that a text-shaped match swept up the moment the strip started
+   * printing `1D`. Only a chip that sets a resolution carries the resolution.
+   */
+  return [...container.querySelectorAll<HTMLElement>("button[data-resolution]")]
+    .filter((b) => b.getAttribute("aria-pressed") !== null)
     .map((b) => (b.textContent ?? "").trim());
 }
 
@@ -92,11 +100,11 @@ test("A ONE-PANE WORKSPACE HAS ONE SYMBOL CONTROL AND ONE INTERVAL STRIP", async
   // The strip exists ONCE. Six favourite buttons, on the toolbar, and no
   // second run of them anywhere.
   const pressable = timeframeButtons(chart.container);
-  assert.deepEqual(pressable, ["1m", "5m", "15m", "1h", "4h", "1d"],
+  assert.deepEqual(pressable, ["1m", "5m", "15m", "1h", "4h", "1D"],
     `a timeframe strip is rendered more than once: ${pressable.join(", ")}`);
   for (const button of [...chart.container.querySelectorAll<HTMLElement>("button")]) {
     if (button.closest("[data-pane-legend]") === null) continue;
-    assert.ok(!/^\d+[smhd]$/.test((button.textContent ?? "").trim())
+    assert.ok(!/^\d+[smhd]$/i.test((button.textContent ?? "").trim())
       || button.getAttribute("aria-haspopup") === "menu",
       "the pane legend must state one timeframe, not offer a strip of them");
   }
@@ -205,7 +213,7 @@ test("EVERY PANE KEEPS ITS OWN SYMBOL AND ITS OWN TIMEFRAME", async () => {
 
   // The toolbar is still ONE symbol control and ONE strip, exactly as in one
   // pane — it acts on the focused pane, which is what the benchmark does too.
-  assert.deepEqual(timeframeButtons(chart.container), ["1m", "5m", "15m", "1h", "4h", "1d"]);
+  assert.deepEqual(timeframeButtons(chart.container), ["1m", "5m", "15m", "1h", "4h", "1D"]);
   assert.equal(
     symbolControls(chart.container).filter(
       (b) => b.closest('[data-toolbar-control="symbol"]') !== null).length, 1);

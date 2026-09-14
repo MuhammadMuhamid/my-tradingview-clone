@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { drawingVisibleOnTimeframe, TEXT_TOOLS, TOOL_POINTS, type Drawing, type DrawingTool } from "../lib/drawings";
+import {
+  CURSOR_TOOLS, drawingVisibleOnTimeframe, TEXT_TOOLS, TOOL_POINTS,
+  type Drawing, type DrawingTool,
+} from "../lib/drawings";
 
 const ROOT = path.join(__dirname, "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -31,6 +34,9 @@ test("new drawing variants are registered, exposed and rendered by shared primit
     "polyline", "arc", "curve", "doubleCurve", "highlighter", "arrowMarker",
     "arrowUp", "arrowDown", "note", "priceNote", "pin", "comment", "signpost", "flagMark",
     "avprofile", "datePriceRange",
+    // TVP8 round three: the Icons cell. `icon` paints a Unicode glyph at one
+    // anchor, so it has a renderer branch like every other drawing.
+    "icon",
     "regression", "schiffPitchfork", "fibChannel", "gannBox", "xabcd",
     "elliottImpulse", "cyclicLines", "positionForecast", "rotatedRectangle", "table",
   ];
@@ -38,6 +44,33 @@ test("new drawing variants are registered, exposed and rendered by shared primit
     assert.ok(Object.prototype.hasOwnProperty.call(TOOL_POINTS, tool), `${tool} lacks anchor semantics`);
     assert.match(toolbar, new RegExp(`tool: "${tool}"`), `${tool} is not reachable from the toolbar`);
     assert.ok(canvas.includes(`"${tool}"`), `${tool} has no canvas renderer branch`);
+  }
+
+  /*
+   * The two cells that are one tool each, and are therefore not in a group.
+   * `zoom` is in the tool union because the union is the rail's only channel
+   * to the canvas — arming it makes a drag select a span of time and hand it
+   * to the chart's own `setVisibleRange`. Nothing is committed, which is why
+   * it is checked here and not among the variants above.
+   */
+  /*
+   * The reference's second cursor is a MODE, not a shape: it selects and drags
+   * exactly as the cross does and differs only in the pointer it paints. So it
+   * has no renderer branch, and what must be true of it is that the canvas
+   * asks `isCursorMode` rather than `tool === "cursor"` — otherwise arming it
+   * would start a freeform draft nothing could finish.
+   */
+  assert.ok(CURSOR_TOOLS.has("arrowCursor" as DrawingTool));
+  assert.match(toolbar, /tool: "arrowCursor"/, "the Arrow cursor is not on the rail");
+  assert.match(canvas, /isCursorMode\(/,
+    "the canvas still hard-codes one cursor, so a second one draws instead of selecting");
+  assert.doesNotMatch(canvas, /tool(?:Ref\.current)? [=!]== "cursor"/,
+    "every cursor-vs-draw decision must go through isCursorMode");
+
+  for (const tool of ["ruler", "zoom"] as DrawingTool[]) {
+    assert.ok(Object.prototype.hasOwnProperty.call(TOOL_POINTS, tool), `${tool} lacks anchor semantics`);
+    assert.match(toolbar, new RegExp(`tool: "${tool}"`), `${tool} is not reachable from the rail`);
+    assert.ok(canvas.includes(`"${tool}"`), `${tool} is not handled by the canvas`);
   }
   for (const tool of ["note", "priceNote", "comment", "signpost", "flagMark"] as DrawingTool[]) {
     assert.ok(TEXT_TOOLS.has(tool), `${tool} must collect its caption through the shared text flow`);

@@ -31,32 +31,46 @@ const read = (rel: string): string =>
   fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
 
 /**
- * `{ tool: "trend", icon: "trend", label: "Trend line" }`, per group.
+ * `{ tool: "trend", icon: "trend", label: "Trendline" }`, per group.
  *
  * Matched on `tool:` rather than on `{ tool:` because a long label wraps the
  * entry onto three lines — `vprange` does — and a parser that only saw the
  * one-line form would report a perfectly reachable tool as missing.
+ *
+ * TVP8 round three: a group's tools moved one level deeper, into the
+ * reference's own `sections` ("Lines", "Channels", "Pitchforks"). The chunking
+ * is therefore anchored on a TOP-LEVEL entry — a newline, exactly two spaces
+ * and an opening brace — which the nested section objects, indented four
+ * further, cannot produce. Both registries are read: `SINGLES` is where the
+ * Measure and Zoom-in cells live, and `ruler` is only reachable through it.
  */
-function railGroups(): { id: string; tools: string[]; icons: string[] }[] {
-  const start = source.indexOf("const GROUPS");
+function entriesOf(name: string): { id: string; tools: string[]; icons: string[] }[] {
+  const start = source.indexOf(`const ${name}`);
   const end = source.indexOf("\n];", start);
-  assert.ok(start > 0 && end > start, "the rail no longer declares GROUPS");
+  assert.ok(start > 0 && end > start, `the rail no longer declares ${name}`);
   const block = source.slice(start, end);
-  const groups: { id: string; tools: string[]; icons: string[] }[] = [];
+  const entries: { id: string; tools: string[]; icons: string[] }[] = [];
   for (const chunk of block.split(/\n {2}\{/).slice(1)) {
     const id = /id: "([^"]+)"/.exec(chunk)?.[1];
     if (!id) continue;
-    groups.push({
+    entries.push({
       id,
       tools: [...chunk.matchAll(/\btool: "([^"]+)"/g)].map((m) => m[1]!),
       icons: [...chunk.matchAll(/icon: "([^"]+)"/g)].map((m) => m[1]!),
     });
   }
-  return groups;
+  return entries;
 }
 
+const railGroups = (): { id: string; tools: string[]; icons: string[] }[] =>
+  entriesOf("GROUPS");
+
+/** Every cell that arms a tool: the eight groups plus the two singles. */
+const railCells = (): { id: string; tools: string[]; icons: string[] }[] =>
+  [...entriesOf("GROUPS"), ...entriesOf("SINGLES")];
+
 test("every declared drawing tool is reachable from exactly one rail group", () => {
-  const groups = railGroups();
+  const groups = railCells();
   const railed = groups.flatMap((g) => g.tools);
   const declared = Object.keys(TOOL_POINTS) as DrawingTool[];
 
@@ -82,10 +96,12 @@ test("the rail's groups are the reference's families", () => {
    * reaching for XABCD expects the patterns group to be fourth, and a rename
    * or a reorder here is a user-visible change that should be deliberate.
    *
-   * `anchored` is Trading Scene's own and comes last: Anchored VWAP and the
-   * two volume profiles compute a series from a point rather than describing a
-   * shape, and the reference files its equivalents somewhere else entirely, so
-   * there is no position to borrow.
+   * `anchored` is gone. It was Trading Scene's own eighth group, holding
+   * Anchored VWAP and the two volume profiles — and it sat in the cell where
+   * the reference has Icons, so the eighth silhouette in the column was a
+   * curve-from-a-dot where a user arriving from the reference expects a
+   * smiley. The three tools moved into the forecasting group's "Volume-based"
+   * section, which is where the reference files them.
    */
   assert.deepEqual(railGroups().map((g) => g.id), [
     "cursors",
@@ -95,8 +111,30 @@ test("the rail's groups are the reference's families", () => {
     "prediction-and-measurement",
     "geometric-shapes",
     "annotation",
-    "anchored",
+    "icons",
   ]);
+
+  /*
+   * And the two cells between the groups and the magnet, which are ONE tool
+   * each rather than a group. `ruler` used to be the first entry of the
+   * forecasting group, so the fifth rail cell showed a ruler where the
+   * reference shows a position box — the most visible of the three wrong
+   * defaults this round fixed.
+   */
+  assert.deepEqual(entriesOf("SINGLES").map((g) => g.id), ["measure", "zoom-in"]);
+});
+
+test("each group's FIRST tool is the silhouette the reference rests on", () => {
+  /*
+   * The rail shows the group's current tool, and its current tool starts as
+   * the first entry. Three of the eight were wrong: a ruler in the forecasting
+   * cell, a rectangle in the shapes cell, an Anchored-VWAP curve in the eighth.
+   * Read off the live reference at 1440x900 dark.
+   */
+  assert.deepEqual(
+    railGroups().map((g) => g.tools[0]),
+    ["cursor", "trend", "fib", "xabcd", "long", "brush", "text", "icon"],
+  );
 });
 
 test("no group is deeper than a flyout can show without scrolling to reach", () => {
@@ -128,11 +166,66 @@ test("every rail icon key exists, so no tool silently wears another tool's glyph
       .matchAll(/^\s{2}([A-Za-z][A-Za-z0-9]*):/gm)].map((m) => m[1]!)
   );
   assert.ok(icons.size > 40, `parsed only ${icons.size} icons — the ICONS shape changed`);
-  for (const group of railGroups()) {
+  for (const group of railCells()) {
     for (const key of group.icons) {
       assert.ok(icons.has(key), `${group.id} references a missing icon key: ${key}`);
     }
   }
+
+  /*
+   * And no two tools wear the SAME glyph.
+   *
+   * Thirty-five did: every Gann tool was the rectangle, every harmonic pattern
+   * was the polyline, three Fibonacci variants were the retracement, all four
+   * pitchforks were one fork. A rail is aimed at from shape memory, so two
+   * tools with one shape are two tools whose label you have to read — which is
+   * the whole cost the rail exists to remove.
+   */
+  const used = railCells().flatMap((g) => g.icons);
+  const seen = new Map<string, number>();
+  for (const key of used) seen.set(key, (seen.get(key) ?? 0) + 1);
+  const shared = [...seen].filter(([, n]) => n > 1).map(([key]) => key);
+  assert.deepEqual(shared, [],
+    `these glyphs are worn by more than one tool: ${shared.join(", ")}`);
+});
+
+test("RAIL — the flyout affordance keeps the name the DOM harness addresses it by", () => {
+  /*
+   * The reference draws nothing on a group cell at rest and reveals an 11x34
+   * strip with a chevron on hover or while the flyout is open; this rail wore
+   * a permanent 24x24 corner triangle on all eight. The strip replaced it —
+   * and `tests/dom/harness/chart.tsx#selectTool` finds every flyout by
+   * `aria-label="More <id> tools"`, so the name is load-bearing for the whole
+   * DOM suite and is pinned here rather than discovered by a failing test
+   * three files away.
+   */
+  assert.match(source, /aria-label=\{`More \$\{id\} tools`\}/);
+  assert.match(source, /h-\[34px\] w-\[11px\]/);
+  assert.match(source, /opacity-0 transition-none group-hover:opacity-100/);
+
+  // And the four option cells have one too, so Magnet, Lock, Hide and Remove
+  // are reachable the same way.
+  for (const id of ["magnet", "lock", "hide", "remove"]) {
+    assert.ok(source.includes(`strip("${id}"`), `the ${id} cell has no flyout strip`);
+  }
+});
+
+test("RAIL — Remove is never disabled and carries no count label", () => {
+  /*
+   * It was `disabled={count === 0}` with `disabled:opacity-30` and a `<span>`
+   * printing the count underneath — so on an empty chart the cell was the only
+   * dimmed control in the column, and on a busy one it was the only one with a
+   * number under it. The reference does neither; its Remove cell is full ink
+   * always and its flyout carries the counts, one per scope.
+   */
+  assert.match(source, /aria-label="Remove objects"/);
+  assert.doesNotMatch(source, /disabled=\{count/,
+    "the cell must stay pressable on an empty chart");
+  assert.doesNotMatch(source, /disabled:opacity/,
+    "and it must stay at full ink");
+  assert.doesNotMatch(source, /\{count > 0 && <span/,
+    "the count belongs in the flyout's rows, not under the cell");
+  assert.match(source, /Remove \$\{count\} drawing/);
 });
 
 test("RAIL — every icon-only control has a NAME, not only a tooltip", () => {

@@ -236,7 +236,14 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
     )}
 
     {/* ── far-right icon rail (TV-style) ── */}
-    <div className="hidden w-[52px] shrink-0 flex-col items-center border-l border-border bg-surface py-1 md:flex">
+    {/*
+      TVP8 R1-13: 10px of top padding, so this column's first 38px cell starts
+      at y=48 — under the toolbar row, not level with it. The rail used to sit
+      in the toolbar band (`py-1`, first cell at y=4) with its selected chip
+      reading as part of the bar; the reference starts BOTH rail columns below
+      the toolbar, and the toolbar row is 38px tall.
+    */}
+    <div className="hidden w-[52px] shrink-0 flex-col items-center border-l border-border bg-surface pb-1 pt-[10px] md:flex">
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}

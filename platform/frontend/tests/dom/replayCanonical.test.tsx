@@ -55,8 +55,8 @@ async function chooseCanonicalSol(chart: MountedChart): Promise<void> {
 
 /** Open the replay picker and start a session at the suggested bar. */
 async function startReplay(chart: MountedChart): Promise<void> {
-  const open = [...chart.container.querySelectorAll<HTMLElement>("button")]
-    .find((b) => (b.textContent ?? "").trim() === "Replay");
+  // TVP8: icon-only on the bar, like the reference; the name is the accessible one.
+  const open = chart.container.querySelector<HTMLElement>('button[aria-label="Bar replay"]');
   assert.ok(open, "the toolbar has no Replay control");
   fireEvent.click(open);
   await settle();

@@ -35,6 +35,17 @@ function captureReactComplaints(): { messages: string[]; stop: () => void } {
   return { messages, stop: () => { console.error = real.error; console.warn = real.warn; } };
 }
 
+/** The bar count the focused chart reports — the History-depth group's tooltip, behind More. */
+function loadedBarsNote(chart: { container: HTMLElement }): string {
+  const more = chart.container.querySelector<HTMLElement>('button[aria-label="More controls"]');
+  if (more) fireEvent.click(more);
+  const group = chart.container.querySelector<HTMLElement>('[role="group"][aria-label="History depth"]');
+  const note = group?.getAttribute("title") ?? "";
+  const again = chart.container.querySelector<HTMLElement>('button[aria-label="Fewer controls"]');
+  if (again) fireEvent.click(again);
+  return note;
+}
+
 beforeEach(() => {
   resetBrowser();
   server.setDefaultCandles(compactSeries(600));
@@ -53,7 +64,13 @@ test("the workspace renders a chart with bars, and React reports nothing", async
 
   const text = chart.container.textContent ?? "";
   assert.match(text, /SOLUSDT/);
-  assert.match(text, /600 bars/, "the pane must report the window it actually loaded");
+  /*
+   * TVP8 owner veto (R1-10): the bar count left the primary row — the
+   * reference's bar carries no readout. It is the History-depth group's
+   * tooltip inside the More strip now, which is where the control that
+   * changes it lives.
+   */
+  assert.match(loadedBarsNote(chart), /600 bars/, "the pane must report the window it actually loaded");
   assert.ok(chart.plot, "the chart host exists");
 
   const complaints = capture.messages.filter(
@@ -138,7 +155,7 @@ test("a symbol with no stored bars is repaired once rather than shown empty", as
   const backfills = server.callsTo("/api/data/backfill");
   assert.equal(backfills.length, 1,
     "a window with no history is backfilled exactly once, not on every render");
-  assert.match(chart.container.textContent ?? "", /0 bars|No candles|bars/,
+  assert.match(loadedBarsNote(chart), /0 bars|No candles|bars/,
     "and the pane says what it has rather than pretending");
 });
 

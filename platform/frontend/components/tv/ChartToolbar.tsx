@@ -14,83 +14,58 @@
  * a user reaching for the top of the screen means "the chart I am looking at".
  * Whether that reaches other panes is the Sync menu's business, not this file's.
  *
- * ── The hierarchy, and why the width no longer decides it ──────────────────
+ * ── TVP8 owner veto (OV-B): composition, not just height ───────────────────
  *
- * This bar used to have one tier. Below 1280px a ⋯ toggle hid roughly half the
- * controls; at or above it, all of them rendered inline and wrapped — so a 13"
- * laptop got a compact bar and a large monitor got three ragged rows of chrome
- * before the first candle. More screen bought worse layout.
+ * This row was 38px tall like the reference's and still looked nothing like
+ * it: the account entry was a glyph+chevron IN the row; Alert lived far to the
+ * right of Replay; the chart style was a single dropdown where the reference
+ * shows favourite styles as icon radios beside a caret; Trade was an icon;
+ * `Last close 77,799 · 9,999 bars · Unnamed` sat in prime toolbar space; the
+ * row itself ended where the watchlist began instead of spanning the window.
  *
- * Now the tier is a property of the CONTROL, declared in `lib/toolbarLayout`,
- * not of the viewport:
+ * The composition is now the reference's, measured live on 2026-09-14
+ * (`measurements/tv-shell-live-inventory-20260914.md` in the campaign folder):
  *
- *   primary row  — chart context (symbol, timeframe, presentation, studies,
- *                  replay) then workspace actions (alert, ticket, layout, sync,
- *                  fullscreen), with the saved-layout identity pushed right.
- *                  The same row at 1280px and at 2560px.
+ *   [BTCUSDT] [⊕] │ 1m 5m 15m 1h 4h 1D [⌄] │ [style][style][style] [⌄] │
+ *   [indicators] │ [alert] [replay] │ [undo] [redo]   … ml-auto …
+ *   [layout] [Unnamed ☁] [⌄] [sync*] │ [search] [settings] [fullscreen]
+ *   [camera] [⋯] [ Trade ]
+ *
+ *   * only with two or more panes — a disabled Sync on a one-pane chart is a
+ *     control that teaches "this is broken".
+ *
+ * Every control is icon-only at every width. The only words on the row are
+ * the ticker, the interval chips, the saved layout's name and `Trade`. The
+ * price readout and the bar count are gone from the bar: the price is in the
+ * legend already, and the bar count is the History-depth group's tooltip in
+ * the More strip. The account entry is the 52×38 cell at the top of the
+ * left-rail column, rendered by the page — the row starts after it.
+ *
+ * ── The hierarchy ──────────────────────────────────────────────────────────
+ *
+ * The tier is a property of the CONTROL, declared in `lib/toolbarLayout`:
+ *
+ *   primary row  — chart context, then the workspace cluster pushed right.
+ *                  The same row at 768px and at 2560px.
  *   More strip   — history depth, read-only trading overlays, server-side
  *                  automation, strategy properties, the optimizer's best
  *                  config. Opened deliberately, at every width.
  *
- * The More strip is a full-width row below the bar rather than a popover
- * because the overlay control inside it opens its own menu downward, which a
- * popover would clip.
+ * Below `md` the workspace cluster, the saved-layout identity and Trade move
+ * into that strip — a phone genuinely has no room for them. Below `sm` so do
+ * Compare, Indicators, Alert and Replay. Each is ONE component rendered in two
+ * places, so the placements cannot drift apart.
  *
- * Below `md` the workspace-action cluster and the saved-layout identity move
- * into that same strip — a phone genuinely has no room for them, and the brief
- * for this bar is a compact primary row at DESKTOP widths, with controlled
- * overflow below. They are rendered from one component either way, so the two
- * placements cannot drift apart.
+ * ── FC2-B1: which element absorbs pressure ─────────────────────────────────
  *
- * `md` there means md OF THE ROW, not of the screen. The manual ticket is a
- * static flex sibling of this column once it is open, so it subtracts its own
- * width from the row while every viewport query stays where it was. See
- * `toolbarDensityClasses` below: that mismatch is what drew the saved-layout
- * identity on top of the ticket's instrument header at 1024 and at 1280.
- *
- * Pressure inside the primary row is absorbed by the timeframe strip, which is
- * the one element allowed to scroll. Nothing wraps, so the row is always one
- * row.
- *
- * ── FC2-B1: which element absorbs, and why it changes below `sm` ───────────
- *
- * The absorber has to be an element that can actually GIVE. The timeframe
- * strip can, because it scrolls; but below `sm` it is not rendered at all (see
- * `TimeframePicker`), and its wrapper still carried `flex-1 min-w-0` — which
- * is precisely the permission a flex item needs to shrink below its own
- * minimum content size. At 390px the row's incompressible siblings already
- * exceeded the viewport, so the wrapper was squeezed to 15px while the 90px
- * picker button inside it overflowed, and the `Timeframe` control was painted
- * across the chart-type button. `elementFromPoint` in the middle of the
- * visible `Timeframe` label returned the chart-type button: a tap on one
- * control opened another.
- *
- * So below `sm` the wrapper is `shrink-0` — it can never be narrower than the
- * button it holds — and the absorber becomes the SYMBOL, which truncates. A
- * truncated instrument is legible and recoverable; an overlapped control is
- * neither. The two hairline separators also stand down below `sm`: they are
- * grouping, and grouping is not worth 18px of a 320px row.
- *
- * The invariant this buys, asserted by a pairwise sweep at 320 / 360 / 390 /
- * 430: no two interactive boxes on this bar intersect, and `elementFromPoint`
- * across the full width of every visible control returns that same control.
- *
- * That absorber is `flex-initial`, not `flex-none`. `flex-none` pins the strip
- * at its content width, which made the row incompressible: with the manual
- * trading panel open the main column loses 341px, the row overflowed it, and
- * the saved-layout button was painted straight through the ticket's own
- * instrument header — two live controls drawn on top of each other. It must be
- * able to give width back (it never GROWS into free space, which is what keeps
- * the saved-layout identity pinned right by `ml-auto`). Absorbing pressure is
- * not the same as never receiving it, though: the strip can only give back the
- * width it has, so the breakpoints themselves also have to know about the
- * ticket. Both are needed.
- *
- * Every control that was here before is still here. Nothing was dropped to
- * make the row fit, and nothing decorative was added to make it look like some
- * other product.
+ * Nothing wraps, so the row is always one row. At desktop widths the row is
+ * wider than its content. Below `sm` the timeframe strip is not rendered and
+ * the SYMBOL pill truncates — a shortened instrument is legible and
+ * recoverable; an overlapped control is neither. The invariant, asserted by a
+ * pairwise sweep at 320 / 360 / 390 / 430: no two interactive boxes on this
+ * bar intersect.
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { type Resolution } from "@/lib/resolution";
 import { Separator } from "@/components/ui";
@@ -103,8 +78,10 @@ import type { ChartType } from "@/lib/chartType";
 import type { ChartSettings } from "@/lib/chartSettings";
 import type { SyncOptions } from "@/lib/paneSync";
 import type { Layout } from "@/lib/layouts";
-import { ProductMenu } from "@/components/tv/ProductMenu";
-import { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
+import {
+  SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOL_ICON_SIZE, TOOL_ICON_STROKE,
+  TOOL_PILL_OUTLINE, TOOLBAR_ROW_H,
+} from "@/components/tv/toolbarChrome";
 import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
 import { toolbarDensityClasses } from "@/components/tv/toolbarDensity";
@@ -123,7 +100,6 @@ const HISTORY_OPTIONS = [
   { label: "All", bars: 200000 },
 ];
 
-
 /**
  * The tier marker every control carries.
  *
@@ -133,6 +109,24 @@ const HISTORY_OPTIONS = [
  */
 function ctl(id: ToolbarControlId): { "data-toolbar-control": string; "data-toolbar-group": string } {
   return { "data-toolbar-control": id, "data-toolbar-group": toolbarGroup(id) };
+}
+
+/**
+ * One glyph frame for every icon on the bar (OV-K).
+ *
+ * The reference's toolbar icons share a size, a stroke and round caps; ours
+ * were drawn one at a time at 18px/1.7 and read as a different family. The
+ * frame is the family; the children are the silhouette.
+ */
+function Glyph(props: { children: React.ReactNode; size?: number; stroke?: number }) {
+  const size = props.size ?? TOOL_ICON_SIZE;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={props.stroke ?? TOOL_ICON_STROKE} strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true">
+      {props.children}
+    </svg>
+  );
 }
 
 export interface ChartToolbarProps {
@@ -154,7 +148,7 @@ export interface ChartToolbarProps {
 
   chartType: ChartType;
   onChartType: (type: ChartType) => void;
-  /** The focused pane's settings, for the chart-type trigger's disclosure text. */
+  /** The focused pane's settings, for the chart-style control's disclosure text. */
   chartSettings?: ChartSettings;
 
   presetId: string;
@@ -162,15 +156,18 @@ export interface ChartToolbarProps {
 
   sync: SyncOptions;
   onSync: (next: SyncOptions) => void;
+  /** One pane: Sync has nothing to act on and is not rendered. */
   syncDisabled: boolean;
 
   bars: number;
   onBars: (bars: number) => void;
+  /** How many bars the focused pane has actually loaded — the History group's tooltip. */
+  loadedBars?: number;
 
   indicatorCount: number;
   onOpenIndicators: () => void;
 
-  /** Drawing-history actions, kept on the primary row like TradingView. */
+  /** Drawing-history actions, on the primary row like the reference. */
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -204,25 +201,9 @@ export interface ChartToolbarProps {
   onOpenPriceAlert: () => void;
   onOpenAutomation: () => void;
   onOpenManual: () => void;
-  /**
-   * The manual-trading ticket is open, so it is taking its own width out of
-   * this bar's row. Not cosmetic: it is what the collapse breakpoints above
-   * are measured against.
-   */
-  ticketOpen: boolean;
-  /**
-   * A widget panel — Watchlist, Studies, MAs, Automate — is open, so it is
-   * taking its own 300px out of this bar's row. Same reason as `ticketOpen`
-   * above, and it was missing: between 1536 and 1836 the labels turned on
-   * against a row 300px narrower than the number that turned them on.
-   */
-  panelOpen: boolean;
   onOpenStrategy: () => void;
   onApplyBest: () => void;
   loadingBest: boolean;
-
-  /** Right-hand readout for the focused pane. */
-  readout: ReactNode;
 
   layouts: Layout[];
   currentLayoutId: string | null;
@@ -244,56 +225,49 @@ export interface ChartToolbarProps {
 }
 
 /**
- * Alert, ticket, layout, sync, fullscreen — what you DO with the chart.
+ * Layout, saved layout, sync, and the utilities — the right-hand group.
  *
  * One component, rendered in the primary row on a desktop and in the More
  * strip on a phone, so the two placements cannot drift apart and no control
  * exists in one and not the other.
  */
-function WorkspaceActions(props: ChartToolbarProps & { className: string; labelClass: string }) {
-  const { replayActive, replayBlocksLiveActions } = props;
-  const TOOL_LABEL = props.labelClass;
+function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
   return (
-    <div className={`items-center gap-1.5 ${props.className}`}>
-      {/*
-        FE-01: this bell used to open the deployment dialog, which created AND
-        activated a live 800 USDT strategy. A bell means "tell me when", in this
-        product and in every other one; automation has its own button, in the
-        More strip, that says what it does.
-      */}
-      <button
-        {...ctl("alert")}
-        onClick={props.onOpenPriceAlert} disabled={replayBlocksLiveActions}
-        title={replayActive ? "Exit Replay to create live alerts" : "Notify me when price reaches a level"}
-        aria-label="Alert"
-        className={TOOL_BUTTON}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
-        </svg>
-        <span className={TOOL_LABEL}>Alert</span>
-      </button>
-
-      <button
-        {...ctl("trade")}
-        onClick={props.onOpenManual} disabled={replayBlocksLiveActions}
-        title={replayActive ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
-        aria-label="Trade"
-        className={TOOL_BUTTON}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-          <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
-        </svg>
-        <span className={TOOL_LABEL}>Trade</span>
-      </button>
-
-      <Separator className={SEPARATOR} />
-
+    <div className={`items-center ${props.className}`}>
       <div {...ctl("layout")} className="flex shrink-0 items-center">
         <LayoutSelector presetId={props.presetId} onChange={props.onPreset} />
       </div>
 
-      <div {...ctl("sync")} className="flex shrink-0 items-center">
-        <SyncMenu value={props.sync} onChange={props.onSync} disabled={props.syncDisabled} />
-      </div>
+      <SavedLayoutIdentity {...props} className="flex" />
+
+      {/*
+        Sync is Trading Scene's own: the reference has no multi-chart sync
+        control on the bar. It sits beside the layout controls it belongs with,
+        and only exists when there are two or more panes to synchronise.
+      */}
+      {!props.syncDisabled && (
+        <div {...ctl("sync")} className="flex shrink-0 items-center">
+          <SyncMenu value={props.sync} onChange={props.onSync} disabled={false} />
+        </div>
+      )}
+
+      <Separator className={SEPARATOR} />
+
+      {/* The reference's order: quick search, settings, fullscreen, snapshot. */}
+      <button {...ctl("commandPalette")} onClick={props.onOpenCommandPalette}
+        title="Search tool or function"
+        aria-label="Search tool or function" className={TOOL_ICON_BUTTON}>
+        <Glyph><circle cx="10.5" cy="10.5" r="6.5" /><path d="M20 20l-4.6-4.6" /></Glyph>
+      </button>
+
+      <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
+        title="Chart settings — symbol, status, scales, canvas, trading and events"
+        aria-label="Chart settings" className={TOOL_ICON_BUTTON}>
+        <Glyph>
+          <path d="M12 2.8l7.8 4.5v9.4L12 21.2l-7.8-4.5V7.3z" />
+          <circle cx="12" cy="12" r="3.2" />
+        </Glyph>
+      </button>
 
       {/*
         Hidden rather than disabled when the browser will not allow it: an inert
@@ -301,8 +275,6 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
         `fullscreenEnabled` is false for reasons the page cannot fix (an iframe
         without the permission, a locked-down policy).
       */}
-      <Separator className={SEPARATOR} />
-
       {props.fullscreenSupported && (
         <button
           {...ctl("fullscreen")}
@@ -312,49 +284,15 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string; labelC
           aria-label={props.fullscreen ? "Exit fullscreen" : "Fullscreen"}
           className={TOOL_ICON_BUTTON}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <Glyph>
             {props.fullscreen
-              ? <><path d="M9 3v6H3" /><path d="M15 21v-6h6" /><path d="M21 9h-6V3" /><path d="M3 15h6v6" /></>
-              : <><path d="M3 9V3h6" /><path d="M21 15v6h-6" /><path d="M15 3h6v6" /><path d="M9 21H3v-6" /></>}
-          </svg>
+              ? <><path d="M9 4v5H4" /><path d="M15 20v-5h5" /><path d="M20 9h-5V4" /><path d="M4 15h5v5" /></>
+              : <><path d="M4 9V4h5" /><path d="M20 15v5h-5" /><path d="M15 4h5v5" /><path d="M9 20H4v-5" /></>}
+          </Glyph>
         </button>
       )}
-      {/*
-        TVP8: a picture of the chart, where the reference puts it — the camera
-        beside the fullscreen control. Click saves; Alt-click copies, which is
-        the pair of actions the reference offers from its own camera menu,
-        without a two-item dropdown in a bar this dense.
-      */}
-      {/*
-        TVP8 round two: a MENU, as the reference has.
-        
-        Alt-click was the only route to Copy: nothing on a touch screen, nothing
-        on a keyboard, and an `aria-label` that named only Save — so a screen
-        reader was told half the control. The reference's camera opens a menu
-        with both, and so does this.
-      */}
+
       <SnapshotMenu onSnapshot={props.onSnapshot} />
-      {/*
-        TVP8: the command palette, where the reference puts it — the magnifier
-        immediately before the chart-settings gear.
-      */}
-      <button {...ctl("commandPalette")} onClick={props.onOpenCommandPalette}
-        title="Search tool or function"
-        aria-label="Search tool or function" className={TOOL_ICON_BUTTON}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
-        </svg>
-      </button>
-      <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
-        title="Chart settings — symbol, status, scales, canvas, trading and events"
-        aria-label="Chart settings" className={TOOL_ICON_BUTTON}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-          <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" />
-          <circle cx="12" cy="12" r="4" />
-        </svg>
-      </button>
     </div>
   );
 }
@@ -379,11 +317,10 @@ function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => v
         aria-expanded={open}
         title="Chart image"
         aria-label="Chart image" className={TOOL_ICON_BUTTON}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true">
-          <path d="M3 8.5A1.5 1.5 0 014.5 7h2L8 5h8l1.5 2h2A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z" />
+        <Glyph>
+          <path d="M3.5 8.5A1.5 1.5 0 015 7h2.4L9 4.8h6L16.6 7H19a1.5 1.5 0 011.5 1.5v9A1.5 1.5 0 0119 19H5a1.5 1.5 0 01-1.5-1.5z" />
           <circle cx="12" cy="13" r="3.4" />
-        </svg>
+        </Glyph>
       </button>
       {open && (
         <div role="menu" aria-label="Chart image"
@@ -407,91 +344,85 @@ function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => v
 /**
  * Compare, in the two places it has to be.
  *
- * ── TVP8 round two: below `sm` it did not exist ───────────────────────────
- *
- * The `+` beside the symbol carried `hidden sm:flex` and had no second
- * placement, no keyboard binding and no palette row — and the palette's own
- * trigger is hidden below `sm` too. So on a 390px phone, comparing one
- * instrument against another was not a feature that was hard to reach; it was
- * a feature that was not there.
- *
- * Showing it at every width was tried first and MEASURED: at 320px it pushes
- * `More` 41px past the right edge, which is the same clipping this file's
- * `ContextActions` docstring records at 8.7px. The row was already exactly
- * full.
- *
- * So it takes the shape every other control that does not fit takes here — one
- * component, two placements. Beside the symbol at `sm` and above, where the
- * reference puts it and where a comparison is started from; in the More strip
- * below, one tap away, beside Indicators and Replay.
+ * Beside the symbol at `sm` and above, where the reference puts it and where a
+ * comparison is started from; in the More strip below, one tap away. Showing
+ * it at every width was tried first and MEASURED: at 320px it pushes `More`
+ * 41px past the right edge.
  */
-function CompareButton(props: ChartToolbarProps & { className: string; labelClass: string }) {
+function CompareButton(props: ChartToolbarProps & { className: string }) {
   return (
     <button
       {...ctl("compare")}
       onClick={props.onOpenCompare}
       title="Compare this chart with another instrument"
       aria-label="Compare with another instrument"
-      className={`${props.labelClass ? TOOL_BUTTON : TOOL_ICON_BUTTON} ${props.className}`}
+      className={`${TOOL_ICON_BUTTON} ${props.className}`}
     >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-      {props.labelClass && <span className={props.labelClass}>Compare</span>}
+      <Glyph><circle cx="12" cy="12" r="8.5" /><path d="M12 8v8M8 12h8" /></Glyph>
     </button>
   );
 }
 
 /**
- * Studies and Replay — chart context, but the two pieces of it a 320px phone
- * has no room for.
- *
- * Same one-component-two-placements shape as `WorkspaceActions` below, and for
- * the same reason. Seven 44px touch targets do not fit a 320px row: measured
- * on the repaired bar, the `More` control ran 8.7px past the right edge and was
- * clipped. Nothing was dropped — below `sm` these render in the More strip,
- * which is one tap away and is where the workspace actions already live at that
- * width. Above `sm` they are back on the primary row where they belong.
+ * Studies, Alert and Replay — chart context, but the three pieces of it a
+ * 320px phone has no room for. Same one-component-two-placements shape as
+ * `WorkspaceActions`, for the same reason.
  */
-function ContextActions(props: ChartToolbarProps & { className: string; labelClass: string }) {
-  const { replayActive } = props;
+function ContextActions(props: ChartToolbarProps & { className: string }) {
+  const { replayActive, replayBlocksLiveActions } = props;
   return (
     <div className={`items-center ${props.className}`}>
       <button
         {...ctl("indicators")}
         onClick={props.onOpenIndicators}
-        title="Browse indicators and add one to the focused chart"
+        title="Indicators, metrics, and strategies"
         aria-label={props.indicatorCount > 0
           ? `Indicators — ${props.indicatorCount} on the focused chart`
           : "Indicators"}
-        className={TOOL_BUTTON}
+        className={TOOL_ICON_BUTTON}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-          <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
-        </svg>
-        <span className={props.labelClass}>Indicators</span>
-        {/* accent-is-meaning: a count badge — how many studies are on the chart.
-            The button's own selected state is `.tvc-control`, as the contract says. */}
-        {props.indicatorCount > 0 && (
-          <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-white">
-            {props.indicatorCount}
-          </span>
-        )}
+        {/* a line over bars, as the reference draws its own */}
+        <Glyph>
+          <path d="M3.5 20.5h17" />
+          <path d="M6 17v-4M10 17v-7M14 17v-3M18 17v-9" />
+          <path d="M3.5 9.5l4.5-4 4 2.5 4.5-4.5 4 2" />
+        </Glyph>
+      </button>
+
+      <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
+
+      {/*
+        FE-01: this bell used to open the deployment dialog, which created AND
+        activated a live 800 USDT strategy. An alert means "tell me when";
+        automation has its own button in the More strip that says what it does.
+      */}
+      <button
+        {...ctl("alert")}
+        onClick={props.onOpenPriceAlert} disabled={replayBlocksLiveActions}
+        title={replayActive ? "Exit Replay to create live alerts" : "Create alert"}
+        aria-label="Create alert"
+        className={TOOL_ICON_BUTTON}
+      >
+        {/* an alarm clock with a plus — the reference's own silhouette for "create alert" */}
+        <Glyph>
+          <circle cx="12" cy="13" r="7.5" />
+          <path d="M12 9.5v7M8.5 13h7" />
+          <path d="M5 5.5L7.5 3.5M19 5.5L16.5 3.5" />
+        </Glyph>
       </button>
 
       <button
         {...ctl("replay")}
         onClick={props.onToggleReplayPicker}
         aria-pressed={replayActive || props.replayPickerOpen}
-        aria-label="Bar Replay"
-        title={replayActive ? "Replay is active" : "Start Bar Replay from a historical point"}
-        className={TOOL_BUTTON}
+        aria-label="Bar replay"
+        title={replayActive ? "Replay is active" : "Bar replay — start from a historical point"}
+        className={TOOL_ICON_BUTTON}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-          <path d="M8 5v14l11-7z" /><path d="M4 5v14" />
-        </svg>
-        <span className={props.labelClass}>Replay</span>
+        {/* double rewind, as the reference draws replay */}
+        <Glyph>
+          <path d="M12 6l-7 6 7 6z" /><path d="M20 6l-7 6 7 6z" />
+        </Glyph>
       </button>
     </div>
   );
@@ -500,16 +431,6 @@ function ContextActions(props: ChartToolbarProps & { className: string; labelCla
 /** The saved layout this workspace is on, and whether it is behind. */
 function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
   return (
-    /*
-      Second absorber, after the timeframe strip.
-      At 1024 with the 341px ticket open the strip alone was 6px short, and two
-      live controls still touched. The layout NAME truncates — it is the only
-      text left on the row at that width — so the identity keeps its badge, its
-      chevron and its click target while giving the row the last few pixels.
-      At 1024 it now leaves the primary row entirely, because a 683px row is
-      below `md` however wide the screen is; the caller decides that, so this
-      component renders identically in both places.
-    */
     <div {...ctl("savedLayouts")} className={`min-w-0 items-center ${props.className}`}>
       <LayoutMenu
         autosaveError={props.autosaveError}
@@ -523,6 +444,25 @@ function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
   );
 }
 
+/**
+ * The Trade pill — the row's last control, as the reference's bar ends in
+ * one. The paper / demo / testnet order ticket; nothing here can reach a
+ * live exchange.
+ */
+function TradeButton(props: ChartToolbarProps & { className: string }) {
+  return (
+    <button
+      {...ctl("trade")}
+      onClick={props.onOpenManual} disabled={props.replayBlocksLiveActions}
+      title={props.replayActive ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
+      aria-label="Trade"
+      className={`${TOOL_PILL_OUTLINE} ${props.className}`}
+    >
+      Trade
+    </button>
+  );
+}
+
 export function ChartToolbar(props: ChartToolbarProps) {
   const { symbol, interval, replayActive } = props;
   /*
@@ -532,16 +472,13 @@ export function ChartToolbar(props: ChartToolbarProps) {
    * what names an instrument on a workstation: TradingView's pill says
    * `BTCUSDT` and the venue, the product type and the long name live in the
    * chart's status line and in the symbol dialog, where there is room to read
-   * them.
-   *
-   * So the pill carries the ticker and the FULL identity stays in the
-   * control's tooltip and accessible name. Nothing is hidden; the technical
-   * form is one hover away instead of occupying 184px of the toolbar.
+   * them. So the pill carries the ticker and the FULL identity stays in the
+   * control's tooltip and accessible name.
    */
   const symbolLabel = displaySymbol(symbol);
   const tickerLabel = displayTicker(symbol);
   const { moreOpen, onMoreOpen } = props;
-  const density = toolbarDensityClasses(props.ticketOpen, props.panelOpen);
+  const density = toolbarDensityClasses();
   const moreButtonRef = useRef<HTMLButtonElement>(null);
 
   // Escape closes the More strip, like every other overlay in the workspace.
@@ -558,22 +495,15 @@ export function ChartToolbar(props: ChartToolbarProps) {
     return () => window.removeEventListener("keydown", onEsc);
   }, [moreOpen, onMoreOpen]);
 
+  const loaded = props.loadedBars;
+
   return (
-    <div className="border-b border-border bg-surface">
-      {/* ── primary row: chart context, then workspace actions ── */}
+    <div className="min-w-0 flex-1 bg-surface">
+      {/* ── primary row: chart context, then the workspace cluster pushed right ── */}
       <div
         data-toolbar-row="primary"
-        className={`flex ${TOOLBAR_ROW_H} flex-nowrap items-center px-0.5`}
+        className={`flex ${TOOLBAR_ROW_H} flex-nowrap items-center pl-1 pr-1.5`}
       >
-        {/*
-          The product mark, and behind it everything the global horizontal bar
-          used to carry (FC2-H3). At every width, not only on a phone: this bar
-          IS the top of the application now.
-        */}
-        <ProductMenu buttonClass={`flex ${TOOLBAR_H} shrink-0 items-center text-sm`} />
-
-        <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
-
         {/*
           The instrument keeps its pill. TradingView's symbol control is also
           the one rounded, filled thing on an otherwise square bar — it is the
@@ -581,52 +511,34 @@ export function ChartToolbar(props: ChartToolbarProps) {
           aims at first, so it is allowed to be the one that stands out.
 
           The truncating label is what makes the mobile row safe: this is the
-          element that gives width back when the viewport cannot hold the row,
-          so nothing else has to overflow its own box to fit. See FC2-B1 in
-          `TimeframePicker` and in this file's header.
-
+          element that gives width back when the viewport cannot hold the row.
           `min-w-[44px]` and not `min-w-0`, because the touch rule in
           `globals.css` sets a 44px minimum WIDTH without `!important` and a
-          utility class outranks it. Shrinking freely took this button to 36px
-          at a 320px viewport — one undersized target, in the repair that was
-          removing them. The label truncates instead: a shortened instrument is
-          readable and one tap from being fixed, a 36px target is neither.
+          utility class outranks it.
         */}
         <button
           {...ctl("symbol")}
           onClick={props.onOpenSearch}
-          title="Change symbol (/)"
+          title={`${symbolLabel} — change symbol (/)`}
           aria-label={`Change symbol — currently ${symbolLabel}`}
-          className="mx-0.5 flex h-7 min-w-[44px] shrink items-center gap-1.5 rounded-full bg-state-active px-3 text-sm font-semibold text-ink hover:brightness-110 sm:mx-1 sm:shrink-0"
+          className="flex h-7 min-w-[44px] shrink items-center rounded-full bg-state-active px-3 text-sm font-semibold text-ink hover:brightness-110 sm:shrink-0"
         >
           <span className="min-w-0 truncate">{tickerLabel}</span>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0 text-ink-faint">
-            <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
-          </svg>
         </button>
 
-        {/*
-          Compare, beside the instrument it compares FROM.
-
-          TVP7: the only way into a comparison used to be a bare lowercase
-          "vs" in the chart's status line — two letters of permanent chrome on
-          the densest surface in the product, describing nothing about the
-          chart when no comparison was on. The reference puts this next to the
-          symbol, as a `+`, and so does this.
-        */}
-        <CompareButton {...props} className="hidden sm:flex" labelClass="" />
+        <CompareButton {...props} className="hidden sm:flex" />
 
         <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
 
         {/*
-          The timeframe control is the one element that absorbs the row's width
-          pressure: its favourites strip scrolls rather than pushing the
-          controls beside it off the bar, which is what keeps this a single row
-          at every width. What resolutions exist, which are favourites and how a
-          custom one is entered all belong to `TimeframePicker`; this bar only
-          decides where the control sits and what tier it is in.
+          The timeframe control: favourites as text chips, then a caret that
+          opens the full list. What resolutions exist, which are favourites and
+          how a custom one is entered all belong to `TimeframePicker`; this bar
+          only decides where the control sits and what tier it is in. Below
+          `sm` the strip is not rendered and the wrapper must not shrink below
+          the caret it holds (FC2-B1).
         */}
-        <div {...ctl("timeframe")} className="flex shrink-0 items-center sm:min-w-0 sm:flex-initial">
+        <div {...ctl("timeframe")} className="flex shrink-0 items-center">
           <TimeframePicker
             interval={interval}
             onInterval={props.onInterval}
@@ -637,9 +549,9 @@ export function ChartToolbar(props: ChartToolbarProps) {
         <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
 
         {/*
-          The chart-type control is a slot. What presentations exist, and how
-          the main series draws them, belongs to the chart-type system — this
-          bar only decides where the control sits and what tier it is in.
+          The chart-style control is a slot: favourite styles as icon radios
+          and a caret that opens the full list. What presentations exist, and
+          how the main series draws them, belongs to the chart-type system.
         */}
         <div {...ctl("chartType")} className="flex shrink-0 items-center">
           <ChartTypeMenu value={props.chartType} onChange={props.onChartType}
@@ -648,62 +560,59 @@ export function ChartToolbar(props: ChartToolbarProps) {
 
         <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
 
-        <ContextActions {...props} className="hidden sm:flex" labelClass={density.label} />
+        <ContextActions {...props} className="hidden sm:flex" />
 
         <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
 
         <div className="flex shrink-0 items-center" aria-label="Edit history">
           <button
+            {...ctl("undo")}
             onClick={props.onUndo}
             disabled={!props.canUndo}
             aria-label="Undo"
             title="Undo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9 7 4 12l5 5" /><path d="M4 12h9a6 6 0 0 1 6 6" />
-            </svg>
+            <Glyph><path d="M8.5 7.5L4 12l4.5 4.5" /><path d="M4 12h10a5 5 0 010 10h-2" /></Glyph>
           </button>
           <button
+            {...ctl("redo")}
             onClick={props.onRedo}
             disabled={!props.canRedo}
             aria-label="Redo"
             title="Redo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m15 7 5 5-5 5" /><path d="M20 12h-9a6 6 0 0 0-6 6" />
-            </svg>
+            <Glyph><path d="M15.5 7.5L20 12l-4.5 4.5" /><path d="M20 12H10a5 5 0 000 10h2" /></Glyph>
           </button>
         </div>
 
-        <Separator className={`${SEPARATOR} ${density.separator}`} />
+        {/* ── the right-hand group ── */}
+        <div className="ml-auto flex min-w-0 shrink items-center">
+          <WorkspaceActions {...props} className={density.cluster} />
 
-        <WorkspaceActions {...props} className={density.cluster} labelClass={density.label} />
+          {/*
+            More is Trading Scene's own — history depth, overlays, automation,
+            the strategy tester and the optimizer have no counterpart on the
+            reference's bar. It sits as the last icon before the Trade pill,
+            and stays on the row at every width because it is the way INTO the
+            strip that holds everything a narrow row cannot.
+          */}
+          <button
+            {...ctl("more")}
+            ref={moreButtonRef}
+            onClick={() => onMoreOpen(!moreOpen)}
+            aria-expanded={moreOpen}
+            aria-controls="chart-toolbar-more"
+            aria-label={moreOpen ? "Fewer controls" : "More controls"}
+            title={moreOpen ? "Fewer controls" : "History depth, overlays, automation, strategy"}
+            className={TOOL_ICON_BUTTON}
+          >
+            <Glyph stroke={2.6}><path d="M5 12h.01M12 12h.01M19 12h.01" /></Glyph>
+          </button>
 
-        <button
-          {...ctl("more")}
-          ref={moreButtonRef}
-          onClick={() => onMoreOpen(!moreOpen)}
-          aria-expanded={moreOpen}
-          aria-controls="chart-toolbar-more"
-          aria-label={moreOpen ? "Fewer controls" : "More controls"}
-          title={moreOpen ? "Fewer controls" : "History depth, overlays, automation, strategy"}
-          className={TOOL_ICON_BUTTON}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
-            <circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" />
-          </svg>
-        </button>
-
-        {/* Price and bar count: a readout, not a control, so it yields first. */}
-        <div className="ml-auto hidden shrink-0 items-center gap-3 pr-1 2xl:flex">
-          {props.readout}
+          <TradeButton {...props} className={`ml-1.5 ${density.cluster}`} />
         </div>
-
-        <SavedLayoutIdentity {...props} className={`ml-auto ${density.cluster} 2xl:ml-0`} />
       </div>
 
       {/*
@@ -720,14 +629,18 @@ export function ChartToolbar(props: ChartToolbarProps) {
           aria-label="More chart controls"
           className="flex flex-wrap items-center gap-1 border-t border-border px-1 py-1"
         >
-          {/* Phone: studies, replay, the workspace actions and the saved layout. */}
-          <ContextActions {...props} className="flex sm:hidden" labelClass={density.label} />
-          <CompareButton {...props} className="flex sm:hidden" labelClass={density.label} />
-          <WorkspaceActions {...props} className={density.clusterInMore} labelClass={density.label} />
-          <SavedLayoutIdentity {...props} className={density.clusterInMore} />
+          {/* Phone: compare, studies, alert, replay, the workspace cluster and Trade. */}
+          <CompareButton {...props} className="flex sm:hidden" />
+          <ContextActions {...props} className="flex sm:hidden" />
+          <WorkspaceActions {...props} className={density.clusterInMore} />
+          <TradeButton {...props} className={density.clusterInMore} />
           <Separator className={density.separatorInMore} />
 
-          <div {...ctl("history")} role="group" aria-label="History depth" className="flex items-center gap-0.5">
+          <div {...ctl("history")} role="group" aria-label="History depth"
+            title={loaded !== undefined
+              ? `${loaded.toLocaleString()} bars loaded on the focused chart`
+              : undefined}
+            className="flex items-center gap-0.5">
             <span className="mr-1 hidden text-[10px] uppercase tracking-wide text-ink-faint sm:inline">
               History
             </span>
@@ -757,9 +670,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             onClick={props.onOpenAutomation} disabled={props.replayBlocksLiveActions}
             title={replayActive ? "Exit Replay to invoke Bot automation" : "Run this strategy server-side and send live orders to your bot"}
             className={TOOL_BUTTON}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-              <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
-            </svg>
+            <Glyph size={18}><path d="M13 2L4 14h7l-1 8 9-12h-7z" /></Glyph>
             Automate
           </button>
 
@@ -768,9 +679,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             onClick={props.onOpenStrategy}
             title="Strategy properties for the tester"
             className={TOOL_BUTTON}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-              <path d="M3 12h4l2-7 4 14 2-7h6" />
-            </svg>
+            <Glyph size={18}><path d="M3 12h4l2-7 4 14 2-7h6" /></Glyph>
             Strategy
           </button>
 
@@ -779,13 +688,9 @@ export function ChartToolbar(props: ChartToolbarProps) {
             onClick={props.onApplyBest} disabled={props.loadingBest || replayActive}
             title={replayActive ? "Exit Replay to apply a full-range optimizer result" : `Apply the local optimizer's best saved config for ${displayTicker(symbol)}`}
             /*
-              A toolbar control, not a call to action.
-
-              This was 28px with a 4px radius and a filled amber ground in a
-              row whose other controls are 38px, transparent, and paint an
-              inset chip — three control heights in one strip. And `warn` is
-              reserved for a state whose outcome is not yet known (§2), not
-              for drawing the eye to a feature.
+              A toolbar control, not a call to action: 38px, transparent, the
+              inset chip — `warn` is reserved for a state whose outcome is not
+              yet known (§2), not for drawing the eye to a feature.
             */
             className={`${TOOL_BUTTON} shrink-0 gap-1.5 disabled:cursor-not-allowed disabled:opacity-40`}>
             <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
@@ -793,10 +698,6 @@ export function ChartToolbar(props: ChartToolbarProps) {
             </svg>
             {props.loadingBest ? "Loading…" : "Best config"}
           </button>
-
-          <div className="ml-auto flex shrink-0 items-center gap-3 2xl:hidden">
-            {props.readout}
-          </div>
         </div>
       )}
     </div>

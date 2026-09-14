@@ -43,14 +43,23 @@ export {
 } from "./chartTransforms";
 
 export type ChartType =
-  | "candles" | "hollowCandles" | "volumeCandles" | "bars" | "line" | "lineWithMarkers"
-  | "stepLine" | "area" | "hlcArea" | "baseline" | "columns" | "highLow" | "sessionVolumeProfile"
-  | "tpo" | "range" | "footprint" | "heikinAshi" | "renko" | "lineBreak" | "kagi" | "pointAndFigure";
+  | "bars" | "candles" | "hollowCandles" | "volumeCandles" | "line" | "lineWithMarkers"
+  | "stepLine" | "area" | "hlcArea" | "baseline" | "columns" | "highLow"
+  | "footprint" | "tpo" | "sessionVolumeProfile"
+  | "heikinAshi" | "renko" | "lineBreak" | "kagi" | "pointAndFigure" | "range";
 
 /** Which of lightweight-charts' series kinds actually draws a type. */
 export type ChartRenderKind = "candles" | "bars" | "line" | "area" | "baseline" | "histogram";
 
-/** The two shelves of the menu. Transforms never mix in with presentations. */
+/**
+ * What a type DOES to the prices, which is not the same thing as where it sits
+ * in the menu.
+ *
+ * `transform` means "this puts a price on screen that never traded"; every
+ * other type is a `presentation` of the exchange's own candles. The menu
+ * groups by shape and puts Range — a presentation — after the five transforms,
+ * so position in `CHART_TYPES` says nothing about this field and vice versa.
+ */
 export type ChartTypeGroup = "presentation" | "transform";
 
 export interface ChartTypeSpec {
@@ -63,6 +72,23 @@ export interface ChartTypeSpec {
   transform: TransformKind | null;
 }
 
+/*
+ * THE MENU'S ORDER, AND WHY `range` IS LAST.
+ *
+ * This list IS the order the chart-style menu renders, measured off the
+ * reference at 1440×900: the four price-bar forms, the three line forms, the
+ * three filled forms, the two discrete forms, the three trade-driven profiles,
+ * then the six price-driven forms — Heikin Ashi, Renko, Line break, Kagi,
+ * Point & figure and Range.
+ *
+ * That last group is a GROUPING IN THE MENU, not the `group` field. Range
+ * draws the market's own trade-driven bars and invents no price, so it stays a
+ * `presentation`; it simply sits beside the five transforms because that is
+ * where a trader looks for it. `group` answers "does this put a price on
+ * screen that never traded" and nothing else, so it is no longer true that
+ * every presentation precedes every transform in this array — and nothing may
+ * infer one from the other.
+ */
 export const CHART_TYPES: readonly ChartTypeSpec[] = [
   {
     value: "bars", label: "Bars", group: "presentation",
@@ -139,22 +165,28 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     hint: "The traded high-to-low range without an OHLC body",
   },
   {
-    value: "sessionVolumeProfile", label: "Session volume profile", group: "presentation",
-    renderKind: "candles", transform: null,
-    hint: "Candles with a price-volume profile for the current UTC session",
+    value: "footprint", label: "Volume footprint", group: "presentation", renderKind: "candles", transform: null,
+    hint: "Trade-driven bars with bid/ask volume by price level",
   },
   {
-    value: "tpo", label: "Time Price Opportunity (TPO)", group: "presentation",
+    /*
+     * "Time price opportunity", spelt the way the reference spells it.
+     *
+     * The label used to carry a trailing "(TPO)". A parenthetical acronym in a
+     * 273px menu row is chrome every reader steps over on every scan, and the
+     * reference — which invented neither the chart nor the abbreviation —
+     * prints the words alone. The acronym is still what the settings panel and
+     * the pane's own profile readout call it, so nothing that names a control
+     * lost it; what went is a second name for the row.
+     */
+    value: "tpo", label: "Time price opportunity", group: "presentation",
     renderKind: "candles", transform: null,
     hint: "Session profile counting time brackets at each traded price",
   },
   {
-    value: "range", label: "Range", group: "presentation", renderKind: "candles", transform: null,
-    hint: "Trade-driven bars completed after the configured price range",
-  },
-  {
-    value: "footprint", label: "Volume footprint", group: "presentation", renderKind: "candles", transform: null,
-    hint: "Trade-driven bars with bid/ask volume by price level",
+    value: "sessionVolumeProfile", label: "Session volume profile", group: "presentation",
+    renderKind: "candles", transform: null,
+    hint: "Candles with a price-volume profile for the current UTC session",
   },
   {
     value: "heikinAshi", label: "Heikin Ashi", group: "transform",
@@ -185,6 +217,10 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     value: "pointAndFigure", label: "Point & figure", group: "transform",
     renderKind: "candles", transform: "pointAndFigure",
     hint: `Price columns using ${DEFAULT_PNF_BOX_PERCENT}% boxes and ${DEFAULT_PNF_REVERSAL_BOXES}-box reversals`,
+  },
+  {
+    value: "range", label: "Range", group: "presentation", renderKind: "candles", transform: null,
+    hint: "Trade-driven bars completed after the configured price range",
   },
 ];
 

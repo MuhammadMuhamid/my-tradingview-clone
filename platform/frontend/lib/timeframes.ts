@@ -66,7 +66,12 @@ export const RESOLUTION_CATALOGUE: readonly ResolutionGroup[] = [
 export const CATALOGUE_RESOLUTIONS: readonly Resolution[] =
   RESOLUTION_CATALOGUE.flatMap((group) => group.items);
 
-/** The six the toolbar has always shown, and still shows to a new user. */
+/**
+ * The six the toolbar has always shown, and still shows to a new user.
+ *
+ * Canonical ids, so `1d` — the chip prints it as `1D` (see `chipLabel`), which
+ * is the reference's casing and not a second identity.
+ */
 export const DEFAULT_FAVOURITES: readonly Resolution[] =
   ["1m", "5m", "15m", "1h", "4h", "1d"];
 
@@ -220,13 +225,19 @@ export interface TimeframeStrip {
   /** True when the current resolution is one of them. */
   currentInQuick: boolean;
   /**
-   * What the picker button says.
+   * The armed resolution, when the favourites strip cannot carry it.
    *
-   * The current resolution when the strip does not already show it, so a strip
-   * with nothing pressed never reads as "no timeframe". Otherwise a plain
-   * label, because repeating a pressed button beside itself is noise.
+   * TradingView keeps the armed interval on the bar at all times: star `1h`
+   * away, or type a custom `45m`, and the chip for it appears at the end of
+   * the strip anyway, pressed, just before the caret. Null when the strip
+   * already shows it, because repeating a pressed chip beside itself is noise.
+   *
+   * This replaced a `menuLabel` string that the picker button used to print.
+   * The button is now a bare 24px caret at every width — the reference draws
+   * no word there, and a control that sometimes says "Timeframe" and sometimes
+   * says "45m" was two controls wearing one name.
    */
-  menuLabel: string;
+  armedChip: Resolution | null;
 }
 
 export function timeframeStrip(
@@ -234,11 +245,34 @@ export function timeframeStrip(
 ): TimeframeStrip {
   const quick = favourites.slice(0, MAX_FAVOURITES);
   const currentInQuick = quick.includes(current);
-  return {
-    quick,
-    currentInQuick,
-    menuLabel: currentInQuick ? "Timeframe" : current,
-  };
+  return { quick, currentInQuick, armedChip: currentInQuick ? null : current };
+}
+
+/**
+ * The units a resolution is written in UPPERCASE.
+ *
+ * TradingView writes a day and everything longer as `1D`, `1W`, `1M`, and
+ * everything shorter as `30s`, `1m`, `4h`. It is not decoration: `1M` and `1m`
+ * are a month and a minute, and the only thing separating them on a five-pixel
+ * chip is the case of one letter. `w` and `M` are listed although this chart
+ * refuses calendar resolutions (see `lib/resolution`'s header) so that the day
+ * ceiling is the only thing that has to move if it ever lifts.
+ */
+const UPPERCASE_UNITS: ReadonlySet<string> = new Set(["d", "w", "M"]);
+
+/**
+ * How a resolution is written on a toolbar chip or a pane legend.
+ *
+ * Presentation only — the canonical id (`1d`) is what every request, every
+ * persisted layout and every test still names. A chip carries its id in
+ * `data-resolution` for exactly that reason.
+ */
+export function chipLabel(resolution: Resolution): string {
+  const plan = parseResolution(resolution);
+  if (plan === null) return String(resolution);
+  return UPPERCASE_UNITS.has(plan.unit)
+    ? `${plan.count}${plan.unit.toUpperCase()}`
+    : plan.id;
 }
 
 /*

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useAsk } from "@/components/AskDialog";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import type { Layout } from "@/lib/layouts";
-import { TOOL_BUTTON } from "@/components/tv/toolbarChrome";
+import { TOOL_BUTTON, TOOL_CARET_BUTTON } from "@/components/tv/toolbarChrome";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 
 /**
@@ -16,8 +16,15 @@ import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
  * workspace had drifted from it. That dot is the entire difference between
  * "your work is on the server" and "your work is only in this tab", and it was
  * a single character with no label, no tooltip and no announcement. The state
- * is now spelt out — Saved / Unsaved changes / Saving… / Autosave failing —
- * next to the name, so it can be read rather than decoded.
+ * is now a save CLOUD that is always on the bar, badged when the workspace is
+ * ahead of what is stored and warn-tinted when autosave is failing, and the
+ * sentence behind it — Saved / Unsaved changes / Saving… / Not saved /
+ * Autosave failing — is the button's tooltip, its accessible name and the
+ * menu's header rather than a second line of copy on the primary row.
+ *
+ * The control is split the way TradingView's is: a name button that saves,
+ * and a 24px caret that opens this menu. One button doing both meant the only
+ * way to write your changes was to open a menu and find "Save layout" in it.
  *
  * "Make a copy…" and "Create new layout…" were the same operation: both
  * prompted for a name, both wrote the CURRENT workspace to a new record, both
@@ -151,52 +158,67 @@ export function LayoutMenu({
   );
 
   return (
-    <div className="relative">
+    <div className="relative flex min-w-0 items-center">
+      {/*
+        The name, then the save state as a cloud, then a caret of its own.
+        TradingView's shape, and the reason for it is not decoration: three
+        different questions were being answered by one button. WHICH layout am
+        I in (the name), IS IT SAFE (the cloud), and WHAT ELSE CAN I DO (the
+        menu) — and the first of those was `hidden 2xl:inline`, so on a 1440
+        screen the control was a nameless grid icon. The name is the only thing
+        here a user can recognise their workspace by, so it is the part that
+        stays.
+
+        The status WORD moved off the bar. "UNSAVED CHANGES" set in 10px caps
+        beside the name is a second sentence competing with the name itself,
+        and the same fact is already carried by the cloud's badge, by the
+        tooltip, by the accessible name and by the menu's own header. A word on
+        the primary row is the most expensive place to say it and the least
+        readable.
+      */}
+      <button
+        onClick={() => { if (dirty && current) onSaveNow(); }}
+        className={`${TOOL_BUTTON} min-w-0`}
+        title={`${current?.name ?? "Unnamed layout"} — ${status.label}. ${status.help}`}
+        aria-label={`Saved layout — ${current?.name ?? "Unnamed"}, ${status.label}`}
+      >
+        <span className="hidden min-w-0 max-w-[160px] truncate text-sm font-normal text-ink sm:inline">
+          {current?.name ?? "Unnamed"}
+        </span>
+        {/*
+          The cloud carries the state as a SHAPE at every width, which is what
+          the old 10px caps only did at 2xl and the bare dot never did: a dot
+          badge when the workspace is ahead of what is stored, warn-tinted when
+          autosave is failing. Clicking writes it, when there is drift to write.
+        */}
+        <span
+          className={`relative flex shrink-0 items-center ${autosaveError ? "text-warn" : ""}`}
+          aria-hidden="true"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 18.5H17.2a4 4 0 0 0 .3-7.6 6 6 0 0 0-11.4-1.3 4.6 4.6 0 0 0 .9 8.9z" />
+          </svg>
+          {dirty && (
+            <span className="absolute left-1/2 top-[11px] h-[5px] w-[5px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" />
+          )}
+        </span>
+      </button>
+
+      {/*
+        The second half of the split control. 24px, its own accessible name,
+        and it is the element the menu's Escape handler returns focus to —
+        because it is the element that opened it.
+      */}
       <button
         ref={buttonRef}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`${TOOL_BUTTON} min-w-0`}
-        title={`${current?.name ?? "Unnamed layout"} — ${status.help}`}
-        aria-label={`Saved layouts — ${current?.name ?? "not saved"}, ${status.label}`}
+        aria-label="Manage layouts"
+        title="Manage layouts"
+        className={TOOL_CARET_BUTTON}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-          <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h18M12 3v18" />
-        </svg>
-        {/* Below 2xl the primary row is already full — the chart column is the
-            viewport minus ~400px of rails and watchlist — so the name lives in
-            the menu and the tooltip and the icon stays. Same threshold as
-            every other label on the bar; see `lib/toolbarLayout`. */}
-        <span className="hidden min-w-0 max-w-[130px] truncate 2xl:inline">{current?.name ?? "Unnamed"}</span>
-        {/*
-          "Not saved" is only worth a word once there is something to save: a
-          fresh workspace with no layouts and no changes is not in a state that
-          needs announcing, and "UNNAMED · NOT SAVED" on the primary row before
-          the feature had ever been used read as an error.
-        */}
-        {(current !== null || dirty || autosaveError || layouts.length > 0) && (
-          <span className={`hidden shrink-0 text-[10px] font-medium uppercase tracking-wide 2xl:inline ${status.tone}`}>
-            {status.label}
-          </span>
-        )}
-        {/* Below 2xl the words do not fit, so the state keeps a shape as well
-            as a colour rather than disappearing entirely. */}
-        {(dirty || autosaveError) && (
-          <span className={`shrink-0 2xl:hidden ${status.tone}`} aria-hidden="true">
-            {autosaveError ? (
-              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor"
-                strokeWidth="1.3" strokeLinecap="round">
-                <path d="M7 1.6L13 12H1L7 1.6Z" strokeLinejoin="round" />
-                <path d="M7 5.6v3" /><path d="M7 10.4h.01" />
-              </svg>
-            ) : (
-              <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
-                <circle cx="4" cy="4" r="3" fill="currentColor" />
-              </svg>
-            )}
-          </span>
-        )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
           <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" />
         </svg>

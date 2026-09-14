@@ -27,7 +27,7 @@
 
 import { CHART_TYPES, type ChartType } from "./chartType";
 import { NATIVE_STUDIES } from "./native/catalog";
-import { BINDINGS, type ShortcutAction } from "./shortcuts";
+import { BINDINGS, type Binding, type ShortcutAction } from "./shortcuts";
 import type { DrawingTool } from "./drawings";
 
 export type CommandKind = "drawing" | "indicator" | "chartType" | "action";
@@ -73,13 +73,41 @@ export interface CommandHandlers {
 }
 
 /** How one binding is written on a key cap. Mirrors `ShortcutsSheet`. */
-function keyCap(key: string, mod: boolean, shift: boolean, mac: boolean): string {
+function keyCap(binding: Binding, mac: boolean): string {
   const parts: string[] = [];
-  if (mod) parts.push(mac ? "⌘" : "Ctrl");
-  if (shift) parts.push(mac ? "⇧" : "Shift");
-  parts.push(key.length === 1 ? key.toUpperCase() : key);
+  if (binding.mod) parts.push(mac ? "⌘" : "Ctrl");
+  if (binding.alt) parts.push(mac ? "⌥" : "Alt");
+  if (binding.shift) parts.push(mac ? "⇧" : "Shift");
+  parts.push(binding.key.length === 1 ? binding.key.toUpperCase() : binding.key);
   return parts.join(mac ? "" : "+");
 }
+
+/** One row of the rail, as much of it as the index needs. */
+export interface CommandToolLike {
+  tool: string;
+  label: string;
+  /** "Click points, double-click to finish" — searchable, never the name. */
+  hint?: string;
+}
+
+/**
+ * A rail group, in either shape.
+ *
+ * TVP8 round three gave the rail SECTIONS — the reference's own "Lines",
+ * "Channels", "Pitchforks" — so a group's tools are one level deeper than they
+ * were. Both are accepted rather than one, because this module is the seam
+ * between a pure index and a React component, and a seam that only speaks the
+ * newest shape makes every test of the index carry the component's current
+ * nesting.
+ */
+export interface CommandGroupLike {
+  id: string;
+  tools?: readonly CommandToolLike[];
+  sections?: readonly { heading?: string; tools: readonly CommandToolLike[] }[];
+}
+
+const toolsOf = (group: CommandGroupLike): readonly CommandToolLike[] =>
+  group.sections ? group.sections.flatMap((section) => [...section.tools]) : group.tools ?? [];
 
 /**
  * The whole index.
@@ -89,7 +117,7 @@ function keyCap(key: string, mod: boolean, shift: boolean, mac: boolean): string
  * module that imported a `.tsx` could not be unit-tested without a DOM.
  */
 export function buildCommands(
-  drawingGroups: readonly { id: string; tools: readonly { tool: string; label: string }[] }[],
+  drawingGroups: readonly CommandGroupLike[],
   mac: boolean,
   context: CommandContext = { replayActive: false, drawingSelected: false },
 ): Command[] {
@@ -99,20 +127,22 @@ export function buildCommands(
   const shortcutFor = (action: string): string | undefined => {
     const binding = BINDINGS.find((b) => b.action === action);
     if (!binding || binding.chordless) return undefined;
-    return keyCap(binding.key, binding.mod === true, binding.shift === true, mac);
+    return keyCap(binding, mac);
   };
 
   for (const group of drawingGroups) {
-    for (const tool of group.tools) {
+    for (const tool of toolsOf(group)) {
       commands.push({
         id: `drawing:${tool.tool}`,
         order: order++,
         kind: "drawing",
-        // Rail labels carry a trailing explanation on a few tools; the palette
-        // wants the name, and the explanation becomes a search keyword.
+        // TVP8 round three: the rail's own labels are now the reference's
+        // wording with the "how to use it" half moved to a `hint`, so the
+        // split is a safety net for a label that still carries one. The hint
+        // stays searchable either way.
         label: tool.label.split(" — ")[0]!,
         group: "Drawings",
-        keywords: [group.id.replace(/-/g, " "), tool.label],
+        keywords: [group.id.replace(/-/g, " "), tool.label, ...(tool.hint ? [tool.hint] : [])],
         shortcut: shortcutFor(`tool:${tool.tool}`),
       });
     }
@@ -176,9 +206,7 @@ export function buildCommands(
       label: binding.label,
       group: binding.group,
       keywords: [binding.action.replace(/[:-]/g, " ")],
-      shortcut: binding.chordless
-        ? undefined
-        : keyCap(binding.key, binding.mod === true, binding.shift === true, mac),
+      shortcut: binding.chordless ? undefined : keyCap(binding, mac),
     });
   }
 

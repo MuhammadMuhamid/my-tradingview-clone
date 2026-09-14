@@ -77,6 +77,27 @@ export const TOOL_BUTTON =
  */
 export const SEPARATOR = "mx-1 !h-[22px] w-px self-center !bg-border-strong";
 
+/**
+ * The glyph inside a 38×38 control.
+ *
+ * TVP8 (owner veto OV-K): TradingView's toolbar glyphs are drawn in a 28px
+ * box and read at roughly 22px optical size with a hairline-to-medium stroke;
+ * ours were 18px at 1.7, which is the single most repeated first-glance tell
+ * across every screenshot the owner supplied. One size, one stroke, round
+ * caps — every toolbar SVG uses these two constants.
+ */
+export const TOOL_ICON_SIZE = 22;
+export const TOOL_ICON_STROKE = 1.6;
+
+/**
+ * A pill with a word in it — `Trade`, at the right end of the reference's
+ * bar. 28px tall, 1px border, no fill: it is the one outline control on the
+ * row, the way the symbol pill is the one filled one.
+ */
+export const TOOL_PILL_OUTLINE =
+  "flex h-7 shrink-0 items-center rounded-full border border-border-strong px-3 text-sm " +
+  "text-ink hover:bg-state-hover disabled:opacity-40 disabled:hover:bg-transparent";
+
 /** An icon-only control on the bar: square, the bar's own height. */
 export const TOOL_ICON_BUTTON =
   `${TOOL_STATE} flex ${TOOLBAR_H} w-[38px] shrink-0 items-center justify-center ` +

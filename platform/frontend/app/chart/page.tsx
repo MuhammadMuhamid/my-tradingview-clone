@@ -29,6 +29,7 @@ import { useAsk } from "@/components/AskDialog";
 import { type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import { ChartPane } from "@/components/tv/ChartPane";
 import { ChartToolbar } from "@/components/tv/ChartToolbar";
+import { ProductMenu } from "@/components/tv/ProductMenu";
 import { ChartWorkspace } from "@/components/tv/ChartWorkspace";
 import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
 import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel";
@@ -59,7 +60,7 @@ import {
   type CrosshairSignal, type RangeSignal, type SyncOptions,
 } from "@/lib/paneSync";
 import { loadChartType, saveChartType, type ChartType } from "@/lib/chartType";
-import { DrawingToolbar } from "@/components/tv/DrawingToolbar";
+import { DrawingToolbar, type MagnetMode } from "@/components/tv/DrawingToolbar";
 import { ReplayControls } from "@/components/tv/ReplayControls";
 import { TradingOverlayDetails } from "@/components/tv/TradingOverlays";
 import { drawingStore } from "@/lib/drawingStore";
@@ -98,7 +99,7 @@ import { resolveTradingTarget, tradingTargetNotice, type TradingTarget } from "@
 import { datasetKey } from "@/lib/liveDataset";
 import { useCandleHistory } from "@/lib/useCandleHistory";
 import { useLivePrice } from "@/lib/useLivePrice";
-import { lastPriceLabel, lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
+import { lastPriceNotice, resolveLastPrice } from "@/lib/lastPrice";
 import { displayTicker, isCanonicalInstrumentId, legacyBinanceSpotTicker } from "@/lib/instrument";
 import { alertCapability } from "@/lib/workstation";
 import type { ChartSettings } from "@/lib/chartSettings";
@@ -541,7 +542,25 @@ export default function TvWorkspace() {
 
   // ── drawings (persisted per symbol, shared by every pane on it) ──
   const [tool, setTool] = useState<DrawingTool>("cursor");
-  const [magnet, setMagnet] = useState(false);
+  /*
+   * TVP8 (R2): the magnet has the reference's three modes. "weak" snaps an
+   * anchor to O/H/L/C only when the pointer is already within a few pixels of
+   * one; "strong" always takes the nearest. The M shortcut toggles between
+   * off and the mode last chosen, which is how the reference's cell behaves.
+   */
+  const [magnetMode, setMagnetMode] = useState<MagnetMode>("off");
+  const lastMagnetMode = useRef<Exclude<MagnetMode, "off">>("weak");
+  const magnet = magnetMode !== "off";
+  const setMagnet = useCallback((on: boolean | ((current: boolean) => boolean)) => {
+    setMagnetMode((current) => {
+      const next = typeof on === "function" ? on(current !== "off") : on;
+      return next ? lastMagnetMode.current : "off";
+    });
+  }, []);
+  const chooseMagnetMode = useCallback((mode: MagnetMode) => {
+    if (mode !== "off") lastMagnetMode.current = mode;
+    setMagnetMode(mode);
+  }, []);
   const [drawLocked, setDrawLocked] = useState(false);
   const [drawHidden, setDrawHidden] = useState(false);
   const [activeDrawings, setActiveDrawings] = useState<Drawing[]>([]);
@@ -1782,6 +1801,9 @@ export default function TvWorkspace() {
         case "tool:horizontal": setTool("hline"); return true;
         case "tool:vertical": setTool("vline"); return true;
         case "tool:fib": setTool("fib"); return true;
+        case "tool:horizontal-ray": setTool("hray"); return true;
+        case "tool:crossline": setTool("crossline"); return true;
+        case "tool:rectangle": setTool("rect"); return true;
         case "tool:text": setTool("text"); return true;
         case "magnet": setMagnet((v) => !v); return true;
         case "stay-in-drawing-mode": setStayInDrawingMode((v) => !v); return true;
@@ -1838,9 +1860,28 @@ export default function TvWorkspace() {
      */
   }, { replayActive });
 
+  /** The trading-overlay layer is "hidden" when none of its three kinds is shown. */
+  const overlaysHidden = !overlays.prefs.activity && !overlays.prefs.activeOrders && !overlays.prefs.positions;
+  const setOverlaysHidden = (hidden: boolean): void =>
+    overlays.setPrefs({ ...overlays.prefs, activity: !hidden, activeOrders: !hidden, positions: !hidden });
+
   const drawingToolbarProps = {
     tool, onTool: setTool,
     magnet, onMagnet: setMagnet,
+    magnetMode, onMagnetMode: chooseMagnetMode,
+    /*
+     * Hide scopes (R2): drawings is the drawing layer; positions is the
+     * trading-overlay layer, which the More strip's overlay menu also governs
+     * — one preference, two ways in. Indicators have no whole-chart hide yet,
+     * so that row is not offered rather than offered inert.
+     */
+    hideScope: (drawHidden && overlaysHidden ? "all" : drawHidden ? "drawings"
+      : overlaysHidden ? "positions" : "none") as "none" | "drawings" | "positions" | "all",
+    onHideScope: (scope: "drawings" | "indicators" | "positions" | "all") => {
+      if (scope === "drawings") setDrawHidden((v) => !v);
+      else if (scope === "positions") setOverlaysHidden(!overlaysHidden);
+      else if (scope === "all") { const next = !(drawHidden && overlaysHidden); setDrawHidden(next); setOverlaysHidden(next); }
+    },
     stayInDrawingMode, onStayInDrawingMode: setStayInDrawingMode,
     locked: drawLocked, onLocked: setDrawLocked,
     hidden: drawHidden, onHidden: setDrawHidden,
@@ -1888,7 +1929,7 @@ export default function TvWorkspace() {
         onVisibleRangeChange={publishRange}
         drawingTool={tool}
         onDrawingToolDone={clearDrawingTool}
-        magnet={magnet}
+        magnet={magnetMode}
         drawingsLocked={drawLocked}
         drawingsHidden={drawHidden}
         markers={decorations?.markers ?? NO_MARKERS}
@@ -1908,6 +1949,7 @@ export default function TvWorkspace() {
         onPriceScaleChange={setPaneScale}
         resetSignal={paneResets[pane.id] ?? 0}
         goTo={pane.id === workspace.activePaneId ? goTo : null}
+        onGoToDate={() => setGoToOpen(true)}
         drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
         onCompareChange={changePaneCompare}
         comparePaneId={comparePaneId}
@@ -1926,7 +1968,7 @@ export default function TvWorkspace() {
     );
   }, [comparePaneId, paneDecorations, workspace.activePaneId, paneCount, activatePane, changePaneInterval,
     toggleMaximizePane, closePane, replay, replayDrawings, updateReplayDrawings, cross, range,
-    sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnet, drawLocked,
+    sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnetMode, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
@@ -1934,26 +1976,21 @@ export default function TvWorkspace() {
     maAlerts, candleOverlays, classicalOverlays, resolutions]);
 
   return (
-    <div ref={fullscreen.ref} className="flex min-h-0 flex-1 bg-bg pb-[52px] md:pb-0 tv-workstation">
-      {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
-      <div className="hidden md:flex">
-        <DrawingToolbar {...drawingToolbarProps} />
-      </div>
-      {toolsOpen && (
-        <>
-          <button
-            aria-label="Close drawing tools"
-            onClick={() => setToolsOpen(false)}
-            className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          />
-          <div className="fixed left-0 top-0 z-40 h-full md:hidden">
-            <DrawingToolbar {...drawingToolbarProps} floating onClose={() => setToolsOpen(false)} />
-          </div>
-        </>
-      )}
+    <div ref={fullscreen.ref} className="flex min-h-0 flex-1 flex-col bg-bg pb-[52px] md:pb-0 tv-workstation">
+      {/*
+        ── row 1: the account cell and the toolbar, full width ──
 
-      {/* ── main column ── */}
-      <div className="flex min-w-0 flex-1 flex-col">
+        TVP8 owner veto (OV-B / OV-L). The toolbar used to be the first row of
+        the CHART COLUMN, boxed between the left rail and the watchlist, so the
+        watchlist's own header and the right rail's first cell sat in the same
+        38px band as the toolbar and the row ended 350px short of the window.
+        The reference's bar spans the window above the rails, the chart and
+        the panel, with the account entry as a 52×38 cell at the top of the
+        left-rail column — and so does this one now. The rails and the panel
+        start below it, on the second row.
+      */}
+      <div className="flex shrink-0 items-stretch border-b border-border bg-surface">
+        <ProductMenu variant="rail" onOpenShortcuts={() => setShortcutsOpen(true)} />
         {/*
           The chart's title is the symbol and timeframe already shown in the
           toolbar, so a visible heading would repeat it and cost a row of a
@@ -1964,7 +2001,6 @@ export default function TvWorkspace() {
         <h1 className="sr-only">
           {displayTicker(symbol)} {interval} chart{paneCount > 1 ? ` — ${paneCount}-chart layout` : ""}
         </h1>
-
         <ChartToolbar
           symbol={symbol}
           interval={interval}
@@ -2028,27 +2064,10 @@ export default function TvWorkspace() {
           onOpenPriceAlert={openPriceAlert}
           onOpenAutomation={openAutomation}
           onOpenManual={() => setPanel((p) => p === "manual" ? null : "manual")}
-          /* Exactly the condition under which ChartSidePanel renders the
-             ticket, and therefore under which the toolbar's row is 341px
-             narrower than the viewport it is measured against. */
-          ticketOpen={panel === "manual" && !replayActive}
-          panelOpen={panel !== null && panel !== "manual"}
           onOpenStrategy={() => setSettingsOpen(true)}
           onApplyBest={() => void applyBestConfig()}
           loadingBest={loadingBest}
-          readout={
-            <span className="tabular whitespace-nowrap text-xs text-ink-muted">
-              {lastPrice.price !== null && (
-                <span title={lastPriceNotice(lastPrice) ?? undefined}>
-                  {lastPriceLabel(lastPrice)}{" "}
-                  <span className="text-ink">{fmtPrice(lastPrice.price)}</span>
-                </span>
-              )}
-              <span className="ml-3 text-ink-faint">
-                {visibleCandles.length.toLocaleString()} bars{activeHistory.loading ? " · loading…" : ""}
-              </span>
-            </span>
-          }
+          loadedBars={visibleCandles.length}
           layouts={savedLayouts.layouts}
           currentLayoutId={savedLayouts.currentId}
           autosave={savedLayouts.autosave}
@@ -2058,7 +2077,29 @@ export default function TvWorkspace() {
           moreOpen={moreOpen}
           onMoreOpen={setMoreOpen}
         />
+      </div>
 
+      {/* ── row 2: the left rail, the chart column and the side panel ── */}
+      <div className="flex min-h-0 flex-1">
+      {/* ── left drawing rail — a column on desktop, a drawer on phones ── */}
+      <div className="hidden md:flex">
+        <DrawingToolbar {...drawingToolbarProps} />
+      </div>
+      {toolsOpen && (
+        <>
+          <button
+            aria-label="Close drawing tools"
+            onClick={() => setToolsOpen(false)}
+            className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          />
+          <div className="fixed left-0 top-0 z-40 h-full md:hidden">
+            <DrawingToolbar {...drawingToolbarProps} floating onClose={() => setToolsOpen(false)} />
+          </div>
+        </>
+      )}
+
+      {/* ── main column ── */}
+      <div className="flex min-w-0 flex-1 flex-col">
         {/*
           TVP8: the raw thrown message WAS this band. Two of the three things
           that set `err` are `(e as Error).message` straight from `lib/api`, so
@@ -2260,6 +2301,7 @@ export default function TvWorkspace() {
         toolsOpen={toolsOpen}
         onToolsOpen={setToolsOpen}
       />
+      </div>
 
       {/*
         Inputs and Style for one built-in study.

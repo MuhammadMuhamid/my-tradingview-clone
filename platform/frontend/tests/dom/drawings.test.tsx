@@ -33,7 +33,7 @@ after(closeBrowser);
 
 test("a drag with the trend tool creates one drawing at the prices under the pointer", async () => {
   const chart = await mountChart();
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
 
   await drag(chart.plot, [300, 260], [520, 380]);
 
@@ -58,28 +58,49 @@ test("a drag with the trend tool creates one drawing at the prices under the poi
 });
 
 test("the toolbar counts the drawings that are actually on the chart", async () => {
+  /*
+   * The count moved off the cell and into the flyout.
+   *
+   * It used to be `disabled={count === 0}` with `disabled:opacity-30` and a
+   * number printed underneath — so on an empty chart the Remove cell was the
+   * only dimmed control in the column, and on a busy one the only one wearing
+   * a badge. The reference does neither: the cell is full ink and pressable
+   * always, and its flyout carries one counted row per scope.
+   */
   const chart = await mountChart();
-  const removeAll = (): HTMLButtonElement => {
+  const removeCell = (): HTMLButtonElement => {
     const button = chart.container.querySelector<HTMLButtonElement>(
-      'button[title^="Remove all"], button[title="No drawings"]');
-    assert.ok(button, "the drawing toolbar has no remove-all control");
+      'button[aria-label="Remove objects"]');
+    assert.ok(button, "the drawing toolbar has no remove control");
     return button;
   };
-  assert.equal(removeAll().disabled, true, "an empty chart cannot remove all drawings");
+  const removeRow = (): HTMLElement | null => {
+    // The strip toggles, and a drawing gesture stops its own events before
+    // they reach the rail's outside-click listener — so the flyout may already
+    // be open, and clicking blindly would close it.
+    const strip = chart.container.querySelector<HTMLElement>(
+      'button[aria-label="More remove tools"]')!;
+    if (strip.getAttribute("data-open") !== "true") fireEvent.click(strip);
+    return [...chart.container.querySelectorAll<HTMLElement>("button")]
+      .find((b) => /^Remove \d+ drawings?$/.test((b.textContent ?? "").trim())) ?? null;
+  };
 
-  await selectTool(chart.container, "Trend line");
+  assert.equal(removeCell().disabled, false,
+    "an empty chart still offers the control, as the reference does");
+  assert.equal(removeRow()?.textContent?.trim(), "Remove 0 drawings");
+
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [340, 300], [560, 420]);
 
-  assert.equal(removeAll().disabled, false);
-  assert.match(removeAll().title, /Remove all 2 drawings/,
+  assert.equal(removeRow()?.textContent?.trim(), "Remove 2 drawings",
     "the toolbar must count what the store holds, not what it last rendered");
 });
 
 test("a drawing can be selected, moved as one gesture, and deleted", async () => {
   const chart = await mountChart();
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
   const created = drawingStore.get(SYMBOL)[0]!;
 
@@ -111,7 +132,7 @@ test("a drawing can be selected, moved as one gesture, and deleted", async () =>
 
 test("Delete is refused while the user is typing, and taken when they are not", async () => {
   const chart = await mountChart();
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
 
   // The watchlist's "add a pair" box is a real input on this page. It opens
@@ -140,7 +161,7 @@ test("an edit reaches the server once, carrying the version it read", async () =
   assert.equal(server.callsTo("/api/chart-state/drawings").length, 1,
     "the workspace reads the server's drawings exactly once per instrument on load");
 
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
 
   assert.equal(
@@ -159,7 +180,7 @@ test("an edit reaches the server once, carrying the version it read", async () =
 
 test("a save refused as stale adopts the server's list rather than overwriting it", async () => {
   const chart = await mountChart();
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [300, 260], [520, 380]);
   await advance(1_400);
   assert.equal(server.getDrawings(SYMBOL).version, 1);
@@ -171,7 +192,7 @@ test("a save refused as stale adopts the server's list rather than overwriting i
    */
   server.seedDrawings(SYMBOL, [], 7);
 
-  await selectTool(chart.container, "Trend line");
+  await selectTool(chart.container, "Trendline");
   await drag(chart.plot, [340, 300], [560, 420]);
   await advance(1_400);
 
@@ -185,7 +206,7 @@ test("a save refused as stale adopts the server's list rather than overwriting i
 test("a reload does not push a deletion back up from this device's own storage", async () => {
   // This device drew and saved.
   const first = await mountChart();
-  await selectTool(first.container, "Trend line");
+  await selectTool(first.container, "Trendline");
   await drag(first.plot, [300, 260], [520, 380]);
   await advance(1_400);
   assert.equal(loadDrawings(SYMBOL).length, 1, "the drawing is in this browser's storage");
@@ -229,9 +250,10 @@ test("a reload does not push a deletion back up from this device's own storage",
 test("advanced families create their declared anchors through the real flyout", async () => {
   const chart = await mountChart();
   // These families used to share one `advanced` group; they are now spread
-  // across trend-line, gann-and-fibonacci, patterns and
-  // prediction-and-measurement. `selectTool` opens whichever flyout holds the
-  // tool, so this test asserts the anchors rather than the rail's taxonomy.
+  // across trend-line, gann-and-fibonacci, patterns and, since the rail took
+  // the reference's sections, "Cycles" inside patterns rather than the tail of
+  // the forecasting group. `selectTool` opens whichever flyout holds the tool,
+  // so this test asserts the anchors rather than the rail's taxonomy.
   const make = async (label: string, points: [number, number][]): Promise<void> => {
     await selectTool(chart.container, label);
     await advance(1);

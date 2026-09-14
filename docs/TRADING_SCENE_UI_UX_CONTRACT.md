@@ -277,6 +277,17 @@ working: amber chip over the plot. A chart you cannot trust costs a row.
 
 ---
 
+
+### 5b. The ticker's form (TVP8, owner veto OV-B / R1-08)
+
+`displayTicker` writes a ticker the way the venue lists it and the reference
+shows it: `BTCUSDT`, `EURUSD`, `AAPL`, `SPX` — no slash. A perpetual keeps the
+reference's `.P` suffix (`BTCUSD.P`); a dated series keeps its expiry. The
+slashed pair (`BTC/USDT`) was one of the strongest first-glance tells in the
+owner's screenshots, in the symbol pill and in every watchlist row. The long
+form — venue, pair and product type — stays in `displaySymbol`, for tooltips,
+dialogs and status lines.
+
 ## 6. Settings
 
 Three separate concepts, three separate surfaces, never one generic shell:
@@ -326,6 +337,91 @@ Two habits to preserve because they are product meaning, not styling:
   the copy from the caller precisely so this distinction survives adoption.
 - **The Screener's `.dense` table** is a justified different density: thirty
   columns earns it. Do not normalise it to 31px rows.
+
+---
+
+## 7b. Visual parity is a live-pair judgement — the owner's veto (TVP8)
+
+On 2026-09-13 the owner compared the live products side by side and vetoed
+the shared surfaces as visibly non-matching, after several campaigns had
+reported them matched. The reports were not lying about what they measured;
+they were measuring the wrong thing. This section exists so that never
+recurs.
+
+For every surface Trading Scene SHARES with TradingView — the top toolbar,
+the left drawing rail, symbol search, the indicator browser, indicator pane
+headers, the chart-type menu, chart settings, the bottom range row, the
+watchlist and its details, the account/product menu, shared dialogs and
+context menus, dark and light, desktop and phone:
+
+- **feature existence is not parity** — 87 drawing tools in the product do
+  not make the rail match; the rail's top-level cells, order, gaps, flyout
+  affordance and flyout contents do;
+- **matching dimensions is not parity** — a 38px row with a different
+  composition is a different toolbar;
+- **matching names is not parity** — seven settings tabs with the
+  reference's names and different contents are a different dialog;
+- **functional equivalence is not parity** — a browser that finds the same
+  indicators through a different information architecture is a different
+  product.
+
+A shared surface is at parity only through: a CURRENT live TradingView
+capture, a CURRENT Trading Scene capture of the same state (viewport, theme,
+symbol, timeframe, panel, dialog, tab), an explicit pair review by an
+independent reviewer, the repair, and a fresh after-review — twice, for the
+high-value surfaces. If a reviewer can still say "this one is obviously
+Trading Scene because of the shared UI", it is not done. Branding may reveal
+identity; shared grammar may not.
+
+Trading Scene-exclusive capability is kept and integrated in the same
+grammar; provider truth is never hidden; technical detail (identity strings,
+provider diagnostics, bar counts, build ids) belongs in tooltips, Details,
+diagnostics and status surfaces — never in the shared primary chrome.
+
+The live ledger is `TradingView-Parity-TVP8-20260913/00_VISUAL_PAIR_MATRIX.md`;
+the veto itself is `00_OWNER_VISUAL_VETO.md`; the atomic inventories are
+`00_TOP_TOOLBAR_MATRIX.md` and `00_LEFT_RAIL_MATRIX.md`. The left-rail
+grouping contract and the symbol-search / indicator-browser architecture are
+recorded below in §7c once finalised, and are not to be "tidied" back.
+
+### 7b-i. The shell and the toolbar (TVP8 batch A — measured 2026-09-14)
+
+- The toolbar is the workstation's FIRST FULL-WIDTH ROW: `[52×38 account
+  cell][toolbar]`, above the left rail, the chart column, the side panel and
+  the right rail, which share the second row. Nothing narrows the row; the
+  watchlist header never sits in the toolbar band. Tests:
+  `tests/chartToolbar.test.ts` ("first full-width row").
+- Primary-row order is the reference's and is the registry's order in
+  `lib/toolbarLayout.ts`: symbol pill · compare │ interval favourites +
+  24px caret │ style favourites (icon radios) + 24px caret │ indicators │
+  alert · replay │ undo · redo … layout · saved-layout name + cloud + caret ·
+  sync (≥2 panes only) │ quick search · settings · fullscreen · snapshot ·
+  more · **Trade** pill. Every control is icon-only at every width; the only
+  words on the row are the ticker, the chips, the layout name and `Trade`.
+  No readout (`Last close`, bar counts) and no text labels ever return to the
+  row; the bar count is the History-depth group's tooltip in the More strip.
+- Interval chips print day-and-longer resolutions uppercase (`1D`) and
+  sub-day lowercase (`4h`); the chip carries the canonical id in
+  `data-resolution`. The favourites strip never clips at ≥ `sm`.
+- Toolbar glyphs: 22px optical size, stroke 1.6, round caps
+  (`TOOL_ICON_SIZE`, `TOOL_ICON_STROKE`), our own silhouettes.
+- The account entry is a 52×38 cell with a 28px avatar (initial) and a
+  10px status badge; its menu is 260px at `left-[52px] top-0`, 40px rows,
+  14px/400 labels, a 28px glyph column, hairline-in-13px separators, switch
+  rows for settings, `Sign out` last in `text-down`; one 32px `role="status"`
+  row carries the stream/health truth — never a paragraph.
+- The bottom row is `1D 5D 1M 3M 6M YTD 1Y 5Y All` — all nine, always, the
+  unreachable ones DISABLED — then a hairline and a one-click go-to-date
+  button, with the clock (13px muted, `hh:mm:ss UTC`) at the right. The price
+  scale's `auto / log / % / reset` live at the foot of the price axis and
+  reveal on hover; a non-price scale mode still declares itself.
+
+### 7c. Left-rail grouping contract
+_(filled in when the rail converges — see `00_LEFT_RAIL_MATRIX.md` for the
+target: 8 tool groups in TradingView's order with TradingView's sections,
+then Measure and Zoom as their own cells, then Magnet / Keep drawing / Lock /
+Hide with option flyouts, then Remove with option flyout; whitespace gaps,
+not hairlines; a hover-revealed edge caret, not a corner triangle.)_
 
 ---
 
