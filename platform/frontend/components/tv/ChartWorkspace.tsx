@@ -15,6 +15,27 @@
  * there. Unmounting rather than hiding is deliberate: a zero-height chart
  * canvas is a source of layout bugs, and the panes come back off a warm
  * history cache.
+ *
+ * ── IO-A1: the pane being maximised must come through, not come back ───────
+ *
+ * The paragraph above was true of the OTHER panes and false of the one the
+ * user asked for. The maximised case used to be a separate `return` whose only
+ * child was an unkeyed `<div>`, while the normal case rendered the panes as a
+ * keyed array. React cannot match those two: `reconcileSingleElement` looks for
+ * an existing child with a null key and the right type, does not find one, and
+ * calls `deleteRemainingChildren`. Every `ChartPane` unmounted — including the
+ * maximised one. Its `IChartApi` was disposed and rebuilt, `datasetKeyRef` came
+ * back null so `fitContent()` ran, and the indicator sub-pane heights, stack
+ * order and collapse flags, which live in component state, were gone.
+ *
+ * A user maximises a pane to look more closely at what they have lined up.
+ * Losing the zoom and pan they lined it up with is the one thing that gesture
+ * must not do.
+ *
+ * So there is ONE return, and the pane wrapper keeps `key={pane.id}` in both
+ * shapes. React then matches the maximised pane to the pane it already had,
+ * and only the geometry around it changes. What still unmounts is exactly what
+ * the paragraph above says should: the panes that are no longer on screen.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -149,23 +170,18 @@ export function ChartWorkspace({ workspace, renderPane }: ChartWorkspaceProps) {
     ? null
     : workspace.panes.find((p) => p.id === workspace.maximizedPaneId) ?? null;
 
-  if (maximized) {
-    return (
-      <div
-        className="grid min-h-0 flex-1 gap-px bg-border p-px"
-        style={presetGridStyle({ ...preset, cols: 1, rows: 1, cells: [SOLO_CELL] })}
-      >
-        <div style={cellGridStyle(SOLO_CELL)} className="flex min-h-0 min-w-0">
-          {renderPane(maximized, { maximized: true })}
-        </div>
-      </div>
-    );
-  }
+  /*
+   * The panes actually on screen. One when maximised — but rendered through the
+   * same keyed map as the others, which is the whole of the IO-A1 repair.
+   */
+  const shown = maximized ? [maximized] : workspace.panes;
 
   return (
     <div
       className="relative grid min-h-0 flex-1 gap-px bg-border p-px"
-      style={presetGridStyle(preset, fractions)}
+      style={maximized
+        ? presetGridStyle({ ...preset, cols: 1, rows: 1, cells: [SOLO_CELL] })
+        : presetGridStyle(preset, fractions)}
     >
       {/*
         The interior lines. A 1x1 has none, which is why nothing renders for a
@@ -173,7 +189,7 @@ export function ChartWorkspace({ workspace, renderPane }: ChartWorkspaceProps) {
         indexes — the line between two tracks sits where their sizes put it,
         not at an even fraction of the axis.
       */}
-      {(["cols", "rows"] as const).flatMap((axis) => {
+      {maximized ? null : (["cols", "rows"] as const).flatMap((axis) => {
         const tracks = fractions[axis];
         const total = tracks.reduce((sum, v) => sum + v, 0);
         // Only the lines that are a pane edge everywhere — see
@@ -197,14 +213,14 @@ export function ChartWorkspace({ workspace, renderPane }: ChartWorkspaceProps) {
           ]);
         });
       })}
-      {workspace.panes.map((pane, index) => {
+      {shown.map((pane, index) => {
         // The preset always has a cell per pane — `parseWorkspace` rejects a
         // record where it does not — but a defensive fallback keeps a bad
         // record from blanking the workspace instead of showing the charts.
-        const cell = preset.cells[index] ?? SOLO_CELL;
+        const cell = maximized ? SOLO_CELL : (preset.cells[index] ?? SOLO_CELL);
         return (
           <div key={pane.id} style={cellGridStyle(cell)} className="flex min-h-0 min-w-0">
-            {renderPane(pane, { maximized: false })}
+            {renderPane(pane, { maximized: maximized !== null })}
           </div>
         );
       })}

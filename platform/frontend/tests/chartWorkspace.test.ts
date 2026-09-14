@@ -226,7 +226,26 @@ test("the active pane is explicit and changing it changes nothing else", () => {
 
 // ── maximise / restore ─────────────────────────────────────────────────────
 
-test("maximise shows one pane and restore returns the exact prior layout", () => {
+/*
+ * ── What this test can see, and what it could not ─────────────────────────
+ *
+ * IO-A1: this was green while maximising a pane DESTROYED it — the chart
+ * disposed and rebuilt, the user's zoom and pan gone, the indicator sub-pane
+ * heights and collapse flags reset. Everything asserted below was true the
+ * whole time, because `maximizePane` and `restoreLayout` are pure functions
+ * over a record and the defect was in how `ChartWorkspace` RENDERED that
+ * record: a separate `return` whose only child was unkeyed, which React cannot
+ * match against a keyed array.
+ *
+ * The name is the problem — "restore returns the exact prior layout" is a
+ * claim about what the user gets back, and this test is a claim about what the
+ * reducer returns. Those came apart. The first is pinned by
+ * `tests/dom/paneMaximizeIdentity.test.tsx`, which mounts the workspace and
+ * asserts the pane's own DOM node and canvas survive the toggle.
+ *
+ * Kept, renamed to what it actually checks.
+ */
+test("maximise/restore reducer: one pane visible, every pane record untouched", () => {
   let ws = setPaneCount(seeded(), 4);
   ws = updatePane(ws, "p2", { symbol: "BTCUSDT", interval: "4h", chartType: "line" });
   ws = setActivePane(ws, "p1");
@@ -561,7 +580,20 @@ test("EVERY CHART ON SCREEN IS THE SAME FIRST-CLASS PANE COMPONENT", () => {
   assert.match(page, /<ChartPane/);
   assert.equal((page.match(/<CandleChart/g) ?? []).length, 0,
     "the page mounts a chart directly, which is how a privileged main chart returns");
-  assert.match(host, /renderPane\(pane, \{ maximized: false \}\)/);
+  /*
+   * IO-A1 changed the spelling here and the assertion had pinned the spelling:
+   * it matched the literal `renderPane(pane, { maximized: false })`, which the
+   * repair had to stop saying because the maximised and normal cases became
+   * one keyed render path.
+   *
+   * What this line is ABOUT is that there is exactly one place a pane is
+   * rendered — no privileged main chart alongside a lesser secondary one — so
+   * that is what it counts now.
+   */
+  const renderSites = (host.match(/renderPane\(/g) ?? []).length;
+  assert.equal(renderSites, 1,
+    `the host renders panes from ${renderSites} places; a second one is how a `
+    + "privileged main chart comes back");
 
   // And a pane has the capabilities the old secondary pane lacked entirely.
   for (const capability of [

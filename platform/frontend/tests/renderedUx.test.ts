@@ -54,8 +54,14 @@ test("a pane fills the workspace cell it was given", () => {
   for (const cell of host.match(/className="flex min-h-0 min-w-0"/g) ?? []) {
     assert.equal(cell, 'className="flex min-h-0 min-w-0"');
   }
-  assert.equal((host.match(/className="flex min-h-0 min-w-0"/g) ?? []).length, 2,
-    "both the maximised cell and the grid cell must stay flex containers");
+  /*
+   * IO-A1 folded the maximised case into the same keyed render path as the
+   * grid, so there is ONE cell wrapper now rather than two near-identical ones
+   * — which is the repair, not a regression: two wrappers is precisely what
+   * made React unmount the pane the user had just maximised.
+   */
+  assert.equal((host.match(/className="flex min-h-0 min-w-0"/g) ?? []).length, 1,
+    "the one cell wrapper must stay a flex container");
 });
 
 test("the toolbar's primary row can give width back", () => {

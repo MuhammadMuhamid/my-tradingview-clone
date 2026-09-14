@@ -411,9 +411,24 @@ test("RANGE — the publisher and the loop-breakers are actually wired in", () =
 });
 
 test("RANGE — an unmounted pane stops receiving and stops emitting", () => {
-  // Wave 1 unmounts hidden panes rather than hiding them, and this wave adds
-  // the guard that stops anything in flight from landing after that.
-  assert.match(read("components/tv/ChartWorkspace.tsx"), /renderPane\(maximized, \{ maximized: true \}\)/);
+  /*
+   * Wave 1 unmounts hidden panes rather than hiding them, and this wave adds
+   * the guard that stops anything in flight from landing after that.
+   *
+   * IO-A1 changed the spelling this pinned. It matched the literal
+   * `renderPane(maximized, { maximized: true })` from the maximised case's own
+   * `return` — the very statement whose existence was the defect, because a
+   * second render path with an unkeyed child made React unmount every pane
+   * including the maximised one. There is one render path now.
+   *
+   * What this line is ABOUT is that maximising SHOWS ONE PANE and leaves the
+   * rest unmounted, so that is what it asserts: the rendered set narrows to the
+   * maximised pane alone.
+   */
+  const host = read("components/tv/ChartWorkspace.tsx");
+  assert.match(host, /const shown = maximized \? \[maximized\] : workspace\.panes;/,
+    "the rendered set must narrow to the maximised pane — the others stay unmounted");
+  assert.match(host, /\{shown\.map\(/, "and the panes must be rendered from that set");
   assert.match(PANE, /onReady\(id, null\);/);
   const cleanup = PANE.slice(PANE.indexOf("      guard.dispose();"));
   assert.ok(cleanup.includes("chart.unsubscribeCrosshairMove(crosshair);"));
