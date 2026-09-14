@@ -426,8 +426,24 @@ export function IndicatorPane({
 
   return (
     <section
+      /*
+        ── FG-02/FG-03: `shrink-0` is what cut the stack in half ─────────────
+        
+        The stack is capped at a share of the chart column. With `shrink-0`
+        every pane insisted on its full height, the total ran past the cap, and
+        the container's `overflow-y-auto` scrolled the remainder out of sight —
+        so the FOURTH pane showed 30 of its 94 pixels, and the time axis, which
+        is drawn once under the LOWEST pane showing a plot, was scrolled out of
+        the chart entirely. The product had no dates under it at all.
+        
+        The pane's own height is its preferred size now, not its minimum: it
+        keeps that height while the stack fits and gives ground when it does
+        not. `min-h-0` is what makes that possible at all — a flex item's
+        default `min-height: auto` refuses to shrink below its content, which
+        is the same clipping wearing a different name.
+      */
       className={`group/pane relative border-t border-border bg-surface ${
-        fill ? "min-h-0 flex-1" : "shrink-0"
+        fill ? "min-h-0 flex-1" : "min-h-0 shrink"
       }`}
       style={fill ? undefined : { height }}
       aria-label={`${title} indicator pane`}

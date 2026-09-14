@@ -3179,7 +3179,20 @@ export function CandleChart({
         */
         <div className={`shrink-0 bg-surface ${
           maximizedPaneId === null
-            ? "max-h-[38%] overflow-y-auto"
+            /*
+              FG-02/FG-03: a COLUMN that clips, not a box that scrolls.
+              
+              This was `max-h-[38%] overflow-y-auto`, and the panes inside it
+              were `shrink-0`, so four studies asked for 376px of a 314px box
+              and the extra 62 went into a scroll region nobody scrolls. The
+              fourth pane was sliced mid-histogram and the time axis — drawn
+              once, under the lowest pane showing a plot — went with it.
+              
+              A scrollbar is the wrong answer here in a way it is not elsewhere:
+              the thing at the bottom of this stack is the chart's own axis, and
+              an axis you have to scroll to is an axis the chart does not have.
+            */
+            ? "flex max-h-[38%] flex-col overflow-hidden"
             : "flex min-h-0 flex-1 flex-col overflow-hidden"
         }`}>
           {stackPanes.map((pane) => {
