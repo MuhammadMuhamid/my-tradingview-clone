@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import {
   bookTickerStreamName, combinedStreamPath, describeStreamState, klineStreamName,
   MARKET_STREAM_ORIGINS, MarketStreamRegistry, miniTickerStreamName, reconnectDelayMs,
-  singleStreamPath, STREAM_SILENCE_TIMEOUT_MS, streamUrl,
+  singleStreamPath, STREAM_CONNECT_TIMEOUT_MS, STREAM_SILENCE_TIMEOUT_MS, streamUrl,
   type StreamScheduler, type StreamSocket, type StreamState, type StreamTransport,
 } from "../lib/marketStream";
 import { MarketFeedRegistry } from "../lib/marketFeed";
@@ -280,7 +280,26 @@ test("A ONCE-LIVE STREAM THAT BECOMES UNREACHABLE KEEPS ONE RECONNECT CHAIN AND 
   assert.equal(streams.stateOf("k").status, "open", "a handshake alone must not read as live");
   recovered[0]!.handlers.onMessage("{}");
   assert.equal(streams.stateOf("k").status, "live");
-  scheduler.advance(120_000);
+  /*
+   * Two minutes of a stream that is actually LIVE, which is what the two
+   * assertions below are about.
+   *
+   * This used to be a bare `advance(120_000)` with no frames, and 120 seconds
+   * of silence is not a live stream — it is 45 seconds inside the silence
+   * watchdog's budget and then well past it. It passed anyway, because the
+   * reconnect the watchdog started opened a socket that was never answered and
+   * an unanswered socket stayed open forever. IO-A9 is precisely that
+   * behaviour, so the moment it was fixed this assertion began to catch its own
+   * setup: at the instant it ran, the stream was mid-rotation with no socket
+   * held and a timer pending, which is correct and is not an orphan.
+   *
+   * A frame every ten seconds is a live stream, and the watchdog stays out of
+   * the way, which is what "while live" was always supposed to mean.
+   */
+  for (let elapsed = 0; elapsed < 120_000; elapsed += 10_000) {
+    scheduler.advance(10_000);
+    transport.live()[0]?.handlers.onMessage("{}");
+  }
   assert.equal(transport.live().length, 1, "orphan sockets were opened after recovery");
   assert.equal(streams.socketsOpened - streams.socketsClosed, 1, "the registry lost track of a socket");
   assert.equal(scheduler.pending(), 1, "only the watchdog may remain scheduled while live");
@@ -392,4 +411,107 @@ test("the watchlist header claims live only for a live stream, never for a hands
   assert.match(source, /stream\.status === "live" \? \{ label: "live"/);
   assert.doesNotMatch(source, /anyStreamed/, "the once-streamed shortcut to \"live\" must not return");
   assert.match(source, /stream\.status === "open" \? "connected — waiting for data" : "connecting…"/);
+});
+
+// ── IO-A9: a handshake that is never answered ──────────────────────────────
+
+/**
+ * A socket that opens nothing, closes nothing and errors nothing.
+ *
+ * This is what a captive portal, a transparent proxy or a silently-dropped
+ * connection looks like from the browser: `open()` returns, and then the
+ * handlers are never called at all. It is NOT the refused handshake above,
+ * which arrives as an error followed by a close, and it is not a silent socket
+ * either, because nothing was ever open to go quiet.
+ *
+ * The registry had no answer for it. `lastMessageAt` starts at 0, `connect()`
+ * leaves it at 0 on a first attempt — deliberately, so a handshake in flight is
+ * not judged by the previous socket's silence — and the watchdog disables
+ * itself for exactly that value:
+ *
+ *     if (entry.closed || entry.lastMessageAt === 0) return;
+ *
+ * So the status stays "connecting…" for as long as the tab is open.
+ * `scheduleReconnect` is never reached, `originIndex` never advances, and the
+ * mirror-to-normal-host ladder — the entire reason `MARKET_STREAM_ORIGINS` has
+ * two entries — never runs. There is no way out except a reload.
+ *
+ * That matters here more than it would elsewhere: this is a US network where
+ * `api.binance.com` answers 451, and the ladder is what is supposed to find the
+ * host that works.
+ */
+test("IO-A9 — an unanswered handshake gives up and tries the next origin", () => {
+  const { transport, scheduler, streams } = registry();
+  const release = streams.subscribe("k", singleStreamPath(klineStreamName("BTCUSDT", "1m")), {});
+
+  assert.equal(transport.sockets.length, 1, "no socket was opened at all");
+  assert.equal(transport.sockets[0]!.url.startsWith(MIRROR), true,
+    "the ladder does not start at the mirror");
+
+  // The host accepts the TCP connection and then says nothing, forever.
+  // Just past the timeout plus the fast rotation an unanswered host earns —
+  // NOT five minutes, which was the first draft and which a ladder that only
+  // rotates on its ordinary backoff also satisfies. What is being asserted is
+  // that the working host is reached PROMPTLY, because the alternative for the
+  // user is a chart that says "connecting…" until they reload it.
+  // The timeout, plus one 5s watchdog tick to notice it, plus the 250ms fast
+  // rotation, plus slack. NOT five minutes, which was the first draft and which
+  // a ladder that only rotates on its ordinary backoff also satisfies. What is
+  // asserted is that the working host is reached PROMPTLY, because the
+  // alternative for the user is a chart that says "connecting…" until they
+  // reload it.
+  scheduler.advance(STREAM_CONNECT_TIMEOUT_MS + 8_000);
+
+  assert.ok(transport.sockets.length > 1,
+    "the first host never answered and the stream is still waiting on it — "
+    + "the second origin is never tried and the only way out is a reload");
+  const tried = new Set(transport.sockets.map((s) => s.url.split("/")[2]));
+  assert.ok(tried.size > 1,
+    `every attempt went to the same host after ${STREAM_CONNECT_TIMEOUT_MS + 8_000}ms: `
+    + `${[...tried].join(", ")}`);
+  assert.ok(transport.sockets[1]!.url.startsWith(NORMAL),
+    "the second attempt did not go to the other origin in the list");
+  release();
+});
+
+test("IO-A9 — waiting does not name the host as one that refused", () => {
+  /*
+   * `scheduleReconnect`'s own docstring draws this line: "Only a socket that
+   * actually closed can have been refused; a host that is merely being waited
+   * on must not be named as one that refused." A timeout is the second kind —
+   * the host did not answer, which is not the same as answering no — so it
+   * rotates the ladder without recording a refusal.
+   */
+  const { transport, scheduler, streams } = registry();
+  const seen: StreamState[] = [];
+  const release = streams.subscribe("k2", singleStreamPath(klineStreamName("ETHUSDT", "1m")), {
+    onState: (state) => seen.push(state),
+  });
+
+  scheduler.advance(5 * 60_000);
+
+  const refusedAnywhere = seen.some((s) => (s.refused ?? []).length > 0);
+  assert.equal(refusedAnywhere, false,
+    "a host that never answered is being reported as having refused");
+  release();
+  void transport;
+});
+
+test("IO-A9 — a handshake that IS answered is left alone", () => {
+  /*
+   * The guard must not shorten a slow-but-working connection. A socket that
+   * opens inside the window keeps its own silence budget, which is a much
+   * longer one and belongs to the watchdog.
+   */
+  const { transport, scheduler, streams } = registry();
+  const release = streams.subscribe("k3", singleStreamPath(klineStreamName("SOLUSDT", "1m")), {});
+
+  const first = transport.sockets[0]!;
+  scheduler.advance(2_000);
+  first.handlers.onOpen();
+
+  scheduler.advance(STREAM_SILENCE_TIMEOUT_MS - 5_000);
+  assert.equal(transport.sockets.length, 1,
+    "an open socket inside its silence budget was given up on");
+  release();
 });

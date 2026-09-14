@@ -58,6 +58,35 @@ export const MARKET_STREAM_ORIGINS: readonly string[] = [
 
 /** How long a stream may be silent before it is treated as dead and reopened. */
 export const STREAM_SILENCE_TIMEOUT_MS = 45_000;
+/**
+ * How long a handshake may go unanswered before the ladder moves on.
+ *
+ * ── IO-A9: the one failure the ladder could not see ───────────────────────
+ *
+ * A refused handshake arrives as an error and a close, and the ladder handles
+ * it. A socket that goes quiet after opening is caught by the silence
+ * watchdog. The third case — `open()` returns and then NOTHING is ever called,
+ * which is what a captive portal, a transparent proxy or a silently dropped
+ * connection looks like from a browser — had no answer at all.
+ *
+ * `lastMessageAt` starts at 0 and `connect()` deliberately leaves it there on
+ * a first attempt, so that a handshake in flight is not judged by the previous
+ * socket's silence. The watchdog then disables itself for exactly that value.
+ * Between them, a first connection that is never answered left the status on
+ * "connecting…" for as long as the tab stayed open: `scheduleReconnect` was
+ * never reached, `originIndex` never advanced, and the mirror-to-normal-host
+ * ladder — the entire reason `MARKET_STREAM_ORIGINS` has two entries — never
+ * ran. There was no way out except a reload.
+ *
+ * That matters more here than it would elsewhere. This is a network where
+ * `api.binance.com` answers 451, and the ladder is what is supposed to find
+ * the host that works.
+ *
+ * Fifteen seconds is long by the standard of a websocket handshake to a public
+ * market-data endpoint — these open in well under one — and short by the
+ * standard of a person waiting for a chart to go live.
+ */
+export const STREAM_CONNECT_TIMEOUT_MS = 15_000;
 const WATCHDOG_INTERVAL_MS = 5_000;
 /**
  * A handshake that is refused fails within a round trip. Waiting the full
@@ -201,6 +230,8 @@ interface StreamEntry {
   refused: string[];
   /** Whether the current socket completed its handshake. */
   opened: boolean;
+  /** When the current handshake was started, for `STREAM_CONNECT_TIMEOUT_MS`. */
+  connectStartedAt: number;
   lastMessageAt: number;
   reconnectTimer: unknown;
   watchdog: unknown;
@@ -308,7 +339,8 @@ export class MarketStreamRegistry {
         listeners: new Set(), socket: null, status: "idle", origin: null,
         originIndex: connection.origins === undefined ? this.preferredIndex : 0,
         attempt: 0, everLive: false, refused: [],
-        opened: false, lastMessageAt: 0, reconnectTimer: null, watchdog: null,
+        opened: false, connectStartedAt: 0, lastMessageAt: 0,
+        reconnectTimer: null, watchdog: null,
         releaseTimer: null, closed: false,
       };
       this.entries.set(key, entry);
@@ -381,6 +413,7 @@ export class MarketStreamRegistry {
     if (entry.lastMessageAt !== 0) entry.lastMessageAt = this.schedule.now();
     entry.origin = entry.origins[entry.originIndex % entry.origins.length]!;
     entry.opened = false;
+    entry.connectStartedAt = this.schedule.now();
     entry.status = entry.attempt === 0 ? "connecting" : "reconnecting";
     this.publish(entry);
     this.opened += 1;
@@ -425,11 +458,16 @@ export class MarketStreamRegistry {
   /**
    * `cause` says why the current socket is being given up: `closed` when the
    * socket itself closed (a refused handshake is one whose close arrived
-   * before its open), `silent` when the watchdog gave up on it. Only a socket
-   * that actually closed can have been refused; a host that is merely being
-   * waited on must not be named as one that refused.
+   * before its open), `silent` when the watchdog gave up on an open socket
+   * that stopped speaking, `unanswered` when a handshake was never answered at
+   * all (IO-A9). Only a socket that actually closed can have been refused; a
+   * host that is merely being waited on must not be named as one that refused,
+   * which is why `unanswered` rotates the ladder without recording a refusal —
+   * not answering is not the same as answering no.
    */
-  private scheduleReconnect(entry: StreamEntry, cause: "closed" | "silent"): void {
+  private scheduleReconnect(
+    entry: StreamEntry, cause: "closed" | "silent" | "unanswered"
+  ): void {
     if (entry.closed) return;
     this.closeSocket(entry);
     // One chain per stream: a reconnect already waiting is replaced, never joined.
@@ -443,9 +481,12 @@ export class MarketStreamRegistry {
     // answer is already known. A socket that was open and dropped — the
     // exchange recycles connections daily — retries its own origin first, and
     // rotates only when that fails again.
-    if (refusedHandshake || entry.attempt > 1) entry.originIndex += 1;
+    // A handshake nobody answered tells us as much about this host as a
+    // refusal does: move to the next one, at the same pace.
+    const rotateNow = refusedHandshake || cause === "unanswered";
+    if (rotateNow || entry.attempt > 1) entry.originIndex += 1;
     const untriedRemain = entry.attempt < entry.origins.length;
-    const delay = refusedHandshake && untriedRemain
+    const delay = rotateNow && untriedRemain
       ? REFUSED_ROTATE_DELAY_MS
       : reconnectDelayMs(entry.attempt);
     this.setStatus(entry, "reconnecting");
@@ -457,7 +498,20 @@ export class MarketStreamRegistry {
 
   private startWatchdog(entry: StreamEntry): void {
     entry.watchdog = this.schedule.setInterval(() => {
-      if (entry.closed || entry.lastMessageAt === 0) return;
+      if (entry.closed) return;
+      /*
+       * IO-A9: a handshake that was never answered, checked BEFORE the
+       * `lastMessageAt === 0` gate below — which exists so that a connection
+       * in flight is not judged by the previous socket's silence, and which
+       * therefore switched this watchdog off for precisely the case where
+       * nothing will ever arrive to switch it back on.
+       */
+      if (!entry.opened && entry.socket !== null
+        && this.schedule.now() - entry.connectStartedAt > STREAM_CONNECT_TIMEOUT_MS) {
+        this.scheduleReconnect(entry, "unanswered");
+        return;
+      }
+      if (entry.lastMessageAt === 0) return;
       // No socket means a reconnect is already waiting; the ladder owns the
       // recovery, and a second chain here is exactly the leak being avoided.
       if (entry.socket === null) return;
