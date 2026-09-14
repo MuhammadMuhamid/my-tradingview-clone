@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "playwright-ts": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--browser", "chrome",
+        "--user-data-dir", "/Users/m/Library/Caches/ms-playwright/trading-scene",
+        "--viewport-size", "1440,900",
+        "--allowed-origins", "127.0.0.1:3000;localhost:3000;127.0.0.1:4000;localhost:4000",
+        "--caps", "vision,devtools",
+        "--output-dir", "/Users/m/Desktop/Trading-Codex-V3/TradingView-Parity-TVP8-20260913/tradingscene"
+      ],
+      "env": {}
+    }
+  }
+}
