@@ -799,7 +799,7 @@ function Palette({ value, onChange, allowTheme, onDone }: {
  * same place every other answer is.
  */
 export function Swatch({
-  value, onChange, label, allowTheme = false, disabled = false, id,
+  value, onChange, label, allowTheme = false, disabled = false, id, effectiveColor,
 }: {
   /** A `#rrggbb` literal, or `""` for "the theme's own" when `allowTheme`. */
   value: string;
@@ -809,6 +809,8 @@ export function Swatch({
   disabled?: boolean;
   /** See `Dropdown.id` — the registry name for this popover. */
   id?: string;
+  /** Concrete/token colour currently supplied by the theme when value is empty. */
+  effectiveColor?: string;
 }) {
   const popoverId = id ?? label;
   const [open, setOpen] = useExclusivePopover(`ui-swatch:${popoverId}`);
@@ -826,16 +828,16 @@ export function Swatch({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={value || "Theme colour"}
+        title={value || effectiveColor || "Theme colour"}
         onClick={() => setOpen(!open)}
         className="tvc-control flex h-[34px] w-[34px] items-center justify-center rounded-md
           border border-control-border disabled:cursor-not-allowed disabled:opacity-40"
       >
         <span
           className="h-6 w-6 rounded-[3px] border border-black/20"
-          style={{ backgroundColor: value || "var(--ts-surface-2)" }}
+          style={{ backgroundColor: value || effectiveColor || "var(--ts-surface-2)" }}
         >
-          {value === "" && (
+          {value === "" && !effectiveColor && (
             <svg viewBox="0 0 24 24" className="h-full w-full text-ink-faint" aria-hidden="true">
               <path d="M3 21L21 3" stroke="currentColor" strokeWidth="1.5" />
             </svg>
@@ -875,6 +877,7 @@ function dashArray(style: "solid" | "dotted" | "dashed", width: number): string 
  */
 export function LineStyleButton({
   color, width, style, onChange, label, allowTheme = false, disabled = false, id,
+  effectiveColor,
 }: {
   color: string;
   width: number;
@@ -885,6 +888,8 @@ export function LineStyleButton({
   disabled?: boolean;
   /** See `Dropdown.id` — the registry name for this popover. */
   id?: string;
+  /** Concrete/token colour currently supplied by the theme when color is empty. */
+  effectiveColor?: string;
 }) {
   const popoverId = id ?? label;
   const [open, setOpen] = useExclusivePopover(`ui-line-style:${popoverId}`);
@@ -893,7 +898,7 @@ export function LineStyleButton({
   const close = useCallback(() => setOpen(false), [setOpen]);
   useDismiss(open, close, boxRef, popRef);
   const pos = useAnchor(open, boxRef, popRef);
-  const stroke = color || "currentColor";
+  const stroke = color || effectiveColor || "currentColor";
 
   return (
     <div ref={boxRef} className="relative">
@@ -904,18 +909,14 @@ export function LineStyleButton({
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="tvc-control flex h-[34px] w-[75px] items-center gap-2 rounded-md
-          border border-control-border px-2 text-ink
+        className="tvc-control flex h-[34px] w-[75px] items-center justify-center rounded-md
+          border border-control-border text-ink
           disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <span
-          className="h-4 w-4 shrink-0 rounded-[3px] border border-black/20"
-          style={{ backgroundColor: color || "var(--ts-surface-2)" }}
-        />
-        <svg width="32" height="12" viewBox="0 0 32 12" className="shrink-0" aria-hidden="true">
+        <svg width="40" height="12" viewBox="0 0 40 12" className="shrink-0" aria-hidden="true">
           <path
-            d="M0 6h32" stroke={stroke} strokeWidth={width}
-            strokeDasharray={dashArray(style, width)} strokeLinecap="round"
+            d="M0 6h40" stroke={stroke} strokeWidth={Math.max(2, width)}
+            strokeDasharray={dashArray(style, Math.max(2, width))} strokeLinecap="round"
           />
         </svg>
       </button>

@@ -49,6 +49,7 @@ function Harness({ onRead }: { onRead: (study: AppliedNativeStudy) => void }) {
         setStudy((s) => ({ ...s, params: { ...s.params, [param]: value } }))}
       onStyle={(_k, plotId, style: PlotStyleOverride) =>
         setStudy((s) => ({ ...s, styles: { ...s.styles, [plotId]: { ...s.styles[plotId], ...style } } }))}
+      onDisplay={(_k, patch) => setStudy((s) => ({ ...s, ...patch }))}
       onReset={() => setStudy(RSI)}
       onVisibleOn={(_k, visibleOn: Resolution[] | undefined) =>
         setStudy((s) => ({ ...s, visibleOn }))}
@@ -171,4 +172,33 @@ test("R6b-29 — the footer's left control is `Defaults ▾`", async () => {
   await settle();
   assert.ok(within(screen.getByRole("menu", { name: "Study defaults" }))
     .getByRole("menuitem", { name: "Reset to defaults" }));
+});
+
+test("C-07 — Style exposes persisted output/input display controls and Cancel restores them", async () => {
+  const { study } = await openRsi();
+  fireEvent.click(screen.getByRole("tab", { name: "Style" }));
+  await settle();
+
+  assert.ok(screen.getByText("Output values"));
+  assert.ok(screen.getByText("Input values"));
+  fireEvent.click(screen.getByRole("button", { name: "Precision" }));
+  await settle();
+  fireEvent.click(within(screen.getByRole("listbox", { name: "Precision" }))
+    .getByRole("option", { name: "3" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Labels on price scale" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Values in status line" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Inputs in status line" }));
+  await settle();
+
+  assert.equal(study().precision, 3);
+  assert.equal(study().labelsOnPriceScale, false);
+  assert.equal(study().valuesInStatusLine, false);
+  assert.equal(study().inputsInStatusLine, false);
+
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await settle();
+  assert.equal(study().precision, undefined);
+  assert.equal(study().labelsOnPriceScale, undefined);
+  assert.equal(study().valuesInStatusLine, undefined);
+  assert.equal(study().inputsInStatusLine, undefined);
 });

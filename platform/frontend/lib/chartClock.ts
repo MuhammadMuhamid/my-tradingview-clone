@@ -18,7 +18,21 @@
  * product decision this wave was told not to invent.
  */
 
+import type { ChartTimeZone } from "./chartSettings";
+
 export const CHART_TIME_ZONE = "UTC";
+
+export const CHART_TIME_ZONES: readonly { value: ChartTimeZone; label: string; short: string }[] = [
+  { value: "UTC", label: "UTC", short: "UTC" },
+  { value: "America/New_York", label: "(UTC−5) New York", short: "New York" },
+  { value: "Europe/London", label: "(UTC+0) London", short: "London" },
+  { value: "Asia/Karachi", label: "(UTC+5) Karachi", short: "Karachi" },
+  { value: "Asia/Tokyo", label: "(UTC+9) Tokyo", short: "Tokyo" },
+];
+
+export function chartTimeZoneLabel(zone: ChartTimeZone): string {
+  return CHART_TIME_ZONES.find((item) => item.value === zone)?.short ?? zone;
+}
 
 export const CHART_TIME_ZONE_NOTE =
   "Chart times are UTC — the exchange's own bar timestamps.";
@@ -26,16 +40,29 @@ export const CHART_TIME_ZONE_NOTE =
 const pad = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
 
 /** `HH:MM:SS`, in UTC. */
-export function fmtChartClock(ms: number): string {
+export function fmtChartClock(ms: number, timeZone: ChartTimeZone = "UTC"): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "--:--:--";
-  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+  if (timeZone === "UTC") {
+    return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+  }
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).format(d);
 }
 
-/** `YYYY-MM-DD`, in UTC. */
-export function fmtChartDate(ms: number): string {
+/** `YYYY-MM-DD`, in the chart's display zone. */
+export function fmtChartDate(ms: number, timeZone: ChartTimeZone = "UTC"): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "————-——";
+  if (timeZone !== "UTC") {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(d);
+    const value = (kind: Intl.DateTimeFormatPartTypes): string =>
+      parts.find((part) => part.type === kind)?.value ?? "";
+    return `${value("year")}-${value("month")}-${value("day")}`;
+  }
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
@@ -47,11 +74,18 @@ export function fmtChartDate(ms: number): string {
  * alone, and everything shorter prints the minute — seconds are never part of
  * a bar open time on any timeframe this product offers.
  */
-export function fmtChartBarTime(ms: number, intervalMs: number): string {
+export function fmtChartBarTime(
+  ms: number, intervalMs: number, timeZone: ChartTimeZone = "UTC",
+): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "—";
-  const date = fmtChartDate(ms);
+  const date = fmtChartDate(ms, timeZone);
   if (intervalMs >= 86_400_000) return date;
+  if (timeZone !== "UTC") {
+    return `${date} ${new Intl.DateTimeFormat("en-GB", {
+      timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).format(d)}`;
+  }
   return `${date} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
@@ -74,9 +108,17 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 /** `TickMarkType.DayOfMonth` in lightweight-charts 4.2. */
 const DAY_OF_MONTH_TICK = 2;
 
-export function dayOfWeekTickFormatter(time: unknown, tickMarkType: number): string | null {
+export function dayOfWeekTickFormatter(
+  time: unknown, tickMarkType: number, timeZone: ChartTimeZone = "UTC",
+): string | null {
   if (tickMarkType !== DAY_OF_MONTH_TICK || typeof time !== "number") return null;
   const d = new Date(time * 1000);
+  if (timeZone !== "UTC") {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone, weekday: "short", day: "numeric",
+    }).formatToParts(d);
+    return `${parts.find((part) => part.type === "weekday")?.value ?? ""} ${parts.find((part) => part.type === "day")?.value ?? ""}`.trim();
+  }
   return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
 }
 
@@ -103,27 +145,41 @@ export function defaultTickFormatter(): string | null {
 }
 
 /** `15:00` — the library's own intraday label, written by us so OFF can exist. */
-export function hour24Formatter(time: unknown): string {
+export function hour24Formatter(time: unknown, timeZone: ChartTimeZone = "UTC"): string {
   const d = new Date((typeof time === "number" ? time : 0) * 1000);
+  if (timeZone !== "UTC") {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).format(d);
+  }
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
 /** `3:00 pm`, in UTC — the 12-hour half of the `Time hours format` row. */
-export function hour12Formatter(time: unknown): string {
+export function hour12Formatter(time: unknown, timeZone: ChartTimeZone = "UTC"): string {
   const d = new Date((typeof time === "number" ? time : 0) * 1000);
+  if (timeZone !== "UTC") {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone, hour: "numeric", minute: "2-digit", hourCycle: "h12",
+    }).format(d).toLowerCase();
+  }
   const h = d.getUTCHours();
   const hour = h % 12 === 0 ? 12 : h % 12;
   return `${hour}:${pad(d.getUTCMinutes())} ${h < 12 ? "am" : "pm"}`;
 }
 
 /** The pair the `Time hours format` row chooses between. */
-export function hoursFormatter(twentyFourHour: boolean): (time: unknown) => string {
-  return twentyFourHour ? hour24Formatter : hour12Formatter;
+export function hoursFormatter(
+  twentyFourHour: boolean, timeZone: ChartTimeZone = "UTC",
+): (time: unknown) => string {
+  return twentyFourHour
+    ? (time) => hour24Formatter(time, timeZone)
+    : (time) => hour12Formatter(time, timeZone);
 }
 
 /** The pair the `Day of week on labels` row chooses between. */
 export function dayOfWeekFormatter(
-  on: boolean,
+  on: boolean, timeZone: ChartTimeZone = "UTC",
 ): (time: unknown, tickMarkType: number) => string | null {
-  return on ? dayOfWeekTickFormatter : defaultTickFormatter;
+  return on ? (time, type) => dayOfWeekTickFormatter(time, type, timeZone) : defaultTickFormatter;
 }

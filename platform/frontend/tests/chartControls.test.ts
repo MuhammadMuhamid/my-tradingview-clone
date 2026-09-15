@@ -677,7 +677,7 @@ test("SHORTCUTS — the bottom row is time only; the scale controls sit on the a
   // which opens `GoToDateModal`, which sets the `goTo` signal this chart
   // already honours. No second path to the same dialog.
   assert.match(CHART, /onChartContextMenu\?\.\(\{\s*\n\s*x: box\.left, y: box\.top, drawingId: null, price: null, region: "time",/);
-  assert.match(CHART, /\{clock\} \{CHART_TIME_ZONE\}/);
+  assert.match(CHART, /\{clock\} \{chartTimeZoneLabel\(settings\.timeZone\)\}/);
   assert.match(CHART, /text-\[13px\] leading-\[18px\] tabular text-ink lg:inline/);
 });
 
@@ -871,7 +871,8 @@ test("PANES — every control is a real button with a name, and none is inert", 
    * the RSI pane revealed the MACD pane's cluster too. The distinct name is
    * the fix, and it is asserted here so it cannot be renamed back.
    */
-  assert.match(PANE, /focus-within:opacity-100 group-hover\/studypane:opacity-100/);
+  assert.match(PANE, /focus-within:opacity-100/);
+  assert.match(PANE, /group-hover\/studypane:opacity-100/);
   /*
    * Comments stripped first, and not as a formality: the sentence above this
    * assertion in `IndicatorPane` explains the bug and therefore SAYS
@@ -1055,8 +1056,8 @@ test("CLOCK — chart time is stated as UTC, which is what it has always been", 
   assert.match(clock, /getUTCFullYear\(\)/);
 });
 
-test("CLOCK — the ticker only runs while it is on screen", () => {
-  assert.match(CHART, /if \(!showBottomBar\) \{ setClock\(null\); return; \}/);
+test("CLOCK — the timer only runs while the clock or countdown is on screen", () => {
+  assert.match(CHART, /if \(!showBottomBar && !settings\.countdownToBarClose\) \{ setClock\(null\); return; \}/);
   assert.match(CHART, /return \(\) => window\.clearInterval\(timer\);/);
 });
 

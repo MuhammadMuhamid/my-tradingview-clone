@@ -6,7 +6,9 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dayOfWeekTickFormatter } from "../lib/chartClock";
+import {
+  dayOfWeekTickFormatter, fmtChartBarTime, fmtChartClock, hour24Formatter,
+} from "../lib/chartClock";
 
 test("R6 SC-5(d) — a day label carries its weekday, and nothing else is touched", () => {
   /*
@@ -28,4 +30,12 @@ test("R6 SC-5(d) — a day label carries its weekday, and nothing else is touche
   // A business-day object rather than a timestamp is the library's other time
   // shape; it is handed back rather than mis-read.
   assert.equal(dayOfWeekTickFormatter({ year: 1997, month: 9, day: 29 }, DAY), null);
+});
+
+test("C-03 — a selected IANA zone shifts clock and axis labels without shifting data", () => {
+  const instant = Date.UTC(2026, 8, 15, 12, 34, 56);
+  assert.equal(fmtChartClock(instant, "UTC"), "12:34:56");
+  assert.equal(fmtChartClock(instant, "Asia/Karachi"), "17:34:56");
+  assert.equal(hour24Formatter(instant / 1000, "Asia/Karachi"), "17:34");
+  assert.equal(fmtChartBarTime(instant, 60_000, "Asia/Karachi"), "2026-09-15 17:34");
 });

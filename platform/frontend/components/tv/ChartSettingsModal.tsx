@@ -74,6 +74,7 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import {
   PRICE_SCALE_MODES, priceScaleModeLabel, type PriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
+import { CHART_TIME_ZONES } from "@/lib/chartClock";
 
 /** The `Title` dropdown writes one of the three forms and nothing else. */
 function statusTitleForm(value: string): StatusTitleForm {
@@ -411,6 +412,9 @@ export function ChartSettingsModal(props: {
               {seriesColoursApply && (
                 <>
                   <Section>{chartTypeLabel(chartType)}</Section>
+                  <CheckRow label="Color bars based on previous close"
+                    checked={settings.colorBarsBasedOnPreviousClose}
+                    onChange={(v) => set("colorBarsBasedOnPreviousClose", v)} />
                   {/*
                     R6 S-2: a colour pair per component, as the reference has.
                     Borders and wicks could be switched off but never coloured,
@@ -581,15 +585,10 @@ export function ChartSettingsModal(props: {
                   onChange={(v) => set("precision", (v === "auto" ? "auto" : Number(v)) as PricePrecision)}
                   options={PRECISIONS.map((p) => ({ value: String(p), label: precisionLabel(p) }))} />
               </FieldRow>
-              {/*
-                R6 S-3: one timezone exists, so there is no dropdown — but the
-                value is the row's value, in ink, and the qualification is the
-                reference's own grammar for a qualification: a 12px line under
-                the row. It used to be `text-ink-faint` with the explanation
-                hidden in a `title` tooltip.
-              */}
-              <FieldRow label="Timezone" note="Every chart in this workspace is UTC.">
-                <span className="text-sm text-ink">UTC</span>
+              <FieldRow label="Timezone">
+                <Dropdown value={settings.timeZone} label="Timezone" width={150}
+                  onChange={(v) => set("timeZone", v as ChartSettings["timeZone"])}
+                  options={CHART_TIME_ZONES.map((zone) => ({ value: zone.value, label: zone.label }))} />
               </FieldRow>
             </>
           )}
@@ -699,22 +698,6 @@ export function ChartSettingsModal(props: {
           {tab === "scales" && (
             <>
               <Section>Price scale</Section>
-              {/*
-                R6 SC-2: the reference's `Scale modes (A and L)` row is about
-                the VISIBILITY of the axis-foot buttons. The four rows that
-                duplicated the strip itself — mode, auto, invert, and a live
-                `Reset scale` ACTION inside a Cancel-able dialog — keep the
-                three that are settings and lose the action.
-              */}
-              <FieldRow label="Scale mode buttons">
-                <Dropdown value={settings.scaleButtons} label="Scale mode buttons" width={180}
-                  onChange={(v) => set("scaleButtons", v as ChartSettings["scaleButtons"])}
-                  options={[
-                    { value: "hover", label: "Visible on mouse over" },
-                    { value: "always", label: "Always visible" },
-                    { value: "hidden", label: "Hidden" },
-                  ]} />
-              </FieldRow>
               <FieldRow label="Scales placement">
                 <Dropdown value={settings.scalePlacement} label="Scales placement" width={150}
                   onChange={(v) => set("scalePlacement", v as ScalePlacement)}
@@ -731,6 +714,12 @@ export function ChartSettingsModal(props: {
                 onChange={(v) => onScale({ ...scale, invert: v })} />
 
               <Section>Price labels &amp; lines</Section>
+              <CheckRow label="No overlapping labels" checked={settings.noOverlappingLabels}
+                onChange={(v) => set("noOverlappingLabels", v)} />
+              <CheckRow label="Plus button" checked={settings.plusButton}
+                onChange={(v) => set("plusButton", v)} />
+              <CheckRow label="Countdown to bar close" checked={settings.countdownToBarClose}
+                onChange={(v) => set("countdownToBarClose", v)} />
               {/*
                 R6 SC-1: one row, two controls. The same four settings were two
                 rows and five controls, and the three appearance controls
@@ -768,6 +757,28 @@ export function ChartSettingsModal(props: {
                   label="Indicator last value" width={180}
                   onChange={(v) => set("indicatorLastValue", v === "value")}
                   options={[{ value: "value", label: "Value" }, { value: "hidden", label: "Hidden" }]} />
+              </FieldRow>
+              <FieldRow label="Previous day close">
+                <Dropdown value={settings.previousDayClose} label="Previous day close" width={150}
+                  onChange={(v) => set("previousDayClose", v as ChartSettings["previousDayClose"])}
+                  options={[
+                    { value: "hidden", label: "Hidden" },
+                    { value: "value", label: "Value" },
+                    { value: "line", label: "Line" },
+                  ]} />
+                <Swatch label="Previous day close colour" value={settings.previousDayCloseColor}
+                  onChange={(v) => set("previousDayCloseColor", v)} />
+              </FieldRow>
+              <FieldRow label="High and low">
+                <Dropdown value={settings.highLow} label="High and low" width={150}
+                  onChange={(v) => set("highLow", v as ChartSettings["highLow"])}
+                  options={[
+                    { value: "hidden", label: "Hidden" },
+                    { value: "value", label: "Value" },
+                    { value: "line", label: "Line" },
+                  ]} />
+                <Swatch label="High and low colour" value={settings.highLowColor}
+                  onChange={(v) => set("highLowColor", v)} />
               </FieldRow>
               {hasBidAsk && (
                 <FieldRow label="Bid and ask">
@@ -812,6 +823,7 @@ export function ChartSettingsModal(props: {
                   onChange={(v) => set("backgroundGradient", v === "gradient")}
                   options={[{ value: "solid", label: "Solid" }, { value: "gradient", label: "Gradient" }]} />
                 <Swatch label="Background colour" allowTheme value={settings.backgroundColor}
+                  effectiveColor="var(--ts-surface)"
                   onChange={(v) => set("backgroundColor", v)} />
                 {/*
                   R6b-18: `Gradient` shows a SECOND well, as the reference
@@ -835,6 +847,7 @@ export function ChartSettingsModal(props: {
               <CheckRow label="Vertical grid lines" checked={settings.gridVertical}
                 onChange={(v) => set("gridVertical", v)}>
                 <LineStyleButton label="Vertical grid line appearance" allowTheme
+                  effectiveColor="var(--ts-chart-grid)"
                   disabled={!settings.gridVertical}
                   color={settings.gridVertColor} width={1} style={settings.gridVertStyle}
                   onChange={(next) => setMany({
@@ -844,6 +857,7 @@ export function ChartSettingsModal(props: {
               <CheckRow label="Horizontal grid lines" checked={settings.gridHorizontal}
                 onChange={(v) => set("gridHorizontal", v)}>
                 <LineStyleButton label="Horizontal grid line appearance" allowTheme
+                  effectiveColor="var(--ts-chart-grid)"
                   disabled={!settings.gridHorizontal}
                   color={settings.gridHorzColor} width={1} style={settings.gridHorzStyle}
                   onChange={(next) => setMany({
@@ -853,6 +867,7 @@ export function ChartSettingsModal(props: {
               <CheckRow label="Crosshair" checked={settings.showCrosshair}
                 onChange={(v) => set("showCrosshair", v)}>
                 <LineStyleButton label="Crosshair appearance" allowTheme
+                  effectiveColor="var(--ts-chart-crosshair)"
                   disabled={!settings.showCrosshair}
                   color={settings.crosshairColor}
                   width={settings.crosshairWidth}
@@ -863,6 +878,11 @@ export function ChartSettingsModal(props: {
                     crosshairStyle: next.style,
                   })} />
               </CheckRow>
+              <FieldRow label="Pane separators">
+                <Swatch label="Pane separator colour" allowTheme value={settings.paneSeparatorColor}
+                  effectiveColor="var(--ts-line)"
+                  onChange={(v) => set("paneSeparatorColor", v)} />
+              </FieldRow>
               {/*
                 R6 C-2: a mode, not a switch — hidden, the instrument's name, or
                 only while the pane is replaying, which is what makes a replay
@@ -882,12 +902,14 @@ export function ChartSettingsModal(props: {
                     { value: "replay", label: "Replay mode" },
                   ]} />
                 <Swatch label="Watermark colour" allowTheme value={settings.watermarkColor}
+                  effectiveColor="var(--ts-chart-muted)"
                   onChange={(v) => set("watermarkColor", v)} />
               </FieldRow>
 
               <Section>Scales</Section>
               <FieldRow label="Text">
                 <Swatch label="Scale text colour" allowTheme value={settings.scaleTextColor}
+                  effectiveColor="var(--ts-ink-muted)"
                   onChange={(v) => set("scaleTextColor", v)} />
                 <Dropdown value={String(settings.scaleFontSize)} label="Scale text size" width={100}
                   onChange={(v) => set("scaleFontSize", Number(v))}
@@ -895,7 +917,28 @@ export function ChartSettingsModal(props: {
               </FieldRow>
               <FieldRow label="Lines">
                 <Swatch label="Scale line colour" allowTheme value={settings.scaleLineColor}
+                  effectiveColor="var(--ts-line-strong)"
                   onChange={(v) => set("scaleLineColor", v)} />
+              </FieldRow>
+
+              <Section>Buttons</Section>
+              <FieldRow label="Navigation">
+                <Dropdown value={settings.scaleButtons} label="Navigation buttons" width={180}
+                  onChange={(v) => set("scaleButtons", v as ChartSettings["scaleButtons"])}
+                  options={[
+                    { value: "always", label: "Always visible" },
+                    { value: "hover", label: "Visible on mouse over" },
+                    { value: "hidden", label: "Always hidden" },
+                  ]} />
+              </FieldRow>
+              <FieldRow label="Pane">
+                <Dropdown value={settings.paneButtons} label="Pane buttons" width={180}
+                  onChange={(v) => set("paneButtons", v as ChartSettings["paneButtons"])}
+                  options={[
+                    { value: "always", label: "Always visible" },
+                    { value: "hover", label: "Visible on mouse over" },
+                    { value: "hidden", label: "Always hidden" },
+                  ]} />
               </FieldRow>
 
               <Section>Margins</Section>

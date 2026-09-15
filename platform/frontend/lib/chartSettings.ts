@@ -49,6 +49,12 @@ export type WatermarkMode = "hidden" | "symbol" | "replay";
 /** When the axis-foot `log % auto reset` strip is drawn. */
 export type ScaleButtonsMode = "hover" | "always" | "hidden";
 
+/** IANA zone used only to format chart labels; candle timestamps never move. */
+export type ChartTimeZone = "UTC" | "America/New_York" | "Europe/London" | "Asia/Karachi" | "Asia/Tokyo";
+
+/** Whether an auxiliary price is absent, an axis value, or a value plus line. */
+export type AuxiliaryPriceLineMode = "hidden" | "value" | "line";
+
 /** Whether the pane draws the ticker's bid and ask as price lines. */
 export type BidAskLines = "hidden" | "line";
 
@@ -81,6 +87,8 @@ export interface ChartSettings {
   candleBorders: boolean;
   /** Candle wicks. */
   candleWicks: boolean;
+  /** Direction is close versus the preceding close, rather than open. */
+  colorBarsBasedOnPreviousClose: boolean;
   /**
    * Bars drawn at one pixel, whatever the zoom.
    *
@@ -188,6 +196,8 @@ export interface ChartSettings {
   scalePlacement: ScalePlacement;
   /** 24-hour axis labels; off is 12-hour with am/pm. */
   timeFormat24h: boolean;
+  /** Display zone for the axis and the live clock; data remains epoch UTC. */
+  timeZone: ChartTimeZone;
   /**
    * TVP8: the tab literally named "Scales and lines" contained no line
    * controls at all — seven of them, and every one was a scale. These are the
@@ -238,6 +248,13 @@ export interface ChartSettings {
    * `tickMarkFormatter`, so this is a branch inside a function that exists.
    */
   dayOfWeekOnLabels: boolean;
+  noOverlappingLabels: boolean;
+  plusButton: boolean;
+  countdownToBarClose: boolean;
+  previousDayClose: AuxiliaryPriceLineMode;
+  previousDayCloseColor: string;
+  highLow: AuxiliaryPriceLineMode;
+  highLowColor: string;
 
   // ── Canvas ────────────────────────────────────────────────────────────────
   /** Vertical grid lines. */
@@ -317,6 +334,9 @@ export interface ChartSettings {
   scaleTextColor: string;
   /** R6 C-4: the price and time scale border colour; `""` is the theme's own. */
   scaleLineColor: string;
+  paneSeparatorColor: string;
+  /** Visibility of the study-pane hover controls. */
+  paneButtons: ScaleButtonsMode;
   /** Empty space above the highest bar, as a percentage of pane height. */
   marginTopPct: number;
   /** Empty space below the lowest bar, as a percentage of pane height. */
@@ -420,6 +440,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   candleBody: true,
   candleBorders: true,
   candleWicks: true,
+  colorBarsBasedOnPreviousClose: false,
   // The library's own default, and the reference's: a Bars chart is hairline
   // until somebody asks for otherwise.
   thinBars: true,
@@ -460,6 +481,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
 
   scalePlacement: "right",
   timeFormat24h: true,
+  timeZone: "UTC",
   lastValueLine: true,
   lastValueLineColor: "#758696",
   lastValueLineWidth: 1,
@@ -483,6 +505,13 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   bidColor: "#2ebd85",
   askColor: "#f6465d",
   dayOfWeekOnLabels: true,
+  noOverlappingLabels: true,
+  plusButton: true,
+  countdownToBarClose: true,
+  previousDayClose: "hidden",
+  previousDayCloseColor: "#758696",
+  highLow: "hidden",
+  highLowColor: "#758696",
 
   gridVertical: true,
   gridHorizontal: true,
@@ -505,6 +534,8 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   scaleFontSize: 12,
   scaleTextColor: "",
   scaleLineColor: "",
+  paneSeparatorColor: "",
+  paneButtons: "hover",
   marginTopPct: 10,
   marginBottomPct: 8,
   rightOffsetBars: 5,
@@ -686,6 +717,7 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     candleBody: bool(value.candleBody, true),
     candleBorders: bool(value.candleBorders, true),
     candleWicks: bool(value.candleWicks, true),
+    colorBarsBasedOnPreviousClose: bool(value.colorBarsBasedOnPreviousClose, false),
     thinBars: bool(value.thinBars, true),
     upColor: up,
     downColor: down,
@@ -719,6 +751,8 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     scalePlacement: PLACEMENTS.includes(value.scalePlacement as ScalePlacement)
       ? value.scalePlacement as ScalePlacement : "right",
     timeFormat24h: bool(value.timeFormat24h, true),
+    timeZone: ["UTC", "America/New_York", "Europe/London", "Asia/Karachi", "Asia/Tokyo"]
+      .includes(value.timeZone as string) ? value.timeZone as ChartTimeZone : "UTC",
     lastValueLine: bool(value.lastValueLine, true),
     lastValueLineColor: hex(value.lastValueLineColor, DEFAULT_CHART_SETTINGS.lastValueLineColor),
     lastValueLineWidth: Math.round(num(value.lastValueLineWidth, 1, 1, 4)),
@@ -733,6 +767,15 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     bidColor: hex(value.bidColor, DEFAULT_CHART_SETTINGS.bidColor) || DEFAULT_CHART_SETTINGS.bidColor,
     askColor: hex(value.askColor, DEFAULT_CHART_SETTINGS.askColor) || DEFAULT_CHART_SETTINGS.askColor,
     dayOfWeekOnLabels: bool(value.dayOfWeekOnLabels, true),
+    noOverlappingLabels: bool(value.noOverlappingLabels, true),
+    plusButton: bool(value.plusButton, true),
+    countdownToBarClose: bool(value.countdownToBarClose, true),
+    previousDayClose: (["hidden", "value", "line"] as const).includes(value.previousDayClose as AuxiliaryPriceLineMode)
+      ? value.previousDayClose as AuxiliaryPriceLineMode : "hidden",
+    previousDayCloseColor: hex(value.previousDayCloseColor, DEFAULT_CHART_SETTINGS.previousDayCloseColor),
+    highLow: (["hidden", "value", "line"] as const).includes(value.highLow as AuxiliaryPriceLineMode)
+      ? value.highLow as AuxiliaryPriceLineMode : "hidden",
+    highLowColor: hex(value.highLowColor, DEFAULT_CHART_SETTINGS.highLowColor),
 
     gridVertical: bool(value.gridVertical, legacyGrid),
     gridHorizontal: bool(value.gridHorizontal, legacyGrid),
@@ -761,6 +804,9 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
     scaleFontSize: Math.round(num(value.scaleFontSize, 12, 8, 20)),
     scaleTextColor: hex(value.scaleTextColor, ""),
     scaleLineColor: hex(value.scaleLineColor, ""),
+    paneSeparatorColor: hex(value.paneSeparatorColor, ""),
+    paneButtons: SCALE_BUTTON_MODES.includes(value.paneButtons as ScaleButtonsMode)
+      ? value.paneButtons as ScaleButtonsMode : "hover",
     marginTopPct: Math.round(num(value.marginTopPct, 10, 0, 50)),
     marginBottomPct: Math.round(num(value.marginBottomPct, 8, 0, 50)),
     rightOffsetBars: Math.round(num(value.rightOffsetBars, 5, 0, 200)),

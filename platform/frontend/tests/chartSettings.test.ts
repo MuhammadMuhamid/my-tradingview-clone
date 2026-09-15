@@ -28,6 +28,33 @@ test("malformed chart setting values never disable a feature by accident", () =>
   assert.equal(value.showEvents, true);
 });
 
+test("C-03/C-04 — indicator/settings additions normalize, persist, and reject invalid modes", () => {
+  const value = normalizeChartSettings({
+    colorBarsBasedOnPreviousClose: true,
+    timeZone: "Asia/Karachi",
+    noOverlappingLabels: false,
+    plusButton: false,
+    countdownToBarClose: false,
+    previousDayClose: "line",
+    previousDayCloseColor: "#123456",
+    highLow: "value",
+    highLowColor: "#abcdef",
+    paneSeparatorColor: "#334455",
+    paneButtons: "always",
+  });
+  assert.equal(value.colorBarsBasedOnPreviousClose, true);
+  assert.equal(value.timeZone, "Asia/Karachi");
+  assert.equal(value.noOverlappingLabels, false);
+  assert.equal(value.plusButton, false);
+  assert.equal(value.countdownToBarClose, false);
+  assert.equal(value.previousDayClose, "line");
+  assert.equal(value.highLow, "value");
+  assert.equal(value.paneSeparatorColor, "#334455");
+  assert.equal(value.paneButtons, "always");
+  assert.equal(normalizeChartSettings({ timeZone: "Mars/Base" }).timeZone, "UTC");
+  assert.equal(normalizeChartSettings({ paneButtons: "sometimes" }).paneButtons, "hover");
+});
+
 test("a workspace saved with the single grid switch keeps the grid it had", () => {
   // `showGrid` was one switch for both directions. A user who had turned the
   // grid OFF must not find it back on after the field split in two.
@@ -498,7 +525,7 @@ test("no settings row can outgrow the dialog's content column", () => {
   const valueColumns = numbers(/^\s+(?:symbol|status|scales|canvas|trading|alerts|events): (\d+),/gm, dialog);
   const widestColumn = Math.max(...valueColumns);
   const widestDropdown = Math.max(...numbers(/width=\{(\d+)\}/g, dialog));
-  const lineButton = numbers(/h-\[34px\] w-\[(\d+)px\] items-center gap-2 rounded-md/g, ui)[0]!;
+  const lineButton = numbers(/h-\[34px\] w-\[(\d+)px\] items-center justify-center rounded-md/g, ui)[0]!;
   const swatch = numbers(/flex h-\[34px\] w-\[(\d+)px\] items-center justify-center rounded-md/g, ui)[0]!;
 
   // 750 panel − 2×20 padding − 206 rail − 20 gutter.
@@ -662,7 +689,7 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
      * it asked whether the setting was READ and not whether OFF was written.
      * It asks for the pair now.
      */
-    ["dayOfWeekOnLabels", "CandleChart", /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels\)/],
+    ["dayOfWeekOnLabels", "CandleChart", /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels, settings\.timeZone\)/],
     ["indicatorLastValue", "CandleChart", /const lastValueVisible = settings\.indicatorLastValue/],
     ["bidAskLines", "CandleChart", /settings\.bidAskLines === "line" && live && !isCanonicalInstrumentId\(symbol\)/],
     ["bidColor", "CandleChart", /price: bookQuote\.bid, color: settings\.bidColor/],
@@ -723,12 +750,12 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
   assert.match(studyPane, /showInputs=\{showInputs\}/,
     "and the pane hands them to the legend it mounts");
   // SL-1: the legend's three parts are three props, not one mount decision.
-  for (const prop of [/showTitles && /, /showTitles && showInputs && group\.params/, /showValues && group\.plots/]) {
+  for (const prop of [/showTitles && /, /showTitles && showInputs && group\.plots\[0\]\?\.statusInputVisible/, /showValues && group\.plots/]) {
     assert.match(studyLegend, prop, "the legend must hide its own parts, not be unmounted whole");
   }
   // SC-3: a study in its own pane is still a study.
   assert.match(chart, /lastValue=\{settings\.indicatorLastValue\}/);
-  assert.match(studyPane, /applyOptions\(\{ lastValueVisible: lastValue \}\)/);
+  assert.match(studyPane, /lastValueVisible: lastValue && overlay\?\.priceScaleLabelVisible !== false/);
   /*
    * SC-5(d): and the visible time axis is not always the price chart's. With a
    * study pane on screen the axis is drawn once, under the LOWEST pane, by that
@@ -738,7 +765,7 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
   assert.match(chart, /dayOfWeekOnLabels=\{settings\.dayOfWeekOnLabels\}/);
   // R6b-13: and the pane's own OFF is a function too — see the rewritten row
   // in the table above.
-  assert.match(studyPane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels\)/);
+  assert.match(studyPane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels, timeZone\)/);
   // A-1: `Only active alerts` is the filter, and it is a parameter now.
   assert.match(workspace, /\(!onlyActive \|\| isAlertActive\(a\)\)/,
     "onlyActiveAlerts must be able to turn the filter OFF, or the row moves nothing");
@@ -815,14 +842,14 @@ test("R6b-13/14/19 — the reach rows are applied to the STUDY PANES, not only t
    */
   assert.doesNotMatch(chart, /tickMarkFormatter: undefined/);
   assert.doesNotMatch(chart, /timeFormatter: settings\.timeFormat24h \? undefined/);
-  assert.match(chart, /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels\)/);
-  assert.match(chart, /timeFormatter: hoursFormatter\(settings\.timeFormat24h\)/);
+  assert.match(chart, /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels, settings\.timeZone\)/);
+  assert.match(chart, /timeFormatter: hoursFormatter\(settings\.timeFormat24h, settings\.timeZone\)/);
   assert.match(clock, /export function defaultTickFormatter/);
   assert.match(clock, /export function hour12Formatter/);
   assert.match(clock, /export function hour24Formatter/);
 
   const pane = strip("components/tv/IndicatorPane.tsx");
   assert.doesNotMatch(pane, /tickMarkFormatter: dayOfWeekOnLabels \? dayOfWeekTickFormatter : undefined/);
-  assert.match(pane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels\)/);
-  assert.match(pane, /timeFormatter: hoursFormatter\(timeFormat24h\)/);
+  assert.match(pane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels, timeZone\)/);
+  assert.match(pane, /timeFormatter: hoursFormatter\(timeFormat24h, timeZone\)/);
 });

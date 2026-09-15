@@ -34,6 +34,10 @@ export interface ChartOverlay {
   instanceTitle?: string;
   instanceParams?: string;
   precision?: number | null;
+  /** Per-study display switches from the study's Style tab. */
+  priceScaleLabelVisible?: boolean;
+  statusValueVisible?: boolean;
+  statusInputVisible?: boolean;
   /** Hlines have two endpoints for the line renderer but one value at every bar. */
   constantValue?: number;
   data: ChartPoint[];

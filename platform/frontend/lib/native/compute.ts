@@ -54,6 +54,12 @@ export interface AppliedNativeStudy {
   visible: boolean;
   /** Per-plot style overrides. Absent keys keep the definition's defaults. */
   styles: Record<string, PlotStyleOverride>;
+  /** Output precision override. Absent uses the study/instrument default. */
+  precision?: number;
+  /** Per-study legend/axis visibility; absent preserves the default-on state. */
+  labelsOnPriceScale?: boolean;
+  valuesInStatusLine?: boolean;
+  inputsInStatusLine?: boolean;
   /**
    * R6b-29: the timeframes this study is drawn on, as the reference's
    * `Visibility` tab writes them.
@@ -202,7 +208,7 @@ export function runNativeStudy(
   const paneId = def.overlay ? PRICE_PANE_ID : `indicator:${applied.key}`;
   const times = candles.map((c) => Math.floor(c.openTime / 1000));
   const stepSeconds = resolutionMs(interval) / 1000;
-  const precision = def.precision ?? pricePrecision;
+  const precision = applied.precision ?? def.precision ?? pricePrecision;
   const instanceParams = describeParams(def, params, extra.sourceLabels);
 
   const overlays: ChartOverlay[] = [];
@@ -229,6 +235,9 @@ export function runNativeStudy(
       instanceTitle: def.name,
       instanceParams,
       precision,
+      priceScaleLabelVisible: applied.labelsOnPriceScale !== false,
+      statusValueVisible: applied.valuesInStatusLine !== false,
+      statusInputVisible: applied.inputsInStatusLine !== false,
       data: toPoints(times, series, colors, offsetOf(plot, result), stepSeconds),
     });
   }
@@ -249,6 +258,9 @@ export function runNativeStudy(
       instanceTitle: def.name,
       instanceParams,
       precision,
+      priceScaleLabelVisible: applied.labelsOnPriceScale !== false,
+      statusValueVisible: applied.valuesInStatusLine !== false,
+      statusInputVisible: applied.inputsInStatusLine !== false,
       constantValue: level.value,
       data: times.length > 1
         ? [
@@ -386,10 +398,12 @@ export function describeParams(
   def: NativeStudyDef, params: NativeParams,
   sourceLabels?: Readonly<Record<string, string>>
 ): string {
-  return def.inputs
-    .map((input) => [input.title, params[input.key]] as const)
-    .filter(([, value]) => value !== undefined && value !== "" && typeof value !== "boolean")
-    .slice(0, 3)
+  const inputs = def.id === "macd"
+    ? [def.inputs[0], def.inputs[1], def.inputs[3], def.inputs[2]].filter(Boolean) as NativeStudyDef["inputs"]
+    : def.inputs;
+  return inputs
+    .map((input) => params[input.key])
+    .filter((value) => value !== undefined && value !== "" && typeof value !== "boolean")
     /*
      * A study source reads as what it IS, never as its token.
      *
@@ -397,8 +411,8 @@ export function describeParams(
      * on screen, and one that looks like a bug even to someone who knows what
      * it means. "MA · Length 9 · Source RSI · RSI" says the same thing.
      */
-    .map(([title, value]) => `${title} ${sourceLabels?.[String(value)] ?? String(value)}`)
-    .join(" · ");
+    .map((value) => sourceLabels?.[String(value)] ?? String(value))
+    .join(" ");
 }
 
 /**
@@ -482,7 +496,10 @@ export function studySignature(
    * something else happened to invalidate it.
    */
   const sources = sourceSignature ? `|s${sourceSignature}` : "";
-  return `${applied.defId}|${parts.join(",")}|${styles.join(",")}|p${precision}${view}${range}${sources}`;
+  const display = `|display=${applied.precision ?? "default"}/`
+    + `${applied.labelsOnPriceScale !== false}/${applied.valuesInStatusLine !== false}/`
+    + `${applied.inputsInStatusLine !== false}`;
+  return `${applied.defId}|${parts.join(",")}|${styles.join(",")}|p${precision}${display}${view}${range}${sources}`;
 }
 
 /** A fresh instance of a definition, with its defaults. */

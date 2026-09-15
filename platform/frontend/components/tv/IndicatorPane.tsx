@@ -11,7 +11,10 @@ import {
   type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { baseChartOptions, subscribeChartTheme } from "@/lib/chartTheme";
-import { resolveBackgroundGradient, type DateFormatName, type LineStyleName } from "@/lib/chartSettings";
+import {
+  resolveBackgroundGradient, type ChartTimeZone, type DateFormatName, type LineStyleName,
+  type ScaleButtonsMode,
+} from "@/lib/chartSettings";
 import { dayOfWeekFormatter, hoursFormatter } from "@/lib/chartClock";
 import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
 import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicatorPaneLayout";
@@ -152,6 +155,7 @@ export function IndicatorPane({
   dayOfWeekOnLabels = true,
   dateFormat,
   timeFormat24h = true,
+  timeZone = "UTC",
   backgroundColor = "",
   backgroundColor2 = "",
   backgroundGradient = false,
@@ -168,6 +172,9 @@ export function IndicatorPane({
   scaleTextColor = "",
   scaleLineColor = "",
   scaleFontSize,
+  noOverlappingLabels = true,
+  paneSeparatorColor = "",
+  paneButtons = "hover",
   showTitles = true, showInputs = true, showValues = true,
   legendBackground = true, legendBackgroundOpacity = 60,
   onContextMenu,
@@ -258,6 +265,8 @@ export function IndicatorPane({
   dateFormat?: DateFormatName;
   /** 24-hour axis labels; false is 12-hour with am/pm. */
   timeFormat24h?: boolean;
+  /** IANA display zone shared with the price chart's axis. */
+  timeZone?: ChartTimeZone;
   backgroundColor?: string;
   backgroundColor2?: string;
   backgroundGradient?: boolean;
@@ -275,6 +284,9 @@ export function IndicatorPane({
   scaleLineColor?: string;
   /** Axis label size in px; omitted leaves the theme's own. */
   scaleFontSize?: number;
+  noOverlappingLabels?: boolean;
+  paneSeparatorColor?: string;
+  paneButtons?: ScaleButtonsMode;
   /**
    * ── R8: a study pane had NO product menu at all ──────────────────────────
    *
@@ -361,7 +373,7 @@ export function IndicatorPane({
       timeScale: {
         ...base.timeScale,
         visible: showTimeAxisRef.current,
-        tickMarkFormatter: dayOfWeekFormatter(dayOfWeekRef.current),
+        tickMarkFormatter: dayOfWeekFormatter(dayOfWeekRef.current, timeZoneRef.current),
       },
     });
     const unsubscribeTheme = subscribeChartTheme(chart);
@@ -434,18 +446,19 @@ export function IndicatorPane({
       const priceFormat = precision === null || precision === undefined ? undefined : {
         type: "price" as const, precision, minMove: 10 ** -precision,
       };
+      const overlayLastValue = lastValue && overlay.priceScaleLabelVisible !== false;
       if (!entry) {
         if (kind === "Histogram") {
           entry = { kind, api: chart.addHistogramSeries({
             color: overlay.color, base: 0, priceLineVisible: false,
-            lastValueVisible: lastValue, ...(priceFormat ? { priceFormat } : {}),
+            lastValueVisible: overlayLastValue, ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else if (kind === "Area") {
           entry = { kind, api: chart.addAreaSeries({
             lineColor: overlay.color,
             topColor: alphaColor(overlay.color, "55"),
             bottomColor: alphaColor(overlay.color, "08"),
-            priceLineVisible: false, lastValueVisible: lastValue,
+            priceLineVisible: false, lastValueVisible: overlayLastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else if (kind === "Candlestick") {
@@ -453,18 +466,18 @@ export function IndicatorPane({
             upColor: overlay.color, downColor: overlay.color,
             borderUpColor: overlay.color, borderDownColor: overlay.color,
             wickUpColor: overlay.color, wickDownColor: overlay.color,
-            priceLineVisible: false, lastValueVisible: lastValue,
+            priceLineVisible: false, lastValueVisible: overlayLastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else if (kind === "Bar") {
           entry = { kind, api: chart.addBarSeries({
             upColor: overlay.color, downColor: overlay.color,
-            priceLineVisible: false, lastValueVisible: lastValue,
+            priceLineVisible: false, lastValueVisible: overlayLastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         } else {
           entry = { kind, api: chart.addLineSeries({
-            color: overlay.color, priceLineVisible: false, lastValueVisible: lastValue,
+            color: overlay.color, priceLineVisible: false, lastValueVisible: overlayLastValue,
             ...(priceFormat ? { priceFormat } : {}),
           }), data: [] };
         }
@@ -482,15 +495,24 @@ export function IndicatorPane({
         // oscillator's reference levels otherwise printed "70" beside
         // "70.0000" on every line.
         title: "",
+        ...(priceFormat ? { priceFormat } : {}),
       });
-      else if (entry.kind === "Histogram") entry.api.applyOptions({ color: overlay.color });
-      else if (entry.kind === "Area") entry.api.applyOptions({ lineColor: overlay.color });
+      else if (entry.kind === "Histogram") entry.api.applyOptions({
+        color: overlay.color, ...(priceFormat ? { priceFormat } : {}),
+      });
+      else if (entry.kind === "Area") entry.api.applyOptions({
+        lineColor: overlay.color, ...(priceFormat ? { priceFormat } : {}),
+      });
       else if (entry.kind === "Candlestick") entry.api.applyOptions({
         upColor: overlay.color, downColor: overlay.color,
         borderUpColor: overlay.color, borderDownColor: overlay.color,
         wickUpColor: overlay.color, wickDownColor: overlay.color,
+        ...(priceFormat ? { priceFormat } : {}),
       });
-      else entry.api.applyOptions({ upColor: overlay.color, downColor: overlay.color });
+      else entry.api.applyOptions({
+        upColor: overlay.color, downColor: overlay.color,
+        ...(priceFormat ? { priceFormat } : {}),
+      });
 
       const points = overlay.data.filter((point) => Number.isFinite(point.time) && point.time > 0);
       const plan = planSeriesMutation(entry.data, points);
@@ -541,6 +563,8 @@ export function IndicatorPane({
 
   const dayOfWeekRef = useRef(dayOfWeekOnLabels);
   dayOfWeekRef.current = dayOfWeekOnLabels;
+  const timeZoneRef = useRef(timeZone);
+  timeZoneRef.current = timeZone;
   /*
    * ── R6b-13: OFF is a FUNCTION, never `undefined` ──────────────────────────
    *
@@ -552,9 +576,9 @@ export function IndicatorPane({
    */
   useEffect(() => {
     chartRef.current?.applyOptions({
-      timeScale: { tickMarkFormatter: dayOfWeekFormatter(dayOfWeekOnLabels) },
+      timeScale: { tickMarkFormatter: dayOfWeekFormatter(dayOfWeekOnLabels, timeZone) },
     });
-  }, [dayOfWeekOnLabels, ready]);
+  }, [dayOfWeekOnLabels, timeZone, ready]);
 
   /*
    * ── R6b-14/19: the pane takes the whole Canvas tab ───────────────────────
@@ -609,18 +633,21 @@ export function IndicatorPane({
         },
         ...(scaleLineColor
           ? {
-              rightPriceScale: { borderColor: scaleLineColor },
-              leftPriceScale: { borderColor: scaleLineColor },
+              rightPriceScale: { borderColor: scaleLineColor, alignLabels: noOverlappingLabels },
+              leftPriceScale: { borderColor: scaleLineColor, alignLabels: noOverlappingLabels },
               timeScale: { borderColor: scaleLineColor },
             }
-          : {}),
+          : {
+              rightPriceScale: { alignLabels: noOverlappingLabels },
+              leftPriceScale: { alignLabels: noOverlappingLabels },
+            }),
         localization: {
           /*
            * The same pair the price chart uses, from `lib/chartClock`: two
            * functions, so 12-hours and 24-hours are both reachable. With a
            * study open this is the axis a user is actually reading.
            */
-          timeFormatter: hoursFormatter(timeFormat24h),
+          timeFormatter: hoursFormatter(timeFormat24h, timeZone),
           ...(dateFormat === undefined ? {} : { dateFormat }),
         },
       });
@@ -631,7 +658,7 @@ export function IndicatorPane({
     gridHorizontal, gridHorzColor, gridHorzStyle,
     showCrosshair, crosshairColor, crosshairWidth, crosshairStyle,
     scaleTextColor, scaleLineColor, scaleFontSize,
-    dateFormat, timeFormat24h, ready,
+    dateFormat, timeFormat24h, timeZone, noOverlappingLabels, ready,
   ]);
 
   /*
@@ -643,7 +670,10 @@ export function IndicatorPane({
    */
   useEffect(() => {
     for (const entry of seriesRef.current.values()) {
-      try { entry.api.applyOptions({ lastValueVisible: lastValue }); }
+      const overlay = overlays.find((candidate) => seriesRef.current.get(candidate.id) === entry);
+      try { entry.api.applyOptions({
+        lastValueVisible: lastValue && overlay?.priceScaleLabelVisible !== false,
+      }); }
       catch { /* the series went away between render and effect */ }
     }
   }, [lastValue, overlays, ready]);
@@ -703,7 +733,10 @@ export function IndicatorPane({
       className={`group/studypane relative border-t border-border bg-surface ${
         fill ? "min-h-0 flex-1" : "min-h-0 shrink"
       }`}
-      style={fill ? undefined : { height }}
+      style={{
+        ...(fill ? {} : { height }),
+        ...(paneSeparatorColor ? { borderTopColor: paneSeparatorColor } : {}),
+      }}
       aria-label={`${title} indicator pane`}
     >
       {/*
@@ -820,7 +853,12 @@ export function IndicatorPane({
         reference's four boxes sit at a 28px pitch with 4px between them and
         the right-most one ends 4px before the axis.
       */}
-      <span className="absolute right-1 top-1 z-[3] flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/studypane:opacity-100">
+      {paneButtons !== "hidden" && <span
+        data-pane-buttons={paneButtons}
+        className={`absolute right-1 top-1 z-[3] flex shrink-0 items-center gap-1 transition-opacity focus-within:opacity-100 ${
+          paneButtons === "always" ? "opacity-100" : "opacity-0 group-hover/studypane:opacity-100"
+        }`}
+      >
         {/*
           ── R3-12: only the direction that is possible ──────────────────────
 
@@ -877,7 +915,7 @@ export function IndicatorPane({
               : <path d="M2.5 5.5v-3h3M11.5 8.5v3h-3" />}
           </PaneButton>
         )}
-      </span>
+      </span>}
       {params && <span className="sr-only">{params}</span>}
     </section>
   );

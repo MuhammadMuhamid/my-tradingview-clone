@@ -76,8 +76,7 @@ import {
   type PaneLayoutState,
 } from "@/lib/indicatorPaneLayout";
 import {
-  CHART_TIME_ZONE, CHART_TIME_ZONE_NOTE, dayOfWeekFormatter, fmtChartBarTime, fmtChartClock,
-  hoursFormatter,
+  chartTimeZoneLabel, dayOfWeekFormatter, fmtChartBarTime, fmtChartClock, hoursFormatter,
 } from "@/lib/chartClock";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
@@ -116,6 +115,14 @@ interface LegendBar {
   chgPct: number;
   /** Present only for `renkoBrick`: what the brick itself is. */
   brick?: { direction: 1 | -1; size: number; sourceOpenTime: number };
+}
+
+function countdownText(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 }
 
 /**
@@ -1029,6 +1036,7 @@ export function CandleChart({
   const [paneLayout, setPaneLayout] = useState<PaneLayoutState>(EMPTY_PANE_LAYOUT);
   /** A live UTC clock beside the time axis; only mounted when it is shown. */
   const [clock, setClock] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [indicatorHoverTime, setIndicatorHoverTime] = useState<number | null>(null);
   /** FE-09: what the live feed is actually doing, so the UI can say so. */
   const [feedState, setFeedState] = useState<FeedState>(IDLE_FEED);
@@ -1384,10 +1392,12 @@ export function CandleChart({
        */
       rightPriceScale: {
         visible: placement === "right" || placement === "both",
+        alignLabels: settings.noOverlappingLabels,
         ...(settings.scaleLineColor ? { borderColor: settings.scaleLineColor } : {}),
       },
       leftPriceScale: {
         visible: placement === "left" || placement === "both",
+        alignLabels: settings.noOverlappingLabels,
         ...(settings.scaleLineColor ? { borderColor: settings.scaleLineColor } : {}),
       },
       // `both` shows the axis on both sides; which side the SERIES is bound to
@@ -1412,7 +1422,7 @@ export function CandleChart({
          * was inert on every chart that had ever had it on, which (the
          * default being ON) is every chart.
          */
-        tickMarkFormatter: dayOfWeekFormatter(settings.dayOfWeekOnLabels),
+        tickMarkFormatter: dayOfWeekFormatter(settings.dayOfWeekOnLabels, settings.timeZone),
       },
       localization: {
         /*
@@ -1450,7 +1460,7 @@ export function CandleChart({
          * row moved once, in one direction, and never again. `lib/chartClock`
          * owns the pair, because the visible axis is not always this chart's.
          */
-        timeFormatter: hoursFormatter(settings.timeFormat24h),
+        timeFormatter: hoursFormatter(settings.timeFormat24h, settings.timeZone),
         // TVP8: the reference offers five, and a reader who writes dates
         // day-first should not have to read an axis that writes them
         // month-first. `dateFormat` is a library option, so this is one line.
@@ -1465,7 +1475,8 @@ export function CandleChart({
     settings.crosshairColor, settings.crosshairWidth, settings.crosshairStyle,
     settings.watermark, settings.watermarkMode, settings.watermarkColor, replaying,
     settings.scaleTextColor, settings.scaleLineColor, settings.dayOfWeekOnLabels,
-    settings.dateFormat, symbol, chartReady,
+    settings.noOverlappingLabels,
+    settings.dateFormat, settings.timeZone, symbol, chartReady,
     /*
      * TVP8 round two: and on a theme change.
      *
@@ -2135,9 +2146,17 @@ export function CandleChart({
     // window loads these are still the previous window's bars, and every
     // decision below (refit, tick admission) is made about what is drawn.
     const datasetKey = datasetKeyOf({ symbol: heldSymbol, interval: heldInterval });
-    const nextColors = new Map(
-      (barColors ?? []).flatMap((point) => point.color === null ? [] : [[point.time, point.color] as const])
-    );
+    const nextColors = new Map<number, string>();
+    if (settings.colorBarsBasedOnPreviousClose && ["candles", "bars"].includes(renderKind(chartType))) {
+      candles.forEach((candle, index) => {
+        const previous = candles[index - 1];
+        nextColors.set(candle.openTime / 1000,
+          candle.close >= (previous?.close ?? candle.open) ? settings.upColor : settings.downColor);
+      });
+    }
+    for (const point of barColors ?? []) {
+      if (point.color !== null) nextColors.set(point.time, point.color);
+    }
     // A freshly created series holds nothing, so it must be filled from
     // scratch — but that is not a reason to refit the time scale, which is
     // what makes a presentation change viewport-preserving.
@@ -2316,7 +2335,8 @@ export function CandleChart({
     if (pending) applyTickRef.current?.(pending);
   }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady,
     marketTrades, priceTick, interval, settings.rangeTicks, transformSettings,
-    volumeBarColor]);
+    volumeBarColor, settings.colorBarsBasedOnPreviousClose, settings.upColor, settings.downColor,
+    chartType]);
 
 
   /**
@@ -2479,6 +2499,42 @@ export function CandleChart({
     return () => { for (const line of drawn) series.removePriceLine(line); };
   }, [bookQuote, settings.bidColor, settings.askColor, chartReady]);
 
+  /** Auxiliary levels backed by the loaded candles, never fabricated values. */
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || candles.length === 0) return;
+    const latest = candles[candles.length - 1]!;
+    const currentDay = Math.floor(latest.openTime / 86_400_000);
+    const previous = [...candles].reverse().find((bar) =>
+      Math.floor(bar.openTime / 86_400_000) < currentDay);
+    const levels: Array<{
+      price: number; color: string; title: string; mode: ChartSettings["previousDayClose"];
+    }> = [];
+    if (previous && settings.previousDayClose !== "hidden") {
+      levels.push({ price: previous.close, color: settings.previousDayCloseColor,
+        title: "Previous day close", mode: settings.previousDayClose });
+    }
+    if (settings.highLow !== "hidden") {
+      levels.push(
+        { price: Math.max(...candles.map((bar) => bar.high)), color: settings.highLowColor,
+          title: "High", mode: settings.highLow },
+        { price: Math.min(...candles.map((bar) => bar.low)), color: settings.highLowColor,
+          title: "Low", mode: settings.highLow },
+      );
+    }
+    const drawn = levels.map((level) => series.createPriceLine({
+      price: level.price,
+      color: level.color,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      lineVisible: level.mode === "line",
+      axisLabelVisible: true,
+      title: level.title,
+    }));
+    return () => { for (const line of drawn) series.removePriceLine(line); };
+  }, [candles, settings.previousDayClose, settings.previousDayCloseColor,
+    settings.highLow, settings.highLowColor, chartReady]);
+
   // Pick a price level by clicking the chart. Subscribed only while a handler
   // exists — see `onPriceSelect`.
   useEffect(() => {
@@ -2636,6 +2692,7 @@ export function CandleChart({
        * badges back on a crowded axis, and switching it OFF is absolute.
        */
       const lastValueVisible = settings.indicatorLastValue
+        && overlay.priceScaleLabelVisible !== false
         && !compact && overlay.instanceId !== "moving-averages";
       /*
        * The price scale carries values, never names.
@@ -2695,9 +2752,11 @@ export function CandleChart({
         pointMarkersVisible: overlay.style === "circles",
         lastValueVisible,
         title: axisTitle,
+        ...(priceFormat ? { priceFormat } : {}),
       });
       else if (entry.kind === "Histogram") entry.api.applyOptions({
         color: overlay.color, lastValueVisible, title: axisTitle,
+        ...(priceFormat ? { priceFormat } : {}),
       });
       /*
        * TVP8 round two: Width reaches the plots that HAVE a line.
@@ -2712,16 +2771,19 @@ export function CandleChart({
         lineColor: overlay.color,
         lineWidth: Math.max(1, Math.min(4, overlay.width ?? 2)) as 1 | 2 | 3 | 4,
         lastValueVisible, title: axisTitle,
+        ...(priceFormat ? { priceFormat } : {}),
       });
       else if (entry.kind === "Candlestick") entry.api.applyOptions({
         upColor: overlay.color, downColor: overlay.color,
         borderUpColor: overlay.color, borderDownColor: overlay.color,
         wickUpColor: overlay.color, wickDownColor: overlay.color,
         lastValueVisible, title: axisTitle,
+        ...(priceFormat ? { priceFormat } : {}),
       });
       else entry.api.applyOptions({
         upColor: overlay.color, downColor: overlay.color,
         lastValueVisible, title: axisTitle,
+        ...(priceFormat ? { priceFormat } : {}),
       });
       const points = overlay.data.filter((point) =>
         Number.isFinite(point.time) && point.time >= first && point.time <= lastTime);
@@ -3241,12 +3303,16 @@ export function CandleChart({
    * what the chart's own axis has always been — see `lib/chartClock`.
    */
   useEffect(() => {
-    if (!showBottomBar) { setClock(null); return; }
-    const tick = (): void => setClock(fmtChartClock(Date.now()));
+    if (!showBottomBar && !settings.countdownToBarClose) { setClock(null); return; }
+    const tick = (): void => {
+      const now = Date.now();
+      setNowMs(now);
+      setClock(showBottomBar ? fmtChartClock(now, settings.timeZone) : null);
+    };
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [showBottomBar]);
+  }, [showBottomBar, settings.countdownToBarClose, settings.timeZone]);
 
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
@@ -3324,7 +3390,7 @@ export function CandleChart({
           style={{ left: barPickX, bottom: axisFoot.bottom }}
         />
       )}
-      {axisAlert !== null && onAxisAlert && (
+      {settings.plusButton && axisAlert !== null && onAxisAlert && (
         <button
           type="button"
           aria-label={`Create price alert at ${fmtPrice(axisAlert.price)}`}
@@ -3341,6 +3407,20 @@ export function CandleChart({
             <path d="M7 4v6M4 7h6" />
           </svg>
         </button>
+      )}
+      {settings.countdownToBarClose && candles.length > 0 && !priceHidden && (
+        <span
+          data-bar-close-countdown
+          className={`pointer-events-none absolute z-20 min-w-[58px] rounded-sm bg-surface px-1 text-center text-[11px] leading-4 tabular text-ink-muted ${
+            axisSide === "left" ? "left-0" : "right-0"
+          }`}
+          style={{
+            top: Math.max(0, (seriesRef.current?.priceToCoordinate(candles[candles.length - 1]!.close) ?? 0) + 10),
+          }}
+          title="Time remaining until the current bar closes"
+        >
+          {countdownText(candles[candles.length - 1]!.closeTime - nowMs)}
+        </span>
       )}
       {/*
         Everything below is anchored to a canonical bar time, and under sparse
@@ -3556,8 +3636,8 @@ export function CandleChart({
                 </span>
                 <span className="hidden lg:inline">
                   from <span className="text-ink">
-                    {fmtChartBarTime(legend.brick.sourceOpenTime, resolutionMs(interval))}
-                  </span> {CHART_TIME_ZONE}
+                    {fmtChartBarTime(legend.brick.sourceOpenTime, resolutionMs(interval), settings.timeZone)}
+                  </span> {chartTimeZoneLabel(settings.timeZone)}
                 </span>
               </>
             ) : (
@@ -3962,6 +4042,7 @@ export function CandleChart({
                 */
                 dateFormat={settings.dateFormat}
                 timeFormat24h={settings.timeFormat24h}
+                timeZone={settings.timeZone}
                 backgroundColor={settings.backgroundColor}
                 backgroundColor2={settings.backgroundColor2}
                 backgroundGradient={settings.backgroundGradient}
@@ -3978,6 +4059,9 @@ export function CandleChart({
                 scaleTextColor={settings.scaleTextColor}
                 scaleLineColor={settings.scaleLineColor}
                 scaleFontSize={settings.scaleFontSize}
+                noOverlappingLabels={settings.noOverlappingLabels}
+                paneSeparatorColor={settings.paneSeparatorColor}
+                paneButtons={settings.paneButtons}
                 collapsed={collapsed}
                 onToggleCollapsed={togglePaneCollapse}
                 maximized={maximized}
@@ -4127,10 +4211,10 @@ export function CandleChart({
           {clock !== null && (
             <span
               className="ml-auto hidden pr-1 text-[13px] leading-[18px] tabular text-ink lg:inline"
-              title={CHART_TIME_ZONE_NOTE}
+              title={`Chart times are displayed in ${chartTimeZoneLabel(settings.timeZone)}; candle timestamps stay unchanged.`}
             >
-              {clock} {CHART_TIME_ZONE}
-              <span className="sr-only"> — {CHART_TIME_ZONE_NOTE}</span>
+              {clock} {chartTimeZoneLabel(settings.timeZone)}
+              <span className="sr-only"> — chart display timezone</span>
             </span>
           )}
         </div>

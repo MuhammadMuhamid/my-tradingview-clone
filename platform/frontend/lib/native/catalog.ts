@@ -122,6 +122,7 @@ export function searchStudies(
 // ── favourites and recents ──────────────────────────────────────────────────
 
 export const FAVOURITES_KEY = "tv.nativeFavourites.v1";
+export const FAVOURITES_CHANGED_EVENT = "trading-scene-native-favourites";
 export const RECENTS_KEY = "tv.nativeRecents.v1";
 /** How many recents are worth remembering. A shortcut, not a history. */
 export const MAX_RECENTS = 12;
@@ -155,6 +156,9 @@ export function toggleFavourite(id: string): string[] {
     ? current.filter((x) => x !== id)
     : [...current, id];
   writeIds(FAVOURITES_KEY, next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new window.CustomEvent(FAVOURITES_CHANGED_EVENT, { detail: next }));
+  }
   return next;
 }
 

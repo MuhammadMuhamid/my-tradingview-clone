@@ -24,6 +24,10 @@ export interface StoredNativeStudy {
   params: NativeParams;
   visible: boolean;
   styles: Record<string, PlotStyleOverride>;
+  precision?: number;
+  labelsOnPriceScale?: boolean;
+  valuesInStatusLine?: boolean;
+  inputsInStatusLine?: boolean;
   /** R6b-29: the study's own per-timeframe allow-list. Absent = everywhere. */
   visibleOn?: string[];
 }
@@ -84,6 +88,14 @@ export function loadStoredNative(scope: string = PRIMARY_SCOPE): StoredNativeStu
         params: normalizeParams(def, entry.params as NativeParams | undefined),
         visible: entry.visible !== false,
         styles: sanitizeStyles(def.plots.map((p) => p.id), entry.styles),
+        ...(typeof entry.precision === "number" && Number.isFinite(entry.precision)
+          ? { precision: Math.max(0, Math.min(8, Math.round(entry.precision))) } : {}),
+        ...(typeof entry.labelsOnPriceScale === "boolean"
+          ? { labelsOnPriceScale: entry.labelsOnPriceScale } : {}),
+        ...(typeof entry.valuesInStatusLine === "boolean"
+          ? { valuesInStatusLine: entry.valuesInStatusLine } : {}),
+        ...(typeof entry.inputsInStatusLine === "boolean"
+          ? { inputsInStatusLine: entry.inputsInStatusLine } : {}),
         ...(Array.isArray(entry.visibleOn) && entry.visibleOn.length > 0
           ? { visibleOn: entry.visibleOn.filter((r) => typeof r === "string") }
           : {}),
@@ -156,6 +168,10 @@ export function saveStoredNative(
   if (typeof window === "undefined") return;
   const slim: unknown[] = list.map((s) => ({
     key: s.key, defId: s.defId, params: s.params, visible: s.visible, styles: s.styles,
+    ...(s.precision === undefined ? {} : { precision: s.precision }),
+    ...(s.labelsOnPriceScale === undefined ? {} : { labelsOnPriceScale: s.labelsOnPriceScale }),
+    ...(s.valuesInStatusLine === undefined ? {} : { valuesInStatusLine: s.valuesInStatusLine }),
+    ...(s.inputsInStatusLine === undefined ? {} : { inputsInStatusLine: s.inputsInStatusLine }),
     ...(s.visibleOn && s.visibleOn.length > 0 ? { visibleOn: s.visibleOn } : {}),
   }));
   const preserved = unknownStoredNative(scope);
@@ -182,4 +198,3 @@ export function copyStoredNativeForScope(from: string, to: string): void {
     ));
   } catch { /* quota — the new pane starts with no built-in studies */ }
 }
-

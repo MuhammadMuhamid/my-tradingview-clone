@@ -112,6 +112,8 @@ export interface NativeStudiesApi {
   toggleVisible: (key: string) => void;
   setParam: (key: string, param: string, value: NativeInputValue) => void;
   setStyle: (key: string, plotId: string, style: PlotStyleOverride) => void;
+  setDisplay: (key: string, patch: Pick<AppliedNativeStudy,
+    "precision" | "labelsOnPriceScale" | "valuesInStatusLine" | "inputsInStatusLine">) => void;
   /** R6b-29: the per-timeframe allow-list the study's Visibility tab writes. */
   setVisibleOn: (key: string, visibleOn: Resolution[] | undefined) => void;
   resetParams: (key: string) => void;
@@ -510,12 +512,23 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
       : s)));
   }, []);
 
+  const setDisplay = useCallback((key: string, patch: Pick<AppliedNativeStudy,
+    "precision" | "labelsOnPriceScale" | "valuesInStatusLine" | "inputsInStatusLine">) => {
+    setList((current) => current.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+  }, []);
+
   const resetParams = useCallback((key: string) => {
     setList((current) => current.map((s) => {
       if (s.key !== key) return s;
       const def = studyById(s.defId);
       if (!def) return s;
-      return { ...s, params: normalizeParams(def, undefined), styles: {} };
+      return {
+        ...s, params: normalizeParams(def, undefined), styles: {},
+        precision: undefined,
+        labelsOnPriceScale: undefined,
+        valuesInStatusLine: undefined,
+        inputsInStatusLine: undefined,
+      };
     }));
   }, []);
 
@@ -546,11 +559,11 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
 
   return useMemo(() => ({
     list, rows, overlays, decorations,
-    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setVisibleOn,
+    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setDisplay, setVisibleOn,
     resetParams, move,
     sourceOptions, issues: graph.issues,
   }), [list, rows, overlays, decorations,
-    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setVisibleOn,
+    add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setDisplay, setVisibleOn,
     resetParams, move,
     sourceOptions, graph.issues]);
 }

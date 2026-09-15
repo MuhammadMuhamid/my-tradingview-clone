@@ -311,7 +311,24 @@ test("the parameter summary distinguishes two tunings of one study", () => {
   const a = describeParams(def, normalizeParams(def, { length: 14 }));
   const b = describeParams(def, normalizeParams(def, { length: 7 }));
   assert.notEqual(a, b);
-  assert.match(a, /Length 14/);
+  assert.equal(a, "14 close");
+});
+
+test("C-05/C-07 — MACD input grammar and per-study output settings reach overlays", () => {
+  const def = studyById("macd")!;
+  const applied = newNativeStudy(def, "macd-display");
+  applied.precision = 3;
+  applied.labelsOnPriceScale = false;
+  applied.valuesInStatusLine = false;
+  applied.inputsInStatusLine = false;
+  const out = runNativeStudy(def, applied, bars(200), "1m", 6);
+  assert.equal(out.overlays[0]?.instanceParams, "12 26 close 9");
+  for (const overlay of out.overlays) {
+    assert.equal(overlay.precision, 3);
+    assert.equal(overlay.priceScaleLabelVisible, false);
+    assert.equal(overlay.statusValueVisible, false);
+    assert.equal(overlay.statusInputVisible, false);
+  }
 });
 
 // ── windowing and memoisation ───────────────────────────────────────────────
@@ -846,6 +863,6 @@ test("THE LEGEND READS PLOTS, NOT THE CONSTANT LINES BEHIND THEM", () => {
   const legend = read("components/tv/IndicatorLegend.tsx")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   assert.match(legend,
-    /group\.plots\.filter\(\(plot\) => plot\.constantValue === undefined\)\.map\(/,
+    /plot\.constantValue === undefined && plot\.statusValueVisible !== false\)\.map\(/,
     "the legend must drop constant levels from its value row");
 });

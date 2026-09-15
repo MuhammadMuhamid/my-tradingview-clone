@@ -31,10 +31,9 @@
  * The reference's dialog is: search, a library rail with two headings, a tab
  * row, and a one-line list you click. So:
  *
- *   - Favourites are the row's star, and a FAVORITES group when one exists.
- *   - Recents are a RECENTS group when one exists. Neither is a rail entry,
- *     and neither carries a count — a count beside a filter is the filter
- *     answering a question nobody asked.
+ *   - Favourites are the row's star and a persisted FAVORITES rail view.
+ *   - Recents are a RECENTS group when one exists. Neither carries a count —
+ *     a count beside a filter is the filter answering a question nobody asked.
  *   - "On this chart" is not in the browser at all. The pane legends and
  *     `IndicatorsPanel` already show what is applied; here it survives only as
  *     the last line of a row's `?` tooltip.
@@ -70,8 +69,8 @@ import {
 } from "@/lib/native/catalog";
 import type { NativeStudyDef } from "@/lib/native/registry";
 
-/** Which library the rail is pointing at. The reference's two, and no more. */
-type Library = "technicals" | "scripts";
+/** Which persisted view/library the rail is pointing at. */
+type Library = "favorites" | "technicals" | "scripts";
 
 /** Which tab of that library the pill row is showing. */
 type Kind = "indicator" | "strategy";
@@ -462,6 +461,13 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
           className="hidden w-[200px] shrink-0 flex-col overflow-hidden sm:flex">
           <LibrarySection title="Personal" first />
           <LibraryNavButton
+            active={!searching && library === "favorites"}
+            onClick={() => { setLibrary("favorites"); setKind("indicator"); }}
+            label="Favorites"
+          >
+            <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z" />
+          </LibraryNavButton>
+          <LibraryNavButton
             active={!searching && library === "scripts"}
             onClick={() => { setLibrary("scripts"); setKind("indicator"); }}
             label="My scripts"
@@ -555,19 +561,16 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
                   </p>
                 )}
               </>
+            ) : library === "favorites" ? (
+              <>
+                <GroupHeader>Script name</GroupHeader>
+                {favouriteList.map(nativeRow)}
+                {favouriteList.length === 0 && (
+                  <p className="py-6 text-center text-sm text-ink-faint">No favorites yet.</p>
+                )}
+              </>
             ) : library === "technicals" ? (
               <>
-                {/*
-                  Favourites and recents are GROUPS of this list, the way the
-                  reference has them — present when they hold something, gone
-                  when they do not, and never a rail entry with a `0` beside it.
-                */}
-                {favouriteList.length > 0 && (
-                  <>
-                    <GroupHeader>Favorites</GroupHeader>
-                    {favouriteList.map(nativeRow)}
-                  </>
-                )}
                 {recentList.length > 0 && (
                   <>
                     <GroupHeader>Recents</GroupHeader>
@@ -864,8 +867,8 @@ function BrowserRow({
             title={starred ? "Remove from favourites" : "Add to favourites"}
             className={`flex h-6 w-6 items-center justify-center rounded transition-opacity ${
               starred
-                ? "text-warn opacity-100"
-                : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100"
+                ? "text-ink opacity-100"
+                : "text-ink-faint opacity-100 hover:text-ink"
             }`}
           >
             {/* R3b-05: 16px, for 14px of ink — the reference's row star. */}

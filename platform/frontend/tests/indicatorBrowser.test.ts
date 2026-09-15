@@ -95,16 +95,16 @@ test("Technicals is the native registry, not a stub", () => {
  * is the two kinds the Pine compiler genuinely reports, and the filters became
  * what they are in the reference: groups of the list, and a toolbar control.
  */
-test("the rail is libraries, the tabs are kinds, and neither is a filter console", () => {
+test("the rail has Favorites first, then the two real libraries; tabs are kinds", () => {
   const source = readCode(BROWSER);
 
-  // The rail: exactly two entries, both real libraries.
+  // The rail: Favorites first under PERSONAL, then the two real libraries.
+  assert.match(source, /label="Favorites"/);
   assert.match(source, /label="My scripts"/);
   assert.match(source, /label="Technicals"/);
-  assert.equal((source.match(/<LibraryNavButton/g) ?? []).length, 2,
-    "a third rail entry is a filter wearing a library's clothes");
+  assert.equal((source.match(/<LibraryNavButton/g) ?? []).length, 3);
   for (const gone of [
-    /label="On this chart"/, /label="Favourites"/, /label="Recents"/,
+    /label="On this chart"/, /label="Recents"/,
     /label="Indicator templates"/,
   ]) {
     assert.doesNotMatch(source, gone, `${gone} is a filter, not a library`);
@@ -117,10 +117,10 @@ test("the rail is libraries, the tabs are kinds, and neither is a filter console
     "a Profiles or Patterns tab would be a tab onto nothing");
   assert.match(source, /s\.kind === kind/, "the tab filters by the compiler's own kind");
 
-  // Favourites and recents survive as GROUPS of the list, from the same store.
+  // Favorites has a dedicated view; recents remains a list group.
   assert.match(source, /loadFavourites\(\)/);
   assert.match(source, /loadRecents\(\)/);
-  assert.match(source, /<GroupHeader>Favorites<\/GroupHeader>/);
+  assert.match(source, /library === "favorites"/);
   assert.match(source, /<GroupHeader>Recents<\/GroupHeader>/);
   assert.match(source, /<GroupHeader>Script name<\/GroupHeader>/);
 });

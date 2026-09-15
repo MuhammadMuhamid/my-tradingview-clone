@@ -182,13 +182,13 @@ test("R6 SC-2 — the Scale mode buttons row decides when the axis strip is draw
     ["auto", "log", "%"],
     "the strip holds the axis's own controls, whatever its visibility");
 
-  await openSettings(chart, "Scales and lines");
-  await chooseInDropdown("Scale mode buttons", "Always visible");
+  await openSettings(chart, "Canvas");
+  await chooseInDropdown("Navigation buttons", "Always visible");
   assert.equal(strip()?.getAttribute("data-axis-buttons"), "always");
   assert.doesNotMatch(strip()!.className, /opacity-0/,
     "Always visible must actually leave them lit, not merely record a preference");
 
-  await chooseInDropdown("Scale mode buttons", "Hidden");
+  await chooseInDropdown("Navigation buttons", "Always hidden");
   assert.equal(strip(), null, "Hidden takes the four controls off the chart");
 
   /*
@@ -197,6 +197,51 @@ test("R6 SC-2 — the Scale mode buttons row decides when the axis strip is draw
    */
   assert.ok(chart.pane(0).querySelector('[role="group"][aria-label^="Price scale"]'),
     "the price-scale group, and with it the mode badge, stays");
+});
+
+test("C-03/C-04 — timezone, countdown, and the required scales rows operate on the chart", async () => {
+  const chart = await mountChart();
+  await openSettings(chart, "Symbol");
+  assert.ok(screen.getByRole("checkbox", { name: "Color bars based on previous close" }));
+  await chooseInDropdown("Timezone", "(UTC+5) Karachi");
+  assert.match(chart.container.textContent ?? "", /Karachi/,
+    "the bottom-right chart clock must relabel when the display zone changes");
+
+  fireEvent.click(screen.getByRole("tab", { name: "Scales and lines" }));
+  await settle();
+  for (const label of ["No overlapping labels", "Plus button", "Countdown to bar close"]) {
+    assert.ok(screen.getByRole("checkbox", { name: label }));
+  }
+  assert.ok(screen.getByRole("button", { name: "Previous day close" }));
+  assert.ok(screen.getByRole("button", { name: "High and low" }));
+  assert.match(chart.container.querySelector<HTMLElement>("[data-bar-close-countdown]")?.textContent ?? "",
+    /^\d{2}:\d{2}:\d{2}$/);
+  await toggle("Countdown to bar close");
+  assert.equal(chart.container.querySelector("[data-bar-close-countdown]"), null);
+});
+
+test("C-04/C-06 — Canvas has effective colour wells, styled lines, and both button modes", async () => {
+  const chart = await mountChart();
+  const dialog = await openSettings(chart, "Canvas");
+  assert.ok(screen.getByRole("button", { name: "Pane separator colour" }));
+  assert.ok(screen.getByRole("button", { name: "Navigation buttons" }));
+  assert.ok(screen.getByRole("button", { name: "Pane buttons" }));
+
+  const background = screen.getByRole("button", { name: "Background colour" });
+  const paint = background.querySelector<HTMLElement>("span");
+  assert.ok(paint?.style.backgroundColor,
+    "a theme-backed colour well must paint its effective colour, not a slash");
+  assert.equal(background.querySelector("svg"), null);
+
+  const vertical = screen.getByRole("button", { name: "Vertical grid line appearance" });
+  fireEvent.click(vertical);
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Dotted" }));
+  await settle();
+  const preview = vertical.querySelector("path");
+  assert.equal(preview?.getAttribute("d"), "M0 6h40");
+  assert.ok(preview?.getAttribute("stroke-dasharray"), "the configured dotted state reaches the preview");
+  assert.ok(within(dialog).getByText("Buttons"));
 });
 
 test("R6 SL-1 — Titles, Inputs and Values each hide their own part of the study legend", async () => {
@@ -316,17 +361,17 @@ test("R6b-H — Inputs off reaches a study in its OWN pane, not only the price o
     return legend?.textContent ?? "";
   };
   assert.match(paneLegend(), /Relative Strength Index/);
-  assert.match(paneLegend(), /Length 14/,
+  assert.match(paneLegend(), /14 close/,
     "the study pane's legend opens with its inputs, as the price pane's does");
 
   await openSettings(chart, "Status line");
   await toggle("Inputs");
-  assert.doesNotMatch(paneLegend(), /Length 14/,
+  assert.doesNotMatch(paneLegend(), /14 close/,
     "Inputs off must reach the pane legend too — that is the whole finding");
   assert.match(paneLegend(), /Relative Strength Index/, "and must leave the title alone");
 
   await toggle("Inputs");
-  assert.match(paneLegend(), /Length 14/, "and back, because a one-way switch is half a switch");
+  assert.match(paneLegend(), /14 close/, "and back, because a one-way switch is half a switch");
 
   // Leave the chart as it was found: the workspace is server-synced.
   const remove = studyPane()

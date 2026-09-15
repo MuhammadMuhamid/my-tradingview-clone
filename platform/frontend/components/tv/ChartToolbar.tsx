@@ -65,10 +65,10 @@
  * pairwise sweep at 320 / 360 / 390 / 430: no two interactive boxes on this
  * bar intersect.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { type Resolution } from "@/lib/resolution";
-import { Separator } from "@/components/ui";
+import { CaretGlyph, Separator } from "@/components/ui";
 import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
 import { IndicatorTemplatesMenu, type TemplateStudies } from "@/components/tv/IndicatorTemplatesMenu";
 import type { IndicatorTemplate, TemplateApplication } from "@/lib/indicatorTemplates";
@@ -92,6 +92,9 @@ import { displaySymbol, displayTicker } from "@/lib/instrument";
 import type {
   TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse,
 } from "@/lib/tradingOverlays";
+import {
+  FAVOURITES_CHANGED_EVENT, loadFavourites, studyById,
+} from "@/lib/native/catalog";
 
 export { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
 export { toolbarDensityClasses } from "@/components/tv/toolbarDensity";
@@ -190,6 +193,8 @@ export interface ChartToolbarProps {
 
   indicatorCount: number;
   onOpenIndicators: () => void;
+  /** Insert one persisted favourite into the focused pane. */
+  onAddFavoriteIndicator: (id: string) => void;
   /** The focused pane's studies — what `Save indicator template…` captures. */
   indicatorTemplateStudies: TemplateStudies;
   /** Apply a template to the focused pane, and report what landed. */
@@ -525,6 +530,71 @@ function WideLabel({ children }: { children: React.ReactNode }) {
 /** An icon cell that grows a word at `2xl`. See `WideLabel`. */
 const TOOL_LABELLED_BUTTON = `${TOOL_ICON_BUTTON} 2xl:w-auto`;
 
+/** The split-button half beside Indicators: persisted built-in favourites. */
+function FavoriteIndicatorsMenu({ onAdd }: { onAdd: (id: string) => void }) {
+  const [open, setOpen] = useExclusivePopover("toolbar-favorite-indicators");
+  const [ids, setIds] = useState<string[]>([]);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const refresh = () => setIds(loadFavourites());
+
+  useEffect(() => {
+    refresh();
+    const changed = () => refresh();
+    window.addEventListener(FAVOURITES_CHANGED_EVENT, changed);
+    return () => window.removeEventListener(FAVOURITES_CHANGED_EVENT, changed);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    refresh();
+    const down = (event: MouseEvent) => {
+      if (!boxRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", down);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("mousedown", down);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [open, setOpen]);
+
+  const favourites = ids.flatMap((id) => {
+    const def = studyById(id);
+    return def ? [def] : [];
+  });
+  return (
+    <div ref={boxRef} className="relative flex h-[38px] w-6 shrink-0 items-center">
+      <button type="button" aria-label="Favorite indicators" aria-haspopup="menu"
+        aria-expanded={open} title="Favorite indicators"
+        onClick={() => setOpen(!open)}
+        className="tvc-control flex h-[38px] w-6 items-center justify-center text-ink">
+        <CaretGlyph size={8} />
+      </button>
+      {open && (
+        <div role="menu" aria-label="Favorite indicators"
+          className="tvc-menu absolute left-0 top-full z-50 mt-1 min-w-[220px]">
+          {favourites.length === 0 ? (
+            <button type="button" role="menuitem" disabled
+              className="tvc-menu-row px-3 text-left text-sm text-ink-faint disabled:cursor-default">
+              No favourites yet
+            </button>
+          ) : favourites.map((def) => (
+            <button key={def.id} type="button" role="menuitem"
+              className="tvc-menu-row px-3 text-left text-sm text-ink"
+              onClick={() => { onAdd(def.id); setOpen(false); }}>
+              {def.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Studies, Alert and Replay — chart context, but the three pieces of it a
  * 320px phone has no room for. Same one-component-two-placements shape as
@@ -557,6 +627,8 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
         </Glyph>
         <WideLabel>Indicators</WideLabel>
       </button>
+
+      <FavoriteIndicatorsMenu onAdd={props.onAddFavoriteIndicator} />
 
       {/* The reference's 2×2-grid Indicator templates button, beside Indicators. */}
       <IndicatorTemplatesMenu studies={props.indicatorTemplateStudies} onApply={props.onApplyIndicatorTemplate} />

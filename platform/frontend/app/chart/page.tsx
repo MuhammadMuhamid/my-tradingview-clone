@@ -2310,6 +2310,7 @@ export default function TvWorkspace() {
           onBars={changeBars}
           indicatorCount={activeIndicatorList.length}
           onOpenIndicators={() => setIndicatorBrowserOpen(true)}
+          onAddFavoriteIndicator={(id) => { activeNativeStudies?.add(id); }}
           indicatorTemplateStudies={{ indicators: activeIndicatorList, native: activeNativeStudies?.list ?? [] }}
           onApplyIndicatorTemplate={(t) => applyTemplateTo(t, activeIndicators, activeNativeStudies)}
           canUndo={replayActive
@@ -2630,6 +2631,7 @@ export default function TvWorkspace() {
         onClose={() => setEditingNativeKey(null)}
         onParam={(key, param, value) => activeNativeStudies?.setParam(key, param, value)}
         onStyle={(key, plotId, style) => activeNativeStudies?.setStyle(key, plotId, style)}
+        onDisplay={(key, patch) => activeNativeStudies?.setDisplay(key, patch)}
         onReset={(key) => activeNativeStudies?.resetParams(key)}
         /* R6b-29: the study dialog's Visibility tab, backed by the pane. */
         onVisibleOn={(key, visibleOn) => activeNativeStudies?.setVisibleOn(key, visibleOn)}

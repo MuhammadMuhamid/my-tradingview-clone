@@ -35,16 +35,6 @@
  * out-of-range value must never reach a study's arithmetic, whatever the UI
  * did.
  *
- * ── Honest omissions ───────────────────────────────────────────────────────
- *
- * The reference's Style tab ends with `OUTPUT VALUES` (`Precision`, `Labels on
- * price scale`, `Values in status line`) and `INPUT VALUES` (`Inputs in status
- * line`). Those are four settings the applied-study model does not carry and
- * the pane legend does not read per study — the product has ONE answer for
- * each, on the chart-settings dialog's Scales and Status-line tabs, and it
- * reaches every study. Four per-study switches whose value nothing reads would
- * be four controls that move nothing; they are absent rather than drawn.
- *
  * Visibility has no `Ticks`, `Ranges`, `Weeks` or `Months` row for the same
  * reason the drawing dialog has none: `lib/resolution` publishes `1s … 1d` and
  * refuses the calendar objects, so there is no such resolution to be visible on.
@@ -99,6 +89,8 @@ export interface NativeStudySettingsProps {
   onClose: () => void;
   onParam: (key: string, param: string, value: NativeInputValue) => void;
   onStyle: (key: string, plotId: string, style: PlotStyleOverride) => void;
+  onDisplay: (key: string, patch: Pick<AppliedNativeStudy,
+    "precision" | "labelsOnPriceScale" | "valuesInStatusLine" | "inputsInStatusLine">) => void;
   onReset: (key: string) => void;
   /**
    * R6b-29: the study's own timeframe allow-list.
@@ -166,6 +158,12 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
         });
       }
       props.onVisibleOn?.(was.key, was.visibleOn);
+      props.onDisplay(was.key, {
+        precision: was.precision,
+        labelsOnPriceScale: was.labelsOnPriceScale,
+        valuesInStatusLine: was.valuesInStatusLine,
+        inputsInStatusLine: was.inputsInStatusLine,
+      });
     }
     onClose();
     // `props` is read through the ref-stable callbacks the pane hands us.
@@ -187,7 +185,11 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
   const sources = offered && offered.length > 0 ? offered : undefined;
 
   const isDefault = JSON.stringify(params) === JSON.stringify(defaultParams(def))
-    && Object.keys(study.styles).length === 0;
+    && Object.keys(study.styles).length === 0
+    && study.precision === undefined
+    && study.labelsOnPriceScale === undefined
+    && study.valuesInStatusLine === undefined
+    && study.inputsInStatusLine === undefined;
 
   const tabs = props.onVisibleOn ? TABS : TABS.filter((t) => t.id !== "visibility");
   const ranges = visibilityRanges(study.visibleOn);
@@ -264,15 +266,52 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
           </>
         )}
 
-        {tab === "style" && def.plots.map((plot) => (
-          <StyleRow
-            key={plot.id}
-            plot={plot}
-            override={study.styles[plot.id] ?? {}}
-            value={props.values?.[plot.id] ?? null}
-            onChange={(style) => props.onStyle(study.key, plot.id, style)}
-          />
-        ))}
+        {tab === "style" && (
+          <>
+            {def.plots.map((plot) => (
+              <StyleRow
+                key={plot.id}
+                plot={plot}
+                override={study.styles[plot.id] ?? {}}
+                value={props.values?.[plot.id] ?? null}
+                onChange={(style) => props.onStyle(study.key, plot.id, style)}
+              />
+            ))}
+            <Section>Output values</Section>
+            <Row label="Precision">
+              <Dropdown
+                value={study.precision === undefined ? "default" : String(study.precision)}
+                label="Precision"
+                width={100}
+                onChange={(value) => props.onDisplay(study.key, {
+                  precision: value === "default" ? undefined : Number(value),
+                })}
+                options={[
+                  { value: "default", label: "Default" },
+                  ...Array.from({ length: 9 }, (_, precision) => ({
+                    value: String(precision), label: String(precision),
+                  })),
+                ]}
+              />
+            </Row>
+            <CheckRow
+              label="Labels on price scale"
+              checked={study.labelsOnPriceScale !== false}
+              onChange={(value) => props.onDisplay(study.key, { labelsOnPriceScale: value })}
+            />
+            <CheckRow
+              label="Values in status line"
+              checked={study.valuesInStatusLine !== false}
+              onChange={(value) => props.onDisplay(study.key, { valuesInStatusLine: value })}
+            />
+            <Section>Input values</Section>
+            <CheckRow
+              label="Inputs in status line"
+              checked={study.inputsInStatusLine !== false}
+              onChange={(value) => props.onDisplay(study.key, { inputsInStatusLine: value })}
+            />
+          </>
+        )}
 
         {tab === "visibility" && VISIBILITY_UNITS.map(({ unit, label, max }) => {
           const row = ranges[unit];
@@ -310,6 +349,15 @@ function Note({ children }: { children: ReactNode }) {
     <div style={{ gridColumn: "1 / -1" }} className="py-3 text-xs leading-[18px] text-ink-faint">
       {children}
     </div>
+  );
+}
+
+function Section({ children }: { children: ReactNode }) {
+  return (
+    <h3 style={{ gridColumn: "1 / -1" }}
+      className="pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+      {children}
+    </h3>
   );
 }
 

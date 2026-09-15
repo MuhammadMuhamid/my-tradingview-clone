@@ -251,7 +251,7 @@ export function IndicatorLegend({
                   style={plate ? { backgroundColor: plate } : undefined}
                 >
                   {showTitles && <span className="shrink-[3] truncate text-ink">{group.title}</span>}
-                  {showTitles && showInputs && group.params
+                  {showTitles && showInputs && group.plots[0]?.statusInputVisible !== false && group.params
                     && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
                 </span>
                 {/*
@@ -345,7 +345,8 @@ export function IndicatorLegend({
                 other numbers reads as a value of zero-ish, and the reference
                 uses the empty-set glyph precisely because it cannot.
               */}
-              {showValues && group.plots.filter((plot) => plot.constantValue === undefined).map((plot) => {
+              {showValues && group.plots.filter((plot) =>
+                plot.constantValue === undefined && plot.statusValueVisible !== false).map((plot) => {
                 const value = plotValueAt(plot.data, time);
                 /*
                   ── R3b-22: an ABSENT reading wears no plot colour ─────────
