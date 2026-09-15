@@ -240,6 +240,28 @@ and the app serves `/login` long after the database has gone. When something
 looks wrong, check `aws rds describe-db-instances` first — the production
 database once sat stopped for four days while the site kept answering.
 
+**A deploy rolls the containers straight after snapshotting RDS** (added
+2026-09-15). The backend therefore starts against a database that may be
+briefly unresponsive. It used to crash on that — `Connection terminated due to
+connection timeout` inside `migrate()` — and rely on Docker's restart policy,
+so each restart re-ran the same five-second gamble and a database slow for one
+minute produced a deploy down for twenty.
+
+`waitForDatabase()` now runs before the boot migration: fifteen attempts, 500 ms
+doubling to a 10 s cap, about 105 s in total. It waits ONLY on connection
+failures — anything carrying a SQLSTATE is rethrown immediately, so a genuinely
+bad migration still crashes at once rather than two minutes later.
+
+**Reading the difference between 502 and 503 matters here:**
+
+| symptom | meaning |
+|---|---|
+| `502`, empty body | Caddy cannot reach the backend — the process is down or restarting |
+| `503` with `"database":"unavailable"` | the backend is UP and answering; its database check failed |
+| `200` with `applied > expected` | benign: two superseded migration filenames stay recorded |
+
+A `503` is not a crash, and chasing it as one wastes the first ten minutes.
+
 ---
 
 ## 5. Platform backup and recovery

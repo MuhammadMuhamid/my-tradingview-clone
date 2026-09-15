@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { migrate } from "./db/migrate";
+import { waitForDatabase } from "./db/dbReady";
 import { closePool } from "./db/pool";
 import { buildServer } from "./api/server";
 import { startBacktestWorker } from "./engine/worker";
@@ -10,6 +11,32 @@ import { encryptLegacySecrets } from "./repositories/deployments";
 import { seedIndicatorLibrary } from "./pine/librarySeed";
 
 async function main(): Promise<void> {
+  /*
+   * Wait for the database before migrating.
+   *
+   * A deploy snapshots RDS and then rolls the containers, so the backend can
+   * start against a database that is briefly unresponsive. The runtime pool's
+   * 5 s connection timeout is deliberate — workers must fail fast rather than
+   * block on a dead connection — but applying it to the boot migration turned
+   * a database that was slow for a minute into a deploy that was down for
+   * twenty, each restart re-running the same five-second gamble.
+   *
+   * Only CONNECTION failures are waited on; anything carrying a SQLSTATE is
+   * rethrown at once, so a genuinely bad migration still crashes immediately
+   * and legibly instead of two minutes later.
+   *
+   * Logged to the console rather than `app.log`, because the server does not
+   * exist yet — and silence during a two-minute wait is indistinguishable from
+   * a hang.
+   */
+  await waitForDatabase({
+    onRetry: ({ attempt, attempts, delayMs, error }) => {
+      console.warn(
+        `database not ready (attempt ${attempt}/${attempts}): ${error.message}; ` +
+        `retrying in ${delayMs}ms`
+      );
+    },
+  });
   const applied = await migrate();
   const encrypted = await encryptLegacySecrets();
   // The LiveRunner needs a logger; routes need the runner. Break the cycle with
