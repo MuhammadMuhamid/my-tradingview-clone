@@ -396,7 +396,7 @@ test("a missing or malformed id is refused before the repository is asked to wri
 test("an edit that collides with an existing alert is a conflict, not a merge", async () => {
   const { status, body } = await patch({ rsiLevel: 40 }, ROWS.rsi, { conflict: true });
   assert.equal(status, 409);
-  assert.match(String(body.error), /already watches exactly this condition/);
+  assert.match(String(body.error), /already watches this condition with the same filters/);
 });
 
 test("every family exposes at least one editable field", () => {

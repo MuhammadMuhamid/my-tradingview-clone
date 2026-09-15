@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { MaAlert } from "../lib/api";
 import {
   ALERT_TYPE_FILTERS, buildBulkRequest, bulkCompletionMessage, deleteConfirmation, filterAlerts,
+  timeframeFilterOptions,
   type AlertFilters, type AlertTypeFilter,
 } from "../lib/alertManagement";
 
@@ -31,7 +32,7 @@ const base: MaAlert = {
   lastBarTime: null, completedAt: null, createdAt: "", updatedAt: "",
 };
 const alert = (id: string, over: Partial<MaAlert>): MaAlert => ({ ...base, id, ...over });
-const all: AlertFilters = { search: "", status: "all", type: "all" };
+const all: AlertFilters = { search: "", status: "all", type: "all", timeframe: "all" };
 
 const fixtures = [
   alert("price", { conditionKind: "price" }),
@@ -101,7 +102,7 @@ test("search, status, and type filters compose", () => {
     alert("btc-paused-macd", { conditionKind: "macd", enabled: false }),
   ];
   assert.deepEqual(filterAlerts(rows, {
-    search: "btc", status: "inactive", type: "rsi",
+    search: "btc", status: "inactive", type: "rsi", timeframe: "all",
   }).map((item) => item.id), ["btc-paused-rsi"]);
 });
 
@@ -127,9 +128,63 @@ test("a partial or mismatched bulk result is surfaced instead of reported as suc
 });
 
 test("delete confirmation names exact filtered count and empty scope cannot confirm", () => {
-  assert.equal(deleteConfirmation({ search: "btc", status: "inactive", type: "rsi" }, 12),
+  assert.equal(deleteConfirmation({ search: "btc", status: "inactive", type: "rsi", timeframe: "all" }, 12),
     "Delete 12 paused / inactive RSI alerts matching “btc”?\n\n" +
     "Only the current filtered result will be deleted. This cannot be undone."
   );
   assert.equal(deleteConfirmation(all, 0), null);
+});
+
+// ── filtering by the alert's own timeframe ─────────────────────────────────
+
+test("the timeframe filter composes with search, status and type", () => {
+  const rows = [
+    alert("btc-15m-sr", { timeframe: "15m", conditionKind: "sr_zone" }),
+    alert("btc-1h-sr", { timeframe: "1h", conditionKind: "sr_zone" }),
+    alert("btc-15m-rsi", { timeframe: "15m", conditionKind: "rsi", rsiLength: 14 }),
+    alert("eth-15m-sr", { symbol: "ETHUSDT", timeframe: "15m", conditionKind: "sr_zone" }),
+  ];
+  const ids = (f: Partial<AlertFilters>) =>
+    filterAlerts(rows, { ...all, ...f }).map((r) => r.id);
+
+  assert.deepEqual(ids({ timeframe: "15m" }), ["btc-15m-sr", "btc-15m-rsi", "eth-15m-sr"]);
+  assert.deepEqual(ids({ timeframe: "15m", type: "sr_zone" }), ["btc-15m-sr", "eth-15m-sr"]);
+  assert.deepEqual(
+    ids({ timeframe: "15m", type: "sr_zone", search: "btc" }), ["btc-15m-sr"],
+    "every filter is ANDed — narrowing one never widens the result"
+  );
+  assert.deepEqual(ids({ timeframe: "all" }), rows.map((r) => r.id), "'all' filters nothing");
+});
+
+test("only timeframes some alert is actually on are offered, in interval order", () => {
+  const rows = [
+    alert("a", { timeframe: "1h" }),
+    alert("b", { timeframe: "5m" }),
+    alert("c", { timeframe: "30m" }),
+    alert("d", { timeframe: "5m" }),
+  ];
+  assert.deepEqual(
+    timeframeFilterOptions(rows), ["5m", "30m", "1h"],
+    "deduplicated, and sorted by interval — not alphabetically, which would "
+    + "put 30m before 5m"
+  );
+  assert.deepEqual(timeframeFilterOptions([]), []);
+});
+
+test("the delete confirmation names the timeframe it is scoped to", () => {
+  /*
+   * The scope sentence IS the delete prompt. Leaving the timeframe out would
+   * describe a wider set than the one about to be deleted, so the user would
+   * be approving a different action than the one they read.
+   */
+  assert.equal(
+    deleteConfirmation({ search: "", status: "all", type: "sr_zone", timeframe: "15m" }, 12),
+    "Delete 12 S/R alerts on 15m?\n\n" +
+    "Only the current filtered result will be deleted. This cannot be undone."
+  );
+  assert.equal(
+    deleteConfirmation({ search: "btc", status: "active", type: "all", timeframe: "4h" }, 3),
+    "Delete 3 active alerts on 4h matching “btc”?\n\n" +
+    "Only the current filtered result will be deleted. This cannot be undone."
+  );
 });

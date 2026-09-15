@@ -202,39 +202,52 @@ export interface MaAlertInput {
   adxLevel?: number | null;
 }
 
-/** The unique index that governs "the same alert" for each condition kind. */
-const CONFLICT_TARGET: Record<ConditionKind, string> = {
-  ma: "(symbol, timeframe, ma_type, ma_length, mode) WHERE condition_kind = 'ma'",
-  price: "(symbol, timeframe, target_price, price_direction) WHERE condition_kind = 'price'",
+/**
+ * The unique index that governs "the same alert" for each condition kind.
+ *
+ * These MUST match migration 036's indexes column for column. Postgres infers
+ * the arbiter index from the column list, so a target that names a set no
+ * index covers does not fall back to anything — it raises "there is no unique
+ * or exclusion constraint matching the ON CONFLICT specification" on every
+ * insert. Changing an index here without changing this list takes the create
+ * route down completely, which is exactly what happened when 036 was written
+ * and this was not.
+ *
+ * `filters` is the last column of each, because two alerts with the same
+ * condition and different gates are two different questions — see 036.
+ */
+export const CONFLICT_TARGET: Record<ConditionKind, string> = {
+  ma: "(symbol, timeframe, ma_type, ma_length, mode, filters) WHERE condition_kind = 'ma'",
+  price:
+    "(symbol, timeframe, target_price, price_direction, filters)" +
+    " WHERE condition_kind = 'price'",
   ma_vs_ma:
-    "(symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode)" +
+    "(symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode, filters)" +
     " WHERE condition_kind = 'ma_vs_ma'",
-  sr_zone: "(symbol, timeframe, sr_side, mode) WHERE condition_kind = 'sr_zone'",
+  sr_zone:
+    "(symbol, timeframe, sr_side, mode, filters) WHERE condition_kind = 'sr_zone'",
   pivot_level:
-    "(symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode)" +
+    "(symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode, filters)" +
     " WHERE condition_kind = 'pivot_level'",
   rsi:
-    "(symbol, timeframe, rsi_length, indicator_target, rsi_level, rsi_ma_length, mode)" +
-    " WHERE condition_kind = 'rsi'",
+    "(symbol, timeframe, rsi_length, indicator_target, rsi_level, rsi_ma_length," +
+    " mode, filters) WHERE condition_kind = 'rsi'",
   macd:
-    "(symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target, mode)" +
-    " WHERE condition_kind = 'macd'",
-  // The two inputs are part of the key: Supertrend 10/3 and 14/2 flip on
-  // different bars, so they are different alerts rather than one being an edit
-  // of the other.
+    "(symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target," +
+    " mode, filters) WHERE condition_kind = 'macd'",
   supertrend:
-    "(symbol, timeframe, st_period, st_multiplier, st_atr_method, mode)" +
+    "(symbol, timeframe, st_period, st_multiplier, st_atr_method, mode, filters)" +
     " WHERE condition_kind = 'supertrend'",
   // Every band input is part of the key: an upper-band touch and a lower-band
   // touch are two alerts, and a 20/2 band and a 20/3 band are two lines.
   bollinger:
-    "(symbol, timeframe, bb_length, bb_mult, bb_band, bb_ma_type, mode)" +
+    "(symbol, timeframe, bb_length, bb_mult, bb_band, bb_ma_type, mode, filters)" +
     " WHERE condition_kind = 'bollinger'",
   stochastic:
     "(symbol, timeframe, stoch_k_length, stoch_k_smooth, stoch_d_smooth," +
-    " indicator_target, stoch_level, mode) WHERE condition_kind = 'stochastic'",
+    " indicator_target, stoch_level, mode, filters) WHERE condition_kind = 'stochastic'",
   adx:
-    "(symbol, timeframe, adx_di_length, adx_smoothing, adx_level, mode)" +
+    "(symbol, timeframe, adx_di_length, adx_smoothing, adx_level, mode, filters)" +
     " WHERE condition_kind = 'adx'",
 };
 
@@ -380,6 +393,25 @@ export async function getAlert(id: string): Promise<MaAlertRow | null> {
 }
 
 /**
+ * The rows for a set of ids, in whatever order the database returns them.
+ *
+ * One query rather than N `getAlert` calls: a bulk edit validates EVERY
+ * selected row before writing any of them, and doing that a row at a time
+ * would make the dry run cost as much as the write.
+ *
+ * Ids that do not exist are simply absent from the result — the caller
+ * compares what it asked for against what came back, which is also how it
+ * detects an alert deleted between the list and the edit.
+ */
+export async function listAlertsByIds(ids: string[]): Promise<MaAlertRow[]> {
+  if (ids.length === 0) return [];
+  const { rows } = await query<DbAlert>(
+    "SELECT * FROM ma_alerts WHERE id = ANY($1::uuid[])", [ids]
+  );
+  return rows.map(toRow);
+}
+
+/**
  * What an edit may change.
  *
  * `conditionKind` is deliberately absent: an alert's FAMILY is fixed for its
@@ -454,7 +486,10 @@ const PATCH_COLUMNS: Record<string, string> = {
  * already exists, and merging them silently would delete one of the two.
  */
 export class AlertConflictError extends Error {
-  constructor(message = "another alert already watches exactly this condition") {
+  constructor(
+    message = "another alert already watches this condition with the same filters "
+      + "— change a filter, or edit the existing alert"
+  ) {
     super(message);
     this.name = "AlertConflictError";
   }

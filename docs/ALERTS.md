@@ -337,6 +337,95 @@ gates are a list.
 > displayed with its filter, and wrong. The type checker cannot catch that,
 > because the function reads `unknown`.
 
+### Two alerts on one line may differ by their gates alone
+
+Before migration `036` this was impossible:
+
+> a 15m BTCUSDT support alert gated on the 1h MACD being bearish, **and**
+> another 15m BTCUSDT support alert gated on the 4h RSI being above 50
+
+The second was rejected as a duplicate. Every per-kind unique index keyed on
+the CONDITION — symbol, timeframe, the study's parameters, the mode — and
+stopped there. `filters` was not part of the key, so two alerts whose only
+difference was their gates looked like one alert to the database.
+
+That was right when it was written: gates did not exist, and an alert WAS its
+condition. Once a gate could decide when an alert fires, two alerts with the
+same condition and different gates became two different questions.
+
+All eleven indexes now carry `filters` as a trailing key column, with
+`NULLS NOT DISTINCT` — which is load-bearing, not decorative. `filters` is NULL
+for every alert written before `032` and for every alert created with no gates,
+and under the default NULLS DISTINCT two NULLs compare as different, so an
+ungated alert could be armed any number of times. The duplicate protection is
+otherwise unchanged: same condition **and** same gates still collide, which is
+what stops a double-click arming one alert twice.
+
+> **Gate ORDER is part of the key.** `[rsi, macd]` and `[macd, rsi]` are
+> distinct to jsonb, so the same two gates in the other order can be armed
+> twice, and gates are ANDed, so those two alerts mean the same thing.
+> Deliberately left: normalising would mean rewriting stored rows and inventing
+> a canonical order for a list the user chose, to prevent a duplicate costing
+> one extra evaluation. jsonb DOES normalise object key order, so
+> `{kind, side}` and `{side, kind}` are equal.
+
+**`CONFLICT_TARGET` must match these indexes column for column.** Postgres
+infers the arbiter index from the column list in `ON CONFLICT (...)` and there
+is no fallback — a list no index covers raises `42P10` on *every* insert.
+Migration `036` changed the indexes without changing that list, and the create
+route returned 500 for every alert of every kind until it was fixed. The
+SQL-only migration tests all passed, because nothing they did went through the
+insert path the application uses. `platform/backend/tests/conflictTargets.test.ts` now compares
+the two lists by reading the migration, so the drift cannot recur silently.
+
+### Editing many alerts at once
+
+`POST /api/ma-alerts/bulk-edit` takes `ids` and one `patch`, and applies that
+patch to every named alert — "put this MACD gate on all my 15m support alerts".
+
+**Validate everything, then write anything.** Every selected row is planned
+through `planAlertPatch` — the same function the single-alert route uses — and
+any refusal fails the whole request with nothing written. Writing until
+something breaks would leave a set half changed and no way to tell which half
+without reading every row.
+
+`planAlertPatch` is shared rather than reimplemented, so a field refused on one
+alert is refused on a hundred by construction. A family-specific field sent
+against a mixed selection is refused for the rows it does not belong to, which
+is what makes "select all shown" safe when the filter spans types.
+
+The dry run also catches the collision the schema would otherwise catch too
+late: **two selected alerts that the patch would make identical.** The commonest
+way in is a selection holding two alerts that differ only by their gates, given
+one new set of gates — they collapse onto one unique key, and the second write
+conflicts after the first has already been made. The post-patch key is computed
+from `CONFLICT_TARGET`, the same columns Postgres arbitrates on.
+
+One failure remains genuinely partial: the writes are per row, not one
+transaction, so a conflict can still appear against a row **outside** the
+selection. That is reported as a 409 naming the ids that did land — it cannot
+be prevented here, but it can be made legible.
+
+**Gates replace; they do not merge.** There is no honest way to express "add
+this gate to whatever each alert already has" at this scale: the selected
+alerts have different gates, so "add" would produce a different result per
+alert and the dialog could not show what any of them would become. The dialog
+says so before the change is applied.
+
+### Filtering the alert list by timeframe
+
+The alerts page filters on symbol, status, type and **timeframe**, all ANDed.
+The timeframe list offers only intervals some alert is actually on: an option
+that can only ever return nothing reads as "you have no 4h alerts" when it may
+mean "4h was never offered here". Selecting a timeframe and then deleting the
+last alert on it falls the filter back to "all", so what is displayed and what
+is selected never disagree.
+
+The timeframe is part of `describeAlertScope`, which **is** the delete
+confirmation. Leaving it out would describe a wider set than the one about to
+be deleted, and the user would approve a different action than the one they
+read.
+
 ### Arming one alert across a watchlist
 
 `POST /api/ma-alerts` accepts `symbols` as well as `symbol`. "The same 15m
@@ -524,7 +613,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–035
+## 8. Migrations 010–036
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -543,7 +632,8 @@ family, the Supertrend gate and the note length bound — while dropping `017`'s
 `026`–`031` came with the TradingView-grade programme, `032` moved the gates
 to a list so each can name its own timeframe, `033` added the pivot gate, and
 `034` added the RSI-vs-average and MACD gates while raising the gate cap to eight,
-and `035` raised that cap to ten. Each new kind's completeness rule
+`035` raised that cap to ten, and `036` made two alerts distinguishable by
+their gates alone. Each new kind's completeness rule
 lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
 **effective** vocabulary — the last definition across the whole set — against
 `CONDITION_KINDS`, so columns can never be added without widening the CHECK

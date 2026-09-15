@@ -14,10 +14,11 @@ import {
 import { fmtAgo, fmtPrice } from "@/lib/format";
 import {
   ALERT_STATUS_FILTERS, ALERT_TYPE_FILTERS, buildBulkRequest, bulkCompletionMessage,
-  describeAlertScope, filterAlerts, selectionConfirmation, type AlertStatusFilter,
-  type AlertTypeFilter,
+  describeAlertScope, filterAlerts, selectionConfirmation, timeframeFilterOptions,
+  type AlertStatusFilter, type AlertTimeframeFilter, type AlertTypeFilter,
 } from "@/lib/alertManagement";
 import { leavesFilteredView } from "@/lib/alertEditing";
+import { BulkEditAlertsModal } from "@/components/tv/BulkEditAlertsModal";
 import { parseScannerAlertTarget } from "@/lib/spotScene";
 
 /**
@@ -33,12 +34,14 @@ export default function AlertsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [bulkEditing, setBulkEditing] = useState(false);
   /** Support/resistance and pivot alerts are armed from here, not the chart. */
   const [levelOpen, setLevelOpen] = useState(false);
   const [newSymbol, setNewSymbol] = useState("SOLUSDT");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<AlertStatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<AlertTypeFilter>("all");
+  const [timeframeFilter, setTimeframeFilter] = useState<AlertTimeframeFilter>("all");
   /** The alert open in the shared editor, or null. */
   const [editing, setEditing] = useState<MaAlert | null>(null);
   /**
@@ -82,12 +85,29 @@ export default function AlertsPage() {
   }, [toast]);
 
   const filters = useMemo(() => ({
-    search, status: statusFilter, type: typeFilter,
-  }), [search, statusFilter, typeFilter]);
+    search, status: statusFilter, type: typeFilter, timeframe: timeframeFilter,
+  }), [search, statusFilter, typeFilter, timeframeFilter]);
   const filteredAlerts = useMemo(
     () => filterAlerts(alerts ?? [], filters),
     [alerts, filters]
   );
+  const timeframeOptions = useMemo(
+    () => timeframeFilterOptions(alerts ?? []),
+    [alerts]
+  );
+
+  /*
+   * Deleting the last 4h alert while "4h" is selected would leave the filter
+   * pinned to a timeframe no row has: the select would render its first option
+   * while the state still said 4h, so the list would show nothing and the
+   * control would not explain why. Falling back to "all" keeps what is
+   * displayed and what is selected the same thing.
+   */
+  useEffect(() => {
+    if (timeframeFilter !== "all" && !timeframeOptions.includes(timeframeFilter)) {
+      setTimeframeFilter("all");
+    }
+  }, [timeframeOptions, timeframeFilter]);
 
   /** Filtered and grouped by coin, each coin's lines ordered longest-period first. */
   const bySymbol = useMemo(() => {
@@ -267,10 +287,33 @@ export default function AlertsPage() {
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </Select>
-              {(search.trim() !== "" || statusFilter !== "all" || typeFilter !== "all") && (
+              {/*
+                Only the timeframes some alert is actually on. An option that
+                can only ever return nothing reads as "you have no 4h alerts"
+                when it may mean "4h was never offered here".
+              */}
+              {timeframeOptions.length > 1 && (
+                <Select
+                  value={timeframeFilter}
+                  onChange={(event) =>
+                    setTimeframeFilter(event.target.value as AlertTimeframeFilter)}
+                  aria-label="Filter alerts by timeframe"
+                  className="min-w-0 flex-1 sm:flex-none"
+                >
+                  <option value="all">All timeframes</option>
+                  {timeframeOptions.map((tf) => (
+                    <option key={tf} value={tf}>{tf}</option>
+                  ))}
+                </Select>
+              )}
+              {(search.trim() !== "" || statusFilter !== "all" || typeFilter !== "all"
+                || timeframeFilter !== "all") && (
                 <Button
                   variant="ghost"
-                  onClick={() => { setSearch(""); setStatusFilter("all"); setTypeFilter("all"); }}
+                  onClick={() => {
+                    setSearch(""); setStatusFilter("all");
+                    setTypeFilter("all"); setTimeframeFilter("all");
+                  }}
                 >
                   Clear
                 </Button>
@@ -311,6 +354,13 @@ export default function AlertsPage() {
                 label={`Pause ${selectedAlerts.length} selected alerts`}
               >
                 {busy === "bulk-pause" ? "Pausing…" : `Pause${selectedAlerts.length ? ` ${selectedAlerts.length}` : ""}`}
+              </Button>
+              <Button
+                onClick={() => setBulkEditing(true)}
+                disabled={busy !== null || selectedAlerts.length === 0}
+                label={`Edit ${selectedAlerts.length} selected alerts together`}
+              >
+                Edit{selectedAlerts.length ? ` ${selectedAlerts.length}` : ""}
               </Button>
               <Button
                 variant="ghost"
@@ -517,6 +567,20 @@ export default function AlertsPage() {
           void refresh();
         }}
         onDeleted={(_deleted, message) => { setToast(message); void refresh(); }}
+      />
+
+      <BulkEditAlertsModal
+        open={bulkEditing}
+        onClose={() => setBulkEditing(false)}
+        alerts={selectedAlerts}
+        onDone={(message) => {
+          setToast(message);
+          // The selection is cleared because the rows it named have changed:
+          // keeping it would invite a second bulk edit against a description
+          // the user has already stopped reading.
+          setSelected(new Set());
+          void refresh();
+        }}
       />
 
       {toast && (

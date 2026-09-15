@@ -1,16 +1,21 @@
 import type {
   BulkAlertAction, BulkAlertResult, ConditionKind, MaAlert,
 } from "@/lib/api";
+import { FILTER_TIMEFRAMES } from "@/lib/api";
+import type { Interval } from "@/lib/types";
 import { isAlertActive } from "@/lib/alerts";
 
 export type AlertStatusFilter = "all" | "active" | "inactive";
 export type AlertTypeFilter =
   | "all" | ConditionKind | "ma_ema" | "ma_sma";
+/** An alert's own chart interval — NOT any timeframe its gates name. */
+export type AlertTimeframeFilter = "all" | Interval;
 
 export interface AlertFilters {
   search: string;
   status: AlertStatusFilter;
   type: AlertTypeFilter;
+  timeframe: AlertTimeframeFilter;
 }
 
 export const ALERT_STATUS_FILTERS: ReadonlyArray<{
@@ -41,6 +46,20 @@ export const ALERT_TYPE_FILTERS: ReadonlyArray<{
   { value: "adx", label: "ADX", scopeLabel: "ADX alerts" },
 ];
 
+/**
+ * The timeframes worth offering: those some alert is actually on.
+ *
+ * Derived from the rows rather than listed from `FILTER_TIMEFRAMES`, because a
+ * choice that can only ever return nothing is worse than no choice — it reads
+ * as "you have no 4h alerts" when it may mean "4h is not a thing here". Sorted
+ * by the canonical interval order, not alphabetically, so 5m does not sort
+ * between 30m and 1h.
+ */
+export function timeframeFilterOptions(alerts: readonly MaAlert[]): Interval[] {
+  const present = new Set(alerts.map((a) => a.timeframe));
+  return FILTER_TIMEFRAMES.filter((tf) => present.has(tf));
+}
+
 function matchesType(alert: MaAlert, type: AlertTypeFilter): boolean {
   if (type === "all") return true;
   if (type === "ma_ema") return alert.conditionKind === "ma" && alert.maType === "ema";
@@ -55,6 +74,7 @@ export function filterAlerts(alerts: MaAlert[], filters: AlertFilters): MaAlert[
     if (search && !alert.symbol.toLocaleUpperCase().includes(search)) return false;
     if (filters.status === "active" && !isAlertActive(alert)) return false;
     if (filters.status === "inactive" && isAlertActive(alert)) return false;
+    if (filters.timeframe !== "all" && alert.timeframe !== filters.timeframe) return false;
     return matchesType(alert, filters.type);
   });
 }
@@ -67,7 +87,15 @@ export function describeAlertScope(filters: AlertFilters, count: number): string
     : filters.status === "inactive" ? "paused / inactive " : "";
   const noun = filters.type === "all" ? "alerts" : type.scopeLabel;
   const matching = search ? ` matching “${search}”` : "";
-  return `${count} ${status}${noun}${matching}`;
+  /*
+   * The timeframe belongs here because this sentence is the DELETE
+   * confirmation. Omitting it would describe a wider scope than the one about
+   * to be deleted — "164 alerts?" when the filter shows only the 15m ones —
+   * and the user would be reading a prompt about a different action than the
+   * one they are approving.
+   */
+  const on = filters.timeframe === "all" ? "" : ` on ${filters.timeframe}`;
+  return `${count} ${status}${noun}${on}${matching}`;
 }
 
 /** Null is the empty-scope guard: no caller can turn zero IDs into delete-all. */

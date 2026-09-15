@@ -970,6 +970,20 @@ export const isBulkResult = (r: MaAlert | BulkMaAlertResult): r is BulkMaAlertRe
   "created" in r && Array.isArray((r as BulkMaAlertResult).alerts);
 
 export type BulkAlertAction = "pause" | "resume" | "delete";
+/** The outcome of applying one change to many alerts. */
+export interface BulkEditResult {
+  updatedIds: string[];
+  updated: number;
+}
+
+/** A 400 from the bulk editor: nothing was written, and this says why. */
+export interface BulkEditRejection {
+  error: string;
+  rejected?: Array<{ id: string; symbol: string; kind: string; reason: string }>;
+  rejectedCount?: number;
+  updatedIds?: string[];
+}
+
 export interface BulkAlertResult {
   action: BulkAlertAction;
   requested: number;
@@ -1370,6 +1384,19 @@ export const api = {
   bulkMaAlerts: (action: BulkAlertAction, ids: string[]) =>
     req<BulkAlertResult>("/api/ma-alerts/bulk", {
       method: "POST", body: JSON.stringify({ action, ids }),
+    }),
+  /**
+   * Apply ONE set of changes to many alerts.
+   *
+   * The server validates every selected alert before writing any of them, so a
+   * 400 here means nothing moved and `rejected` says which alerts refused the
+   * change and why. A 409 is the one case that can be partial — a unique-index
+   * conflict that only appears once earlier rows have moved — and it names the
+   * ids that did land.
+   */
+  bulkEditMaAlerts: (ids: string[], patch: MaAlertUpdate) =>
+    req<BulkEditResult>("/api/ma-alerts/bulk-edit", {
+      method: "POST", body: JSON.stringify({ ids, patch }),
     }),
   /**
    * Delivered alert events, optionally scoped to one chart.
