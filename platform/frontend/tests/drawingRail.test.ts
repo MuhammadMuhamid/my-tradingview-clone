@@ -995,18 +995,17 @@ test("RAIL — every axis-aligned stroke is on a half-unit and every diagonal op
     `these are purely axis-aligned and 1.4 gives them a halo:\n  ${overweight.join("\n  ")}`);
 });
 
-test("RAIL — the column is permanent, at every width", () => {
+test("RAIL — the desktop column yields to the phone drawing sheet", () => {
   /*
-   * R2c-14. The rail was `hidden md:flex` beside a phone-only modal drawer:
-   * a 50% backdrop over the whole viewport, a close cell, and 52×44 cells
-   * because of the coarse-pointer minimum in `globals.css`. The reference
-   * keeps the 52px column and the same 52×38 cells at 390×844.
+   * Wave A A-02: the desktop drawing rail is not part of the phone layout.
+   * The Draw bottom tab owns the phone sheet, while the desktop column stays
+   * available from the md breakpoint upward.
    */
   const page = read("app/chart/page.tsx");
-  assert.doesNotMatch(page, /className="hidden md:flex">\s*<DrawingToolbar/,
-    "the rail column is still hidden below the md breakpoint");
-  assert.doesNotMatch(page.replace(/\/\*[\s\S]*?\*\//g, ""), /aria-label="Close drawing tools"/,
-    "the phone drawer's close cell is still rendered");
+  assert.match(page, /!isMobile\s*&&\s*\(\s*\n\s*<div className="hidden md:flex">\s*\n\s*<DrawingToolbar/,
+    "the desktop rail must not mount at phone width");
+  assert.match(page, /role="dialog"\s*\n\s*aria-label="Drawing tools"/,
+    "the Draw tab needs a real phone drawing surface");
   assert.doesNotMatch(source.replace(/\/\*[\s\S]*?\*\//g, ""), /floating\?: boolean/,
     "the rail still carries the drawer mode it no longer has a caller for");
 

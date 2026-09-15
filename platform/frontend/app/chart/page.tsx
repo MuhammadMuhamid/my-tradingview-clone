@@ -486,15 +486,16 @@ export default function TvWorkspace() {
   const emitRange = useCallback(
     (paneId: string, r: { from: number; to: number }) => setRange({ paneId, ...r }), []);
 
-  // On phones the side panel is an overlay drawer, so start it closed —
-  // otherwise it covers the chart on first load. The desktop default (FG-01)
-  // is a docked column beside the chart, which is a different thing entirely.
+  // Below the desktop breakpoint the persisted desktop panel preference must
+  // not reclaim the chart. The Watchlist bottom tab can reopen it as a sheet.
   useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) setPanel(null);
-  }, []);
+    if (isMobile) setPanel(null);
+  }, [isMobile]);
 
-  /* FG-01: the panel the user is looking at survives a reload. */
-  useEffect(() => { rememberPanel(panel); }, [panel]);
+  /* FG-01: desktop panel preference survives reloads; phone sheets are transient. */
+  useEffect(() => {
+    if (!isMobile) rememberPanel(panel);
+  }, [isMobile, panel]);
   /** FG-04: bumped to toggle the bottom workstation from the keyboard. */
   const [bottomToggle, setBottomToggle] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2371,7 +2372,7 @@ export default function TvWorkspace() {
       </div>
 
       {/*
-        ── row 2: the left rail, the chart column and the side panel ──
+        ── row 2: the desktop rail, the chart column and the side panel ──
 
         TVP8 R1b-02: the reference separates its regions with 4px gutters of
         the page background — under the toolbar, right of the rail, either side
@@ -2381,7 +2382,7 @@ export default function TvWorkspace() {
       */}
       <div className="flex min-h-0 flex-1 gap-1 bg-bg pt-1">
       {/*
-        ── left drawing rail — one permanent column at every width (R2c-14) ──
+        ── left drawing rail — desktop column; phone uses the Draw sheet ──
 
         It used to be `hidden md:flex` beside a phone-only modal drawer: a 50%
         black backdrop over the whole viewport, a close cell, and the same
@@ -2391,16 +2392,27 @@ export default function TvWorkspace() {
         memory a rail exists for did not survive the rotation; and the last
         cell fell off the bottom of an 844px screen.
 
-        The reference keeps the column — 52px wide, the same 52×38 cells at the
-        same y's, the chart starting at x=56 — at 390×844. So does this, and
-        `globals.css` scopes the 44px touch minimum out of the rail to let it.
+        At phone widths the desktop column is omitted so the chart can use the
+        available width; the Draw tab opens the same wired toolbar as a sheet.
       */}
-      <div className="flex">
-        <DrawingToolbar {...drawingToolbarProps} />
-      </div>
+      {!isMobile && (
+        <div className="hidden md:flex">
+          <DrawingToolbar {...drawingToolbarProps} />
+        </div>
+      )}
+
+      {toolsOpen && (
+        <div
+          role="dialog"
+          aria-label="Drawing tools"
+          className="fixed inset-y-0 left-0 z-40 flex md:hidden"
+        >
+          <DrawingToolbar {...drawingToolbarProps} />
+        </div>
+      )}
 
       {/* ── main column ── */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div data-chart-column className="flex min-w-0 flex-1 flex-col">
         {/*
           TVP8: the raw thrown message WAS this band. Two of the three things
           that set `err` are `(e as Error).message` straight from `lib/api`, so

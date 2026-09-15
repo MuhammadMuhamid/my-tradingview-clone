@@ -14,15 +14,8 @@
  * went with it — `finalRows: []`, and `final-state-1440.png` shows no panel at
  * all. Every measurement that step was meant to produce was lost.
  *
- * ── Why all three cases ────────────────────────────────────────────────────
- *
- * Because the repair has to be a rule and not two patches. The third case is
- * the one that proves the fix did not simply disable the panel's Escape: with
- * nothing open, Escape must STILL close the panel, which is the behaviour the
- * rail's own toggle mirrors and which `sidePanelDefault` depends on.
- *
- * Run against the repair reverted, (i) and (ii) fail on their second
- * assertion — the menu or the field is gone, and so is `[data-watchlist]`.
+ * With no overlay open Escape is a layout no-op. The panel's rail button and
+ * its own close notch are the only controls that hide it.
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -83,21 +76,37 @@ test("R7b-06 — Escape in the add field closes the FIELD, and leaves the panel 
     "Escape closed the whole watchlist column as well as the field it was aimed at");
 });
 
-test("R7b-06 — and with nothing open, Escape still closes the panel", async () => {
-  /*
-   * The guard against over-correcting. A repair that simply removed the
-   * panel's window-level Escape would pass both tests above and break the
-   * behaviour the rail's toggle mirrors.
-   */
+test("A-01 — Escape with nothing open leaves the panel mounted", async () => {
   const chart = await mountChart();
   await settle();
   assertPresent(panel(chart.container), "the watchlist panel is not open to begin with");
 
   fireEvent.keyDown(window, { key: "Escape" });
   await settle();
+  fireEvent.keyDown(document.body, { key: "Escape", bubbles: true });
+  await settle();
 
-  assertAbsent(panel(chart.container),
-    "Escape with nothing open must still close the panel");
+  const aside = assertPresent(panel(chart.container),
+    "Escape with no overlay must not close the watchlist panel");
+  assert.equal((aside as HTMLElement).style.getPropertyValue("--ts-watchlist-width"), "300px",
+    "the docked watchlist width remains 300px");
+});
+
+test("A-01 — Escape in the timeframe menu closes only that menu", async () => {
+  const chart = await mountChart();
+  await settle();
+  const trigger = chart.container.querySelector<HTMLElement>(
+    'button[aria-label="Chart interval — all timeframes"]');
+  assert.ok(trigger, "the chart has no timeframe menu trigger");
+  fireEvent.click(trigger);
+  await settle();
+  const menu = screen.getByRole("menu", { name: "All timeframes" });
+  fireEvent.keyDown(menu, { key: "Escape", bubbles: true });
+  await settle();
+  assertAbsent(screen.queryByRole("menu", { name: "All timeframes" }),
+    "Escape did not close the timeframe menu");
+  assertPresent(panel(chart.container),
+    "Escape from the timeframe menu closed the watchlist panel");
 });
 
 /**

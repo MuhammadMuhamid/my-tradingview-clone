@@ -886,7 +886,7 @@ export function Watchlist({
         the band. What is absolutely positioned into that gap is the grip and
         the resize handle, which is what the reference puts there.
       */
-      className="group/panel relative flex h-full w-[85vw] max-w-[300px] shrink-0 bg-surface md:w-[var(--ts-watchlist-width)] md:max-w-none"
+      className="group/panel relative flex h-full w-screen max-w-none shrink-0 bg-surface md:w-[var(--ts-watchlist-width)]"
     >
       {/* The handle lives ON the gutter, 4px wide, outside the panel's box. */}
       <div

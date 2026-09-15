@@ -12,7 +12,8 @@
  * a column of panels beside a chart is not a phone layout — it is a desktop
  * layout with the chart squeezed out of it.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { type Resolution } from "@/lib/resolution";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
 import { IndicatorsPanel } from "@/components/tv/IndicatorsPanel";
@@ -95,65 +96,9 @@ export interface ChartSidePanelProps {
 }
 
 export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
-  const drawerRef = useRef<HTMLDivElement>(null);
   /** The rail's Help cell owns its own sheet; nothing above it has to. */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const restoreFocus = useRef<HTMLElement | null>(null);
-  const { onClosePanel } = props;
-  useEffect(() => {
-    if (props.panel) {
-      restoreFocus.current = document.activeElement as HTMLElement | null;
-      const onEscape = (event: KeyboardEvent): void => {
-        if (event.key !== "Escape") return;
-        /*
-         * ── TVP8 R7b-06: Escape closes the INNERMOST open thing ─────────────
-         *
-         * This listener is on `window`, so it ran for every Escape a
-         * descendant had not stopped — and two of the panel's own popovers do
-         * not stop it. Pressing Escape to dismiss the watchlist's list menu
-         * therefore took the whole 300px column with it, and so did pressing
-         * Escape in the add-symbol field. The reviewer's temp-list step died
-         * on exactly that: the menu closed, the panel closed, and the list was
-         * never created.
-         *
-         * A React `stopPropagation` in the panel's own popovers is the first
-         * half of the repair: React attaches at the root container, below
-         * `window`, and its synthetic `stopPropagation` calls the native one,
-         * so an Escape the list menu or the add field has answered never
-         * reaches this listener at all.
-         *
-         * The focus guard below is the second half, for anything inside the
-         * column that does not stop the event — a focus that is inside a menu,
-         * a dialog or a text field belongs to that thing rather than to the
-         * column it happens to be drawn in.
-         *
-         * `event.defaultPrevented` is deliberately NOT a guard: measured in
-         * the DOM harness, a peer window-level handler already marks every
-         * Escape as handled for its own purposes, so reading it here would
-         * mean the panel never closed on Escape at all.
-         *
-         * With nothing open, Escape still closes the panel — that is the
-         * behaviour the rail's own toggle mirrors and it is unchanged.
-         */
-        const active = document.activeElement;
-        /* The selectors below are written without quotes inside the brackets,
-           deliberately: `tests/uiContract.test.ts` greps the product for the
-           quoted spelling to find every element that CLAIMS to be a menu, and
-           a selector string is not an element. */
-        if (active instanceof HTMLElement && drawerRef.current?.contains(active)
-          && (active.closest("[role=menu]") !== null
-            || active.closest("[role=dialog]") !== null
-            || active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
-        event.preventDefault();
-        onClosePanel();
-      };
-      window.addEventListener("keydown", onEscape);
-      return () => window.removeEventListener("keydown", onEscape);
-    }
-    const target = restoreFocus.current;
-    if (target?.isConnected) target.focus();
-    return undefined;
-  }, [props.panel, onClosePanel]);
+  const isMobile = useIsMobile();
   const tradingIdentity = canonicalDisplayParts(props.tradingSymbol);
   const canonicalBinanceSpot = tradingIdentity?.venue === "BINANCE" && tradingIdentity.type === "spot";
   /*
@@ -226,8 +171,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           1085 to 1089 and the panel's content from 296px to the reference's
           300.
         */}
-        <div ref={drawerRef} role="region" aria-label={`${props.panel} panel`}
-          className="fixed bottom-[52px] right-0 top-0 z-40 md:static md:bottom-auto md:right-auto md:z-auto md:-mr-1 md:h-auto">
+        <div role="region" aria-label={`${props.panel} panel`}
+          className="fixed bottom-[52px] left-0 top-0 z-40 w-screen md:static md:bottom-auto md:left-auto md:right-auto md:z-auto md:-mr-1 md:h-auto md:w-auto">
           {props.panel === "watchlist" && (
             <Watchlist symbols={props.symbols} selected={props.symbol}
               onSelect={props.onSelectSymbol}
@@ -337,7 +282,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       hairline the reference draws between the watchlist and this rail, in
       place of the 4px gutter the workspace `gap` would otherwise put there.
     */}
-    <div data-side-rail="true"
+    {!isMobile && <div data-side-rail="true"
       className="hidden w-[46px] shrink-0 flex-col items-center border-l border-border bg-surface pb-1 pt-[1px] md:flex">
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
@@ -434,7 +379,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           </svg>
         </button>
       </div>
-    </div>
+    </div>}
     <ShortcutsSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
     {/* ── phone action bar (TradingView keeps its controls at the thumb) ── */}
