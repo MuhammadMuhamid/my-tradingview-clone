@@ -256,10 +256,80 @@ test("the description names the average and the timeframe", () => {
   );
   assert.equal(
     describeFilters([macdGate({ timeframe: "4h", fastLength: 14, slowLength: 21, signalLength: 7 })]),
-    " — only while 4h MACD is above its signal line (14/21/7)"
+    " — only while 4h MACD (14/21/7) is bullish — line above signal"
   );
   assert.equal(
     describeFilters([macdGate({ target: "zero" })]),
-    " — only while MACD is above zero"
+    " — only while MACD (12/26/9) is above zero"
   );
+});
+
+
+// ── the divergence question the gate exists for ────────────────────────────
+
+/**
+ * "A 15m support alert, but only while the 1h MACD is BEARISH and the 4h MACD
+ * is BULLISH" — a pullback inside a higher trend. Two gates of one kind on two
+ * timeframes, pulling in OPPOSITE directions, which is the case a single
+ * side-per-kind model could not express at all.
+ */
+test("one kind, two timeframes, opposite sides", () => {
+  const scenario = (bearish: string, bullish: string) => {
+    const read = readCondition("sr_zone", {
+      srSide: "support", mode: "near_above", nearMinPct: 0.2, nearMaxPct: 0.5,
+      filters: [
+        { kind: "macd", timeframe: bearish, side: "below" },
+        { kind: "macd", timeframe: bullish, side: "above" },
+      ],
+    });
+    assert.ok("condition" in read);
+    assert.equal(validateCondition(read.condition), null,
+      "opposite sides are not a contradiction — they are different timeframes");
+    return read.condition.filters!;
+  };
+
+  for (const [lower, higher] of [["1h", "4h"], ["15m", "1h"]] as const) {
+    const filters = scenario(lower, higher);
+    const at = (a: number, b: number) =>
+      filtersPass(filters, { ...bar, filterReadings: [a, b] });
+
+    assert.equal(at(-2, 3), true, `${lower} bearish + ${higher} bullish is the setup`);
+    assert.equal(at(2, 3), false, `${lower} turning bullish closes the window`);
+    assert.equal(at(-2, -3), false, `${higher} losing its trend closes it too`);
+    assert.equal(at(2, -3), false, "neither leg holding is not the setup either");
+  }
+});
+
+test("the gate names the mood, because that is the question being asked", () => {
+  assert.equal(
+    describeFilters([macdGate({ timeframe: "1h", side: "below" })]),
+    " — only while 1h MACD (12/26/9) is bearish — line below signal"
+  );
+  assert.equal(
+    describeFilters([macdGate({ timeframe: "4h", side: "above" })]),
+    " — only while 4h MACD (12/26/9) is bullish — line above signal"
+  );
+  /*
+   * Against ZERO the mood words would be wrong: the centreline says which way
+   * the trend leans, not whether momentum has turned.
+   */
+  assert.equal(
+    describeFilters([macdGate({ target: "zero", side: "below" })]),
+    " — only while MACD (12/26/9) is below zero"
+  );
+});
+
+test("ten gates fit on one alert, eleven do not", () => {
+  const ten = Array.from({ length: 10 }, (_, i) => ({
+    kind: "macd", timeframe: ["1m","3m","5m","15m","30m","1h","2h","4h","6h","12h"][i],
+  }));
+  const ok = readCondition("sr_zone", { srSide: "support", filters: ten });
+  assert.ok("condition" in ok, "the cap is ten");
+  assert.equal(validateCondition(ok.condition), null);
+
+  const eleven = readCondition("sr_zone", {
+    srSide: "support", filters: [...ten, { kind: "macd", timeframe: "1d" }],
+  });
+  assert.ok("condition" in eleven);
+  assert.match(validateCondition(eleven.condition) ?? "", /at most 10 filters/);
 });

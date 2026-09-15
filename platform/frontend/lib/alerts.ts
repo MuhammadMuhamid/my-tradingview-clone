@@ -293,10 +293,13 @@ export function describeFilters(a: MaAlert): string {
       case "rsi_ma":
         return `${at}RSI ${f.length} is ${f.side} its ${maLabel(f.maType, f.maLength)}`;
       case "macd": {
-        const against = f.target === "zero"
-          ? "zero"
-          : `its signal line (${f.fastLength}/${f.slowLength}/${f.signalLength})`;
-        return `${at}MACD is ${f.side} ${against}`;
+        // Must match `describeFilters` on the server, which writes the
+        // notification: bullish/bearish against the signal, above/below zero.
+        const params = `${f.fastLength}/${f.slowLength}/${f.signalLength}`;
+        if (f.target === "zero") return `${at}MACD (${params}) is ${f.side} zero`;
+        const mood = f.side === "above" ? "bullish" : "bearish";
+        const where = f.side === "above" ? "above" : "below";
+        return `${at}MACD (${params}) is ${mood} — line ${where} signal`;
       }
     }
   });

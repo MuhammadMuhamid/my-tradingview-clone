@@ -270,8 +270,12 @@ export function AlertFiltersField({
             {f.kind === "macd" && (
             <p className="text-xs text-ink-faint">
               Fast / slow / signal. This is the <span className="text-ink">state</span> a
-              crossover leaves behind, not the crossing itself — &ldquo;MACD is above its
-              signal&rdquo; stays true for as long as it is, which is what a filter needs.
+              crossover leaves behind, not the single bar it crossed on —
+              {f.target === "signal"
+                ? " bullish stays true for as long as the line is above its signal,"
+                : " the reading stays true for as long as it holds,"}
+              {" "}which is what a filter needs. Add a second MACD filter on another
+              timeframe to require both at once.
               {f.fastLength >= f.slowLength
                 ? " Fast must be shorter than slow, or the line is inverted."
                 : ""}
@@ -355,12 +359,33 @@ export function AlertFiltersField({
             {f.kind === "macd" && (
               <>
                 <span className="text-sm text-ink-muted">MACD</span>
-                {sideSelect(f, i, "Filter MACD side")}
+                {/*
+                  Against the signal line the two sides are named bullish and
+                  bearish, because that is what they mean to a reader — "is
+                  above / signal line" described the same rule but nobody could
+                  tell it was the bullish-crossover filter they wanted. Against
+                  ZERO the words would be wrong, so that case keeps above/below.
+                */}
+                <select value={f.side} aria-label="Filter MACD side"
+                  onChange={(e) => patch(i, { side: e.target.value as FilterSide })}
+                  className={`${BOX} w-[188px]`}>
+                  {f.target === "signal" ? (
+                    <>
+                      <option value="above">is bullish (above signal)</option>
+                      <option value="below">is bearish (below signal)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="above">is above</option>
+                      <option value="below">is below</option>
+                    </>
+                  )}
+                </select>
                 <select value={f.target} aria-label="Filter MACD target"
                   onChange={(e) => patch(i, { target: e.target.value as MacdTarget })}
                   className={`${BOX} w-[112px]`}>
-                  <option value="signal">signal line</option>
-                  <option value="zero">zero</option>
+                  <option value="signal">vs signal line</option>
+                  <option value="zero">vs zero</option>
                 </select>
                 <input type="number" min="1" max="1000" value={f.fastLength}
                   aria-label="Filter MACD fast length"
@@ -398,8 +423,12 @@ export function AlertFiltersField({
           {f.kind === "macd" && (
             <p className="text-xs text-ink-faint">
               Fast / slow / signal. This is the <span className="text-ink">state</span> a
-              crossover leaves behind, not the crossing itself — &ldquo;MACD is above its
-              signal&rdquo; stays true for as long as it is, which is what a filter needs.
+              crossover leaves behind, not the single bar it crossed on —
+              {f.target === "signal"
+                ? " bullish stays true for as long as the line is above its signal,"
+                : " the reading stays true for as long as it holds,"}
+              {" "}which is what a filter needs. Add a second MACD filter on another
+              timeframe to require both at once.
               {f.fastLength >= f.slowLength
                 ? " Fast must be shorter than slow, or the line is inverted."
                 : ""}

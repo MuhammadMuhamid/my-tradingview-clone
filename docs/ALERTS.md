@@ -290,6 +290,25 @@ A fast length at or above the slow length is **refused** rather than
 normalised. It inverts the histogram, so the MACD line becomes the negative of
 itself and "above the signal" would quietly mean its opposite.
 
+**The two sides are named bullish and bearish**, not above and below, whenever
+the reference is the signal line. That is a wording change with a reason: the
+gate shipped in `034` already answered "is the MACD in a bullish crossover",
+and it was asked for again a few days later because nothing in the dialog said
+so. A filter nobody can recognise is a filter nobody can use. Against **zero**
+the mood words would be wrong — the centreline says which way the trend leans,
+not whether momentum has turned — so that branch keeps the plain above/below.
+
+The sentence exists twice, in `alertConditions.describeFilters` and its mirror
+in `platform/frontend/lib/alerts.ts`, because the server's copy becomes the push
+notification and the client's becomes the alert list. Both test files assert
+the same string literals verbatim; that duplication is what holds them
+together.
+
+**Opposite sides on two timeframes is the point.** "1h bearish AND 4h bullish"
+on a 15m support alert — a pullback inside a higher trend — is not a
+contradiction the validator should catch. It is two gates on two timeframes,
+and a model with one side per kind could not express it at all.
+
 **The reading is a spread.** `filterReadings` carries one scalar per gate, and
 both of these need two numbers, so the runner subtracts and stores
 `line - reference`; `filtersPass` then tests its sign. The same shape
@@ -301,8 +320,12 @@ Both accept a `timeframe`, so "the 1h RSI above its EMA 14 **and** the 4h RSI
 above its EMA 21" is two gates, and both must hold. That is the whole reason
 gates are a list.
 
-> **Changed in `034`.** `kind` widens to admit `rsi_ma` and `macd`, and the
-> per-alert gate cap rises from **6 to 8**. Six was chosen when three kinds
+> **Changed in `034`, then `035`.** `034` widened `kind` to admit `rsi_ma` and
+> `macd` and raised the gate cap from **6 to 8**; `035` raised it again to
+> **10**, when asking one question across three timeframes became ordinary. The
+> cap bounds what a PERSON can reason about, not cost: the runner fetches one
+> candle series per DISTINCT timeframe and shares it across every alert on the
+> symbol, so ten gates over two timeframes cost the two fetches two gates would. Six was chosen when three kinds
 > existed; asking the same question on two timeframes now costs two slots, and
 > two such questions fill four before anything else is added. `side` is
 > unchanged — both new gates ask which side of a line the indicator is on, so
@@ -501,7 +524,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–034
+## 8. Migrations 010–035
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so
@@ -519,7 +542,8 @@ family, the Supertrend gate and the note length bound — while dropping `017`'s
 `ma_alerts_filter_kind_ck`, which had confined gates to the two level families.
 `026`–`031` came with the TradingView-grade programme, `032` moved the gates
 to a list so each can name its own timeframe, `033` added the pivot gate, and
-`034` added the RSI-vs-average and MACD gates while raising the gate cap to eight. Each new kind's completeness rule
+`034` added the RSI-vs-average and MACD gates while raising the gate cap to eight,
+and `035` raised that cap to ten. Each new kind's completeness rule
 lives in `ma_alerts_kind_complete`, and `alertMigration.test.ts` compares the
 **effective** vocabulary — the last definition across the whole set — against
 `CONDITION_KINDS`, so columns can never be added without widening the CHECK

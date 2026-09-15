@@ -74,11 +74,17 @@ export const FILTER_TIMEFRAMES = [
 /**
  * The most gates one alert may carry.
  *
- * Each gate on a timeframe other than the alert's own costs a candle series to
- * fetch and an indicator to compute per evaluation, so this is a real cost
- * bound rather than a tidiness rule.
+ * A bound on what a person can reason about, NOT on cost. `loadFilterTimeframes`
+ * fetches one candle series per DISTINCT timeframe and shares it across every
+ * alert on the symbol, so ten gates spread over two timeframes cost the same
+ * two fetches that two gates would.
+ *
+ * It has moved twice as kinds were added: 6 when there were three kinds, 8 at
+ * six kinds, 10 once asking one question across three timeframes became
+ * ordinary. Each rise is a widening, so the CHECK that carries it can never
+ * fail against an existing row.
  */
-export const MAX_ALERT_FILTERS = 8;
+export const MAX_ALERT_FILTERS = 10;
 
 /**
  * Defaults for the gates: RSI 50 > 50, price > EMA 200, price above Supertrend.

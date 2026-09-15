@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  alertColor, alertInactiveReason, alertLineLabel, describeAlert,
+  alertColor, alertInactiveReason, alertLineLabel, describeAlert, describeFilters,
   frequencyWarning, isAlertActive, FREQUENCY_LABELS, INTRABAR_WARNING,
 } from "../lib/alerts";
 import type { AlertFrequency, ConditionKind, MaAlert } from "../lib/api";
@@ -352,4 +352,54 @@ test("non-default inputs are named, defaults are not", () => {
   assert.equal(
     alertLineLabel(alert({ maType: null, maLength: null, ...FAMILY_ROWS.adx, adxSmoothing: 21 })),
     "ADX 14/21");
+});
+
+/**
+ * The gate sentence the UI writes must match the one the SERVER writes, since
+ * the server's copy becomes the push notification. Two implementations of one
+ * sentence is a drift risk, and the only thing holding them together is that
+ * both files assert the same literals — these strings are duplicated verbatim
+ * in `backend/tests/oscillatorFilters.test.ts` on purpose.
+ */
+test("the MACD gate sentence matches the server's, word for word", () => {
+  const withGates = (filters: MaAlert["filters"]): string =>
+    describeFilters({ ...base, filters });
+
+  assert.equal(
+    withGates([{
+      kind: "macd", timeframe: "1h", fastLength: 12, slowLength: 26,
+      signalLength: 9, target: "signal", side: "below",
+    }]),
+    " — only while 1h MACD (12/26/9) is bearish — line below signal"
+  );
+  assert.equal(
+    withGates([{
+      kind: "macd", timeframe: "4h", fastLength: 12, slowLength: 26,
+      signalLength: 9, target: "signal", side: "above",
+    }]),
+    " — only while 4h MACD (12/26/9) is bullish — line above signal"
+  );
+  // Against zero the mood words would be wrong: the centreline says which way
+  // the trend leans, not whether momentum has turned.
+  assert.equal(
+    withGates([{
+      kind: "macd", timeframe: null, fastLength: 12, slowLength: 26,
+      signalLength: 9, target: "zero", side: "below",
+    }]),
+    " — only while MACD (12/26/9) is below zero"
+  );
+});
+
+test("the pullback-inside-a-trend pair reads as two opposite gates", () => {
+  assert.equal(
+    describeFilters({
+      ...base,
+      filters: [
+        { kind: "macd", timeframe: "1h", fastLength: 12, slowLength: 26, signalLength: 9, target: "signal", side: "below" },
+        { kind: "macd", timeframe: "4h", fastLength: 12, slowLength: 26, signalLength: 9, target: "signal", side: "above" },
+      ],
+    }),
+    " — only while 1h MACD (12/26/9) is bearish — line below signal"
+    + " and 4h MACD (12/26/9) is bullish — line above signal"
+  );
 });

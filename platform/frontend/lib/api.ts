@@ -585,7 +585,7 @@ export const FILTER_TIMEFRAMES: Interval[] = [
 ];
 
 /** The most gates one alert may carry. Mirrors `MAX_ALERT_FILTERS`. */
-export const MAX_ALERT_FILTERS = 8;
+export const MAX_ALERT_FILTERS = 10;
 
 /**
  * One precondition on an alert.

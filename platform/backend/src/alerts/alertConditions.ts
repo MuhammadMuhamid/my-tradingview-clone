@@ -1405,10 +1405,22 @@ export function describeFilters(filters: AlertFilters | undefined): string {
       case "rsi_ma":
         return `${at}RSI ${f.length} is ${f.side} its ${maLabel(f.maType, f.maLength)}`;
       case "macd": {
-        const against = f.target === "zero"
-          ? "zero"
-          : `its signal line (${f.fastLength}/${f.slowLength}/${f.signalLength})`;
-        return `${at}MACD is ${f.side} ${against}`;
+        const params = `${f.fastLength}/${f.slowLength}/${f.signalLength}`;
+        /*
+         * Named bullish/bearish rather than above/below when the reference is
+         * the signal line. That IS what the two sides mean to a reader, and
+         * saying "above" made the gate look like it answered a different
+         * question than the one people were asking for — the words are the
+         * feature here as much as the comparison is.
+         *
+         * Against ZERO the words would be wrong: the centreline says which way
+         * the trend leans, not whether momentum has turned, so that branch
+         * keeps the plain above/below.
+         */
+        if (f.target === "zero") return `${at}MACD (${params}) is ${f.side} zero`;
+        const mood = f.side === "above" ? "bullish" : "bearish";
+        const where = f.side === "above" ? "above" : "below";
+        return `${at}MACD (${params}) is ${mood} — line ${where} signal`;
       }
       case "pivot": {
         const level = f.levelName === PIVOT_LEVEL_ANY
