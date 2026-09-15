@@ -607,9 +607,6 @@ export function saveDrawings(symbol: string, drawings: Drawing[]): void {
   if (typeof window === "undefined") return;
   const store = readStore();
   const key = drawingKey(symbol);
-  if (drawings.length === 0 && (store[key]?.length ?? 0) > 0) {
-    console.error("!!! LOCAL WIPE", key, (store[key]!).length, new Error("here").stack);
-  }
   if (drawings.length === 0) delete store[key];
   else store[key] = drawings;
   // Quota, or a browser that refuses to store: the drawings stay in memory for

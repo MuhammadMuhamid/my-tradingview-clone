@@ -248,12 +248,12 @@ test("THE REPLAY CHIP UN-PRESSES, AND SO DOES THE KEYBOARD", async () => {
   assert.equal(replayChip(chart).getAttribute("aria-pressed"), "false");
 
   // And `b` is the same action, from the keyboard — in, and out again.
-  fireEvent.keyDown(window, { key: "b" });
+  fireEvent.keyDown(window, { key: "b", altKey: true });
   await settle();
   assert.ok(screen.queryByRole("button", { name: "Start Replay" }),
     "`b` must open the picker — there was no keyboard route into a session");
 
-  fireEvent.keyDown(window, { key: "b" });
+  fireEvent.keyDown(window, { key: "b", altKey: true });
   await settle();
   assertAbsent(screen.queryByRole("button", { name: "Start Replay" }),
     "and close it again");
@@ -272,14 +272,14 @@ test("ESCAPE CLOSES THE REPLAY PICKER, AND A TYPED KEY DOES NOT", async () => {
    * blanket guard is only correct if the narrow one really does hold.
    */
   await mountChart();
-  fireEvent.keyDown(window, { key: "b" });
+  fireEvent.keyDown(window, { key: "b", altKey: true });
   await settle();
   assert.ok(screen.queryByRole("button", { name: "Start Replay" }));
 
   // A keystroke aimed at a text field belongs to the field.
   const typing = document.createElement("input");
   document.body.appendChild(typing);
-  fireEvent.keyDown(typing, { key: "b" });
+  fireEvent.keyDown(typing, { key: "b", altKey: true });
   await settle();
   assert.ok(screen.queryByRole("button", { name: "Start Replay" }),
     "typing `b` into a field must not close the panel around it");

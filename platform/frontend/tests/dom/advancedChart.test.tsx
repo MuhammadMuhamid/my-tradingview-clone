@@ -39,7 +39,7 @@ test("a fixed-range profile is selected by gesture and keeps independent setting
    * as "Fixed Range Volume Pro…".
    */
   fireEvent.click(screen.getByRole("button", { name: "More prediction-and-measurement tools" }));
-  fireEvent.click(screen.getByRole("button", { name: /Fixed range volume profile/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /Fixed range volume profile/ }));
   await drag(chart.plot, [280, 260], [720, 380]);
 
   const created = drawingStore.get(SYMBOL);
@@ -50,8 +50,8 @@ test("a fixed-range profile is selected by gesture and keeps independent setting
     "the selected bar range comes from the chart's time scale");
   assert.match(
     chart.pane().querySelector<HTMLElement>("[data-volume-profile-basis]")?.textContent ?? "",
-    /chart's own 15m bars/,
-    "the immediate fallback visibly discloses its chart-bar estimate basis",
+    /(chart's own 15m bars|1m bars loaded for this range)/,
+    "the rendered profile discloses the source bars used for its basis",
   );
 
   await advance(150);

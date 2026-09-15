@@ -27,7 +27,7 @@
  * reaches for another pane.
  */
 import type { MagnetMode } from "@/components/tv/DrawingToolbar";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { CandleChart, type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import type { PaneAction } from "@/components/tv/IndicatorPane";
@@ -122,6 +122,12 @@ export interface ChartPaneProps {
   onAnnotationSelect?: (id: string) => void;
   /** Set only while the workspace is waiting for a price to be clicked. */
   onPriceSelect?: (price: number) => void;
+  /** Set while the workspace is waiting for a replay bar to be clicked. */
+  onBarSelect?: (closeTime: number) => void;
+  /** Price-axis alert affordance, when alerts are supported for this symbol. */
+  onAxisAlert?: (price: number) => void;
+  /** Replay's chart-chrome strip, rendered between panes and the time ranges. */
+  replayStrip?: ReactNode;
   /** This pane's drawing selection changed. */
   onDrawingSelection?: (paneId: string, id: string | null) => void;
   /** A right-click landed on this pane's plot. */
@@ -1051,6 +1057,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
             compact={density !== "large"}
             onLiveBarBoundary={replayActive ? undefined : liveBarBoundary}
             onPriceSelect={props.onPriceSelect}
+            onBarSelect={props.onBarSelect}
+            onAxisAlert={props.onAxisAlert}
+            replayStrip={props.replayStrip}
             onAnnotationSelect={props.onAnnotationSelect}
             onCrosshairMove={emitCrosshair}
             crosshairTime={props.crosshairTime}

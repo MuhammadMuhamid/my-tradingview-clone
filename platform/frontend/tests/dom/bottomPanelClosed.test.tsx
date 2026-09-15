@@ -38,7 +38,7 @@ const tabStrip = (c: HTMLElement): HTMLElement | null =>
  * press. It asserts the panel is open first now.
  */
 async function open(container: HTMLElement): Promise<void> {
-  fireEvent.keyDown(document, { key: "p" });
+  fireEvent.keyDown(document, { key: "p", altKey: true, shiftKey: true });
   await settle();
   assert.ok(tabStrip(container), "setup: the panel would not open");
 }
@@ -76,7 +76,7 @@ test("FG-04 — and the keyboard brings it back", async () => {
   await collapse(chart.container);
   assert.equal(tabStrip(chart.container), null, "setup: the panel is not closed");
 
-  fireEvent.keyDown(document, { key: "p" });
+  fireEvent.keyDown(document, { key: "p", altKey: true, shiftKey: true });
   await settle();
 
   assert.ok(tabStrip(chart.container),
@@ -89,11 +89,11 @@ test("FG-04 — the same key closes it again", async () => {
   await settle();
   await open(chart.container);
 
-  fireEvent.keyDown(document, { key: "p" });
+  fireEvent.keyDown(document, { key: "p", altKey: true, shiftKey: true });
   await settle();
   assert.equal(tabStrip(chart.container), null, "`p` did not close an open panel");
 
-  fireEvent.keyDown(document, { key: "p" });
+  fireEvent.keyDown(document, { key: "p", altKey: true, shiftKey: true });
   await settle();
   assert.ok(tabStrip(chart.container), "`p` did not reopen it");
 });

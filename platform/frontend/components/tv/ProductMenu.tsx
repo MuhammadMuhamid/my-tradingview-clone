@@ -205,7 +205,7 @@ export interface ProductMenuProps {
 export function ProductMenu(
   { buttonClass = "", variant = "bar", onOpenShortcuts }: ProductMenuProps,
 ) {
-  const path = usePathname();
+  const path = usePathname() ?? "";
   const username = useUsername();
   const [open, setOpen] = useExclusivePopover("product-menu");
   const boxRef = useRef<HTMLDivElement>(null);

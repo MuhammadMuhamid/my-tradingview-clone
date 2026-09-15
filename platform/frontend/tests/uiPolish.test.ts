@@ -88,6 +88,15 @@ test("NO TAILWIND CLASS POINTS AT A CSS VARIABLE THIS APP NEVER DEFINES", () => 
    */
   const css = fs.readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
   const defined = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]!));
+  // Component-scoped custom properties are valid definitions too. Watchlist
+  // sizes are intentionally set on the panel instance so each open panel can
+  // carry its own persisted width rather than changing the global theme.
+  for (const file of allTsx()) {
+    const source = withoutComments(fs.readFileSync(file, "utf8"));
+    for (const m of source.matchAll(/\[\s*["'](--[\w-]+)["'](?:\s+as\s+string)?\s*\]\s*:/g)) {
+      defined.add(m[1]!);
+    }
+  }
   const problems: string[] = [];
   for (const file of allTsx()) {
     const source = withoutComments(fs.readFileSync(file, "utf8"));

@@ -140,7 +140,7 @@ test("a derived row says what it is made of, on the row", async () => {
   const derived = menuRow(menu, "45m");
   assert.match(derived.textContent ?? "", /45 minutes/,
     "the row names the interval in full words, as the reference's does");
-  assert.match(derived.textContent ?? "", /3 × 15m/,
+  assert.match(derived.getAttribute("title") ?? "", /3 whole 15m/,
     "a person choosing 45m is entitled to see that it is three real 15m bars");
   assert.match(derived.getAttribute("aria-label") ?? "", /45 minutes/);
   assert.match(derived.getAttribute("aria-label") ?? "", /3 whole 15m bars, aggregated/);

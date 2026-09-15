@@ -171,6 +171,7 @@ const byId = (entries: MenuEntry[], id: string): MenuEntry | undefined =>
 
 test("an action that cannot be taken is disabled with a reason, never hidden", () => {
   const replay = chartMenu({
+    ticker: "SOLUSDT", mac: true, canPaste: false, lists: [],
     price: 100, priceLabel: "100.00", replayActive: true, autoScale: true, logScale: false,
     hasDrawings: true, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true, candlePatterns: false,
   });
@@ -187,11 +188,12 @@ test("an action that cannot be taken is disabled with a reason, never hidden", (
 
 test("the chart menu prepares an order and never submits one", () => {
   const menu = chartMenu({
+    ticker: "SOLUSDT", mac: true, canPaste: false, lists: [],
     price: 100, priceLabel: "100.00", replayActive: false, autoScale: true, logScale: false,
     hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: true, candlePatterns: false,
   });
   const trade = byId(menu, "chart:trade-at-price")!;
-  assert.match((trade as { label: string }).label, /Prepare/,
+  assert.match((trade as { label: string }).label, /^(Add order|Prepare)/,
     "a one-click order from a context menu would cross the alerts-never-trade line");
   assert.match((trade as { hint?: string }).hint ?? "", /ticket/);
   for (const item of menu) {
@@ -210,6 +212,7 @@ test("an item that acts on a price names the price", () => {
    * purpose is a specific number.
    */
   const menu = chartMenu({
+    ticker: "SOLUSDT", mac: true, canPaste: false, lists: [],
     price: 64_123.5, priceLabel: "64,123.50", replayActive: false,
     autoScale: true, logScale: false, hasDrawings: false,
     drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
@@ -218,20 +221,21 @@ test("an item that acts on a price names the price", () => {
   assert.equal((byId(menu, "chart:copy-price") as { label: string }).label,
     "Copy price 64,123.50");
   assert.equal((byId(menu, "chart:add-alert") as { label: string }).label,
-    "Add alert at 64,123.50");
+    "Add alert on SOLUSDT at 64,123.50…");
   assert.equal((byId(menu, "chart:trade-at-price") as { label: string }).label,
-    "Prepare an order at 64,123.50");
+    "Add order on SOLUSDT at 64,123.50…");
 
   // With no price under the pointer there is no number to name, and the items
   // fall back to their bare form rather than saying "at ".
   const noPrice = chartMenu({
+    ticker: "SOLUSDT", mac: true, canPaste: false, lists: [],
     price: null, priceLabel: "", replayActive: false,
     autoScale: true, logScale: false, hasDrawings: false,
     drawingsHidden: false, drawingsLocked: false, tradingEnabled: true,
     candlePatterns: false,
   });
   assert.equal((byId(noPrice, "chart:copy-price") as { label: string }).label, "Copy price");
-  assert.equal((byId(noPrice, "chart:add-alert") as { label: string }).label, "Add alert");
+  assert.equal((byId(noPrice, "chart:add-alert") as { label: string }).label, "Add alert on SOLUSDT…");
   for (const entry of noPrice) {
     if (isSeparator(entry)) continue;
     assert.doesNotMatch(entry.label, /\bat\s*$/, `"${entry.label}" trails an empty price`);
@@ -240,6 +244,7 @@ test("an item that acts on a price names the price", () => {
 
 test("the chart menu offers no control it cannot justify", () => {
   const menu = chartMenu({
+    ticker: "SOLUSDT", mac: true, canPaste: false, lists: [],
     price: null, priceLabel: "", replayActive: false, autoScale: false, logScale: true,
     hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: false, candlePatterns: false,
   });
@@ -258,6 +263,7 @@ test("the chart menu offers no control it cannot justify", () => {
 
 test("a locked drawing refuses the edits that would change it", () => {
   const locked = drawingMenu({
+    toolName: "trendline",
     locked: true, hidden: false, alertable: true, replayActive: false, canReorder: true, mac: true,
   });
   for (const id of ["drawing:clone", "drawing:remove"]) {
@@ -270,11 +276,13 @@ test("a locked drawing refuses the edits that would change it", () => {
 
 test("only a level can carry a price alert, and not during Replay", () => {
   const notLevel = drawingMenu({
+    toolName: "trendline",
     locked: false, hidden: false, alertable: false, replayActive: false, canReorder: true, mac: true,
   });
   assert.match((byId(notLevel, "drawing:add-alert") as { disabledReason?: string }).disabledReason ?? "",
     /horizontal level/);
   const inReplay = drawingMenu({
+    toolName: "horizontal line",
     locked: false, hidden: false, alertable: true, replayActive: true, canReorder: true, mac: true,
   });
   assert.match((byId(inReplay, "drawing:add-alert") as { disabledReason?: string }).disabledReason ?? "",
@@ -315,6 +323,9 @@ test("a built-in study has no source to open, and says so", () => {
 
 test("the price axis and watchlist menus state their own preconditions", () => {
   const axis = priceAxisMenu({
+    mac: true, onLeft: false,
+    labels: { lastValue: true, indicatorValue: true, dayOfWeek: true },
+    lines: { lastValue: true, bidAsk: null },
     autoScale: true, logScale: false, percentScale: true, indexedScale: false,
     inverted: false,
   });
@@ -769,14 +780,13 @@ test("every toolbar popover goes through the registry rather than its own state"
     // toolbar control the reference has, beside Indicators.
     "indicator-templates",
     "layout-preset", "nav-system", "pane-sync",
-    "product-menu", "saved-layouts", "timeframe",
+    "product-menu", "saved-layouts", "study-settings-defaults", "timeframe",
     // TVP8: and widening the match immediately found a SECOND one that had
     // been escaping — the timeframe picker's scoped instance. Two popovers
     // were outside the registry's inventory, both through the quote character.
     "timeframe:${props.scope}",
     // TVP8: the camera's Save image / Copy image menu.
     // R6b-29: the study dialog's own `Defaults ▾`, for the same reason.
-    "study-settings-defaults",
     "toolbar:snapshot", "trading-overlays",
     "ui-dropdown:${popoverId}", "ui-line-style:${popoverId}", "ui-swatch:${popoverId}",
     // TVP7: the watchlist's list switcher. It kept a private `useState(false)`
@@ -841,6 +851,14 @@ test("every id a menu can emit is answered by a handler", () => {
     read("components/tv/Watchlist.tsx"),
   ].join("\n");
   for (const id of ALL_MENU_IDS) {
+    // The single-list chart row and its multi-list submenu share one handler:
+    // the latter is namespaced by CHART_ADD_TO_LIST_PREFIX rather than having
+    // one switch case per persisted watchlist id.
+    if (id === "chart:add-to-watchlist") {
+      assert.match(sources, /id === "chart:add-to-watchlist"/);
+      assert.match(sources, /CHART_ADD_TO_LIST_PREFIX/);
+      continue;
+    }
     assert.ok(sources.includes(`case "${id}"`),
       `${id} is offered by a menu and reaches no handler — the menu closes and nothing happens`);
   }

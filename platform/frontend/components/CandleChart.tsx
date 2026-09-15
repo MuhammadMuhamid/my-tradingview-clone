@@ -3317,6 +3317,31 @@ export function CandleChart({
           handler({ x: e.clientX, y: e.clientY, drawingId: null, price, region });
         }}
       />
+      {barPickX !== null && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 z-10 w-px bg-accent"
+          style={{ left: barPickX, bottom: axisFoot.bottom }}
+        />
+      )}
+      {axisAlert !== null && onAxisAlert && (
+        <button
+          type="button"
+          aria-label={`Create price alert at ${fmtPrice(axisAlert.price)}`}
+          title="Create price alert at this price"
+          onClick={() => onAxisAlert(axisAlert.price)}
+          className={`absolute z-30 flex h-5 w-5 items-center justify-center rounded-sm bg-surface text-ink shadow-sm hover:bg-state-hover ${
+            axisSide === "left" ? "left-0" : "right-0"
+          }`}
+          style={{ top: Math.max(0, axisAlert.y - 10), transform: axisSide === "left" ? "translateX(50%)" : "translateX(-50%)" }}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+            strokeWidth="1.5" aria-hidden="true">
+            <circle cx="7" cy="7" r="5.5" />
+            <path d="M7 4v6M4 7h6" />
+          </svg>
+        </button>
+      )}
       {/*
         Everything below is anchored to a canonical bar time, and under sparse
         transforms none of it is drawn — synthetic points are not those bars. See
@@ -3980,6 +4005,7 @@ export function CandleChart({
           })}
         </div>
       )}
+      {replayStrip}
       {showBottomBar && (
         /*
           The range bar, on the pane it acts on.

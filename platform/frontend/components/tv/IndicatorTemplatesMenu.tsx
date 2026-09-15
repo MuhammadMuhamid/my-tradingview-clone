@@ -227,13 +227,13 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
           saved arrangement — at the bar's shared 22px / 1.5 stroke, not a
           folder and not a star.
         */}
-        <svg width={TOOL_ICON_SIZE} height={TOOL_ICON_SIZE} viewBox="0 0 24 24" fill="none"
+        <svg width={TOOL_ICON_SIZE} height={TOOL_ICON_SIZE} viewBox="0 0 28 28" fill="none"
           stroke="currentColor" strokeWidth={TOOL_ICON_STROKE}
           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="2.8" y="2.8" width="8" height="8" rx="1" />
-          <rect x="13.2" y="2.8" width="8" height="8" rx="1" />
-          <rect x="2.8" y="13.2" width="8" height="8" rx="1" />
-          <rect x="13.2" y="13.2" width="8" height="8" rx="1" />
+          <rect x="3.3" y="3.3" width="9.3" height="9.3" rx="1.2" />
+          <rect x="15.4" y="3.3" width="9.3" height="9.3" rx="1.2" />
+          <rect x="3.3" y="15.4" width="9.3" height="9.3" rx="1.2" />
+          <rect x="15.4" y="15.4" width="9.3" height="9.3" rx="1.2" />
         </svg>
       </button>
 

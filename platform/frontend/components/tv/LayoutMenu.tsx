@@ -272,8 +272,8 @@ export function LayoutMenu({
           } ${autosaveError ? "text-warn" : ""}`}
           aria-hidden="true"
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor"
+            strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
             <path d="M7 18.5H17.2a4 4 0 0 0 .3-7.6 6 6 0 0 0-11.4-1.3 4.6 4.6 0 0 0 .9 8.9z" />
           </svg>
           {dirty && (

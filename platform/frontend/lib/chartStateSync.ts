@@ -276,9 +276,6 @@ export async function syncDrawings(
 export async function pushDrawings(
   symbol: string, drawings: Drawing[], baseVersion: number
 ): Promise<{ drawings: Drawing[]; version: number; conflicted: boolean; offline: boolean }> {
-  if (drawings.length === 0 && baseVersion > 0) {
-    console.error("!!! DESTRUCTIVE PUSH", symbol, baseVersion, new Error("here").stack);
-  }
   saveDrawings(symbol, drawings);
   try {
     const saved = await api.putChartDrawings(symbol, drawings, baseVersion);

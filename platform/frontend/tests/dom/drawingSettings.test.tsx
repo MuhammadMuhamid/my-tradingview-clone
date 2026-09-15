@@ -43,7 +43,7 @@ async function openTrendSettings(): Promise<HTMLElement> {
 
   // The gear's own route: the drawing menu's first row.
   await rightClickAt(chart.plot, 410, 320);
-  await chooseMenuItem("Style…");
+  await chooseMenuItem("Settings…");
   await settle();
   return screen.getByRole("dialog");
 }

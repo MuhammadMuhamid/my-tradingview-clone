@@ -684,8 +684,8 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
      */
     ["statusTitle", "CandleChart", /settings\.statusTitle === "symbol" \? displayTicker\(symbol\)/],
     // R3b-24: the mark before the name, and the dot after the venue.
-    ["statusLogo", "CandleChart", /settings\.statusLogo && <InstrumentLogo symbol=\{symbol\} \/>/],
-    ["statusMarketStatus", "CandleChart", /settings\.statusMarketStatus && marketOpen\(symbol\) === true/],
+    ["statusLogo", "CandleChart", /settings\.showStatusLine && settings\.statusSymbol && settings\.statusLogo && \(\s*<InstrumentLogo symbol=\{symbol\} \/>\s*\)/],
+    ["statusMarketStatus", "CandleChart", /settings\.statusSymbol && settings\.statusMarketStatus\s*\n?\s*&& marketOpen\(symbol\) === true/],
     // R3b-25: the plate behind the legend's text runs.
     ["statusLegendBackground", "CandleChart", /const legendPlate = settings\.statusLegendBackground/],
     ["statusLegendBackgroundOpacity", "CandleChart", /\$\{settings\.statusLegendBackgroundOpacity \/ 100\}/],

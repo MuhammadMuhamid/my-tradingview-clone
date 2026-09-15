@@ -15,7 +15,7 @@
  *
  * Against the reference's own study dialog this was 512 wide with a 12px
  * description paragraph the reference does not have, two 28px CHIP tabs, 310×34
- * native number and `<select>` controls, a 16px ACCENT-filled switch (the one
+ * native number and `<select>` controls, a 16px switch in the accent colour (the one
  * use of accent the contract forbids, and a second definition of "checkbox" in
  * a product that already has one), a ten-cell 20px palette, two 22px native
  * selects, no Visibility tab at all, and a `Reset to defaults` / `Done` footer
@@ -169,7 +169,6 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
     }
     onClose();
     // `props` is read through the ref-stable callbacks the pane hands us.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, props]);
 
   if (!study || !def) return null;
@@ -465,7 +464,7 @@ function StyleRow({ plot, override, value, onChange }: {
   /*
    * R6b-29: `[☑] plot … [swatch 34×34][line-style 75×34]` on one 50px row.
    *
-   * It was a bordered CARD per plot holding a 16px accent-filled switch, ten
+   * It was a bordered CARD per plot holding a 16px switch in the accent colour, ten
    * 20px palette buttons and two 22px native selects — a second grammar for
    * the same four settings the chart-settings dialog already draws as a
    * checkbox, a swatch and one button. The plot STYLE (line, histogram, …) has

@@ -70,8 +70,9 @@ test("each strip of the chart opens its own menu, and the time axis opens none",
   assert.deepEqual(
     menuItems().map((i) => i.label.replace(/\s+/g, " ").trim()),
     [
-      "Auto scale", "Logarithmic scale", "Percent scale", "Indexed to 100",
-      "Invert scale", "Reset scale",
+      "Auto (fits data to screen)⌘⇧A", "Invert scale", "Regular", "Percent",
+      "Indexed to 100", "Logarithmic⌥L", "Move scale to left", "Labels", "Lines",
+      "Reset scale⌥R", "More settings…",
     ]);
   await press("Escape");
 
@@ -87,7 +88,7 @@ test("each strip of the chart opens its own menu, and the time axis opens none",
   assert.equal(menuLabel(), "Time scale");
   assert.deepEqual(
     menuItems().map((i) => i.label.replace(/\s+/g, " ").trim()),
-    ["Reset chart view", "Go to…", "Chart settings…"]);
+    ["Reset time scale⌥R", "Go to…", "More settings…"]);
   await press("Escape");
 });
 
@@ -127,7 +128,7 @@ test("a drawing's add-alert reads the drawing's own level, not the pointer's pri
   assert.equal(menuItems().find((i) => i.label.startsWith("Copy price")), undefined,
     "the drawing menu is about the drawing; it offers no pointer price at all");
 
-  await chooseMenuItem("Add alert on this level");
+  await chooseMenuItem("Add alert on horizontal line");
   await settle();
   assert.equal(prefilledLevel(), Number(level.toPrecision(8)),
     "the alert must be armed on the LINE, not on wherever the click landed");
@@ -138,9 +139,9 @@ test("a drawing's add-alert reads the drawing's own level, not the pointer's pri
   await settle();
   await rightClickAt(chart.plot, 700, 200);
   assert.equal(menuLabel(), "SOLUSDT chart");
-  const labelled = (menuItems().find((i) => i.label.startsWith("Add alert at"))?.label ?? "")
-    .replace("Add alert at", "").trim();
-  await chooseMenuItem("Add alert at");
+  const labelled = (menuItems().find((i) => i.label.startsWith("Add alert on SOLUSDT"))?.label ?? "")
+    .replace("Add alert on SOLUSDT", "").replaceAll("…", "").trim().replace(/^at\s+/, "");
+  await chooseMenuItem("Add alert on SOLUSDT");
   await settle();
   const armed = prefilledLevel();
   assert.equal(fmtPrice(armed), labelled, "the item named the price it armed");
@@ -167,16 +168,16 @@ test("the axis menu changes the axis it was opened on", async () => {
   const chart = await mountChart();
 
   await rightClickAt(chart.plot, AXIS_X, PLOT.y);
-  const autoBefore = menuItems().find((i) => i.label.includes("Auto scale"));
+  const autoBefore = menuItems().find((i) => i.label.includes("Auto (fits data"));
   assert.ok(autoBefore);
-  const checkedBefore = screen.getByRole("menuitemcheckbox", { name: /Auto scale/ })
+  const checkedBefore = screen.getByRole("menuitemcheckbox", { name: /Auto \(fits data/ })
     .getAttribute("aria-checked");
 
-  await chooseMenuItem("Auto scale");
+  await chooseMenuItem("Auto (fits data");
   await settle();
 
   await rightClickAt(chart.plot, AXIS_X, PLOT.y);
-  const checkedAfter = screen.getByRole("menuitemcheckbox", { name: /Auto scale/ })
+  const checkedAfter = screen.getByRole("menuitemcheckbox", { name: /Auto \(fits data/ })
     .getAttribute("aria-checked");
   assert.notEqual(checkedAfter, checkedBefore,
     "the menu must both report the axis's state and change it; it was once built from literals");
@@ -186,7 +187,7 @@ test("axis meaning and orientation are visible, actionable and persisted", async
   const chart = await mountChart();
 
   await rightClickAt(chart.plot, AXIS_X, PLOT.y);
-  await chooseMenuItem("Percent scale");
+  await chooseMenuItem("Percent");
   await settle();
 
   assert.ok(screen.getByRole("group", { name: /Price scale — Percent · Auto/ }));
@@ -195,7 +196,7 @@ test("axis meaning and orientation are visible, actionable and persisted", async
 
   await rightClickAt(chart.plot, AXIS_X, PLOT.y);
   assert.equal(
-    screen.getByRole("menuitemcheckbox", { name: /Percent scale/ })
+    screen.getByRole("menuitemradio", { name: /Percent/ })
       .getAttribute("aria-checked"),
     "true",
   );
@@ -255,10 +256,16 @@ test("every enabled item in the chart menu is answered by a handler", async () =
    * scale first gives it something to undo.
    */
   await rightClickAt(chart.plot, AXIS_X, PLOT.y);
-  await chooseMenuItem("Logarithmic scale");
+  await chooseMenuItem("Logarithmic");
   await settle();
   await rightClickAt(chart.plot, EMPTY.x, EMPTY.y);
   assert.equal(menuLabel(), "SOLUSDT chart");
+  // Start from a different side-panel selection so `Symbol info…` has a
+  // visible, testable effect when the loop reaches it.
+  await press("Escape");
+  const indicatorsRail = chart.container.querySelector<HTMLButtonElement>('button[title="Indicators"]');
+  if (indicatorsRail) { indicatorsRail.click(); await settle(); }
+  await rightClickAt(chart.plot, EMPTY.x, EMPTY.y);
   const labels = menuItems().filter((i) => !i.disabled).map((i) => i.label);
   await press("Escape");
   // Seven on this fixture: manual trading is off, so "Prepare an order" is

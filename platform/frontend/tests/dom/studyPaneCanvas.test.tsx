@@ -75,7 +75,7 @@ async function mountPane(
 
 test("R6b-13 — `Day of week` OFF installs a formatter, never `undefined`", async () => {
   const on = await mountPane({ dayOfWeekOnLabels: true });
-  const onFormatter = on.options().timeScale.tickMarkFormatter;
+  const onFormatter = (on.options().timeScale as { tickMarkFormatter?: unknown }).tickMarkFormatter;
   assert.equal(typeof onFormatter, "function");
   assert.equal(
     (onFormatter as (t: number, k: number) => string | null)(1_788_144_000, 2),
@@ -84,7 +84,7 @@ test("R6b-13 — `Day of week` OFF installs a formatter, never `undefined`", asy
 
   resetBrowser();
   const off = await mountPane({ dayOfWeekOnLabels: false });
-  const offFormatter = off.options().timeScale.tickMarkFormatter;
+  const offFormatter = (off.options().timeScale as { tickMarkFormatter?: unknown }).tickMarkFormatter;
   /*
    * The whole defect in one assertion: `undefined` here is not "off", it is
    * "leave whatever is installed alone", and the default being ON meant the

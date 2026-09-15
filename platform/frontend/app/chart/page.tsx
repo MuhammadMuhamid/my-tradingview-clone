@@ -93,7 +93,7 @@ import {
 } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
 import {
-  DEFAULT_PRICE_SCALE, resetPriceScale, setPriceScaleMode, togglePercentScale,
+  DEFAULT_PRICE_SCALE, resetPriceScale, setPriceScaleMode,
   togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
   type PriceScaleState,
 } from "@/lib/priceScale";
@@ -1777,6 +1777,7 @@ export default function TvWorkspace() {
       case "chart:indicators":
       // R8-17: the reference's own row, which reaches the same browser the
       // toolbar's `Indicators` control does. One dialog, three routes.
+      // falls through
       case "chart:add-indicator":
         setIndicatorBrowserOpen(true);
         return;
@@ -2210,6 +2211,27 @@ export default function TvWorkspace() {
         maAlerts={maAlerts}
         candleOverlay={candleOverlays[pane.id]}
         classicalOverlay={classicalOverlays[pane.id]}
+        onBarSelect={replayPickerOpen && isActive ? beginReplay : undefined}
+        onAxisAlert={isActive && !replayActive && alertCapability(pane.symbol).supported
+          ? pickLevel : undefined}
+        replayStrip={isActive ? (
+          <ReplayControls
+            candles={candles}
+            interval={pane.interval}
+            bars={pane.bars}
+            session={replay}
+            pickerOpen={replayPickerOpen}
+            onStart={beginReplay}
+            onCancel={() => setReplayPickerOpen(false)}
+            onPrevious={() => setReplay((current) => current ? stepReplay(current, candles, -1) : null)}
+            onNext={() => setReplay((current) => current ? stepReplay(current, candles, 1) : null)}
+            onPlaying={setReplayPlaying}
+            onSpeed={setReplaySpeed}
+            onDeepen={changeBars}
+            onRepick={() => setReplayPickerOpen(true)}
+            onExit={exitReplay}
+          />
+        ) : null}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
         onEditNative={setEditingNativeKey}
@@ -2223,7 +2245,9 @@ export default function TvWorkspace() {
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, paneResets, goTo, paneStyleFocus, changePaneCompare,
-    maAlerts, candleOverlays, classicalOverlays, resolutions]);
+    maAlerts, candleOverlays, classicalOverlays, resolutions, replayPickerOpen, beginReplay,
+    replayActive, candles, setReplayPlaying, setReplaySpeed, changeBars,
+    exitReplay]);
 
   return (
     <div ref={fullscreen.ref} className="flex min-h-0 flex-1 flex-col bg-bg pb-[52px] md:pb-0 tv-workstation">
@@ -2452,30 +2476,6 @@ export default function TvWorkspace() {
           {overlays.selected && <TradingOverlayDetails item={overlays.selected}
             onClose={() => overlays.select(null)} />}
         </div>
-
-        {/*
-          Replay's strip sits BELOW the panes, between the chart and the bottom
-          workstation — chart chrome, not a page banner.
-
-          It used to render directly under the toolbar, above every pane, as a
-          full-width accent-tinted bar. Two things were wrong with that beyond
-          its colour: it was a sibling of the error banner and the deep-link
-          consent notice and read as one of them, and it pushed every pane down
-          by its own height for the whole session, so entering replay moved the
-          chart out from under the pointer. The reference puts the same
-          controls under the time axis, where they belong to the thing they
-          control.
-        */}
-        <ReplayControls
-          candles={candles} interval={interval} bars={bars}
-          session={replay} pickerOpen={replayPickerOpen}
-          onStart={beginReplay} onCancel={() => setReplayPickerOpen(false)}
-          onPrevious={() => setReplay((current) => current ? stepReplay(current, candles, -1) : null)}
-          onNext={() => setReplay((current) => current ? stepReplay(current, candles, 1) : null)}
-          onPlaying={setReplayPlaying} onSpeed={setReplaySpeed}
-          onDeepen={changeBars} onRepick={() => setReplayPickerOpen(true)}
-          onExit={exitReplay}
-        />
 
         <ChartBottomPanel
           toggleSignal={bottomToggle}
