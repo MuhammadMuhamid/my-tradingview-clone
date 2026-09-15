@@ -6,9 +6,9 @@ import { CaretGlyph } from "@/components/ui";
 import {
   ALL_QUOTES, ALL_TYPES, ALL_VENUES, ASSET_CLASS_CHIPS, EXPIRY_LABELS, EXPIRY_OPTIONS, LIVE_EXPIRIES,
   NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, TYPE_LABELS, chipById, chipDegradedTitle, chipForInstrument,
-  chipTypeDefault, currentFirst, degradedSources, degradedSummary, dialogClosed, matchParts, moveCursor,
+  chipTypeDefault, currentFirst, dialogClosed, matchParts, moveCursor,
   pressEnter, queryChanged, quoteFilters, reasonForSource, responseArrived, rowAtCursor, rowDescription,
-  rowTicker, rowTitle, rowTypeWords, searchKey, searchSummary, showsExpiry, typeOptionsFor, venueOptions,
+  rowTicker, rowTitle, rowTypeWords, searchKey, showsExpiry, typeOptionsFor, venueOptions,
   type SearchAssetClass, type SearchExpiry, type SearchInstrumentType, type SearchIntent,
 } from "@/lib/symbolSearch";
 import { displayTicker, storedSymbol } from "@/lib/instrument";
@@ -90,13 +90,9 @@ import { displayTicker, storedSymbol } from "@/lib/instrument";
  *
  * ── Provider limitations, without a banner ─────────────────────────────────
  *
- * Six providers are failing today and the dialog used to open on a 50px amber
- * box listing their ids — `bybit-spot, robinhood-crypto, …` — above the first
- * result. Contract §5 forbids a provider id or a thrown cause as primary copy.
- * The truth is unchanged and is now said three times, quietly: a chip whose
- * only provider is down is disabled with the reason on hover, a source whose
- * venue answered nothing is a disabled menu row, and the footer carries one
- * muted `N sources unavailable` with a popover naming the venues by LABEL.
+ * Provider health remains available to the filter model (including hover
+ * reasons for a source that cannot answer), but is never primary dialog copy.
+ * The footer is a neutral search hint and contains no counts or health state.
  */
 
 /** A trigger in the dropdown row, and the menu it opens. */
@@ -133,7 +129,7 @@ function AssetMark({ asset }: { asset: string }) {
 function VenueMark({ label }: { label: string }) {
   return (
     <span aria-hidden="true"
-      className="flex h-5 w-5 items-center justify-center rounded-full bg-state-active text-[10px] text-ink-muted">
+      className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-state-active text-[9px] font-semibold text-ink-muted">
       {label.slice(0, 1)}
     </span>
   );
@@ -185,14 +181,12 @@ export function SymbolSearch({
   const [quotes, setQuotes] = useState<string[]>([]);
   const [rows, setRows] = useState<SymbolSearchResult[]>([]);
   const [errors, setErrors] = useState<{ providerId: string; error: string }[]>([]);
-  const [total, setTotal] = useState(0);
   const [cursor, setCursor] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   /** Which dropdown is open, and where its own cursor sits. */
   const [menu, setMenu] = useState<string | null>(null);
   const [menuCursor, setMenuCursor] = useState(0);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -222,11 +216,6 @@ export function SymbolSearch({
   const menuCursorRef = useRef(0);
   menuCursorRef.current = menuCursor;
   const menusRef = useRef<FilterMenu[]>([]);
-  /** Whether the footer's sources popover is showing, for the key handler. */
-  const sourcesRef = useRef(false);
-  sourcesRef.current = sourcesOpen;
-  /** The indicator and its popover, so a pointer outside them dismisses it. */
-  const sourcesBoxRef = useRef<HTMLDivElement>(null);
 
   // Fresh dialog every time it opens, pre-seeded with the chart's own TICKER
   // so Enter re-selects it and typing replaces it (the selection is
@@ -251,7 +240,6 @@ export function SymbolSearch({
     setCursor(0);
     setErr(null);
     setMenu(null);
-    setSourcesOpen(false);
     // A dialog that has just opened answers nothing yet; its rows are last
     // session's, and Enter must not treat them as this session's answer.
     intent.current = NO_INTENT;
@@ -318,7 +306,6 @@ export function SymbolSearch({
           // opens on it and "open, Enter" is the no-op it looks like.
           const ordered = currentFirst(res.results, currentRef.current);
           setRows(ordered);
-          setTotal(res.total);
           setQuotes(res.quotes);
           setVenues(res.venues ?? []);
           setErrors(res.errors ?? []);
@@ -339,7 +326,6 @@ export function SymbolSearch({
           // screen under an error: those rows are no longer an answer to what
           // was typed, and picking one would look like a successful search.
           setRows([]);
-          setTotal(0);
           setCursor(-1);
           intent.current = responseArrived(intent.current, key, false).intent;
           bumpIntent();
@@ -431,7 +417,6 @@ export function SymbolSearch({
     };
     const onKey = (e: KeyboardEvent) => {
       // Escape order is popover → menu → dialog, innermost first.
-      if (e.key === "Escape" && sourcesRef.current) { claim(e); setSourcesOpen(false); return; }
       const openMenuId = menuRef.current;
       if (openMenuId !== null) { handleMenuKey(e, openMenuId); return; }
       if (e.key === "Escape") {
@@ -527,28 +512,6 @@ export function SymbolSearch({
     return () => window.removeEventListener("mousedown", onDown, true);
   }, [open, menu]);
 
-  /*
-   * The sources popover dismisses on a pointer outside it — not on a second
-   * click of the thing that opened it.
-   *
-   * R4b-08: the indicator opened on `onMouseEnter` AND toggled on `onClick`,
-   * so a click while hovering CLOSED what the hover had opened, a tap (which
-   * is enter + click) could never show it at all, and it was unreachable by
-   * keyboard. Open is now open — hover, click, Enter and Space all say the
-   * same thing — and it closes on Escape, on a pointer elsewhere, or on the
-   * pointer leaving the footer cluster.
-   */
-  useEffect(() => {
-    if (!open || !sourcesOpen) return;
-    const onDown = (e: MouseEvent): void => {
-      const target = e.target as Node | null;
-      if (target !== null && sourcesBoxRef.current?.contains(target)) return;
-      setSourcesOpen(false);
-    };
-    window.addEventListener("mousedown", onDown, true);
-    return () => window.removeEventListener("mousedown", onDown, true);
-  }, [open, sourcesOpen]);
-
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {
     if (cursor < 0) return;
@@ -558,7 +521,6 @@ export function SymbolSearch({
 
   if (!open) return null;
 
-  const down = degradedSources(errors, venues, reasonForSource);
   const typeChoices = typeOptionsFor(chip);
   const sources = venueOptions({ venues, rows, chip, selected: venue, errors, reason: reasonForSource });
   const menus: FilterMenu[] = [
@@ -685,27 +647,24 @@ export function SymbolSearch({
 
         {/*
           The asset class: the question a reader actually opens this with.
-          Stocks and Funds are rendered and DISABLED while their only provider
-          is unavailable — hiding them would make a capability blink out of
-          existence with a credential; Bonds, Economy and Options are not here
-          because no contract describes them.
+          Every supported class remains an ordinary filter even when its
+          provider is unavailable. The resulting empty list is truthful and
+          the hover title retains the reason without dimming the control.
         */}
         <div role="group" aria-label="Asset class" className="mt-4 flex h-7 shrink-0 gap-[5px] px-5">
           {ASSET_CLASS_CHIPS.map((item) => {
-            const disabledWhy = chipDegradedTitle(item, errors, reasonForSource);
+            const availabilityTitle = chipDegradedTitle(item, errors, reasonForSource);
             return (
               <button
                 key={item.id}
                 onClick={() => {
-                  if (disabledWhy) return;
                   setChip(item.id);
                   setType(chipTypeDefault(item.id));
                   setExpiry(LIVE_EXPIRIES);
                   setMenu(null);
                 }}
                 aria-pressed={chip === item.id}
-                aria-disabled={disabledWhy ? "true" : undefined}
-                title={disabledWhy ?? undefined}
+                title={availabilityTitle ?? undefined}
                 /*
                   ── R4b-01: a chip is a PILL, not a chrome control ──────────
                   `.tvc-control` exists for toolbar and rail buttons: it forces
@@ -719,8 +678,7 @@ export function SymbolSearch({
                   grey, about 2.3:1. The reference's chips are filled #2e2e2e
                   pills, inverted to #f2f2f2 when selected.
                 */
-                className={`h-7 shrink-0 rounded-full px-3 text-sm leading-7 transition-colors ${
-                  disabledWhy ? "cursor-not-allowed opacity-50 " : ""}${chip === item.id
+                className={`h-7 shrink-0 rounded-full px-3 text-sm leading-7 transition-colors ${chip === item.id
                   ? "bg-[var(--ts-menu-selected-bg)] text-[var(--ts-menu-selected-ink)]"
                   : "bg-state-hover text-ink hover:bg-state-active"}`}
               >
@@ -843,7 +801,7 @@ export function SymbolSearch({
                     the layout: the column is wider than any ticker. */}
                 <span className="truncate text-sm text-accent">
                   {tickerHit === null ? ticker : <>
-                    {tickerHit.pre}<span className="underline decoration-accent">{tickerHit.hit}</span>{tickerHit.post}
+                    {tickerHit.pre}<span className="font-semibold">{tickerHit.hit}</span>{tickerHit.post}
                   </>}
                 </span>
                 <span className="truncate text-sm text-ink">
@@ -866,54 +824,11 @@ export function SymbolSearch({
         </div>
 
         {/*
-          The footer strip: one centred line on a lighter ground, which is the
-          divider. The count is ours and stays; the reference's ISIN sentence
-          is not ours to print, and the key hints moved to `sr-only` above.
+          The footer strip is deliberately neutral. Provider health and result
+          counts are diagnostic facts, not primary symbol-search copy.
         */}
-        <div className="relative flex h-10 shrink-0 items-center justify-center bg-state-hover text-[13px] text-ink-faint">
-          <span role="status">{searchSummary({ busy, shown: rows.length, total })}</span>
-          {down.length > 0 && (
-            <div ref={sourcesBoxRef} className="absolute right-5"
-              onMouseEnter={() => setSourcesOpen(true)}
-              onMouseLeave={() => setSourcesOpen(false)}>
-              {/*
-                R4b-08: open is open.
-
-                This used to open on `mouseEnter` and TOGGLE on `click`, so a
-                click while hovering closed what the hover had opened; a tap,
-                which is an enter followed by a click, therefore never showed
-                it at all. The count keeps `role="status"`, the button carries
-                `aria-expanded`, and hover, click, Enter and Space all mean
-                "show me" — Escape, a pointer elsewhere and leaving the
-                cluster are what mean "hide".
-              */}
-              <button aria-label={degradedSummary(down.length)}
-                aria-expanded={sourcesOpen}
-                onClick={() => setSourcesOpen(true)}
-                className="flex items-center gap-1.5 rounded text-xs text-ink-faint hover:text-ink">
-                <span role="status">{degradedSummary(down.length)}</span>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 7.6v.6" />
-                </svg>
-              </button>
-              {sourcesOpen && (
-                <div className="tvc-popover absolute bottom-full right-0 z-10 mb-2 w-[320px] p-3 text-left">
-                  <p className="text-xs text-ink-muted">
-                    These sources did not answer. Everything else remains searchable.
-                  </p>
-                  <ul className="mt-2 space-y-1">
-                    {down.map((source) => (
-                      <li key={source.providerId} title={source.error}
-                        className="flex items-baseline justify-between gap-3 text-xs">
-                        <span className="shrink-0 text-ink">{source.label}</span>
-                        <span className="truncate text-ink-faint">{source.reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
+        <div className="flex h-10 shrink-0 items-center justify-center bg-state-hover text-[13px] text-ink-faint">
+          <span>Type a ticker or name</span>
         </div>
       </div>
     </div>

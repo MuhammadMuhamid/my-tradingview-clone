@@ -634,7 +634,8 @@ function StripChip(props: {
       data-resolution={props.resolution}
       onClick={() => props.onPick(props.resolution)}
       aria-pressed={props.armed}
-      title={explainResolution(props.resolution)}
+      title={describeResolution(props.resolution)}
+      aria-label={describeResolution(props.resolution)}
       /*
         R1b-01 / BLIND clue 10: full ink at REST and REGULAR weight at 13px.
         An unarmed favourite used to sit at rgb(168) and only reach the armed

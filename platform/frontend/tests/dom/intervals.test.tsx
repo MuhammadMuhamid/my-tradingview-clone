@@ -97,6 +97,12 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
       .map((b) => b.getAttribute("data-resolution")),
     ["1m", "5m", "15m", "1h", "4h", "1d"],
     "the chip's label is presentation; its resolution id is not");
+  const spoken = [...strip.querySelectorAll<HTMLElement>("button[data-resolution]")]
+    .map((button) => [button.getAttribute("title"), button.getAttribute("aria-label")]);
+  assert.deepEqual(spoken, [
+    ["1 minute", "1 minute"], ["5 minutes", "5 minutes"], ["15 minutes", "15 minutes"],
+    ["1 hour", "1 hour"], ["4 hours", "4 hours"], ["1 day", "1 day"],
+  ], "toolbar favourite tooltips use interval grammar, not provider provenance");
 
   // The trigger says nothing. TradingView's is a 24px caret, and the word
   // "Timeframe" on ours was the thing that made the strip clip at 1440.

@@ -41,8 +41,8 @@ const CURRENT = CANONICAL.SOLUSDT!;
 /**
  * What the running installation's `errors` array looks like today.
  *
- * The equities provider is in it, because that is what makes `Stocks` and
- * `Funds` a truthful disabled capability rather than a hidden one.
+ * The equities provider is in it so Stocks and Funds can retain a truthful
+ * hover reason while remaining normal, usable filters.
  */
 const FAILURES = [
   { providerId: "alpaca-us-equities", error: "HTTP 403 unverified credential" },
@@ -147,47 +147,33 @@ test("nothing above the first row is a provider's own words", async () => {
     "the amber banner is back");
 });
 
-test("a class whose only provider is down is offered, disabled, and says why", async () => {
+test("a class whose provider is down remains a normal filter and says why on hover", async () => {
   const { dialog } = await openDialog();
+  assert.equal(chip(dialog, "Crypto").getAttribute("aria-pressed"), "true",
+    "the dialog opens on the class of the instrument the chart is showing");
   for (const name of ["Stocks", "Funds"]) {
     const control = chip(dialog, name);
-    assert.equal(control.getAttribute("aria-disabled"), "true",
-      `${name} must be present and disabled — hiding it makes a capability blink out of existence`);
+    assert.equal(control.getAttribute("aria-disabled"), null);
+    assert.ok(!control.className.includes("opacity-50"), `${name} must not be visually disabled`);
     const why = control.getAttribute("title") ?? "";
     assert.match(why, /unavailable/);
     assert.ok(!why.includes("alpaca-us-equities"), "the reason is a sentence, not a provider id");
+    fireEvent.click(control);
+    await advance(220);
+    assert.equal(control.getAttribute("aria-pressed"), "true", `${name} did not become the active filter`);
+    assert.equal(rowsOf(dialog).length, 0, `${name} must truthfully filter to an empty result set`);
   }
   // And a class many venues carry is untouched by one of them failing.
   assert.equal(chip(dialog, "Crypto").getAttribute("aria-disabled"), null);
-  assert.equal(chip(dialog, "Crypto").getAttribute("aria-pressed"), "true",
-    "the dialog opens on the class of the instrument the chart is showing");
 });
 
-test("the footer counts the failing sources and names them by venue, on demand", async () => {
+test("the footer is one neutral hint with no provider health or result count", async () => {
   const { dialog } = await openDialog();
-  /*
-   * TVP8 R4b-08 rewrote the query rather than the claim: the indicator is a
-   * BUTTON with `aria-expanded` now, and `role="status"` sits on the text it
-   * announces, not on the control. A live region is not a control, and it was
-   * the only thing in the footer a keyboard user could reach — and reaching
-   * it closed the whole dialog (R4b-04).
-   */
-  const indicator = within(dialog).getByRole("button", { name: "3 sources unavailable" });
-  assert.match(indicator.textContent ?? "", /3 sources unavailable/);
-  assert.equal(indicator.getAttribute("aria-expanded"), "false");
-  assert.ok(indicator.querySelector('[role="status"]'),
-    "the count is still announced; it is the text that is the live region");
-
-  fireEvent.click(indicator);
-  await settle();
-  assert.equal(indicator.getAttribute("aria-expanded"), "true");
-  const popover = (dialog.textContent ?? "").replace(/\s+/g, " ");
-  for (const label of ["Alpaca U.S. Equities", "Bybit", "Binance derivatives"]) {
-    assert.ok(popover.includes(label), `${label} is not named in the popover`);
-  }
-  for (const failure of FAILURES) {
-    assert.ok(!popover.includes(failure.providerId), "the popover names venues, not provider ids");
-  }
+  const copy = (dialog.textContent ?? "").replace(/\s+/g, " ");
+  assert.match(copy, /Type a ticker or name/);
+  assert.doesNotMatch(copy, /sources unavailable|market instruments/i);
+  assert.equal(dialog.querySelector('[role="status"]'), null,
+    "the neutral footer must not announce changing provider/count diagnostics");
 });
 
 test("the rows are buttons that carry the ticker, with the chart's instrument first", async () => {
@@ -198,6 +184,7 @@ test("the rows are buttons that carry the ticker, with the chart's instrument fi
   // `scripts/ts-state-btc1h.mjs` and the keyboard both depend on this shape.
   for (const row of rows) assert.equal(row.tagName, "BUTTON");
   assert.match(first.textContent ?? "", /SOLUSDT/);
+  assert.equal(first.querySelector(".underline"), null, "ticker matches must not be underlined");
   assert.equal(first.getAttribute("aria-current"), "true",
     "the chart's own instrument leads the list");
 
@@ -452,41 +439,11 @@ test("R4b-07 Escape closes the menu, then the dialog, and no outsider gets the k
   }
 });
 
-test("R4b-08 the sources popover opens on a click and never closes on one", async () => {
-  const { dialog, selected } = await openDialog();
-  const indicator = within(dialog).getByRole("button", { name: "3 sources unavailable" });
-
-  fireEvent.click(indicator);
-  await settle();
-  const shown = (): boolean => indicator.getAttribute("aria-expanded") === "true";
-  assert.equal(shown(), true, "a click must open it");
-
-  // The live defect: `onMouseEnter` opened and `onClick` toggled, so a click
-  // while hovering CLOSED what the hover had opened and a tap never showed it.
-  fireEvent.mouseEnter(indicator);
-  fireEvent.click(indicator);
-  await settle();
-  assert.equal(shown(), true, "a second click closed what hover had opened");
-
-  // Keyboard: Enter must not reach the dialog's Enter branch (R4b-04).
-  fireEvent.keyDown(indicator, { key: "Enter", bubbles: true });
-  await settle();
-  assert.deepEqual(selected, [], "Enter on the indicator closed the whole dialog");
-
-  // Escape closes the POPOVER first, and leaves the dialog standing.
-  fireEvent.keyDown(indicator, { key: "Escape", bubbles: true });
-  await settle();
-  assert.equal(shown(), false, "Escape must close the popover");
-  assert.ok(dialog.isConnected, "…and not the dialog with it");
-});
-
-test("R4b-09 nothing in the popover tells the reader to hover for the reason", async () => {
+test("provider failure reasons remain hover-only and never instruct the reader to hover", async () => {
   const { dialog } = await openDialog();
-  fireEvent.click(within(dialog).getByRole("button", { name: "3 sources unavailable" }));
-  await settle();
   const said = (dialog.textContent ?? "").replace(/\s+/g, " ");
   assert.ok(!said.includes("Hover for the reason reported"),
-    "the popover that IS the hover told the reader to hover for the reason");
+    "provider guidance leaked into primary copy");
   for (const name of ["Stocks", "Funds"]) {
     assert.ok(!(chip(dialog, name).getAttribute("title") ?? "").includes("Hover"),
       `${name}'s reason is a sentence, not a prompt to do what the reader is already doing`);
