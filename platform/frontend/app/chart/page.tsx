@@ -56,7 +56,7 @@ import {
 } from "@/lib/deepLink";
 import { useIsMobile } from "@/lib/useIsMobile";
 import {
-  crosshairForPane, crosshairSyncActive, DEFAULT_SYNC, followEdgeForPane, loadSync,
+  crosshairForPane, DEFAULT_SYNC, followEdgeForPane, loadSync,
   rangeSyncActive, saveSync, visibleRangeForPane,
   type CrosshairSignal, type RangeSignal, type SyncOptions,
 } from "@/lib/paneSync";
@@ -92,6 +92,7 @@ import {
   type SymbolInfo, type Trade,
 } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
+import { formatPlotValue, plotValueAt } from "@/lib/chartSeries";
 import {
   DEFAULT_PRICE_SCALE, resetPriceScale, setPriceScaleMode,
   togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
@@ -144,7 +145,7 @@ const PANEL_KEY = "tv.sidePanel.v1";
 /** The sentinel for a panel the user closed deliberately. */
 const PANEL_CLOSED = "none";
 const PANELS: readonly Exclude<ChartPanel, null>[] =
-  ["watchlist", "alerts", "indicators", "ma", "manual", "correlation"];
+  ["watchlist", "alerts", "objects", "indicators", "ma", "manual", "correlation"];
 
 /**
  * What TradingView opens with, and therefore what this opens with before the
@@ -1592,6 +1593,68 @@ export default function TvWorkspace() {
     drawingStore.set(symbol, next, gesture);
   }, [replayActive, updateReplayDrawings, symbol]);
 
+  /** D-03: one real model shared by the Objects and Data window tabs. */
+  const objectStudies = [
+    ...(activeNativeStudies?.rows ?? []).map((row) => ({
+      id: row.study.key,
+      label: row.name,
+      visible: row.study.visible,
+      onToggleVisible: () => activeNativeStudies?.toggleVisible(row.study.key),
+      onRemove: () => activeNativeStudies?.remove(row.study.key),
+    })),
+    ...activeIndicatorList.map((study) => ({
+      id: study.key,
+      label: study.name,
+      visible: study.visible,
+      onToggleVisible: () => activeIndicators?.toggleVisible(study.key),
+      onRemove: () => activeIndicators?.remove(study.key),
+    })),
+  ];
+  const objectDrawings = currentDrawings.map((drawing) => {
+    const fallback = drawingToolName(drawing.tool);
+    const label = drawing.name ?? `${fallback.charAt(0).toUpperCase()}${fallback.slice(1)}`;
+    const replace = (patch: Partial<Drawing>, gesture: string) => writeDrawings(
+      currentDrawings.map((item) => item.id === drawing.id ? { ...item, ...patch } : item), gesture);
+    return {
+      id: drawing.id,
+      label,
+      visible: drawing.hidden !== true,
+      locked: drawing.locked === true,
+      onToggleVisible: () => replace({ hidden: !drawing.hidden }, "object-tree-hide"),
+      onToggleLock: () => replace({ locked: !drawing.locked }, "object-tree-lock"),
+      onRemove: () => writeDrawings(
+        currentDrawings.filter((item) => item.id !== drawing.id), "object-tree-remove"),
+    };
+  });
+  const dataWindowTime = cross?.time ?? null;
+  const dataWindowCandle = dataWindowTime === null
+    ? visibleCandles[visibleCandles.length - 1] ?? null
+    : visibleCandles.find((candle) => Math.floor(candle.openTime / 1000) === dataWindowTime) ?? null;
+  const dataWindowPlots = [
+    ...(activeNativeStudies?.overlays ?? []),
+    ...activeIndicatorList.filter((study) => study.visible).flatMap((study) => study.overlays),
+  ].map((plot, index) => ({
+    id: `${plot.instanceId ?? plot.paneId ?? "plot"}:${plot.id}:${index}`,
+    label: plot.instanceTitle ? `${plot.instanceTitle} · ${plot.title}` : plot.title,
+    value: formatPlotValue(
+      plot.constantValue ?? plotValueAt(plot.data, dataWindowTime), plot.precision),
+  }));
+  const objects = {
+    seriesLabel: displayTicker(symbol),
+    studies: objectStudies,
+    drawings: objectDrawings,
+    data: {
+      time: dataWindowCandle
+        ? new Date(dataWindowCandle.openTime).toLocaleString()
+        : "Move the crosshair over a loaded bar",
+      ohlc: ([
+        ["Open", dataWindowCandle?.open], ["High", dataWindowCandle?.high],
+        ["Low", dataWindowCandle?.low], ["Close", dataWindowCandle?.close],
+      ] as const).map(([label, value]) => ({ label, value: fmtPrice(value) })),
+      plots: dataWindowPlots,
+    },
+  };
+
   const openChartMenu = useCallback((
     paneId: string,
     event: {
@@ -2152,7 +2215,9 @@ export default function TvWorkspace() {
   };
 
 
-  const publishCrosshair = paneCount > 1 && crosshairSyncActive(sync) ? emitCrosshair : undefined;
+  // The Data window needs the focused pane's cursor even in a one-pane layout.
+  // `crosshairForPane` still decides whether sibling panes mirror this signal.
+  const publishCrosshair = emitCrosshair;
   const publishRange = paneCount > 1 && rangeSyncActive(sync) ? emitRange : undefined;
 
   const renderPane = useCallback((pane: PaneState, context: { maximized: boolean }) => {
@@ -2558,6 +2623,7 @@ export default function TvWorkspace() {
         }}
         onSymbolsChanged={refreshSymbols}
         replayQuote={activeReplayQuote(candles, replay)}
+        objects={objects}
         onOpenAutomation={openAutomation}
         indicators={activeIndicators}
         nativeStudies={activeNativeStudies}

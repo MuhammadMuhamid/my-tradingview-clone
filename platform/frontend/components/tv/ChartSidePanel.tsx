@@ -33,9 +33,12 @@ import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import { canonicalDisplayParts, isCanonicalInstrumentId } from "@/lib/instrument";
 import { WorkstationOrderTicket } from "@/components/tv/WorkstationOrderTicket";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
+import {
+  ObjectsDataPanel, type ObjectsDataPanelProps,
+} from "@/components/tv/ObjectsDataPanel";
 
 export type ChartPanel =
-  | "watchlist" | "alerts" | "indicators" | "ma" | "manual" | "correlation" | null;
+  | "watchlist" | "alerts" | "objects" | "indicators" | "ma" | "manual" | "correlation" | null;
 
 export interface ChartSidePanelProps {
   panel: ChartPanel;
@@ -58,6 +61,9 @@ export interface ChartSidePanelProps {
   canOpenNewPane?: boolean;
   onSymbolsChanged: () => void;
   replayQuote: ReplayQuote | null;
+
+  /** Real focused-pane state for the combined Objects / Data window panel. */
+  objects: ObjectsDataPanelProps;
 
   onOpenAutomation: () => void;
 
@@ -106,7 +112,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
    *
    * Measured on the reference at 1440x900: the drawing rail on the left is
    * 52px on a 52px pitch; the panel rail on the right is 46px on a 46px pitch,
-   * with a 38x38 painted chip and 20px glyphs that are FULL INK at rest, not
+   * with a 36x36 painted chip and 28px glyphs that are FULL INK at rest, not
    * muted. TVP7 made the two rails identical on the reasonable-sounding theory
    * that one workstation has one rail grammar. The reference disagrees, and it
    * is right to: the left rail is a tool palette you hold a pointer over all
@@ -114,7 +120,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
    * with 26px glyphs at stroke 1.8 — wider, tighter and heavier than the thing
    * it was copying, all at once.
    *
-   * The chip is 38x38 through a rail-scoped `::before` inset, declared on the
+   * The chip is 36x36 through a rail-scoped `::before` inset, declared on the
    * column below rather than on every button.
    */
   /*
@@ -205,6 +211,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           )}
           {props.panel === "alerts" && !props.replayActive
     && <AlertsPanel onCreateAlert={props.onOpenAutomation} />}
+          {props.panel === "objects" && <ObjectsDataPanel {...props.objects} />}
           {props.panel === "indicators" && (
             props.indicators ? (
               <IndicatorsPanel
@@ -269,8 +276,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
 
       `data-side-rail` is not decoration: `globals.css` scopes this rail's chip
       inset to it, the way `[data-drawing-rail]` scopes the left one's. Without
-      the attribute a 46px cell would paint a 42px chip instead of the
-      reference's 38x38.
+      the attribute a 46px cell would paint a 42px chip instead of D-04's
+      centred 36x36 chip.
 
       TVP8 R7b-12: `pt-[6px]` → `pt-[1px]`. The reference's first rail chip is
       at y=47–84; six pixels of padding plus the chip's own 4px inset put ours
@@ -291,8 +298,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Watchlist"
         aria-pressed={props.panel === "watchlist"}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M4 6h16M4 12h16M4 18h10" />
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+          <path d="M5 7h18M5 14h18M5 21h12" />
         </svg>
       </button>
       <button
@@ -303,8 +310,19 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations"}
         aria-pressed={props.panel === "alerts"}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="12" cy="13" r="7" /><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" />
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+          <circle cx="14" cy="15" r="8" /><path d="M14 11v4l3 2M6 5 3 3M22 5l-3 3" />
+        </svg>
+      </button>
+      <button
+        onClick={() => props.onPanel((p) => (p === "objects" ? null : "objects"))}
+        className={railBtn(props.panel === "objects")}
+        title="Object tree and Data window"
+        aria-label="Object tree and Data window"
+        aria-pressed={props.panel === "objects"}
+      >
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+          <path d="M7 6h6v5H7zM15 17h6v5h-6zM7 17h6v5H7zM10 11v3h8v3M10 14v3" />
         </svg>
       </button>
       <button
@@ -314,8 +332,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Indicators"
         aria-pressed={props.panel === "indicators"}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" />
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+          <path d="M4 20l6-8 5 5 4-6 5 8" /><path d="M4 23h20" />
         </svg>
         {props.indicatorCount > 0 && <RailBadge count={props.indicatorCount} />}
       </button>
@@ -326,8 +344,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Moving averages"
         aria-pressed={props.panel === "ma"}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+          <path d="M3 18c4-9 8 4 12-5s7 3 10-4" />
         </svg>
         {props.maAlerts.length > 0 && <RailBadge count={props.maAlerts.length} />}
       </button>
@@ -338,9 +356,9 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Correlation"
         aria-pressed={props.panel === "correlation"}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
-          <path d="M9 3.5v17M15 3.5v17M3.5 9h17M3.5 15h17" />
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+          <rect x="4" y="4" width="20" height="20" rx="1.5" />
+          <path d="M11 4v20M18 4v20M4 11h20M4 18h20" />
         </svg>
       </button>
       <button
@@ -351,8 +369,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
         aria-pressed={props.panel === "manual"}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M4 7h16M7 12h10M9 17h6" /><path d="M17 4l3 3-3 3M7 14l-3 3 3 3" />
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+          <path d="M5 8h18M8 14h12M10 20h8" /><path d="m20 5 3 3-3 3M8 17l-3 3 3 3" />
         </svg>
       </button>
 
@@ -373,9 +391,9 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           title="Keyboard shortcuts"
           aria-label="Keyboard shortcuts"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <circle cx="12" cy="12" r="8.5" />
-            <path d="M9.6 9.5a2.5 2.5 0 113.4 2.4v1.3" /><path d="M12.9 16.4h.01" />
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
+            <circle cx="14" cy="14" r="10" />
+            <path d="M11.2 11a3 3 0 1 1 4 2.9v1.7M15 20h.01" />
           </svg>
         </button>
       </div>

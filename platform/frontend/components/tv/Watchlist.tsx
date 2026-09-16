@@ -125,12 +125,13 @@ function sentenceCase(word: string): string {
  * declaration, still measured, and `tests/uiContract.test.ts` still pins them.
  */
 const COLUMN_WIDTH = {
-  mark: "24px",
+  mark: "18px",
+  markGap: "8px",
   ticker: "minmax(0,1fr)",
-  last: "72px",
-  change: "70px",
-  changePct: "60px",
-  volume: "72px",
+  last: "56px",
+  change: "54px",
+  changePct: "44px",
+  volume: "56px",
 } as const;
 
 /** The value columns, in the order the reference draws them. */
@@ -497,15 +498,16 @@ export function Watchlist({
   }), [prefs]);
 
   const gridTemplate = useMemo(() => [
-    ...(prefs.mark ? [COLUMN_WIDTH.mark] : []),
+    ...(prefs.mark ? [COLUMN_WIDTH.mark, COLUMN_WIDTH.markGap] : []),
     COLUMN_WIDTH.ticker,
     ...columns.map((column) => COLUMN_WIDTH[column]),
   ].join(" "), [prefs.mark, columns]);
 
   /** Where each cell sits, so the mark can be last in the DOM and first on screen. */
   const columnStart = (column: ValueColumn): number =>
-    (prefs.mark ? 2 : 1) + 1 + columns.indexOf(column);
-  const tickerStart = prefs.mark ? 2 : 1;
+    (prefs.mark ? 3 : 1) + 1 + columns.indexOf(column);
+  const tickerStart = prefs.mark ? 3 : 1;
+  const firstValueStart = prefs.mark ? 4 : 2;
 
   const active = lists?.find((l) => l.id === activeId) ?? null;
   /**
@@ -1091,7 +1093,7 @@ export function Watchlist({
             aria-label={sort.column === "symbol"
               ? `Sorted by Symbol, ${sort.direction === "asc" ? "ascending" : "descending"}. Click to change.`
               : "Sort by Symbol"}
-            style={{ gridColumnStart: tickerStart }}
+            style={{ gridColumn: `1 / ${firstValueStart}` }}
             className={`truncate text-left hover:text-ink ${
               sort.column === "symbol" ? "font-semibold text-ink" : ""}`}
           >
@@ -1325,18 +1327,14 @@ export function Watchlist({
                       monogram's two letters — which is also what the
                       row-finding tests depend on.
 
-                      R7b-03: the cell FADES rather than clips. At 30px of
-                      ticker (four gaps' worth of the grid had been given away
-                      to a 4px column gap) the rows read `BTC▏`, `ETH▏`, `AVA)`. The
-                      reference's own ticker cell is 50px and masks its right
-                      edge, so a long name ends in a gradient rather than
-                      mid-glyph.
+                      D-01: the default 300px panel leaves 122px for the
+                      symbol region: an 18px mark, an 8px gap and 96px of
+                      ticker. Numeric columns own fixed, right-aligned widths
+                      and never ellipsise. If a user enables extra columns,
+                      only this ticker cell is allowed to hard-clip.
                     */}
                     <span data-ticker
-                      style={{ gridColumnStart: tickerStart,
-                        gridRowStart: 1,
-                        maskImage: "linear-gradient(to right,#000 calc(100% - 12px),transparent)",
-                        WebkitMaskImage: "linear-gradient(to right,#000 calc(100% - 12px),transparent)" }}
+                      style={{ gridColumnStart: tickerStart, gridRowStart: 1 }}
                       className="flex min-w-0 items-center overflow-hidden whitespace-nowrap font-normal text-ink">
                       <span>{label}</span>
                       {/* accent-is-meaning: a non-spot row is a different instrument KIND,
@@ -1412,9 +1410,9 @@ export function Watchlist({
             classLabel={groupOf(selectedDetails.info)}
             quote24h={selectedDetails.ticker}
             market={marketLine(selectedDetails.info, selectedDetails.ticker)}
-            statsProvider={(selectedDetails.info.venue ?? "BINANCE") === "BINANCE" ? "binance-24h" : "none"}
             priceTick={resolvePriceTick(symbols, selectedDetails.info.symbol)}
             daily={derivedStats}
+            onEdit={() => onAddAlert?.(selectedDetails.info.symbol)}
             onMenu={(at) => openRowMenu(at, selectedDetails.info.symbol)}
           />
         )}

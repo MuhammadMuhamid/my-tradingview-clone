@@ -68,7 +68,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { type Resolution } from "@/lib/resolution";
-import { CaretGlyph, Separator } from "@/components/ui";
+import { Separator } from "@/components/ui";
 import { ChartTypeMenu } from "@/components/tv/ChartTypeMenu";
 import { IndicatorTemplatesMenu, type TemplateStudies } from "@/components/tv/IndicatorTemplatesMenu";
 import type { IndicatorTemplate, TemplateApplication } from "@/lib/indicatorTemplates";
@@ -572,7 +572,10 @@ function FavoriteIndicatorsMenu({ onAdd }: { onAdd: (id: string) => void }) {
         aria-expanded={open} title="Favorite indicators"
         onClick={() => setOpen(!open)}
         className="tvc-control flex h-[38px] w-6 items-center justify-center text-ink">
-        <CaretGlyph size={8} />
+        <svg width="8" height="6" viewBox="0 0 8 6" fill="none" stroke="currentColor"
+          strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M1 1.5L4 4.5L7 1.5" />
+        </svg>
       </button>
       {open && (
         <div role="menu" aria-label="Favorite indicators"

@@ -71,7 +71,7 @@ test("ON A FIRST RUN THE DEFAULT LIST IS SEEDED FROM THE TRACKED SYMBOLS, NOT FR
  * and a `grid-cols-[…]` assembled at runtime is a class Tailwind never emits.
  * The measured 50px ticker is verified at the browser, in the capture set.
  */
-test("R7b-03 — THE ROW'S FIVE COLUMNS ARE THE REFERENCE'S WIDTHS, WITH NOTHING SPENT ON GAPS", async () => {
+test("D-01 — THE SYMBOL REGION OWNS 122PX AND NUMERIC COLUMNS NEVER ELLIPSIZE", async () => {
   const release = server.hold((request) => request.method === "GET" && request.path === "/api/symbols");
   const chart = await mountChart();
   await settle();
@@ -81,13 +81,17 @@ test("R7b-03 — THE ROW'S FIVE COLUMNS ARE THE REFERENCE'S WIDTHS, WITH NOTHING
   const button = chart.container.querySelector<HTMLElement>(
     `[data-watchlist-row="${CANONICAL.BTCUSDT}"] button`);
   assert.ok(button, "the seeded list has no BTC row to measure");
-  assert.equal(button.style.gridTemplateColumns, "24px minmax(0,1fr) 72px 70px 60px",
-    "the mark, the ticker and Last / Chg / Chg% as the reference measures them");
+  assert.equal(button.style.gridTemplateColumns, "18px 8px minmax(0,1fr) 56px 54px 44px",
+    "18px mark + 8px gap + the 96px remainder reserves 122px for Symbol at 300px");
   assert.equal(button.className.includes("gap-x-"), false,
     "16px of a 300px panel spent on column gaps is 16px the ticker does not have");
 
   const ticker = button.querySelector<HTMLElement>("[data-ticker]");
   assert.ok(ticker, "the row has no ticker cell");
-  assert.match(ticker.style.maskImage ?? "", /linear-gradient\(to right/,
-    "the reference's ticker cell FADES at its right edge; ours clipped mid-glyph");
+  assert.equal(ticker.style.maskImage, "",
+    "D-01 requires a hard clip only when necessary, never a fade or ellipsis");
+  assert.equal(ticker.className.includes("truncate"), false, "the ticker must not ellipsise");
+  for (const value of button.querySelectorAll<HTMLElement>("[data-col]")) {
+    assert.equal(value.className.includes("truncate"), false, "a numeric value may never ellipsise");
+  }
 });

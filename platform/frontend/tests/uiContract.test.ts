@@ -1251,7 +1251,7 @@ test("CONTRACT — a token that has both spellings has the SAME colour in both",
   }
 });
 
-test("CONTRACT — the watchlist row has no inter-column gap, and its ticker fades", () => {
+test("CONTRACT — the watchlist gives Symbol 122px and clips only the ticker", () => {
   /*
    * R7b-03. `gap-x-1` gave four gaps' worth of the 300px away, and the cell
    * that paid was the ticker: a computed 30px, so the rows read `BTC▏`,
@@ -1262,14 +1262,14 @@ test("CONTRACT — the watchlist row has no inter-column gap, and its ticker fad
   assert.doesNotMatch(WATCHLIST, /gap-x-1/,
     "16px of a 300px panel spent on gaps is 16px the ticker does not have");
   for (const [name, value] of [
-    ["mark", "24px"], ["ticker", "minmax(0,1fr)"], ["last", "72px"],
-    ["change", "70px"], ["changePct", "60px"],
+    ["mark", "18px"], ["markGap", "8px"], ["ticker", "minmax(0,1fr)"],
+    ["last", "56px"], ["change", "54px"], ["changePct", "44px"],
   ] as const) {
     assert.match(WATCHLIST, new RegExp(`${name}:\\s*"${value.replace(/[()]/g, "\\$&")}"`),
       `the ${name} column is ${value} on the reference`);
   }
-  assert.match(WATCHLIST, /maskImage:\s*"linear-gradient\(to right,#000 calc\(100% - 12px\),transparent\)"/,
-    "the ticker cell fades rather than clipping");
+  assert.doesNotMatch(WATCHLIST, /maskImage:/,
+    "D-01 hard-clips the ticker only when necessary and never fades or ellipsises it");
 });
 
 test("CONTRACT — the watchlist gutter is 4px, once, and outside the panel's 300", () => {

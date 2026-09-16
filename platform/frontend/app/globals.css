@@ -438,13 +438,10 @@
 :is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control::before {
   inset: 2px 9px;
 }
-/* R7-03 / R1c-06: the right rail's cells are 45 wide by 46 tall — 45 because
-   the column's last pixel is the hairline to the watchlist — and its chip is
-   the reference's 38×38 (x=1399–1436, y=47–84 at 1440). 4px of vertical inset
-   in a 46px cell and 3.5px of horizontal inset in a 45px one are what that
-   comes to. */
+/* D-04: 45px of paint behind the rail hairline, a 46px cell pitch, and a
+   centred 36×36 selected chip around the 28px optical glyph. */
 :is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control::before {
-  inset: 4px 3.5px;
+  inset: 5px 4.5px;
 }
 /*
  * R7b-12: and the rail's OWN active chip is rgb(74,74,74), not rgb(61,61,61).

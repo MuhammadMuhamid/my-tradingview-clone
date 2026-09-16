@@ -178,7 +178,7 @@ test("R7b-11 — THE 30-DAY AVERAGE AND SIX PERFORMANCE TILES COME FROM DAILY BA
 
   const rows = [...details.querySelectorAll<HTMLElement>("dl > div")]
     .map((r) => (r.textContent ?? "").trim());
-  const average = rows.find((r) => r.startsWith("Average volume (30D)"));
+  const average = rows.find((r) => r.startsWith("Average Volume (30D)"));
   assert.ok(average, `the Key stats list has no 30-day row; it has ${rows.join(" · ")}`);
   assert.doesNotMatch(average, /—$/,
     "four hundred daily bars are served for this instrument — the dash is a refusal, not a limit");

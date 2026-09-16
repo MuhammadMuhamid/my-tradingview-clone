@@ -785,6 +785,8 @@ test("every toolbar popover goes through the registry rather than its own state"
     // been escaping — the timeframe picker's scoped instance. Two popovers
     // were outside the registry's inventory, both through the quote character.
     "timeframe:${props.scope}",
+    // C-01: the favourite-indicators toolbar caret is a real shared popover.
+    "toolbar-favorite-indicators",
     // TVP8: the camera's Save image / Copy image menu.
     // R6b-29: the study dialog's own `Defaults ▾`, for the same reason.
     "toolbar:snapshot", "trading-overlays",

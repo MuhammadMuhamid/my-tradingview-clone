@@ -246,7 +246,7 @@ test("an oscillator pane spends no height on a header row", () => {
    */
   assert.match(pane, /absolute right-1 top-1 z-\[?\d/,
     "the pane actions are no longer overlaid at the pane's own edge");
-  assert.match(pane, /items-center gap-1 opacity-0/,
+  assert.match(pane, /items-center gap-1 transition-opacity focus-within:opacity-100/,
     "R3b-21: 4px between the boxes, as the reference has");
   assert.match(pane, /group-hover\/studypane:opacity-100/, "the controls are always-on, or gone");
   // Hide / settings / remove act on the STUDY and now live in the legend row —

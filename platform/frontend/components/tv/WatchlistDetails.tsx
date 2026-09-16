@@ -13,19 +13,14 @@
  *
  * ── The rule this file exists to keep ──────────────────────────────────────
  *
- * Everything here is either measured from the provider or an explicit
- * UNAVAILABLE. TVP8 R7-07: the reference shows a News card, Key stats and
- * Performance, and the temptation is to fill those shapes with something. A
- * fabricated headline, an invented 30-day average or a plausible-looking
- * performance strip would each be a lie told in the product's own voice, on
- * the surface a person checks before placing an order. So a row we cannot
- * source renders `—` with a tooltip that says who does not supply it, and a
- * section we cannot source renders one faint sentence saying so.
+ * Everything here is measured from the provider. Empty news and statistic
+ * rows are omitted: provider limitations are never primary product copy.
  *
  * Volume and turnover are NOT in that category any more: Binance's
  * `/api/v3/ticker/24hr` has always carried them and the backend used to drop
  * them on the way through (see `backend/src/data/binanceRest.ts`).
  */
+import { useRef } from "react";
 import type { WatchlistTicker } from "@/lib/useWatchlistTickers";
 import { formatQuote } from "@/lib/format";
 import { PERFORMANCE_PERIODS, type PerformancePeriod } from "@/lib/instrumentStats";
@@ -101,36 +96,34 @@ export interface WatchlistDetailsProps {
   classLabel: string;
   quote24h: WatchlistTicker | null;
   market: MarketLine;
-  /** Whether the 24h statistics can come from the connected provider at all. */
-  statsProvider: "binance-24h" | "none";
   /** The instrument's tick, so price and change are shown to ITS precision. */
   priceTick: number | null;
   daily: DailyStats;
+  /** Opens the existing alert composer for this instrument. */
+  onEdit: () => void;
   /** Opens the same action list the row's right-click offers. */
   onMenu: (at: { x: number; y: number }) => void;
 }
 
-/*
- * The News card is a lavender tint of the panel with its own label ink, and
- * `Market open` is a deeper green than a change cell. All three are tokens
- * in `globals.css` (`--ts-news-tint`, `--ts-news-ink`, `--ts-positive-strong`),
- * measured on the reference in both themes.
- */
-const NEWS_TINT = "var(--ts-news-tint)";
-const NEWS_INK = "var(--ts-news-ink)";
 const POSITIVE_STRONG = "var(--ts-positive-strong)";
 
-/** `2.91K` — the reference's own compact form, in the reader's locale. */
-function compact(value: number): string {
-  return value.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 2 });
+/** `191.37 M` — compact magnitude with the reference's separating space. */
+function metric(value: number): string {
+  const units = [
+    { floor: 1_000_000_000, suffix: "B" },
+    { floor: 1_000_000, suffix: "M" },
+    { floor: 1_000, suffix: "K" },
+  ] as const;
+  const unit = units.find((candidate) => Math.abs(value) >= candidate.floor);
+  if (!unit) return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return `${(value / unit.floor).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit.suffix}`;
 }
-
-const NOT_SUPPLIED = "Not supplied by the connected provider";
 
 export function WatchlistDetails({
   qualifiedName, longName, ticker_, base, quote, venue, typeLabel, classLabel,
-  quote24h, market, statsProvider, priceTick, daily, onMenu,
+  quote24h, market, priceTick, daily, onEdit, onMenu,
 }: WatchlistDetailsProps) {
+  const statsRef = useRef<HTMLHeadingElement>(null);
   const formatPrice = (value: number): string => formatQuote(value, priceTick);
   const changeKnown = quote24h !== null && quote24h.changeKnown !== false;
   const up = (quote24h?.chgPct ?? 0) >= 0;
@@ -138,39 +131,22 @@ export function WatchlistDetails({
   const marketColour = market.tone === "open" ? undefined
     : market.tone === "caution" ? "text-warn" : "text-down";
 
-  const stats: Array<{ label: string; value: string | null; why?: string }> = [
+  const stats: Array<{ label: string; value: string | null }> = [
     {
-      label: "Volume (24h)",
-      value: quote24h?.volume !== undefined ? `${compact(quote24h.volume)} ${base}` : null,
-      why: NOT_SUPPLIED,
+      label: "Volume",
+      value: quote24h?.volume !== undefined ? metric(quote24h.volume) : null,
     },
     {
-      label: "Turnover (24h)",
-      value: quote24h?.quoteVolume !== undefined ? `${compact(quote24h.quoteVolume)} ${quote}` : null,
-      why: NOT_SUPPLIED,
+      label: "Turnover",
+      value: quote24h?.quoteVolume !== undefined ? metric(quote24h.quoteVolume) : null,
     },
     {
-      /* Honest by omission of a number, not by omission of the row: the
-         reference has this line and a person looking for it should find it
-         saying why it is empty rather than not find it at all. */
-      /*
-       * R7b-11: computed, not refused.
-       *
-       * This row used to read `—` with the tooltip "computing one needs daily
-       * bars this panel does not read yet" — honest about the panel and wrong
-       * about the product: `GET /api/symbols/:symbol/candles?interval=1d` has
-       * been served the whole time. The `—` is kept for the case it was
-       * written for: a series that genuinely is not there.
-       */
-      label: "Average volume (30D)",
+      /* Computed from daily bars; omitted until those bars are available. */
+      label: "Average Volume (30D)",
       value: daily.averageVolume30D === null
-        ? null : `${compact(daily.averageVolume30D)} ${base}`,
-      why: statsProvider === "binance-24h"
-        ? daily.unavailable
-          ?? "Fewer than thirty closed daily bars are available for this instrument."
-        : NOT_SUPPLIED,
+        ? null : metric(daily.averageVolume30D),
     },
-  ];
+  ].filter((row) => row.value !== null);
 
   return (
     <section
@@ -179,13 +155,8 @@ export function WatchlistDetails({
          `<h2>`'s tooltip, where the exact key is occasionally what a reader
          wants. */
       aria-label={`Details for ${longName}`}
-      className="shrink-0 bg-surface px-4 pb-3 pt-3"
+      className="shrink-0 border-t border-border bg-surface px-4 pb-3 pt-3"
     >
-      {/* The 4px drag-divider band the reference puts between list and details.
-          Static this round — the split is not draggable yet, and a grip that
-          does nothing is worse than none. */}
-      <div aria-hidden="true" className="-mx-4 mb-3 h-[4px] bg-border" />
-
       <div className="flex items-center gap-2">
         <AssetMark asset={base} size={24} />
         <h2 className="min-w-0 flex-1 truncate text-[16px] font-semibold leading-none text-ink"
@@ -193,13 +164,34 @@ export function WatchlistDetails({
           {ticker_}
         </h2>
         <button
+          aria-label="Show key stats"
+          title="Key stats"
+          onClick={() => statsRef.current?.scrollIntoView?.({ block: "nearest" })}
+          className="tvc-control flex h-7 w-7 items-center justify-center text-ink"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+            <rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" />
+            <rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" />
+          </svg>
+        </button>
+        <button
+          aria-label={`Create alert for ${ticker_}`}
+          title="Create alert"
+          onClick={onEdit}
+          className="tvc-control flex h-7 w-7 items-center justify-center text-ink"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+            <path d="M5 19h4l10-10-4-4L5 15v4Z" /><path d="m13.5 6.5 4 4" />
+          </svg>
+        </button>
+        <button
           aria-label={`Actions for ${ticker_}`}
           title="More"
           onClick={(e) => {
             const box = e.currentTarget.getBoundingClientRect();
             onMenu({ x: box.right, y: box.bottom });
           }}
-          className="tvc-control flex h-8 w-8 items-center justify-center text-ink"
+          className="tvc-control flex h-7 w-7 items-center justify-center text-ink"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" />
@@ -241,25 +233,19 @@ export function WatchlistDetails({
         <span aria-hidden="true">●</span>{market.label}
       </p>
 
-      <div className="mt-3 rounded-lg px-3 py-2.5" style={{ backgroundColor: NEWS_TINT }}>
-        <p className="text-[14px] font-medium leading-none" style={{ color: NEWS_INK }}>News</p>
-        <p className="mt-1.5 text-[14px] leading-snug text-ink-faint">
-          No news feed is connected for this instrument.
-        </p>
-      </div>
-
-      <h3 className="mt-4 text-[14px] font-semibold leading-none text-ink">Key stats</h3>
-      <dl className="mt-1">
+      {stats.length > 0 && <>
+      <h3 ref={statsRef} className="mt-4 scroll-mt-2 text-[14px] font-semibold leading-none text-ink">Key stats</h3>
+      <dl className="mt-1" data-key-stats>
         {stats.map((row) => (
           <div key={row.label} className="flex h-[25px] items-center justify-between gap-2">
             <dt className="truncate text-[14px] text-ink">{row.label}</dt>
-            <dd className={`shrink-0 tabular text-[14px] font-semibold ${row.value ? "text-ink" : "text-ink-faint"}`}
-              title={row.value ? undefined : row.why}>
-              {row.value ?? "—"}
+            <dd className="shrink-0 tabular text-[14px] font-semibold text-ink">
+              {row.value}
             </dd>
           </div>
         ))}
       </dl>
+      </>}
 
       <h3 className="mt-4 text-[14px] font-semibold leading-none text-ink">Performance</h3>
       {/*
