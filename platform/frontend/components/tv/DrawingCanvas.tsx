@@ -88,7 +88,7 @@ function geometryDigest(drawings: Drawing[]): number {
 export function DrawingCanvas({
   container, chart, series, candles, interval,
   tool, onToolDone, drawings, onChange, magnet, locked, hidden,
-  onSelectionChange, onContextMenu, styleFocusSignal, active = true,
+  onSelectionChange, onContextMenu, onOpenSettings, styleFocusSignal, active = true,
 }: {
   container: HTMLDivElement | null;
   chart: IChartApi | null;
@@ -127,6 +127,7 @@ export function DrawingCanvas({
    * reports it.
    */
   onSelectionChange?: (id: string | null) => void;
+  onOpenSettings?: (id: string) => void;
   /** A right-click landed on a drawing (or on empty chart, with a null id). */
   onContextMenu?: (event: {
     x: number; y: number; drawingId: string | null; price: number | null;
@@ -640,7 +641,10 @@ export function DrawingCanvas({
       if (draft && TOOL_POINTS[draft.tool] === 0 && draft.points.length >= 2) {
         commit(draft.tool, draft.points);
         e.stopPropagation(); e.preventDefault();
+        return;
       }
+      const hit = hitTest(rectOf(e));
+      if (hit?.id) { setSelected(hit.id); onOpenSettings?.(hit.id); e.stopPropagation(); e.preventDefault(); }
     };
 
     const onLeave = (): void => { previewRef.current = null; };
@@ -724,7 +728,7 @@ export function DrawingCanvas({
       window.removeEventListener("mouseup", onUp, true);
       container.style.cursor = "";
     };
-  }, [container, chart, series, hitTest, toAnchor, toPx, commit]);
+  }, [container, chart, series, hitTest, toAnchor, toPx, commit, onOpenSettings]);
 
   // Escape cancels, Delete removes the selection — in the FOCUSED pane only.
   const activeRef = useRef(active);
@@ -936,28 +940,19 @@ export function DrawingCanvas({
             top: Math.max(4, selPx.y - 44),
           }}
         >
-          {PALETTE.map((c) => (
-            <button
-              key={c}
-              onClick={() => applyStyle({ color: c })}
-              className={`h-4 w-4 rounded-full border ${sel.style.color === c ? "border-ink" : "border-transparent"}`}
-              style={{ background: c }}
-              title={c}
-            />
-          ))}
+          <button
+            onClick={() => {
+              const index = Math.max(0, PALETTE.indexOf(sel.style.color));
+              applyStyle({ color: PALETTE[(index + 1) % PALETTE.length] });
+            }}
+            className="flex h-[34px] w-[34px] items-center justify-center gap-0.5 rounded border border-border"
+            title="Line color"
+            aria-label="Line color"
+          ><span className="h-4 w-4 rounded-full border border-white/30" style={{ background: sel.style.color }} /><span aria-hidden="true">⌄</span></button>
           <span className="mx-0.5 h-4 w-px bg-border" />
-          {[1, 2, 3].map((wd) => (
-            <button
-              key={wd}
-              onClick={() => applyStyle({ width: wd })}
-              className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
-              aria-pressed={sel.style.width === wd}
-              aria-label={`${wd}px line`}
-              title={`${wd}px`}
-            >
-              {wd}
-            </button>
-          ))}
+          <button type="button" onClick={() => applyStyle({ width: ((sel.style.width ?? 1) % 4) + 1 })}
+            className="flex h-[34px] min-w-[38px] items-center justify-center gap-0.5 rounded border border-border px-2 text-[12px] text-ink-muted"
+            aria-label="Line width" title="Line width">{sel.style.width ?? 1}<span aria-hidden="true">⌄</span></button>
           {/*
             Anchored VWAP's standard-deviation bands, on the tool that has
             them. A control here rather than in a dialog for the same reason
@@ -1055,15 +1050,12 @@ export function DrawingCanvas({
               </button>
             </>
           )}
-          <button
-            onClick={() => applyStyle({ dashed: !sel.style.dashed })}
-            className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
-            aria-pressed={Boolean(sel.style.dashed)}
-            aria-label={sel.style.dashed ? "Draw this solid" : "Draw this dashed"}
-            title="Dashed"
-          >
-            ┄
-          </button>
+          <button type="button" onClick={() => applyStyle({ dashed: !sel.style.dashed })}
+            className="flex h-[34px] min-w-[50px] items-center justify-center gap-1 rounded border border-border px-2 text-[12px] text-ink-muted"
+            aria-pressed={Boolean(sel.style.dashed)} aria-label="Line style" title="Line style">{sel.style.dashed ? "Dashed" : "Solid"}<span aria-hidden="true">⌄</span></button>
+          <button type="button" onClick={() => onOpenSettings?.(sel.id)}
+            className="flex h-[34px] min-w-[62px] items-center justify-center gap-1 rounded border border-border px-2 text-[12px] text-ink-muted"
+            aria-label="Drawing template" title="Drawing template">Template <span aria-hidden="true">⌄</span></button>
           {FILLABLE_TOOLS.has(sel.tool) && (
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
@@ -1093,15 +1085,15 @@ export function DrawingCanvas({
           */}
           <button
             onClick={() => {
+              onOpenSettings?.(sel.id);
               const handler = onContextMenuRef.current;
-              if (!handler || !styleBarRef.current) return;
-              // Opened at the toolbar, as the reference opens it from the row
-              // the pointer is already on.
-              const box = styleBarRef.current.getBoundingClientRect();
-              handler({
-                x: Math.round(box.left), y: Math.round(box.bottom + 4),
-                drawingId: sel.id, price: null, region: "plot",
-              });
+              if (!onOpenSettings && handler && styleBarRef.current) {
+                const box = styleBarRef.current.getBoundingClientRect();
+                handler({
+                  x: Math.round(box.left), y: Math.round(box.bottom + 4),
+                  drawingId: sel.id, price: null, region: "plot",
+                });
+              }
             }}
             className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
             title="Settings"
@@ -1144,6 +1136,11 @@ export function DrawingCanvas({
               <path d={sel.locked ? "M4 5.4V3.9a2 2 0 0 1 4 0v1.5" : "M4 5.4V3.9a2 2 0 0 1 3.9-.5"} />
             </svg>
           </button>
+          <button type="button" onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, hidden: !d.hidden } : d)))}
+            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            title={sel.hidden ? "Show" : "Hide"} aria-label={sel.hidden ? "Show this drawing" : "Hide this drawing"}>
+            <span aria-hidden="true">{sel.hidden ? "◉" : "◌"}</span>
+          </button>
           <button
             onClick={() => { onChange(drawings.filter((d) => d.id !== selected)); setSelected(null); }}
             disabled={locked || sel.locked}
@@ -1155,6 +1152,9 @@ export function DrawingCanvas({
               <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.4" />
             </svg>
           </button>
+          <button type="button" onClick={() => onOpenSettings?.(sel.id)}
+            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            title="More drawing actions" aria-label="More drawing actions">⋯</button>
         </div>
       )}
     </>

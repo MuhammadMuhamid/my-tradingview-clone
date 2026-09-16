@@ -122,19 +122,15 @@ export interface ChartMenuContext {
   candlePatterns: boolean;
   /** The canonical classical-pattern geometry is being drawn. */
   classicalPatterns?: boolean;
+  /** Number of studies currently on the focused pane. */
+  indicatorCount?: number;
 }
 
 export const CHART_MENU_IDS = [
-  "chart:add-alert", "chart:trade-at-price", "chart:add-indicator",
-  "chart:symbol-info",
-  "chart:copy-price", "chart:paste",
-  "chart:add-to-watchlist", "chart:text-note",
-  "chart:chart-settings",
-  "chart:reset-view", "chart:toggle-auto", "chart:toggle-log",
-  "chart:toggle-drawings-hidden", "chart:toggle-drawings-locked",
-  "chart:toggle-candle-patterns",
-  "chart:toggle-classical-patterns",
-  "chart:indicators",
+  "chart:reset-view", "chart:copy-price", "chart:paste", "chart:add-alert",
+  "chart:trade-at-price", "chart:lock-time", "chart:table-view", "chart:object-tree",
+  "chart:chart-template", "chart:remove-indicators", "chart:chart-settings",
+  "chart:add-to-watchlist",
 ] as const;
 export type ChartMenuId = (typeof CHART_MENU_IDS)[number];
 
@@ -152,159 +148,43 @@ export const CHART_ADD_TO_LIST_PREFIX = "chart:add-to-watchlist:";
 export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
   const hasPrice = ctx.price !== null && Number.isFinite(ctx.price);
   const noPrice = "Right-click on the chart to pick a price";
-  /*
-   * An item that acts on a price NAMES the price.
-   *
-   * "Add alert at this price" leaves the user to work out which price the menu
-   * opened at, on the one item whose entire purpose is a specific number — and
-   * the value is already in hand when the payload is built. TradingView writes
-   * "Add alert on ETHUSDT at 2,500.26…" for the same reason.
-   */
   const at = hasPrice ? ` at ${ctx.priceLabel}` : "";
-  /*
-   * R8-17: the reference names the SYMBOL too — "Add alert on BTCUSDT at
-   * 77,581.72…" — which matters on a multi-pane workspace, where the menu may
-   * have opened on a pane that is not the one the toolbar is describing.
-   * `displayTicker` again, so a canonical id handed in by mistake cannot reach
-   * a row (contract §5, R8-18).
-   */
   const ticker = displayTicker(ctx.ticker);
   const on = ` on ${ticker}${at}`;
+  const count = ctx.indicatorCount ?? 0;
+  const templateChildren: MenuEntry[] = [
+    { id: "chart:template-default", label: "Default" },
+    { id: "chart:template-save", label: "Save chart template…" },
+  ];
   return [
+    { id: "chart:reset-view", label: "Reset chart view", glyph: "reset", hint: menuCap("reset-view", ctx.mac) },
+    { id: "sep-clipboard", separator: true },
+    { id: "chart:copy-price", label: hasPrice ? `Copy price ${ctx.priceLabel}` : "Copy price", glyph: "copy", disabled: !hasPrice, disabledReason: noPrice },
+    { id: "chart:paste", label: "Paste", glyph: "paste", hint: menuCap("paste", ctx.mac), disabled: !ctx.canPaste, disabledReason: "Copy a drawing first — there is nothing on the clipboard" },
+    { id: "sep-alert", separator: true },
     {
       id: "chart:add-alert", label: `Add alert${on}…`, glyph: "alarm",
-      // The cap is a QUERY against `BINDINGS` (see `menuCap`): the reference's
-      // ⌥A appears here the day that binding is declared, and never before.
       hint: menuCap("add-alert", ctx.mac),
       disabled: !hasPrice || ctx.replayActive,
       disabledReason: ctx.replayActive ? REPLAY_REASON : noPrice,
     },
-    {
-      /*
-       * The reference's own wording, and the row is still a PREPARATION.
-       *
-       * `hint` says so in the menu itself, the handler stages a ticket, and
-       * nothing in this product submits from a context menu — that is the
-       * alerts-never-trade line, and a context menu is exactly the surface
-       * where a one-click order would be easiest to add and worst to have. On
-       * an installation with manual trading off — the default — the row is
-       * present, disabled, and says why.
-       */
+    ...(ctx.tradingEnabled ? [{
       id: "chart:trade-at-price", label: `Add order${on}…`, glyph: "order",
-      hint: "fills the ticket",
       disabled: !hasPrice || ctx.replayActive || !ctx.tradingEnabled,
       disabledReason: !ctx.tradingEnabled
         ? "Manual trading is not enabled on this installation"
         : ctx.replayActive ? REPLAY_REASON : noPrice,
-    },
-    {
-      id: "chart:add-indicator", label: `Add indicator/strategy on ${ticker}…`,
-      glyph: "indicator",
-    },
-    { id: "sep-symbol", separator: true },
-    { id: "chart:symbol-info", label: "Symbol info…", glyph: "info" },
-    { id: "sep-clipboard", separator: true },
-    {
-      id: "chart:copy-price",
-      label: hasPrice ? `Copy price ${ctx.priceLabel}` : "Copy price",
-      glyph: "copy",
-      disabled: !hasPrice, disabledReason: noPrice,
-    },
-    {
-      /*
-       * The DRAWING clipboard, which ⌘C on a selected drawing fills and which
-       * had no menu route at all — so a copied drawing could be pasted only by
-       * someone who already knew the chord.
-       */
-      id: "chart:paste", label: "Paste", glyph: "paste",
-      hint: menuCap("paste", ctx.mac),
-      disabled: !ctx.canPaste,
-      disabledReason: "Copy a drawing first — there is nothing on the clipboard",
-    },
-    { id: "sep-symbol-actions", separator: true },
-    {
-      id: "chart:add-to-watchlist",
-      label: `Add ${ticker} to watchlist`,
-      glyph: "watchlist",
-      /*
-       * A submenu only where there is a choice to make. With one list the row
-       * IS the action; with several it is the reference's `›`, and each child
-       * id carries the list it adds to.
-       */
-      ...(ctx.lists.length > 1
-        ? { children: ctx.lists.map((list) => ({
-          id: `${CHART_ADD_TO_LIST_PREFIX}${list.id}`, label: list.name,
-        })) }
-        : {}),
-      disabled: ctx.lists.length === 0,
-      disabledReason: "This workspace has no watchlist to add to",
-    },
-    {
-      id: "chart:text-note", label: `Add text note for ${ticker}`, glyph: "note",
-      hint: menuCap("tool:text", ctx.mac),
-      disabled: !hasPrice, disabledReason: noPrice,
-    },
+    } as MenuEntry] : []),
+    { id: "sep-utility", separator: true },
+    { id: "chart:lock-time", label: "Lock vertical cursor line by time" },
+    { id: "sep-table", separator: true },
+    { id: "chart:table-view", label: "Table view" },
+    { id: "chart:object-tree", label: "Object tree", glyph: "tree" },
+    { id: "chart:chart-template", label: "Chart template", children: templateChildren },
+    { id: "sep-remove", separator: true },
+    { id: "chart:remove-indicators", label: `Remove ${count} indicator${count === 1 ? "" : "s"}`, disabled: count === 0, disabledReason: "There are no indicators on this chart" },
     { id: "sep-settings", separator: true },
-    {
-      id: "chart:chart-settings", label: "Settings…", glyph: "gear",
-      hint: menuCap("chart-settings", ctx.mac),
-    },
-    /*
-     * ── Below the fold: the rows the reference keeps elsewhere ─────────────
-     *
-     * TradingView puts Auto / Logarithmic on the PRICE AXIS menu and has no
-     * pattern overlays at all. They stay, after `Settings…` and behind a
-     * separator, because they work and because removing a working control to
-     * match a layout is a regression dressed as parity. Their proper home is
-     * the axis menu, which now carries all four scale readings (R8-20).
-     */
-    { id: "sep-view", separator: true },
-    {
-      id: "chart:reset-view", label: "Reset view", glyph: "reset",
-      hint: menuCap("reset-view", ctx.mac),
-    },
-    {
-      id: "chart:toggle-auto", label: "Auto scale", checked: ctx.autoScale,
-      hint: menuCap("toggle-auto", ctx.mac),
-    },
-    {
-      id: "chart:toggle-log", label: "Logarithmic scale", checked: ctx.logScale,
-      hint: menuCap("toggle-log", ctx.mac),
-    },
-    { id: "sep-drawings", separator: true },
-    {
-      id: "chart:toggle-drawings-hidden", label: "Hide drawings",
-      checked: ctx.drawingsHidden,
-      disabled: !ctx.hasDrawings, disabledReason: "There are no drawings on this instrument",
-    },
-    {
-      id: "chart:toggle-drawings-locked", label: "Lock drawings",
-      checked: ctx.drawingsLocked,
-      disabled: !ctx.hasDrawings, disabledReason: "There are no drawings on this instrument",
-    },
-    {
-      id: "chart:toggle-candle-patterns", label: "Candlestick patterns",
-      checked: ctx.candlePatterns,
-      // Named as the Screener's, because that is whose opinion it is — the
-      // chart contains no pattern logic and never will.
-      hint: "Screener",
-    },
-    {
-      id: "chart:toggle-classical-patterns", label: "Classical chart patterns",
-      checked: ctx.classicalPatterns === true,
-      hint: "5/5 pivots · close breakouts",
-    },
-    { id: "sep-studies", separator: true },
-    {
-      /*
-       * The cap was the literal `I`, and `I` has not opened the indicator
-       * browser since R4b-05 gave every bare letter to the symbol search —
-       * the chord is `/`. A hand-typed cap is a cap that rots; `menuCap` reads
-       * the table that actually answers the key.
-       */
-      id: "chart:indicators", label: "Indicators…", glyph: "indicator",
-      hint: menuCap("indicators", ctx.mac),
-    },
+    { id: "chart:chart-settings", label: "Settings…", glyph: "gear", hint: menuCap("chart-settings", ctx.mac) },
   ];
 }
 

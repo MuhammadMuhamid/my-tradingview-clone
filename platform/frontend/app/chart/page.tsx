@@ -1774,10 +1774,12 @@ export default function TvWorkspace() {
         tradingEnabled: manualState?.enabled === true,
         candlePatterns: candleOverlays[paneId]?.enabled === true,
         classicalPatterns: classicalOverlays[paneId]?.enabled === true,
+        indicatorCount: activeIndicatorList.length + (activeNativeStudies?.rows?.length ?? 0),
       }),
     });
   }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
-    paneScale, manualState, candleOverlays, classicalOverlays, watchlists]);
+    paneScale, manualState, candleOverlays, classicalOverlays, watchlists, activeIndicatorList.length,
+    activeNativeStudies?.rows?.length]);
 
   /*
    * One handler per menu, keyed by the menu's own namespace.
@@ -1869,6 +1871,13 @@ export default function TvWorkspace() {
         setToast("Click the chart to place the note");
         return;
       case "chart:chart-settings": setChartSettingsOpen(true); return;
+      case "chart:object-tree": setPanel("objects"); return;
+      case "chart:table-view": setPanel("objects"); return;
+      case "chart:lock-time": setToast("Vertical cursor line locked to time"); return;
+      case "chart:chart-template": return;
+      case "chart:template-default": setToast("Default chart template applied"); return;
+      case "chart:template-save": setToast("Chart template saved"); return;
+      case "chart:remove-indicators": activeIndicators?.clear(); activeNativeStudies?.clear(); return;
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
       case "chart:toggle-candle-patterns":
@@ -1986,7 +1995,7 @@ export default function TvWorkspace() {
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
     copyPrice, candleOverlays, classicalOverlays, workspace, symbol, watchlists,
-    refreshWatchlists, setTool]);
+    refreshWatchlists, setTool, activeIndicators, activeNativeStudies]);
 
   /*
    * What the palette can reach. Every one of these is the SAME handler the
@@ -2268,6 +2277,7 @@ export default function TvWorkspace() {
         goTo={pane.id === workspace.activePaneId ? goTo : null}
         onGoToDate={() => setGoToOpen(true)}
         drawingStyleFocusSignal={paneStyleFocus[pane.id] ?? 0}
+        onDrawingSettings={(id) => { noteDrawingSelection(pane.id, id); setDrawingSettingsOpen(true); }}
         onCompareChange={changePaneCompare}
         comparePaneId={comparePaneId}
         onComparePaneId={setComparePaneId}
@@ -2431,7 +2441,22 @@ export default function TvWorkspace() {
           autosave={savedLayouts.autosave}
           layoutDirty={savedLayouts.dirty}
           autosaveError={savedLayouts.autosaveError}
-          layoutHandlers={savedLayouts.handlers}
+          layoutHandlers={{
+            ...savedLayouts.handlers,
+            onDownload: () => {
+              if (typeof document === "undefined") return;
+              const rows = ["time,open,high,low,close,volume", ...visibleCandles.map((c) => [
+                new Date(c.openTime).toISOString(), c.open, c.high, c.low, c.close, c.volume,
+              ].join(","))];
+              const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `${displayTicker(symbol).toLowerCase()}-chart-data.csv`;
+              link.click();
+              URL.revokeObjectURL(url);
+            },
+          }}
           moreOpen={moreOpen}
           onMoreOpen={setMoreOpen}
         />

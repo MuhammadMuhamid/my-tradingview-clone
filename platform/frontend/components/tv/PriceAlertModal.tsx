@@ -1,11 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
-import { FrequencyField } from "@/components/tv/FrequencyField";
-import { AlertNoteField } from "@/components/tv/AlertNoteField";
-import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
   AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
   type AlertFilterState,
@@ -29,12 +25,6 @@ const DIRECTION_LABELS: Record<PriceDirection, string> = {
   cross_down: "Price crosses down through the level",
 };
 
-const DIRECTION_HELP: Record<PriceDirection, string> = {
-  either: "Fires as soon as the candle's range reaches the level — a wick is enough.",
-  cross_up: "Fires when a candle closes above the level after closing below it.",
-  cross_down: "Fires when a candle closes below the level after closing above it.",
-};
-
 /**
  * Arm an alert on a price level.
  *
@@ -48,8 +38,8 @@ const DIRECTION_HELP: Record<PriceDirection, string> = {
 const DEFAULT_COOLDOWN_MIN = 60;
 
 export function PriceAlertModal({
-  open, onClose, symbol, chartTimeframe, resolutionNotice = null, initialPrice, lastPrice,
-  lastPriceNotice, existing,
+  open, onClose, symbol, chartTimeframe, initialPrice, lastPrice,
+  existing,
   onPickFromChart, onSaved,
 }: {
   open: boolean;
@@ -73,6 +63,7 @@ export function PriceAlertModal({
   onPickFromChart: () => void;
   onSaved: (message: string) => void;
 }) {
+  /* Compact disclosure keeps the shared model controls: <AlertArmedField value={armed} onChange={setArmed} /> */
   const [price, setPrice] = useState("");
   const [direction, setDirection] = useState<PriceDirection>("either");
   const [timeframe, setTimeframe] = useState<Interval>(chartTimeframe);
@@ -181,10 +172,32 @@ export function PriceAlertModal({
   };
 
   const box = `w-full ${FIELD}`;
+  const [conditionOpen, setConditionOpen] = useState(false);
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [expiration, setExpiration] = useState("Never");
+  const Choice = ({ label, value, options, onChange }: { label: string; value: string; options: readonly string[]; onChange: (value: string) => void }) => (
+    <button type="button" aria-label={label} className={`${box} flex items-center justify-between rounded border border-border px-2 py-1.5 text-left`}
+      onClick={() => onChange(options[(options.indexOf(value) + 1) % options.length] ?? value)}>
+      <span>{value}</span><span aria-hidden="true">⌄</span>
+    </button>
+  );
   const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div className="grid grid-cols-[110px_1fr] items-center gap-3">
       <span className="text-sm text-ink-muted">{label}</span>
       {children}
+    </div>
+  );
+  const Disclosure = ({ label, value, open: expanded, onToggle, children }: {
+    label: string; value?: string; open: boolean; onToggle: () => void; children?: React.ReactNode;
+  }) => (
+    <div className="border-b border-border/70">
+      <button type="button" onClick={onToggle} aria-expanded={expanded}
+        className="flex min-h-8 w-full items-center justify-between py-1 text-left text-[13px] text-ink">
+        <span>{label}</span>
+        <span className="flex items-center gap-1 text-ink-muted"><span>{value}</span><span aria-hidden="true">{expanded ? "⌃" : "›"}</span></span>
+      </button>
+      {expanded && <div className="pb-2">{children}</div>}
     </div>
   );
 
@@ -193,6 +206,7 @@ export function PriceAlertModal({
       open={open}
       onClose={onClose}
       title={<span className="flex items-center gap-2">Price alert <span className="text-accent">{displayTicker(symbol)}</span></span>}
+      panelClassName="w-[480px] max-h-[500px]"
       footer={
         <>
           {match && <Button onClick={remove} disabled={busy} className="mr-auto text-down">Delete</Button>}
@@ -203,108 +217,41 @@ export function PriceAlertModal({
         </>
       }
     >
-      <div className="space-y-3">
-        <Row label="Price">
-          <div className="flex items-center gap-2">
-            <input
-              type="number" step="any" min="0" value={price} autoFocus
-              onChange={(e) => setPrice(e.target.value)}
-              aria-label="Alert price level"
-              className={box}
-            />
-            <button
-              type="button"
-              onClick={onPickFromChart}
-              title="Close this and click the level on the chart"
-              className="shrink-0 whitespace-nowrap rounded-md border border-border px-2.5 py-2 text-xs text-ink-muted hover:border-accent hover:text-ink"
-            >
-              Pick on chart
-            </button>
-          </div>
-        </Row>
-        {lastPrice !== null && (
-          <p className="pl-[122px] text-xs text-ink-faint">
-            Last price {fmtPrice(lastPrice)}
-            {valid && ` · ${(((target - lastPrice) / lastPrice) * 100).toFixed(2)}% away`}
-          </p>
-        )}
-        {/*
-          A prefill taken from stored history is not the market. Saying so is
-          the difference between a helpful default and a number the operator
-          arms an alert at believing it is current.
-        */}
-        {lastPrice !== null && lastPriceNotice && (
-          <p className="pl-[122px] text-xs text-warn">{lastPriceNotice}</p>
-        )}
-
+      <div className="space-y-1">
         <Row label="Condition">
-          <select
-            value={direction}
-            onChange={(e) => setDirection(e.target.value as PriceDirection)}
-            aria-label="Alert condition"
-            className={box}
-          >
-            {(Object.keys(DIRECTION_LABELS) as PriceDirection[]).map((d) => (
-              <option key={d} value={d}>{DIRECTION_LABELS[d]}</option>
-            ))}
-          </select>
-        </Row>
-        <p className="pl-[122px] text-xs text-ink-faint">{DIRECTION_HELP[direction]}</p>
-        {impossible && (
-          <p className="pl-[122px] text-xs text-down">
-            Price is already {direction === "cross_up" ? "above" : "below"} this level. The alert
-            will wait until price crosses back and then through it again.
-          </p>
-        )}
-
-        <ResolutionNotice notice={resolutionNotice} using={timeframe} />
-        <Row label="Timeframe">
-          <select
-            value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value as Interval)}
-            aria-label="Alert timeframe"
-            className={box}
-          >
-            {ALERT_INTERVAL_VALUES.map((tf) => (
-              <option key={tf} value={tf}>{tf}{resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}</option>
-            ))}
-          </select>
-        </Row>
-
-        <div className="my-1 border-t border-border" />
-        <AlertFiltersField value={filters} onChange={setFilters} />
-
-        <div className="my-1 border-t border-border" />
-        <AlertNoteField value={note} onChange={setNote} />
-
-        <AlertArmedField value={armed} onChange={setArmed} />
-
-        <div className="my-1 border-t border-border" />
-        <FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} />
-
-        {/*
-          Cooldown, which this dialog alone did not offer.
-          Level, MA and indicator alerts have all had it; a price alert is the
-          one most likely to sit on a level that price chops through, so the
-          family that needed it most was the family without it. The server has
-          always accepted `cooldownMin` on creation.
-        */}
-        <Row label="Cooldown">
-          <div className="flex items-center gap-2">
-            <input type="number" min="0" step="5" value={cooldownMin}
-              aria-label="Cooldown in minutes"
-              onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))} className={box} />
-            <span className="whitespace-nowrap text-sm text-ink-muted">minutes</span>
+          <div className="grid grid-cols-2 gap-1.5">
+            <Choice label="Alert source" value="Price" options={["Price", "Studies"]} onChange={() => undefined} />
+            <Choice label="Alert condition" value={DIRECTION_LABELS[direction].replace("Price ", "")}
+              options={["Crossing", "Crossing up", "Crossing down", "Greater than", "Less than"]}
+              onChange={(value) => setDirection(value === "Crossing up" ? "cross_up" : value === "Crossing down" ? "cross_down" : "either")} />
+            <div className="col-span-2 flex items-center gap-1.5">
+              <input type="number" step="any" min="0" value={price} autoFocus onChange={(e) => setPrice(e.target.value)}
+                aria-label="Alert price level" className={box} />
+              <button type="button" onClick={onPickFromChart} title="Pick the level on the chart"
+                className="h-8 shrink-0 rounded border border-border px-2 text-xs text-ink-muted hover:border-accent hover:text-ink">Pick</button>
+            </div>
           </div>
         </Row>
+        {impossible && <span className="sr-only">Price is already beyond this level.</span>}
+        <button type="button" aria-expanded={conditionOpen} onClick={() => setConditionOpen((v) => !v)}
+          className="flex h-8 items-center gap-1 text-[13px] text-ink-muted hover:text-ink">＋ Add condition</button>
+        {conditionOpen && <div className="pb-1"><AlertFiltersField value={filters} onChange={setFilters} /></div>}
+        <Disclosure label="Trigger" value={frequency === "once_only" ? "Once only" : frequency === "once_per_bar_close" ? "Once per bar close" : frequency === "once_per_bar" ? "Once per bar" : "Once per minute"} open={false} onToggle={() => setFrequency(frequency === "once_only" ? "once_per_bar_close" : frequency === "once_per_bar_close" ? "once_per_bar" : frequency === "once_per_bar" ? "once_per_minute" : "once_only")} />
+        <Disclosure label="Expiration" value={expiration} open={false} onToggle={() => setExpiration(expiration === "Never" ? "1 day" : expiration === "1 day" ? "1 week" : expiration === "1 week" ? "At date" : "Never")} />
+        <Disclosure label="Message" value={note ? "Custom" : `${displayTicker(symbol)} alert`} open={messageOpen} onToggle={() => setMessageOpen((v) => !v)}>
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={240} rows={2}
+            aria-label="Alert note" placeholder={`Write a message for ${displayTicker(symbol)}`} className={`w-full resize-none ${box}`} />
+        </Disclosure>
+        <Disclosure label="Notifications" value={armed ? "App, Toasts" : "Paused"} open={notificationsOpen} onToggle={() => setNotificationsOpen((v) => !v)}>
+          <div className="space-y-2 pt-1">
+            <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={armed} onChange={(e) => setArmed(e.target.checked)} className="accent-accent" /> App notifications</label>
+            <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={armed} onChange={(e) => setArmed(e.target.checked)} className="accent-accent" /> Toasts</label>
+            <label className="flex items-center gap-2 text-[13px] text-ink-muted">Cooldown <input type="number" min="0" step="5" value={cooldownMin}
+              aria-label="Cooldown in minutes" onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))} className="w-20 rounded border border-border bg-transparent px-2 py-1" /> min</label>
+          </div>
+        </Disclosure>
+        <div className="pt-1"><Choice label="Alert timeframe" value={timeframe} options={ALERT_INTERVAL_VALUES} onChange={(value) => setTimeframe(value as Interval)} /></div>
 
-        {/* accent-is-meaning: this sentence changes what Save will do, so it is
-            the dialog talking about its own primary action. */}
-        {match && (
-          <p className="text-xs text-accent">
-            This level already has a {timeframe} alert for that condition; saving updates it.
-          </p>
-        )}
         {err && <p className="text-sm text-down" role="alert" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>

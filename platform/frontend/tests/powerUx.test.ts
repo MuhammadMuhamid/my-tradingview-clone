@@ -195,7 +195,8 @@ test("the chart menu prepares an order and never submits one", () => {
   const trade = byId(menu, "chart:trade-at-price")!;
   assert.match((trade as { label: string }).label, /^(Add order|Prepare)/,
     "a one-click order from a context menu would cross the alerts-never-trade line");
-  assert.match((trade as { hint?: string }).hint ?? "", /ticket/);
+  assert.equal((trade as { hint?: string }).hint, undefined,
+    "the compact TV row has no helper copy; the ticket action is named by the row itself");
   for (const item of menu) {
     if (isSeparator(item)) continue;
     assert.doesNotMatch(item.label, /\b(buy|sell|submit|place order)\b/i,
@@ -254,11 +255,11 @@ test("the chart menu offers no control it cannot justify", () => {
   // With no price under the pointer the price actions say why they are off.
   assert.match((byId(menu, "chart:copy-price") as { disabledReason?: string }).disabledReason ?? "",
     /Right-click on the chart/);
-  // Toggles reflect the CURRENT state rather than what they would do.
-  assert.equal((byId(menu, "chart:toggle-log") as { checked?: boolean }).checked, true);
-  assert.equal((byId(menu, "chart:toggle-auto") as { checked?: boolean }).checked, false);
-  // And with nothing drawn, the drawing toggles say so rather than doing nothing.
-  assert.equal((byId(menu, "chart:toggle-drawings-hidden") as { disabled?: boolean }).disabled, true);
+  // Scale and drawing toggles live on the price-axis / drawing menus; the pane
+  // menu keeps the compact TradingView row set.
+  assert.equal(byId(menu, "chart:toggle-log"), undefined);
+  assert.equal(byId(menu, "chart:toggle-auto"), undefined);
+  assert.equal(byId(menu, "chart:toggle-drawings-hidden"), undefined);
 });
 
 test("a locked drawing refuses the edits that would change it", () => {

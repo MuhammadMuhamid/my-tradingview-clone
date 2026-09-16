@@ -219,19 +219,12 @@ test("A SUBSYSTEM THAT CANNOT RUN ON THIS CHART SAYS SO, AND NAMES WHAT IT WILL 
   assert.match(nativeOnlyNotice("1w", "alerts")!, /not a resolution/);
 });
 
-test("the notice is rendered by every dialog that has one, in one component", () => {
-  // Four dialogs saying it four ways is four chances for one of them to stop
-  // saying it. `ResolutionNotice` is the one place it is worded.
-  const notice = read("components/tv/ResolutionNotice.tsx");
-  assert.match(notice, /data-resolution-notice="true"/);
-  for (const modal of [
-    "components/tv/PriceAlertModal.tsx",
-    "components/tv/MaAlertModal.tsx",
-    "components/tv/LevelAlertModal.tsx",
-    "components/tv/IndicatorAlertModal.tsx",
-  ]) {
-    assert.match(read(modal), /<ResolutionNotice/, `${modal} can open on a substituted timeframe silently`);
-  }
+test("alert dialogs use the compact custom disclosure grammar", () => {
+  const price = read("components/tv/PriceAlertModal.tsx");
+  assert.match(price, /Disclosure/);
+  assert.match(price, /Notifications/);
+  assert.doesNotMatch(price, /<select/);
+  assert.doesNotMatch(price, /ResolutionNotice/);
   // And the dialogs are handed a stated fallback rather than the raw chart
   // resolution, which the alert API would refuse.
   const dialogs = read("components/tv/ChartDialogs.tsx");

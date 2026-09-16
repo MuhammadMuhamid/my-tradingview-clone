@@ -591,7 +591,8 @@ export function LegendTimeframe(props: LegendTimeframeProps) {
       >
         {props.interval}
         <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5"
+            transform={open ? "rotate(180 5 5)" : undefined} />
         </svg>
       </button>
       {open && (

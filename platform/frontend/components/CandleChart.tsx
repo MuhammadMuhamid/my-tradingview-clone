@@ -719,7 +719,7 @@ export function CandleChart({
   onIndicatorPaneAction,
   canIndicatorAction,
   hiddenStudies,
-  priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, paneActive,
+  priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, onDrawingSettings, paneActive,
   chartSettings,
 }: {
   symbol: string;
@@ -901,6 +901,7 @@ export function CandleChart({
   onGoToDate?: () => void;
   /** Bumped to move focus into the selected drawing's style bar. */
   drawingStyleFocusSignal?: number;
+  onDrawingSettings?: (id: string) => void;
   /** Whether this pane has the workspace's focus; gates Delete and Escape. */
   paneActive?: boolean;
   /** Per-pane visibility switches from Chart Settings. */
@@ -3495,6 +3496,7 @@ export function CandleChart({
               onChange={onDrawingsChange}
               onSelectionChange={onDrawingSelection}
               onContextMenu={onChartContextMenu}
+              onOpenSettings={onDrawingSettings}
               magnet={magnet}
               locked={drawingsLocked}
               hidden={drawingsHidden}

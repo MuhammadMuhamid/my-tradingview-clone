@@ -42,9 +42,8 @@
  * The explicit horizon timestamp, because a replay session that does not say
  * where it is standing is a chart with no date on it.
  *
- * The isolation sentence on the picker: saved drawings and live actions are
- * genuinely quarantined during a session, and that is worth one line of
- * screen once, at the moment the user commits to it.
+ * Replay isolation is exposed through the exit control's tooltip rather than
+ * spending a row of the compact picker on explanatory copy.
  */
 import { useEffect, useRef, useState } from "react";
 import { CalendarField } from "./CalendarField";
@@ -171,26 +170,10 @@ export function ReplayControls({
           Start
         </button>
         <button className={CTL} onClick={onCancel}>Cancel</button>
-        {/*
-          TVP8 round two: this was `hidden … lg:inline`.
-
-          Entering replay hides every saved drawing on the chart, and this
-          sentence was the only place that said so — invisible on any window
-          under 1024px, which is every phone and a docked laptop half-screen.
-          A mode that removes the user's own work has to announce it at the
-          width they are actually at. It truncates rather than hides, and the
-          `title` carries the whole of it.
-        */}
-        <span
-          className="ml-2 min-w-0 flex-1 truncate text-[11px] text-ink-faint"
-          title="Saved drawings and live actions are isolated while replay is active."
-        >
-          Saved drawings and live actions are isolated while replay is active.
-        </span>
         <button
           onClick={onCancel}
           aria-label="Cancel Replay"
-          title="Close replay"
+          title="Close replay — saved drawings and live actions are isolated while Replay is active"
           className={`${CTL} ml-auto w-[30px] justify-center px-0`}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"

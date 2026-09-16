@@ -291,7 +291,7 @@ test("ESCAPE CLOSES THE REPLAY PICKER, AND A TYPED KEY DOES NOT", async () => {
     "Escape unwinds the outermost layer, and here that is the picker");
 });
 
-test("THE ISOLATION WARNING IS NOT HIDDEN AT THE WIDTH PEOPLE USE", async () => {
+test("THE ISOLATION WARNING LIVES ON THE EXIT TOOLTIP", async () => {
   /*
    * TVP8 round two: the sentence carried `hidden … lg:inline`. Entering replay
    * hides every saved drawing on the chart, and this was the only place that
@@ -301,10 +301,6 @@ test("THE ISOLATION WARNING IS NOT HIDDEN AT THE WIDTH PEOPLE USE", async () => 
   fireEvent.click(replayChip(chart));
   await settle();
 
-  const notice = [...chart.container.querySelectorAll<HTMLElement>("span")]
-    .find((el) => /Saved drawings and live actions are isolated/.test(el.textContent ?? ""));
-  assert.ok(notice, "the picker must say what entering a session does to the chart");
-  assert.equal(/(^|\s)hidden(\s|$)/.test(notice.className), false,
-    `a mode that removes the user's own work must announce it at every width: ${notice.className}`);
-  assert.equal(/\blg:inline\b/.test(notice.className), false);
+  const exit = screen.getByRole("button", { name: "Cancel Replay" });
+  assert.match(exit.getAttribute("title") ?? "", /saved drawings and live actions are isolated/i);
 });

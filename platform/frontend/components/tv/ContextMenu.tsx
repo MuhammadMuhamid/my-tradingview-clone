@@ -394,7 +394,9 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
           its widest row — `Add alert on BTCUSDT at 77,581.72… ⌥A` — is the one
           that must never abbreviate.
         */
-        className="fixed z-[91] min-w-[200px] max-w-[360px] overflow-y-auto tvc-menu tvc-menu--compact outline-none"
+        className={`fixed z-[91] overflow-y-auto tvc-menu tvc-menu--compact outline-none ${
+          label.endsWith(" chart") ? "w-[325px] min-w-[325px] max-w-[325px]" : "min-w-[200px] max-w-[360px]"
+        }`}
       >
         {items.map((entry, index) => renderRow(entry, index, index === cursor, false))}
       </div>

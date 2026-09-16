@@ -157,6 +157,7 @@ export interface ChartPaneProps {
   onGoToDate?: () => void;
   /** Bumped to move focus into the selected drawing's style bar. */
   drawingStyleFocusSignal?: number;
+  onDrawingSettings?: (id: string) => void;
   /** This pane's comparison changed. Never synced to other panes. */
   onCompareChange?: (paneId: string, next: PaneCompare | null) => void;
   /** Which pane the workspace is asking to show its comparison dialog. */
@@ -1087,6 +1088,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             goTo={props.goTo}
             onGoToDate={props.onGoToDate}
             drawingStyleFocusSignal={props.drawingStyleFocusSignal}
+            onDrawingSettings={props.onDrawingSettings}
             paneActive={props.active}
             /*
              * TVP8 round two: the pane's settings, or the user's DEFAULT.

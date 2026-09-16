@@ -251,6 +251,7 @@ export interface ChartToolbarProps {
     onCopy: () => void;
     onRename: () => void;
     onDelete: (id: string) => void;
+    onDownload: () => void;
   };
 
   moreOpen: boolean;

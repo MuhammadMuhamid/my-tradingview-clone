@@ -81,7 +81,7 @@ const NEW_GLYPH = (
 
 export function LayoutMenu({
   layouts, currentId, autosave, dirty, autosaveError,
-  onSelect, onSaveNow, onToggleAutosave, onCreate, onCopy, onRename, onDelete,
+  onSelect, onSaveNow, onToggleAutosave, onCreate, onCopy, onRename, onDelete, onDownload,
 }: {
   layouts: Layout[];
   currentId: string | null;
@@ -103,6 +103,7 @@ export function LayoutMenu({
   onCopy: () => void;
   onRename: () => void;
   onDelete: (id: string) => void;
+  onDownload: () => void;
 }) {
   // One popover open at a time across the whole toolbar — these menus
   // hang off buttons a few pixels apart, so two open at once overlap and
@@ -376,6 +377,7 @@ export function LayoutMenu({
             */}
             <Item onClick={current ? onCopy : onCreate} glyph={COPY_GLYPH}>Make a copy…</Item>
             <Item onClick={onRename} disabled={!current} glyph={RENAME_GLYPH}>Rename…</Item>
+            <Item onClick={onDownload} disabled={!current}>Download chart data…</Item>
             {/*
               `Download chart data…` is deliberately absent. The reference's row
               exports the loaded window as CSV and this product has no such

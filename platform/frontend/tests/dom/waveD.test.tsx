@@ -50,6 +50,8 @@ test("D-02/D-05 — details omit empty news and stats, format metrics, and edit 
   assert.ok(within(details).getByRole("button", { name: "Show key stats" }));
   fireEvent.click(within(details).getByRole("button", { name: /Create alert for/ }));
   await settle();
+  fireEvent.click(screen.getByRole("button", { name: /Message/ }));
+  await settle();
   assert.ok(screen.getByRole("textbox", { name: "Alert note" }),
     "the details Edit action did not open the existing alert composer");
 });
