@@ -134,7 +134,7 @@ export function placeMenu(geometry: MenuGeometry): MenuPlacement {
 export type MenuGlyph =
   | "alarm" | "order" | "indicator" | "info" | "copy" | "paste" | "note"
   | "watchlist" | "gear" | "clone" | "lock" | "eye" | "trash" | "reset"
-  | "template" | "tree" | "clock" | "calendar";
+  | "template" | "tree" | "clock" | "calendar" | "flag";
 
 export interface MenuItem {
   id: string;
@@ -176,10 +176,41 @@ export interface MenuSeparator {
   separator: true;
 }
 
-export type MenuEntry = MenuItem | MenuSeparator;
+/**
+ * A row of colour swatches, as one entry.
+ *
+ * TVP8 F-05: the reference's watchlist row menu puts seven flag colours on a
+ * single 32px row, and seven `MenuItem`s would be seven rows. It is a RADIO
+ * over a palette — one flag at a time, and picking the one already on clears
+ * it — so the row carries `selected` rather than seven `checked` flags.
+ *
+ * It owns one keyboard cursor position: Left and Right move between the
+ * swatches, Enter picks the one under the cursor. Seven cursor stops in a
+ * nine-row menu would make arrowing past the palette the slow way through.
+ */
+export interface MenuSwatches {
+  id: string;
+  /** Announced as the group's accessible name. */
+  label: string;
+  swatches: readonly { id: string; label: string; hex: string }[];
+  /** The swatch currently on, or null. */
+  selected: string | null;
+  disabled?: boolean;
+}
+
+export type MenuEntry = MenuItem | MenuSeparator | MenuSwatches;
 
 export function isSeparator(entry: MenuEntry): entry is MenuSeparator {
   return (entry as MenuSeparator).separator === true;
+}
+
+export function isSwatches(entry: MenuEntry): entry is MenuSwatches {
+  return Array.isArray((entry as MenuSwatches).swatches);
+}
+
+/** The id a swatch selection reports: the row's id, then the swatch's. */
+export function swatchId(rowId: string, swatch: string): string {
+  return `${rowId}:${swatch}`;
 }
 
 /** Indices a keyboard cursor may land on: enabled items, never separators. */
@@ -224,7 +255,8 @@ export function initialMenuCursor(entries: readonly MenuEntry[]): number {
   const focusable = focusableIndices(entries);
   for (const index of focusable) {
     const entry = entries[index]!;
-    if (!isSeparator(entry) && !entry.destructive) return index;
+    if (isSeparator(entry) || isSwatches(entry)) continue;
+    if (!entry.destructive) return index;
   }
   return focusable[0] ?? -1;
 }

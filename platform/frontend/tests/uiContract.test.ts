@@ -1251,23 +1251,37 @@ test("CONTRACT — a token that has both spellings has the SAME colour in both",
   }
 });
 
-test("CONTRACT — the watchlist gives Symbol 122px and clips only the ticker", () => {
+test("CONTRACT — the watchlist row grid gutters, clips, and gives the numbers the room", () => {
   /*
-   * R7b-03. `gap-x-1` gave four gaps' worth of the 300px away, and the cell
-   * that paid was the ticker: a computed 30px, so the rows read `BTC▏`,
-   * `ETH▏`, `LINK`, `AVA)` against the reference's six glyphs. The reference's
-   * own ticker cell is 50px and MASKS its right edge, so a long name ends in a
-   * gradient rather than mid-glyph.
+   * TVP8 F-01, superseding R7b-03's `56 / 54 / 44` with no gap.
+   *
+   * Those widths were measured before the tabular INK was: `76,024.0` is 60px
+   * of 14px tabular numerals and its track was 56, the cells had no
+   * `overflow`, and the grid had no `column-gap` — so the surplus painted over
+   * the next column and three values read as one run of digits,
+   * `0.19280-0.004302.18%`.
+   *
+   * Which column yields is settled by the reference rather than by arithmetic:
+   * `fable-final-5d6c91d/08_tv_watchlist.png` at a 300px panel shows `BTCUSI`,
+   * `ETHUSI`, `DASHU` — TradingView truncates the TICKER and never truncates a
+   * number. So the numeric tracks carry the queue's maxima, the ticker is the
+   * flexible track, and `lib/fitNumeric` trims decimals where a value still
+   * will not fit.
    */
   assert.doesNotMatch(WATCHLIST, /gap-x-1/,
-    "16px of a 300px panel spent on gaps is 16px the ticker does not have");
+    "the gutter is one `column-gap` on the grid, not a Tailwind gap class");
   for (const [name, value] of [
-    ["mark", "18px"], ["markGap", "8px"], ["ticker", "minmax(0,1fr)"],
-    ["last", "56px"], ["change", "54px"], ["changePct", "44px"],
+    ["mark", "18px"], ["ticker", "minmax(52px,1fr)"],
+    ["last", "minmax(0,84px)"], ["change", "minmax(0,64px)"],
+    ["changePct", "minmax(0,60px)"],
   ] as const) {
     assert.match(WATCHLIST, new RegExp(`${name}:\\s*"${value.replace(/[()]/g, "\\$&")}"`),
-      `the ${name} column is ${value} on the reference`);
+      `the ${name} column is ${value}`);
   }
+  assert.match(WATCHLIST, /const COLUMN_GAP = 8;/,
+    "8px between every pair of cells, so no two can share an x-range");
+  assert.doesNotMatch(WATCHLIST, /markGap/,
+    "the mark's gap is the grid's own `column-gap`, not a track of its own");
   assert.doesNotMatch(WATCHLIST, /maskImage:/,
     "D-01 hard-clips the ticker only when necessary and never fades or ellipsises it");
 });

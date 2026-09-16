@@ -58,6 +58,8 @@ export interface ChartSidePanelProps {
   /** Watchlist row actions, which are workspace facts rather than list facts. */
   onOpenSymbolInNewPane?: (symbol: string) => void;
   onAddSymbolAlert?: (symbol: string) => void;
+  /** TVP8 F-05: `Add SYMBOL to compare`, on the focused pane. */
+  onAddSymbolCompare?: (symbol: string) => void;
   canOpenNewPane?: boolean;
   onSymbolsChanged: () => void;
   replayQuote: ReplayQuote | null;
@@ -185,6 +187,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
               onSymbolsChanged={props.onSymbolsChanged} replayQuote={props.replayQuote}
               onOpenInNewPane={props.onOpenSymbolInNewPane}
               onAddAlert={props.onAddSymbolAlert}
+              onAddCompare={props.onAddSymbolCompare}
               canOpenNewPane={props.canOpenNewPane ?? false}
               replayActive={props.replayActive}
               /* R7-14: the gutter grip closes the panel. The rail cell still

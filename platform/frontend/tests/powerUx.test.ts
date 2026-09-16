@@ -30,6 +30,7 @@ import {
 import {
   AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, studyMenu, watchlistMenu,
 } from "../lib/menuPayloads";
+import { FLAG_COLOURS } from "../lib/watchlistFlags";
 import {
   cloneDrawing, DrawingHistory, historyScope, MAX_HISTORY, MAX_SCOPES, sameDrawings,
 } from "../lib/drawingHistory";
@@ -346,6 +347,8 @@ test("the price axis and watchlist menus state their own preconditions", () => {
     symbol: "SOLUSDT", replayActive: false, canOpenNewPane: false,
     // R7b-18: the row menu offers the OTHER lists, so it has to be told them.
     lists: [{ id: "a", name: "Main Watchlist" }],
+    activeListId: "a", flag: null, anyFlagged: false,
+    flagColours: FLAG_COLOURS, canCompare: true,
   });
   assert.match((byId(full, "watchlist:open-new-pane") as { disabledReason?: string }).disabledReason ?? "",
     /maximum number of panes/);
@@ -860,6 +863,25 @@ test("every id a menu can emit is answered by a handler", () => {
     if (id === "chart:add-to-watchlist") {
       assert.match(sources, /id === "chart:add-to-watchlist"/);
       assert.match(sources, /CHART_ADD_TO_LIST_PREFIX/);
+      continue;
+    }
+    /*
+     * TVP8 F-05: the palette is one ENTRY that emits seven ids, `…:red` …
+     * `…:pink`, so its handler is a prefix branch rather than a switch case —
+     * the same shape `chart:add-to-watchlist` above already uses.
+     */
+    if (id === "watchlist:flag-colours") {
+      assert.match(sources, /id\.startsWith\("watchlist:flag-colours:"\)/);
+      continue;
+    }
+    /*
+     * TVP8 F-05: `Add {TICKER} to watchlist ›` is a SUBMENU parent. Clicking a
+     * parent opens its children rather than emitting its own id — `ContextMenu`
+     * treats a row with `children` as a door — so what needs a handler is the
+     * per-list id underneath it.
+     */
+    if (id === "watchlist:add-to-list") {
+      assert.match(sources, /id\.startsWith\("watchlist:add-to-list:"\)/);
       continue;
     }
     assert.ok(sources.includes(`case "${id}"`),

@@ -492,12 +492,31 @@
  * then either grow 40px rows it has no rows for or be written onto an
  * exception list in the test — which is how a rule stops meaning anything.
  */
-:is(.tv-workstation, .ts-app) .tvc-popover {
+/*
+ * ── TVP8 F-02: a PORTALED popover carries its own scope ────────────────────
+ *
+ * Both rules below were descendant selectors only — `.ts-app .tvc-popover` —
+ * so they asked for an ANCESTOR with the scope class. That holds for every
+ * popover rendered inside the workstation's tree, and fails completely for one
+ * rendered through `createPortal` into `document.body`: Replay's date picker.
+ * It set `className="tvc-popover ts-app …"`, putting the scope on ITSELF, and
+ * a descendant combinator never matches the element it is written on — so the
+ * picker computed `background-color: rgba(0,0,0,0)`, `box-shadow: none`,
+ * `border-radius: 0`, and its calendar was drawn straight onto the RSI and
+ * MACD panes underneath it.
+ *
+ * The second half of each selector is the self case. It fixes the picker and
+ * every future portal, rather than moving one component's colours inline where
+ * the next portal would have to discover the same trap.
+ */
+:is(.tv-workstation, .ts-app) .tvc-popover,
+.tvc-popover:is(.tv-workstation, .ts-app) {
   background-color: var(--ts-popover);
   border-radius: var(--ts-workstation-radius);
   box-shadow: var(--ts-popover-shadow);
 }
-:is(.tv-workstation, .ts-app) .tvc-menu {
+:is(.tv-workstation, .ts-app) .tvc-menu,
+.tvc-menu:is(.tv-workstation, .ts-app) {
   background-color: var(--ts-popover);
   border-radius: var(--ts-workstation-radius);
   box-shadow: var(--ts-popover-shadow);

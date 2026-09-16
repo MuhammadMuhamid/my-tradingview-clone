@@ -71,7 +71,7 @@ test("ON A FIRST RUN THE DEFAULT LIST IS SEEDED FROM THE TRACKED SYMBOLS, NOT FR
  * and a `grid-cols-[…]` assembled at runtime is a class Tailwind never emits.
  * The measured 50px ticker is verified at the browser, in the capture set.
  */
-test("D-01 — THE SYMBOL REGION OWNS 122PX AND NUMERIC COLUMNS NEVER ELLIPSIZE", async () => {
+test("F-01 — THE ROW GRID GUTTERS EVERY COLUMN AND CLIPS EVERY VALUE", async () => {
   const release = server.hold((request) => request.method === "GET" && request.path === "/api/symbols");
   const chart = await mountChart();
   await settle();
@@ -81,17 +81,44 @@ test("D-01 — THE SYMBOL REGION OWNS 122PX AND NUMERIC COLUMNS NEVER ELLIPSIZE"
   const button = chart.container.querySelector<HTMLElement>(
     `[data-watchlist-row="${CANONICAL.BTCUSDT}"] button`);
   assert.ok(button, "the seeded list has no BTC row to measure");
-  assert.equal(button.style.gridTemplateColumns, "18px 8px minmax(0,1fr) 56px 54px 44px",
-    "18px mark + 8px gap + the 96px remainder reserves 122px for Symbol at 300px");
+  /*
+   * TVP8 F-01, superseding D-01's `18px 8px minmax(0,1fr) 56px 54px 44px`.
+   *
+   * Those tracks were narrower than the tabular ink they had to hold — and
+   * with no `column-gap` and no `overflow` on the cells, the surplus painted
+   * over the next column: `0.19280-0.004302.18%`. The reference settles which
+   * column yields (`08_tv_watchlist.png` truncates the TICKER at 300px and
+   * never a number), so the numeric tracks carry the maxima and the ticker is
+   * the flexible one.
+   */
+  assert.equal(button.style.gridTemplateColumns,
+    "18px minmax(52px,1fr) minmax(0,84px) minmax(0,64px) minmax(0,60px)");
+  assert.equal(button.style.columnGap, "8px",
+    "the gutter is the grid's, so no two cells can share an x-range at any width");
   assert.equal(button.className.includes("gap-x-"), false,
-    "16px of a 300px panel spent on column gaps is 16px the ticker does not have");
+    "one gutter, declared once — not a Tailwind gap class as well");
+
+  const header = chart.container.querySelector<HTMLElement>(
+    "[data-watchlist] .grid.h-\\[29px\\]")
+    ?? [...chart.container.querySelectorAll<HTMLElement>("[data-watchlist] div")]
+      .find((el) => el.style.gridTemplateColumns !== "" && el !== button);
+  assert.ok(header, "the column header was not found");
+  assert.equal(header.style.gridTemplateColumns, button.style.gridTemplateColumns,
+    "header and row share ONE template, or a label does not sit over its values");
+  assert.equal(header.style.columnGap, "8px");
+  assert.ok(button.className.includes("pl-[10px]") && header.className.includes("pl-[10px]"),
+    "and one padding, or the flexible track resolves over two different widths");
 
   const ticker = button.querySelector<HTMLElement>("[data-ticker]");
   assert.ok(ticker, "the row has no ticker cell");
   assert.equal(ticker.style.maskImage, "",
-    "D-01 requires a hard clip only when necessary, never a fade or ellipsis");
+    "a hard clip only when necessary, never a fade or ellipsis");
   assert.equal(ticker.className.includes("truncate"), false, "the ticker must not ellipsise");
   for (const value of button.querySelectorAll<HTMLElement>("[data-col]")) {
     assert.equal(value.className.includes("truncate"), false, "a numeric value may never ellipsise");
+    assert.ok(value.className.includes("overflow-hidden")
+      && value.className.includes("whitespace-nowrap"),
+      "a value that outgrows its track clips inside it rather than over its neighbour");
+    assert.ok(value.className.includes("text-right") && value.className.includes("tabular"));
   }
 });

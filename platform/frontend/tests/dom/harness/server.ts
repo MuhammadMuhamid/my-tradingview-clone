@@ -31,7 +31,7 @@
 import {
   foldBars, parseResolution, sourceBarsNeeded, type FoldableBar,
 } from "@/lib/resolution";
-import type { ServerWatchlist } from "@/lib/api";
+import type { ServerLayout, ServerWatchlist } from "@/lib/api";
 import type { SymbolInfo } from "@/lib/types";
 import {
   CATALOGUE, legacyTickers, marketTickers, providerSymbol, providerSymbolOf, searchResponse,
@@ -108,6 +108,16 @@ export class FixtureServer {
   /** Watchlists, persisted for the life of a test the way the database persists them for a user. */
   readonly watchlists = new Map<string, ServerWatchlist>();
   private watchlistSeq = 0;
+  /**
+   * Saved layouts, persisted for the life of a test.
+   *
+   * TVP8 F-07: `/api/layouts` answered `[]` from the static table and had
+   * nothing to write to, so no DOM test could reach the menu's recents list or
+   * its `Open layout…` dialog — the two surfaces that finding is about. This is
+   * the same shape `watchlistRequest` implements, for the same reason.
+   */
+  readonly layouts = new Map<string, ServerLayout>();
+  private layoutSeq = 0;
 
   /**
    * Extra routes a single test needs, checked before the built-in table.
@@ -208,6 +218,8 @@ export class FixtureServer {
     for (const item of CATALOGUE) if (item.tracked) this.tracked.set(providerSymbol(item), symbolInfo(item));
     this.watchlists.clear();
     this.watchlistSeq = 0;
+    this.layouts.clear();
+    this.layoutSeq = 0;
     this.streamConfigs = true;
   }
 
@@ -402,6 +414,68 @@ export class FixtureServer {
   }
 
   /**
+   * Layouts that already exist when the page loads — a returning user with a
+   * library to switch between (TVP8 F-07).
+   */
+  seedLayouts(rows: readonly Partial<ServerLayout>[]): ServerLayout[] {
+    return rows.map((row) => {
+      const full = this.layoutRow(row);
+      this.layouts.set(full.id, full);
+      return full;
+    });
+  }
+
+  /** A `ServerLayout` with every field the client reads, defaults for the rest. */
+  private layoutRow(over: Partial<ServerLayout>): ServerLayout {
+    const now = new Date().toISOString();
+    return {
+      id: over.id ?? `ly-${++this.layoutSeq}`,
+      name: over.name ?? "Layout",
+      symbol: over.symbol ?? "SOLUSDT",
+      timeframe: over.timeframe ?? "15m",
+      bars: over.bars ?? 300,
+      strategyKey: over.strategyKey ?? "sr_trend",
+      params: over.params ?? {},
+      properties: over.properties ?? {
+        initialCapital: 10_000, qtyCash: 1_000, commissionPct: 0.1, slippageTicks: 0,
+      },
+      movingAverages: over.movingAverages ?? [],
+      ...(over.workspace === undefined ? {} : { workspace: over.workspace }),
+      createdAt: over.createdAt ?? now,
+      updatedAt: over.updatedAt ?? now,
+    } as ServerLayout;
+  }
+
+  /** `/api/layouts` — list, create, rename/edit, delete, and the sync no-op. */
+  private layoutRequest(method: string, path: string, body: unknown): Response | undefined {
+    if (path === "/api/layouts/sync-deployments") return json(200, { synced: [], count: 0 });
+    if (path !== "/api/layouts" && !path.startsWith("/api/layouts/")) return undefined;
+    const id = path.slice("/api/layouts".length).replace(/^\//, "");
+    const patch = (body ?? {}) as Partial<ServerLayout>;
+    if (method === "GET" && !id) {
+      return json(200, [...this.layouts.values()]);
+    }
+    if (method === "GET" && id) {
+      const row = this.layouts.get(id);
+      return row ? json(200, row) : json(404, { error: `no layout ${id}` });
+    }
+    if (method === "POST" && !id) {
+      const row = this.layoutRow(patch);
+      this.layouts.set(row.id, row);
+      return json(200, row);
+    }
+    if (method === "PATCH" && id) {
+      const row = this.layouts.get(id);
+      if (!row) return json(404, { error: `no layout ${id}` });
+      const next = { ...row, ...patch, id, updatedAt: new Date().toISOString() };
+      this.layouts.set(id, next);
+      return json(200, next);
+    }
+    if (method === "DELETE" && id) { this.layouts.delete(id); return json(200, {}); }
+    return undefined;
+  }
+
+  /**
    * `/api/watchlists` — create, list, rename, edit, delete.
    *
    * The QA fixture (`qa/chart-fixture.ts`) carried this in its own process
@@ -552,13 +626,15 @@ export class FixtureServer {
     const watchlist = this.watchlistRequest(method, path, body);
     if (watchlist !== undefined) return watchlist;
 
+    const layout = this.layoutRequest(method, path, body);
+    if (layout !== undefined) return layout;
+
     const table: Record<string, unknown> = {
       // The history repair path. `chartShell.test.tsx` exercises a stale tail
       // deliberately; everywhere else it must simply not 404.
       "/api/data/backfill": { fetched: 0 },
       "/api/strategies": [],
       "/api/pine": [],
-      "/api/layouts": [],
       "/api/ma-alerts": [],
       "/api/deployments": [],
       "/api/backtests": [],

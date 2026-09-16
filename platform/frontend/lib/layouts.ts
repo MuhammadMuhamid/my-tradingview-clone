@@ -77,6 +77,10 @@ export interface Layout extends WorkspaceState {
 const LEGACY_KEY = "srtrend.layouts.v1";
 const CUR = "srtrend.currentLayout.v1";
 const AUTO = "srtrend.autosave.v1";
+const RECENTS = "srtrend.layoutRecents.v1";
+
+/** How many the menu's `RECENTLY USED` section shows (TVP8 F-07). */
+export const LAYOUT_RECENTS_SHOWN = 4;
 
 
 function fromServer(l: ServerLayout): Layout {
@@ -211,6 +215,61 @@ export function getCurrentLayoutId(): string | null {
 export function setCurrentLayoutId(id: string | null): void {
   if (id === null) forget(CUR);
   else remember(CUR, id);
+}
+
+/*
+ * ── TVP8 F-07: which layouts were opened, most recent first ────────────────
+ *
+ * The menu's `RECENTLY USED` section listed EVERY saved layout in whatever
+ * order the server returned them, which for a user with a dozen is not a
+ * recents list at all — it is the whole library, unsorted, in a dropdown. The
+ * reference shows the last four OPENED, and `Open layout…` is the door to the
+ * rest.
+ *
+ * Device-local, like the current-layout pointer beside it and for the same
+ * reason: which arrangements you have been moving between lately is a fact
+ * about this machine's session, not about the layouts.
+ */
+export function getLayoutRecents(): string[] {
+  const raw = recall(RECENTS);
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch { return []; }
+}
+
+/** Move `id` to the front. Unbounded on disk, capped where it is DRAWN. */
+export function noteLayoutOpened(id: string): string[] {
+  const next = [id, ...getLayoutRecents().filter((x) => x !== id)];
+  remember(RECENTS, JSON.stringify(next));
+  return next;
+}
+
+export function forgetLayoutRecent(id: string): string[] {
+  const next = getLayoutRecents().filter((x) => x !== id);
+  remember(RECENTS, JSON.stringify(next));
+  return next;
+}
+
+/**
+ * The saved layouts in recents order: the ones lately opened first, then the
+ * rest by how recently they were WRITTEN.
+ *
+ * A layout that has never been opened on this device still has a place — a
+ * second browser's list is not empty, it is simply not ordered by this
+ * machine's history.
+ */
+export function orderByRecents(layouts: readonly Layout[], recents: readonly string[]): Layout[] {
+  const rank = new Map(recents.map((id, i) => [id, i]));
+  return [...layouts].sort((a, b) => {
+    const ra = rank.get(a.id);
+    const rb = rank.get(b.id);
+    if (ra !== undefined && rb !== undefined) return ra - rb;
+    if (ra !== undefined) return -1;
+    if (rb !== undefined) return 1;
+    return b.updatedAt - a.updatedAt;
+  });
 }
 
 /*

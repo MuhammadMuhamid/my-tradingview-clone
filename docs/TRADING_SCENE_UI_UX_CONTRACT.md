@@ -150,7 +150,7 @@ Measured from live TradingView at 1440×900, DPR 1:
 | toolbar separator | 1px × 22px on `--ts-line-strong`, 4px clearance each side |
 | **dropdown** row | **40px**, inset 6px, radius 6px |
 | **context menu** row | **32px** — a context menu is denser than a picker |
-| watchlist row | **30px** on a `[24px_1fr_72px_70px_60px]` grid; 46px title row, 29px column row, 36px section header; the panel keeps a 4px `--ts-line` gutter inside its 300px |
+| watchlist row | **30px** on `18px minmax(52px,1fr) minmax(0,84px) minmax(0,64px) minmax(0,60px)` with an 8px `column-gap` (TVP8 F-01); 46px title row, 29px column row, 36px section header; the panel keeps a 4px `--ts-line` gutter inside its 300px |
 | dialog | 750px wide when `wide`, 20px/600 title, 50px form-row pitch |
 | dialog form control | 34px tall, radius 6, 1px `--ts-control-border`, transparent |
 | settings-dialog checkbox | **18px**, radius 3, 34px hit area, 10px gap before the label; checked is a light fill with a dark check — never `accent` |
@@ -614,24 +614,48 @@ Reference: `TradingView-Parity-TVP8-20260913/measurements/tv-watchlist-20260914.
 - The watchlist panel: 46px title row (`{list name} ⌄` + three 38×38
   cells: add, compact, `⋯`), 29px column row on a `--ts-state-active`
   hairline, 34px add row with a magnifier, asset-class group bands of
-  **6px of gap over a 36px row with no count** (display-only grouping;
-  nothing persisted), **30px rows** — 29 of content and the 1px `border-b`
-  inside it, `border-box` — on `24px minmax(0,1fr) 72px 70px 60px` with
-  **no inter-column gap**: asset mark, ticker 14px/400, last, change,
-  change %. The ticker cell **fades** at its right edge (a 12px mask), never
-  clips mid-glyph. The selected row is transparent with a 2px inset
-  `--ts-ring`. Row separators are `--ts-line-soft`. No inline `×` as a
-  column, no `+` prefix on a change, no truncation of a value.
+  **6px of gap over a 36px row with no count**, **30px rows** — 29 of
+  content and the 1px `border-b` inside it, `border-box`.
+- **The row grid: the numbers get the room, the ticker truncates** (TVP8
+  F-01, superseding the earlier `24px minmax(0,1fr) 72px 70px 60px` with no
+  gap). Row and header share one template and one `pl-[10px] pr-2` padding —
+  `18px minmax(52px,1fr) minmax(0,84px) minmax(0,64px) minmax(0,60px)` with
+  an **8px `column-gap`** — so a header label sits over its own values and
+  no two cells can ever share an x-range. The numeric cells are
+  `text-right`, `overflow:hidden`, `white-space:nowrap`, `tabular-nums`.
+  The earlier rule ("no inter-column gap", "no truncation of a value") was
+  measured before the tabular ink was: `76,024.0` is 60px of 14px tabular
+  numerals in a 56px track, so with nothing clipping and nothing guttering,
+  three values painted over each other as one run of digits
+  (`0.19280-0.004302.18%`). Which column yields is settled by the reference:
+  `fable-final-5d6c91d/08_tv_watchlist.png` at 300px shows `BTCUSI`,
+  `ETHUSI`, `DASHU` — **TradingView truncates the ticker and never truncates
+  a number**. Where a value still will not fit its track, `lib/fitNumeric`
+  drops trailing decimals rather than clipping mid-glyph.
+- Asset mark, ticker 14px/400, last, change, change %. The selected row is
+  transparent with a 2px inset `--ts-ring`. Row separators are
+  `--ts-line-soft`. No `+` prefix on a change.
 - **Quotes are printed at the instrument's tick precision**, never at the
   magnitude of the individual number, and always with
   `minimumFractionDigits === maximumFractionDigits` so a value cannot change
   width between two ticks. `Chg` takes the same decimals as `Last`, because
   it is the same instrument. The digits that changed on the last tick are
   painted in the direction colour for 600ms.
-- **A row is removable from the row.** Hover or focus reveals a 16px neutral
-  `×` over the last column, `Delete`/`Backspace` on a focused row does the
-  same, and the row's `title` is `{name} · {VENUE} · Real-time|Delayed ·
-  {market}` — never a qualified storage identity, and never the venue twice.
+- **A row is removable from the row.** Hover or focus reveals a 24×24
+  neutral **trash** over the last column (TVP8 F-05 — the reference draws a
+  bin here, and `×` is this product's "dismiss" rather than "delete"),
+  `Delete`/`Backspace` on a focused row does the same, and the row's `title`
+  is `{name} · {VENUE} · Real-time|Delayed · {market}` — never a qualified
+  storage identity, and never the venue twice — with the row's note, when it
+  has one, on a second line.
+- **A row carries the reader's own markings.** A flag is a 4px coloured stub
+  at the row's left edge; a note is a 10px glyph after the ticker and a
+  second line in the tooltip. Both are keyed by SYMBOL and device-local
+  (`tv.watchlist.flags.v1`, `tv.watchlist.notes.v1`), so they follow the
+  instrument onto every list it is on. A user **section** is an anchor —
+  a name and the symbol it opens above (`tv.watchlist.sections.v1`, per
+  list) — rendered as a band with hover rename and remove; with none, the
+  asset-class grouping above is what the list draws.
 - **Escape closes the innermost open thing.** The panel's window-level
   Escape closes the panel only when focus is not inside a menu, a dialog or
   a text field within it; the list menu and the add field stop the event
@@ -647,14 +671,21 @@ Reference: `TradingView-Parity-TVP8-20260913/measurements/tv-watchlist-20260914.
   indicator — `Chg` sorts by the absolute move and `Chg%` by the percentage
   — and the refusal to drag while sorted is shown for a few seconds AFTER a
   refused drop, never as a standing paragraph.
-- The row's context menu keeps `Open in the focused chart` ·
-  `Open in a new pane` · `Add {TICKER} to watchlist…` (only with more than
-  one list) · `Add alert on {TICKER}` · `Add symbol…` · `Remove from this
-  list`. The reference's flag row and swatches, `Add to compare`, `Add note`
-  and `Add section` are GENUINELY_DIFFERENT (R7b-18, R8-22): this product
-  has none of those, and a menu row that opens nothing is the defect
-  `lib/menuPayloads.ts` exists to prevent. No hotkey caps are printed on
-  these rows for the same reason — the reference prints one only on Flag.
+- **The row's context menu is the reference's** (TVP8 F-05, superseding
+  R7b-18/R8-22, which recorded flag/compare/note/section as
+  GENUINELY_DIFFERENT because the product had none of them — it now has all
+  four, on real state). 254px, 32px rows, 16px glyphs, anchored at the
+  cursor:
+  `Flag|Unflag {TICKER}` · a row of **7 flag swatches** (red, blue, green,
+  orange, purple, cyan, pink — 14px circles, 8px apart, radio semantics) ·
+  `Unflag all symbols` · — · `Add {TICKER} to watchlist ›` (only with more
+  than one list) · `Add {TICKER} to compare` · `Add note for {TICKER}` · — ·
+  `Add section` · `Add symbol…` · — · then Trading Scene's own
+  `Open in the focused chart` · `Open in a new pane` · `Add alert on
+  {TICKER}`. `Remove from this list` is GONE — removing is the hover trash
+  and the Delete key — and **nothing in this menu is destructive-tinted**.
+  Every row operates real product state; a menu row that opens nothing is
+  the defect `lib/menuPayloads.ts` exists to prevent.
 - The details block below the list: 24px mark + 16px/600 ticker + 32px `⋯`;
   the identity line is **`displayName()` where the catalogue holds both legs**
   (`Bitcoin / TetherUS • BINANCE`) and falls back to `{base} / {quote}`;

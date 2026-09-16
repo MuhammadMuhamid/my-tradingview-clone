@@ -1,9 +1,10 @@
 "use client";
 import { useEdgeClamp } from "@/lib/useEdgeClamp";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
+import { Modal } from "@/components/Modal";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
-import type { Layout } from "@/lib/layouts";
+import { LAYOUT_RECENTS_SHOWN, orderByRecents, type Layout } from "@/lib/layouts";
 import { TOOL_BUTTON, TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/tv/toolbarChrome";
 import { displayTicker } from "@/lib/instrument";
 import { isMacPlatform } from "@/lib/shortcuts";
@@ -72,6 +73,12 @@ const RENAME_GLYPH = (
   </svg>
 );
 
+const OPEN_GLYPH = (
+  <svg {...GUTTER_GLYPH}>
+    <path d="M1.5 12.5V3.5a1 1 0 0 1 1-1h3l1.5 2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1z" />
+  </svg>
+);
+
 const NEW_GLYPH = (
   <svg {...GUTTER_GLYPH}>
     <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" />
@@ -80,10 +87,17 @@ const NEW_GLYPH = (
 );
 
 export function LayoutMenu({
-  layouts, currentId, autosave, dirty, autosaveError,
+  layouts, recents = [], currentId, autosave, dirty, autosaveError,
   onSelect, onSaveNow, onToggleAutosave, onCreate, onCopy, onRename, onDelete, onDownload,
 }: {
   layouts: Layout[];
+  /**
+   * Layout ids most-recently-opened first (TVP8 F-07).
+   *
+   * The menu draws the first four; `Open layout…` shows the rest. Empty on a
+   * device that has not switched yet, which falls back to most-recently-saved.
+   */
+  recents?: string[];
   currentId: string | null;
   autosave: boolean;
   dirty: boolean;
@@ -109,11 +123,26 @@ export function LayoutMenu({
   // hang off buttons a few pixels apart, so two open at once overlap and
   // compete for the same clicks. See `lib/popoverGroup`.
   const [open, setOpen] = useExclusivePopover("saved-layouts");
+  /** `Open layout…` — the whole library, searchable (TVP8 F-07). */
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const ask = useAsk();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const edgeClamp = useEdgeClamp(menuRef, open);
   const current = layouts.find((l) => l.id === currentId) ?? null;
+  /*
+   * F-07: the library in recents order — lately opened first, then by how
+   * recently each was written. The menu takes the head of it; the dialog
+   * searches all of it.
+   */
+  const ordered = useMemo(() => orderByRecents(layouts, recents), [layouts, recents]);
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q === "") return ordered;
+    return ordered.filter((l) => `${l.name} ${displayTicker(l.symbol)} ${l.interval}`
+      .toLowerCase().includes(q));
+  }, [ordered, query]);
   /*
    * The cap printed beside `Save layout` (R1c-11).
    *
@@ -390,11 +419,20 @@ export function LayoutMenu({
 
             <Item onClick={onCreate} glyph={NEW_GLYPH}>Create new layout…</Item>
 
-            {layouts.length > 0 && (
+            {/*
+              ── TVP8 F-07: RECENTLY USED is FOUR, in recents order ───────────
+
+              This listed every saved layout, in whatever order the server
+              returned them. For a user with a dozen that is not a recents
+              list — it is the whole library, unsorted, inside a dropdown. The
+              reference shows the last four OPENED and puts the rest behind
+              `Open layout…`, which is the row underneath.
+            */}
+            {ordered.length > 0 && (
               <>
                 <div className="tvc-menu-heading">Recently used</div>
                 <div className="max-h-[240px] overflow-y-auto">
-                  {layouts.map((l) => (
+                  {ordered.slice(0, LAYOUT_RECENTS_SHOWN).map((l) => (
                     <div key={l.id} className="group flex items-center">
                       <button
                         role="menuitem"
@@ -428,7 +466,7 @@ export function LayoutMenu({
                           {displayTicker(l.symbol)}, {l.interval}
                         </span>
                       </button>
-                      {layouts.length > 1 && (
+                      {ordered.length > 1 && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -458,12 +496,74 @@ export function LayoutMenu({
                     </div>
                   ))}
                 </div>
+                <div role="separator" className="tvc-menu-sep" />
               </>
             )}
+            {/*
+              The door to the rest. Present even with nothing saved, because
+              "you have no layouts" is something the dialog can say and a
+              missing row cannot — and disabled, because there is nothing to
+              open and a dialog listing nothing is a dead end with a title.
+            */}
+            <Item
+              onClick={() => { setQuery(""); setBrowseOpen(true); }}
+              disabled={layouts.length === 0}
+              glyph={OPEN_GLYPH}
+            >
+              Open layout…
+            </Item>
           </div>
         </>
       )}
       </div>
+
+      <Modal
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        title="Open layout"
+        panelClassName="!max-w-[520px]"
+      >
+        <label className="block">
+          <span className="sr-only">Search saved layouts</span>
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search layouts"
+            className="h-[34px] w-full rounded border border-control-border bg-surface-2 px-2 text-sm text-ink outline-none placeholder:text-ink-faint"
+          />
+        </label>
+        <div className="mt-2 max-h-[360px] overflow-y-auto">
+          {matches.length === 0 && (
+            <p className="py-6 text-center text-[12px] text-ink-faint">
+              {layouts.length === 0
+                ? "No layouts saved yet. Make a copy… writes this workspace to one."
+                : "No saved layout matches that search."}
+            </p>
+          )}
+          {matches.map((l) => (
+            <button
+              key={l.id}
+              onClick={() => { setBrowseOpen(false); void selectLayout(l.id, l.name); }}
+              aria-current={l.id === currentId ? "true" : undefined}
+              data-layout-row={l.id}
+              className={`flex w-full items-center gap-3 rounded px-2 py-2 text-left hover:bg-state-hover ${
+                l.id === currentId ? "bg-state-active" : ""}`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-ink">{l.name}</span>
+                {/* R8: `displayTicker`, never the canonical id. */}
+                <span className="block truncate text-[12px] text-ink-faint">
+                  {displayTicker(l.symbol)}, {l.interval}
+                </span>
+              </span>
+              <span className="shrink-0 text-[11px] tabular text-ink-faint">
+                {new Date(l.updatedAt).toLocaleDateString()}
+              </span>
+            </button>
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }

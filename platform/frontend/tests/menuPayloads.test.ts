@@ -30,7 +30,8 @@ import {
   WATCHLIST_VIEW_DEFAULTS, watchlistAddToListMenu, watchlistListsMenu, watchlistMenu,
   watchlistSettingsMenu,
 } from "../lib/menuPayloads";
-import { isSeparator, type MenuEntry } from "../lib/contextMenu";
+import { FLAG_COLOURS } from "../lib/watchlistFlags";
+import { isSeparator, isSwatches, type MenuEntry } from "../lib/contextMenu";
 
 const ONE_LIST = [{ id: "a", name: "Main Watchlist" }];
 const TWO_LISTS = [...ONE_LIST, { id: "b", name: "Scalps" }];
@@ -40,23 +41,84 @@ function rows(entries: readonly MenuEntry[]): string[] {
   return entries.map((entry) => (isSeparator(entry) ? "—" : entry.label));
 }
 
-test("R8-22 / R7b-18 — the row menu's rows, in order", () => {
-  assert.deepEqual(rows(watchlistMenu({
+/** The queue's F-05 context, with the parts a test is not about held still. */
+function rowMenu(over: Partial<Parameters<typeof watchlistMenu>[0]> = {}) {
+  return watchlistMenu({
     symbol: "ETHUSDT", replayActive: false, canOpenNewPane: true, lists: TWO_LISTS,
-  })), [
-    "Open in the focused chart",
-    "Open in a new pane",
-    // The reference's own `Add ETHUSD to watchlist ›`, which this product can
-    // honour because it has more than one list.
-    "Add ETHUSDT to watchlist…",
+    activeListId: "a", flag: null, anyFlagged: false, flagColours: FLAG_COLOURS,
+    canCompare: true, ...over,
+  });
+}
+
+test("F-05 — the row menu is the reference's, in the reference's order", () => {
+  /*
+   * `08c_tv_watchlist_row_menu.png`: flagging, then the three things you do
+   * WITH the symbol, then the two that act on the LIST. The two Trading Scene
+   * rows that have no reference equivalent are kept, last, in a group of their
+   * own — the queue asks for them to be retained rather than dropped.
+   */
+  assert.deepEqual(rows(rowMenu()), [
+    "Flag ETHUSDT",
+    "Flag colour for ETHUSDT",
+    "Unflag all symbols",
     "—",
-    "Add alert on ETHUSDT",
+    "Add ETHUSDT to watchlist",
+    "Add ETHUSDT to compare",
+    "Add note for ETHUSDT",
     "—",
-    // The reference's last row. It opens the same field the header's `+` does.
+    "Add section",
     "Add symbol…",
     "—",
-    "Remove from this list",
+    "Open in the focused chart",
+    "Open in a new pane",
+    "Add alert on ETHUSDT",
   ]);
+});
+
+test("F-05 — `Remove from this list` is gone, and nothing in the menu is destructive", () => {
+  /*
+   * The reference has no remove row and no red text here; removing is the
+   * hover trash and the Delete key, both of which the row already has. A red
+   * row in a menu a user opens to flag a symbol is a mis-set expectation.
+   */
+  const entries = rowMenu();
+  assert.equal(entries.some((e) => e.id === "watchlist:remove"), false);
+  for (const entry of entries) {
+    if (isSeparator(entry) || isSwatches(entry)) continue;
+    assert.notEqual(entry.destructive, true, entry.label);
+  }
+});
+
+test("F-05 — the palette is one row of seven, with radio semantics", () => {
+  const palette = rowMenu({ flag: "green" }).find(isSwatches);
+  assert.ok(palette, "the menu carries a swatch row");
+  assert.equal(palette.swatches.length, 7);
+  assert.deepEqual(palette.swatches.map((c) => c.id),
+    ["red", "blue", "green", "orange", "purple", "cyan", "pink"]);
+  assert.equal(palette.selected, "green",
+    "the flag already on is the one the palette announces as checked");
+});
+
+test("F-05 — the first row's verb follows the symbol's own state", () => {
+  assert.equal(rows(rowMenu({ flag: null }))[0], "Flag ETHUSDT");
+  assert.equal(rows(rowMenu({ flag: "red" }))[0], "Unflag ETHUSDT");
+});
+
+test("F-05 — `Unflag all symbols` is greyed, with a reason, when nothing is flagged", () => {
+  const off = rowMenu({ anyFlagged: false }).find((e) => e.id === "watchlist:unflag-all");
+  assert.ok(off && !isSeparator(off) && !isSwatches(off));
+  assert.equal(off.disabled, true);
+  assert.match(String(off.disabledReason), /flagged/);
+  const on = rowMenu({ anyFlagged: true }).find((e) => e.id === "watchlist:unflag-all");
+  assert.ok(on && !isSeparator(on) && !isSwatches(on));
+  assert.notEqual(on.disabled, true);
+});
+
+test("F-05 — `Add to watchlist` is a submenu of the OTHER lists", () => {
+  const entry = rowMenu().find((e) => e.id === "watchlist:add-to-list");
+  assert.ok(entry && !isSeparator(entry) && !isSwatches(entry));
+  assert.deepEqual(entry.children?.map((c) => c.id), ["watchlist:add-to-list:b"],
+    "the list the row is already on is not somewhere to add it to");
 });
 
 test("R7b-18 — with one list there is nowhere to add the row TO, so the row is absent", () => {
@@ -65,9 +127,7 @@ test("R7b-18 — with one list there is nowhere to add the row TO, so the row is
    * temporarily unavailable. `Add X to watchlist` has no meaning at all until
    * a second list exists, and a permanently greyed row teaches nothing.
    */
-  const ids = watchlistMenu({
-    symbol: "ETHUSDT", replayActive: false, canOpenNewPane: true, lists: ONE_LIST,
-  }).map((e) => e.id);
+  const ids = rowMenu({ lists: ONE_LIST }).map((e) => e.id);
   assert.equal(ids.includes("watchlist:add-to-list"), false);
   assert.equal(ids.includes("watchlist:add-symbol"), true,
     "`Add symbol` is unconditional — a list of one can still be added to");
@@ -83,9 +143,7 @@ test("R7b-18 — the second level offers the OTHER lists and never the current o
 
 test("R7b-10 — a canonical row's menu is written in tickers, never in storage keys", () => {
   const canonical = "instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot";
-  for (const label of rows(watchlistMenu({
-    symbol: canonical, replayActive: false, canOpenNewPane: true, lists: TWO_LISTS,
-  }))) {
+  for (const label of rows(rowMenu({ symbol: canonical }))) {
     assert.doesNotMatch(label, /instrument:v1/, label);
   }
 });

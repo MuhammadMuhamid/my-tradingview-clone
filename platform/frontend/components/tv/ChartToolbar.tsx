@@ -239,6 +239,8 @@ export interface ChartToolbarProps {
   loadingBest: boolean;
 
   layouts: Layout[];
+  /** TVP8 F-07: layout ids most-recently-opened first. */
+  layoutRecents?: string[];
   currentLayoutId: string | null;
   autosave: boolean;
   layoutDirty: boolean;
@@ -702,6 +704,7 @@ function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
       <LayoutMenu
         autosaveError={props.autosaveError}
         layouts={props.layouts}
+        recents={props.layoutRecents}
         currentId={props.currentLayoutId}
         autosave={props.autosave}
         dirty={props.layoutDirty}

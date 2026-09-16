@@ -531,9 +531,25 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
             the pseudo-elements from here — `app/globals.css` is shared, and a
             rule there would repaint every scrollbar in the product.
           */}
+          {/*
+            ── TVP8 F-04: the star column is INSIDE the scroller ─────────────
+
+            Every row carried `-ml-[30px]` to bleed its hover fill and its
+            favourite star 30px left of the list column, into the gap beside
+            the rail — which is where the reference draws them. But the rows
+            sit inside THIS element, and this element clips: the star rendered
+            at x 542–566 while the scroller's box began at 570, so
+            `elementFromPoint` at the star's own centre returned the dialog
+            body and the control could be neither seen nor clicked.
+
+            The offset moves onto the clipping ancestor. Every measured x stays
+            where it was — the rows still begin 30px left of the names, the
+            names still begin at 570 — and the star is now inside the box that
+            decides what is visible.
+          */}
           <div
             aria-label="Indicators"
-            className="min-h-0 flex-1 overflow-y-auto pb-4 pt-[9px]
+            className="-ml-[30px] min-h-0 flex-1 overflow-y-auto pb-4 pt-[9px]
               [scrollbar-gutter:stable]
               [&::-webkit-scrollbar-thumb]:rounded-full
               [&::-webkit-scrollbar-thumb]:bg-state-active
@@ -556,7 +572,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
                 {scriptList.length > 0 && <GroupHeader>My scripts</GroupHeader>}
                 {scriptList.map(scriptRow)}
                 {nativeList.length === 0 && scriptList.length === 0 && (
-                  <p className="py-6 text-center text-[12px] text-ink-faint">
+                  <p className="py-6 pl-[30px] text-center text-[12px] text-ink-faint">
                     Nothing in either library matches that search.
                   </p>
                 )}
@@ -566,7 +582,7 @@ export function IndicatorBrowser(props: IndicatorBrowserProps) {
                 <GroupHeader>Script name</GroupHeader>
                 {favouriteList.map(nativeRow)}
                 {favouriteList.length === 0 && (
-                  <p className="py-6 text-center text-sm text-ink-faint">No favorites yet.</p>
+                  <p className="py-6 pl-[30px] text-center text-sm text-ink-faint">No favorites yet.</p>
                 )}
               </>
             ) : library === "technicals" ? (
@@ -689,7 +705,7 @@ function GroupHeader({ children }: { children: React.ReactNode }) {
     the list 14px high on the dialog.
   */
   return (
-    <div className="-ml-[30px] flex h-8 items-center px-2 pl-[31px] text-[11px] uppercase
+    <div className="flex h-8 items-center px-2 pl-[31px] text-[11px] uppercase
       tracking-wide text-ink-faint">
       {children}
     </div>
@@ -824,7 +840,7 @@ function BrowserRow({
       the dialog's own `surface-2`; the light theme keeps its own measured
       hover, because that pair is two measured sets and not a mirror.
     */
-    <div className={`group/row relative -ml-[30px] flex h-8 items-center rounded ${
+    <div className={`group/row relative flex h-8 items-center rounded ${
       disabled ? "opacity-50"
         : "hover:bg-[rgb(56,56,56)] [[data-theme=light]_&]:hover:bg-state-hover"
     }`}>
@@ -858,7 +874,7 @@ function BrowserRow({
         )}
       </button>
       {onToggleStar && (
-        <span className="absolute left-0 top-0 flex h-8 w-7 items-center justify-center">
+        <span className="absolute left-[3px] top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center">
           <button
             type="button"
             onClick={onToggleStar}
@@ -937,7 +953,7 @@ function ImportRow({ disabled, onClick }: { disabled: boolean; onClick: () => vo
       onClick={onClick}
       disabled={disabled}
       title="Import .pine files from disk"
-      className="-ml-[30px] flex h-8 w-full items-center rounded pl-[7px] pr-1 text-left
+      className="flex h-8 w-full items-center rounded pl-[7px] pr-1 text-left
         hover:bg-[rgb(56,56,56)] [[data-theme=light]_&]:hover:bg-state-hover
         disabled:cursor-not-allowed disabled:opacity-50"
     >

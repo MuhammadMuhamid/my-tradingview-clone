@@ -636,6 +636,36 @@ export function DrawingCanvas({
       }
     };
 
+    /*
+     * ── TVP8 F-06: opening a drawing's settings by double-click ──────────────
+     *
+     * The native `dblclick` below is the primary path and works: a real
+     * two-click at a point on the stroke hit-tests to the drawing and opens the
+     * same dialog the floating toolbar's gear does.
+     *
+     * What it does NOT cover is the two cases where the browser never sends a
+     * `dblclick` at all. A touch screen has no such event — and this file
+     * grew a whole touch path precisely so a phone can draw, so a phone could
+     * draw a drawing it could never open. And a second press that moves a few
+     * pixels, or that lands on a selected drawing's handle and starts a drag,
+     * suppresses it too. So the same intent is also recognised from the
+     * PRESSES: two within 400ms and 4px of each other, which is the tolerance
+     * the queue names.
+     */
+    const DOUBLE_MS = 400;
+    const DOUBLE_PX = 4;
+    let lastPress: { x: number; y: number; at: number } | null = null;
+
+    /** Open `id`'s settings by the same route the floating toolbar's gear takes. */
+    const openSettingsFor = (id: string, e: MouseEvent): void => {
+      setSelected(id);
+      onOpenSettings?.(id);
+      // And claim the event, so the chart's own double-click (autoscale reset)
+      // does not also fire underneath the dialog that just opened.
+      e.stopPropagation();
+      e.preventDefault();
+    };
+
     const onDouble = (e: MouseEvent): void => {
       const draft = draftRef.current;
       if (draft && TOOL_POINTS[draft.tool] === 0 && draft.points.length >= 2) {
@@ -643,8 +673,33 @@ export function DrawingCanvas({
         e.stopPropagation(); e.preventDefault();
         return;
       }
+      lastPress = null;
       const hit = hitTest(rectOf(e));
-      if (hit?.id) { setSelected(hit.id); onOpenSettings?.(hit.id); e.stopPropagation(); e.preventDefault(); }
+      if (hit?.id) openSettingsFor(hit.id, e);
+    };
+
+    /**
+     * The fallback, run on every press BEFORE `onDown` acts on it.
+     *
+     * Returns true when this press completed a double, in which case the press
+     * is the dialog's and not a drag's.
+     */
+    const doublePress = (e: MouseEvent): boolean => {
+      if (e.button !== 0 || hiddenRef.current) return false;
+      // A tool in hand is drawing, not editing: two clicks are two points.
+      if (!isCursorMode(toolRef.current)) { lastPress = null; return false; }
+      const p = rectOf(e);
+      const now = Date.now();
+      const previous = lastPress;
+      lastPress = { x: p.x, y: p.y, at: now };
+      if (previous === null
+        || now - previous.at > DOUBLE_MS
+        || Math.hypot(p.x - previous.x, p.y - previous.y) > DOUBLE_PX) return false;
+      lastPress = null;
+      const hit = hitTest(p);
+      if (!hit?.id) return false;
+      openSettingsFor(hit.id, e);
+      return true;
     };
 
     const onLeave = (): void => { previewRef.current = null; };
@@ -684,7 +739,9 @@ export function DrawingCanvas({
       // A finger is blunter than a pointer: without this, the only tool a
       // phone could use reliably was one that needs no accuracy at all.
       const before = draftRef.current;
-      onDown(asMouse(e, touch));
+      const press = asMouse(e, touch);
+      if (doublePress(press)) { touchDrawing = false; return; }
+      onDown(press);
       touchDrawing = draftRef.current !== before
         || dragRef.current !== null
         || (!isCursorMode(toolRef.current) && toolRef.current !== "eraser");
@@ -706,7 +763,8 @@ export function DrawingCanvas({
     container.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
     container.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
     container.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
-    container.addEventListener("mousedown", onDown, true);
+    const onPress = (e: MouseEvent): void => { if (!doublePress(e)) onDown(e); };
+    container.addEventListener("mousedown", onPress, true);
     container.addEventListener("contextmenu", onContext, true);
     container.addEventListener("mousemove", onMove, true);
     container.addEventListener("mouseup", onUp, true);
@@ -719,7 +777,7 @@ export function DrawingCanvas({
       container.removeEventListener("touchmove", onTouchMove, true);
       container.removeEventListener("touchend", onTouchEnd, true);
       container.removeEventListener("touchcancel", onTouchEnd, true);
-      container.removeEventListener("mousedown", onDown, true);
+      container.removeEventListener("mousedown", onPress, true);
       container.removeEventListener("contextmenu", onContext, true);
       container.removeEventListener("mousemove", onMove, true);
       container.removeEventListener("mouseup", onUp, true);

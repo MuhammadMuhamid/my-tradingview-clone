@@ -566,6 +566,21 @@ export interface WatchlistMenuContext {
    * and this one has no meaning at all until a second list exists.
    */
   lists: readonly { id: string; name: string }[];
+  /**
+   * The flag this symbol already carries, or null (TVP8 F-05).
+   *
+   * It decides the first row's verb — `Flag` against `Unflag` — and which
+   * swatch the palette announces as checked.
+   */
+  flag: string | null;
+  /** Any symbol anywhere carries a flag, so `Unflag all symbols` has work to do. */
+  anyFlagged: boolean;
+  /** The seven the palette offers; the product's own `FLAG_COLOURS`. */
+  flagColours: readonly { id: string; label: string; hex: string }[];
+  /** Comparing needs a pane to compare ON. */
+  canCompare: boolean;
+  /** The list the row is on, which is not somewhere to add it TO. */
+  activeListId: string | null;
 }
 
 /*
@@ -618,48 +633,83 @@ export function timeAxisMenu(ctx: { mac: boolean }): MenuEntry[] {
 }
 
 export const WATCHLIST_MENU_IDS = [
-  "watchlist:open-focused", "watchlist:open-new-pane", "watchlist:add-to-list",
-  "watchlist:add-alert", "watchlist:add-symbol", "watchlist:remove",
+  "watchlist:flag", "watchlist:flag-colours", "watchlist:unflag-all",
+  "watchlist:add-to-list", "watchlist:add-compare", "watchlist:add-note",
+  "watchlist:add-section", "watchlist:add-symbol",
+  "watchlist:open-focused", "watchlist:open-new-pane", "watchlist:add-alert",
 ] as const;
 export type WatchlistMenuId = (typeof WATCHLIST_MENU_IDS)[number];
 
+/** The reference's exact row menu width, measured at 1440 (TVP8 F-05). */
+export const WATCHLIST_MENU_WIDTH = 254;
+
 export function watchlistMenu(ctx: WatchlistMenuContext): MenuEntry[] {
+  const ticker = displayTicker(ctx.symbol);
   return [
-    { id: "watchlist:open-focused", label: "Open in the focused chart" },
+    /*
+     * ── TVP8 F-05: the reference's own row menu ──────────────────────────
+     *
+     * `08c_tv_watchlist_row_menu.png`: Flag/Unflag and its palette, Unflag
+     * all, then the three things you can do WITH the symbol (add it to
+     * another list, compare it, note it), then the two that act on the LIST
+     * (add a section, add a symbol). This product's menu answered a different
+     * question entirely — it opened charts and made alerts, and offered a red
+     * `Remove from this list` the reference has no row for at all.
+     *
+     * The two Trading Scene rows that have no reference equivalent are kept,
+     * last, in their own group: opening a row in a second pane and arming an
+     * alert on it are real functions of this product, and the queue asks for
+     * them to be retained rather than dropped for symmetry.
+     */
     {
-      id: "watchlist:open-new-pane", label: "Open in a new pane",
+      id: "watchlist:flag",
+      label: `${ctx.flag ? "Unflag" : "Flag"} ${ticker}`,
+      glyph: "flag",
+    },
+    {
+      id: "watchlist:flag-colours",
+      label: `Flag colour for ${ticker}`,
+      swatches: ctx.flagColours,
+      selected: ctx.flag,
+    },
+    {
+      id: "watchlist:unflag-all", label: "Unflag all symbols",
+      disabled: !ctx.anyFlagged,
+      disabledReason: "Nothing on any list is flagged",
+    },
+    { id: "sep-flags", separator: true },
+    /*
+     * R7b-18: absent — not greyed — with a single list. There is nowhere to
+     * add the row TO until a second list exists, and "disabled with a reason"
+     * is for an action that is temporarily unavailable.
+     */
+    ...(ctx.lists.length > 1 ? [{
+      id: "watchlist:add-to-list", label: `Add ${ticker} to watchlist`,
+      glyph: "watchlist" as const,
+      children: watchlistAddToListMenu(ctx.lists, ctx.activeListId),
+    }] : []),
+    {
+      id: "watchlist:add-compare", label: `Add ${ticker} to compare`,
+      glyph: "indicator",
+      disabled: !ctx.canCompare,
+      disabledReason: "There is no chart pane to compare against",
+    },
+    { id: "watchlist:add-note", label: `Add note for ${ticker}`, glyph: "note" },
+    { id: "sep-list", separator: true },
+    { id: "watchlist:add-section", label: "Add section", glyph: "template" },
+    { id: "watchlist:add-symbol", label: "Add symbol…", glyph: "copy" },
+    { id: "sep-scene", separator: true },
+    /* Trading Scene's own, and the reference has no row for either. */
+    { id: "watchlist:open-focused", label: "Open in the focused chart", glyph: "eye" },
+    {
+      id: "watchlist:open-new-pane", label: "Open in a new pane", glyph: "clone",
       disabled: !ctx.canOpenNewPane,
       disabledReason: "The workspace is already at its maximum number of panes",
     },
-    /*
-     * R7b-18: the reference's own `Add <ticker> to watchlist ›`. Absent —
-     * not greyed — with a single list; see `WatchlistMenuContext.lists`.
-     */
-    ...(ctx.lists.length > 1 ? [{
-      id: "watchlist:add-to-list", label: `Add ${displayTicker(ctx.symbol)} to watchlist…`,
-    }] : []),
-    { id: "sep", separator: true },
     {
-      /*
-       * TVP8 R7-10: this interpolated the STORAGE key, so a canonical row's
-       * right-click offered "Add alert on
-       * instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot" as a 455px-wide menu
-       * row and as the menu's own accessible name. Contract §5: a canonical
-       * string is never primary copy.
-       */
-      id: "watchlist:add-alert", label: `Add alert on ${displayTicker(ctx.symbol)}`,
+      id: "watchlist:add-alert", label: `Add alert on ${ticker}`, glyph: "alarm",
       disabled: ctx.replayActive, disabledReason: REPLAY_REASON,
     },
-    { id: "sep-add", separator: true },
-    { id: "watchlist:add-symbol", label: "Add symbol…" },
-    { id: "sep-remove", separator: true },
-    /*
-     * The reference has no Remove here — it removes with the hover trash and
-     * the Delete key, both of which this row now has too (R7b-09). Keeping
-     * the menu item as well is deliberate: it is the only route that survives
-     * a pointer that cannot hover and a keyboard focus that is on the menu.
-     */
-    { id: "watchlist:remove", label: "Remove from this list", destructive: true },
   ];
 }
 

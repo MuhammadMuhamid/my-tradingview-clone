@@ -181,7 +181,9 @@ test("A ROW IS ONE LINE THAT IS ITSELF THE CONTROL", () => {
    * HTML: the inner one is unreachable by keyboard and the outer one's
    * accessible name absorbs it.
    */
-  assert.match(source, /absolute left-0 top-0 flex h-8 w-7/);
+  // TVP8 F-04: the star is a 24×24 box at left 3px, inside the row rather than
+  // 30px outside the scroller that clips it. See `tests/dom/indicatorFavourite`.
+  assert.match(source, /absolute left-\[3px\] top-1\/2 flex h-6 w-6/);
   assert.match(source, /absolute right-1 top-0 flex h-8/);
   assert.doesNotMatch(source, /role="option"/,
     "a row that is a real button needs no invented role");

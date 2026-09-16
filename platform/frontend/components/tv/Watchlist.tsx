@@ -9,9 +9,17 @@ import { useWatchlistTickers, type WatchlistTicker } from "@/lib/useWatchlistTic
 import { describeStreamState } from "@/lib/marketStream";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import {
-  WATCHLIST_VIEW_DEFAULTS, watchlistAddToListMenu, watchlistListsMenu, watchlistMenu,
-  watchlistSettingsMenu, type WatchlistPanelEntry, type WatchlistViewPrefs,
+  WATCHLIST_MENU_WIDTH, WATCHLIST_VIEW_DEFAULTS, watchlistListsMenu,
+  watchlistMenu, watchlistSettingsMenu, type WatchlistPanelEntry, type WatchlistViewPrefs,
 } from "@/lib/menuPayloads";
+import {
+  FLAG_COLOURS, clearFlags, flagHex, readFlags, setFlag,
+  type FlagColour, type FlagMap,
+} from "@/lib/watchlistFlags";
+import {
+  addSection, bandRows, readNotes, readSections, removeSection, setNote,
+  type NoteMap, type SectionMap,
+} from "@/lib/watchlistSections";
 import type { MenuEntry } from "@/lib/contextMenu";
 import {
   MANUAL_SORT, canReorder, nextSort, reorderRefusal, reorderSymbols, sortSymbols,
@@ -21,7 +29,8 @@ import {
   canonicalDisplayParts, canonicalizeLegacySpotSymbol, displayName, displaySymbol,
   displayTicker, instrumentTypeLabel, isCanonicalInstrumentId, type AssetClass,
 } from "@/lib/instrument";
-import { changedSuffix, formatQuote, quoteDigits } from "@/lib/format";
+import { changedSuffix, quoteDigits } from "@/lib/format";
+import { fitDecimals, fontOf, numericMeasurer } from "@/lib/fitNumeric";
 import { resolvePriceTick } from "@/lib/priceTick";
 import { averageVolume30D, performance as periodPerformance } from "@/lib/instrumentStats";
 import { useInstrumentStats } from "@/lib/useInstrumentStats";
@@ -123,16 +132,39 @@ function sentenceCase(word: string): string {
  * one Tailwind cannot see at all — the class would simply not be emitted and
  * every row would collapse into a single column. The widths are still one
  * declaration, still measured, and `tests/uiContract.test.ts` still pins them.
+ *
+ * ── TVP8 F-01: the numbers get the room, the ticker truncates ──────────────
+ *
+ * The widths above were smaller than the ink they had to hold. `76,024.0` is
+ * 60px of 14px tabular numerals and its track was 56 with 2 of padding; the
+ * cells had no `overflow` and the grid had no `column-gap`, so the surplus was
+ * simply PAINTED over the next column — `0.19280-0.004302.18%`, three values
+ * as one run of digits.
+ *
+ * Which column yields is settled by the reference, not by arithmetic:
+ * `08_tv_watchlist.png` at a 300px panel shows `BTCUSI`, `ETHUSI`, `DASHU` —
+ * TradingView TRUNCATES the ticker and never truncates a number. So the
+ * numeric tracks carry the queue's measured maxima and the ticker is the
+ * flexible one, with a floor that keeps it legible.
+ *
+ * `minmax(0, Npx)` rather than `Npx` is what makes one declaration work across
+ * the panel's whole 260–420 resize range: at 420 each numeric track reaches
+ * its maximum and the ticker takes the surplus; at 300 they share what is left
+ * over the ticker's floor, and `lib/fitNumeric` drops trailing decimals on any
+ * value that still will not fit. Nothing overflows at any width, because the
+ * gutter is a real `column-gap` and the cells clip.
  */
 const COLUMN_WIDTH = {
   mark: "18px",
-  markGap: "8px",
-  ticker: "minmax(0,1fr)",
-  last: "56px",
-  change: "54px",
-  changePct: "44px",
-  volume: "56px",
+  ticker: "minmax(52px,1fr)",
+  last: "minmax(0,84px)",
+  change: "minmax(0,64px)",
+  changePct: "minmax(0,60px)",
+  volume: "minmax(0,64px)",
 } as const;
+
+/** The gutter between every pair of cells, in pixels (TVP8 F-01). */
+const COLUMN_GAP = 8;
 
 /** The value columns, in the order the reference draws them. */
 const VALUE_COLUMNS = ["last", "change", "changePct", "volume"] as const;
@@ -312,7 +344,7 @@ function PanelMenu({ entries, label, width, onClose, onSelect, className = "" }:
 
 export function Watchlist({
   symbols, selected, onSelect, onSymbolsChanged, replayQuote = null,
-  onOpenInNewPane, onAddAlert, canOpenNewPane = false, replayActive = false,
+  onOpenInNewPane, onAddAlert, onAddCompare, canOpenNewPane = false, replayActive = false,
   onHide,
 }: {
   symbols: SymbolInfo[];
@@ -327,6 +359,12 @@ export function Watchlist({
    */
   onOpenInNewPane?: (symbol: string) => void;
   onAddAlert?: (symbol: string) => void;
+  /**
+   * `Add SYMBOL to compare` (TVP8 F-05) — the focused pane's own compare
+   * action, so the row adds a real overlay rather than opening a dialog that
+   * asks the user to name the symbol they just right-clicked.
+   */
+  onAddCompare?: (symbol: string) => void;
   canOpenNewPane?: boolean;
   replayActive?: boolean;
   /** The gutter grip closes the panel; the rail cell still toggles it. */
@@ -458,9 +496,23 @@ export function Watchlist({
   const [prefs, setPrefs] = useState<WatchlistViewPrefs>(WATCHLIST_VIEW_DEFAULTS);
   const [collapsed, setCollapsed] = useState<readonly string[]>([]);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  /*
+   * TVP8 F-05: the reader's own markings on this list.
+   *
+   * Hydrated in an effect with the rest of the stored preferences rather than
+   * in `useState`'s initialiser, for the reason every other preference here is:
+   * the server render has no `localStorage`, and reading one during the first
+   * render is the hydration mismatch that blanks the panel.
+   */
+  const [flags, setFlags] = useState<FlagMap>({});
+  const [sections, setSections] = useState<SectionMap>({});
+  const [notes, setNotes] = useState<NoteMap>({});
   useEffect(() => {
     setPrefs(readPrefs());
     setWidth(readWidth());
+    setFlags(readFlags());
+    setSections(readSections());
+    setNotes(readNotes());
     try {
       const raw = recall(COLLAPSED_KEY);
       const parsed: unknown = raw ? JSON.parse(raw) : [];
@@ -498,16 +550,49 @@ export function Watchlist({
   }), [prefs]);
 
   const gridTemplate = useMemo(() => [
-    ...(prefs.mark ? [COLUMN_WIDTH.mark, COLUMN_WIDTH.markGap] : []),
+    ...(prefs.mark ? [COLUMN_WIDTH.mark] : []),
     COLUMN_WIDTH.ticker,
     ...columns.map((column) => COLUMN_WIDTH[column]),
   ].join(" "), [prefs.mark, columns]);
 
   /** Where each cell sits, so the mark can be last in the DOM and first on screen. */
   const columnStart = (column: ValueColumn): number =>
-    (prefs.mark ? 3 : 1) + 1 + columns.indexOf(column);
-  const tickerStart = prefs.mark ? 3 : 1;
-  const firstValueStart = prefs.mark ? 4 : 2;
+    (prefs.mark ? 2 : 1) + 1 + columns.indexOf(column);
+  const tickerStart = prefs.mark ? 2 : 1;
+  const firstValueStart = prefs.mark ? 3 : 2;
+
+  /*
+   * ── TVP8 F-01: how wide a numeric track actually ended up ─────────────────
+   *
+   * The tracks are `minmax(0, Npx)`, so their resolved width is the panel's
+   * business and changes as the user drags the gutter. `fitDecimals` needs the
+   * real number, so the HEADER's own cells — which sit in the identical
+   * template and are always mounted — are observed and their widths reported.
+   * One observer for the column, not one per row: every row's cell in a column
+   * is the same width by construction.
+   */
+  const headerCells = useRef(new Map<ValueColumn, HTMLElement>());
+  const [cellWidth, setCellWidth] = useState<Partial<Record<ValueColumn, number>>>({});
+  const [cellFont, setCellFont] = useState<string | null>(null);
+  useEffect(() => {
+    const cells = [...headerCells.current.entries()]
+      .filter((entry): entry is [ValueColumn, HTMLElement] => Boolean(entry[1]));
+    if (cells.length === 0) return;
+    const read = (): void => {
+      const next: Partial<Record<ValueColumn, number>> = {};
+      for (const [column, element] of cells) next[column] = element.clientWidth;
+      setCellWidth((current) => cells.every(([c]) => current[c] === next[c]) ? current : next);
+    };
+    read();
+    const first = cells[0]?.[1];
+    if (first) setCellFont((current) => current ?? fontOf(first));
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(read);
+    for (const [, element] of cells) observer.observe(element);
+    return () => observer.disconnect();
+  }, [gridTemplate, width, columns]);
+  const measure = useMemo(
+    () => (cellFont === null ? null : numericMeasurer(cellFont)), [cellFont]);
 
   const active = lists?.find((l) => l.id === activeId) ?? null;
   /**
@@ -576,16 +661,17 @@ export function Watchlist({
   }, [manualSymbols, visibleSymbolNames, tickers, sort]);
 
   /** The sections, in first-appearance order. A sort applies inside them. */
-  const sections = useMemo(() => {
-    const order: string[] = [];
-    const byLabel = new Map<string, SymbolInfo[]>();
-    for (const item of visibleSymbols) {
-      const label = groupOf(item);
-      if (!byLabel.has(label)) { byLabel.set(label, []); order.push(label); }
-      byLabel.get(label)!.push(item);
-    }
-    return order.map((label) => ({ label, rows: byLabel.get(label)! }));
-  }, [visibleSymbols]);
+  /*
+   * The bands the list draws.
+   *
+   * Asset class when the reader has named nothing — which is every list until
+   * they use `Add section` — and their own names from the anchor onwards once
+   * they have. `lib/watchlistSections` owns the rule and is tested without a
+   * browser.
+   */
+  const bands = useMemo(() => bandRows(
+    visibleSymbols, (s) => s.symbol, groupOf, (activeId && sections[activeId]) || [],
+  ), [visibleSymbols, sections, activeId]);
 
   const selectedDetails = useMemo(() => {
     const selectedLabel = displaySymbol(selected);
@@ -806,6 +892,58 @@ export function Watchlist({
     } catch (e) { setErr(describeAction(e, "delete the list")); }
   };
 
+  /*
+   * ── TVP8 F-05: the row menu's actions, on real state ───────────────────────
+   *
+   * Every one of these writes something the panel then renders and reloads
+   * with. The queue is explicit that an inert menu row is worse than a missing
+   * one, and the previous menu's `Add symbol…` was the only row here that did
+   * anything a second control did not already do.
+   */
+  const toggleFlag = (symbol: string): void => {
+    const current = flags[symbol] ?? null;
+    setFlags(setFlag(flags, symbol, current ? null : FLAG_COLOURS[0].id));
+  };
+  const pickFlag = (symbol: string, colour: FlagColour): void => {
+    setFlags(setFlag(flags, symbol, colour));
+  };
+  const addNoteFor = async (symbol: string): Promise<void> => {
+    const text = await ask.promptFor({
+      title: `Note for ${displayTicker(symbol)}`,
+      label: "Kept on this device, against the symbol",
+      defaultValue: notes[symbol] ?? "",
+      confirmLabel: "Save note",
+      multiline: true,
+      // An empty field CLEARS the note, which is the only way to take one off.
+      required: false,
+    });
+    if (text === null) return;
+    setNotes(setNote(notes, symbol, text));
+  };
+  const addSectionAbove = async (symbol: string): Promise<void> => {
+    if (!activeId) return;
+    const name = await ask.promptFor({
+      title: "Add section",
+      label: `A named band opening above ${displayTicker(symbol)}`,
+      confirmLabel: "Add section",
+    });
+    if (name === null || name.trim() === "") return;
+    setSections(addSection(sections, activeId, symbol, name.trim()));
+  };
+  const renameSection = async (anchor: string, current: string): Promise<void> => {
+    if (!activeId) return;
+    const name = await ask.promptFor({
+      title: "Rename section", label: "Section name",
+      defaultValue: current, confirmLabel: "Rename",
+    });
+    if (name === null || name.trim() === "") return;
+    setSections(addSection(sections, activeId, anchor, name.trim()));
+  };
+  const dropSection = (anchor: string): void => {
+    if (!activeId) return;
+    setSections(removeSection(sections, activeId, anchor));
+  };
+
   const openRowMenu = (at: { x: number; y: number }, symbol: string): void => {
     setPointMenu({
       at, symbol,
@@ -814,6 +952,11 @@ export function Watchlist({
       entries: watchlistMenu({
         symbol, replayActive, canOpenNewPane,
         lists: lists?.map((l) => ({ id: l.id, name: l.name })) ?? [],
+        activeListId: activeId,
+        flag: flags[symbol] ?? null,
+        anyFlagged: Object.keys(flags).length > 0,
+        flagColours: FLAG_COLOURS,
+        canCompare: Boolean(onAddCompare),
       }),
     });
   };
@@ -1086,7 +1229,12 @@ export function Watchlist({
         */}
         <div
           className="grid h-[29px] shrink-0 items-center border-b pl-[10px] pr-2 text-[14px] text-ink-faint"
-          style={{ borderColor: "var(--ts-state-active)", gridTemplateColumns: gridTemplate }}
+          style={{
+            borderColor: "var(--ts-state-active)", gridTemplateColumns: gridTemplate,
+            // F-01: the same gutter the rows carry, so a header label and its
+            // values share one right edge and no two cells ever touch.
+            columnGap: COLUMN_GAP,
+          }}
         >
           <button
             onClick={() => setSort((current) => nextSort(current, "symbol"))}
@@ -1116,12 +1264,18 @@ export function Watchlist({
             return (
               <button
                 key={column}
+                ref={(element) => {
+                  if (element) headerCells.current.set(column, element);
+                  else headerCells.current.delete(column);
+                }}
                 onClick={() => setSort((current) => nextSort(current, key))}
                 aria-label={isSorted
                   ? `Sorted by ${COLUMN_LABEL[column]}, ${sort.direction === "asc" ? "ascending" : "descending"}. Click to change.`
                   : `Sort by ${COLUMN_LABEL[column]}`}
                 style={{ gridColumnStart: columnStart(column) }}
-                className={`truncate pr-[2px] text-right hover:text-ink ${
+                /* F-01: no `pr-[2px]` — the gutter is the grid's now, and the
+                   last column's right edge is the panel's inner right. */
+                className={`overflow-hidden whitespace-nowrap text-right hover:text-ink ${
                   isSorted ? "font-semibold text-ink" : ""}`}
               >
                 {COLUMN_LABEL[column]}
@@ -1147,7 +1301,7 @@ export function Watchlist({
           {lists === null && (
             <div aria-hidden="true" className="pt-1">
               {[0, 1, 2].map((i) => (
-                <div key={i} className="flex h-[30px] items-center pl-4 pr-2">
+                <div key={i} className="flex h-[30px] items-center pl-[10px] pr-2">
                   <div className="h-[10px] w-[86px] rounded-sm bg-surface-2" />
                   <div className="ml-auto h-[10px] w-[54px] rounded-sm bg-surface-2" />
                 </div>
@@ -1188,8 +1342,9 @@ export function Watchlist({
               </p>
             </div>
           )}
-          {sections.map((section) => (
-            <div key={section.label} data-watchlist-section={section.label}>
+          {bands.map((section) => (
+            <div key={`${section.anchor ?? ""}:${section.label}`}
+              data-watchlist-section={section.label}>
               {/*
                 R7b-14: a 6px gap and a 36px row, and no count.
 
@@ -1200,19 +1355,50 @@ export function Watchlist({
                 number beside a group heading in a list this dense is one more
                 digit competing with eight prices.
               */}
-              <button
-                onClick={() => toggleGroup(section.label)}
-                aria-expanded={!collapsed.includes(section.label)}
-                data-watchlist-band
-                className="mt-[6px] flex h-[36px] w-full items-center gap-[13px] pl-[23px] pr-2 text-left"
-              >
-                <span aria-hidden="true"
-                  className={`shrink-0 text-[8px] leading-none text-ink-faint transition-transform ${
-                    collapsed.includes(section.label) ? "-rotate-90" : ""}`}>▼</span>
-                <span className="min-w-0 flex-1 truncate text-[12px] uppercase tracking-[0.04em] text-ink-faint">
-                  {section.label}
-                </span>
-              </button>
+              {/* F-05: a user's own band is EDITABLE — the queue's "editable
+                  section header row". An asset-class band is not: its name is
+                  a fact about the instruments, not a choice. */}
+              <div className="group/band relative flex items-center">
+                <button
+                  onClick={() => toggleGroup(section.label)}
+                  aria-expanded={!collapsed.includes(section.label)}
+                  data-watchlist-band
+                  className="mt-[6px] flex h-[36px] min-w-0 flex-1 items-center gap-[13px] pl-[23px] pr-2 text-left"
+                >
+                  <span aria-hidden="true"
+                    className={`shrink-0 text-[8px] leading-none text-ink-faint transition-transform ${
+                      collapsed.includes(section.label) ? "-rotate-90" : ""}`}>▼</span>
+                  <span className="min-w-0 flex-1 truncate text-[12px] uppercase tracking-[0.04em] text-ink-faint">
+                    {section.label}
+                  </span>
+                </button>
+                {section.anchor !== null && (
+                  <span className="mt-[6px] flex h-[36px] shrink-0 items-center gap-0.5 pr-2">
+                    <button
+                      onClick={() => void renameSection(section.anchor!, section.label)}
+                      aria-label={`Rename the section “${section.label}”`}
+                      title={`Rename the section “${section.label}”`}
+                      className="tvc-control flex h-5 w-5 items-center justify-center rounded-sm text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover/band:opacity-100"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor"
+                        strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M2.5 12.5v-2.5l7.5-7.5 2.5 2.5-7.5 7.5z" /><path d="M9 3.5l2.5 2.5" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => dropSection(section.anchor!)}
+                      aria-label={`Remove the section “${section.label}”`}
+                      title="Remove this section — the symbols stay on the list"
+                      className="tvc-control flex h-5 w-5 items-center justify-center rounded-sm text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover/band:opacity-100"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  </span>
+                )}
+              </div>
               {!collapsed.includes(section.label) && section.rows.map((s) => {
                 const identity = canonicalDisplayParts(s.symbol);
                 const selectedRow = s.symbol === selected;
@@ -1232,18 +1418,34 @@ export function Watchlist({
                 const name = displayName(s.symbol);
                 const label = prefs.display === "name" ? name : ticker;
                 const volume = (tickers[s.symbol] as WatchlistTicker | undefined)?.volume;
+                /*
+                 * F-01: the value, at the most precision its track can hold.
+                 *
+                 * Full precision whenever it fits — which at the default 300px
+                 * panel is every column of every seeded row — and one decimal
+                 * less at a time when it does not, rather than a number clipped
+                 * mid-glyph or painted over the column beside it.
+                 */
+                const fit = (
+                  column: ValueColumn, format: (d: number) => string, natural: number,
+                ): string => fitDecimals(format, natural, cellWidth[column] ?? 0, measure);
                 const cell = (column: ValueColumn): string | null => {
                   if (!t) return column === "last" ? "—" : "—";
-                  if (column === "last") return formatQuote(t.last, tick);
+                  if (column === "last") {
+                    return fit("last",
+                      (d) => t.last.toLocaleString(undefined,
+                        { minimumFractionDigits: d, maximumFractionDigits: d }),
+                      quoteDigits(t.last, tick));
+                  }
                   if (column === "volume") {
                     return volume === undefined ? "—"
                       : volume.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 2 });
                   }
                   if (!known) return "—";
                   return column === "change"
-                    ? t.chg.toLocaleString(undefined,
-                      { minimumFractionDigits: digits, maximumFractionDigits: digits })
-                    : `${t.chgPct.toFixed(2)}%`;
+                    ? fit("change", (d) => t.chg.toLocaleString(undefined,
+                      { minimumFractionDigits: d, maximumFractionDigits: d }), digits)
+                    : fit("changePct", (d) => `${t.chgPct.toFixed(d)}%`, 2);
                 };
                 return <div key={s.symbol}
                   data-watchlist-row={s.symbol}
@@ -1306,9 +1508,29 @@ export function Watchlist({
                   }}
                   className={`group relative h-11 border-b md:h-[30px] ${
                     selectedRow ? "rounded-md" : "hover:bg-state-hover"}`}>
+                  {/*
+                    F-05: the flag stub, at the row's left edge.
+
+                    4px of the reader's own colour, which is the reference's
+                    marking and the only thing on this row that is not a fact
+                    about the market. Drawn OUTSIDE the row button so a click on
+                    it still selects the row.
+                  */}
+                  {flagHex(flags[s.symbol] ?? null) !== null && (
+                    <span
+                      aria-hidden="true"
+                      data-watchlist-flag={flags[s.symbol]}
+                      className="pointer-events-none absolute left-0 top-1/2 h-[18px] w-[4px] -translate-y-1/2 rounded-r-sm"
+                      style={{ backgroundColor: flagHex(flags[s.symbol] ?? null)! }}
+                    />
+                  )}
                   <button onClick={() => onSelect(s.symbol)}
-                    style={{ gridTemplateColumns: gridTemplate }}
-                    className="grid h-full w-full min-w-0 items-center pl-4 pr-2 text-left text-[14px] tabular"
+                    style={{ gridTemplateColumns: gridTemplate, columnGap: COLUMN_GAP }}
+                    /* F-01: `pl-[10px]`, the header's own padding. They ran
+                       `pl-4` against `pl-[10px]`, so the two grids resolved
+                       their flexible ticker track over containers 6px apart
+                       and a label never sat over its values. */
+                    className="grid h-full w-full min-w-0 items-center pl-[10px] pr-2 text-left text-[14px] tabular"
                     /*
                      * R7b-09: an honest tooltip.
                      *
@@ -1319,7 +1541,8 @@ export function Watchlist({
                      * whether the number is live, and whether the market is
                      * open.
                      */
-                    title={`${name}${s.venue ? ` · ${s.venue}` : ""} · ${feedWord} · ${marketLine(s, tickers[s.symbol] ?? null).label}`}>
+                    title={`${name}${s.venue ? ` · ${s.venue}` : ""} · ${feedWord} · ${marketLine(s, tickers[s.symbol] ?? null).label}`
+                      + (notes[s.symbol] ? `\n${notes[s.symbol]}` : "")}>
                     {/*
                       The ticker comes FIRST in the DOM and second on screen.
                       An explicit `gridColumnStart` places the mark, so a screen
@@ -1344,6 +1567,19 @@ export function Watchlist({
                           {instrumentTypeLabel(identity.type)}{identity.expiry ? ` ${identity.expiry.slice(2)}` : ""}
                         </span>
                       )}
+                      {/* F-05: a note EXISTS, and the tooltip carries it. A
+                          note that leaves no mark on the row is a note nobody
+                          remembers writing. */}
+                      {notes[s.symbol] && (
+                        <span data-watchlist-note aria-hidden="true"
+                          title={notes[s.symbol]}
+                          className="ml-1 shrink-0 text-ink-faint">
+                          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                            strokeWidth="1.3" strokeLinejoin="round">
+                            <path d="M3 3h10v7l-3 3H3z" /><path d="M13 10h-3v3" />
+                          </svg>
+                        </span>
+                      )}
                     </span>
                     {columns.map((column) => {
                       const text = cell(column) ?? "—";
@@ -1356,7 +1592,9 @@ export function Watchlist({
                           key={column}
                           data-col={COLUMN_DATA[column]}
                           style={{ gridColumnStart: columnStart(column), gridRowStart: 1 }}
-                          className="pr-[2px] text-right"
+                          /* F-01: a value can never paint outside its track.
+                             `fitDecimals` above keeps it from needing to. */
+                          className="overflow-hidden whitespace-nowrap text-right tabular"
                           title={column === "last" && selectedRow && replayQuote
                             ? "Replay price at the current historical horizon" : undefined}
                         >
@@ -1381,15 +1619,39 @@ export function Watchlist({
                     is reachable without a pointer at all, and the Delete key
                     on the row does the same thing.
                   */}
+                  {/*
+                    F-05: a TRASH, 24×24, over the Chg% cell while hovered.
+
+                    It was a 16px `×`, which in this product's grammar is
+                    "dismiss" rather than "delete" — the reference draws a bin
+                    here and the row it is on is about to leave the list. The
+                    plate under it is the panel's own ground, so the number it
+                    covers does not read through it.
+                  */}
                   <button
+                    data-watchlist-remove={s.symbol}
                     onClick={() => removeSymbol(s.symbol)}
                     aria-label={`Remove ${ticker} from this list`}
                     title={`Remove ${ticker} from this list`}
-                    className="tvc-control absolute right-[8px] top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-sm text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                    /*
+                      NOT `.tvc-control`.
+
+                      That class is `position: relative` at `:is(.ts-app) .tvc-control`
+                      — two class selectors — which outranks Tailwind's single-class
+                      `absolute`. So this control was never positioned at all: measured
+                      live, the 24px box sat at x 1090 against a row running 1094–1394,
+                      4px OUTSIDE the panel's left edge, which is why the reviewer's
+                      hover found "no affordances". It is the only positioned
+                      `.tvc-control` in the product; the hover-revealed affordances in
+                      the indicator browser already do without it, and the chip
+                      treatment it provides is not what a 24px icon over a number
+                      wants anyway.
+                    */
+                    className="absolute right-[4px] top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm bg-surface text-ink-faint opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                      <path d="M6 6l12 12M18 6L6 18" />
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9" />
                     </svg>
                   </button>
                 </div>;
@@ -1420,12 +1682,17 @@ export function Watchlist({
           at={pointMenu?.at ?? null}
           label={pointMenu?.label ?? ""}
           entries={pointMenu?.entries ?? []}
+          /* F-05: the reference's measured 254, not the shared 200–360 band. */
+          width={WATCHLIST_MENU_WIDTH}
           onClose={() => setPointMenu(null)}
           onSelect={(id) => {
             const symbol = pointMenu?.symbol;
-            const at = pointMenu?.at ?? { x: 0, y: 0 };
             if (symbol && id.startsWith("watchlist:add-to-list:")) {
               void addSymbols([symbol], id.slice("watchlist:add-to-list:".length));
+              return;
+            }
+            if (symbol && id.startsWith("watchlist:flag-colours:")) {
+              pickFlag(symbol, id.slice("watchlist:flag-colours:".length) as FlagColour);
               return;
             }
             switch (id) {
@@ -1433,25 +1700,14 @@ export function Watchlist({
                 // R7b-18 / R7b-15: the same add field the header's `+` opens.
                 setAddOpen(true);
                 return;
-              case "watchlist:add-to-list":
-                if (!symbol) return;
-                /*
-                 * The second level, as a menu of its own — `ContextMenu` has
-                 * one level, and a nested flyout is a keyboard, placement and
-                 * focus-restore contract of its own. A zero-delay timeout
-                 * because the menu closes itself on select and would close
-                 * this one with it.
-                 */
-                setTimeout(() => setPointMenu({
-                  at, symbol, label: displayTicker(symbol),
-                  entries: watchlistAddToListMenu(
-                    lists?.map((l) => ({ id: l.id, name: l.name })) ?? [], activeId),
-                }), 0);
-                return;
+              case "watchlist:flag": if (symbol) toggleFlag(symbol); return;
+              case "watchlist:unflag-all": setFlags(clearFlags()); return;
+              case "watchlist:add-compare": if (symbol) onAddCompare?.(symbol); return;
+              case "watchlist:add-note": if (symbol) void addNoteFor(symbol); return;
+              case "watchlist:add-section": if (symbol) void addSectionAbove(symbol); return;
               case "watchlist:open-focused": if (symbol) onSelect(symbol); return;
               case "watchlist:open-new-pane": if (symbol) onOpenInNewPane?.(symbol); return;
               case "watchlist:add-alert": if (symbol) onAddAlert?.(symbol); return;
-              case "watchlist:remove": if (symbol) removeSymbol(symbol); return;
               default: return;
             }
           }}

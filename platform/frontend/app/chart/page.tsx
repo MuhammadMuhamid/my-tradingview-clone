@@ -110,6 +110,7 @@ import { useBookQuote } from "@/lib/useBookQuote";
 import { alertCapability } from "@/lib/workstation";
 import type { ChartSettings } from "@/lib/chartSettings";
 import {
+  DEFAULT_COMPARE_LENGTH,
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
   setPanePriceScale, paneChartSettings, setPaneChartSettings,
@@ -2437,6 +2438,7 @@ export default function TvWorkspace() {
           loadingBest={loadingBest}
           loadedBars={visibleCandles.length}
           layouts={savedLayouts.layouts}
+          layoutRecents={savedLayouts.recents}
           currentLayoutId={savedLayouts.currentId}
           autosave={savedLayouts.autosave}
           layoutDirty={savedLayouts.dirty}
@@ -2638,6 +2640,19 @@ export default function TvWorkspace() {
               : grown;
           });
         }}
+        /*
+         * TVP8 F-05: the watchlist row's `Add SYMBOL to compare`.
+         *
+         * The focused pane's OWN compare state — `changePaneCompare` is the
+         * same call the legend's `vs …` chip and the compare dialog make — so
+         * the row adds a real overlay rather than opening a picker that asks
+         * for the symbol the user just right-clicked.
+         */
+        onAddSymbolCompare={(s) => changePaneCompare(active.id, {
+          symbol: displayTicker(s),
+          mode: active.compare?.mode ?? "percent",
+          length: active.compare?.length ?? DEFAULT_COMPARE_LENGTH,
+        })}
         onAddSymbolAlert={(s) => {
           changePaneSymbol(active.id, s);
           if (!alertCapability(s).supported) {

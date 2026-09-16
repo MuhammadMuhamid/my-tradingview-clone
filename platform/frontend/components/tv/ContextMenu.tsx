@@ -41,8 +41,9 @@ import {
   useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
 } from "react";
 import {
-  initialMenuCursor, isSeparator, moveMenuCursor, placeMenu, tidyEntries,
+  initialMenuCursor, isSeparator, isSwatches, moveMenuCursor, placeMenu, swatchId, tidyEntries,
   type MenuEntry, type MenuGlyph, type MenuItem, type MenuKey, type MenuPlacement,
+  type MenuSwatches,
 } from "@/lib/contextMenu";
 
 export interface ContextMenuProps {
@@ -53,6 +54,14 @@ export interface ContextMenuProps {
   label: string;
   onSelect: (id: string) => void;
   onClose: () => void;
+  /**
+   * An exact panel width, for a payload the reference measures.
+   *
+   * TVP8 F-05: the watchlist row menu is 254px on the reference and its widest
+   * row is short, so the shared `min-w/max-w` pair would have shrunk it to the
+   * width of `Add section`.
+   */
+  width?: number;
 }
 
 /**
@@ -81,6 +90,7 @@ const GLYPH_PATHS: Record<MenuGlyph, React.ReactNode> = {
   tree: <><path d="M3 3.5h3M3 8h3M3 12.5h3" /><path d="M8 3.5h5M8 8h5M8 12.5h5" /></>,
   clock: <><circle cx="8" cy="8" r="6" /><path d="M8 4.8V8l2.3 1.6" /></>,
   calendar: <><rect x="2.5" y="3.5" width="11" height="10" rx="1" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></>,
+  flag: <><path d="M3.5 14V2.5M3.5 3h8l-1.6 2.6L11.5 8.2h-8" /></>,
 };
 
 function Glyph({ name }: { name: MenuGlyph }) {
@@ -123,7 +133,7 @@ function roleOf(item: MenuItem): "menuitem" | "menuitemcheckbox" | "menuitemradi
   return item.checked === undefined ? "menuitem" : "menuitemcheckbox";
 }
 
-export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMenuProps) {
+export function ContextMenu({ at, entries, label, onSelect, onClose, width }: ContextMenuProps) {
   const items = tidyEntries(entries);
   /**
    * A stable prefix for this menu's item ids.
@@ -139,6 +149,8 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
   /** The open submenu's parent index, where it should be drawn, and its cursor. */
   const [sub, setSub] = useState<{ index: number; x: number; y: number } | null>(null);
   const [subCursor, setSubCursor] = useState(-1);
+  /** Which swatch the keyboard is on, inside the focused swatch row. */
+  const [swatchCursor, setSwatchCursor] = useState(0);
   /** Whatever had focus before the menu opened, so it can be given back. */
   const restoreTo = useRef<HTMLElement | null>(null);
 
@@ -182,7 +194,7 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
   }, [onSelect, onClose]);
 
   const subEntries: readonly MenuEntry[] = sub
-    ? ((items[sub.index] as MenuItem | undefined)?.children ?? [])
+    ? (((items[sub.index] as MenuItem | undefined)?.children) ?? [])
     : [];
 
   /** Open the submenu on `index`, anchored to that row's right edge. */
@@ -234,12 +246,30 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
     }
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
+      setSwatchCursor(0);
       setCursor((current) => moveMenuCursor(items, current, event.key as MenuKey));
+      return;
+    }
+    /*
+     * F-05: inside a swatch row, Left and Right walk the palette.
+     *
+     * The row is ONE stop in the up/down sequence — seven would make arrowing
+     * past the colours the slow way through a nine-row menu — so the second
+     * axis is where the seven live.
+     */
+    const swatchRow = items[cursor];
+    if (swatchRow && isSwatches(swatchRow)
+      && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      const count = swatchRow.swatches.length;
+      setSwatchCursor((current) =>
+        (current + (event.key === "ArrowRight" ? 1 : -1) + count) % count);
       return;
     }
     if (event.key === "ArrowRight") {
       const entry = items[cursor];
-      if (entry && !isSeparator(entry) && entry.children?.length && !entry.disabled) {
+      if (entry && !isSeparator(entry) && !isSwatches(entry)
+        && entry.children?.length && !entry.disabled) {
         event.preventDefault();
         openSub(cursor, panelRef.current?.querySelector<HTMLElement>(
           `#${CSS.escape(`${menuId}-${entry.id}`)}`) ?? null);
@@ -250,6 +280,11 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
       event.preventDefault();
       const entry = items[cursor];
       if (!entry || isSeparator(entry) || entry.disabled) return;
+      if (isSwatches(entry)) {
+        const swatch = entry.swatches[swatchCursor];
+        if (swatch) choose(swatchId(entry.id, swatch.id));
+        return;
+      }
       if (entry.children?.length) {
         openSub(cursor, panelRef.current?.querySelector<HTMLElement>(
           `#${CSS.escape(`${menuId}-${entry.id}`)}`) ?? null);
@@ -261,6 +296,61 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
 
   if (!open || items.length === 0) return null;
 
+  /**
+   * The palette row (TVP8 F-05).
+   *
+   * `role="group"` holding seven `menuitemradio`s: one flag at a time, and the
+   * one already on is announced as checked. 14px circles at 8px pitch, on the
+   * same 32px row the rest of the menu runs at, so the palette reads as part
+   * of the list rather than as a widget dropped into it.
+   */
+  const renderSwatches = (
+    entry: MenuSwatches, index: number, focused: boolean,
+  ): React.ReactNode => (
+    <div
+      key={entry.id}
+      role="group"
+      aria-label={entry.label}
+      className="tvc-menu-row w-full gap-2 px-2"
+    >
+      <span className="flex w-5 shrink-0" aria-hidden="true" />
+      <span className="flex items-center gap-2">
+        {entry.swatches.map((swatch, i) => {
+          const on = entry.selected === swatch.id;
+          return (
+            <button
+              key={swatch.id}
+              id={`${menuId}-${swatchId(entry.id, swatch.id)}`}
+              type="button"
+              role="menuitemradio"
+              aria-checked={on}
+              aria-label={swatch.label}
+              title={swatch.label}
+              tabIndex={-1}
+              onMouseEnter={() => { setCursor(index); setSwatchCursor(i); }}
+              onClick={() => choose(swatchId(entry.id, swatch.id))}
+              className="h-[14px] w-[14px] shrink-0 rounded-full"
+              /*
+                Which one is ON, and which one the KEYBOARD is on: two facts,
+                two marks. Both are a gap ring — the popover's own ground, then
+                the ink — drawn as a shadow rather than with `ring-offset-*`,
+                whose utility name parses as a colour token it is not.
+              */
+              style={{
+                backgroundColor: swatch.hex,
+                boxShadow: on
+                  ? "0 0 0 2px var(--ts-popover), 0 0 0 3px var(--ts-ink)"
+                  : focused && swatchCursor === i
+                    ? "0 0 0 2px var(--ts-popover), 0 0 0 3px var(--ts-line-strong)"
+                    : undefined,
+              }}
+            />
+          );
+        })}
+      </span>
+    </div>
+  );
+
   /** One row, shared by the panel and by any submenu it opens. */
   const renderRow = (
     entry: MenuEntry, index: number, focused: boolean, inSub: boolean,
@@ -268,6 +358,7 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
     if (isSeparator(entry)) {
       return <div key={entry.id} role="separator" className="tvc-menu-sep" />;
     }
+    if (isSwatches(entry)) return renderSwatches(entry, index, focused);
     const hasChildren = !inSub && (entry.children?.length ?? 0) > 0;
     return (
       <button
@@ -378,14 +469,18 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
           // and nothing else.
           sub && subCursor >= 0 && subEntries[subCursor] && !isSeparator(subEntries[subCursor]!)
             ? `${menuId}-${subEntries[subCursor]!.id}`
-            : cursor >= 0 && items[cursor] && !isSeparator(items[cursor]!)
-              ? `${menuId}-${items[cursor]!.id}` : undefined}
+            : cursor >= 0 && items[cursor] && isSwatches(items[cursor]!)
+              ? `${menuId}-${swatchId(items[cursor]!.id,
+                (items[cursor] as MenuSwatches).swatches[swatchCursor]?.id ?? "")}`
+              : cursor >= 0 && items[cursor] && !isSeparator(items[cursor]!)
+                ? `${menuId}-${items[cursor]!.id}` : undefined}
         style={{
           left: placement ? placement.left : at.x,
           top: placement ? placement.top : at.y,
           // Never taller than the space below it, and scrollable when the list
           // does not fit — a fixed panel cannot be scrolled by the page.
           maxHeight: placement ? placement.maxHeight : undefined,
+          ...(width === undefined ? {} : { width, minWidth: width, maxWidth: width }),
           // Invisible until measured, so it is never seen at the wrong place.
           visibility: placement ? "visible" : "hidden",
         }}
@@ -395,7 +490,9 @@ export function ContextMenu({ at, entries, label, onSelect, onClose }: ContextMe
           that must never abbreviate.
         */
         className={`fixed z-[91] overflow-y-auto tvc-menu tvc-menu--compact outline-none ${
-          label.endsWith(" chart") ? "w-[325px] min-w-[325px] max-w-[325px]" : "min-w-[200px] max-w-[360px]"
+          width !== undefined ? ""
+            : label.endsWith(" chart") ? "w-[325px] min-w-[325px] max-w-[325px]"
+              : "min-w-[200px] max-w-[360px]"
         }`}
       >
         {items.map((entry, index) => renderRow(entry, index, index === cursor, false))}

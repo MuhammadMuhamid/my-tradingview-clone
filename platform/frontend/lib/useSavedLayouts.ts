@@ -62,6 +62,13 @@ export interface SavedLayoutsInput {
 
 export interface SavedLayoutsApi {
   layouts: Layout[];
+  /**
+   * Layout ids most-recently-opened first (TVP8 F-07).
+   *
+   * The menu draws the first four under `RECENTLY USED` and the `Open layout…`
+   * dialog sorts the whole library by it.
+   */
+  recents: string[];
   currentId: string | null;
   setCurrentId: (id: string | null) => void;
   autosave: boolean;
@@ -89,6 +96,8 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
   const [currentLayoutId, setCurrentLayoutId] = useState<string | null>(null);
   const [autosave, setAutosaveState] = useState(true);
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
+  /** TVP8 F-07: the order `RECENTLY USED` and `Open layout…` are drawn in. */
+  const [recents, setRecents] = useState<string[]>([]);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentLayout = useMemo(
@@ -112,6 +121,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
   // and restore the one the user left open.
   useEffect(() => {
     setAutosaveState(layoutStore.getAutosave());
+    setRecents(layoutStore.getLayoutRecents());
     let live = true;
     (async () => {
       await layoutStore.migrateLegacyLayouts();
@@ -191,6 +201,10 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       const l = layouts.find((x) => x.id === id);
       if (!l) return;
       layoutStore.setCurrentLayoutId(id);
+      // TVP8 F-07: opening a layout is what makes it recent. The menu's
+      // `RECENTLY USED` reads this order and the `Open layout…` dialog sorts
+      // by it, so switching has to be the thing that writes it.
+      setRecents(layoutStore.noteLayoutOpened(id));
       setCurrentLayoutId(id);
       applyLayout(l);
       onRestored();
@@ -245,6 +259,9 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       if (!ok) return;
       void layoutStore.deleteLayout(id).then(async () => {
         if (id === currentLayoutId) setCurrentLayoutId(null);
+        // A deleted layout is not a recent one — otherwise its id sits in the
+        // order forever, ranking a row that no longer exists.
+        setRecents(layoutStore.forgetLayoutRecent(id));
         await refreshLayouts();
       }).catch(async (e: Error) => {
         onError(describeAction(e, "delete the layout"));
@@ -267,7 +284,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
   }, [saveNow]);
 
   return {
-    layouts, currentId: currentLayoutId, setCurrentId: setCurrentLayoutId,
+    layouts, recents, currentId: currentLayoutId, setCurrentId: setCurrentLayoutId,
     autosave, dirty, autosaveError, saveNow, refresh: refreshLayouts, handlers: layoutHandlers,
   };
 }

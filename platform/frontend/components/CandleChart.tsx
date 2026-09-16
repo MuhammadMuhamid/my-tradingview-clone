@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
+import { BarCountdownPrimitive, countdownText } from "@/lib/barCountdown";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, ColorType, LineStyle, LineType, PriceScaleMode,
@@ -115,14 +116,6 @@ interface LegendBar {
   chgPct: number;
   /** Present only for `renkoBrick`: what the brick itself is. */
   brick?: { direction: 1 | -1; size: number; sourceOpenTime: number };
-}
-
-function countdownText(ms: number): string {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const rest = seconds % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 }
 
 /**
@@ -3315,6 +3308,52 @@ export function CandleChart({
     return () => window.clearInterval(timer);
   }, [showBottomBar, settings.countdownToBarClose, settings.timeZone]);
 
+  /*
+   * ── TVP8 F-03: the countdown is a PRICE-AXIS label ────────────────────────
+   *
+   * It was a DOM span placed from a `priceToCoordinate` read taken during
+   * React's render, which is a second, slower answer to the question the
+   * library answers when it paints the chip — and after a pane insert shrank
+   * the container the two disagreed by about 18px and stayed that way, so the
+   * countdown's own plate covered the price. See `lib/barCountdown`.
+   *
+   * Attached once per series and updated in place: the library owns both
+   * labels now, computes both coordinates in one pass, and moves them apart
+   * itself if they would collide.
+   */
+  const countdownRef = useRef<BarCountdownPrimitive | null>(null);
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    const primitive = new BarCountdownPrimitive();
+    countdownRef.current = primitive;
+    try { series.attachPrimitive(primitive); }
+    catch { countdownRef.current = null; return; }
+    return () => {
+      countdownRef.current = null;
+      try { series.detachPrimitive(primitive); }
+      catch { /* the series went away first; the primitive went with it */ }
+    };
+  }, [chartReady, chartType]);
+  useEffect(() => {
+    const primitive = countdownRef.current;
+    if (!primitive) return;
+    const last = candles[candles.length - 1];
+    const on = settings.countdownToBarClose && !priceHidden && last !== undefined;
+    primitive.update({
+      /*
+       * The last CANDLE's close, which is the value the series' own
+       * `lastValueVisible` chip is on — one price, one coordinate, so the two
+       * labels cannot describe different rows of the axis.
+       */
+      price: on ? last.close : null,
+      text: on ? countdownText(last.closeTime - nowMs) : null,
+      // The chip's own ground, so the pair reads as the reference's one plate.
+      backColor: last && last.close >= last.open ? upColor : downColor,
+      textColor: "#ffffff",
+    });
+  }, [nowMs, candles, settings.countdownToBarClose, priceHidden, upColor, downColor]);
+
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
   const px = up ? "text-up" : "text-down";
@@ -3384,6 +3423,20 @@ export function CandleChart({
           handler({ x: e.clientX, y: e.clientY, drawingId: null, price, region });
         }}
       />
+      {/*
+        F-03: the countdown's TEXT, for a reader who cannot see the axis.
+
+        The label itself is painted onto the price axis by the library (see
+        `lib/barCountdown`), and a canvas says nothing to assistive technology.
+        This carries the same string, is never positioned, and therefore cannot
+        be the thing that overlaps the price chip — which is exactly what the
+        element it replaces did.
+      */}
+      {settings.countdownToBarClose && candles.length > 0 && !priceHidden && (
+        <span data-bar-close-countdown className="sr-only">
+          {countdownText(candles[candles.length - 1]!.closeTime - nowMs)}
+        </span>
+      )}
       {barPickX !== null && (
         <span
           aria-hidden="true"
@@ -3408,20 +3461,6 @@ export function CandleChart({
             <path d="M7 4v6M4 7h6" />
           </svg>
         </button>
-      )}
-      {settings.countdownToBarClose && candles.length > 0 && !priceHidden && (
-        <span
-          data-bar-close-countdown
-          className={`pointer-events-none absolute z-20 min-w-[58px] rounded-sm bg-surface px-1 text-center text-[11px] leading-4 tabular text-ink-muted ${
-            axisSide === "left" ? "left-0" : "right-0"
-          }`}
-          style={{
-            top: Math.max(0, (seriesRef.current?.priceToCoordinate(candles[candles.length - 1]!.close) ?? 0) + 10),
-          }}
-          title="Time remaining until the current bar closes"
-        >
-          {countdownText(candles[candles.length - 1]!.closeTime - nowMs)}
-        </span>
       )}
       {/*
         Everything below is anchored to a canonical bar time, and under sparse
