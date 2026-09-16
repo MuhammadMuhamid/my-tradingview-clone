@@ -1,7 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
-import { BarCountdownPrimitive, countdownText } from "@/lib/barCountdown";
+import {
+  BarCountdownPrimitive, chipBackColor, chipTextColor, countdownText,
+} from "@/lib/barCountdown";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, ColorType, LineStyle, LineType, PriceScaleMode,
@@ -1084,6 +1086,21 @@ export function CandleChart({
      the whole settings object, which changes identity on every keystroke. */
   const precision = settings.precision;
   /*
+   * ── TVP8 F-03-R ───────────────────────────────────────────────────────────
+   *
+   * While the countdown is on, the last-price plate is drawn by ONE object —
+   * `BarCountdownPrimitive`, which owns both rows — and the series' own chip
+   * stands down. Two labels the library colours and sizes independently can
+   * never be one plate: the chip takes `priceLineColor`, the countdown took
+   * the bar's direction, and each sized itself to its own text, so the
+   * countdown overhung the price by 19px.
+   *
+   * Not in a percentage scale, where the axis text is a percentage the library
+   * computes from a first value it does not expose; there the chip stays the
+   * library's and only the countdown's colour is unified with it.
+   */
+  const countdownOwnsChip = settings.countdownToBarClose && scale.mode !== "percentage";
+  /*
    * The decimals the price AXIS labels with.
    *
    * A ref because the chart — and with it the `localization.priceFormatter`
@@ -1605,12 +1622,16 @@ export function CandleChart({
         priceLineColor: settings.lastValueLineColor,
         priceLineWidth: settings.lastValueLineWidth as 1 | 2 | 3 | 4,
         priceLineStyle: lineStyleOf(settings.lastValueLineStyle),
-        lastValueVisible: settings.lastValueLabel,
+        // F-03-R: off while `BarCountdownPrimitive` draws the price row, so
+        // the plate has one colour and one width instead of the chip's and
+        // the countdown's.
+        lastValueVisible: settings.lastValueLabel && !countdownOwnsChip,
       });
     } catch { /* the series went away between render and effect */ }
   }, [
     settings.lastValueLine, settings.lastValueLineColor, settings.lastValueLineWidth,
-    settings.lastValueLineStyle, settings.lastValueLabel, chartType, chartReady,
+    settings.lastValueLineStyle, settings.lastValueLabel, countdownOwnsChip,
+    chartType, chartReady,
   ]);
 
   /*
@@ -3309,17 +3330,19 @@ export function CandleChart({
   }, [showBottomBar, settings.countdownToBarClose, settings.timeZone]);
 
   /*
-   * ── TVP8 F-03: the countdown is a PRICE-AXIS label ────────────────────────
+   * ── TVP8 F-03: the countdown is drawn ON THE PRICE AXIS ───────────────────
    *
    * It was a DOM span placed from a `priceToCoordinate` read taken during
    * React's render, which is a second, slower answer to the question the
    * library answers when it paints the chip — and after a pane insert shrank
    * the container the two disagreed by about 18px and stayed that way, so the
-   * countdown's own plate covered the price. See `lib/barCountdown`.
+   * countdown's own plate covered the price.
    *
-   * Attached once per series and updated in place: the library owns both
-   * labels now, computes both coordinates in one pass, and moves them apart
-   * itself if they would collide.
+   * Attached once per series and updated in place. The primitive draws the
+   * price and the countdown as ONE plate, inside the library's own paint, off
+   * one reading of the coordinate — so there is no second copy of the geometry
+   * to fall behind, and no second label to disagree about a colour or a width.
+   * See `lib/barCountdown` for why one plate and not two labels.
    */
   const countdownRef = useRef<BarCountdownPrimitive | null>(null);
   useEffect(() => {
@@ -3340,19 +3363,35 @@ export function CandleChart({
     if (!primitive) return;
     const last = candles[candles.length - 1];
     const on = settings.countdownToBarClose && !priceHidden && last !== undefined;
+    /*
+     * F-03-R: the chip's OWN ground, read the way `SeriesPriceAxisView` reads
+     * it — `priceLineColor || lastBarColor` — rather than from the bar's
+     * direction. The bar-direction colour is what made the countdown red under
+     * a slate price; one value here is what makes the two rows one plate.
+     */
+    const backColor = chipBackColor(
+      settings.lastValueLineColor,
+      last && last.close >= last.open ? upColor : downColor,
+    );
     primitive.update({
       /*
-       * The last CANDLE's close, which is the value the series' own
-       * `lastValueVisible` chip is on — one price, one coordinate, so the two
-       * labels cannot describe different rows of the axis.
+       * The last CANDLE's close, the anchor the primitive falls back to when
+       * it cannot read the visible range — one price, one coordinate, so the
+       * two rows cannot describe different rows of the axis.
        */
       price: on ? last.close : null,
       text: on ? countdownText(last.closeTime - nowMs) : null,
-      // The chip's own ground, so the pair reads as the reference's one plate.
-      backColor: last && last.close >= last.open ? upColor : downColor,
-      textColor: "#ffffff",
+      backColor,
+      textColor: chipTextColor(backColor),
+      ownsPriceRow: on && countdownOwnsChip && settings.lastValueLabel,
     });
-  }, [nowMs, candles, settings.countdownToBarClose, priceHidden, upColor, downColor]);
+  }, [
+    nowMs, candles, settings.countdownToBarClose, settings.lastValueLineColor,
+    settings.lastValueLabel, countdownOwnsChip, priceHidden, upColor, downColor,
+    // Re-stated after a re-attach: a rebuilt primitive starts empty, and
+    // waiting for the next second to fill it is a second with no plate.
+    chartReady, chartType,
+  ]);
 
   const up = legend ? legend.close >= legend.open : true;
   const chgUp = legend ? legend.chg >= 0 : true;
