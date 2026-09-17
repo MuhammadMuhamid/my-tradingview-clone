@@ -101,11 +101,14 @@ export interface ChartSidePanelProps {
 
   toolsOpen: boolean;
   onToolsOpen: (open: boolean) => void;
+  /** Existing focused-pane actions exposed to phone users without hover. */
+  onMaximizeFocused?: () => void;
 }
 
 export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
   /** The rail's Help cell owns its own sheet; nothing above it has to. */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const isMobile = useIsMobile();
   const tradingIdentity = canonicalDisplayParts(props.tradingSymbol);
   const canonicalBinanceSpot = tradingIdentity?.venue === "BINANCE" && tradingIdentity.type === "spot";
@@ -153,6 +156,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
 
   /** Phone drawers are mutually exclusive — two overlays at once hides the chart. */
   const togglePanel = (p: ChartPanel): void => {
+    setMoreOpen(false);
     props.onToolsOpen(false);
     props.onPanel((cur) => (cur === p ? null : p));
   };
@@ -409,10 +413,29 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       the same corner, and globals.css uses this attribute to lift it clear of
       the bar. Both read `--ts-phone-nav-height`, so the two cannot drift.
     */}
+    {moreOpen && isMobile && (
+      <div role="menu" aria-label="More chart tools"
+        className="tvc-menu fixed inset-x-2 bottom-[var(--ts-phone-nav-height)] z-40 p-1">
+        <button role="menuitem" className="tvc-menu-row flex min-h-[44px] w-full items-center px-3 text-left text-sm text-ink"
+          onClick={() => { togglePanel("correlation"); setMoreOpen(false); }}>
+          Correlation
+        </button>
+        <button role="menuitem" className="tvc-menu-row flex min-h-[44px] w-full items-center px-3 text-left text-sm text-ink"
+          onClick={() => { togglePanel("objects"); setMoreOpen(false); }}>
+          Object tree and Data window
+        </button>
+        {props.onMaximizeFocused && (
+          <button role="menuitem" className="tvc-menu-row flex min-h-[44px] w-full items-center px-3 text-left text-sm text-ink"
+            onClick={() => { props.onMaximizeFocused?.(); setMoreOpen(false); }}>
+            Maximize focused pane
+          </button>
+        )}
+      </div>
+    )}
     <nav data-phone-nav
       className="fixed inset-x-0 bottom-0 z-30 flex min-h-[var(--ts-phone-nav-height)] items-stretch justify-around border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
       {([
-        ["tools", "Draw", props.toolsOpen, () => { props.onToolsOpen(!props.toolsOpen); props.onClosePanel(); },
+        ["tools", "Draw", props.toolsOpen, () => { setMoreOpen(false); props.onToolsOpen(!props.toolsOpen); props.onClosePanel(); },
           <path d="M4 20l4-1 9-9-3-3-9 9zM15 5l3 3 2-2-3-3z" />],
         ["watchlist", "Watchlist", props.panel === "watchlist", () => togglePanel("watchlist"),
           <path d="M4 7h16M4 12h16M4 17h10" />],
@@ -422,6 +445,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           <><path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" /></>],
         ["alerts", "Automate", props.panel === "alerts", () => togglePanel("alerts"),
           <path d="M13 2L4 14h7l-1 8 9-12h-7z" />],
+        ["more", "More", moreOpen, () => setMoreOpen((open) => !open),
+          <><path d="M5 12h.01M12 12h.01M19 12h.01" /><path d="M4 5h16v14H4z" /></>],
       ] as const).map(([id, label, isActive, onClick, icon]) => (
         <button
           key={id}

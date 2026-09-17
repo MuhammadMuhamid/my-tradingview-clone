@@ -63,6 +63,9 @@ export function MaAlertModal({
   onSaved: (message: string) => void;
 }) {
   const [mode, setMode] = useState<MaAlertMode>("touch");
+  const [family, setFamily] = useState<"ma" | "ma_vs_ma">("ma");
+  const [ma2Type, setMa2Type] = useState<MaType>("sma");
+  const [ma2Length, setMa2Length] = useState(200);
   const [timeframe, setTimeframe] = useState<Interval>(chartTimeframe);
   const [nearMinPct, setNearMinPct] = useState(0.2);
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
@@ -78,6 +81,10 @@ export function MaAlertModal({
   useEffect(() => {
     if (open) {
       setTimeframe(chartTimeframe);
+      setFamily("ma");
+      setMode("touch");
+      setMa2Type("sma");
+      setMa2Length(Math.max(200, maLength + 1));
       setFilters(emptyFilters());
       setNote("");
       setErr(null);
@@ -85,7 +92,9 @@ export function MaAlertModal({
   }, [open, chartTimeframe, maType, maLength]);
 
   // Editing rather than creating: load the matching alert's settings.
-  const match = existing.find((a) => a.mode === mode && a.timeframe === timeframe) ?? null;
+  const match = existing.find((a) => a.conditionKind === family
+    && a.mode === mode && a.timeframe === timeframe
+    && (family === "ma" || (a.ma2Type === ma2Type && a.ma2Length === ma2Length))) ?? null;
   useEffect(() => {
     if (match) {
       setNearMinPct(match.nearMinPct);
@@ -95,6 +104,11 @@ export function MaAlertModal({
       // Including whether it is currently armed: an untouched Update on a
       // paused alert used to re-arm it silently.
       setArmed(match.enabled);
+      if (match.conditionKind === "ma_vs_ma") {
+        setFamily("ma_vs_ma");
+        setMa2Type(match.ma2Type ?? "sma");
+        setMa2Length(match.ma2Length ?? 200);
+      }
       // Saving here upserts, so the dialog must show what the existing alert
       // actually holds — otherwise an untouched Update would silently strip the
       // gates and the note it was armed with.
@@ -103,7 +117,7 @@ export function MaAlertModal({
     }
   }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isNear = mode === "near_above" || mode === "near_below";
+  const isNear = family === "ma" && (mode === "near_above" || mode === "near_below");
   const label = maLabel(maType, maLength);
 
   const save = async () => {
@@ -115,14 +129,15 @@ export function MaAlertModal({
     setErr(null);
     try {
       await api.createMaAlert({
-        symbol, timeframe, conditionKind: "ma", maType, maLength, mode,
+        symbol, timeframe, conditionKind: family, maType, maLength,
+        ...(family === "ma_vs_ma" ? { ma2Type, ma2Length, mode: mode === "cross_down" ? "cross_down" : "cross_up" } : { mode }),
         nearMinPct, nearMaxPct, cooldownMin, frequency,
         ...filterRequest(filters),
         note: note.trim() || null,
         enabled: armed,
       });
       onSaved(
-        `${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} ${label} · ${MODE_LABELS[mode].toLowerCase()}`
+          `${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} ${label}${family === "ma_vs_ma" ? ` vs ${maLabel(ma2Type, ma2Length)}` : ""}`
       );
       onClose();
     } catch (e) {
@@ -179,13 +194,39 @@ export function MaAlertModal({
     >
       <div className="space-y-3">
         <Row label="Condition">
-          <select value={mode} onChange={(e) => setMode(e.target.value as MaAlertMode)} className={box}>
-            {(Object.keys(MODE_LABELS) as MaAlertMode[]).map((m) => (
+          <select value={family} onChange={(e) => {
+            const next = e.target.value as "ma" | "ma_vs_ma";
+            setFamily(next);
+            setMode(next === "ma_vs_ma" ? "cross_up" : "touch");
+          }} className={box} aria-label="Alert condition family">
+            <option value="ma">Price versus moving average</option>
+            <option value="ma_vs_ma">Moving average crossover</option>
+          </select>
+        </Row>
+        <Row label={family === "ma_vs_ma" ? "Cross" : "Condition"}>
+          <select value={mode} onChange={(e) => setMode(e.target.value as MaAlertMode)} className={box}
+            aria-label={family === "ma_vs_ma" ? "Moving-average crossing direction" : "Price versus moving-average condition"}>
+            {(Object.keys(MODE_LABELS) as MaAlertMode[])
+              .filter((m) => family === "ma_vs_ma" ? (m === "cross_up" || m === "cross_down") : true)
+              .map((m) => (
               <option key={m} value={m}>{MODE_LABELS[m]}</option>
             ))}
           </select>
         </Row>
         <p className="pl-[122px] text-xs text-ink-faint">{MODE_HELP[mode]}</p>
+
+        {family === "ma_vs_ma" && (
+          <Row label="Slow MA">
+            <div className="flex items-center gap-2">
+              <select value={ma2Type} onChange={(e) => setMa2Type(e.target.value as MaType)} className={`${box} w-[92px]`} aria-label="Second moving-average type">
+                <option value="ema">EMA</option><option value="sma">SMA</option>
+              </select>
+              <input type="number" min={1} max={1000} value={ma2Length}
+                onChange={(e) => setMa2Length(parseInt(e.target.value || "0", 10))}
+                className={box} aria-label="Second moving-average length" />
+            </div>
+          </Row>
+        )}
 
         <ResolutionNotice notice={resolutionNotice} using={timeframe} />
         <Row label="Timeframe">

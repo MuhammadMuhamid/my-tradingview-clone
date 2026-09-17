@@ -15,7 +15,7 @@ import {
   resolveBackgroundGradient, type ChartTimeZone, type DateFormatName, type LineStyleName,
   type ScaleButtonsMode,
 } from "@/lib/chartSettings";
-import { dayOfWeekFormatter, hoursFormatter } from "@/lib/chartClock";
+import { axisTickFormatter, hoursFormatter } from "@/lib/chartClock";
 import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
 import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicatorPaneLayout";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
@@ -359,6 +359,12 @@ export function IndicatorPane({
    *  rebuilt when a pane is added below this one. */
   const showTimeAxisRef = useRef(showTimeAxis);
   showTimeAxisRef.current = showTimeAxis;
+  const dayOfWeekRef = useRef(dayOfWeekOnLabels);
+  dayOfWeekRef.current = dayOfWeekOnLabels;
+  const timeFormatRef = useRef(timeFormat24h);
+  timeFormatRef.current = timeFormat24h;
+  const timeZoneRef = useRef(timeZone);
+  timeZoneRef.current = timeZone;
   /** Read in an event handler, so the pane is not rebuilt when it changes. */
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
@@ -373,7 +379,8 @@ export function IndicatorPane({
       timeScale: {
         ...base.timeScale,
         visible: showTimeAxisRef.current,
-        tickMarkFormatter: dayOfWeekFormatter(dayOfWeekRef.current, timeZoneRef.current),
+        tickMarkFormatter: axisTickFormatter(
+          dayOfWeekRef.current, timeFormatRef.current, timeZoneRef.current),
       },
     });
     const unsubscribeTheme = subscribeChartTheme(chart);
@@ -561,24 +568,22 @@ export function IndicatorPane({
     chartRef.current?.timeScale().applyOptions({ visible: showTimeAxis });
   }, [showTimeAxis, ready]);
 
-  const dayOfWeekRef = useRef(dayOfWeekOnLabels);
-  dayOfWeekRef.current = dayOfWeekOnLabels;
-  const timeZoneRef = useRef(timeZone);
-  timeZoneRef.current = timeZone;
   /*
    * ── R6b-13: OFF is a FUNCTION, never `undefined` ──────────────────────────
    *
    * lightweight-charts merges options with a spread, so a key whose value is
    * `undefined` overwrites nothing: the formatter installed when the row was ON
    * stayed installed for ever and `Day of week` OFF moved nothing, anywhere.
-   * `dayOfWeekFormatter(false)` returns every tick as `null`, which is the
+   * `axisTickFormatter(false, …, "UTC")` returns every tick as `null`, which is the
    * library's own "you did not format it".
    */
   useEffect(() => {
     chartRef.current?.applyOptions({
-      timeScale: { tickMarkFormatter: dayOfWeekFormatter(dayOfWeekOnLabels, timeZone) },
+      timeScale: {
+        tickMarkFormatter: axisTickFormatter(dayOfWeekOnLabels, timeFormat24h, timeZone),
+      },
     });
-  }, [dayOfWeekOnLabels, timeZone, ready]);
+  }, [dayOfWeekOnLabels, timeFormat24h, timeZone, ready]);
 
   /*
    * ── R6b-14/19: the pane takes the whole Canvas tab ───────────────────────

@@ -187,7 +187,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
       maType={armLine?.type ?? "sma"}
       maLength={armLine?.length ?? 200}
       existing={maAlerts.filter(
-        (a) => a.conditionKind === "ma" &&
+        (a) => (a.conditionKind === "ma" || a.conditionKind === "ma_vs_ma") &&
                a.maType === armLine?.type && a.maLength === armLine?.length
       )}
       onSaved={onAlertSaved}

@@ -35,9 +35,8 @@
  * that swallowed a drag would break trend lines drawn near the top-left corner
  * — which is where most of them start.
  */
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { fmtPrice } from "@/lib/format";
-import { CompareControl, CompareSettings } from "@/components/tv/CompareControl";
 import { LegendTimeframe, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { Resolution } from "@/lib/resolution";
 import type { PaneCompare } from "@/lib/workspace";
@@ -99,13 +98,9 @@ export interface PaneLegendProps {
    */
   titleForm?: StatusTitleForm;
 
-  /** Set by the pane so the toolbar's Compare control can open this dialog. */
-  compareOpen?: boolean;
-  onCompareOpenChange?: (open: boolean) => void;
-
   onOpenSymbolSearch: (paneId: string) => void;
   onInterval: (paneId: string, interval: Resolution) => void;
-  onCompareChange?: (paneId: string, next: PaneCompare | null) => void;
+  onOpenCompareSettings?: () => void;
   resolutions: ResolutionPreferences;
 
   /** Both false in a one-pane workspace, where neither would mean anything. */
@@ -163,14 +158,6 @@ export function PaneLegend(props: PaneLegendProps) {
       : nameLabel;
   const venueLabel = displayVenue(symbol);
   /*
-   * Controlled when the pane supplies it, so the toolbar's Compare control can
-   * open this pane's dialog; uncontrolled otherwise, so a legend used anywhere
-   * else still works on its own.
-   */
-  const [ownCompareOpen, setOwnCompareOpen] = useState(false);
-  const compareOpen = props.compareOpen ?? ownCompareOpen;
-  const setCompareOpen = props.onCompareOpenChange ?? setOwnCompareOpen;
-  /*
    * R4b-06: the chip that SAYS a comparison is on opens how it is DRAWN.
    *
    * Choosing the instrument is the symbol search in compare mode (the `+`
@@ -178,8 +165,6 @@ export function PaneLegend(props: PaneLegendProps) {
    * off, is a small menu on the chip that announces it. Two decisions, two
    * surfaces, neither of them a form with a regex in it.
    */
-  const [compareSettingsOpen, setCompareSettingsOpen] = useState(false);
-
   const pickInterval = useCallback((next: Resolution) => {
     props.onInterval(paneId, next);
   }, [props, paneId]);
@@ -272,7 +257,7 @@ export function PaneLegend(props: PaneLegendProps) {
         {compare && (
           <button
             {...{ className: `${HIT} tvc-control flex h-5 shrink-0 items-center px-1 text-[11px] font-semibold text-ink` }}
-            onClick={() => setCompareSettingsOpen(true)}
+            onClick={props.onOpenCompareSettings}
             title={`Comparing with ${displayTicker(compare.symbol)} — ${compare.mode}`}
             aria-label={`Comparing with ${displayTicker(compare.symbol)}. Change or remove.`}
           >
@@ -343,30 +328,6 @@ export function PaneLegend(props: PaneLegendProps) {
         </div>
       )}
 
-      {/*
-        R4b-06 / R1c-14: `baseTicker`, not the pane's canonical `symbol`.
-
-        This used to pass the pane's raw canonical symbol — an
-        `instrument:v1:…` id — which the old form printed verbatim in its own
-        `<h2>`, three lines deep, under the close button. A canonical id as
-        primary copy is the one thing §5's symbol-display rule forbids
-        outright, and typing the prop as a ticker is what stops it coming
-        back.
-      */}
-      <CompareControl
-        open={compareOpen}
-        current={compare}
-        baseTicker={tickerLabel}
-        onClose={() => setCompareOpen(false)}
-        onApply={(next) => props.onCompareChange?.(paneId, next)}
-      />
-      <CompareSettings
-        open={compareSettingsOpen}
-        current={compare}
-        baseTicker={tickerLabel}
-        onClose={() => setCompareSettingsOpen(false)}
-        onApply={(next) => props.onCompareChange?.(paneId, next)}
-      />
     </>
   );
 }

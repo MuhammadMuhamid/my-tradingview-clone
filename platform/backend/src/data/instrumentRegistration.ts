@@ -28,7 +28,7 @@
  */
 import * as symbolRepo from "../repositories/symbols";
 import { assetsBySuffixFallback, storedSymbol } from "../types/instrument";
-import { marketData } from "./marketData";
+import { ensureInstrumentMetadata, hasProviderPriceTick } from "./instrumentMetadata";
 
 export type RegistrationLog = (msg: string) => void;
 
@@ -42,10 +42,11 @@ export async function registerInstrument(
   rawSymbol: string, log?: RegistrationLog
 ): Promise<void> {
   const ticker = storedSymbol(rawSymbol);
-  if (await symbolRepo.getSymbol(ticker)) return;
+  const existing = await symbolRepo.getSymbol(ticker);
+  if (hasProviderPriceTick(existing)) return;
   try {
-    const registered = await marketData.registerInstruments([ticker]);
-    if (registered.length > 0) return;
+    const [registered] = await ensureInstrumentMetadata([ticker]);
+    if (registered) return;
     log?.(`instrument directory returned no metadata for ${ticker}; registering by suffix`);
   } catch (err) {
     log?.(
@@ -53,6 +54,10 @@ export async function registerInstrument(
       `(${(err as Error).message}); registering by suffix`
     );
   }
+  // A seeded/existing row already has truthful assets. Provider failure leaves
+  // its precision unknown; suffix inference must not overwrite identity or
+  // pretend to be exchange metadata.
+  if (existing) return;
   const assets = assetsBySuffixFallback(ticker);
   await symbolRepo.addSymbol(ticker, assets.baseAsset, assets.quoteAsset);
 }

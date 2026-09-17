@@ -67,6 +67,7 @@ import { tradesThroughHorizon } from "@/lib/tradeChartTransforms";
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
 const NO_FIRED: ChartMarker[] = [];
 import { PaneLegend } from "@/components/tv/PaneLegend";
+import { CompareControl, CompareSettings } from "@/components/tv/CompareControl";
 import type { ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { PaneCompare } from "@/lib/workspace";
 import { pricePrecision } from "@/lib/movingAverages";
@@ -404,6 +405,12 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * happening.
    */
   const compare = pane.compare ?? null;
+  const compareRequested = props.comparePaneId === pane.id;
+  const [compareSettingsOpen, setCompareSettingsOpen] = useState(false);
+  const [changingCompareSymbol, setChangingCompareSymbol] = useState(false);
+  useEffect(() => {
+    if (!compareRequested) setChangingCompareSymbol(false);
+  }, [compareRequested]);
   const compareSeries = useCompareSeries(
     visibleCandles, compare?.symbol ?? "", pane.interval, pane.bars,
     { enabled: compare !== null });
@@ -993,6 +1000,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             Loading {displayTicker(pane.symbol)} {pane.interval}…
           </div>
         ) : (
+          <>
           <CandleChart
             symbol={pane.symbol}
             interval={pane.interval}
@@ -1016,10 +1024,6 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 lastClose={showReadout && last ? last.close : null}
                 stale={history.stale}
                 ohlcVisible={pane.chartSettings?.showStatusLine !== false && pane.chartSettings?.statusOhlc !== false}
-                compareOpen={props.comparePaneId === undefined ? undefined : props.comparePaneId === paneId}
-                onCompareOpenChange={props.onComparePaneId
-                  ? (open) => props.onComparePaneId?.(open ? paneId : null)
-                  : undefined}
                 loading={density === "large" && history.loading}
                 bars={visibleCandles.length}
                 compare={compare}
@@ -1028,7 +1032,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 titleForm={(pane.chartSettings?.statusTitle) === "symbol" ? "symbol" : "ticker"}
                 onOpenSymbolSearch={props.onOpenSymbolSearch}
                 onInterval={props.onInterval}
-                {...(props.onCompareChange ? { onCompareChange: props.onCompareChange } : {})}
+                onOpenCompareSettings={() => setCompareSettingsOpen(true)}
                 resolutions={props.resolutions}
                 canMaximize={props.canMaximize}
                 canClose={props.canClose}
@@ -1105,6 +1109,41 @@ function ChartPaneImpl(props: ChartPaneProps) {
             canIndicatorAction={studyActionable}
             hiddenStudies={hiddenStudies}
           />
+          {/*
+            These dialogs belong to the pane, not to the visible status line.
+            Mounting them inside PaneLegend made the toolbar route disappear
+            when Status line → Title was off. The legend chip still opens the
+            same settings, while a second toolbar click manages an existing
+            comparison and can switch back to the shared symbol picker.
+          */}
+          <CompareControl
+            open={compareRequested && (compare === null || changingCompareSymbol)}
+            current={compare}
+            baseTicker={displayTicker(pane.symbol)}
+            onClose={() => {
+              setChangingCompareSymbol(false);
+              props.onComparePaneId?.(null);
+            }}
+            onApply={(next) => props.onCompareChange?.(paneId, next)}
+          />
+          <CompareSettings
+            open={(compareRequested && compare !== null && !changingCompareSymbol)
+              || compareSettingsOpen}
+            current={compare}
+            baseTicker={displayTicker(pane.symbol)}
+            onClose={() => {
+              setCompareSettingsOpen(false);
+              setChangingCompareSymbol(false);
+              if (compareRequested) props.onComparePaneId?.(null);
+            }}
+            onChangeSymbol={() => {
+              setCompareSettingsOpen(false);
+              setChangingCompareSymbol(true);
+              props.onComparePaneId?.(paneId);
+            }}
+            onApply={(next) => props.onCompareChange?.(paneId, next)}
+          />
+          </>
         )}
       </div>
     </div>

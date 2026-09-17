@@ -129,12 +129,12 @@ test("the pane hands the dialog a ticker, not the canonical id it holds", async 
    * canonical id a type error rather than a heading; this reads the call site
    * so a future edit cannot quietly go back to the pane's raw symbol.
    */
-  const legend = await import("node:fs").then((fs) =>
-    fs.readFileSync(new URL("../../components/tv/PaneLegend.tsx", import.meta.url), "utf8"));
-  assert.match(legend, /baseTicker=\{tickerLabel\}/);
-  assert.ok(!/base(Ticker|Symbol)=\{symbol\}/.test(legend),
+  const pane = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("../../components/tv/ChartPane.tsx", import.meta.url), "utf8"));
+  assert.match(pane, /baseTicker=\{displayTicker\(pane\.symbol\)\}/);
+  assert.ok(!/base(Ticker|Symbol)=\{pane\.symbol\}/.test(pane),
     "the pane passed its canonical id straight into the dialog's own <h2>");
-  assert.ok(!/baseSymbol=/.test(legend),
+  assert.ok(!/baseSymbol=/.test(pane),
     "`baseSymbol` is the prop name that let a canonical id through; the type is a ticker now");
   // The exact string the two reviews found on screen, so this test says what
   // it is protecting against rather than only how.

@@ -5,6 +5,9 @@ import { IncompleteDerivedCandleError, readResolvedCandles } from "../../data/re
 import { toCompact } from "../../data/candleWire";
 import { fetch24hTickers, listExchangeSymbols, TICKER_BATCH_LIMIT, type Ticker24h } from "../../data/binanceRest";
 import { InstrumentIdError, storedSymbol } from "../../types/instrument";
+import {
+  ensureInstrumentMetadata, syncMissingActiveInstrumentMetadata,
+} from "../../data/instrumentMetadata";
 
 /** Quote assets offered as filter chips, best-supported first. */
 const QUOTE_ORDER = ["USDT", "FDUSD", "USDC", "BTC", "ETH", "BNB", "TRY", "EUR"];
@@ -35,6 +38,14 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
 }): Promise<void> {
   app.get("/api/symbols", async (req) => {
     const { active } = req.query as { active?: string };
+    try {
+      await syncMissingActiveInstrumentMetadata();
+    } catch (err) {
+      // Catalog availability is useful even when the public metadata endpoint
+      // is down. Unknown precision remains null and the frontend truthfully
+      // disables the features that require it.
+      req.log.warn({ err }, "instrument metadata sync unavailable");
+    }
     return symbols.listSymbols(active === "true");
   });
 
@@ -99,10 +110,14 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
         .code(400)
         .send({ error: "symbol, baseAsset and quoteAsset are required" });
     }
-    const created = await symbols.addSymbol(
-      body.symbol.toUpperCase(),
-      body.baseAsset.toUpperCase(),
-      body.quoteAsset.toUpperCase()
+    let created;
+    try {
+      [created] = await ensureInstrumentMetadata([body.symbol]);
+    } catch (err) {
+      req.log.warn({ err }, "instrument metadata unavailable while registering symbol");
+    }
+    created ??= await symbols.addSymbol(
+      body.symbol.toUpperCase(), body.baseAsset.toUpperCase(), body.quoteAsset.toUpperCase()
     );
     return reply.code(201).send(created);
   });

@@ -689,7 +689,7 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
      * it asked whether the setting was READ and not whether OFF was written.
      * It asks for the pair now.
      */
-    ["dayOfWeekOnLabels", "CandleChart", /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels, settings\.timeZone\)/],
+    ["dayOfWeekOnLabels", "CandleChart", /tickMarkFormatter: axisTickFormatter\(\s*settings\.dayOfWeekOnLabels, settings\.timeFormat24h, settings\.timeZone\)/],
     ["indicatorLastValue", "CandleChart", /const lastValueVisible = settings\.indicatorLastValue/],
     ["bidAskLines", "CandleChart", /settings\.bidAskLines === "line" && live && !isCanonicalInstrumentId\(symbol\)/],
     ["bidColor", "CandleChart", /price: bookQuote\.bid, color: settings\.bidColor/],
@@ -765,7 +765,7 @@ test("EVERY NEW R6 KEY REACHES THE ENGINE OR THE MARKUP", () => {
   assert.match(chart, /dayOfWeekOnLabels=\{settings\.dayOfWeekOnLabels\}/);
   // R6b-13: and the pane's own OFF is a function too — see the rewritten row
   // in the table above.
-  assert.match(studyPane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels, timeZone\)/);
+  assert.match(studyPane, /tickMarkFormatter: axisTickFormatter\(dayOfWeekOnLabels, timeFormat24h, timeZone\)/);
   // A-1: `Only active alerts` is the filter, and it is a parameter now.
   assert.match(workspace, /\(!onlyActive \|\| isAlertActive\(a\)\)/,
     "onlyActiveAlerts must be able to turn the filter OFF, or the row moves nothing");
@@ -842,7 +842,7 @@ test("R6b-13/14/19 — the reach rows are applied to the STUDY PANES, not only t
    */
   assert.doesNotMatch(chart, /tickMarkFormatter: undefined/);
   assert.doesNotMatch(chart, /timeFormatter: settings\.timeFormat24h \? undefined/);
-  assert.match(chart, /tickMarkFormatter: dayOfWeekFormatter\(settings\.dayOfWeekOnLabels, settings\.timeZone\)/);
+  assert.match(chart, /tickMarkFormatter: axisTickFormatter\(\s*settings\.dayOfWeekOnLabels, settings\.timeFormat24h, settings\.timeZone\)/);
   assert.match(chart, /timeFormatter: hoursFormatter\(settings\.timeFormat24h, settings\.timeZone\)/);
   assert.match(clock, /export function defaultTickFormatter/);
   assert.match(clock, /export function hour12Formatter/);
@@ -850,6 +850,6 @@ test("R6b-13/14/19 — the reach rows are applied to the STUDY PANES, not only t
 
   const pane = strip("components/tv/IndicatorPane.tsx");
   assert.doesNotMatch(pane, /tickMarkFormatter: dayOfWeekOnLabels \? dayOfWeekTickFormatter : undefined/);
-  assert.match(pane, /tickMarkFormatter: dayOfWeekFormatter\(dayOfWeekOnLabels, timeZone\)/);
+  assert.match(pane, /tickMarkFormatter: axisTickFormatter\(dayOfWeekOnLabels, timeFormat24h, timeZone\)/);
   assert.match(pane, /timeFormatter: hoursFormatter\(timeFormat24h, timeZone\)/);
 });

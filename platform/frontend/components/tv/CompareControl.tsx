@@ -117,13 +117,15 @@ export function CompareControl({
  * from a pair ratio without reading the source.
  */
 export function CompareSettings({
-  open, current, baseTicker, onClose, onApply,
+  open, current, baseTicker, onClose, onApply, onChangeSymbol,
 }: {
   open: boolean;
   current: PaneCompare | null;
   baseTicker: string;
   onClose: () => void;
   onApply: (next: PaneCompare | null) => void;
+  /** Reopen the shared symbol picker without removing the current comparison. */
+  onChangeSymbol?: () => void;
 }) {
   const mode = current?.mode ?? "percent";
   const length = current?.length ?? DEFAULT_COMPARE_LENGTH;
@@ -224,13 +226,18 @@ export function CompareSettings({
           </p>
         )}
         <div className="flex items-center justify-between gap-2 pt-1">
-          <Button
-            variant="ghost"
-            onClick={() => { onApply(null); onClose(); }}
-            disabled={!current}
-          >
-            Remove comparison
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => { onApply(null); onClose(); }}
+              disabled={!current}
+            >
+              Remove comparison
+            </Button>
+            {onChangeSymbol && (
+              <Button variant="ghost" onClick={onChangeSymbol}>Change symbol…</Button>
+            )}
+          </div>
           <Button variant="ghost" onClick={onClose}>Done</Button>
         </div>
       </div>

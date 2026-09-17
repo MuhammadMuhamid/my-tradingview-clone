@@ -21,7 +21,7 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, screen } from "@testing-library/react";
 import {
-  assertAbsent, closeBrowser, render, resetBrowser, settle,
+  assertAbsent, closeBrowser, render, resetBrowser, server, settle,
 } from "./harness/env";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
@@ -115,6 +115,50 @@ test("every alert dialog renders the substituted-resolution truth it is given", 
     assert.match(rendered.textContent ?? "", /This alert is set to 15m/);
     view.unmount();
   }
+});
+
+test("the moving-average dialog creates a genuine MA-vs-MA crossover", async () => {
+  render(
+    <MaAlertModal open onClose={() => undefined} symbol="SOLUSDT"
+      chartTimeframe={"15m" as Interval} maType="ema" maLength={21}
+      existing={[]} onSaved={() => undefined} />,
+  );
+  await settle();
+
+  fireEvent.change(screen.getByLabelText("Alert condition family"), {
+    target: { value: "ma_vs_ma" },
+  });
+  fireEvent.change(screen.getByLabelText("Second moving-average type"), {
+    target: { value: "sma" },
+  });
+  fireEvent.change(screen.getByLabelText("Second moving-average length"), {
+    target: { value: "100" },
+  });
+  fireEvent.change(screen.getByLabelText("Moving-average crossing direction"), {
+    target: { value: "cross_down" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await settle();
+
+  const writes = server.callsTo("/api/ma-alerts")
+    .filter((call) => call.method === "POST");
+  assert.equal(writes.length, 1, "creating one crossover must make one alert request");
+  assert.deepEqual(writes[0]!.body, {
+    symbol: "SOLUSDT",
+    timeframe: "15m",
+    conditionKind: "ma_vs_ma",
+    maType: "ema",
+    maLength: 21,
+    ma2Type: "sma",
+    ma2Length: 100,
+    mode: "cross_down",
+    nearMinPct: 0.2,
+    nearMaxPct: 0.5,
+    cooldownMin: 60,
+    frequency: "once_per_bar_close",
+    note: null,
+    enabled: true,
+  });
 });
 
 // ── 2. the prefilled price is not always the market ────────────────────────

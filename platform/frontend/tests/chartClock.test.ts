@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  dayOfWeekTickFormatter, fmtChartBarTime, fmtChartClock, hour24Formatter,
+  axisTickFormatter, dayOfWeekTickFormatter, fmtChartBarTime, fmtChartClock, hour24Formatter,
 } from "../lib/chartClock";
 
 test("R6 SC-5(d) — a day label carries its weekday, and nothing else is touched", () => {
@@ -38,4 +38,10 @@ test("C-03 — a selected IANA zone shifts clock and axis labels without shiftin
   assert.equal(fmtChartClock(instant, "Asia/Karachi"), "17:34:56");
   assert.equal(hour24Formatter(instant / 1000, "Asia/Karachi"), "17:34");
   assert.equal(fmtChartBarTime(instant, 60_000, "Asia/Karachi"), "2026-09-15 17:34");
+  const axis = axisTickFormatter(true, true, "Asia/Karachi");
+  assert.equal(axis(instant / 1000, 3), "17:34", "intraday ticks must not fall back to UTC");
+  assert.equal(axis(instant / 1000, 2), "Tue 15");
+  assert.equal(axis(instant / 1000, 1), "Sep");
+  assert.equal(axis(instant / 1000, 0), "2026");
+  assert.equal(axis({ year: 2026, month: 9, day: 15 }, 3), null);
 });

@@ -157,6 +157,43 @@ test("the pane Compare picker closes from its backdrop", async () => {
   assertAbsent(screen.queryByRole("dialog"), "expected nothing to match");
 });
 
+test("compare settings and removal remain reachable when the status-line Title is off", async () => {
+  await mountChart();
+
+  fireEvent.click(screen.getByRole("button", { name: "Chart settings" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Status line" }));
+  const title = screen.getByRole("checkbox", { name: "Title" }) as HTMLInputElement;
+  assert.equal(title.checked, true);
+  fireEvent.click(title);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await settle();
+  assertAbsent(screen.queryByRole("button", { name: /Comparing with/ }),
+    "the title-dependent compare chip unexpectedly remained visible");
+
+  fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
+  const picker = screen.getByRole("dialog", { name: "Compare symbol" });
+  await advance(220);
+  const btc = [...picker.querySelectorAll<HTMLElement>("[data-idx]")]
+    .find((row) => (row.textContent ?? "").includes("BTCUSDT"));
+  assert.ok(btc, "the compare search did not list BTCUSDT");
+  fireEvent.click(btc);
+  await settle();
+
+  // With no legend chip to click, the same toolbar control must manage the
+  // comparison instead of opening a second, disconnected picker.
+  fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
+  const settings = screen.getByRole("dialog");
+  assert.ok(within(settings).getByRole("menuitemradio", { name: "Pair ratio" }));
+  fireEvent.click(within(settings).getByRole("button", { name: "Remove comparison" }));
+  await settle();
+
+  const stored = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "null") as {
+    panes?: { compare?: unknown }[];
+  } | null;
+  assert.equal(stored?.panes?.[0]?.compare, undefined,
+    "removing through the title-independent route did not update the pane");
+});
+
 test("percent comparison keeps candles on price and declares a dedicated percent pane", async () => {
   const chart = await mountChart();
   fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));

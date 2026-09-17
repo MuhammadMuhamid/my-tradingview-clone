@@ -3,19 +3,11 @@
  *
  * ── The one fact this module states ────────────────────────────────────────
  *
- * lightweight-charts formats every axis tick and every crosshair label from
- * the UTC fields of the timestamp it is given (`getUTCHours`, `getUTCDate`, …
- * in its own tick-mark formatter). Binance klines are stamped in UTC. So the
- * chart's time axis has always been UTC, and nothing here changes that — it
- * only says so out loud, because the rest of the product formats timestamps
- * with `toLocaleString`, i.e. in the reader's own zone, and a user comparing
- * a crosshair against a trade row has no way to know the two are in different
- * zones unless one of them is labelled.
- *
- * This is deliberately NOT a timezone system. There is no setting, no
- * preference and no conversion: there is one authority — the exchange's UTC
- * bar timestamps — and a label that names it. Choosing a display zone is a
- * product decision this wave was told not to invent.
+ * Binance klines are stamped in UTC and stay stamped in UTC. A display-zone
+ * setting changes only how the immutable instant is labelled: clock,
+ * crosshair, legend and every time-axis weight must agree. lightweight-charts
+ * otherwise formats axis ticks from UTC fields internally, so a non-UTC zone
+ * needs an explicit formatter for intraday ticks as well as day boundaries.
  */
 
 import type { ChartTimeZone } from "./chartSettings";
@@ -107,6 +99,10 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 /** `TickMarkType.DayOfMonth` in lightweight-charts 4.2. */
 const DAY_OF_MONTH_TICK = 2;
+const YEAR_TICK = 0;
+const MONTH_TICK = 1;
+const TIME_TICK = 3;
+const TIME_WITH_SECONDS_TICK = 4;
 
 export function dayOfWeekTickFormatter(
   time: unknown, tickMarkType: number, timeZone: ChartTimeZone = "UTC",
@@ -182,4 +178,51 @@ export function dayOfWeekFormatter(
   on: boolean, timeZone: ChartTimeZone = "UTC",
 ): (time: unknown, tickMarkType: number) => string | null {
   return on ? (time, type) => dayOfWeekTickFormatter(time, type, timeZone) : defaultTickFormatter;
+}
+
+/**
+ * The complete time-axis formatter for a selected display zone.
+ *
+ * UTC deliberately preserves the library's native month/year/intraday labels
+ * and only adds the existing weekday option. For any other zone, returning
+ * `null` would hand that tick back to the library's UTC formatter, recreating
+ * a split-zone axis; every tick weight therefore gets a zoned label.
+ */
+export function axisTickFormatter(
+  dayOfWeek: boolean,
+  twentyFourHour: boolean,
+  timeZone: ChartTimeZone = "UTC",
+): (time: unknown, tickMarkType: number) => string | null {
+  if (timeZone === "UTC") return dayOfWeekFormatter(dayOfWeek, timeZone);
+  return (time, tickMarkType) => {
+    if (typeof time !== "number") return null;
+    const date = new Date(time * 1000);
+    if (tickMarkType === TIME_TICK) {
+      return twentyFourHour
+        ? hour24Formatter(time, timeZone)
+        : hour12Formatter(time, timeZone);
+    }
+    if (tickMarkType === TIME_WITH_SECONDS_TICK) {
+      return new Intl.DateTimeFormat(twentyFourHour ? "en-GB" : "en-US", {
+        timeZone, hour: twentyFourHour ? "2-digit" : "numeric",
+        minute: "2-digit", second: "2-digit",
+        hourCycle: twentyFourHour ? "h23" : "h12",
+      }).format(date).toLowerCase();
+    }
+    if (tickMarkType === DAY_OF_MONTH_TICK) {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone, ...(dayOfWeek ? { weekday: "short" as const } : {}), day: "numeric",
+      }).formatToParts(date);
+      const day = parts.find((part) => part.type === "day")?.value ?? "";
+      const weekday = parts.find((part) => part.type === "weekday")?.value;
+      return weekday ? `${weekday} ${day}` : day;
+    }
+    if (tickMarkType === MONTH_TICK) {
+      return new Intl.DateTimeFormat("en-US", { timeZone, month: "short" }).format(date);
+    }
+    if (tickMarkType === YEAR_TICK) {
+      return new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(date);
+    }
+    return null;
+  };
 }

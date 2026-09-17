@@ -2722,6 +2722,7 @@ export default function TvWorkspace() {
         onToast={setToast}
         toolsOpen={toolsOpen}
         onToolsOpen={setToolsOpen}
+        onMaximizeFocused={() => toggleMaximizePane(workspace.activePaneId)}
       />
       </div>
 

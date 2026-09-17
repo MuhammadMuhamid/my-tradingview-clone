@@ -8,6 +8,7 @@ import { MaAlertRunner } from "./engine/maAlertRunner";
 import * as pushRepo from "./repositories/pushSubscriptions";
 import { encryptLegacySecrets } from "./repositories/deployments";
 import { seedIndicatorLibrary } from "./pine/librarySeed";
+import { syncMissingActiveInstrumentMetadata } from "./data/instrumentMetadata";
 
 async function main(): Promise<void> {
   const applied = await migrate();
@@ -24,6 +25,18 @@ async function main(): Promise<void> {
   runner = new LiveRunner(app.log);
   if (applied.length > 0) {
     app.log.info({ applied }, "database migrations applied");
+  }
+
+  try {
+    const synced = await syncMissingActiveInstrumentMetadata();
+    if (synced > 0) {
+      app.log.info({ synced }, "missing instrument metadata synchronized");
+    }
+  } catch (cause) {
+    // Public market metadata is a capability dependency, not a startup
+    // dependency. The catalog keeps its honest null precision and a later
+    // catalog/chart request retries through the same idempotent seam.
+    app.log.warn({ err: cause }, "instrument metadata sync failed; the backend continues");
   }
 
   /*

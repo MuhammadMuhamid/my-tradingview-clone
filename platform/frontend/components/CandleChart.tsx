@@ -79,7 +79,7 @@ import {
   type PaneLayoutState,
 } from "@/lib/indicatorPaneLayout";
 import {
-  chartTimeZoneLabel, dayOfWeekFormatter, fmtChartBarTime, fmtChartClock, hoursFormatter,
+  axisTickFormatter, chartTimeZoneLabel, fmtChartBarTime, fmtChartClock, hoursFormatter,
 } from "@/lib/chartClock";
 
 export type { ChartOverlay } from "@/lib/chartSeries";
@@ -1438,7 +1438,8 @@ export function CandleChart({
          * was inert on every chart that had ever had it on, which (the
          * default being ON) is every chart.
          */
-        tickMarkFormatter: dayOfWeekFormatter(settings.dayOfWeekOnLabels, settings.timeZone),
+        tickMarkFormatter: axisTickFormatter(
+          settings.dayOfWeekOnLabels, settings.timeFormat24h, settings.timeZone),
       },
       localization: {
         /*
