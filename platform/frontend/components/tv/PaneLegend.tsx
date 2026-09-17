@@ -273,10 +273,10 @@ export function PaneLegend(props: PaneLegendProps) {
           <button
             {...{ className: `${HIT} tvc-control flex h-5 shrink-0 items-center px-1 text-[11px] font-semibold text-ink` }}
             onClick={() => setCompareSettingsOpen(true)}
-            title={`Comparing with ${compare.symbol} — ${compare.mode}`}
-            aria-label={`Comparing with ${compare.symbol}. Change or remove.`}
+            title={`Comparing with ${displayTicker(compare.symbol)} — ${compare.mode}`}
+            aria-label={`Comparing with ${displayTicker(compare.symbol)}. Change or remove.`}
           >
-            vs {compare.symbol}
+            vs {displayTicker(compare.symbol)}
           </button>
         )}
 

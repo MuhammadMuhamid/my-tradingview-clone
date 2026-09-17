@@ -33,7 +33,7 @@
  * rather than hiding it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { storedSymbol, tryStoredSymbol } from "./instrument";
+import { displayTicker, storedSymbol, tryStoredSymbol } from "./instrument";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import { loadCandleWindow, repairStaleTail } from "./useCandleHistory";
 import {
@@ -187,7 +187,7 @@ export function comparePercent(
   return {
     plots: { base: basePct, other: otherPct },
     notice: referenceIndex < 0
-      ? `${other.symbol} has no bar in common with this chart, so there is nothing to compare.`
+      ? `${displayTicker(other.symbol)} has no bar in common with this chart, so there is nothing to compare.`
       : missingNotice(other),
   };
 }
@@ -294,9 +294,9 @@ export function compareZSpread(
  * not know their correlation was computed over fewer bars than they asked for.
  */
 function missingNotice(other: CompareSeries): string | null {
-  if (other.error) return `${other.symbol} could not be loaded: ${other.error}`;
+  if (other.error) return `${displayTicker(other.symbol)} could not be loaded: ${other.error}`;
   if (other.missing === 0) return null;
-  return `${other.symbol} has no bar for ${other.missing} of these — those bars are ` +
+  return `${displayTicker(other.symbol)} has no bar for ${other.missing} of these — those bars are ` +
     `left out rather than filled in with an invented price.`;
 }
 
@@ -341,6 +341,21 @@ export function compareOverlays(
   }));
   const instanceId = `compare:${other.symbol}:${mode}`;
 
+  /*
+   * What a reader is shown, which is not what the pane is keyed by.
+   *
+   * Both symbols here are canonical instrument ids — that is what the pane
+   * record persists, and it is the right thing to persist. Every title below
+   * is chrome a human reads, so it goes through the same display policy as the
+   * symbol control and the watchlist: a legend reading
+   * `vs instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` is the id leaking into
+   * the product. `instanceId` above is deliberately NOT converted: it is
+   * identity, it keys the comparison's own pane, and two instruments a ticker
+   * cannot tell apart must still be two panes.
+   */
+  const baseName = displayTicker(baseSymbol);
+  const otherName = displayTicker(other.symbol);
+
   if (mode === "percent") {
     const { plots, notice } = comparePercent(base, other);
     const paneId = instanceId;
@@ -348,16 +363,16 @@ export function compareOverlays(
       notice,
       overlays: [
         {
-          id: `${instanceId}:base`, title: `${baseSymbol} %`, color: COMPARE_BASE_COLOR,
+          id: `${instanceId}:base`, title: `${baseName} %`, color: COMPARE_BASE_COLOR,
           width: 2, style: "line", paneId,
-          instanceId, instanceTitle: `Percent change vs ${other.symbol}`,
+          instanceId, instanceTitle: `Percent change vs ${otherName}`,
           instanceParams: "% from first shared bar",
           precision: 2, data: point(plots.base!),
         },
         {
-          id: `${instanceId}:other`, title: `${other.symbol} %`, color: COMPARE_OTHER_COLOR,
+          id: `${instanceId}:other`, title: `${otherName} %`, color: COMPARE_OTHER_COLOR,
           width: 2, style: "line", paneId,
-          instanceId, instanceTitle: `Percent change vs ${other.symbol}`,
+          instanceId, instanceTitle: `Percent change vs ${otherName}`,
           instanceParams: "% from first shared bar",
           precision: 2, data: point(plots.other!),
         },
@@ -383,22 +398,22 @@ export function compareOverlays(
   const spec = {
     correlation: {
       title: `Correlation ${length}`,
-      instance: `Correlation vs ${other.symbol}`,
+      instance: `Correlation vs ${otherName}`,
       params: `${length} bars`, precision: 2, levels: [] as number[],
     },
     beta: {
       title: `Beta ${length}`,
-      instance: `Beta vs ${other.symbol}`,
+      instance: `Beta vs ${otherName}`,
       params: `${length} bars`, precision: 2, levels: [],
     },
     ratio: {
-      title: `${baseSymbol} / ${other.symbol}`,
-      instance: `${baseSymbol} priced in ${other.symbol}`,
+      title: `${baseName} / ${otherName}`,
+      instance: `${baseName} priced in ${otherName}`,
       params: "ratio", precision: 6, levels: [],
     },
     zspread: {
       title: `Z-spread ${length}`,
-      instance: `${baseSymbol} / ${other.symbol} spread, z-scored`,
+      instance: `${baseName} / ${otherName} spread, z-scored`,
       params: `${length} bars, log ratio`, precision: 2, levels: [2, 0, -2],
     },
     percent: { title: "", instance: "", params: "", precision: 2, levels: [] },

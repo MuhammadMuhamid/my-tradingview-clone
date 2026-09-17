@@ -38,8 +38,20 @@ function stableStringify(v: unknown): string {
 export interface SavedLayoutsInput {
   /** The focused pane's state, in the shape a saved layout stores. */
   workspaceState: WorkspaceState;
-  /** Apply a restored layout to the workspace. Must be stable. */
-  applyLayout: (state: WorkspaceState) => void;
+  /**
+   * Apply a restored layout to the workspace. Must be stable.
+   *
+   * `how` separates the two callers, because they need different things from
+   * the ARRANGEMENT. `"open"` is a user opening a layout from the menu: the
+   * pane grid, the studies and the drawings it carries replace what is on
+   * screen. `"restore"` is this hook reopening, at mount, the layout the user
+   * left open — and the browser's own stores already hold the arrangement
+   * they left, including anything they changed and did not save. Re-applying
+   * the layout's copy over it there would discard that work, and it is what
+   * reload-looped the page: the restore wrote the saved record, the page wrote
+   * the live one straight back, and the two never agreed.
+   */
+  applyLayout: (state: WorkspaceState, how: "open" | "restore") => void;
   /** Called after a layout is opened — the automatic backtest. Must be stable. */
   onRestored: () => void;
   /**
@@ -137,7 +149,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       const l = curId ? all.find((x) => x.id === curId) ?? null : null;
       if (l) {
         setCurrentLayoutId(l.id);
-        applyLayout(l);
+        applyLayout(l, "restore");
         onRestored();
       }
     })();
@@ -206,7 +218,7 @@ export function useSavedLayouts(input: SavedLayoutsInput): SavedLayoutsApi {
       // by it, so switching has to be the thing that writes it.
       setRecents(layoutStore.noteLayoutOpened(id));
       setCurrentLayoutId(id);
-      applyLayout(l);
+      applyLayout(l, "open");
       onRestored();
     },
     onSaveNow: () => { void saveNow(); },

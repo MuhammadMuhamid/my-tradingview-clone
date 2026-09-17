@@ -19,6 +19,8 @@
  */
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { resetBrowser } from "./harness/env";
 import { captureLayoutWorkspace, restoreLayoutWorkspace } from "../../lib/layoutWorkspace";
 import { WORKSPACE_STORAGE_KEY } from "../../lib/workspace";
@@ -120,4 +122,40 @@ test("a layout that carries no pane record never asks for a reload", () => {
   assert.equal(restoreLayoutWorkspace({ panes: null, studies: {}, drawings: {} }), false);
   // A pre-TVP8 layout must not disturb the arrangement the browser is showing.
   assert.equal(window.localStorage.getItem(WORKSPACE_STORAGE_KEY), JSON.stringify(PANES));
+});
+
+
+/**
+ * The other half of the same defect, at the call seam.
+ *
+ * Comparing the records is not enough on its own: at mount the two genuinely
+ * DIFFER whenever the user changed anything without saving — a comparison
+ * added, a study, a second pane. The page persists that live arrangement to
+ * the same key as it renders, so the saved record and the live one disagree on
+ * every load, the restore asks for a reload every time, and the page reloads
+ * into the same disagreement. Reproduced on the production build after adding
+ * one comparison: 105 main-frame navigations in 12 seconds.
+ *
+ * So the arrangement is only applied when the user OPENS a layout. At mount,
+ * the browser's own stores already hold what they left open — that is what
+ * those stores are for — and re-applying the saved copy over them would
+ * discard the unsaved work as well as loop.
+ */
+const ROOT = path.join(__dirname, "..", "..");
+const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
+
+test("only a user-opened layout applies its arrangement, and only it can reload", () => {
+  const hook = read("lib/useSavedLayouts.ts");
+  // The two callers are told apart at the seam, not guessed at downstream.
+  assert.match(hook, /applyLayout: \(state: WorkspaceState, how: "open" \| "restore"\) => void;/);
+  // Mount restore.
+  assert.match(hook, /applyLayout\(l, "restore"\);/);
+  // Menu open.
+  assert.match(hook, /applyLayout\(l, "open"\);/);
+
+  const page = read("app/chart/page.tsx");
+  // The arrangement write AND the reload are both behind the same gate, so a
+  // restore can neither clobber the live stores nor ask for a reload.
+  assert.match(page, /const panesRestored = how === "open" && restoreLayoutWorkspace\(s\.workspace\);/);
+  assert.match(page, /if \(panesRestored\) window\.location\.reload\(\);/);
 });

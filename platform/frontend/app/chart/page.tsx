@@ -1003,7 +1003,7 @@ export default function TvWorkspace() {
   );
 
   /** A saved layout describes one chart; it is applied to the focused pane. */
-  const applyState = useCallback((s: WorkspaceState) => {
+  const applyState = useCallback((s: WorkspaceState, how: "open" | "restore" = "open") => {
     /*
      * TVP8: the arrangement first, then the chart.
      *
@@ -1013,8 +1013,15 @@ export default function TvWorkspace() {
      * re-read it — which is what the reload below is for. When the layout
      * carries no pane record (one saved before TVP8, or by the deployment
      * sync) nothing reloads and this behaves exactly as it always did.
+     *
+     * Phase 2: only when the user OPENS a layout. At mount, reopening the one
+     * they left, every store this would write already holds what they left in
+     * it — and the page writes the live arrangement back to that same key as
+     * it renders, so the saved copy and the live one never agreed and the
+     * reload below ran on every load, about eight times a second, forever.
+     * The chart, the timeframe and the strategy below still restore.
      */
-    const panesRestored = restoreLayoutWorkspace(s.workspace);
+    const panesRestored = how === "open" && restoreLayoutWorkspace(s.workspace);
     setWorkspace((ws) => setWorkspaceBars(updatePane(ws, ws.activePaneId, {
       symbol: s.symbol,
       interval: s.interval,

@@ -462,3 +462,81 @@ test("a comparison survives a round trip through storage", () => {
   assert.deepEqual(restored!.panes[0]!.compare,
     { symbol: "instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot", mode: "beta", length: 120 });
 });
+
+// ── what a reader is shown, vs what the pane is keyed by ───────────────────
+
+/**
+ * Phase 2: a comparison persisted, then reloaded, named the canonical id.
+ *
+ * `compare.symbol` holds a canonical `instrument:v1:…` id, which is correct —
+ * that is the identity the pane record has to persist. In the session that
+ * added the comparison the legend happened to read the ticker the dialog had
+ * handed it, so `vs BTCUSDT` is what everyone saw and the leak was invisible.
+ * After a reload the stored id was the only thing left, and the chart read
+ * `vs instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot` — in the legend chip, in
+ * both percent plot titles and in the study title over the comparison's pane.
+ *
+ * The repair is at the DISPLAY boundary, not in storage and not by trimming
+ * the string: every title goes through `displayTicker`, the same policy the
+ * symbol control and the watchlist use. `instanceId` stays canonical, because
+ * it is identity — two instruments one ticker cannot tell apart must still be
+ * two panes.
+ */
+const CANONICAL_BTC = "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot";
+const CANONICAL_ETH = "instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot";
+
+test("a comparison's titles name the ticker, never the canonical id", () => {
+  const base = bars(60, (i) => 100 + Math.sin(i / 4));
+  const other = compareSeries(
+    Array.from({ length: 60 }, (_, i) => 50 + Math.cos(i / 4)), { symbol: CANONICAL_BTC });
+
+  for (const mode of ["percent", "ratio", "zspread", "correlation", "beta"] as const) {
+    const { overlays } = compareOverlays(base, other, mode, 20, CANONICAL_ETH);
+    assert.ok(overlays.length > 0, mode);
+    for (const o of overlays) {
+      assert.ok(!o.title.includes("instrument:v1:"),
+        `${mode} plot title leaks the id: ${o.title}`);
+      assert.ok(!(o.instanceTitle ?? "").includes("instrument:v1:"),
+        `${mode} study title leaks the id: ${o.instanceTitle}`);
+    }
+    // And identity is untouched — the pane is still keyed by the canonical id.
+    assert.ok(overlays.every((o) => o.instanceId === `compare:${CANONICAL_BTC}:${mode}`), mode);
+    assert.ok(overlays.every((o) => o.paneId === `compare:${CANONICAL_BTC}:${mode}`), mode);
+  }
+
+  // The names are the tickers, not merely "not the id".
+  const percent = compareOverlays(base, other, "percent", 20, CANONICAL_ETH);
+  assert.deepEqual(percent.overlays.map((o) => o.title), ["ETHUSDT %", "BTCUSDT %"]);
+  assert.equal(percent.overlays[0]!.instanceTitle, "Percent change vs BTCUSDT");
+
+  const ratio = compareOverlays(base, other, "ratio", 20, CANONICAL_ETH);
+  assert.equal(ratio.overlays[0]!.title, "ETHUSDT / BTCUSDT");
+  assert.equal(ratio.overlays[0]!.instanceTitle, "ETHUSDT priced in BTCUSDT");
+});
+
+test("a comparison's notices name the ticker too", () => {
+  // No overlapping bar at all.
+  const base = bars(10, (i) => 100 + i);
+  const none = compareOverlays(
+    base, compareSeries(Array.from({ length: 10 }, () => Number.NaN), { symbol: CANONICAL_BTC }),
+    "percent", 5, CANONICAL_ETH);
+  assert.ok(!(none.notice ?? "").includes("instrument:v1:"), none.notice ?? "");
+  assert.match(none.notice ?? "", /^BTCUSDT /);
+
+  // Loaded, but with gaps.
+  const gappy = compareOverlays(
+    base,
+    compareSeries(Array.from({ length: 10 }, (_, i) => (i % 3 === 0 && i > 0 ? Number.NaN : 50)),
+      { symbol: CANONICAL_BTC }),
+    "percent", 5, CANONICAL_ETH);
+  assert.ok(!(gappy.notice ?? "").includes("instrument:v1:"), gappy.notice ?? "");
+
+  // And a provider failure.
+  const failed = compareOverlays(
+    base,
+    compareSeries(Array.from({ length: 10 }, () => 50),
+      { symbol: CANONICAL_BTC, error: "provider timed out" }),
+    "percent", 5, CANONICAL_ETH);
+  assert.ok(!(failed.notice ?? "").includes("instrument:v1:"), failed.notice ?? "");
+  assert.match(failed.notice ?? "", /^BTCUSDT could not be loaded/);
+});
