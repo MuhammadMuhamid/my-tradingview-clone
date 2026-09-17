@@ -266,7 +266,16 @@ test("every enabled item in the chart menu is answered by a handler", async () =
   assert.equal(labels.filter((label) => label && !label.startsWith("—")).length, 10);
   assert.ok(labels.includes("Reset chart view"));
   assert.ok(labels.includes("Object tree"));
-  assert.ok(labels.includes("Chart template"));
+  /*
+   * Phase 3P: "Chart template" and "Lock vertical cursor line by time" were
+   * rows whose only effect was a toast that claimed success. Their two slots
+   * now hold the pattern overlays, which had engines, panels and handlers but
+   * no entry point at all.
+   */
+  assert.ok(labels.includes("Candlestick patterns"));
+  assert.ok(labels.includes("Chart patterns"));
+  assert.ok(!labels.includes("Chart template"));
+  assert.ok(!labels.includes("Lock vertical cursor line by time"));
   await chooseMenuItem("Object tree");
   await settle();
   assert.ok(screen.getByRole("button", { name: "Object tree and Data window" }));

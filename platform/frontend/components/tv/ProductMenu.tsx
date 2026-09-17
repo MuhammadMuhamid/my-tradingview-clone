@@ -173,15 +173,16 @@ function useTheme(): [ThemeName, () => void] {
  * The hint is therefore derived from `BINDINGS`, so it cannot drift from the
  * binding, and the modifier is the platform's own if one is ever added.
  */
-function useShortcutHint(): string | null {
+function useShortcutHint(action: "shortcuts-sheet" | "bottom-panel" = "shortcuts-sheet"): string | null {
   const [mac, setMac] = useState(false);
   useEffect(() => { setMac(isMacPlatform()); }, []);
-  const binding = BINDINGS.find((b) => b.action === "shortcuts-sheet");
+  const binding = BINDINGS.find((b) => b.action === action);
   if (!binding) return null;
   const parts: string[] = [];
   if (binding.mod) parts.push(mac ? "⌘" : "Ctrl");
+  if (binding.alt) parts.push(mac ? "⌥" : "Alt");
   if (binding.shift) parts.push(mac ? "⇧" : "Shift");
-  parts.push(binding.key);
+  parts.push(binding.key.length === 1 ? binding.key.toUpperCase() : binding.key);
   return parts.join(mac ? " " : "+");
 }
 
@@ -200,10 +201,19 @@ export interface ProductMenuProps {
    * nothing is worse than no entry.
    */
   onOpenShortcuts?: () => void;
+  /**
+   * Opens the bottom workstation — Positions & Orders, the Strategy Tester
+   * and the Pine Editor. Phase 3P: that panel unmounts its own tab strip
+   * when collapsed and was reachable only by the ⇧⌥P chord or the command
+   * palette, so a pointer-only user had no way to find three of the
+   * product's own surfaces. Same rule as the shortcuts row: rendered only
+   * when the page hands over something to open.
+   */
+  onOpenBottomPanel?: () => void;
 }
 
 export function ProductMenu(
-  { buttonClass = "", variant = "bar", onOpenShortcuts }: ProductMenuProps,
+  { buttonClass = "", variant = "bar", onOpenShortcuts, onOpenBottomPanel }: ProductMenuProps,
 ) {
   const path = usePathname() ?? "";
   const username = useUsername();
@@ -217,6 +227,7 @@ export function ProductMenu(
   const firstRun = useFirstRun();
   const [theme, toggleTheme] = useTheme();
   const shortcutHint = useShortcutHint();
+  const bottomPanelHint = useShortcutHint("bottom-panel");
   const rail = variant === "rail";
 
   useEffect(() => {
@@ -505,6 +516,26 @@ export function ProductMenu(
               <span aria-hidden="true" className="shrink-0 text-[13px] text-ink-faint">
                 {shortcutHint}
               </span>
+            </button>
+          )}
+
+          {onOpenBottomPanel && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); onOpenBottomPanel(); }}
+              className="tvc-menu-row gap-1 pl-1 pr-2.5 text-left text-[14px] font-normal text-ink"
+            >
+              <Glyph>
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M3 14h18M8 17h.01M12 17h.01" />
+              </Glyph>
+              <span className="flex-1 truncate">Positions, tester and Pine editor</span>
+              {bottomPanelHint && (
+                <span aria-hidden="true" className="shrink-0 text-[13px] text-ink-faint">
+                  {bottomPanelHint}
+                </span>
+              )}
             </button>
           )}
 

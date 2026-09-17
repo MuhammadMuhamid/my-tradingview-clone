@@ -1881,10 +1881,6 @@ export default function TvWorkspace() {
       case "chart:chart-settings": setChartSettingsOpen(true); return;
       case "chart:object-tree": setPanel("objects"); return;
       case "chart:table-view": setPanel("objects"); return;
-      case "chart:lock-time": setToast("Vertical cursor line locked to time"); return;
-      case "chart:chart-template": return;
-      case "chart:template-default": setToast("Default chart template applied"); return;
-      case "chart:template-save": setToast("Chart template saved"); return;
       case "chart:remove-indicators": activeIndicators?.clear(); activeNativeStudies?.clear(); return;
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
@@ -2118,6 +2114,28 @@ export default function TvWorkspace() {
         case "replay-play-pause":
           setReplayPlaying(!(replay?.playing ?? false));
           return true;
+        /*
+         * Phase 3P: ⌥R, ⌥L and ⌘⇧A are printed on the shortcuts sheet, in the
+         * palette and as hints on the axis and chart menus, and none of them
+         * had an arm here — a printed cap that did nothing. Each acts on the
+         * focused pane exactly as the menu row with the same hint does.
+         */
+        case "reset-view": {
+          const paneId = workspace.activePaneId;
+          setPaneScale(paneId, resetPriceScale());
+          setPaneResets((current) => ({ ...current, [paneId]: (current[paneId] ?? 0) + 1 }));
+          return true;
+        }
+        case "toggle-log": {
+          const paneId = workspace.activePaneId;
+          setPaneScale(paneId, togglePriceScaleMode(paneScale(paneId)));
+          return true;
+        }
+        case "toggle-auto": {
+          const paneId = workspace.activePaneId;
+          setPaneScale(paneId, togglePriceScaleAuto(paneScale(paneId)));
+          return true;
+        }
         default:
           return false;
       }
@@ -2363,7 +2381,8 @@ export default function TvWorkspace() {
         height only while the strip is open.
       */}
       <div className="relative flex min-h-[38px] shrink-0 items-stretch bg-surface">
-        <ProductMenu variant="rail" onOpenShortcuts={() => setShortcutsOpen(true)} />
+        <ProductMenu variant="rail" onOpenShortcuts={() => setShortcutsOpen(true)}
+          onOpenBottomPanel={() => setBottomToggle((n) => n + 1)} />
         {/*
           The chart's title is the symbol and timeframe already shown in the
           toolbar, so a visible heading would repeat it and cost a row of a

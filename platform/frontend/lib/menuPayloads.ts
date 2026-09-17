@@ -128,8 +128,9 @@ export interface ChartMenuContext {
 
 export const CHART_MENU_IDS = [
   "chart:reset-view", "chart:copy-price", "chart:paste", "chart:add-alert",
-  "chart:trade-at-price", "chart:lock-time", "chart:table-view", "chart:object-tree",
-  "chart:chart-template", "chart:remove-indicators", "chart:chart-settings",
+  "chart:trade-at-price", "chart:table-view", "chart:object-tree",
+  "chart:toggle-candle-patterns", "chart:toggle-classical-patterns",
+  "chart:remove-indicators", "chart:chart-settings",
   "chart:add-to-watchlist",
 ] as const;
 export type ChartMenuId = (typeof CHART_MENU_IDS)[number];
@@ -152,10 +153,6 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
   const ticker = displayTicker(ctx.ticker);
   const on = ` on ${ticker}${at}`;
   const count = ctx.indicatorCount ?? 0;
-  const templateChildren: MenuEntry[] = [
-    { id: "chart:template-default", label: "Default" },
-    { id: "chart:template-save", label: "Save chart template…" },
-  ];
   return [
     { id: "chart:reset-view", label: "Reset chart view", glyph: "reset", hint: menuCap("reset-view", ctx.mac) },
     { id: "sep-clipboard", separator: true },
@@ -175,12 +172,25 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
         ? "Manual trading is not enabled on this installation"
         : ctx.replayActive ? REPLAY_REASON : noPrice,
     } as MenuEntry] : []),
-    { id: "sep-utility", separator: true },
-    { id: "chart:lock-time", label: "Lock vertical cursor line by time" },
     { id: "sep-table", separator: true },
     { id: "chart:table-view", label: "Table view" },
     { id: "chart:object-tree", label: "Object tree", glyph: "tree" },
-    { id: "chart:chart-template", label: "Chart template", children: templateChildren },
+    /*
+     * Phase 3P: the two pattern overlays. Both engines, both panels and both
+     * handlers (`chart:toggle-candle-patterns`, `chart:toggle-classical-
+     * patterns`) existed, and nothing in the product emitted the ids — the
+     * overlays could be switched on only by hand-editing localStorage. A
+     * capability with no entry point is not a capability the user has.
+     *
+     * The rows that were here — "Lock vertical cursor line by time" and the
+     * "Chart template" pair — did nothing but raise a toast that claimed
+     * success. A control that moves nothing must not exist (§6 of the UI
+     * contract), and the current live reference no longer carries them
+     * either.
+     */
+    { id: "sep-patterns", separator: true },
+    { id: "chart:toggle-candle-patterns", label: "Candlestick patterns", checked: ctx.candlePatterns },
+    { id: "chart:toggle-classical-patterns", label: "Chart patterns", checked: ctx.classicalPatterns === true },
     { id: "sep-remove", separator: true },
     { id: "chart:remove-indicators", label: `Remove ${count} indicator${count === 1 ? "" : "s"}`, disabled: count === 0, disabledReason: "There are no indicators on this chart" },
     { id: "sep-settings", separator: true },

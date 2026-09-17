@@ -263,6 +263,39 @@ test("the chart menu offers no control it cannot justify", () => {
   assert.equal(byId(menu, "chart:toggle-drawings-hidden"), undefined);
 });
 
+/*
+ * Phase 3P (premium closure). Two findings, one row set.
+ *
+ * The candlestick and classical pattern overlays — engines, panels, persisted
+ * state and the two handlers on the chart page — had NO entry point: nothing
+ * in the product emitted `chart:toggle-candle-patterns` or
+ * `chart:toggle-classical-patterns`, so the only way to switch them on was to
+ * edit localStorage by hand. And three rows that WERE on the menu — "Lock
+ * vertical cursor line by time", "Default", "Save chart template…" — did
+ * nothing but raise a toast claiming success. The overlays take the slots
+ * the theatre gave up.
+ */
+test("the chart menu reaches the pattern overlays and carries no row that only toasts", () => {
+  const base = {
+    ticker: "SOLUSDT", mac: true, canPaste: false, lists: [],
+    price: 100, priceLabel: "100.00", replayActive: false, autoScale: true, logScale: false,
+    hasDrawings: false, drawingsHidden: false, drawingsLocked: false, tradingEnabled: false,
+  };
+  const off = chartMenu({ ...base, candlePatterns: false, classicalPatterns: false });
+  const on = chartMenu({ ...base, candlePatterns: true, classicalPatterns: true });
+  for (const id of ["chart:toggle-candle-patterns", "chart:toggle-classical-patterns"]) {
+    assert.equal((byId(off, id) as { checked?: boolean }).checked, false, `${id} reads its state`);
+    assert.equal((byId(on, id) as { checked?: boolean }).checked, true, `${id} reads its state`);
+  }
+  // A menu row that opens nothing is the defect this module exists to prevent.
+  for (const id of ["chart:lock-time", "chart:chart-template", "chart:template-default", "chart:template-save"]) {
+    assert.equal(byId(off, id), undefined, `${id} is a control that moved nothing`);
+  }
+  for (const label of off.filter((e) => !isSeparator(e)).map((e) => (e as { label: string }).label)) {
+    assert.doesNotMatch(label, /template|cursor line/i);
+  }
+});
+
 test("a locked drawing refuses the edits that would change it", () => {
   const locked = drawingMenu({
     toolName: "trendline",
