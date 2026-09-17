@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { InstrumentMetadataDependencies } from "../src/data/instrumentMetadata";
 import {
-  ensureInstrumentMetadata, hasProviderPriceTick, syncMissingActiveInstrumentMetadata,
+  ensureInstrumentMetadata, hasProviderPriceTick, resetInstrumentMetadataSweep,
+  syncMissingActiveInstrumentMetadata,
 } from "../src/data/instrumentMetadata";
 import type { SymbolInfo } from "../src/types/market";
 
@@ -34,6 +35,7 @@ function fake(initial: SymbolInfo[]) {
 }
 
 test("seeded symbols receive provider filters once, then short-circuit without network", async () => {
+  resetInstrumentMetadataSweep();
   const state = fake([row("BTCUSDT", null), row("ETHUSDT", null), row("SOLUSDT", null)]);
   assert.equal(await syncMissingActiveInstrumentMetadata(state.deps), 3);
   assert.deepEqual(state.calls.sync, [["BTCUSDT", "ETHUSDT", "SOLUSDT"]]);
@@ -82,4 +84,46 @@ test("provider failure writes no fake tick and can be retried", async () => {
   assert.equal(state.rows.get("BTCUSDT")?.priceTick, null);
   await assert.rejects(() => ensureInstrumentMetadata(["BTCUSDT"], state.deps), /provider unavailable/);
   assert.equal(state.calls.sync.length, 2, "a later request may retry after the failed flight clears");
+});
+
+test("a catalog sweep that cannot fill a row does not ask the provider on every request", async () => {
+  // `GET /api/symbols` runs this sweep, and the chart page plus every chart
+  // pane calls it. A row the provider will not fill must therefore cost at
+  // most one attempt a minute, or a metadata outage becomes a catalog outage.
+  resetInstrumentMetadataSweep();
+  const state = fake([row("BTCUSDT", null)]);
+  state.deps.syncInstrumentFilters = async (symbols) => {
+    state.calls.sync.push([...symbols]);
+    // The venue answered, and published no PRICE_FILTER for this pair.
+  };
+
+  const t0 = 1_800_000_000_000;
+  assert.equal(await syncMissingActiveInstrumentMetadata(state.deps, t0), 1);
+  assert.equal(state.rows.get("BTCUSDT")?.priceTick, null, "no tick may be invented");
+
+  assert.equal(await syncMissingActiveInstrumentMetadata(state.deps, t0 + 1_000), 0);
+  assert.equal(await syncMissingActiveInstrumentMetadata(state.deps, t0 + 59_999), 0);
+  assert.equal(state.calls.sync.length, 1, "the hot catalog path re-asked inside its cooldown");
+
+  assert.equal(await syncMissingActiveInstrumentMetadata(state.deps, t0 + 60_000), 1);
+  assert.equal(state.calls.sync.length, 2, "the cooldown must expire, not become a negative cache");
+});
+
+test("a failing sweep is cooled too, and the explicit path is never cooled", async () => {
+  resetInstrumentMetadataSweep();
+  const state = fake([row("BTCUSDT", null)]);
+  state.deps.syncInstrumentFilters = async (symbols) => {
+    state.calls.sync.push([...symbols]);
+    throw new Error("provider unavailable");
+  };
+
+  const t0 = 1_900_000_000_000;
+  await assert.rejects(() => syncMissingActiveInstrumentMetadata(state.deps, t0));
+  assert.equal(await syncMissingActiveInstrumentMetadata(state.deps, t0 + 1_000), 0,
+    "a thrown sweep must still start its cooldown");
+  assert.equal(state.calls.sync.length, 1);
+
+  // Registering or charting a symbol is a user asking for that symbol now.
+  await assert.rejects(() => ensureInstrumentMetadata(["BTCUSDT"], state.deps));
+  assert.equal(state.calls.sync.length, 2, "the explicit seam must retry immediately");
 });

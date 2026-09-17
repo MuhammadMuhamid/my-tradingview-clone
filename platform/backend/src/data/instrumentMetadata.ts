@@ -113,13 +113,49 @@ export async function ensureInstrumentMetadata(
   return Promise.all(symbols.map((symbol) => waiting.get(symbol)!));
 }
 
-/** Sync every active legacy/seed row that still lacks a provider price tick. */
+/**
+ * How long a fruitless catalog sweep waits before asking the provider again.
+ *
+ * The sweep runs at boot AND on `GET /api/symbols`, which is not a rare call:
+ * the chart page loads it once and every chart pane loads it again
+ * (`ChartPane.tsx`), so a four-pane workspace asks for the catalog five times
+ * before it has drawn anything, and each symbol change re-asks. While every
+ * row has its tick the sweep costs one query and stops. While a row does NOT
+ * — the provider is unreachable, or the venue genuinely publishes no
+ * PRICE_FILTER for that pair — an uncooled sweep would put a provider round
+ * trip in front of every one of those requests, so a metadata outage would
+ * degrade into a catalog outage: the list the frontend needs in order to
+ * DISCLOSE the missing precision would itself stall behind the timeout.
+ *
+ * The cooldown bounds that to one attempt a minute. It is deliberately not a
+ * negative cache: nothing is written, the row keeps its honest null, and the
+ * explicit paths — registering a symbol, charting a new one — still call
+ * `ensureInstrumentMetadata` directly and are never cooled.
+ */
+const SWEEP_COOLDOWN_MS = 60_000;
+let lastSweepAt = 0;
+
+/** Let a test start from a cold sweep without reaching into module state. */
+export function resetInstrumentMetadataSweep(): void {
+  lastSweepAt = 0;
+}
+
+/**
+ * Sync every active legacy/seed row that still lacks a provider price tick.
+ *
+ * Returns how many rows this call actually attempted — 0 both when there was
+ * nothing to do and when the cooldown above declined to ask again yet.
+ */
 export async function syncMissingActiveInstrumentMetadata(
   deps: InstrumentMetadataDependencies = DEFAULT_DEPS,
+  now: number = Date.now(),
 ): Promise<number> {
   const rows = await deps.listSymbols(true);
   const missing = rows.filter((row) => !hasProviderPriceTick(row)).map((row) => row.symbol);
   if (missing.length === 0) return 0;
+  if (lastSweepAt !== 0 && now - lastSweepAt < SWEEP_COOLDOWN_MS) return 0;
+  // Before the await, so a sweep that throws still starts the cooldown.
+  lastSweepAt = now;
   await ensureInstrumentMetadata(missing, deps);
   return missing.length;
 }
