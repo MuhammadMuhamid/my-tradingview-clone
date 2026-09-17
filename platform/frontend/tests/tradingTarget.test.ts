@@ -188,8 +188,13 @@ test("THE PAGE BINDS THE TICKET TO THE RESOLVED TARGET, NOT TO THE FOCUSED PANE"
   assert.match(side, /onStagedChange=\{props\.onTicketStagedChange\}/);
   assert.match(side, /targetNotice=\{props\.tradingNotice\}/);
   // Server-authoritative manual state is read for the TICKET's instrument, so
-  // the positions and balances shown belong to the order being staged.
-  assert.match(page, /api\.manualState\(tradingSymbol\)/);
+  // the positions and balances shown belong to the order being staged. The Bot
+  // addresses Binance Spot by provider ticker, so the target is REDUCED here,
+  // never swapped for something else — and a target it cannot address at all
+  // yields null, which is what makes the panel say so instead of reading on.
+  assert.match(page,
+    /const manualTicker = replayActive \? null : legacyBinanceSpotTicker\(tradingSymbol\)/);
+  assert.match(page, /api\.manualState\(manualTicker\)/);
   assert.match(page, /p\.pair === tradingSymbol/);
 
   // And Shariah gating stays bound to the same symbol the ticket trades: the

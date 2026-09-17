@@ -73,7 +73,9 @@ import type { PaneCompare } from "@/lib/workspace";
 import { pricePrecision } from "@/lib/movingAverages";
 import { type Candle, type Trade } from "@/lib/types";
 import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
-import { displaySymbol, displayTicker, isCanonicalInstrumentId } from "@/lib/instrument";
+import {
+  displaySymbol, displayTicker, isCanonicalInstrumentId, legacyBinanceSpotTicker,
+} from "@/lib/instrument";
 import { resolvePriceTick } from "@/lib/priceTick";
 import { computeTpoProfile, computeVolumeProfile, DEFAULT_PROFILE_SETTINGS } from "@/lib/volumeProfile";
 import { DEFAULT_CHART_SETTINGS, userDefaultChartSettings } from "@/lib/chartSettings";
@@ -738,9 +740,25 @@ function ChartPaneImpl(props: ChartPaneProps) {
   }, [onVisibleRangeChange, onViewportChange, paneId, pane.interval]);
 
 
+  /*
+   * Both pattern engines are an explicit BINANCE-spot boundary: the route
+   * validates `symbol` against `/^[A-Z0-9]{3,30}$/` after asserting BINANCE
+   * spot provenance (`backend/src/api/routes/scanner.ts`). The pane holds a
+   * canonical `instrument:v1:…` id, so handing it over verbatim made every
+   * analyse request fail our own gate with 400 "invalid Binance Spot symbol"
+   * — on every symbol, whether or not the Scanner service was running, which
+   * is also why the disclosure blamed the instrument instead of the engine.
+   *
+   * `legacyBinanceSpotTicker` is the reduction that boundary is defined in
+   * terms of, and it answers null for anything that is not BINANCE spot —
+   * exactly the case the engines cannot serve, so the overlay stays off and
+   * says nothing rather than asking for something that cannot be answered.
+   */
+  const patternTicker = useMemo(() => legacyBinanceSpotTicker(pane.symbol), [pane.symbol]);
   const patternAnalysis = usePatternAnalysis({
-    enabled: !replayActive && props.candleOverlay?.enabled === true && holdingRequested,
-    symbol: pane.symbol, timeframe: pane.interval, candles: visibleCandles,
+    enabled: !replayActive && props.candleOverlay?.enabled === true && holdingRequested
+      && patternTicker !== null,
+    symbol: patternTicker ?? "", timeframe: pane.interval, candles: visibleCandles,
     direction: props.candleOverlay?.direction ?? "both",
   });
   const selectedPatternIds = useMemo(() => {
@@ -748,8 +766,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
     return ids === null || ids === undefined ? null : new Set(ids);
   }, [props.candleOverlay?.selectedIds]);
   const classicalAnalysis = useClassicalAnalysis({
-    enabled: !replayActive && props.classicalOverlay?.enabled === true && holdingRequested,
-    symbol: pane.symbol, timeframe: pane.interval, candles: visibleCandles,
+    enabled: !replayActive && props.classicalOverlay?.enabled === true && holdingRequested
+      && patternTicker !== null,
+    symbol: patternTicker ?? "", timeframe: pane.interval, candles: visibleCandles,
     includeDeveloping: props.classicalOverlay?.includeDeveloping ?? false,
     status: props.classicalOverlay?.status ?? "all",
   });

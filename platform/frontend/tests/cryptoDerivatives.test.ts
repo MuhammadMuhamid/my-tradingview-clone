@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   canonicalDisplayParts, displaySymbol, instrumentTypeLabel, isCanonicalInstrumentId,
-  isDerivativeInstrumentId, storedSymbol,
+  isDerivativeInstrumentId, legacyBinanceSpotTicker, storedSymbol,
 } from "../lib/instrument";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -58,7 +58,22 @@ test("pane and watchlist expose derivative identity and compact mark/index/fundi
 test("canonical instruments use the capability ticket and stay outside the legacy polling loop", () => {
   const page = fs.readFileSync(path.join(ROOT, "app", "chart", "page.tsx"), "utf8");
   const side = fs.readFileSync(path.join(ROOT, "components", "tv", "ChartSidePanel.tsx"), "utf8");
-  assert.match(page, /replayActive \|\| isCanonicalInstrumentId\(tradingSymbol\)/);
+  /*
+   * The legacy loop is a BINANCE SPOT loop, and `legacyBinanceSpotTicker` is
+   * what decides — it is the same reduction `ChartSidePanel` has always used
+   * for the ticket. It answers a provider ticker for Binance Spot, canonical
+   * or legacy, and null for every capability-ticket instrument, which is what
+   * keeps those outside the loop. The page used to exclude EVERY canonical id,
+   * which contradicted the side panel and left the bottom workstation's
+   * Positions tab reading for ever on an ordinary spot chart.
+   */
+  assert.match(page,
+    /const manualTicker = replayActive \? null : legacyBinanceSpotTicker\(tradingSymbol\)/);
+  assert.match(page, /if \(manualTicker === null\) \{/);
+  assert.equal(legacyBinanceSpotTicker(perp), null, "a perpetual must stay on the capability ticket");
+  assert.equal(legacyBinanceSpotTicker(future), null, "a dated future must stay on the capability ticket");
+  assert.equal(legacyBinanceSpotTicker("instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot"), "BTCUSDT",
+    "canonical Binance Spot is the case the loop exists for");
   assert.match(side, /<WorkstationOrderTicket instrument=\{props\.tradingSymbol\}/);
   assert.match(side, /canonicalBinanceSpot/);
   const ticket = fs.readFileSync(path.join(ROOT, "components", "tv", "WorkstationOrderTicket.tsx"), "utf8");

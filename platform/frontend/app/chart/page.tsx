@@ -420,14 +420,35 @@ export default function TvWorkspace() {
   // Read-only state hydration draws existing server-authoritative levels. It
   // never submits, retries, or mutates an order on page load/reconnect.
   useEffect(() => {
-    if (replayActive || isCanonicalInstrumentId(tradingSymbol)) {
-      setManualState(null); setManualReadAt(null); setManualUnavailable(null); return;
+    /*
+     * The Bot addresses Binance Spot by its provider ticker, so a canonical
+     * `instrument:v1:…` id has to be reduced before it is asked about — which
+     * is what `ChartSidePanel` already does for the right-rail panel
+     * (`${base}${quote}`). This effect instead blanked on ANY canonical id,
+     * and a canonical id is what the symbol search writes, so in ordinary use
+     * the bottom workstation's Positions & Orders tab held `manualState` at
+     * null with no `unavailable` string — and `TradingStateStrip` reads that
+     * pair as "unread", printing "Reading positions and orders from the
+     * execution bot…" for ever, over a read that was never going to happen.
+     *
+     * `legacyBinanceSpotTicker` is the same reduction, and it answers null for
+     * anything that is not Binance Spot — the case the Bot genuinely cannot be
+     * asked about. Each branch now says which one it is, because a state this
+     * panel will never read is not a state it is still reading.
+     */
+    const manualTicker = replayActive ? null : legacyBinanceSpotTicker(tradingSymbol);
+    if (manualTicker === null) {
+      setManualState(null); setManualReadAt(null);
+      setManualUnavailable(replayActive
+        ? "Positions and orders are not read during Bar Replay. Exit Replay to see live state."
+        : `Positions and orders are read from the Binance Spot execution bot, which cannot be asked about ${displayTicker(tradingSymbol)}.`);
+      return;
     }
     let live = true;
     const refreshManual = async () => {
       if (!manualTradingPollingAllowed()) return;
       try {
-        const next = await api.manualState(tradingSymbol);
+        const next = await api.manualState(manualTicker);
         if (!next.enabled) noteManualTradingFailure("manual trading is disabled");
         if (live) recordManualState(next);
       } catch (e) {
