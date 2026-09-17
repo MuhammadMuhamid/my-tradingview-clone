@@ -322,10 +322,24 @@ test("restoring an arrangement degrades rather than throwing", () => {
   assert.match(helper, /saveStoredNative\(list as never, scope\)/);
   assert.match(helper, /drawingStore\.set\(symbol, list as Drawing\[\], "layout"\)/);
 
-  // The page restores before it applies, and reloads only when the pane record
-  // changed — that record is read once, at mount.
+  /*
+   * The page restores before it applies, and reloads only when the pane record
+   * changed — that record is read once, at mount.
+   *
+   * Phase 2: the arrangement is applied only when the user OPENS a layout. The
+   * mount-time restore of the layout they left open must not touch it: the
+   * browser's own stores already hold what they left, the page writes the live
+   * arrangement back to the same key as it renders, and the two never agreed —
+   * so this reload ran on every load, about eight times a second, and the chart
+   * never finished loading.
+   *
+   * These two lines are the SEAM. That the answer underneath them is right is
+   * proved by running it, in `tests/dom/layoutWorkspaceRestore.test.tsx` — this
+   * assertion used to match the caller and call that proof of the callee.
+   */
   const page = read("app/chart/page.tsx");
-  assert.match(page, /const panesRestored = restoreLayoutWorkspace\(s\.workspace\);/);
+  assert.match(page,
+    /const panesRestored = how === "open" && restoreLayoutWorkspace\(s\.workspace\);/);
   assert.match(page, /if \(panesRestored\) window\.location\.reload\(\);/);
 
   // Capture happens at SAVE time, not in a memo keyed on React state: the
