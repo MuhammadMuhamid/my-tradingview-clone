@@ -219,28 +219,13 @@ test("A SUBSYSTEM THAT CANNOT RUN ON THIS CHART SAYS SO, AND NAMES WHAT IT WILL 
   assert.match(nativeOnlyNotice("1w", "alerts")!, /not a resolution/);
 });
 
-test("the notice is rendered by every dialog that has one, in one component", () => {
+test("the alert-dialog coordinator computes and passes the truthful fallback", () => {
   /*
-   * Four dialogs saying it four ways is four chances for one of them to stop
-   * saying it. `ResolutionNotice` is the one place it is worded — and this
-   * assertion once ran the other way round for the price dialog, requiring
-   * that it NOT carry the notice, which is the substituted-resolution
-   * regression written down as a rule. What the price dialog looks like and
-   * what it discloses are two questions; the compact grammar is checked below
-   * and does not cost the disclosure.
+   * The rendered four-dialog invariant lives in
+   * `tests/dom/priceAlertTruth.test.tsx`. This source-level seam remains only
+   * for the coordinator calculation that is expensive to reach through all
+   * four distinct entry points.
    */
-  const notice = read("components/tv/ResolutionNotice.tsx");
-  assert.match(notice, /data-resolution-notice="true"/);
-  for (const modal of [
-    "components/tv/PriceAlertModal.tsx",
-    "components/tv/MaAlertModal.tsx",
-    "components/tv/LevelAlertModal.tsx",
-    "components/tv/IndicatorAlertModal.tsx",
-  ]) {
-    assert.match(read(modal), /<ResolutionNotice/, `${modal} can open on a substituted timeframe silently`);
-  }
-  // And the dialogs are handed a stated fallback rather than the raw chart
-  // resolution, which the alert API would refuse.
   const dialogs = read("components/tv/ChartDialogs.tsx");
   assert.match(dialogs, /alertIntervalFor\(interval\) \?\? storedFallbackFor\(interval\)/);
   assert.match(dialogs, /nativeOnlyNotice\(interval, "alerts"\)/);

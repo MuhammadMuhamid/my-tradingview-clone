@@ -24,6 +24,9 @@ import {
   assertAbsent, closeBrowser, render, resetBrowser, settle,
 } from "./harness/env";
 import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
+import { MaAlertModal } from "@/components/tv/MaAlertModal";
+import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
+import { IndicatorAlertModal } from "@/components/tv/IndicatorAlertModal";
 import { INTRABAR_WARNING } from "@/lib/alerts";
 import type { Interval } from "@/lib/types";
 
@@ -83,6 +86,35 @@ test("a chart the runner can honour says nothing, because there is nothing to sa
   await openDialog();
   assertAbsent(document.querySelector('[data-resolution-notice="true"]'),
     "a native chart invented a substitution notice");
+});
+
+test("every alert dialog renders the substituted-resolution truth it is given", async () => {
+  const notice = "45m is folded from 3 15m bars, and alerts run on stored bars";
+  const cases = [
+    <PriceAlertModal key="price" open onClose={() => undefined} symbol="SOLUSDT"
+      chartTimeframe={"15m" as Interval} resolutionNotice={notice} initialPrice={null}
+      lastPrice={100} lastPriceNotice={null} existing={[]}
+      onPickFromChart={() => undefined} onSaved={() => undefined} />,
+    <MaAlertModal key="ma" open onClose={() => undefined} symbol="SOLUSDT"
+      chartTimeframe={"15m" as Interval} resolutionNotice={notice}
+      maType="sma" maLength={200} existing={[]} onSaved={() => undefined} />,
+    <LevelAlertModal key="level" open onClose={() => undefined} symbol="SOLUSDT"
+      defaultTimeframe={"15m" as Interval} resolutionNotice={notice}
+      existing={[]} onSaved={() => undefined} />,
+    <IndicatorAlertModal key="indicator" open onClose={() => undefined} symbol="SOLUSDT"
+      defaultTimeframe={"15m" as Interval} resolutionNotice={notice}
+      kind="rsi" existing={[]} onSaved={() => undefined} />,
+  ];
+
+  for (const dialog of cases) {
+    const view = render(dialog);
+    await settle();
+    const rendered = document.querySelector<HTMLElement>('[data-resolution-notice="true"]');
+    assert.ok(rendered, `${dialog.key} can open on a substituted timeframe silently`);
+    assert.match(rendered.textContent ?? "", /45m is folded from 3 15m bars/);
+    assert.match(rendered.textContent ?? "", /This alert is set to 15m/);
+    view.unmount();
+  }
 });
 
 // ── 2. the prefilled price is not always the market ────────────────────────

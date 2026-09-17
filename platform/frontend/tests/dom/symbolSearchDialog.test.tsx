@@ -172,7 +172,7 @@ test("the footer is one neutral hint with no provider health or result count", a
   const copy = (dialog.textContent ?? "").replace(/\s+/g, " ");
   assert.match(copy, /Type a ticker or name/);
   assert.doesNotMatch(copy, /sources unavailable|market instruments/i);
-  assert.equal(dialog.querySelector('[role="status"]'), null,
+  assert.equal(dialog.querySelector('[role="status"]') === null, true,
     "the neutral footer must not announce changing provider/count diagnostics");
 });
 
@@ -184,7 +184,7 @@ test("the rows are buttons that carry the ticker, with the chart's instrument fi
   // `scripts/ts-state-btc1h.mjs` and the keyboard both depend on this shape.
   for (const row of rows) assert.equal(row.tagName, "BUTTON");
   assert.match(first.textContent ?? "", /SOLUSDT/);
-  assert.equal(first.querySelector(".underline"), null, "ticker matches must not be underlined");
+  assert.equal(first.querySelector(".underline") === null, true, "ticker matches must not be underlined");
   assert.equal(first.getAttribute("aria-current"), "true",
     "the chart's own instrument leads the list");
 
@@ -423,7 +423,7 @@ test("R4b-07 Escape closes the menu, then the dialog, and no outsider gets the k
 
     fireEvent.keyDown(document.activeElement ?? window, { key: "Escape", bubbles: true });
     await settle();
-    assert.equal(dialog.querySelector('[role="menu"]'), null, "Escape 1 must close the menu");
+    assert.equal(dialog.querySelector('[role="menu"]') === null, true, "Escape 1 must close the menu");
     assert.equal(closed, 0, "Escape 1 must not close the dialog under an open menu");
     assert.equal(heard, 0, "a window listener outside the modal got a key aimed at it");
     assert.ok(dialog.contains(document.activeElement),

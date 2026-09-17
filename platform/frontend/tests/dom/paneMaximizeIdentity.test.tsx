@@ -100,9 +100,9 @@ test("IO-A1 — maximising a pane keeps that pane, rather than building a new on
    * the same pane id, and every piece of chart state that lives in the
    * component — the range, the pane heights, the collapse flags — goes with it.
    */
-  assert.equal(after, before,
+  assert.equal(after === before, true,
     "the maximised pane was unmounted and rebuilt: its DOM node is not the same node");
-  assert.equal(after.querySelector("canvas"), beforeCanvas,
+  assert.equal(after.querySelector("canvas") === beforeCanvas, true,
     "the pane kept its element but its chart was recreated");
 });
 
@@ -114,7 +114,7 @@ test("IO-A1 — restoring keeps it too, and brings the other pane back", async (
   await press(chart.container, /Maximize this pane/);
   await press(chart.container, /Restore the layout/);
 
-  assert.equal(paneEl(chart.container, "p1"), before,
+  assert.equal(paneEl(chart.container, "p1") === before, true,
     "restoring rebuilt the pane that was already on screen");
   assert.equal(
     [...chart.container.querySelectorAll("[data-pane-id]")].length, 2,
@@ -138,7 +138,7 @@ test("IO-A1 — the zoom the user set survives maximise", async () => {
   await press(chart.container, /Maximize this pane/);
 
   const same = paneEl(chart.container, "p1");
-  assert.equal(same.querySelector("canvas"), pane.querySelector("canvas"),
+  assert.equal(same.querySelector("canvas") === pane.querySelector("canvas"), true,
     "a new canvas means a new chart, and a new chart has forgotten the user's view");
 });
 
@@ -169,8 +169,8 @@ test("IO-A1 — maximising the SECOND pane keeps the second pane", async () => {
   assert.deepEqual(ids, ["p2"], "the wrong pane is on screen");
 
   const after = paneEl(chart.container, "p2");
-  assert.equal(after, before,
+  assert.equal(after === before, true,
     "p2 was rebuilt — the pane is matched by position, not by which pane it is");
-  assert.equal(after.querySelector("canvas"), beforeCanvas,
+  assert.equal(after.querySelector("canvas") === beforeCanvas, true,
     "p2 kept its element but its chart was recreated");
 });

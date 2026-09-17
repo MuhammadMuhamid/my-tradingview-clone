@@ -50,7 +50,7 @@ test("C-01/C-02 — a starred built-in persists, appears in Favorites, and inser
     name: "Unfavourite Relative Strength Index",
   }));
   await settle();
-  assert.equal(within(dialog).queryByRole("button", { name: "Relative Strength Index" }), null);
+  assert.equal(within(dialog).queryByRole("button", { name: "Relative Strength Index" }) === null, true);
   assert.deepEqual(JSON.parse(window.localStorage.getItem(FAVOURITES_KEY) ?? "[]"), []);
 });
 

@@ -559,7 +559,7 @@ export function SymbolSearch({
   menusRef.current = menus;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/60">
+    <div className="pointer-events-auto fixed inset-0 z-[70] bg-black/60">
       <button aria-label="Close" className="absolute inset-0 cursor-default" onClick={onClose} />
       <div
         ref={panelRef}

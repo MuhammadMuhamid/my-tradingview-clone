@@ -106,7 +106,7 @@ test("THE RANGE ROW IS ALWAYS NINE CHIPS, NONE OF THEM DEAD", async () => {
   assert.equal(chip("5Y").getAttribute("aria-pressed"), "false");
 
   // The go-to-date control sits after the chips, outside the range group.
-  assert.equal(within(bar!).queryByLabelText("Go to date"), null);
+  assert.equal(within(bar!).queryByLabelText("Go to date") === null, true);
   assertPresent(within(chart.pane(0)).queryByLabelText("Go to date"),
     "the row carries a go-to-date control beside the ranges");
 });

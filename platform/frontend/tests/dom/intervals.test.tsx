@@ -130,7 +130,7 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
    * parity campaign must not copy.
    */
   for (const absent of ["Ticks", "Ranges"]) {
-    assert.equal(menu.querySelector(`section[aria-label="${absent}"]`), null,
+    assert.equal(menu.querySelector(`section[aria-label="${absent}"]`) === null, true,
       `${absent} is offered and cannot be served`);
   }
   // The rows are the reference's own copy: full words, not the chip's id.
@@ -328,7 +328,7 @@ test("a native chart says nothing, because there is nothing to say", async () =>
   const chart = await mountChart();
   fireEvent.click(chart.container.querySelector<HTMLElement>('[data-toolbar-control="alert"]')!);
   await settle();
-  assert.equal(document.querySelector('[data-resolution-notice="true"]'), null);
+  assert.equal(document.querySelector('[data-resolution-notice="true"]') === null, true);
   assert.equal((screen.getByLabelText("Alert timeframe") as HTMLSelectElement).value, "15m");
 });
 

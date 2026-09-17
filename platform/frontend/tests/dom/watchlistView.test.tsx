@@ -62,7 +62,7 @@ test("R7b-08 — ticking Volume (24h) adds a fifth column with the provider's ow
   const chart = await mountChart();
   await settle(4);
 
-  assert.equal(btcRow(chart.container).querySelector('[data-col="volume"]'), null,
+  assert.equal(btcRow(chart.container).querySelector('[data-col="volume"]') === null, true,
     "Volume is the reference's own UNCHECKED column, so it must start absent");
 
   const menu = await openSettings(chart.container);
@@ -152,7 +152,7 @@ test("R7b-08 — the header's compact cell and the menu's Compact list are ONE p
   assert.ok(compact, "the header has no compact toggle");
   fireEvent.click(compact);
   await settle();
-  assert.equal(btcRow(chart.container).querySelector('[data-col="chg"]'), null,
+  assert.equal(btcRow(chart.container).querySelector('[data-col="chg"]') === null, true,
     "compact is ticker and last price only");
 
   const menu = await openSettings(chart.container);

@@ -117,7 +117,7 @@ test("no shortcut fires while the user is typing, and the field keeps the key", 
   // Nor does a bare letter typed into a field escape it as a symbol search.
   input.focus();
   await press("e", {}, input);
-  assert.equal(screen.queryByRole("dialog"), null,
+  assert.equal(screen.queryByRole("dialog") === null, true,
     "an `e` taken from the middle of a symbol to open a SEARCH for symbols is the same defect");
 });
 

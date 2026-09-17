@@ -11,7 +11,7 @@
     "test": "npm run test:unit && npm run test:dom",
     "verify": "npm run lint && npm run typecheck && npm test && npm run build",
     "test:unit": "node --import tsx --test tests/*.test.ts",
-    "test:dom": "node --import tsx --import ./tests/dom/harness/register.ts --test --test-timeout=120000 tests/dom/*.test.tsx"
+    "test:dom": "node --import tsx --import ./tests/dom/harness/register.ts --test --test-concurrency=1 --test-timeout=120000 tests/dom/*.test.ts tests/dom/*.test.tsx"
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",

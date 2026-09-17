@@ -217,7 +217,7 @@ test("C-03/C-04 — timezone, countdown, and the required scales rows operate on
   assert.match(chart.container.querySelector<HTMLElement>("[data-bar-close-countdown]")?.textContent ?? "",
     /^\d{2}:\d{2}:\d{2}$/);
   await toggle("Countdown to bar close");
-  assert.equal(chart.container.querySelector("[data-bar-close-countdown]"), null);
+  assert.equal(chart.container.querySelector("[data-bar-close-countdown]") === null, true);
 });
 
 test("C-04/C-06 — Canvas has effective colour wells, styled lines, and both button modes", async () => {
@@ -231,7 +231,7 @@ test("C-04/C-06 — Canvas has effective colour wells, styled lines, and both bu
   const paint = background.querySelector<HTMLElement>("span");
   assert.ok(paint?.style.backgroundColor,
     "a theme-backed colour well must paint its effective colour, not a slash");
-  assert.equal(background.querySelector("svg"), null);
+  assert.equal(background.querySelector("svg") === null, true);
 
   const vertical = screen.getByRole("button", { name: "Vertical grid line appearance" });
   fireEvent.click(vertical);

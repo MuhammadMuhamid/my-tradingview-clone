@@ -143,8 +143,12 @@ test("the pane's chrome is a legend over the plot, not a row above it", async ()
   const row = legend.parentElement;
   assert.ok(row !== null);
   assert.match(row.className, /items-baseline/, "the identity and the readout share a baseline");
-  assert.equal(row.firstElementChild, legend,
-    "what the chart IS comes before what is being read off it");
+  const logo = row.querySelector<HTMLElement>("[data-status-logo]");
+  assert.ok(logo, "the status line is missing the instrument mark enabled by default");
+  assert.equal(row.firstElementChild === logo, true,
+    "the instrument mark must open the status line");
+  assert.equal(logo.nextElementSibling === legend, true,
+    "the chart identity must follow its mark and precede the readout");
 
   const column = row.parentElement;
   assert.ok(column !== null);
@@ -152,7 +156,7 @@ test("the pane's chrome is a legend over the plot, not a row above it", async ()
   assert.match(column.className, /pointer-events-none/,
     "a legend that ate a drag would break every trend line started top-left");
   assert.match(column.className, /flex-col/, "one stacked column, not two overlays");
-  assert.equal(column.firstElementChild, row,
+  assert.equal(column.firstElementChild === row, true,
     "what the chart IS belongs above every notice about how it is drawn");
   // R3-10/R3-14: no row of this legend paints a surface over the candles.
   for (const el of [row, legend, column]) {

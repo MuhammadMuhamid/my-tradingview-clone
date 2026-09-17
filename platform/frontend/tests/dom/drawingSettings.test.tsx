@@ -175,8 +175,8 @@ test("R6b-28 — Visibility is per-unit rows with a from/to range", async () => 
    * `lib/resolution` publishes `1s … 1d` and refuses the calendar objects, so
    * none of those rows could ever be true.
    */
-  assert.equal(screen.queryByRole("checkbox", { name: "Ticks" }), null);
-  assert.equal(screen.queryByRole("checkbox", { name: "Weeks" }), null);
+  assert.equal(screen.queryByRole("checkbox", { name: "Ticks" }) === null, true);
+  assert.equal(screen.queryByRole("checkbox", { name: "Weeks" }) === null, true);
 
   // Turning one unit off writes the allow-list the canvas already honours.
   fireEvent.click(screen.getByRole("checkbox", { name: "Seconds" }));

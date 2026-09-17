@@ -33,9 +33,9 @@ test("A-02 — phone load hides the desktop panel and drawing rail", async () =>
   const chart = await mountChart();
   await settle();
 
-  assert.equal(chart.container.querySelector("[data-watchlist]"), null,
+  assert.equal(chart.container.querySelector("[data-watchlist]") === null, true,
     "a persisted desktop watchlist must not mount at phone width");
-  assert.equal(chart.container.querySelector("[data-drawing-rail]"), null,
+  assert.equal(chart.container.querySelector("[data-drawing-rail]") === null, true,
     "the desktop drawing rail must not mount at phone width");
 
   const chartColumn = chart.container.querySelector<HTMLElement>("[data-chart-column]");
@@ -58,6 +58,6 @@ test("A-02 — the Watchlist bottom tab opens and closes a full-width sheet", as
     "the phone watchlist sheet must span the viewport");
   fireEvent.click(tab);
   await settle();
-  assert.equal(chart.container.querySelector("[data-watchlist]"), null,
+  assert.equal(chart.container.querySelector("[data-watchlist]") === null, true,
     "tapping Watchlist again must close the sheet");
 });

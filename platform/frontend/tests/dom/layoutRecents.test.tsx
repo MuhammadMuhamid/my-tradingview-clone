@@ -84,7 +84,7 @@ test("F-07 — RECENTLY USED lists saved layouts, and `Open layout…` opens a s
     const search = within(dialog).getByPlaceholderText("Search layouts");
     fireEvent.change(search, { target: { value: "swing" } });
     await settle(2);
-    assert.equal(within(dialog).queryByText("Scalp desk"), null);
+    assert.equal(within(dialog).queryByText("Scalp desk") === null, true);
     assert.ok(within(dialog).getByText("Swing desk"));
   });
 

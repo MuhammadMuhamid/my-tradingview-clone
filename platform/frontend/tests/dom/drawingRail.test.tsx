@@ -123,7 +123,7 @@ test("R2c-05 — Escape closes an open flyout and hands focus back to its strip"
   await settle();
 
   assert.equal(menuOf(rail), null, "Escape left the flyout open");
-  assert.equal(document.activeElement, strip,
+  assert.equal(document.activeElement === strip, true,
     "focus was dropped on the floor instead of going back to the strip that opened the menu");
 });
 
@@ -179,7 +179,7 @@ test("R2c-06 — starring a tool puts it on a floating favourites bar", async ()
 
   fireEvent.click(rayRow.querySelector<HTMLElement>('button[aria-label="Remove from favourites"]')!);
   await settle();
-  assert.equal(document.querySelector('[data-drawing-favourites="true"]'), null,
+  assert.equal(document.querySelector('[data-drawing-favourites="true"]') === null, true,
     "un-starring the last favourite left an empty bar behind");
 });
 
@@ -219,23 +219,40 @@ test("R2c-13 — only a row with a HINT carries a native tooltip", async () => {
   }
 });
 
-test("R2c-14 — the rail is one permanent column, with no phone drawer behind it", async () => {
+test("R2c-14 — phone drawing tools use the Draw sheet, not a permanent rail", async () => {
   /*
-   * It was `hidden md:flex` beside a phone-only modal drawer with a backdrop,
-   * a close cell and 44px rows. The reference keeps the 52px column and its
-   * 52×38 cells at 390×844; `globals.css` scopes the coarse-pointer minimum
-   * out of the rail so it can.
-   *
-   * RED before the fix: the rail's own wrapper carries `hidden`.
+   * The current responsive contract gives the chart the phone's full width
+   * and exposes the same wired DrawingToolbar from the bottom Draw action.
+   * The Premium closure audit records that bottom action as the intended phone
+   * route. A permanent 52px desktop column here would contradict both.
    */
-  const chart = await mountChart();
-  const rails = chart.container.querySelectorAll('[data-drawing-rail="true"]');
-  assert.equal(rails.length, 1, "the rail renders more than once");
+  const desktopMatchMedia = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: query === "(max-width: 767px)", media: query, onchange: null,
+    addListener: () => {}, removeListener: () => {},
+    addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false,
+  })) as typeof window.matchMedia;
+  try {
+    const chart = await mountChart();
+    await settle();
+    assert.equal(chart.container.querySelector('[data-drawing-rail="true"]') === null, true,
+      "the desktop rail consumes chart width on a phone");
 
-  const wrapper = (rails[0] as HTMLElement).parentElement;
-  assert.ok(wrapper);
-  assert.doesNotMatch(wrapper.className, /(^|\s)hidden(\s|$)/,
-    "the rail column is hidden below the md breakpoint");
-  assert.equal(chart.container.querySelector('button[aria-label="Close drawing tools"]'), null,
-    "the phone drawer's close cell is still rendered");
+    const draw = chart.container.querySelector<HTMLElement>('button[aria-label="Draw"]');
+    assert.ok(draw, "the phone action bar has no Draw route");
+    fireEvent.click(draw);
+    await settle();
+
+    const rails = chart.container.querySelectorAll('[data-drawing-rail="true"]');
+    assert.equal(rails.length, 1, "Draw must open exactly one wired toolbar");
+    assert.ok(rails[0]?.closest('[role="dialog"][aria-label="Drawing tools"]'),
+      "the toolbar is not inside the phone drawing-tools sheet");
+
+    fireEvent.click(draw);
+    await settle();
+    assert.equal(chart.container.querySelector('[data-drawing-rail="true"]') === null, true,
+      "tapping Draw again must close the sheet");
+  } finally {
+    window.matchMedia = desktopMatchMedia;
+  }
 });

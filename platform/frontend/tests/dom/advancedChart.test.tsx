@@ -96,20 +96,33 @@ test("a pane applies, persists and removes a z-scored pair spread", async () => 
 
   fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
   const dialog = screen.getByRole("dialog");
-  assert.equal(dialog.parentElement?.parentElement, document.body,
-    "the modal is portaled outside the legend's pointer-disabled ancestor");
-  fireEvent.change(screen.getByRole("combobox", { name: "Which comparison" }), {
-    target: { value: "zspread" },
-  });
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Rolling window in bars" }), {
-    target: { value: "30" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+  assert.equal(document.body.contains(dialog), true,
+    "the compare picker is not attached to the document");
+  assert.equal(dialog.parentElement?.classList.contains("pointer-events-auto"), true,
+    "the compare picker inherits the chart overlay's pointer-events:none");
+  await advance(220);
+
+  const btc = [...dialog.querySelectorAll<HTMLElement>("[data-idx]")]
+    .find((row) => (row.textContent ?? "").includes("BTCUSDT"));
+  assert.ok(btc, "the compare search did not list BTCUSDT");
+  assert.match(btc.textContent ?? "", /BTCUSDT/);
+  fireEvent.click(btc);
   await settle();
 
-  assert.ok(screen.getByRole("button", {
+  const settings = screen.getByRole("button", {
     name: "Comparing with BTCUSDT. Change or remove.",
+  });
+  fireEvent.click(settings);
+  const settingsDialog = screen.getByRole("dialog");
+  fireEvent.click(within(settingsDialog).getByRole("menuitemradio", {
+    name: "Pair spread, z-scored",
   }));
+  fireEvent.change(within(settingsDialog).getByRole("spinbutton", {
+    name: "Rolling window in bars",
+  }), { target: { value: "30" } });
+  fireEvent.click(within(settingsDialog).getByRole("button", { name: "Close" }));
+  await settle();
+
   assert.ok(server.callsTo("/candles").some((call) =>
     call.path.includes("/api/symbols/BTCUSDT/candles") && call.path.includes("interval=15m")),
   "the pair is loaded on the pane's timeframe through the candle-history path");
@@ -134,7 +147,7 @@ test("a pane applies, persists and removes a z-scored pair spread", async () => 
   assert.ok(chart.container);
 });
 
-test("the pane Compare modal closes from its portaled backdrop", async () => {
+test("the pane Compare picker closes from its backdrop", async () => {
   await mountChart();
   fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
   const dialog = screen.getByRole("dialog");
@@ -147,7 +160,12 @@ test("the pane Compare modal closes from its portaled backdrop", async () => {
 test("percent comparison keeps candles on price and declares a dedicated percent pane", async () => {
   const chart = await mountChart();
   fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
-  fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+  const dialog = screen.getByRole("dialog");
+  await advance(220);
+  const btc = [...dialog.querySelectorAll<HTMLElement>("[data-idx]")]
+    .find((row) => (row.textContent ?? "").includes("BTCUSDT"));
+  assert.ok(btc, "the compare search did not list BTCUSDT");
+  fireEvent.click(btc);
   await settle();
   assert.ok(screen.getByText("Percent change vs BTCUSDT"));
   assert.ok(screen.getAllByText("% from first shared bar").length >= 1);

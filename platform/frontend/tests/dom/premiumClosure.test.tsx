@@ -95,7 +95,8 @@ test("⌥L, ⌘⇧A and ⌥R do what their printed caps say", async () => {
 
 test("the bottom workstation has a pointer route, not only a chord", async () => {
   await mountChart();
-  assert.equal(screen.queryByRole("tab", { name: /Pine Editor/ }), null, "the panel starts collapsed");
+  assert.equal(screen.queryByRole("tab", { name: /Pine Editor/ }) === null, true,
+    "the panel starts collapsed");
 
   // The product menu is mounted for both the rail and the bar breakpoint; CSS
   // decides which one is on screen, and either opens the same menu.

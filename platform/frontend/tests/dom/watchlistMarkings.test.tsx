@@ -125,7 +125,7 @@ test("F-05 — a flag is remembered, and `Unflag all symbols` clears it", async 
     "the first row's verb follows the symbol's own state");
   fireEvent.click(item(menu, "Unflag all symbols"));
   await settle(2);
-  assert.equal(again.container.querySelector("[data-watchlist-flag]"), null);
+  assert.equal(again.container.querySelector("[data-watchlist-flag]") === null, true);
 });
 
 test("F-05 — the hover control is a named trash that removes the row", async () => {
@@ -139,7 +139,7 @@ test("F-05 — the hover control is a named trash that removes the row", async (
 
   fireEvent.click(trash);
   await settle(4);
-  assert.equal(chart.container.querySelector(`[data-watchlist-row="${CANONICAL.ETHUSDT}"]`), null);
+  assert.equal(chart.container.querySelector(`[data-watchlist-row="${CANONICAL.ETHUSDT}"]`) === null, true);
 });
 
 test("F-05 — `Add to compare` puts the symbol on the focused pane, not in a dialog", async () => {

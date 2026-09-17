@@ -381,7 +381,7 @@ test("R1c-10 — the account cell carries no dot, and its menu opens at 53", asy
   // The brand row is a wordmark: no health dot at any state.
   const brand = menu.firstElementChild as HTMLElement | null;
   assert.ok(brand);
-  assert.equal(brand.querySelector('[role="status"]'), null,
+  assert.equal(brand.querySelector('[role="status"]') === null, true,
     "an ops readout is not part of the product menu");
 });
 

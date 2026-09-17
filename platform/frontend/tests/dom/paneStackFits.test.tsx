@@ -151,7 +151,7 @@ test("FG-02 — the time axis lives under the lowest pane, and that pane is in t
    * scrolled, that is exactly the child that left the screen — which is why
    * this asserts its position rather than its pixels.
    */
-  assert.equal(lowest.parentElement?.lastElementChild, lowest,
+  assert.equal(lowest.parentElement?.lastElementChild === lowest, true,
     "the lowest pane is not the last child of the stack");
   assert.ok(lowest.querySelector("canvas"),
     "the pane that carries the time axis has no chart in it");
@@ -197,7 +197,7 @@ test("R3-13 — a pane's actions are revealed by hovering THAT pane, not the col
 
     // The selector's own question: which ancestor turns this cluster on?
     const scope = cluster.parentElement?.closest<HTMLElement>('[class*="group/studypane"]');
-    assert.equal(scope, pane,
+    assert.equal(scope === pane, true,
       "the cluster is revealed by an ancestor that is not its own pane — so "
       + "hovering one pane reveals every pane's controls");
   }
