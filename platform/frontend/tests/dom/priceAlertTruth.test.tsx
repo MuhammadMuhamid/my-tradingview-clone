@@ -161,6 +161,95 @@ test("the moving-average dialog creates a genuine MA-vs-MA crossover", async () 
   });
 });
 
+test("the crossover dialog says the two LINES cross, never that price does", async () => {
+  const saved: string[] = [];
+  render(
+    <MaAlertModal open onClose={() => undefined} symbol="SOLUSDT"
+      chartTimeframe={"15m" as Interval} maType="ema" maLength={21}
+      existing={[]} onSaved={(message) => saved.push(message)} />,
+  );
+  await settle();
+  fireEvent.change(screen.getByLabelText("Alert condition family"), {
+    target: { value: "ma_vs_ma" },
+  });
+  fireEvent.change(screen.getByLabelText("Second moving-average type"), {
+    target: { value: "sma" },
+  });
+  fireEvent.change(screen.getByLabelText("Second moving-average length"), {
+    target: { value: "100" },
+  });
+  await settle();
+
+  // `ma_vs_ma` evaluates one average against another. The price wording the
+  // `ma` family uses would describe an alert this dialog does not create.
+  const direction = screen.getByLabelText("Moving-average crossing direction");
+  assert.match(direction.textContent ?? "", /EMA 21 crosses above the SMA 100/);
+  assert.match(direction.textContent ?? "", /EMA 21 crosses below the SMA 100/);
+  assert.ok(!/Price crosses (above|below) the line/.test(direction.textContent ?? ""),
+    "the crossover dropdown offered the price-versus-MA wording");
+  assertAbsent(screen.queryByText(/Fires when a candle closes above the line/),
+    "the crossover help described the close as the thing that crosses");
+  assert.ok(screen.getByText(/the EMA 21 finishes above the SMA 100/));
+
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await settle();
+  assert.deepEqual(saved, ["Alert set — SOLUSDT 15m EMA 21 crosses above the SMA 100"]);
+});
+
+test("the price-versus-MA confirmation still names the condition it armed", async () => {
+  const saved: string[] = [];
+  render(
+    <MaAlertModal open onClose={() => undefined} symbol="SOLUSDT"
+      chartTimeframe={"15m" as Interval} maType="ema" maLength={21}
+      existing={[]} onSaved={(message) => saved.push(message)} />,
+  );
+  await settle();
+  fireEvent.change(screen.getByLabelText("Price versus moving-average condition"), {
+    target: { value: "cross_up" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await settle();
+  assert.deepEqual(saved,
+    ["Alert set — SOLUSDT 15m EMA 21 · price crosses above the line"]);
+});
+
+test("a crossover that cannot happen is refused before it is armed", async () => {
+  render(
+    <MaAlertModal open onClose={() => undefined} symbol="SOLUSDT"
+      chartTimeframe={"15m" as Interval} maType="ema" maLength={21}
+      existing={[]} onSaved={() => undefined} />,
+  );
+  await settle();
+  fireEvent.change(screen.getByLabelText("Alert condition family"), {
+    target: { value: "ma_vs_ma" },
+  });
+
+  // Emptying the number field reads back as 0, and the backend's range check
+  // is only `Number.isInteger` — so this would arm an alert that never fires.
+  fireEvent.change(screen.getByLabelText("Second moving-average length"), {
+    target: { value: "" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await settle();
+  assert.ok(screen.getByText(/length between 1 and 1000/));
+
+  // A line cannot cross itself.
+  fireEvent.change(screen.getByLabelText("Second moving-average type"), {
+    target: { value: "ema" },
+  });
+  fireEvent.change(screen.getByLabelText("Second moving-average length"), {
+    target: { value: "21" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await settle();
+  assert.ok(screen.getByText(/EMA 21 cannot cross itself/));
+
+  assert.equal(
+    server.callsTo("/api/ma-alerts").filter((call) => call.method === "POST").length, 0,
+    "an impossible condition reached the backend",
+  );
+});
+
 // ── 2. the prefilled price is not always the market ────────────────────────
 
 test("a level prefilled from stored history is marked as stored, not presented as the market", async () => {

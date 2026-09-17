@@ -39,6 +39,30 @@ const MODE_HELP: Record<MaAlertMode, string> = {
 };
 
 /**
+ * The crossover family's subject is a LINE, not the close.
+ *
+ * `MODE_LABELS`/`MODE_HELP` above all begin "Price …", which is exactly right
+ * for `ma`, where the close is what crosses. An `ma_vs_ma` alert evaluates one
+ * moving average against another — `evaluateSeriesCross` in the backend says
+ * so outright, and `describeCondition` writes the fired notification as
+ * "EMA 21 crosses above the SMA 200". Reusing the price wording here would put
+ * a sentence on the dialog that the alert it creates then contradicts.
+ */
+const CROSS_MODES = ["cross_up", "cross_down"] as const;
+type CrossMode = (typeof CROSS_MODES)[number];
+
+const isCrossMode = (m: MaAlertMode): m is CrossMode =>
+  m === "cross_up" || m === "cross_down";
+
+const crossLabel = (mode: MaAlertMode, fast: string, slow: string): string =>
+  `${fast} crosses ${mode === "cross_down" ? "below" : "above"} the ${slow}`;
+
+const crossHelp = (mode: MaAlertMode, fast: string, slow: string): string =>
+  `Fires on the bar where the ${fast} finishes ${mode === "cross_down" ? "below" : "above"} `
+  + `the ${slow} having finished on the other side of it. The close is not the subject — `
+  + `the two lines are.`;
+
+/**
  * Arm one moving-average line. Deliberately one MA per alert: that is what
  * lets the 200 SMA and the 15 SMA on the same chart carry different
  * conditions, different timeframes and different cooldowns.
@@ -120,10 +144,29 @@ export function MaAlertModal({
   const isNear = family === "ma" && (mode === "near_above" || mode === "near_below");
   const label = maLabel(maType, maLength);
 
+  const slowLabel = maLabel(ma2Type, ma2Length);
+
   const save = async () => {
     if (isNear && nearMaxPct <= nearMinPct) {
       setErr(said("The far edge of the band must be larger than the near edge."));
       return;
+    }
+    if (family === "ma_vs_ma") {
+      /*
+       * The number field can be emptied, which reads back as 0, and the
+       * backend's range check is only `Number.isInteger` despite its message
+       * naming 1..1000 — so an armed alert on a zero-length average is
+       * reachable from here and would simply never fire. Two conditions that
+       * cannot happen are refused where the reader can still fix them.
+       */
+      if (!Number.isInteger(ma2Length) || ma2Length < 1 || ma2Length > 1000) {
+        setErr(said("The second moving average needs a length between 1 and 1000."));
+        return;
+      }
+      if (ma2Type === maType && ma2Length === maLength) {
+        setErr(said(`${label} cannot cross itself — choose a different second moving average.`));
+        return;
+      }
     }
     setBusy(true);
     setErr(null);
@@ -137,7 +180,13 @@ export function MaAlertModal({
         enabled: armed,
       });
       onSaved(
-          `${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} ${label}${family === "ma_vs_ma" ? ` vs ${maLabel(ma2Type, ma2Length)}` : ""}`
+        // The condition belongs in the confirmation for both families: "Alert
+        // set — BTCUSDT 1h EMA 21" does not say what was armed, and an
+        // untouched Update on the wrong row reads identically.
+        `${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} `
+        + (family === "ma_vs_ma"
+          ? crossLabel(mode, label, slowLabel)
+          : `${label} · ${MODE_LABELS[mode].toLowerCase()}`)
       );
       onClose();
     } catch (e) {
@@ -206,14 +255,21 @@ export function MaAlertModal({
         <Row label={family === "ma_vs_ma" ? "Cross" : "Condition"}>
           <select value={mode} onChange={(e) => setMode(e.target.value as MaAlertMode)} className={box}
             aria-label={family === "ma_vs_ma" ? "Moving-average crossing direction" : "Price versus moving-average condition"}>
-            {(Object.keys(MODE_LABELS) as MaAlertMode[])
-              .filter((m) => family === "ma_vs_ma" ? (m === "cross_up" || m === "cross_down") : true)
-              .map((m) => (
-              <option key={m} value={m}>{MODE_LABELS[m]}</option>
+            {(family === "ma_vs_ma"
+              ? (CROSS_MODES as readonly MaAlertMode[])
+              : (Object.keys(MODE_LABELS) as MaAlertMode[])
+            ).map((m) => (
+              <option key={m} value={m}>
+                {family === "ma_vs_ma" ? crossLabel(m, label, slowLabel) : MODE_LABELS[m]}
+              </option>
             ))}
           </select>
         </Row>
-        <p className="pl-[122px] text-xs text-ink-faint">{MODE_HELP[mode]}</p>
+        <p className="pl-[122px] text-xs text-ink-faint">
+          {family === "ma_vs_ma" && isCrossMode(mode)
+            ? crossHelp(mode, label, slowLabel)
+            : MODE_HELP[mode]}
+        </p>
 
         {family === "ma_vs_ma" && (
           <Row label="Slow MA">
