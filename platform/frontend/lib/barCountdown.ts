@@ -53,12 +53,31 @@
  *
  * The series' own chip stands down while this is on (`lastValueVisible: false`
  * in `CandleChart`), so there is exactly one object at the last price.
+ *
+ * ── F-03-R2: the plate owns the PRESENTATION, never the SEMANTICS ─────────
+ *
+ * Drawing the price row is not the same as deciding what it says. The first
+ * one-rect plate formatted the price through `series.priceFormatter()` — the
+ * raw series formatter — and so printed `2416.65` beside an axis reading
+ * `2,420.00`, and on an Indexed-to-100 scale printed the raw `98.64` under a
+ * label reading `101.60`. The axis, and the chip this replaces, format through
+ * `PriceScale.formatPrice(price, firstValue)`: the scale's MODE decides the
+ * value (raw, percentage of the first visible close, or indexed to it) and
+ * the chart's localization decides the text. That switch lives once, in
+ * `lib/priceAxisText`, and this primitive reads its inputs off the chart at
+ * draw time — the mode, the localization formatter, the first and last
+ * visible closes — and prints whatever the axis would. Every mode, Percentage
+ * included, so there is no mode in which the library's chip and a row of ours
+ * have to share the price coordinate.
  */
 import type {
   IChartApiBase, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer,
   ISeriesPrimitivePaneView, SeriesAttachedParameter, SeriesType, Time,
 } from "lightweight-charts";
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
+import {
+  firstVisibleClose, lastVisibleClose, priceAxisText, readPriceAxisFormatting,
+} from "./priceAxisText";
 
 /**
  * `hh:mm:ss` until the bar closes.
@@ -153,8 +172,19 @@ export interface PlatePlan {
   /** Where every row's text starts. One x, so the rows read as one column. */
   textX: number;
   rows: readonly PlateRow[];
-  /** The tick's row: the one actually at that price. */
-  tickY: number;
+  /** The tick's row: the one actually at that price. None when the price row is not ours. */
+  tickY: number | null;
+}
+
+export interface PlateOptions {
+  /**
+   * The series' own chip is on the price coordinate, so this plate must not
+   * be: its rows start one row height below the price, where the library's
+   * `recalculateOverlapping` would have packed a colliding label, and there is
+   * no tick because the chip has one. The state that produced F-03's overlap
+   * in Percentage scale, made impossible by construction.
+   */
+  belowVisibleChip?: boolean;
 }
 
 /**
@@ -173,21 +203,23 @@ export function platePlan(
   priceY: number,
   fontSize: number,
   measure: (text: string) => number,
+  options: PlateOptions = {},
 ): PlatePlan | null {
   if (texts.length === 0) return null;
   const padding = (fontSize / 12) * TICK;
   const rowHeight = fontSize + 2 * ((2.5 / 12) * fontSize);
   const extra = (2 / 12) * fontSize;
   const widest = Math.max(...texts.map((text) => Math.ceil(measure(text))));
-  const rows = texts.map((text, index) => ({ text, centreY: priceY + index * rowHeight }));
+  const firstY = options.belowVisibleChip ? priceY + rowHeight : priceY;
+  const rows = texts.map((text, index) => ({ text, centreY: firstY + index * rowHeight }));
   return {
     left: 0,
     right: BORDER + padding + padding + widest + TICK,
-    top: priceY - rowHeight / 2 - extra,
+    top: firstY - rowHeight / 2 - extra,
     bottom: rows[rows.length - 1]!.centreY + rowHeight / 2 + extra,
     textX: TICK + padding,
     rows,
-    tickY: priceY,
+    tickY: options.belowVisibleChip ? null : priceY,
   };
 }
 
@@ -206,16 +238,6 @@ export interface CountdownState {
   /** Whether this primitive draws the price row itself, the series' chip being off. */
   ownsPriceRow: boolean;
 }
-
-/** Just enough of a data item to read a close from, whatever series type it came from. */
-interface PriceBearing { close?: unknown; value?: unknown }
-
-/**
- * `MismatchDirection.NearestLeft`, as the value rather than the enum: this
- * module is unit-tested under plain node, and importing the chart library for
- * one constant would drag a browser bundle into that.
- */
-const NEAREST_LEFT = -1;
 
 /**
  * The last-price plate, drawn on the price axis.
@@ -304,31 +326,47 @@ export class BarCountdownPrimitive implements ISeriesPrimitive {
   private chipPrice(): number | null {
     const series = this.series;
     if (series === null) return null;
-    return this.lastVisiblePrice(series) ?? this.state.price;
+    // A read that fails is a read we do without: the close React handed us.
+    return lastVisibleClose(this.chart, series) ?? this.state.price;
   }
 
-  private lastVisiblePrice(series: ISeriesApi<SeriesType>): number | null {
-    const chart = this.chart;
-    if (chart === null || typeof series.dataByIndex !== "function") return null;
-    try {
-      const range = chart.timeScale().getVisibleLogicalRange();
-      if (range === null) return null;
-      const bar = series.dataByIndex(Math.floor(range.to), NEAREST_LEFT) as PriceBearing | null;
-      const price = bar?.close ?? bar?.value;
-      return typeof price === "number" ? price : null;
-    } catch {
-      // A read that threw is a read we do without; the caller falls back to
-      // the close React handed us.
-      return null;
-    }
-  }
-
-  /** The chip's text, through the series' own formatter, so precision is the library's. */
+  /**
+   * The chip's text: what the AXIS prints for this price, in the scale's
+   * current mode, through the chart's own localization — `lib/priceAxisText`,
+   * with every input read off the chart now. Not the series' raw formatter,
+   * which is neither grouped nor mode-aware (F-03-R2).
+   */
   private priceText(): string {
     const series = this.series;
     const price = this.chipPrice();
     if (series === null || price === null) return "";
-    try { return series.priceFormatter().format(price); } catch { return ""; }
+    try {
+      return priceAxisText(
+        price,
+        firstVisibleClose(this.chart, series),
+        readPriceAxisFormatting(this.chart, series),
+      );
+    } catch { return ""; }
+  }
+
+  /**
+   * Whether the series' own chip is on the price coordinate right now. When
+   * it is, and the price row is not ours, the plate goes under it rather
+   * than on it — the guard that makes the F-03 overlap unreachable whatever
+   * `CandleChart` decides about who owns the row.
+   */
+  chipVisible(): boolean {
+    if (this.state.ownsPriceRow) return false;
+    try { return this.series?.options().lastValueVisible === true; } catch { return false; }
+  }
+
+  /** The plan `draw` would paint with, for a given ruler; what the tests read. */
+  plan(measure: (text: string) => number): PlatePlan | null {
+    const texts = this.rowTexts();
+    if (texts.length === 0) return null;
+    const priceY = this.anchor();
+    if (priceY === null) return null;
+    return platePlan(texts, priceY, this.fontSize(), measure, { belowVisibleChip: this.chipVisible() });
   }
 
   private fontSize(): number { return this.layout()?.fontSize ?? DEFAULT_FONT_SIZE; }
@@ -343,12 +381,7 @@ export class BarCountdownPrimitive implements ISeriesPrimitive {
   }
 
   private paint(target: CanvasRenderingTarget2D): void {
-    const texts = this.rowTexts();
-    if (texts.length === 0) return;
-    const priceY = this.anchor();
-    if (priceY === null) return;
     const font = this.font();
-    const fontSize = this.fontSize();
     const { backColor, textColor } = this.state;
     target.useMediaCoordinateSpace(({ context, mediaSize }) => {
       context.save();
@@ -359,7 +392,7 @@ export class BarCountdownPrimitive implements ISeriesPrimitive {
          * the whole point: a width read here and a width drawn here cannot be
          * two different numbers.
          */
-        const plan = platePlan(texts, priceY, fontSize, (text) => context.measureText(text).width);
+        const plan = this.plan((text) => context.measureText(text).width);
         // Nothing to draw for a plate the scale has moved out of the axis.
         if (plan === null || plan.bottom < 0 || plan.top > mediaSize.height) return;
         context.fillStyle = backColor;
@@ -369,7 +402,7 @@ export class BarCountdownPrimitive implements ISeriesPrimitive {
         // The stub the library draws at the labelled price, and only there.
         // Snapped to a whole row, or a one-pixel line straddling two of them
         // is drawn as two half-lit ones.
-        context.fillRect(plan.left, Math.round(plan.tickY) - 1, TICK, 1);
+        if (plan.tickY !== null) context.fillRect(plan.left, Math.round(plan.tickY) - 1, TICK, 1);
         context.textAlign = "left";
         context.textBaseline = "middle";
         for (const row of plan.rows) {

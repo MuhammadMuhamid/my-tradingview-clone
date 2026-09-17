@@ -1095,11 +1095,16 @@ export function CandleChart({
    * the bar's direction, and each sized itself to its own text, so the
    * countdown overhung the price by 19px.
    *
-   * Not in a percentage scale, where the axis text is a percentage the library
-   * computes from a first value it does not expose; there the chip stays the
-   * library's and only the countdown's colour is unified with it.
+   * In EVERY scale mode (F-03-R2). The price row's text is not the
+   * primitive's to decide: it formats through `lib/priceAxisText`, which
+   * derives what the axis itself would print — grouped through this chart's
+   * `localization.priceFormatter` in Regular and Logarithmic, the percentage
+   * of the first visible close in Percentage, the indexed value in
+   * Indexed-to-100 — from the same public state the axis formats from. So no
+   * mode is excepted, and no mode leaves the library's chip on the price
+   * coordinate under a row of ours.
    */
-  const countdownOwnsChip = settings.countdownToBarClose && scale.mode !== "percentage";
+  const countdownOwnsChip = settings.countdownToBarClose;
   /*
    * The decimals the price AXIS labels with.
    *

@@ -26,12 +26,27 @@
  * rows are now one rect drawn by this primitive. The properties are that the
  * rows report the SAME ground and share the rect's edges — held here rather
  * than by a screenshot.
+ *
+ * ── F-03-R2, the second residual, stated as one equality per scale mode ────
+ *
+ * One rect fixed the geometry and broke the text: the plate formatted its
+ * price row through the series' raw formatter, and so printed `2416.65`
+ * beside an axis reading `2,420.00`, the raw `98.64` under an Indexed-to-100
+ * label of `101.60`, and — because it stepped aside in Percentage — its lone
+ * countdown row on top of the library's own chip. The property now is that
+ * the price row's text is what the AXIS prints for that price in the scale's
+ * current mode (`lib/priceAxisText`, tested against the library's rules in
+ * `priceAxisText.test.ts`), in all four modes, read fresh on every draw; and
+ * that a plate which does not own the price row is never on the price
+ * coordinate while the series' chip is.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   BarCountdownPrimitive, chipBackColor, chipTextColor, countdownText, platePlan,
 } from "../lib/barCountdown";
+import { fmtPriceAt } from "../lib/format";
+import { PRICE_SCALE_MODE } from "../lib/priceAxisText";
 
 /* ── a price axis, modelled closely enough to place a plate ──────────────── */
 
@@ -56,20 +71,37 @@ interface Fake {
   plan: () => ReturnType<typeof platePlan>;
   setCoordinate: (y: number | null) => void;
   setVisibleTo: (index: number) => void;
+  setVisibleFrom: (index: number) => void;
+  /** The axis context menu: Regular / Percent / Indexed to 100 / Logarithmic. */
+  setMode: (mode: number) => void;
+  /** The series' own chip, `lastValueVisible`. */
+  setChipVisible: (visible: boolean) => void;
   updates: number;
 }
 
-/** A series whose price scale can be moved between calls, as a resize moves it. */
+/**
+ * A series whose price scale can be moved between calls, as a resize moves it,
+ * on a chart configured the way `CandleChart` configures it: the product's
+ * grouping `fmtPriceAt` as `localization.priceFormatter`, two decimals.
+ */
 function attach(bars: { close: number }[] = [{ close: 98.14 }]): Fake {
-  const state = { y: 100 as number | null, to: bars.length - 1 };
+  const state = {
+    y: 100 as number | null, from: 0, to: bars.length - 1,
+    mode: PRICE_SCALE_MODE.normal as number, chipVisible: false,
+  };
   const series = {
     priceToCoordinate: (_price: number) => state.y,
     priceFormatter: () => ({ format: (price: number) => price.toFixed(2) }),
+    priceScale: () => ({ options: () => ({ mode: state.mode }) }),
+    options: () => ({ lastValueVisible: state.chipVisible }),
     dataByIndex: (index: number) => bars[Math.max(0, Math.min(index, bars.length - 1))] ?? null,
   };
   const chart = {
-    options: () => ({ layout: { fontSize: FONT_SIZE, fontFamily: "sans-serif" } }),
-    timeScale: () => ({ getVisibleLogicalRange: () => ({ from: 0, to: state.to }) }),
+    options: () => ({
+      layout: { fontSize: FONT_SIZE, fontFamily: "sans-serif" },
+      localization: { priceFormatter: (price: number) => fmtPriceAt(price, 2) },
+    }),
+    timeScale: () => ({ getVisibleLogicalRange: () => ({ from: state.from, to: state.to }) }),
   };
   const primitive = new BarCountdownPrimitive();
   let updates = 0;
@@ -79,12 +111,12 @@ function attach(bars: { close: number }[] = [{ close: 98.14 }]): Fake {
   return {
     primitive,
     // What `draw` does, with the canvas's own ruler replaced by a modelled one.
-    plan: () => {
-      const y = primitive.anchor();
-      return y === null ? null : platePlan(primitive.rowTexts(), y, FONT_SIZE, measure);
-    },
+    plan: () => primitive.plan(measure),
     setCoordinate: (y) => { state.y = y; },
     setVisibleTo: (index) => { state.to = index; },
+    setVisibleFrom: (index) => { state.from = index; },
+    setMode: (mode) => { state.mode = mode; },
+    setChipVisible: (visible) => { state.chipVisible = visible; },
     get updates() { return updates; },
   };
 }
@@ -287,4 +319,98 @@ test("F-03-R — the price row falls back to the close React handed it", () => {
   primitive.update({ ...PLATE, price: 42.5 });
   assert.deepEqual(primitive.rowTexts(), ["42.50", "00:03:20"]);
   assert.equal(primitive.anchor(), 120);
+});
+
+/* ── F-03-R2: the price row says what the axis says, in every mode ───────── */
+
+const ETH = [{ close: 2400 }, { close: 2380.5 }, { close: 2416.65 }];
+
+test("F-03-R2 — Regular: the price row is grouped through the chart's own localization formatter", () => {
+  const fake = attach(ETH);
+  fake.primitive.update({ ...PLATE, price: 2416.65 });
+  assert.deepEqual(fake.plan()!.rows.map((row) => row.text), ["2,416.65", "00:03:20"],
+    "`2416.65` beside an axis reading `2,420.00` was the defect");
+});
+
+test("F-03-R2 — Logarithmic: the same text as Regular", () => {
+  const fake = attach(ETH);
+  fake.primitive.update({ ...PLATE, price: 2416.65 });
+  fake.setMode(PRICE_SCALE_MODE.logarithmic);
+  assert.equal(fake.plan()!.rows[0]!.text, "2,416.65");
+});
+
+test("F-03-R2 — Percentage: the price row is the percentage of the first VISIBLE close, and it is ours", () => {
+  const fake = attach(ETH);
+  fake.primitive.update({ ...PLATE, price: 2416.65 });
+  fake.setMode(PRICE_SCALE_MODE.percentage);
+  const plan = fake.plan()!;
+  // 2416.65 against a first visible close of 2400: +0.69%, in the library's own format.
+  assert.deepEqual(plan.rows.map((row) => row.text), ["0.69%", "00:03:20"]);
+  assert.equal(plan.rows[0]!.centreY, 100, "the price row sits on the price, as one plate");
+  assert.equal(plan.tickY, 100);
+  // Pan so the visible range starts on the second bar: the base moves with it.
+  fake.setVisibleFrom(1);
+  assert.equal(fake.plan()!.rows[0]!.text, "1.52%", "the base is the first bar IN VIEW, as the axis's is");
+});
+
+test("F-03-R2 — Indexed-to-100: the price row is the indexed value, never the raw price", () => {
+  const fake = attach(ETH);
+  fake.primitive.update({ ...PLATE, price: 2416.65 });
+  fake.setMode(PRICE_SCALE_MODE.indexedTo100);
+  assert.deepEqual(fake.plan()!.rows.map((row) => row.text), ["100.69", "00:03:20"],
+    "the raw `98.64` under an axis label of `101.60` was the defect");
+  fake.setVisibleFrom(1);
+  assert.equal(fake.plan()!.rows[0]!.text, "101.52");
+});
+
+test("F-03-R2 — a mode switched between two draws changes the text: nothing is cached", () => {
+  const fake = attach(ETH);
+  fake.primitive.update({ ...PLATE, price: 2416.65 });
+  const texts = () => fake.plan()!.rows[0]!.text;
+  assert.equal(texts(), "2,416.65");
+  fake.setMode(PRICE_SCALE_MODE.percentage);
+  assert.equal(texts(), "0.69%");
+  fake.setMode(PRICE_SCALE_MODE.indexedTo100);
+  assert.equal(texts(), "100.69");
+  fake.setMode(PRICE_SCALE_MODE.normal);
+  assert.equal(texts(), "2,416.65", "and back, with no formatter state left behind");
+});
+
+test("F-03-R2 — the price is the bar the library's strict range ends on: ceil(to), searched leftwards", () => {
+  const fake = attach([{ close: 90 }, { close: 95 }, { close: 98.14 }]);
+  fake.primitive.update({ ...PLATE });
+  fake.setVisibleTo(0.4);
+  assert.equal(fake.plan()!.rows[0]!.text, "95.00",
+    "`lastValueData` searches from ceil(0.4) = 1 leftwards, so bar 1 is the chip's bar");
+});
+
+test("F-03-R2 — a plate that does not own the price row is never on the price coordinate while the chip is", () => {
+  /*
+   * The Percentage failure at 52c47bb: the primitive stepped aside, the
+   * library's chip stayed on the price coordinate, and the lone countdown
+   * row was centred on that same coordinate — `1.59%  8`, the chip over the
+   * countdown. That state is now unreachable from `CandleChart` (it owns the
+   * row in every mode), and unreachable by construction here too.
+   */
+  const fake = attach();
+  fake.primitive.update({ ...PLATE, ownsPriceRow: false });
+  fake.setChipVisible(true);
+  const plan = fake.plan()!;
+  assert.equal(plan.rows.length, 1);
+  assert.equal(plan.rows[0]!.centreY, 100 + ROW_HEIGHT,
+    "one row height below the price, where the library packs a colliding label");
+  assert.ok(plan.top >= 100 + ROW_HEIGHT / 2 - (2 / 12) * FONT_SIZE, "and the rect starts under the chip");
+  assert.equal(plan.tickY, null, "the chip has the tick; a second one would be a second price");
+  assert.equal(fake.primitive.chipVisible(), true);
+
+  // `Price label` off: the chip is gone, so the lone countdown may take its coordinate.
+  fake.setChipVisible(false);
+  assert.equal(fake.plan()!.rows[0]!.centreY, 100);
+  assert.equal(fake.primitive.chipVisible(), false);
+
+  // And owning the price row means the chip is off by contract: never "visible".
+  fake.setChipVisible(true);
+  fake.primitive.update({ ...PLATE, ownsPriceRow: true });
+  assert.equal(fake.primitive.chipVisible(), false);
+  assert.equal(fake.plan()!.rows[0]!.centreY, 100);
 });
