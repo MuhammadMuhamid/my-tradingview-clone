@@ -19,6 +19,7 @@ export const CANDLE_INTEGRITY_ISSUES = [
   "identity_mismatch",
   "misaligned_timestamp",
   "invalid_close_time",
+  "short_final_bucket",
 ] as const;
 export type CandleIntegrityIssueCode = (typeof CANDLE_INTEGRITY_ISSUES)[number];
 
@@ -118,6 +119,17 @@ export function inspectCandleIntegrity(
   addIssue(issues, "out_of_order_timestamp", structural.outOfOrder);
   addIssue(issues, "misaligned_timestamp", structural.misaligned);
   addIssue(issues, "invalid_close_time", structural.badCloseTime);
+  /*
+   * Reported, never fatal — deliberately NOT in `INVALID_CODES`.
+   *
+   * A bar that closes early inside its own interval is a bucket the exchange
+   * had less than a full interval of data for, which is a fact about that day
+   * rather than a defect in the row. Treating it as corruption cost the whole
+   * series: BTCUSDT and ETHUSDT daily history both reach back past
+   * 2018-02-08, a day Binance ran for 28 minutes, so every daily request deep
+   * enough to include it answered 502 and drew no chart at all.
+   */
+  addIssue(issues, "short_final_bucket", structural.shortCloseTime);
 
   for (const candle of candles) {
     if (candle.symbol !== opts.symbol || candle.interval !== opts.interval) {

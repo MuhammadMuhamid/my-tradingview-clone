@@ -32,8 +32,23 @@ export interface SeriesCheck {
   duplicates: number[];
   /** openTimes not aligned to the interval grid. */
   misaligned: number[];
-  /** Bars whose closeTime is not openTime + INTERVAL_MS - 1. */
+  /**
+   * Bars whose closeTime falls OUTSIDE their own interval — before their open,
+   * or at/after the next bar's. Such a bar is not this bar: it is a foreign
+   * row, a wrong interval, or a corrupt write.
+   */
   badCloseTime: number[];
+  /**
+   * Bars that close early, inside their own interval.
+   *
+   * Not a defect. Binance's closeTime is the end of the DATA in the bucket,
+   * and on a day the exchange only ran for part of, that is genuinely earlier
+   * than the grid's last millisecond — BTCUSDT 2018-02-08 is one such day,
+   * with 28 minutes of trading, one hourly bar, and a daily bar whose OHLCV
+   * matches that hour exactly. Reported so an operator can see it; separate
+   * from `badCloseTime` so it cannot condemn the series that contains it.
+   */
+  shortCloseTime: number[];
   gaps: SeriesGap[];
 }
 
@@ -61,14 +76,19 @@ export function checkSeries(candles: Candle[], interval: Interval): SeriesCheck 
   const step = INTERVAL_MS[interval];
   const out: SeriesCheck = {
     ok: true, bars: candles.length,
-    outOfOrder: [], duplicates: [], misaligned: [], badCloseTime: [], gaps: [],
+    outOfOrder: [], duplicates: [], misaligned: [], badCloseTime: [], shortCloseTime: [],
+    gaps: [],
   };
   const seen = new Set<number>();
   let prev: Candle | undefined;
 
   for (const c of candles) {
     if (!isAlignedOpenTime(c.openTime, interval)) out.misaligned.push(c.openTime);
-    if (c.closeTime !== c.openTime + step - 1) out.badCloseTime.push(c.openTime);
+    if (c.closeTime < c.openTime || c.closeTime >= c.openTime + step) {
+      out.badCloseTime.push(c.openTime);
+    } else if (c.closeTime !== c.openTime + step - 1) {
+      out.shortCloseTime.push(c.openTime);
+    }
     if (seen.has(c.openTime)) out.duplicates.push(c.openTime);
     seen.add(c.openTime);
 

@@ -157,3 +157,43 @@ test("backfill to live: a forming boundary candle creates no false gap", () => {
   assert.equal(report.state, "healthy");
   assert.ok(!codes(report).includes("missing_completed_interval"));
 });
+
+/**
+ * Phase 2: a short bucket is reported, and it does not condemn the series.
+ *
+ * `fetchKlines` throws on `state === "invalid"`, and the candles route answers
+ * that with a 502. Because any closeTime other than `openTime + step - 1` was
+ * fatal, one legitimate row — BTCUSDT 2018-02-08, the day Binance ran for 28
+ * minutes — took every BTCUSDT and ETHUSDT daily request that reached back to
+ * 2018 with it. The chart drew nothing; the workstation's default depth is
+ * 10,000 bars, so the daily chart of the two most-looked-at instruments in the
+ * product was simply unavailable.
+ *
+ * It stays visible as an issue — an operator should be able to see which bar
+ * it was — but `degraded` is the honest state for a series whose rows are all
+ * correct.
+ */
+test("a bar that closes early is degraded and still served; one outside its bar is not", () => {
+  const step = INTERVAL_MS["1d"];
+  const bars = series("1d", 40);
+  const victim = bars[10]!;
+
+  const short = bars.map((c, i) =>
+    (i === 10 ? { ...c, closeTime: c.openTime + 28 * 60_000 } : c));
+  const shortReport = inspect(short, "1d", false);
+  assert.deepEqual(codes(shortReport), ["short_final_bucket"]);
+  assert.equal(shortReport.state, "degraded");
+  assert.equal(shortReport.issues[0]!.count, 1);
+  assert.deepEqual(shortReport.issues[0]!.timestamps, [victim.openTime]);
+
+  // And the row that is not this bar at all is still invalid.
+  const over = bars.map((c, i) => (i === 10 ? { ...c, closeTime: c.openTime + step } : c));
+  const overReport = inspect(over, "1d", false);
+  assert.ok(codes(overReport).includes("invalid_close_time"));
+  assert.ok(!codes(overReport).includes("short_final_bucket"));
+  assert.equal(overReport.state, "invalid");
+
+  // A clean series reports neither.
+  assert.deepEqual(codes(inspect(bars, "1d", false)), []);
+  assert.equal(inspect(bars, "1d", false).state, "healthy");
+});

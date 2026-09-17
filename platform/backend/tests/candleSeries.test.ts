@@ -105,3 +105,56 @@ test("a bar is open until wall-clock passes its final millisecond", () => {
   assert.equal(isBarClosed(bar!, bar!.closeTime), false, "the final ms still belongs to the bar");
   assert.equal(isBarClosed(bar!, bar!.closeTime + 1), true);
 });
+
+/**
+ * Phase 2: a bar that closes early is a short bucket, not a corrupt row.
+ *
+ * Binance's `closeTime` is the end of the DATA in the bucket. On a day the
+ * exchange only ran for part of, it is genuinely earlier than the grid's last
+ * millisecond. BTCUSDT 2018-02-08 is exactly that: `closeTime` 00:28:14.788,
+ * one hourly bar for the whole day, and a daily bar whose OHLCV equals that
+ * hour's exactly — the row is right, and it is the only one like it in eight
+ * years of BTCUSDT dailies.
+ *
+ * The old rule condemned any closeTime that was not `openTime + step - 1`, and
+ * `inspectCandleIntegrity` treats that verdict as fatal, so every BTCUSDT and
+ * ETHUSDT daily request deep enough to reach 2018 answered 502 and drew no
+ * chart at all. The rule that matters is whether the closeTime is INSIDE the
+ * bar it claims to be: a closeTime at or past the next bar's open means the
+ * row is not this bar, and that is still fatal.
+ */
+test("a closeTime inside the bar is a short bucket; one outside it is corruption", () => {
+  const step = INTERVAL_MS["1d"];
+  const [first, second] = series("1d", 2, step * 100);
+
+  // The real shape: BTCUSDT 2018-02-08 — 28 minutes into its own day.
+  const short = [{ ...first!, closeTime: first!.openTime + 28 * 60_000 }, second!];
+  const shortCheck = checkSeries(short, "1d");
+  assert.deepEqual(shortCheck.shortCloseTime, [first!.openTime]);
+  assert.deepEqual(shortCheck.badCloseTime, []);
+  assert.equal(shortCheck.ok, true, "a short bucket must not condemn the series");
+
+  // A bar that closes exactly at its own open is still inside itself.
+  const instant = [{ ...first!, closeTime: first!.openTime }, second!];
+  assert.deepEqual(checkSeries(instant, "1d").badCloseTime, []);
+  assert.deepEqual(checkSeries(instant, "1d").shortCloseTime, [first!.openTime]);
+
+  // At the next bar's open, and beyond it: not this bar.
+  for (const closeTime of [first!.openTime + step, first!.openTime + step * 2]) {
+    const over = [{ ...first!, closeTime }, second!];
+    const check = checkSeries(over, "1d");
+    assert.deepEqual(check.badCloseTime, [first!.openTime], String(closeTime));
+    assert.deepEqual(check.shortCloseTime, []);
+    assert.equal(check.ok, false);
+  }
+
+  // Before its own open is impossible, and stays fatal.
+  const before = [{ ...first!, closeTime: first!.openTime - 1 }, second!];
+  assert.deepEqual(checkSeries(before, "1d").badCloseTime, [first!.openTime]);
+  assert.equal(checkSeries(before, "1d").ok, false);
+
+  // The ordinary case is neither.
+  const clean = checkSeries(series("1d", 5), "1d");
+  assert.deepEqual(clean.badCloseTime, []);
+  assert.deepEqual(clean.shortCloseTime, []);
+});
