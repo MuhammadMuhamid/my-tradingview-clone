@@ -219,17 +219,47 @@ test("A SUBSYSTEM THAT CANNOT RUN ON THIS CHART SAYS SO, AND NAMES WHAT IT WILL 
   assert.match(nativeOnlyNotice("1w", "alerts")!, /not a resolution/);
 });
 
-test("alert dialogs use the compact custom disclosure grammar", () => {
-  const price = read("components/tv/PriceAlertModal.tsx");
-  assert.match(price, /Disclosure/);
-  assert.match(price, /Notifications/);
-  assert.doesNotMatch(price, /<select/);
-  assert.doesNotMatch(price, /ResolutionNotice/);
+test("the notice is rendered by every dialog that has one, in one component", () => {
+  /*
+   * Four dialogs saying it four ways is four chances for one of them to stop
+   * saying it. `ResolutionNotice` is the one place it is worded — and this
+   * assertion once ran the other way round for the price dialog, requiring
+   * that it NOT carry the notice, which is the substituted-resolution
+   * regression written down as a rule. What the price dialog looks like and
+   * what it discloses are two questions; the compact grammar is checked below
+   * and does not cost the disclosure.
+   */
+  const notice = read("components/tv/ResolutionNotice.tsx");
+  assert.match(notice, /data-resolution-notice="true"/);
+  for (const modal of [
+    "components/tv/PriceAlertModal.tsx",
+    "components/tv/MaAlertModal.tsx",
+    "components/tv/LevelAlertModal.tsx",
+    "components/tv/IndicatorAlertModal.tsx",
+  ]) {
+    assert.match(read(modal), /<ResolutionNotice/, `${modal} can open on a substituted timeframe silently`);
+  }
   // And the dialogs are handed a stated fallback rather than the raw chart
   // resolution, which the alert API would refuse.
   const dialogs = read("components/tv/ChartDialogs.tsx");
   assert.match(dialogs, /alertIntervalFor\(interval\) \?\? storedFallbackFor\(interval\)/);
   assert.match(dialogs, /nativeOnlyNotice\(interval, "alerts"\)/);
+});
+
+test("alert dialogs use the compact custom disclosure grammar", () => {
+  const price = read("components/tv/PriceAlertModal.tsx");
+  assert.match(price, /Disclosure/);
+  assert.match(price, /Notifications/);
+  /*
+   * The two controls the compact grammar arrived with that nothing behind the
+   * dialog could honour. `ma_alerts` has no expiry column and no route or
+   * runner reads one, and this dialog creates `conditionKind: "price"` and
+   * nothing else, so a Studies source here could only ever have been a label.
+   * Behaviour is proved in `tests/dom/priceAlertTruth.test.tsx`; these two
+   * lines keep them from being typed back in.
+   */
+  assert.doesNotMatch(price, /Expiration/);
+  assert.doesNotMatch(price, /"Studies"/);
 });
 
 test("the backtester and a deployment refuse a derived resolution rather than run a nearby one", () => {
