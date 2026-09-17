@@ -28,7 +28,7 @@
  */
 import { loadStoredNative, nativeStorageKey, saveStoredNative } from "./native/storage";
 import { drawingStore } from "./drawingStore";
-import { WORKSPACE_STORAGE_KEY, type ChartWorkspace } from "./workspace";
+import { parseWorkspace, WORKSPACE_STORAGE_KEY, type ChartWorkspace } from "./workspace";
 import type { LayoutWorkspace } from "./layouts";
 import type { Drawing } from "./drawings";
 
@@ -75,12 +75,44 @@ export function captureLayoutWorkspace(): LayoutWorkspace | undefined {
   return { panes, studies, drawings };
 }
 
+/** The pane record as it currently stands, or null when there is none to read. */
+function readStoredPanes(): unknown {
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    return raw === null ? null : JSON.parse(raw);
+  } catch { return null; }
+}
+
+/**
+ * Do two pane records describe the same workspace?
+ *
+ * Compared through `parseWorkspace` rather than as text, because the two sides
+ * are never written by the same writer. A layout's copy has round-tripped
+ * through the backend's `jsonb` column, which does not preserve key order, so
+ * it re-serialises differently from the byte-identical record the browser
+ * wrote — and `parseWorkspace` is the canonical form the page itself reads, so
+ * two records it cannot tell apart are two records the user cannot either.
+ *
+ * Two unreadable records are the same answer, not a difference: both restore
+ * the default, so there is nothing for a reload to find.
+ */
+function sameWorkspace(a: unknown, b: unknown): boolean {
+  return JSON.stringify(parseWorkspace(a)) === JSON.stringify(parseWorkspace(b));
+}
+
 /**
  * Put a layout's arrangement back.
  *
- * Returns whether the PANES were restored, because that is the part the caller
+ * Returns whether the pane record CHANGED, because that is the part the caller
  * has to reload to take effect — the studies and the drawings are read from
  * their stores on the next render, and the pane record is read once at mount.
+ *
+ * "Changed", not "was written". The layout the user left open is restored at
+ * MOUNT, so answering "restored" for a record that already holds exactly what
+ * `lib/workspace.ts` just read reloads into the same restore, which restores
+ * and reloads again — the page never finishes loading. A reload the record
+ * does not need buys nothing anyway: there is nothing new for the mount read
+ * to find.
  */
 export function restoreLayoutWorkspace(held: LayoutWorkspace | undefined): boolean {
   if (typeof window === "undefined" || !held) return false;
@@ -106,8 +138,9 @@ export function restoreLayoutWorkspace(held: LayoutWorkspace | undefined): boole
 
   if (held.panes && typeof held.panes === "object") {
     try {
+      const current = readStoredPanes();
       window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(held.panes));
-      return true;
+      return !sameWorkspace(current, held.panes);
     } catch { /* private window: the symbol and timeframe still restore */ }
   }
   return false;
