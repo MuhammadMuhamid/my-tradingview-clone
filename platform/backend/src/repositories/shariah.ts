@@ -412,3 +412,57 @@ export async function loadReviewPackContext(assetIds: readonly string[]): Promis
 
   return { publications, evidence };
 }
+
+
+/**
+ * Append the record of a Shariah Mode change.
+ *
+ * Deliberately best-effort at the call site: a mode change must never fail
+ * because its audit row did, so the caller logs and continues on error. The
+ * change itself is the safety-critical act; the record of it is how an
+ * operator answers "who turned this off, and did the Bot's floor move too?" —
+ * which `app_settings`, a single mutable row with one `updated_at`, could not.
+ */
+export async function recordShariahModeChange(input: {
+  fromMode: string;
+  toMode: string;
+  changedBy: string;
+  botFloorPushed: boolean;
+  policyVersion: string;
+}): Promise<void> {
+  await query(
+    `INSERT INTO shariah_mode_changes
+       (from_mode, to_mode, changed_by, bot_floor_pushed, policy_version)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [input.fromMode, input.toMode, input.changedBy, input.botFloorPushed, input.policyVersion],
+  );
+}
+
+export interface ShariahModeChange {
+  id: string;
+  fromMode: string;
+  toMode: string;
+  changedBy: string;
+  botFloorPushed: boolean;
+  policyVersion: string;
+  changedAt: string;
+}
+
+export async function listShariahModeChanges(limit = 50): Promise<ShariahModeChange[]> {
+  const { rows } = await query<{
+    id: string; from_mode: string; to_mode: string; changed_by: string;
+    bot_floor_pushed: boolean; policy_version: string; changed_at: Date;
+  }>(
+    "SELECT * FROM shariah_mode_changes ORDER BY changed_at DESC, id DESC LIMIT $1",
+    [Math.min(Math.max(limit, 1), 200)],
+  );
+  return rows.map((r) => ({
+    id: String(r.id),
+    fromMode: r.from_mode,
+    toMode: r.to_mode,
+    changedBy: r.changed_by,
+    botFloorPushed: r.bot_floor_pushed,
+    policyVersion: r.policy_version,
+    changedAt: r.changed_at.toISOString(),
+  }));
+}

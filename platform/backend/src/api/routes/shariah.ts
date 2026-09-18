@@ -48,6 +48,9 @@ import {
 } from "../../shariah/mode";
 import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
 import {
+  decisionAgeDays, getShariahReviewPolicy, isDueForReReview, setShariahReviewPolicy,
+} from "../../shariah/freshness";
+import {
   qualifyingBaseAssets, syncShariahUniverse, type BinanceSpotSymbolMeta,
 } from "../../shariah/sync";
 import {
@@ -97,19 +100,69 @@ export async function shariahRoutes(
 
   /** The whole registry, including delisted assets (`binanceAvailable: false`). */
   app.get("/api/shariah/universe", async () => {
-    const assets = await shariah.listAllAssets();
+    const [assets, reviewPolicy] = await Promise.all([
+      shariah.listAllAssets(), getShariahReviewPolicy(),
+    ]);
+    const now = Date.now();
+    /*
+     * Age is reported per asset and counted once, and it changes nothing.
+     *
+     * Until now the only invalidation here was event-driven — a delisted
+     * ticker reappearing forces STALE — so a decision about an asset that
+     * never delisted stayed authoritative for ever with nothing surfacing its
+     * age. Demoting aged decisions would have been the obvious fix and the
+     * wrong one: it withdraws verdicts in bulk and stops trading on an
+     * installation whose operator did nothing, at a moment they did not
+     * choose, through the gate, where the effect is invisible until an order
+     * is refused. So this is a count and a flag. `shariah/gate.ts` does not
+     * read it.
+     */
+    const decorated = assets.map((asset) => ({
+      ...asset,
+      decisionAgeDays: decisionAgeDays(asset, now),
+      dueForReReview: isDueForReReview(asset, reviewPolicy, now),
+    }));
+    const active = decorated.filter((a) => a.binanceAvailable);
     return {
       policyVersion: TS_SHARIAH_V1,
       prohibitedCategories: PROHIBITED_CATEGORIES,
+      reviewPolicy,
       counts: {
-        total: assets.length,
-        active: assets.filter((a) => a.binanceAvailable).length,
-        eligible: assets.filter((a) => a.binanceAvailable && a.effectiveStatus === "ELIGIBLE").length,
-        review: assets.filter((a) => a.binanceAvailable && a.effectiveStatus === "REVIEW").length,
-        excluded: assets.filter((a) => a.binanceAvailable && a.effectiveStatus === "EXCLUDED").length,
+        total: decorated.length,
+        active: active.length,
+        eligible: active.filter((a) => a.effectiveStatus === "ELIGIBLE").length,
+        review: active.filter((a) => a.effectiveStatus === "REVIEW").length,
+        excluded: active.filter((a) => a.effectiveStatus === "EXCLUDED").length,
+        /** Settled, and older than the advisory policy. Never demoted by it. */
+        dueForReReview: active.filter((a) => a.dueForReReview).length,
       },
-      assets,
+      assets: decorated,
     };
+  });
+
+  /** Every Shariah Mode change, newest first. Append-only; nothing edits it. */
+  app.get("/api/shariah/mode/history", async () => ({
+    changes: await shariah.listShariahModeChanges(),
+  }));
+
+  /**
+   * The advisory re-review interval.
+   *
+   * A setting rather than a constant because how long a screening stays
+   * current is a research-policy judgement, and one nobody can see is one
+   * nobody can question. `null` turns time-based surfacing off entirely.
+   */
+  app.get("/api/shariah/review-policy", async () => getShariahReviewPolicy());
+  app.put("/api/shariah/review-policy", async (req, reply) => {
+    const raw = (req.body as { reviewMaxAgeDays?: unknown } | null)?.reviewMaxAgeDays;
+    const days = raw === null ? null : Number(raw);
+    if (days !== null && (!Number.isInteger(days) || days <= 0)) {
+      return reply.code(400).send({
+        error: "reviewMaxAgeDays must be a positive whole number of days, or null to turn "
+          + "time-based re-review off",
+      });
+    }
+    return setShariahReviewPolicy(days);
   });
 
   /**
@@ -298,11 +351,24 @@ export async function shariahRoutes(
    */
   app.get("/api/shariah/review-pack", async (req) => {
     const q = req.query as { size?: string; includeSettled?: string; includeUnavailable?: string };
-    const assets = await shariah.listAllAssets();
+    const [assets, reviewPolicy] = await Promise.all([
+      shariah.listAllAssets(), getShariahReviewPolicy(),
+    ]);
+    const now = Date.now();
+    /*
+     * A settled decision nobody has revisited in a year is exactly what a
+     * pack's twenty slots should be spending themselves on — after everything
+     * that has never been settled at all. Surfacing it here is the whole of
+     * the time-based re-review: the asset is not demoted, its verdict still
+     * stands, and it simply reaches the front of the queue.
+     */
+    const dueForReReview = new Set(
+      assets.filter((a) => isDueForReReview(a, reviewPolicy, now)).map((a) => a.assetId));
     const { batch, needsReviewTotal, batchSize } = selectReviewBatch(assets as ReviewPackSource[], {
       batchSize: q.size === undefined ? DEFAULT_REVIEW_BATCH_SIZE : normalizeBatchSize(Number(q.size)),
       includeSettled: q.includeSettled === "true",
       includeUnavailable: q.includeUnavailable === "true",
+      dueForReReview,
     });
 
     const { publications, evidence } = await shariah.loadReviewPackContext(batch.map((a) => a.assetId));
@@ -404,6 +470,30 @@ export async function shariahRoutes(
     if (!isShariahMode(mode)) {
       return reply.code(400).send({ error: 'mode must be "off" or "enforce"' });
     }
+    const previousMode = await readMode();
+    const operator = operatorIdentity(req);
+    /*
+     * The audit row is written after the change has actually landed, and never
+     * blocks it: `app_settings` held this switch as one mutable key/value row
+     * with a single `updated_at`, so "someone turned it off at some point" was
+     * the only recoverable fact about the one control that governs religious
+     * compliance for the whole installation. Every publication here is
+     * append-only and attributed; the switch deciding whether publications are
+     * enforced at all was not. A failure to record is logged and swallowed —
+     * a mode change must never fail because its own audit row did.
+     */
+    const audit = async (pushed: boolean): Promise<void> => {
+      if (previousMode === mode) return;
+      try {
+        await shariah.recordShariahModeChange({
+          fromMode: previousMode, toMode: mode,
+          changedBy: operator ?? "unknown-operator",
+          botFloorPushed: pushed, policyVersion: TS_SHARIAH_V1,
+        });
+      } catch (error) {
+        req.log.warn({ error }, "Shariah mode changed but the audit row could not be written");
+      }
+    };
     /*
      * The mode is not only Platform state. The execution Bot accepts signals
      * this Platform never sees — a direct TradingView webhook, authenticated by
@@ -432,7 +522,9 @@ export async function shariahRoutes(
          */
         const { pushed } = await pushShariahModeToBot("enforce", botEnforcementDeps);
         try {
-          return { mode: await writeMode(mode), policyVersion: TS_SHARIAH_V1, botFloorPushed: pushed };
+          const stored = await writeMode(mode);
+          await audit(pushed);
+          return { mode: stored, policyVersion: TS_SHARIAH_V1, botFloorPushed: pushed };
         } catch (storeError) {
           /*
            * The bot is now armed and this Platform is not. That is the SAFE
@@ -448,6 +540,7 @@ export async function shariahRoutes(
       }
       const stored = await writeMode(mode);
       const { pushed } = await pushShariahModeToBot("off", botEnforcementDeps);
+      await audit(pushed);
       return { mode: stored, policyVersion: TS_SHARIAH_V1, botFloorPushed: pushed };
     } catch (error) {
       if (error instanceof ShariahBotSyncError) {

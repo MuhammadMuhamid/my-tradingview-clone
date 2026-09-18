@@ -165,6 +165,9 @@ export function needsReview(asset: Pick<ReviewPackSource, "lifecycle" | "effecti
   return asset.lifecycle !== "SCREENED" || asset.effectiveStatus === "REVIEW";
 }
 
+/** Where an aged-but-settled decision sits: after every unsettled asset. */
+const DUE_PRIORITY = 2.5;
+
 export interface SelectReviewBatchOptions {
   /** Defaults to DEFAULT_REVIEW_BATCH_SIZE (20), clamped to [1, MAX_REVIEW_BATCH_SIZE]. */
   batchSize?: number;
@@ -172,6 +175,15 @@ export interface SelectReviewBatchOptions {
   includeSettled?: boolean;
   /** Include assets Binance no longer lists. Off by default — they are not tradable. */
   includeUnavailable?: boolean;
+  /**
+   * Settled decisions whose research has aged past the review policy.
+   *
+   * They join the batch — a decision nobody has revisited in a year is exactly
+   * what the pack should be spending its slots on — but AFTER everything that
+   * has never been settled at all, and they are never demoted on the way. See
+   * `shariah/freshness.ts` for why age surfaces rather than invalidates.
+   */
+  dueForReReview?: ReadonlySet<string>;
 }
 
 export function normalizeBatchSize(size: number | undefined): number {
@@ -187,11 +199,15 @@ export function selectReviewBatch<T extends ReviewPackSource>(
 ): { batch: T[]; needsReviewTotal: number; batchSize: number } {
   const batchSize = normalizeBatchSize(options.batchSize);
   const available = options.includeUnavailable ? assets : assets.filter((a) => a.binanceAvailable);
-  const candidates = options.includeSettled ? [...available] : available.filter(needsReview);
+  const due = options.dueForReReview ?? new Set<string>();
+  const wanted = (a: T): boolean => needsReview(a) || due.has(a.assetId);
+  const candidates = options.includeSettled ? [...available] : available.filter(wanted);
   const needsReviewTotal = available.filter(needsReview).length;
+  const priority = (a: T): number =>
+    needsReview(a) ? reviewPriority(a) : due.has(a.assetId) ? DUE_PRIORITY : 3;
 
   candidates.sort((a, b) => {
-    const byPriority = reviewPriority(a) - reviewPriority(b);
+    const byPriority = priority(a) - priority(b);
     if (byPriority !== 0) return byPriority;
     if (a.baseAsset !== b.baseAsset) return a.baseAsset < b.baseAsset ? -1 : 1;
     return Number(a.assetId) - Number(b.assetId);

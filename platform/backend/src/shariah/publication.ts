@@ -50,6 +50,19 @@ export interface PublishShariahDecisionInput {
   reviewedAt: string;
   /** Operator identity from the current session (see api/routes/shariah.ts). */
   publishedBy: string;
+  /**
+   * How this decision reached the product.
+   *
+   * The operator's name is on both kinds, so without this a decision they
+   * typed and one they imported from an offline research pack were
+   * indistinguishable in an otherwise fully attributed, immutable history —
+   * and "which of these came out of a research pack?" is exactly the question
+   * a pipeline built around external research needs to be able to answer.
+   * Defaults to "manual"; rows published before the column existed are NULL
+   * and stay NULL, because back-filling provenance by guessing is the one
+   * thing this system exists not to do.
+   */
+  source?: "manual" | "review_import";
 }
 
 export interface PublishedShariahDecision {
@@ -221,12 +234,12 @@ export async function publishShariahDecisionWithin(
     `INSERT INTO shariah_publications (
        asset_id, policy_version, classification, lifecycle, reason,
        prohibited_categories, base_asset_at_publication, project_name_at_publication,
-       reviewed_at, published_by)
-     VALUES ($1, $2, $3, 'SCREENED', $4, $5, $6, $7, $8, $9)
+       reviewed_at, published_by, source)
+     VALUES ($1, $2, $3, 'SCREENED', $4, $5, $6, $7, $8, $9, $10)
      RETURNING publication_id, published_at, reviewed_at`,
     [assetId, input.policyVersion, input.classification, input.reason.trim(),
       categories.length > 0 ? categories : null, asset.base_asset, asset.project_name,
-      input.reviewedAt, input.publishedBy.trim()]
+      input.reviewedAt, input.publishedBy.trim(), input.source ?? "manual"]
   );
   const publication = inserted.rows[0]!;
   const publicationId = String(publication.publication_id);

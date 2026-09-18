@@ -523,8 +523,17 @@ export async function importShariahReviewResults(
         evidenceIds.push(String(inserted.rows[0]!.id));
       }
 
-      // Straight through the single publication authority. Nothing about this
-      // call says the decision arrived in a batch or came from a research file.
+      /*
+       * Straight through the single publication authority — the rule, the
+       * validation and the immutability are all its, and none of that changes
+       * because the decision arrived in a batch.
+       *
+       * What DOES change is that the record now says so. The operator's name
+       * is on a typed decision and an imported one alike, so without `source`
+       * the history could not answer "which of these came out of a research
+       * pack?" — the one question a pipeline built around external research
+       * most needs to ask of itself.
+       */
       const published: PublishedShariahDecision = await publishShariahDecisionWithin(db, {
         assetId: result.assetId,
         policyVersion: TS_SHARIAH_V1,
@@ -534,6 +543,7 @@ export async function importShariahReviewResults(
         evidenceIds,
         reviewedAt: parsed.researchCompletedAt,
         publishedBy,
+        source: "review_import",
       });
       outcomes.push({
         assetId: result.assetId,

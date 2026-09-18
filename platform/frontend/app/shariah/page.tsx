@@ -412,9 +412,17 @@ export default function ShariahPage() {
             <Button onClick={() => setView("screening")}>Open screening &amp; publication</Button>
           } />
           {universe ? (
-            <div className="grid grid-cols-4 gap-px border-b border-border bg-border text-center">
+            <div className="grid grid-cols-5 gap-px border-b border-border bg-border text-center">
               {([["Active", universe.counts.active], ["Eligible", universe.counts.eligible],
-                ["Review", universe.counts.review], ["Excluded", universe.counts.excluded]] as const)
+                ["Review", universe.counts.review], ["Excluded", universe.counts.excluded],
+                /*
+                 * Advisory, and labelled as such in the note below. An aged
+                 * decision still stands and is still enforced; what it has lost
+                 * is only the claim to be current, and the operator decides
+                 * what to do about that. Nothing demotes it, and the exposure
+                 * gate never reads this number.
+                 */
+                ["Due for re-review", universe.counts.dueForReReview]] as const)
                 .map(([label, value]) => (
                   <div key={label} className="bg-surface px-2 py-2">
                     <div className="text-sm font-semibold text-ink">{value}</div>
@@ -432,6 +440,14 @@ export default function ShariahPage() {
               This registry is empty, so every symbol reads as REVIEW and turning enforcement on
               would refuse every BUY. <span className="font-medium">Sync universe</span> discovers the
               assets this install tracks; it classifies nothing.
+            </div>
+          )}
+          {universe && universe.counts.dueForReReview > 0 && (
+            <div className="border-b border-border px-4 py-2 text-[11px] leading-5 text-ink-muted">
+              {universe.counts.dueForReReview} settled decision(s) were researched more than{" "}
+              {universe.reviewPolicy.reviewMaxAgeDays} days ago. They still stand and are still
+              enforced — age withdraws nothing — but they reach the front of the next review pack
+              so a project that has changed since gets looked at again.
             </div>
           )}
           <p className="px-4 py-2 text-[11px] leading-5 text-ink-faint">

@@ -22,13 +22,45 @@ export interface ShariahAssetState {
   prohibitedCategories: string[];
   reviewedAt: string | null;
   publishedAt: string | null;
+  /** Days since the research behind this decision was carried out, or null. */
+  decisionAgeDays?: number | null;
+  /** Settled, and older than the advisory policy. Never demoted by it. */
+  dueForReReview?: boolean;
 }
 
 export interface ShariahUniverse {
   policyVersion: string;
   prohibitedCategories: string[];
-  counts: { total: number; active: number; eligible: number; review: number; excluded: number };
+  /** The advisory re-review interval. Null means time-based surfacing is off. */
+  reviewPolicy: ShariahReviewPolicy;
+  counts: {
+    total: number; active: number; eligible: number; review: number; excluded: number;
+    /**
+     * Settled decisions older than the review policy.
+     *
+     * Advisory, always: an aged decision still stands, is still enforced, and is
+     * never demoted by its age. It simply reaches the front of the review queue.
+     * Nothing in the exposure gate reads this.
+     */
+    dueForReReview: number;
+  };
   assets: ShariahAssetState[];
+}
+
+export interface ShariahReviewPolicy {
+  reviewMaxAgeDays: number | null;
+}
+
+/** One entry in the append-only record of Shariah Mode changes. */
+export interface ShariahModeChange {
+  id: string;
+  fromMode: ShariahMode;
+  toMode: ShariahMode;
+  changedBy: string;
+  /** Whether the execution Bot's floor actually moved with the change. */
+  botFloorPushed: boolean;
+  policyVersion: string;
+  changedAt: string;
 }
 
 export interface ShariahEvidence {
@@ -420,6 +452,13 @@ export const shariahApi = {
     reqWithIssues<ShariahImportSummary>("/api/shariah/review-results/import", document),
 
   mode: () => req<ShariahModeResponse>("/api/shariah/mode"),
+  /* Append-only: who changed the mode, when, and whether the Bot floor moved. */
+  modeHistory: () => req<{ changes: ShariahModeChange[] }>("/api/shariah/mode/history"),
+  reviewPolicy: () => req<ShariahReviewPolicy>("/api/shariah/review-policy"),
+  setReviewPolicy: (reviewMaxAgeDays: number | null) =>
+    req<ShariahReviewPolicy>("/api/shariah/review-policy", {
+      method: "PUT", body: JSON.stringify({ reviewMaxAgeDays }),
+    }),
   setMode: (mode: ShariahMode) =>
     req<ShariahModeResponse>("/api/shariah/mode", { method: "PUT", body: JSON.stringify({ mode }) }),
 
