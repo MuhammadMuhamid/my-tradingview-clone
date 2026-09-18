@@ -5,7 +5,7 @@ import { ParamForm } from "@/components/ParamForm";
 import { api } from "@/lib/api";
 import { shortReason } from "@/lib/errorCopy";
 import { defaultParams } from "@/lib/paramSchema";
-import type { Interval, StrategyParams, SymbolInfo } from "@/lib/types";
+import type { Interval, Strategy, StrategyParams, SymbolInfo } from "@/lib/types";
 import { displaySymbol } from "@/lib/instrument";
 import { researchAssumptions } from "@/lib/workstation";
 
@@ -16,11 +16,24 @@ function isoDaysAgo(days: number): string {
 }
 
 export function BacktestForm({
-  symbols, onQueued,
+  symbols, strategies, onQueued,
 }: {
   symbols: SymbolInfo[];
+  /** Every strategy the engine can actually run, from its own registry. */
+  strategies: Strategy[];
   onQueued: (id: string) => void;
 }) {
+  /*
+   * The strategy was hard-coded to `ma_rr_v9`, and that strategy's shipped
+   * defaults take no trade in any market over any window: `signals.ts` builds
+   * `frameworkLongOk = priActive && priFired && fltPass`, and `priActive` only
+   * becomes true when a signal family is both enabled and marked primary — all
+   * six default to neither. So this page's primary action returned an
+   * unexplained "0 trades" out of the box, every time, while two other
+   * registered strategies trade with their defaults and could not be reached
+   * from here at all.
+   */
+  const [strategyKey, setStrategyKey] = useState("ma_rr_v9");
   const [symbol, setSymbol] = useState(symbols[0]?.symbol ?? "SOLUSDT");
   const [timeframe, setTimeframe] = useState<Interval>("5m");
   const [start, setStart] = useState(isoDaysAgo(30));
@@ -35,7 +48,7 @@ export function BacktestForm({
     setErr(null);
     try {
       const bt = await api.createBacktest({
-        strategyKey: "ma_rr_v9",
+        strategyKey,
         symbol,
         timeframe,
         startTime: new Date(start).toISOString(),
@@ -55,7 +68,14 @@ export function BacktestForm({
     <Card>
       <CardHeader title="New backtest" />
       <div className="space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <Field label="Strategy">
+            <Select value={strategyKey} onChange={(e) => setStrategyKey(e.target.value)}>
+              {strategies.length === 0
+                ? <option value={strategyKey}>Loading…</option>
+                : strategies.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
+            </Select>
+          </Field>
           <Field label="Symbol">
             <Select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
               {symbols.map((s) => <option key={s.symbol} value={s.symbol}>{displaySymbol(s.canonicalId ?? s.symbol)}</option>)}

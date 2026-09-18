@@ -6,12 +6,13 @@ import { Card, CardHeader, Empty, PageHeader, PageShell, StatusBadge } from "@/c
 import { shortReason } from "@/lib/errorCopy";
 import { BacktestForm } from "@/components/BacktestForm";
 import { api } from "@/lib/api";
-import type { Backtest, SymbolInfo } from "@/lib/types";
+import type { Backtest, Strategy, SymbolInfo } from "@/lib/types";
 import { fmtPct, fmtDate, fmtAgo, signClass, UTC_DATE_NOTE } from "@/lib/format";
 
 export default function BacktestsPage() {
   const router = useRouter();
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [rows, setRows] = useState<Backtest[]>([]);
   /*
    * Null until the list has been answered once.
@@ -31,6 +32,7 @@ export default function BacktestsPage() {
 
   useEffect(() => {
     api.listSymbols().then(setSymbols).catch(() => {});
+    api.listStrategies().then(setStrategies).catch(() => {});
     refresh();
   }, []);
 
@@ -47,12 +49,12 @@ export default function BacktestsPage() {
       <PageHeader
         title="Quick backtest"
         description={<>
-          Run the strategy (MA + R:R v9) over one symbol and window and inspect every trade it took.
+          Run one of the engine&rsquo;s strategies over a symbol and window and inspect every trade it took.
           Parameter spaces, optimizers, walk-forward and research trees belong to the Backtester
           application; this page is the quick historical check.
         </>}
       />
-      <BacktestForm symbols={symbols} onQueued={() => refresh()} />
+      <BacktestForm symbols={symbols} strategies={strategies} onQueued={() => refresh()} />
 
       <Card>
         <CardHeader title="Recent runs" right={<span className="text-xs text-ink-faint">{rows.length} runs</span>} />

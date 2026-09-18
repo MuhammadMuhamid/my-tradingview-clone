@@ -3,6 +3,7 @@
  * feed with warmup) → run the strategy bar loop → persist trades/metrics.
  */
 import type { BacktestRow } from "../types/backtest";
+import type { StrategyParams } from "../types/strategy";
 import * as candleRepo from "../repositories/candles";
 import * as symbolRepo from "../repositories/symbols";
 import { registerInstrument } from "../data/instrumentRegistration";
@@ -101,6 +102,16 @@ export interface ExecutionTruth {
    * one chart quietly not like-for-like.
    */
   fillTiming: "next_bar_open" | "signal_bar_close";
+  /**
+   * Why this configuration could take no trade, when that is a property of the
+   * configuration rather than of the market.
+   *
+   * A run reporting "0 trades" is ambiguous in the worst way: a strategy whose
+   * entry conditions can never be met looks exactly like one that was given a
+   * fair chance and declined. Only set when the strategy itself can say so, and
+   * only when the run did in fact take nothing.
+   */
+  noEntryReason?: string;
 }
 
 /** The finest already-loaded feed strictly below `chartTf`, or null. */
@@ -257,6 +268,17 @@ export async function executeBacktest(
       : { mode: "fixed_cash", value: Number(params.qty_cash) },
     fillTiming: params.fill_bar_close ? "signal_bar_close" : "next_bar_open",
   };
+  /*
+   * Asked only when the run took nothing, so a strategy that traded is never
+   * second-guessed, and only of a module that can answer — the others simply
+   * do not implement it and say nothing rather than guessing.
+   */
+  if (metrics.totalTrades === 0) {
+    const explain = (module as { explainNoEntries?: (p: StrategyParams) => string | null })
+      .explainNoEntries;
+    const reason = explain ? explain(row.params) : null;
+    if (reason) executionTruth.noEntryReason = reason;
+  }
 
   /*
    * The split is taken over the window that was SIMULATED, not the one that

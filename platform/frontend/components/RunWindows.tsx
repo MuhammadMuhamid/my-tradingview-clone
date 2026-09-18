@@ -135,6 +135,20 @@ export function RunWindows({ segments, execution, initialCapital }: {
         </div>
       )}
 
+      {execution?.noEntryReason && (
+        <div className="px-4 pt-3">
+          {/*
+            A structural zero, said out loud. Without this the page reports the
+            same "0 trades" for a configuration that CANNOT trade and for one
+            that simply found nothing to do, and the reader has no way to tell
+            which — on the one screen whose whole job is to say what happened.
+          */}
+          <Notice tone="warn">
+            <span className="font-medium">This run could not have taken a trade.</span>{" "}
+            {execution.noEntryReason}
+          </Notice>
+        </div>
+      )}
       {short && (
         <div className="px-4 pt-3">
           <Notice tone="warn">

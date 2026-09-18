@@ -201,6 +201,60 @@ export const MA_RR_V9_DEFAULTS = {
 
 export type MaRrParams = { -readonly [K in keyof typeof MA_RR_V9_DEFAULTS]: (typeof MA_RR_V9_DEFAULTS)[K] extends number ? number : (typeof MA_RR_V9_DEFAULTS)[K] extends boolean ? boolean : string };
 
+/**
+ * The six signal families, and whether one of them can start a trade.
+ *
+ * ── Why a strategy needs to be able to say it cannot trade ────────────────
+ *
+ * `signals.ts` builds `frameworkLongOk = priActive && priFired && fltPass`,
+ * and `priActive` only becomes true when a family is BOTH enabled and marked
+ * primary. Every family in `MA_RR_V9_DEFAULTS` is `*_en: false` with
+ * `*_primary: false`, so with the shipped defaults `longSetup` is false on
+ * every bar and this strategy can never take a position — not rarely, never,
+ * by construction.
+ *
+ * That is a legitimate configuration: this is a framework strategy and the
+ * operator is expected to switch a family on. What was not legitimate is that
+ * a run of it reported "0 trades" exactly as a strategy that had been given a
+ * fair chance and declined to trade would. On a page whose entire purpose is
+ * to report what a strategy did, an unexplained zero is the worst possible
+ * answer — indistinguishable from a quiet market, a bad window, or a bug.
+ */
+export const SIGNAL_FAMILIES = [
+  { enabled: "useMaTrend", primary: "maPrimary", label: "moving-average trend" },
+  { enabled: "rf_en", primary: "rf_primary", label: "range filter" },
+  { enabled: "qt_en", primary: "qt_primary", label: "QQE trend" },
+  { enabled: "at_en", primary: "at_primary", label: "AlphaTrend" },
+  { enabled: "hac_en", primary: "hac_primary", label: "Heikin Ashi candles" },
+  { enabled: "ut_en", primary: "ut_primary", label: "UT Bot" },
+] as const;
+
+/**
+ * Why this configuration can take no trade at all, or null if it can.
+ *
+ * Returns prose for a person, not a code: it is rendered beside the result.
+ */
+export function explainNoEntries(params: StrategyParams): string | null {
+  const p = resolveParams(params);
+  const record = p as unknown as Record<string, boolean>;
+  const enabled = SIGNAL_FAMILIES.filter((f) => record[f.enabled] === true);
+  if (enabled.length === 0) {
+    return "This strategy takes a position only when one of its six signal families says to, "
+      + "and none of them is switched on in this configuration — so it can take no trade at all, "
+      + "in any market and over any window. Switch on a family (moving-average trend, range "
+      + "filter, QQE trend, AlphaTrend, Heikin Ashi candles or UT Bot) and mark at least one of "
+      + "them primary.";
+  }
+  const primary = enabled.filter((f) => record[f.primary] === true);
+  if (primary.length === 0) {
+    return `${enabled.map((f) => f.label).join(", ")} ${enabled.length === 1 ? "is" : "are"} `
+      + "switched on, but none is marked PRIMARY. A primary family is what actually starts a "
+      + "trade — the others only filter one — so this configuration can take no trade at all. "
+      + "Mark at least one of them primary.";
+  }
+  return null;
+}
+
 export function resolveParams(overrides: StrategyParams): MaRrParams {
   const p = { ...MA_RR_V9_DEFAULTS } as MaRrParams;
   for (const [k, v] of Object.entries(overrides)) {

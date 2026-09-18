@@ -219,6 +219,15 @@ export interface ExecutionTruth {
   barsProcessed: number;
   sizing: { mode: "fixed_cash" | "percent_of_equity"; value: number };
   fillTiming: "next_bar_open" | "signal_bar_close";
+  /**
+   * Why this configuration could take no trade at all.
+   *
+   * "0 trades" is ambiguous in the worst way — a strategy whose entry
+   * conditions can never be met reads exactly like one that was given a fair
+   * chance and declined. Present only when the strategy itself can say which
+   * it was.
+   */
+  noEntryReason?: string;
 }
 
 /** One adverse period, and the benchmark statistics that selected it. */

@@ -20,7 +20,7 @@ import { Broker, BrokerOptions } from "../../broker";
 import { ACTIVE_CORRECTIONS } from "../../corrections";
 import { FeedStore } from "../../mtf";
 import type { EquityPoint } from "../../../types/backtest";
-import { MA_RR_V9_DEFAULTS, MaRrParams, requiredFeeds, resolveParams, warmupMs } from "./params";
+import { explainNoEntries, MA_RR_V9_DEFAULTS, MaRrParams, requiredFeeds, resolveParams, warmupMs } from "./params";
 import { computeSignals, SignalArrays } from "./signals";
 
 export interface RunResult {
@@ -292,6 +292,7 @@ export const maRrV9Module = {
   name: "MA + R:R Strategy (SR+Trend v9)",
   defaultParams: MA_RR_V9_DEFAULTS as unknown as StrategyParams,
   resolveParams,
+  explainNoEntries,
   requiredFeeds,
   warmupMs,
   runBars,
