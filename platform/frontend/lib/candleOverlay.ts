@@ -77,14 +77,36 @@ export function placePatterns(
   return out;
 }
 
+/**
+ * How many pattern markers may still carry their name.
+ *
+ * The overlay is genuinely good at a day's zoom and unusable at a quarter's:
+ * a live audit counted 1,027 labelled markers drawn at once on the default
+ * window, and the price pane became a wall of red and green text with the
+ * candles somewhere behind it. The information was all there and none of it
+ * was readable.
+ *
+ * This chart already answers exactly this question for backtest trades —
+ * `TRADE_LABEL_LIMIT`, past which an arrow keeps its position, its colour and
+ * its direction and drops its price label. Patterns take the same rule and the
+ * same reasoning: nothing is hidden, because the marker still says WHERE and
+ * WHICH WAY on every occurrence, and the name comes back the moment the window
+ * is narrow enough to read it. Forty is where lightweight-charts stops being
+ * able to place text without collisions on a desktop plot.
+ */
+export const PATTERN_LABEL_LIMIT = 40;
+
 export function patternMarkers(placed: readonly PlacedPattern[]): ChartMarker[] {
+  const labelled = placed.length <= PATTERN_LABEL_LIMIT;
   return placed.map(({ pattern, time }) => ({
     category: "event" as const,
     time,
     position: pattern.direction === "bear" ? "aboveBar" : "belowBar",
     color: pattern.direction === "bull" ? "#2ebd85"
       : pattern.direction === "bear" ? "#f6465d" : "#9c9c9c",
-    text: `${pattern.name} · ${(pattern.strength * 100).toFixed(0)}% fit`,
+    // Empty rather than absent: `text` is part of the marker contract, and an
+    // empty one draws the arrow with no label, which is exactly the intent.
+    text: labelled ? `${pattern.name} · ${(pattern.strength * 100).toFixed(0)}% fit` : "",
     shape: pattern.direction === "bull" ? "arrowUp"
       : pattern.direction === "bear" ? "arrowDown" : "circle",
   }));

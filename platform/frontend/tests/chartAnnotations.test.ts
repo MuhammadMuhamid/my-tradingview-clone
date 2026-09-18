@@ -21,7 +21,8 @@ import {
   alertEventMarkers, markerNotice, placeAlertEvents,
 } from "../lib/alertMarkers";
 import {
-  overlayNotice, patternExportCsv, patternExportJson, patternMarkers, placePatterns,
+  overlayNotice, PATTERN_LABEL_LIMIT, patternExportCsv, patternExportJson, patternMarkers,
+  placePatterns,
   type PatternAnalysis,
 } from "../lib/candleOverlay";
 import type { MaAlert, MaAlertEvent } from "../lib/api";
@@ -224,6 +225,44 @@ test("a marker says what it is and how textbook, without pretending to predict",
   assert.match(marker!.text!, /fit/);
   assert.equal(marker!.shape, "arrowUp");
   assert.equal(marker!.position, "belowBar");
+});
+
+test("past a density the arrows keep everything except their names", () => {
+  /*
+   * The overlay is genuinely good at a day's zoom and was unusable at a
+   * quarter's: a live audit counted 1,027 labelled markers drawn at once on the
+   * default window, and the price pane became a wall of red and green text with
+   * the candles somewhere behind it. Every fact was on screen and none of it
+   * was readable.
+   *
+   * This chart already answers the same question for backtest trades, past
+   * `TRADE_LABEL_LIMIT`, and the rule is the same one: an arrow keeps WHERE and
+   * WHICH WAY on every single occurrence, so nothing is hidden and nothing is
+   * dropped — only the name waits until the window is narrow enough to read it.
+   */
+  const series = candles(PATTERN_LABEL_LIMIT + 60);
+  const many = Array.from({ length: PATTERN_LABEL_LIMIT + 1 },
+    (_, i) => pattern((i + 1) * HOUR));
+  const dense = patternMarkers(placePatterns(analysis(many), series));
+
+  assert.equal(dense.length, PATTERN_LABEL_LIMIT + 1,
+    "every occurrence must still be drawn; this is a labelling rule, not a filter");
+  for (const marker of dense) {
+    assert.equal(marker.text, "", "past the limit no marker carries a name");
+    assert.ok(marker.shape === "arrowUp" || marker.shape === "arrowDown" || marker.shape === "circle",
+      "direction survives the density rule");
+    assert.ok(marker.color.length > 0, "colour survives the density rule");
+    assert.ok(Number.isFinite(marker.time), "position survives the density rule");
+  }
+
+  // One fewer, and every name is back. The threshold is a threshold, not a
+  // fade: a reader either gets all the names or none, never an arbitrary half.
+  const atLimit = patternMarkers(placePatterns(
+    analysis(many.slice(0, PATTERN_LABEL_LIMIT)), series));
+  assert.equal(atLimit.length, PATTERN_LABEL_LIMIT);
+  for (const marker of atLimit) {
+    assert.match(marker.text, /fit$/, "at the limit every marker is still named");
+  }
 });
 
 test("Research JSON and CSV retain exact time, settings, version, and Spot provenance", () => {
